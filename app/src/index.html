@@ -318,6 +318,29 @@
   .br{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .sd{width:8px;height:8px;border-radius:50%}
 
+  /* rail: execução ao vivo */
+  .rsub{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:10px 14px 5px}
+  .rsub.crit{color:var(--crit)}
+  .lrow{display:grid;grid-template-columns:auto auto 1fr;gap:9px;align-items:center;padding:8px 12px;border:1px solid transparent;cursor:pointer;min-width:0}
+  .lrow:hover{background:var(--surface-2)}
+  .lrow.sel{background:var(--accent);border-color:var(--accent)}
+  .lrow.sel .nm,.lrow.sel .act,.lrow.sel .stg{color:var(--on-accent)}
+  .lrow.sel .ini{background:var(--on-accent);color:var(--accent)}
+  .lrow .lrt{min-width:0}
+  .lrow .nm{font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:5px}
+  .lrow .stg{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:0 4px}
+  .lrow .act{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .lrow.ask .act{color:var(--fg)}
+  .pulse{width:9px;height:9px;border-radius:50%;background:var(--pc,var(--good));box-shadow:0 0 0 0 var(--pc,var(--good));animation:lpulse 1.4s ease-out infinite}
+  @keyframes lpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--pc,var(--good)) 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .ridle{padding:22px 16px;color:var(--muted);font-size:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  .ridle .zdot{width:8px;height:8px;border-radius:50%;background:var(--border)}
+  .ridle .dim{font-size:10.5px}
+  /* live action line dentro do card do Fluxo */
+  .flive{display:flex;align-items:center;gap:7px;margin-top:7px;font-size:11.5px;color:var(--good)}
+  .flive .pulse{--pc:var(--good)}
+  .flive .lx{font-family:var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
   /* feed */
   .feed .fl{display:flex;gap:9px;padding:2px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .feed .ts{color:var(--muted);flex:none}
@@ -396,7 +419,7 @@
 
   <div class="body">
     <div class="rail">
-      <div class="lbl">Tarefas ativas</div>
+      <div class="lbl">Execução ao vivo</div>
       <div id="rail"></div>
     </div>
     <div class="feed">
@@ -606,9 +629,10 @@ function flowTaskCard(t){
   const cchips = c===undefined ? '<span class="dim" style="font-size:11px">carregando…</span>'
     : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
     : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
+  const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';
   return `<div class="fcard${t.id===selected?' sel':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b><span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
-    <div class="fpipe">${pipe}</div>
+    <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span></div>
     <div class="fclabel">Commits desta tarefa <span class="dim">· clique para ver o diff</span></div>
     <div class="fcommits">${cchips}</div>
@@ -838,21 +862,44 @@ async function genAI(h){
 }
 function closeCommit(){ curCommit=null; document.getElementById("cmOverlay").style.display="none"; }
 
+const ACTIVE_ST = new Set(["running","thinking","queued"]);
+function lastEventOf(taskId){ const es=eventsOf(taskId); return es.length?es[es.length-1]:null; }
+// Rail = monitor de EXECUÇÃO AO VIVO (não duplica o Fluxo): só o que acontece agora.
 function renderRail(){
   const el = document.getElementById("rail");
-  if(state.tasks.length===0){ el.innerHTML = '<div class="empty">nenhuma tarefa.<br>rode <b>cardume demo</b> ou <b>cardume new</b> e conecte ao repo.</div>'; return; }
-  el.innerHTML = state.tasks.map(t=>{
-    const col = STATUS_COLOR[t.status]||"var(--muted)";
-    const sel = t.id===selected ? " sel":"";
-    const team = (t.roles||[]).map(r=>r.name).join(" ▸ ") || t.agent;
-    const rev = reviewOf(t.id) ? ' <span class="revok">'+IC.check+'</span>':'';
-    return `<div class="arow${sel}" data-id="${t.id}">
-      <span class="ini" style="background:${col}">${esc((t.agent||"?").slice(0,2).toUpperCase())}</span>
-      <div><div class="nm">${esc(team)}${rev}${pendingOf(t.id).length?' <span class="qbadge">'+IC.q+'</span>':''}</div><div class="br">${esc(t.branch)} · ${esc(t.stage||"")}</div></div>
-      <span class="sd" style="background:${col}"></span>
-    </div>`;
-  }).join("");
-  el.querySelectorAll(".arow").forEach(r=>r.onclick=()=>{ selected=r.dataset.id; render(); });
+  if(state.tasks.length===0){ el.innerHTML = '<div class="empty">nenhuma tarefa.<br>clique em <b>+ Nova tarefa</b> e conecte ao repo.</div>'; return; }
+  const asking  = state.tasks.filter(t=>pendingOf(t.id).length);
+  const running = state.tasks.filter(t=>ACTIVE_ST.has(t.status) && !pendingOf(t.id).length);
+  let html = "";
+  if(asking.length){
+    html += '<div class="rsub crit">Precisa de você</div>';
+    html += asking.map(t=>{
+      const p=pendingOf(t.id)[0];
+      return `<div class="lrow ask${t.id===selected?' sel':''}" data-id="${t.id}">
+        <span class="pulse" style="--pc:var(--crit)"></span>
+        <span class="ini" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
+        <div class="lrt"><div class="nm">${esc(t.agent)} <span class="qbadge">${IC.q}</span></div>
+        <div class="act">${esc(p.prompt||'aguardando sua resposta')}</div></div></div>`;
+    }).join("");
+  }
+  if(running.length){
+    html += '<div class="rsub">Rodando agora</div>';
+    html += running.map(t=>{
+      const col=STATUS_COLOR[t.status]||'var(--good)';
+      const ev=lastEventOf(t.id);
+      const act = ev ? `${GLYPH[ev.type]||'·'} ${ev.text}` : 'iniciando…';
+      return `<div class="lrow run${t.id===selected?' sel':''}" data-id="${t.id}">
+        <span class="pulse" style="--pc:${col}"></span>
+        <span class="ini" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
+        <div class="lrt"><div class="nm">${esc(t.agent)} <span class="stg">${esc(t.stage||'')}</span></div>
+        <div class="act mono">${esc(act)}</div></div></div>`;
+    }).join("");
+  }
+  if(!asking.length && !running.length){
+    html = '<div class="ridle"><span class="zdot"></span>nenhum agente trabalhando agora<div class="dim">as tarefas concluídas ficam no Fluxo →</div></div>';
+  }
+  el.innerHTML = html;
+  el.querySelectorAll(".lrow").forEach(r=>r.onclick=()=>{ selected=r.dataset.id; render(); });
 }
 
 function renderFeed(){
