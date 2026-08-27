@@ -211,6 +211,11 @@
   .glyph{width:30px;height:30px;border-radius:9px;border:.5px solid var(--border);background:var(--surface);cursor:pointer;display:grid;place-items:center;font-size:15px;padding:0}
   .glyph.on{border-color:var(--accent);box-shadow:var(--ring)}
   .glyph.ini{font-size:11px;font-weight:700;color:var(--muted)}
+  /* editor de listas (entregáveis / requisitos) */
+  .listed{display:flex;flex-direction:column;gap:6px}
+  .listrow{display:flex;gap:7px;align-items:center}
+  .listrow .in{flex:1}
+  .listed .dim{font-size:11.5px;padding:2px 0}
 
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
@@ -348,29 +353,35 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead"><b>Nova tarefa</b><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><b>Nova tarefa</b><span style="flex:1"></span><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <label>Título</label>
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
       <label>Objetivo</label>
-      <textarea class="in ta" id="ntObj" placeholder="o que o(s) agente(s) deve(m) fazer"></textarea>
-      <div class="two">
-        <div><label>Workflow (equipe)</label><select class="in" id="ntWorkflow"></select></div>
-        <div><label>Motor</label><select class="in" id="ntEngine"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
-      </div>
-      <div class="two">
-        <div><label>Aprovação</label><select class="in" id="ntApprove"><option value="auto">Auto (agente decide)</option><option value="ask">Perguntar quando incerto</option></select></div>
+      <textarea class="in ta" id="ntObj" placeholder="o que precisa ser feito e por quê"></textarea>
+
+      <div class="seclbl2" style="margin-top:15px">Entregáveis <span style="flex:1"></span><button class="btn sm" id="ntDelAdd">+ item</button></div>
+      <div id="ntDeliverables" class="listed"></div>
+
+      <div class="seclbl2" style="margin-top:14px">Requisitos / critérios de aceite <span style="flex:1"></span><button class="btn sm" id="ntReqAdd">+ item</button></div>
+      <div id="ntRequirements" class="listed"></div>
+
+      <div class="two" style="margin-top:15px">
         <div><label>Reivindica (owns)</label><input class="in" id="ntOwns" placeholder="src/auth, src/x.ts"></div>
+        <div><label>Fora dos limites (off)</label><input class="in" id="ntOff" placeholder="src/checkout"></div>
       </div>
-      <label>Fora dos limites (off)</label>
-      <input class="in" id="ntOff" placeholder="src/checkout">
-      <div class="wfprev" id="ntWfPrev"></div>
+      <div class="two" style="margin-top:11px">
+        <div><label>Equipe (workflow)</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
+        <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
+      </div>
+      <div style="margin-top:11px"><label>Aprovação</label><select class="sel" id="ntApprove" style="width:100%"><option value="auto">Auto — o agente decide sozinho</option><option value="ask">Perguntar quando incerto</option></select></div>
+      <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
     </div>
     <div class="mfoot">
       <span class="dim" id="ntHint">cada tarefa vira uma branch + worktree isolada</span>
       <span style="flex:1"></span>
       <button class="btn" id="ntCancel">cancelar</button>
-      <button class="btn primary" id="ntCreate">criar e iniciar</button>
+      <button class="btn primary" id="ntCreate"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>criar e iniciar</button>
     </div>
   </div>
 </div>
@@ -660,6 +671,13 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
   document.getElementById("chint").textContent = v==="graph"?"branches · agentes nas pontas":"eventos ao vivo de todos os agentes";
 });
 
+let ntDel=[], ntReq=[];
+function renderNtList(id, arr){
+  const el=document.getElementById(id);
+  el.innerHTML = arr.length ? arr.map((v,i)=>`<div class="listrow"><input class="in" data-li="${i}" value="${escA(v)}" placeholder="descreva…"><button class="iconbtn" data-lrm="${i}" title="remover">${IC.trash}</button></div>`).join("") : '<div class="dim">nenhum item — clique "+ item"</div>';
+  el.querySelectorAll("[data-li]").forEach(inp=>inp.addEventListener("input",()=>{ arr[+inp.dataset.li]=inp.value; }));
+  el.querySelectorAll("[data-lrm]").forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.lrm,1); renderNtList(id,arr); });
+}
 async function openNewTask(){
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
   const wfSel = document.getElementById("ntWorkflow");
@@ -675,11 +693,12 @@ async function openNewTask(){
       : "1 agente builder";
   };
   wfSel.onchange = updatePrev; updatePrev();
+  renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq);
   document.getElementById("ntOverlay").style.display = "flex";
   document.getElementById("ntTitle").focus();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); }
 async function submitNewTask(){
   const title = document.getElementById("ntTitle").value.trim();
   if(!title){ document.getElementById("ntTitle").focus(); return; }
@@ -692,11 +711,44 @@ async function submitNewTask(){
     owns: document.getElementById("ntOwns").value.trim() || null,
     off: document.getElementById("ntOff").value.trim() || null,
     objective: document.getElementById("ntObj").value.trim() || null,
+    deliverables: ntDel.map(x=>x.trim()).filter(Boolean),
+    requirements: ntReq.map(x=>x.trim()).filter(Boolean),
   };
-  const btn = document.getElementById("ntCreate"); btn.disabled=true; btn.textContent="iniciando…";
+  const btn = document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="iniciando…";
   try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); await refresh(); }
   catch(e){ alert("Falha ao criar tarefa:\n"+e); }
-  finally{ btn.disabled=false; btn.textContent="criar e iniciar"; }
+  finally{ btn.disabled=false; btn.innerHTML=orig; }
+}
+function parseTaskMd(content, filename){
+  let fm={}, body=content;
+  const m=content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if(m){ m[1].split("\n").forEach(line=>{ const i=line.indexOf(":"); if(i>0){ const k=line.slice(0,i).trim().toLowerCase(); const v=line.slice(i+1).trim().replace(/^["']|["']$/g,""); fm[k]=v; } }); body=m[2]; }
+  const sec=(name)=>{ const re=new RegExp("(?:^|\\n)#{1,6}\\s*"+name+"[^\\n]*\\n([\\s\\S]*?)(?=\\n#{1,6}\\s|$)","i"); const mm=body.match(re); return mm?mm[1].trim():""; };
+  const listOf=(txt)=> txt.split("\n").map(l=>l.trim()).filter(l=>/^[-*+]\s+/.test(l)||/^\d+[.)]\s+/.test(l)).map(l=>l.replace(/^[-*+]\s+/,"").replace(/^\d+[.)]\s+/,"").trim());
+  const csv=(s)=> s? s.split(",").map(x=>x.trim()).filter(Boolean):[];
+  const objetivo = sec("objetivo")||sec("objective")||sec("resumo")||sec("summary")||(fm.objective||"");
+  return {
+    title: fm.title || filename,
+    objective: objetivo.replace(/^[-*+]\s+/gm,"").trim(),
+    deliverables: listOf(sec("entreg")||sec("deliverables")),
+    requirements: listOf(sec("requisit")||sec("requirements")||sec("crit")||sec("aceite")||sec("acceptance")),
+    owns: csv(fm.owns), off: csv(fm.off||fm.off_limits),
+    workflow: fm.workflow||"", engine: fm.engine||"", approval: fm.approval||""
+  };
+}
+async function importTaskMd(){
+  let files; try{ files = await invoke("import_agent_files"); }catch(e){ alert("Falha ao importar:\n"+e); return; }
+  if(!files || !files.length) return;
+  const t = parseTaskMd(files[0].content, files[0].filename);
+  document.getElementById("ntTitle").value = t.title||"";
+  document.getElementById("ntObj").value = t.objective||"";
+  document.getElementById("ntOwns").value = (t.owns||[]).join(", ");
+  document.getElementById("ntOff").value = (t.off||[]).join(", ");
+  ntDel = t.deliverables||[]; ntReq = t.requirements||[];
+  renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq);
+  const wf=document.getElementById("ntWorkflow"); if(t.workflow && [...wf.options].some(o=>o.value===t.workflow)){ wf.value=t.workflow; wf.dispatchEvent(new Event("change")); }
+  if(t.engine){ const en=document.getElementById("ntEngine"); if([...en.options].some(o=>o.value===t.engine)) en.value=t.engine; }
+  if(t.approval){ const ap=document.getElementById("ntApprove"); if([...ap.options].some(o=>o.value===t.approval)) ap.value=t.approval; }
 }
 async function pickFolder(){
   try{
@@ -711,6 +763,9 @@ document.getElementById("ntClose").onclick = closeNewTask;
 document.getElementById("ntCancel").onclick = closeNewTask;
 document.getElementById("ntCreate").onclick = submitNewTask;
 document.getElementById("folderBtn").onclick = pickFolder;
+document.getElementById("ntImport").onclick = importTaskMd;
+document.getElementById("ntDelAdd").onclick = ()=>{ ntDel.push(""); renderNtList("ntDeliverables",ntDel); };
+document.getElementById("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
 document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });
 document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ closeNewTask(); closeAgents(); } });
 

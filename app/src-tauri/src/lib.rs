@@ -416,6 +416,8 @@ fn new_task(
     owns: Option<String>,
     off: Option<String>,
     objective: Option<String>,
+    deliverables: Option<Vec<String>>,
+    requirements: Option<Vec<String>>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let mut args = vec![
@@ -436,6 +438,19 @@ fn new_task(
     push_opt(&mut args, "--owns", &owns);
     push_opt(&mut args, "--off", &off);
     push_opt(&mut args, "--objective", &objective);
+    if let Some(ds) = &deliverables {
+        for d in ds.iter().filter(|x| !x.is_empty()) {
+            args.push("--deliverable".to_string());
+            args.push(d.clone());
+        }
+    }
+    if let Some(rs) = &requirements {
+        let joined: Vec<String> = rs.iter().filter(|x| !x.is_empty()).cloned().collect();
+        if !joined.is_empty() {
+            args.push("--requirements".to_string());
+            args.push(joined.join(","));
+        }
+    }
 
     Command::new(node_bin())
         .args(&args)
