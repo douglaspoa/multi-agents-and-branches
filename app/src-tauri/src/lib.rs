@@ -481,6 +481,32 @@ fn pick_folder(app: tauri::AppHandle) -> Option<String> {
         .map(|pb| pb.display().to_string())
 }
 
+/// Abre um seletor de arquivos .md e devolve [{filename, content}] pra criar agentes.
+#[tauri::command]
+fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("Markdown", &["md", "markdown"])
+        .blocking_pick_files();
+    let mut out = Vec::new();
+    if let Some(paths) = picked {
+        for p in paths {
+            if let Ok(pb) = p.into_path() {
+                if let Ok(content) = std::fs::read_to_string(&pb) {
+                    let name = pb
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    out.push(serde_json::json!({ "filename": name, "content": content }));
+                }
+            }
+        }
+    }
+    out
+}
+
 #[tauri::command]
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
@@ -515,7 +541,8 @@ pub fn run() {
             merge_task,
             remove_task,
             pick_folder,
-            save_config
+            save_config,
+            import_agent_files
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");

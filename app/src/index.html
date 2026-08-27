@@ -6,28 +6,38 @@
 <title>Cardume</title>
 <style>
   :root{
-    /* paper-terminal (claro) */
-    --bg:#eceee7; --surface:#f6f7f2; --surface-2:#eef0e9; --surface-3:#e3e7dc;
-    --border:#d3d7ca; --border-strong:#b7bdac;
-    --text:#131a13; --text-2:#3c473c; --muted:#5f6a5f;
-    --accent:#1a8f47; --on-accent:#f6f7f2;
-    --c-main:#8a948a; --good:#1a8f47; --warn:#9a6b12; --crit:#c0362b; --info:#1f7d8c;
+    /* macOS light */
+    --bg:#e8e8ea; --surface:#ffffff; --surface-2:#f5f5f7; --surface-3:#ececef;
+    --border:#e2e2e6; --border-strong:#d3d3d8;
+    --text:#1d1d1f; --text-2:#48484c; --muted:#86868b;
+    --accent:#1e9e4a; --accent-2:#188a40; --on-accent:#ffffff;
+    --c-main:#a2a2a8; --good:#1e9e4a; --warn:#b97913; --crit:#d63a2f; --info:#0a72e0;
+    --ui:-apple-system,"SF Pro Text","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --r:12px; --r-sm:8px; --r-xs:6px;
+    --shadow:0 0 0 .5px rgba(0,0,0,.05), 0 12px 34px rgba(20,20,30,.16);
+    --shadow-sm:0 1px 2px rgba(20,20,30,.06);
+    --ring:0 0 0 3.5px color-mix(in srgb, var(--accent) 26%, transparent);
   }
   @media (prefers-color-scheme:dark){:root{
-    --bg:#080b09; --surface:#0d110e; --surface-2:#111713; --surface-3:#16201a;
-    --border:#1e2c22; --border-strong:#2c4030;
-    --text:#cfe0d2; --text-2:#9fb4a4; --muted:#647a6b;
-    --accent:#39d46a; --on-accent:#07120a;
-    --c-main:#4a5f52; --good:#39d46a; --warn:#e5c07b; --crit:#ff6b5f; --info:#56b6c2;
+    --bg:#1b1b1d; --surface:#2a2a2c; --surface-2:#242426; --surface-3:#323234;
+    --border:#38383b; --border-strong:#48484c;
+    --text:#f5f5f7; --text-2:#c9c9ce; --muted:#8e8e93;
+    --accent:#32d74b; --accent-2:#2bc541; --on-accent:#07240f;
+    --c-main:#5c5c62; --good:#32d74b; --warn:#e6b53c; --crit:#ff5247; --info:#4a9dff;
+    --shadow:0 0 0 .5px rgba(0,0,0,.5), 0 14px 40px rgba(0,0,0,.55);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --ring:0 0 0 3.5px color-mix(in srgb, var(--accent) 34%, transparent);
   }}
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{
     background:var(--bg); color:var(--text);
-    font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace;
-    font-size:13px; line-height:1.55; -webkit-font-smoothing:antialiased;
+    font-family:var(--ui);
+    font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased;
     -webkit-user-select:none; user-select:none;
   }
+  .mono{font-family:var(--mono)}
   .app{height:100vh;display:flex;flex-direction:column}
 
   /* topbar */
@@ -86,23 +96,99 @@
   .repoinput{width:210px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:6px 9px}
   .repoinput:focus{outline:2px solid var(--accent);outline-offset:-1px}
   /* editor de agentes & equipes */
-  .modal.wide{width:min(860px,100%)}
-  .seclbl2{display:flex;align-items:center;gap:10px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:6px 0 8px}
-  .agrow{display:grid;grid-template-columns:26px 1.1fr .9fr .9fr 2fr 30px;gap:7px;align-items:center;margin-bottom:6px}
-  .agrow .sw{width:20px;height:20px;border:1px solid var(--border);padding:0;cursor:pointer;background:none}
-  .agrow .in{font-size:12px;padding:5px 7px}
-  .iconbtn{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);cursor:pointer;font-size:12px;padding:4px 7px}
+  .modal.wide{width:min(760px,100%)}
+  .seclbl2{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:4px 0 4px}
+  .imhint{font-size:11.5px;color:var(--muted);margin:0 0 12px;line-height:1.5}
+  .sel{appearance:none;-webkit-appearance:none;background-color:var(--surface);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:6px 26px 6px 10px;cursor:pointer;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'><path d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 9px center}
+  .sel:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .swatch{width:26px;height:26px;border:2px solid var(--border);border-radius:50%;padding:0;overflow:hidden;cursor:pointer;background:none;flex:none}
+  .swatch::-webkit-color-swatch-wrapper{padding:0}
+  .swatch::-webkit-color-swatch{border:none;border-radius:50%}
+  .iconbtn{border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-size:12px;padding:5px 8px;flex:none}
   .iconbtn:hover{color:var(--crit);border-color:var(--crit)}
-  .wfrow{border:1px solid var(--border);background:var(--surface-2);padding:9px 10px;margin-bottom:8px}
-  .wfrow .wftop{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-  .wfrow .wftop .in{flex:1;font-size:12.5px;font-weight:600}
-  .steps{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-  .stepchip{display:flex;align-items:center;gap:5px;border:1px solid var(--border);background:var(--surface);padding:3px 6px;font-size:11.5px}
+  .agcard{border:1px solid var(--border);background:var(--surface-2);padding:11px 12px;margin-bottom:9px}
+  .agtop{display:flex;align-items:center;gap:9px}
+  .agname{flex:1;background:transparent;border:0;border-bottom:1px solid transparent;color:var(--text);font:inherit;font-size:14px;font-weight:700;padding:3px 2px;min-width:0}
+  .agname:focus{outline:none;border-bottom-color:var(--accent)}
+  .agpersona{margin-top:9px;width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text-2);font:inherit;font-size:12px;padding:8px 9px;line-height:1.55;min-height:40px;resize:vertical}
+  .agpersona:focus{outline:2px solid var(--accent);outline-offset:-1px;color:var(--text)}
+  .wfrow{border:1px solid var(--border);background:var(--surface-2);padding:11px 12px;margin-bottom:9px}
+  .wftop{display:flex;gap:9px;align-items:center;margin-bottom:10px}
+  .wfname{flex:1;background:transparent;border:0;border-bottom:1px solid transparent;color:var(--text);font:inherit;font-size:13.5px;font-weight:700;padding:3px 2px;min-width:0}
+  .wfname:focus{outline:none;border-bottom-color:var(--accent)}
+  .steps{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .stepchip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface);padding:4px 6px 4px 9px;font-size:11.5px}
+  .stepchip .cdot{width:8px;height:8px;border-radius:50%;flex:none}
   .stepchip b{font-weight:600}
-  .stepchip .mv,.stepchip .rm{cursor:pointer;color:var(--muted);border:0;background:none;font-size:11px;padding:0 1px}
-  .stepchip .rm:hover{color:var(--crit)}
-  .stepadd{font-size:11.5px;padding:4px 6px}
-  .colhdr{display:grid;grid-template-columns:26px 1.1fr .9fr .9fr 2fr 30px;gap:7px;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
+  .stepchip .mv,.stepchip .rm{cursor:pointer;color:var(--muted);border:0;background:none;font-size:11px;padding:0 2px;line-height:1}
+  .stepchip .mv:hover{color:var(--accent)} .stepchip .rm:hover{color:var(--crit)}
+
+  /* ===================== refinamento macOS (override) ===================== */
+  .mono,.br,.feed .fl,.log,.log .ts,#graphSvg text,.hash,.gsub,.glabel,.claim{font-family:var(--mono)}
+  .top{gap:9px;padding:9px 14px 9px 84px;border-bottom:.5px solid var(--border);background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px)}
+  .brand{font-weight:700;font-size:15px;letter-spacing:-.015em;color:var(--text);gap:8px}
+  .brand .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(160deg,var(--accent),var(--accent-2));display:grid;place-items:center;color:#fff;box-shadow:var(--shadow-sm)}
+  .brand .logo svg{width:14px;height:14px}
+  .conn{font-size:11.5px}
+  .btn{border:.5px solid var(--border-strong);background:var(--surface);color:var(--text);border-radius:var(--r-sm);font-weight:500;font-size:12.5px;padding:6px 11px;box-shadow:var(--shadow-sm);display:inline-flex;align-items:center;gap:6px;transition:background .12s,border-color .12s}
+  .btn:hover{background:var(--surface-2)}
+  .btn:active{background:var(--surface-3)}
+  .btn svg{width:15px;height:15px;flex:none}
+  .btn.primary{background:var(--accent);color:var(--on-accent);border-color:transparent}
+  .btn.primary:hover{background:var(--accent-2)}
+  .btn.danger{color:var(--crit);border-color:color-mix(in srgb,var(--crit) 36%,var(--border))}
+  .btn.danger:hover{background:color-mix(in srgb,var(--crit) 8%,var(--surface))}
+  .btn.sm{padding:5px 9px;font-size:12px}
+  .iconbtn{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-xs);color:var(--muted);box-shadow:var(--shadow-sm);display:inline-flex;align-items:center;justify-content:center;padding:6px}
+  .iconbtn svg{width:15px;height:15px}
+  .in,.repoinput,.sel,.askinput,.ta,.agpersona{border:.5px solid var(--border-strong);border-radius:var(--r-sm);background:var(--surface);font-size:12.5px}
+  .in:focus,.repoinput:focus,.sel:focus,.askinput:focus,.ta:focus,.agpersona:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+  .repoinput{width:230px}
+  .seg2{border:0;background:var(--surface-3);border-radius:8px;padding:2px;gap:2px}
+  .seg2 button{border-radius:6px;color:var(--text-2);font-weight:500;padding:4px 12px}
+  .seg2 button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.14);border:0}
+  .rail{background:var(--surface-2);border-right:.5px solid var(--border)}
+  .side{border-left:.5px solid var(--border)}
+  .feed{background:var(--surface-2)}
+  .lbl{font-weight:600;letter-spacing:.02em}
+  .arow{border-radius:var(--r-sm);margin:2px 8px;padding:8px 10px;border:.5px solid transparent}
+  .arow:hover{background:var(--surface-3)}
+  .arow.sel{background:var(--accent);border-color:transparent}
+  .arow.sel .nm,.arow.sel .br{color:#fff}
+  .nm::before{content:none}
+  .ini{border-radius:7px;font-weight:600}
+  .br{font-size:11px}
+  .card,.task-card,.agcard,.wfrow,.qbox,.diff,.log,.claim,.wfprev,.bus-note{border-radius:var(--r-sm)}
+  .agcard,.wfrow{border:.5px solid var(--border);box-shadow:var(--shadow-sm)}
+  .pill{border-radius:100px;font-weight:600}
+  .mergedtag{border-radius:100px}
+  .stepchip{border-radius:100px;box-shadow:var(--shadow-sm);border:.5px solid var(--border)}
+  .overlay{background:rgba(0,0,0,.32);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .modal{border-radius:var(--r);border:.5px solid var(--border-strong);box-shadow:var(--shadow)}
+  .mhead{border-bottom:.5px solid var(--border);font-weight:600;font-size:15px;padding:14px 18px}
+  .mhead .x{border-radius:100px;width:26px;height:26px;display:grid;place-items:center;background:var(--surface-3);color:var(--muted);font-size:0}
+  .mhead .x svg{width:15px;height:15px}
+  .mhead .x:hover{background:var(--border-strong);color:var(--text)}
+  .mbody{padding:16px 18px}
+  .mbody label{font-weight:600;color:var(--muted);letter-spacing:0}
+  .mfoot{border-top:.5px solid var(--border);padding:13px 18px}
+  .two{gap:14px}
+  .wfprev{background:var(--surface-2)}
+  .agpersona{color:var(--text-2)}
+  .askopt,.asksend{border-radius:var(--r-sm);font-weight:500;box-shadow:var(--shadow-sm)}
+  .qbadge{color:var(--warn);display:inline-flex;vertical-align:-2px}
+  .qbadge svg{width:14px;height:14px}
+  .bus{border-top:.5px solid var(--border);font-size:12px}
+  .bus .live{border-radius:100px;font-weight:600}
+  .iconbtn.sm-ic{padding:3px}
+  .stepchip .mv svg,.stepchip .rm svg{width:11px;height:11px;display:block}
+  .qbox .qh svg,.mergedtag svg{width:13px;height:13px;vertical-align:-2px;margin-right:4px}
+  .qbox .qh{display:flex;align-items:center;gap:5px}
+  .revok{color:var(--good);display:inline-flex;vertical-align:-2px} .revok svg{width:12px;height:12px}
+  .acts .btn svg{width:14px;height:14px}
+  .iconbtn svg{width:14px;height:14px}
+  .stepchip .cdot{box-shadow:0 0 0 1px rgba(0,0,0,.05)}
+  .feed .gl{font-family:var(--mono)}
 
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
@@ -198,14 +284,14 @@
 <body>
 <div class="app">
   <div class="top">
-    <div class="brand">🐙 Cardume</div>
-    <button class="btn" id="folderBtn" title="Escolher a pasta do projeto">📁 Abrir projeto</button>
+    <div class="brand"><span class="logo"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M2.5 10c2-3.2 5.8-4.4 9-4.4 2 0 3.6.6 4.7 1.6L18 5.2v9.6l-1.8-2C15.1 13.8 13.5 14.4 11.5 14.4c-3.2 0-7-1.2-9-4.4z"/><circle cx="12.2" cy="9" r=".9" fill="#fff" opacity=".85"/></svg></span>Cardume</div>
+    <button class="btn" id="folderBtn" title="Escolher a pasta do projeto"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>Abrir projeto</button>
     <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho do repo" spellcheck="false">
     <button class="btn" id="connectBtn">abrir</button>
     <div class="conn" id="conn"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow"></span>
-    <button class="btn" id="agentsBtn">👥 Agentes & Equipes</button>
-    <button class="btn primary" id="newTaskBtn">+ Nova tarefa</button>
+    <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
+    <button class="btn primary" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova tarefa</button>
   </div>
 
   <div id="askBar" class="askbar" style="display:none"></div>
@@ -240,7 +326,7 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead"><b>Nova tarefa</b><button class="x" id="ntClose" aria-label="Fechar">✕</button></div>
+    <div class="mhead"><b>Nova tarefa</b><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <label>Título</label>
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
@@ -269,17 +355,14 @@
 
 <div class="overlay" id="agOverlay" style="display:none">
   <div class="modal wide">
-    <div class="mhead"><b>👥 Agentes & Equipes</b><button class="x" id="agClose" aria-label="Fechar">✕</button></div>
+    <div class="mhead"><b>Agentes & Equipes</b><button class="x" id="agClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <div class="seclbl2">Agentes <span style="flex:1"></span><button class="btn sm" id="agAdd">+ novo agente</button></div>
-      <div class="colhdr"><span></span><span>nome</span><span>papel</span><span>motor</span><span>persona (instrução)</span><span></span></div>
+      <div class="seclbl2">Agentes <span style="flex:1"></span><button class="btn sm" id="agImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="btn sm" id="agAdd">+ novo agente</button></div>
+      <div class="imhint">Cada agente tem um papel e uma persona (instrução). Você pode <b>importar .md</b> no formato de subagente do Claude Code — frontmatter (<code>name</code>, <code>role</code>, <code>color</code>, <code>model</code>) + o corpo vira a persona.</div>
       <div id="agList"></div>
-      <div class="seclbl2" style="margin-top:18px">Workflows (equipes) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ novo workflow</button></div>
+      <div class="seclbl2" style="margin-top:20px">Workflows (equipes) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ novo workflow</button></div>
+      <div class="imhint">Um workflow é a sequência de agentes que toca a tarefa. Arraste a ordem com ◀ ▶.</div>
       <div id="wfList"></div>
-      <datalist id="roleOptions">
-        <option value="planner"></option><option value="builder"></option><option value="reviewer"></option>
-        <option value="designer"></option><option value="tester"></option><option value="docs"></option><option value="security"></option>
-      </datalist>
     </div>
     <div class="mfoot"><span class="dim">grava no cardume.config.json</span><span style="flex:1"></span><button class="btn" id="agCancel">cancelar</button><button class="btn primary" id="agSave">salvar catálogo</button></div>
   </div>
@@ -287,6 +370,15 @@
 
 <script>
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+const IC = {
+  q:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M2.6 7.4c0-2.4 2.15-4.2 4.9-4.2s4.9 1.8 4.9 4.2-2.15 4.2-4.9 4.2c-.5 0-1-.05-1.45-.16L3.4 12.7l.6-2.05C3.15 9.9 2.6 8.7 2.6 7.4z" stroke-linejoin="round"/><path d="M6.5 6.5c.05-.65.7-1.05 1.4-1.05.8 0 1.4.5 1.4 1.2 0 .95-1.25.9-1.35 1.95" stroke-linecap="round"/><circle cx="7.95" cy="10.1" r=".55" fill="currentColor" stroke="none"/></svg>',
+  trash:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3 4.4h10M6.4 4.4V3.2c0-.4.3-.7.7-.7h1.8c.4 0 .7.3.7.7v1.2M4.3 4.4l.5 8.1c0 .5.4.9.9.9h4.6c.5 0 .9-.4.9-.9l.5-8.1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  cleft:'<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7.5 2.5l-3.5 3.5 3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  cright:'<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4.5 2.5l3.5 3.5-3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  xs:'<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.2 3.2l5.6 5.6M8.8 3.2l-5.6 5.6" stroke-linecap="round"/></svg>',
+  merge:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4.2" cy="4" r="1.5"/><circle cx="4.2" cy="12" r="1.5"/><circle cx="11.8" cy="8" r="1.5"/><path d="M4.2 5.5v5M5.7 5.4C6 8 8.2 8 10.3 8" stroke-linecap="round"/></svg>',
+  check:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.4 8.4l3 3 6.2-6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
 
 const STATUS_COLOR = { running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)" };
 const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
@@ -353,7 +445,7 @@ function questionBlock(taskId){
     const controls = opts
       ? opts.map(o=>`<button class="askopt" data-id="${p.id}" data-ans="${esc(o)}">${esc(o)}</button>`).join("")
       : `<input class="askinput" data-id="${p.id}" placeholder="sua resposta…"><button class="asksend" data-id="${p.id}">responder</button>`;
-    return `<div class="qbox"><div class="qh">❓ ${esc(p.agent)} está esperando você</div><div class="qq">${esc(p.prompt)}</div><div class="qc">${controls}</div></div>`;
+    return `<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq">${esc(p.prompt)}</div><div class="qc">${controls}</div></div>`;
   }).join("");
 }
 function wireQuestion(root){
@@ -444,10 +536,10 @@ function renderRail(){
     const col = STATUS_COLOR[t.status]||"var(--muted)";
     const sel = t.id===selected ? " sel":"";
     const team = (t.roles||[]).map(r=>r.name).join(" ▸ ") || t.agent;
-    const rev = reviewOf(t.id) ? ' <span style="color:var(--good)">✓</span>':'';
+    const rev = reviewOf(t.id) ? ' <span class="revok">'+IC.check+'</span>':'';
     return `<div class="arow${sel}" data-id="${t.id}">
       <span class="ini" style="background:${col}">${esc((t.agent||"?").slice(0,2).toUpperCase())}</span>
-      <div><div class="nm">${esc(team)}${rev}${pendingOf(t.id).length?' <span class="qbadge">❓</span>':''}</div><div class="br">${esc(t.branch)} · ${esc(t.stage||"")}</div></div>
+      <div><div class="nm">${esc(team)}${rev}${pendingOf(t.id).length?' <span class="qbadge">'+IC.q+'</span>':''}</div><div class="br">${esc(t.branch)} · ${esc(t.stage||"")}</div></div>
       <span class="sd" style="background:${col}"></span>
     </div>`;
   }).join("");
@@ -514,8 +606,8 @@ function renderSide(){
     <div class="seclbl">Log <span class="n">${evs.length}</span></div>
     <div class="log">${evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join("")||'<span class="dim">—</span>'}</div>
     ${t.status==='merged'
-      ? `<span class="mergedtag">✓ merged na ${esc(t.base)}</span>`
-      : `<div class="acts">${t.status==='review'?`<button class="btn primary sm" data-act="merge">✓ merge na ${esc(t.base)}</button>`:''}<button class="btn danger sm" data-act="rm">${t.status==='review'?'descartar':'cancelar'}</button></div>`}
+      ? `<span class="mergedtag"> merged na ${esc(t.base)}</span>`
+      : `<div class="acts">${t.status==='review'?`<button class="btn primary sm" data-act="merge"> merge na ${esc(t.base)}</button>`:''}<button class="btn danger sm" data-act="rm">${t.status==='review'?'descartar':'cancelar'}</button></div>`}
   </div>`;
   el.querySelectorAll('[data-act="merge"]').forEach(b=>b.onclick=()=>mergeTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
@@ -612,33 +704,62 @@ async function openAgents(){
   document.getElementById("agOverlay").style.display="flex";
 }
 function closeAgents(){ const o=document.getElementById("agOverlay"); if(o) o.style.display="none"; }
+const ROLES=["planner","builder","reviewer","designer","tester","docs","security"];
+function roleSelect(i,role){
+  const known = ROLES.includes(role);
+  const opts = ROLES.map(r=>`<option value="${r}"${role===r?' selected':''}>${r}</option>`).join("") + (known?"":`<option value="${escA(role)}" selected>${esc(role)}</option>`);
+  return `<select class="sel" data-i="${i}" data-k="role" title="papel">${opts}</select>`;
+}
 function renderAg(){
   const el=document.getElementById("agList");
-  el.innerHTML = cfgEdit.agents.map((a,i)=>`<div class="agrow">
-    <input class="sw" type="color" value="${escA(a.color||'#39d46a')}" data-i="${i}" data-k="color">
-    <input class="in" value="${escA(a.name||'')}" data-i="${i}" data-k="name" placeholder="Nome">
-    <input class="in" list="roleOptions" value="${escA(a.role||'builder')}" data-i="${i}" data-k="role" placeholder="papel">
-    <select class="in" data-i="${i}" data-k="engine"><option value="claude"${a.engine==='claude'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select>
-    <input class="in" value="${escA(a.persona||'')}" data-i="${i}" data-k="persona" placeholder="instrução de perfil (ex.: revisa segurança e clareza)">
-    <button class="iconbtn" data-del="${i}" title="remover">🗑</button>
-  </div>`).join("") || '<div class="dim" style="font-size:12px">nenhum agente — clique "+ novo agente"</div>';
-  el.querySelectorAll("[data-k]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; }));
+  el.innerHTML = cfgEdit.agents.map((a,i)=>`<div class="agcard">
+    <div class="agtop">
+      <input class="swatch" type="color" value="${escA(a.color||'#39d46a')}" data-i="${i}" data-k="color" title="cor">
+      <input class="agname" value="${escA(a.name||'')}" data-i="${i}" data-k="name" placeholder="Nome do agente">
+      ${roleSelect(i,a.role||'builder')}
+      <select class="sel" data-i="${i}" data-k="engine" title="motor"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select>
+      <button class="iconbtn" data-del="${i}" title="remover agente"></button>
+    </div>
+    <textarea class="agpersona" data-i="${i}" data-k="persona" placeholder="persona / instrução: o que este agente faz e como pensa">${esc(a.persona||'')}</textarea>
+  </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhum agente — clique "+ novo agente" ou importe um .md</div>';
+  el.querySelectorAll("[data-k]").forEach(inp=>{
+    const h=()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; };
+    inp.addEventListener("input",h); inp.addEventListener("change",h);
+  });
   el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ cfgEdit.agents.splice(+b.dataset.del,1); renderAg(); renderWf(); });
 }
 function renderWf(){
   const el=document.getElementById("wfList");
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
-  const agentOpts = cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name)} (${esc(a.role)})</option>`).join("");
+  const agentOpts = cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name)} · ${esc(a.role)}</option>`).join("");
   el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow">
-    <div class="wftop"><input class="in" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><button class="iconbtn" data-wdel="${i}" title="remover">🗑</button></div>
-    <div class="steps">${(w.steps||[]).map((sid,si)=>`<span class="stepchip"><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="-1" title="mover p/ trás">◀</button><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="1" title="mover p/ frente">▶</button><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">✕</button></span>`).join("")}
-    <select class="in stepadd" data-wadd="${i}"><option value="">+ agente…</option>${agentOpts}</select></div>
-  </div>`).join("") || '<div class="dim" style="font-size:12px">nenhum workflow — clique "+ novo workflow"</div>';
+    <div class="wftop"><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><button class="iconbtn" data-wdel="${i}" title="remover workflow"></button></div>
+    <div class="steps">${(w.steps||[]).map((sid,si)=>`<span class="stepchip"><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="-1" title="antes"></button><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="1" title="depois"></button><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar"></button></span>`).join("")}
+    <select class="sel" data-wadd="${i}"><option value="">+ agente…</option>${agentOpts}</select></div>
+  </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhum workflow — clique "+ novo workflow"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
   el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
   el.querySelectorAll("[data-wadd]").forEach(sel=>sel.onchange=()=>{ if(sel.value){ (cfgEdit.workflows[+sel.dataset.wadd].steps ||= []).push(sel.value); renderWf(); } });
   el.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows[+b.dataset.wi].steps.splice(+b.dataset.rm,1); renderWf(); });
   el.querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{ const w=cfgEdit.workflows[+b.dataset.wi], si=+b.dataset.mv, j=si+(+b.dataset.dir); if(j<0||j>=w.steps.length)return; const t=w.steps[si]; w.steps[si]=w.steps[j]; w.steps[j]=t; renderWf(); });
+}
+function parseAgentMd(filename, content){
+  let fm={}, body=content;
+  const m = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if(m){
+    m[1].split("\n").forEach(line=>{ const i=line.indexOf(":"); if(i>0){ const k=line.slice(0,i).trim().toLowerCase(); const v=line.slice(i+1).trim().replace(/^["']|["']$/g,""); fm[k]=v; } });
+    body = m[2].trim();
+  }
+  const name = fm.name || filename;
+  const persona = (fm.description ? fm.description.trim()+(body?" ":"") : "") + body;
+  return { id: uniqueId(agSlug(name)), name, role: fm.role || "builder", engine: (fm.engine==="mock"?"mock":"claude"), model: fm.model||undefined, color: fm.color || "#39d46a", persona: persona.trim() };
+}
+async function importAgents(){
+  let files;
+  try{ files = await invoke("import_agent_files"); }catch(e){ alert("Falha ao importar:\n"+e); return; }
+  if(!files || !files.length) return;
+  for(const f of files) cfgEdit.agents.push(parseAgentMd(f.filename, f.content));
+  renderAg(); renderWf();
 }
 async function saveConfig(){
   cfgEdit.agents.forEach(a=>{ if(!a.id) a.id=uniqueId(agSlug(a.name)); });
@@ -653,6 +774,7 @@ document.getElementById("agClose").onclick = closeAgents;
 document.getElementById("agCancel").onclick = closeAgents;
 document.getElementById("agSave").onclick = saveConfig;
 document.getElementById("agAdd").onclick = ()=>{ cfgEdit.agents.push({ id:uniqueId("agente"), name:"Novo agente", role:"builder", engine:"claude", persona:"", color:"#39d46a" }); renderAg(); };
+document.getElementById("agImport").onclick = importAgents;
 document.getElementById("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Novo workflow", steps:[] }); renderWf(); };
 document.getElementById("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
 
