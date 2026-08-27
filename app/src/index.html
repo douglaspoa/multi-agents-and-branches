@@ -916,6 +916,16 @@ function mdToHtml(md){
   return html;
 }
 
+async function sendRework(taskId, inputEl, prefix){
+  if(!inputEl) return;
+  const v=(inputEl.value||'').trim(); if(!v) return;
+  inputEl.disabled=true;
+  try{
+    await invoke("rework_task",{ taskId, text:(prefix||'')+v });
+    inputEl.value=""; closeCommit(); lastSig=""; await refresh();
+  }catch(e){ alert("Falha ao pedir ajuste:\n"+e); }
+  finally{ if(inputEl){ inputEl.disabled=false; } }
+}
 async function sendInstruction(taskId){
   const inp=document.getElementById('instrInput'); if(!inp) return;
   const text=inp.value.trim(); if(!text) return;
@@ -1099,7 +1109,14 @@ async function openCommit(hash){
     <div class="cmsum"><div class="cmsum-h">Resumo técnico</div><div id="cmAI" class="cmai"></div><div class="cmstat">${esc(tech.text)}</div></div>
     ${d.body?`<div class="cmbody-txt">${esc(d.body).replace(/\n/g,"<br>")}</div>`:''}
     <div class="seclbl2" style="margin-top:15px">Alterações <span style="flex:1"></span><span class="dim" style="letter-spacing:0;text-transform:none">${d.files.length} arquivo(s)</span></div>
-    <div class="diffwrap">${renderDiff(files)}</div>`;
+    <div class="diffwrap">${renderDiff(files)}</div>
+    ${(t && t.status!=='merged' && (t.roles||[]).some(r=>r.engine==='claude')) ? `<div class="instrbox" style="margin-top:14px">
+      <div class="ilbl">${IC.ai} Pedir ajuste neste commit</div>
+      <div class="ihint">Descreva o que não ficou bom — o agente refaz na worktree (mesma sessão) e recompõe o review.</div>
+      <div class="irow"><input class="in iinput" id="cmRwInput" placeholder="ex.: renomeia verify() para verifyTotp()"><button class="btn primary sm" id="cmRwSend">pedir ajuste</button></div>
+    </div>` : ''}`;
+  const rwBtn=document.getElementById("cmRwSend");
+  if(rwBtn && t) rwBtn.onclick=()=>sendRework(t.id, document.getElementById("cmRwInput"), `Sobre o commit ${(d.hash||'').slice(0,8)} (${d.subject}): `);
   const h=hash;
   const aiEl=document.getElementById("cmAI");
   let cached=null; try{ cached=await invoke("commit_summary_cached",{hash:h}); }catch(e){}
@@ -1189,7 +1206,7 @@ function stageStepper(t){
     else cls='wait';
     const mark = cls==='done'?IC.check : cls==='err'?'!' : cls==='cur'?'<span class="spin"></span>' : (i+1);
     const sub = (cls==='cur' && ev) ? `<div class="sact">${esc((GLYPH[ev.type]||'·')+' '+ev.text)}</div>` : '';
-    return `<div class="step ${cls}"><span class="smark">${mark}</span><div class="stx"><span class="srole">${ROLE_PT[r.role]||r.role}</span><span class="sname">${esc(r.name)}</span>${sub}</div></div>`;
+    return `<div class="step ${cls}" data-role="${escA(r.role)}" data-name="${escA(r.name)}"><span class="smark">${mark}</span><div class="stx"><span class="srole">${ROLE_PT[r.role]||r.role}</span><span class="sname">${esc(r.name)}</span>${sub}</div></div>`;
   }).join("");
   return `<div class="seclbl" style="margin-top:13px">Etapas</div><div class="stepper">${steps}</div>`;
 }
@@ -1229,6 +1246,11 @@ function renderSide(){
       <div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (continua a mesma sessão).</div>
       <div class="irow"><input class="in iinput" id="instrInput" placeholder="ex.: cobre também o caso de erro X"><button class="btn primary sm" id="instrSend">enviar</button></div>
     </div>` : ''}
+    ${(t.status==='review'||t.status==='error') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox">
+      <div class="ilbl">${IC.ai} Pedir ajuste ao agente</div>
+      <div class="ihint">Não gostou de algo? Descreva — ele refaz na mesma worktree e recompõe o review. Clique numa etapa acima pra mirar nela.</div>
+      <div class="irow"><input class="in iinput" id="rwTaskInput" placeholder="ex.: renomeia a função X, cobre o caso Y"><button class="btn primary sm" id="rwTaskSend">pedir ajuste</button></div>
+    </div>` : ''}
     <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
     ${revHtml}
     <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>
@@ -1253,6 +1275,10 @@ function renderSide(){
   el.querySelectorAll('.artitem').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   const iSend=el.querySelector('#instrSend'); if(iSend) iSend.onclick=()=>sendInstruction(t.id);
   const iInput=el.querySelector('#instrInput'); if(iInput) iInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendInstruction(t.id); });
+  const rwS=el.querySelector('#rwTaskSend'); if(rwS) rwS.onclick=()=>sendRework(t.id, el.querySelector('#rwTaskInput'), '');
+  const rwI=el.querySelector('#rwTaskInput'); if(rwI) rwI.addEventListener('keydown',e=>{ if(e.key==='Enter') sendRework(t.id, rwI, ''); });
+  // clicar numa etapa mira o ajuste nela
+  el.querySelectorAll('.step').forEach(s=>s.onclick=()=>{ const inp=el.querySelector('#rwTaskInput'); if(inp){ inp.value='Sobre a etapa '+(ROLE_PT[s.dataset.role]||s.dataset.role)+' ('+s.dataset.name+'): '; inp.focus(); } });
   wireQuestion(el);
 }
 

@@ -891,6 +891,35 @@ fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<()
     Ok(())
 }
 
+/// Pede um AJUSTE (rework) sobre um commit/etapa de uma tarefa já concluída:
+/// enfileira o feedback e dispara `cardume rework <taskId>` (aplica via --resume).
+#[tauri::command]
+fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<(), String> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err("feedback vazio".to_string());
+    }
+    // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
+    add_instruction(state.clone(), task_id.clone(), text.clone())?;
+    let repo = repo_of(&state)?;
+    Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning",
+            &cli_path(&repo),
+            "rework",
+            &task_id,
+            "--repo",
+            &repo.display().to_string(),
+        ])
+        .current_dir(&repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("falha ao iniciar rework: {e}"))?;
+    Ok(())
+}
+
 /// Enfileira uma instrução do humano no meio da execução — o orquestrador a
 /// aplica (via --resume) ao fim do turno atual do agente.
 #[tauri::command]
@@ -1152,6 +1181,7 @@ pub fn run() {
             graph,
             resolve_pending,
             add_instruction,
+            rework_task,
             config,
             new_task,
             merge_task,

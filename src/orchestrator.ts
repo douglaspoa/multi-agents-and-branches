@@ -11,7 +11,7 @@ import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
 import type { AgentEngine } from "./engine/types.ts";
-import type { AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
+import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
 /**
  * O "maestro": cria a worktree, escreve o TASK.yaml, reivindica o escopo e roda
@@ -235,6 +235,45 @@ export class Orchestrator {
     } catch {
       /* nenhum artefato produzido */
     }
+  }
+
+  /**
+   * REWORK: aplica um ajuste pedido pelo humano (sobre um commit/etapa) numa
+   * tarefa já concluída (review/error), continuando a sessão do agente via
+   * --resume na worktree existente, recommitando e refazendo o review.
+   */
+  async reworkTask(taskId: string): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    if (task.status === "merged") throw new Error("tarefa já mergeada — a worktree foi removida, não dá pra refazer");
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const lead = (spec.roles.find((r) => r.role === "builder") ?? spec.roles[0]) as AgentRole;
+    if (lead.engine !== "claude") throw new Error("rework só funciona com agentes Claude");
+
+    this.store.setStatus(taskId, "running");
+    this.store.setStage(taskId, lead.role);
+    const persona = lead.persona ? `## Seu perfil (${lead.name} · ${lead.role})\n${lead.persona}\n\n` : "";
+    const ctx = persona + this.bus.buildContext(spec);
+
+    await this.applyInstructions(taskId, task.worktree, spec, lead, ctx, task.session_id ?? "");
+
+    try {
+      await this.git.commitAll(task.worktree, `cardume(rework): ${task.title}`);
+      const d = await this.git.diffStat(task.worktree, task.base);
+      this.store.setDiff(taskId, d.files, d.add, d.del);
+      const diff = await this.git.diffText(task.worktree, task.base);
+      this.store.addReview(taskId, buildReview(diff, lead.name));
+      const head = await this.git.headHash(task.worktree);
+      if (!this.store.hasCommitSummary(head) && process.env.CARDUME_AUTOSUMMARY !== "0") {
+        await this.summarizeCommit(taskId, head, task.worktree, spec);
+      }
+    } catch (err) {
+      this.store.addEvent(taskId, lead.name, "note", `falha ao finalizar rework: ${(err as Error).message}`, false);
+    }
+    await this.collectArtifacts(taskId, task.worktree, spec.agent);
+    this.store.releaseClaims(taskId);
+    this.store.setStatus(taskId, "review");
+    notify("Constellation", "Ajuste aplicado — pronto para review", task.title);
   }
 
   /** Gera (via Claude) e guarda o resumo técnico de um commit — o quê + porquê. */

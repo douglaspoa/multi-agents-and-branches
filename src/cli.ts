@@ -325,6 +325,19 @@ async function cmdRm(repo: string, taskId: string) {
   orch.close();
 }
 
+async function cmdRework(repo: string, taskId: string) {
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.reworkTask(taskId);
+    console.log(c.green("✔") + ` ajuste aplicado em ${taskId} — pronto para review`);
+  } catch (err) {
+    console.error(c.red("✖ rework falhou: " + (err as Error).message));
+    orch.close();
+    process.exit(1);
+  }
+  orch.close();
+}
+
 async function cmdMerge(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   try {
@@ -483,6 +496,9 @@ async function main() {
       break;
     case "merge":
       await cmdMerge(repo, a._[1]);
+      break;
+    case "rework":
+      await cmdRework(repo, a._[1]);
       break;
     case "demo":
       await cmdDemo();
