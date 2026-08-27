@@ -49,9 +49,18 @@ struct AppState {
 
 impl AppState {
     fn from_env() -> Self {
-        let db = std::env::var("CARDUME_REPO")
-            .ok()
-            .map(|r| PathBuf::from(r).join(".cardume").join("state.sqlite"));
+        // Restaura o ÚLTIMO projeto ativo (topo da lista persistida); só cai no
+        // CARDUME_REPO quando ainda não há projetos abertos. Assim reiniciar o
+        // app não joga o usuário de volta pro projeto do env.
+        let db = read_project_list()
+            .iter()
+            .map(|p| PathBuf::from(p).join(".cardume").join("state.sqlite"))
+            .find(|db| db.exists())
+            .or_else(|| {
+                std::env::var("CARDUME_REPO")
+                    .ok()
+                    .map(|r| PathBuf::from(r).join(".cardume").join("state.sqlite"))
+            });
         AppState { db: Mutex::new(db) }
     }
 }
@@ -569,6 +578,11 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
         return Err(format!("sem workspace Cardume em {path}"));
     }
     *state.db.lock().unwrap() = Some(db);
+    // move pro topo: o topo da lista é o "último projeto ativo" restaurado no boot
+    let mut list = read_project_list();
+    list.retain(|p| p != &path);
+    list.insert(0, path.clone());
+    write_project_list(&list);
     Ok(path)
 }
 

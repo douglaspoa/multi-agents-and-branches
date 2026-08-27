@@ -7,6 +7,7 @@
 import { createInterface } from "node:readline";
 import { Store } from "../store.ts";
 import { CoordinationBus } from "../bus.ts";
+import { notify } from "../util/notify.ts";
 
 const DB = process.env.CARDUME_DB;
 const TASK = process.env.CARDUME_TASK ?? "";
@@ -58,6 +59,7 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     if (!question) return { text: "pergunta vazia", isError: true };
     const id = store.addPending(TASK, AGENT, "question", question, options);
     store.addEvent(TASK, AGENT, "note", `perguntou ao humano: ${question}`, undefined);
+    notify("Cardume", question, `${AGENT} precisa de você`);
     // bloqueia até a UI responder (poll no SQLite). O teto fica abaixo do
     // timeout do engine (20min) para não seguir esperando um agente já morto.
     const deadline = Date.now() + 18 * 60 * 1000;

@@ -6,6 +6,7 @@ import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
 import { run } from "./util/run.ts";
+import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
@@ -102,6 +103,7 @@ export class Orchestrator {
       } catch (err) {
         this.store.addEvent(taskId, r.name, "error", (err as Error).message, false, r.role);
         this.store.setStatus(taskId, "error");
+        notify("Cardume", "Tarefa falhou — veja o log", task.title);
         return;
       }
 
@@ -138,6 +140,8 @@ export class Orchestrator {
     }
 
     this.store.setStatus(taskId, "review");
+    const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
+    if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
   }
 
   /** Gera (via Claude) e guarda o resumo técnico de um commit — o quê + porquê. */
