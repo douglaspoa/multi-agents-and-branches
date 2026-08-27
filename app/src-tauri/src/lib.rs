@@ -61,6 +61,9 @@ impl AppState {
                     .ok()
                     .map(|r| PathBuf::from(r).join(".cardume").join("state.sqlite"))
             });
+        if let Some(d) = &db {
+            ensure_app_schema(d);
+        }
         AppState { db: Mutex::new(db) }
     }
 }
@@ -166,6 +169,34 @@ struct Snapshot {
     costs: Vec<Cost>,
 }
 
+/// Garante que o state.sqlite tenha as colunas/tabelas que o app CONSULTA
+/// (o app abre read-only e não migra; quem migra é o CLI node). Sem isso, um
+/// DB antigo quebra o snapshot inteiro e a UI fica vazia. Best-effort.
+fn ensure_app_schema(db: &PathBuf) {
+    if !db.exists() {
+        return;
+    }
+    if let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+        for stmt in [
+            "ALTER TABLE task ADD COLUMN stage TEXT NOT NULL DEFAULT 'builder'",
+            "ALTER TABLE task ADD COLUMN roles_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE task ADD COLUMN session_id TEXT",
+            "ALTER TABLE task ADD COLUMN sort_order INTEGER",
+        ] {
+            let _ = conn.execute(stmt, []);
+        }
+        let _ = conn.execute(
+            "CREATE TABLE IF NOT EXISTS cost (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, agent TEXT NOT NULL, role TEXT, usd REAL NOT NULL, in_tok INTEGER NOT NULL, out_tok INTEGER NOT NULL, created_at INTEGER NOT NULL)",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE TABLE IF NOT EXISTS instruction (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL, applied_at INTEGER)",
+            [],
+        );
+    }
+}
+
 fn open(path: &PathBuf) -> Result<Connection, String> {
     let c = Connection::open_with_flags(
         path,
@@ -182,6 +213,7 @@ fn set_repo(state: State<AppState>, repo: String) -> Result<String, String> {
     if !db.exists() {
         return Err(format!("sem state.sqlite em {} — rode `cardume init`", db.display()));
     }
+    ensure_app_schema(&db);
     *state.db.lock().unwrap() = Some(db.clone());
     Ok(repo)
 }
@@ -575,6 +607,7 @@ fn open_project(state: State<AppState>, path: String) -> Result<String, String> 
     if !db.exists() {
         return Err("workspace Cardume não pôde ser criado".to_string());
     }
+    ensure_app_schema(&db);
     *state.db.lock().unwrap() = Some(db);
     let mut list = read_project_list();
     list.retain(|p| p != &path);
@@ -590,6 +623,7 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
     if !db.exists() {
         return Err(format!("sem workspace Cardume em {path}"));
     }
+    ensure_app_schema(&db);
     *state.db.lock().unwrap() = Some(db);
     // move pro topo: o topo da lista é o "último projeto ativo" restaurado no boot
     let mut list = read_project_list();
