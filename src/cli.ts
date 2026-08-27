@@ -153,6 +153,12 @@ async function cmdNew(repo: string, a: Args) {
   const orch = new Orchestrator(repo);
   console.log(c.dim(`→ criando worktree agent/${id} · equipe: ${roles.map((r) => r.role + ":" + r.name).join(" → ")}`));
   await orch.createTask(spec);
+  if (a.flags["no-start"]) {
+    orch.store.setStatus(id, "draft");
+    console.log(c.green("✔") + ` rascunho ${c.bold(id)} criado — inicie quando quiser (${c.green("cardume start " + id)})`);
+    orch.close();
+    return;
+  }
   console.log(c.dim(`→ rodando a equipe …\n`));
   await orch.runTask(id);
   console.log(renderList(orch.store));
@@ -322,6 +328,20 @@ async function cmdRm(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   await orch.removeTask(taskId);
   console.log(c.green("✔") + ` tarefa ${taskId} removida (worktree + branch + registros)`);
+  orch.close();
+}
+
+async function cmdStart(repo: string, taskId: string) {
+  const orch = new Orchestrator(repo);
+  const t = orch.store.getTask(taskId);
+  if (!t) {
+    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    orch.close();
+    process.exit(1);
+  }
+  console.log(c.dim(`→ iniciando ${taskId} …\n`));
+  await orch.runTask(taskId);
+  console.log(renderList(orch.store));
   orch.close();
 }
 
@@ -499,6 +519,9 @@ async function main() {
       break;
     case "rework":
       await cmdRework(repo, a._[1]);
+      break;
+    case "start":
+      await cmdStart(repo, a._[1]);
       break;
     case "demo":
       await cmdDemo();

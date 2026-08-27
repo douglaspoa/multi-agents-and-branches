@@ -1022,6 +1022,7 @@ fn new_task(
     requirements: Option<Vec<String>>,
     doc: Option<String>,
     proof: Option<bool>,
+    start: Option<bool>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let mut args = vec![
@@ -1064,9 +1065,34 @@ fn new_task(
     if proof.unwrap_or(false) {
         args.push("--artifact-proof".to_string());
     }
+    if start == Some(false) {
+        args.push("--no-start".to_string());
+    }
 
     Command::new(node_bin())
         .args(&args)
+        .current_dir(&repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("falha ao iniciar tarefa: {e}"))?;
+    Ok(())
+}
+
+/// Inicia uma tarefa em rascunho (roda a equipe). Detached, como new_task.
+#[tauri::command]
+fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning",
+            &cli_path(&repo),
+            "start",
+            &task_id,
+            "--repo",
+            &repo.display().to_string(),
+        ])
         .current_dir(&repo)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -1184,6 +1210,7 @@ pub fn run() {
             rework_task,
             config,
             new_task,
+            start_task,
             merge_task,
             remove_task,
             pick_folder,
