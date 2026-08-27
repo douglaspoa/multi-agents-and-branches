@@ -1282,8 +1282,8 @@ fn write_file(state: State<AppState>, task_id: String, path: String, content: St
     safe_rel(&path)?;
     let (wt, _base) = task_wt_base(&state, &task_id)?;
     let full = wt.join(&path);
-    if !full.exists() {
-        return Err("arquivo não existe na worktree".to_string());
+    if let Some(dir) = full.parent() {
+        let _ = std::fs::create_dir_all(dir);
     }
     std::fs::write(&full, content).map_err(|e| e.to_string())?;
     Ok(())

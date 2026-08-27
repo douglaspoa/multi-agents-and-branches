@@ -1,4 +1,14 @@
-<!doctype html>
+<script>window.__TAURI__={core:{invoke:async(cmd,args)=>{
+ if(cmd==="snapshot")return {"repo":"/Users/douglas/dev/logcomex-ai-v2","tasks":[{"id":"api-rl","title":"Rate limiting no gateway","objective":"Token bucket por chave.","status":"review","agent":"Coder","stage":"reviewer","branch":"agent/api-rl","worktree":"","base":"main","engine":"claude","model":null,"created_at":1787865496541,"sortOrder":null,"roles":[{"role":"planner","name":"Vega","engine":"claude"},{"role":"builder","name":"Coder","engine":"claude"},{"role":"reviewer","name":"CR","engine":"claude"}],"deliverables":["429 + Retry-After"],"requirements":[]}],"events":[],"claims":[],"diffs":[{"taskId":"api-rl","files":1,"additions":22,"deletions":2}],"reviews":[],"pending":[],"costs":[]};
+ if(cmd==="current_repo")return "/Users/douglas/dev/logcomex-ai-v2";
+ if(cmd==="list_projects")return [{path:snap.repo,name:"logcomex-ai-v2",active:true}];
+ if(cmd==="task_files")return [{path:"src/gateway.ts",add:22,del:2}];
+ if(cmd==="read_file"){ if(args.path.includes("PLAN"))return {content:"# Plano — Rate limiting\n\n1. Criar `bucket.ts` com token bucket por chave.\n2. `check(key)` consome 1 token; retorna false quando esgota.\n3. No gateway, responder 429 + Retry-After.\n\n## Riscos\n- limite=0 (ilimitado) precisa de guarda.",addedLines:[]}; return {content:"import { bucket } from './bucket';\n\nexport function check(key: string): boolean {\n  const b = bucket(key);\n  if (b.tokens <= 0) return false;\n  b.tokens -= 1;\n  return true;\n}",addedLines:[3,4,5,6]}; }
+ if(cmd==="write_file"){console.log("WRITE",args.path,args.content.length+" chars");return null;}
+ if(cmd==="rework_task"){console.log("REWORK",args);return null;}
+ if(cmd==="config")return{agents:[],workflows:[]};if(cmd==="list_artifacts")return[];if(cmd==="pr_status")return{exists:false};if(cmd==="list_branches")return["main"];
+ if(cmd==="graph")return[];if(cmd==="task_commits")return[];if(cmd==="commit_summary_cached")return null;return null;
+}}};</script><!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -806,13 +816,12 @@ function fmtTok(n){ n=n||0; return n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' 
 let planTask=null, planPath=null, planData=null, planDragIdx=null, planKind='Plano';
 function parsePlan(md){
   const lines=String(md||'').replace(/\r\n/g,'\n').split('\n');
-  let title=''; const steps=[], notes=[]; let seenList=false, inSection=false;
+  let title=''; const steps=[], notes=[]; let seenList=false;
   for(const ln of lines){
     if(!title){ const h=ln.match(/^#\s+(.*)/); if(h){ title=h[1].trim(); continue; } }
-    if(/^#{2,}\s/.test(ln)){ inSection=true; notes.push(ln); continue; }   // ## seção → daqui pra baixo é nota
     const li=ln.match(/^\s*(?:\d+[.)]|[-*+])\s+(.*)/);
-    if(li && !inSection){ steps.push(li[1].trim()); seenList=true; continue; }
-    if(seenList || inSection || ln.trim()!=='') notes.push(ln);
+    if(li){ steps.push(li[1].trim()); seenList=true; continue; }
+    if(seenList || ln.trim()!=='') notes.push(ln);
   }
   return { title: title||planKind, steps, notes: notes.join('\n').trim() };
 }
