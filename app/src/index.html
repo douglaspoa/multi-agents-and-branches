@@ -488,10 +488,12 @@
   .fvtxt{padding:1px 12px;white-space:pre}
   .fvedit{width:100%;min-height:62vh;font-family:var(--mono);font-size:12px;line-height:1.55;border:none;outline:none;background:var(--surface);color:var(--text);padding:12px;resize:vertical}
   /* pull request */
-  .prbox{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:11px}
-  .prrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .prrow .prlbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
-  .prrow .sel{padding:5px 24px 5px 9px}
+  .prbox{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:11px;min-width:0}
+  .prrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+  .prrow .prlbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;flex:none}
+  .prrow .sel{padding:5px 24px 5px 9px;flex:1 1 120px;min-width:0;max-width:100%}
+  .prrow .btn{flex:none}
+  .prrow .prlink{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .prlink{font-size:12px;font-weight:600;color:var(--accent);text-decoration:none}
   .prlink:hover{text-decoration:underline}
   .prbadge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:100px;border:1px solid var(--border-strong);color:var(--muted)}
