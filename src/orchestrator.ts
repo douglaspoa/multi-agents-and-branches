@@ -31,8 +31,8 @@ export class Orchestrator {
     this.bus = new CoordinationBus(this.store);
   }
 
-  private engineFor(name: string, model?: string): AgentEngine {
-    if (name === "claude") return new ClaudeEngine({ model });
+  private engineFor(name: string, model: string | undefined, approval: TaskSpec["autonomy"]["approval"]): AgentEngine {
+    if (name === "claude") return new ClaudeEngine({ model, approval });
     return new MockEngine();
   }
 
@@ -78,8 +78,9 @@ export class Orchestrator {
     for (const r of roles) {
       this.store.setStage(taskId, r.role);
       this.store.setStatus(taskId, this.statusFor(r.role));
-      const engine = this.engineFor(r.engine, r.model);
-      const ctx = this.bus.buildContext(spec);
+      const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
+      const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
+      const ctx = persona + this.bus.buildContext(spec);
 
       try {
         for await (const ev of engine.run({
@@ -88,6 +89,7 @@ export class Orchestrator {
           systemContext: ctx,
           role: r.role,
           agentName: r.name,
+          dbFile: this.ws.dbFile,
         })) {
           if (ev.type === "claim" && ev.path) {
             this.bus.claim(taskId, r.name, ev.path, ev.mode ?? "write");
@@ -102,16 +104,16 @@ export class Orchestrator {
         return;
       }
 
-      // Commita o trabalho de papéis que mudam arquivos (planner/builder).
+      // Commita o que sobrou solto (o agente pode ter commitado sozinho) e
+      // sempre recalcula o diff da branch vs base — assim o diff aparece mesmo
+      // quando foi o próprio agente que fez o commit.
       if (r.role !== "reviewer") {
         try {
-          const committed = await this.git.commitAll(task.worktree, `cardume(${r.role}): ${task.title}`);
-          if (committed) {
-            const d = await this.git.diffStat(task.worktree, task.base);
-            this.store.setDiff(taskId, d.files, d.add, d.del);
-          }
+          await this.git.commitAll(task.worktree, `cardume(${r.role}): ${task.title}`);
+          const d = await this.git.diffStat(task.worktree, task.base);
+          this.store.setDiff(taskId, d.files, d.add, d.del);
         } catch (err) {
-          this.store.addEvent(taskId, r.name, "note", `falha ao commitar: ${(err as Error).message}`, false, r.role);
+          this.store.addEvent(taskId, r.name, "note", `falha ao finalizar: ${(err as Error).message}`, false, r.role);
         }
       }
 

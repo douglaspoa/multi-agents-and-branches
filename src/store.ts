@@ -77,6 +77,18 @@ export class Store {
         by_agent TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS pending (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        kind TEXT NOT NULL,          -- 'question'
+        prompt TEXT NOT NULL,
+        options TEXT,                -- JSON array de opções, ou null
+        status TEXT NOT NULL DEFAULT 'open',  -- open | answered
+        answer TEXT,
+        created_at INTEGER NOT NULL,
+        resolved_at INTEGER
+      );
     `);
     // migração leve para workspaces antigos (ignora se a coluna já existe)
     for (const stmt of [
@@ -220,7 +232,29 @@ export class Store {
     this.db.prepare(`DELETE FROM event WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM claim WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM diffstat WHERE task_id = ?`).run(taskId);
+    this.db.prepare(`DELETE FROM review WHERE task_id = ?`).run(taskId);
+    this.db.prepare(`DELETE FROM pending WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM task WHERE id = ?`).run(taskId);
+  }
+
+  // ---------- pending (perguntas do agente para o humano) ----------
+  addPending(taskId: string, agent: string, kind: string, prompt: string, options?: string[]): number {
+    const res = this.db
+      .prepare(`INSERT INTO pending (task_id, agent, kind, prompt, options, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`)
+      .run(taskId, agent, kind, prompt, options ? JSON.stringify(options) : null, Date.now());
+    return Number(res.lastInsertRowid);
+  }
+
+  getPending(id: number): { id: number; status: string; answer: string | null } | undefined {
+    return this.db.prepare(`SELECT id, status, answer FROM pending WHERE id = ?`).get(id) as
+      | { id: number; status: string; answer: string | null }
+      | undefined;
+  }
+
+  answerPending(id: number, answer: string): void {
+    this.db
+      .prepare(`UPDATE pending SET status = 'answered', answer = ?, resolved_at = ? WHERE id = ?`)
+      .run(answer, Date.now(), id);
   }
 
   close(): void {

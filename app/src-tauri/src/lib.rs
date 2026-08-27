@@ -2,9 +2,17 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;
 use tauri::State;
+
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
 /// Caminho do state.sqlite atual (um repo por vez, por enquanto).
 #[derive(Default)]
@@ -85,6 +93,18 @@ struct Diff {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct Pending {
+    id: i64,
+    task_id: String,
+    agent: String,
+    kind: String,
+    prompt: String,
+    options: serde_json::Value,
+    created_at: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Snapshot {
     repo: Option<String>,
     tasks: Vec<Task>,
@@ -92,6 +112,7 @@ struct Snapshot {
     claims: Vec<Claim>,
     diffs: Vec<Diff>,
     reviews: Vec<Review>,
+    pending: Vec<Pending>,
 }
 
 fn open(path: &PathBuf) -> Result<Connection, String> {
@@ -192,6 +213,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 claims: vec![],
                 diffs: vec![],
                 reviews: vec![],
+                pending: vec![],
             })
         }
     };
@@ -289,19 +311,53 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
 
+    let pending = conn
+        .prepare("SELECT id,task_id,agent,kind,prompt,options,created_at FROM pending WHERE status='open' ORDER BY id")
+        .map_err(|e| e.to_string())?
+        .query_map([], |r| {
+            let opt: Option<String> = r.get(5)?;
+            Ok(Pending {
+                id: r.get(0)?,
+                task_id: r.get(1)?,
+                agent: r.get(2)?,
+                kind: r.get(3)?,
+                prompt: r.get(4)?,
+                options: opt
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or(serde_json::Value::Null),
+                created_at: r.get(6)?,
+            })
+        })
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| e.to_string())?;
+
     let repo = path
         .parent()
         .and_then(|d| d.parent())
         .map(|r| r.display().to_string());
 
-    Ok(Snapshot { repo, tasks, events, claims, diffs, reviews })
+    Ok(Snapshot { repo, tasks, events, claims, diffs, reviews, pending })
+}
+
+/// Grava a resposta do humano a uma pergunta pendente (write-path do app).
+#[tauri::command]
+fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<(), String> {
+    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE pending SET status='answered', answer=?1, resolved_at=?2 WHERE id=?3",
+        params![answer, now_ms(), id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::from_env())
-        .invoke_handler(tauri::generate_handler![set_repo, current_repo, snapshot, graph])
+        .invoke_handler(tauri::generate_handler![set_repo, current_repo, snapshot, graph, resolve_pending])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");
 }

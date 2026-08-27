@@ -1,42 +1,91 @@
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
+import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 
 /**
- * Motor REAL — roda o Claude Code em modo headless dentro da worktree.
+ * Motor REAL — roda o Claude Code headless dentro da worktree.
  * Isto é Claude Code (sua assinatura), NÃO a API /messages.
  *
- *   claude -p "<prompt>" \
- *     --output-format stream-json --verbose \
- *     --append-system-prompt "<estado do barramento>" \
- *     [--model <model>]
+ *   claude -p "<prompt>" --output-format stream-json --verbose \
+ *     [--dangerously-skip-permissions]  (modo approval "auto")
+ *     --append-system-prompt "<barramento>" [--model <m>]
  *
- * Lê o stream NDJSON do stdout e o traduz para AgentEvent. O mapeamento é
- * best-effort e pode precisar de ajuste conforme a versão do Claude Code
- * (rode `claude --help` / `--output-format stream-json` para conferir o schema).
+ * O parser abaixo foi ajustado ao schema real do stream-json (system/init,
+ * assistant text+tool_use, post_turn_summary, result).
  */
 export class ClaudeEngine implements AgentEngine {
   id = "claude";
   displayName = "Claude Code";
   private model?: string;
+  private approval: ApprovalMode;
 
-  constructor(opts: { model?: string } = {}) {
+  constructor(opts: { model?: string; approval?: ApprovalMode } = {}) {
     this.model = opts.model;
+    this.approval = opts.approval ?? "ask";
   }
 
   async *run(input: RunInput): AsyncIterable<AgentEvent> {
-    const roleInstr =
-      input.role === "planner"
-        ? "Seu papel é PLANNER: leia o TASK.yaml e escreva .cardume/PLAN.md com o plano em passos. Não implemente."
-        : input.role === "reviewer"
-        ? "Seu papel é REVIEWER: leia o diff da branch (git diff) e escreva um resumo do que foi feito, funções criadas e para que servem, e como testar."
-        : "Seu papel é BUILDER: implemente a tarefa. Antes de editar arquivos fora do seu escopo, use claim(path).";
-    const prompt = `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}`;
-    const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
+    const ROLE_INSTR: Record<string, string> = {
+      planner: "Seu papel é PLANNER: leia o TASK.yaml e escreva .cardume/PLAN.md com o plano em passos. Não implemente.",
+      reviewer: "Seu papel é REVIEWER: leia o diff da branch (git diff) e resuma o que foi feito, funções criadas e para que servem, e como testar.",
+      designer: "Seu papel é DESIGNER: defina a UX/UI (layout, hierarquia, estados, acessibilidade) antes do código. Escreva .cardume/DESIGN.md.",
+      tester: "Seu papel é TESTER: escreva e rode testes cobrindo o caminho principal e casos de borda.",
+      docs: "Seu papel é DOCS: escreva documentação concisa com exemplos de uso.",
+      security: "Seu papel é SECURITY: audite riscos (injeção, authz, segredos) e proponha correções.",
+      builder: "Seu papel é BUILDER: implemente a tarefa descrita.",
+    };
+    const roleInstr = ROLE_INSTR[input.role] ?? ROLE_INSTR.builder;
+    const askRule =
+      this.approval === "ask"
+        ? " IMPORTANTE: em QUALQUER decisão de requisito não trivial, chame mcp__cardume__ask_human e AGUARDE a resposta antes de prosseguir."
+        : "";
+    const prompt =
+      `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}` +
+      ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}`;
+
+    // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
+    const serverPath = fileURLToPath(new URL("../mcp/server.ts", import.meta.url));
+    const mcpConfigPath = join(input.cwd, ".cardume", "mcp.json");
+    writeFileSync(
+      mcpConfigPath,
+      JSON.stringify({
+        mcpServers: {
+          cardume: {
+            command: process.execPath,
+            args: ["--disable-warning=ExperimentalWarning", serverPath],
+            env: {
+              CARDUME_DB: input.dbFile,
+              CARDUME_TASK: input.spec.id,
+              CARDUME_AGENT: input.agentName,
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const args = [
+      "-p",
+      prompt,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--mcp-config",
+      mcpConfigPath,
+      "--strict-mcp-config",
+      "--permission-mode",
+      "bypassPermissions", // auto-aprova ações; o humano entra via ask_human
+    ];
     if (input.systemContext) args.push("--append-system-prompt", input.systemContext);
     if (this.model) args.push("--model", this.model);
 
-    const child = spawn("claude", args, { cwd: input.cwd });
+    // stdin "ignore": evita o aviso "no stdin data received in 3s".
+    const child = spawn("claude", args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"] });
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];
@@ -51,21 +100,22 @@ export class ClaudeEngine implements AgentEngine {
     };
 
     rl.on("line", (line) => {
-      const ev = mapLine(line);
-      if (ev) queue.push(ev);
+      for (const ev of mapLine(line)) queue.push(ev);
       wake();
     });
     child.stderr.on("data", (d) => {
-      queue.push({ type: "note", text: `stderr: ${String(d).trim().slice(0, 120)}` });
+      const s = String(d).trim();
+      if (s) queue.push({ type: "note", text: `stderr: ${s.slice(0, 140)}` });
       wake();
     });
     child.on("close", (code) => {
-      queue.push({
-        type: "done",
-        text: code === 0 ? "claude finalizou" : `claude saiu com código ${code}`,
-        status: code === 0 ? "review" : "error",
-        ok: code === 0,
-      });
+      if (!queue.some((e) => e.type === "done")) {
+        queue.push({
+          type: code === 0 ? "note" : "error",
+          text: code === 0 ? "claude finalizou" : `claude saiu com código ${code}`,
+          status: code === 0 ? undefined : "error",
+        });
+      }
       done = true;
       wake();
     });
@@ -75,7 +125,7 @@ export class ClaudeEngine implements AgentEngine {
       wake();
     });
 
-    yield { type: "status", text: "iniciando claude -p (headless)", status: "running" };
+    yield { type: "status", text: `iniciando claude (approval: ${this.approval})`, status: "running" };
 
     while (!done || queue.length > 0) {
       if (queue.length === 0) {
@@ -89,46 +139,69 @@ export class ClaudeEngine implements AgentEngine {
   }
 }
 
-/** Traduz uma linha NDJSON do stream-json do Claude Code em AgentEvent. */
-function mapLine(line: string): AgentEvent | null {
+/** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[]. */
+function mapLine(line: string): AgentEvent[] {
   const t = line.trim();
-  if (!t) return null;
-  let obj: any;
+  if (!t) return [];
+  let o: any;
   try {
-    obj = JSON.parse(t);
+    o = JSON.parse(t);
   } catch {
-    return null;
+    return [];
   }
 
-  // Mensagem do assistente pode conter texto e/ou tool_use.
-  if (obj.type === "assistant" && obj.message?.content) {
-    for (const part of obj.message.content) {
-      if (part.type === "tool_use") {
-        return mapTool(part.name, part.input);
-      }
-      if (part.type === "text" && part.text?.trim()) {
-        return { type: "think", text: part.text.trim().slice(0, 160) };
-      }
+  if (o.type === "system") {
+    if (o.subtype === "init") {
+      return [{ type: "status", text: `sessão iniciada · ${o.model ?? ""} · ${o.permissionMode ?? ""}`.trim(), status: "running" }];
     }
-    return null;
+    if (o.subtype === "post_turn_summary") {
+      const st = o.status_category === "review_ready" ? "review" : undefined;
+      return [{ type: "note", text: o.status_detail || "turno concluído", status: st }];
+    }
+    return [];
   }
 
-  if (obj.type === "result") {
-    return { type: "note", text: "resultado recebido" };
+  if (o.type === "assistant" && o.message?.content) {
+    const out: AgentEvent[] = [];
+    for (const p of o.message.content) {
+      if (p.type === "tool_use") out.push(mapTool(p.name, p.input));
+      else if (p.type === "text" && p.text?.trim()) out.push({ type: "think", text: p.text.trim().slice(0, 200) });
+    }
+    return out;
   }
-  return null;
+
+  if (o.type === "result") {
+    const ok = !o.is_error;
+    const cost = typeof o.total_cost_usd === "number" ? ` · $${o.total_cost_usd.toFixed(3)}` : "";
+    const denials = Array.isArray(o.permission_denials) && o.permission_denials.length
+      ? ` · ${o.permission_denials.length} permissão(ões) negada(s)`
+      : "";
+    return [
+      {
+        type: "done",
+        text: (o.result ? String(o.result).slice(0, 120) : "concluído") + cost + denials,
+        status: ok ? "review" : "error",
+        ok,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function mapTool(name: string | undefined, inp: any): AgentEvent {
   const n = (name ?? "").toLowerCase();
-  if (n === "claim") return { type: "claim", text: String(inp?.path ?? ""), path: inp?.path, mode: inp?.mode ?? "write" };
-  if (n.includes("edit") || n.includes("str_replace")) return { type: "edit", text: fileOf(inp), ok: true };
+  if (n.includes("ask_human")) return { type: "note", text: "❓ perguntou ao humano: " + String(inp?.question ?? "") };
+  if (n.includes("claim")) return { type: "claim", text: String(inp?.path ?? ""), path: inp?.path, mode: inp?.mode ?? "write" };
+  if (n.includes("edit") || n.includes("str_replace") || n.includes("notebook")) return { type: "edit", text: fileOf(inp), ok: true };
   if (n.includes("write") || n.includes("create")) return { type: "write", text: fileOf(inp), ok: true };
-  if (n.includes("read")) return { type: "read", text: fileOf(inp) };
+  if (n.includes("read") || n.includes("grep") || n.includes("glob")) return { type: "read", text: fileOf(inp) || String(inp?.pattern ?? "") };
   if (n.includes("bash") || n.includes("shell")) return { type: "bash", text: String(inp?.command ?? "").slice(0, 120) };
-  return { type: "note", text: `${name}` };
+  if (n.includes("task")) return { type: "note", text: "subagente: " + String(inp?.description ?? "") };
+  if (n.includes("todo")) return { type: "note", text: "atualizou o plano" };
+  return { type: "note", text: name ?? "tool" };
 }
 
 function fileOf(inp: any): string {
-  return String(inp?.file_path ?? inp?.path ?? inp?.filename ?? "").replace(/^.*\/(?=[^/]+$)/, (m) => m);
+  return String(inp?.file_path ?? inp?.path ?? inp?.filename ?? "");
 }

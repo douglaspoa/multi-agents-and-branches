@@ -27,8 +27,9 @@ export interface RunInput {
   cwd: string; // caminho da worktree
   spec: TaskSpec;
   systemContext: string; // estado do barramento (vai no system prompt)
-  role: "planner" | "builder" | "reviewer";
+  role: string; // papel/especialidade
   agentName: string; // agente que está atuando neste papel
+  dbFile: string; // state.sqlite — para o servidor MCP (ask_human/claim)
 }
 
 /**

@@ -12,8 +12,9 @@ export type AgentStatus =
   | "done"
   | "error";
 
-/** Papel de um agente dentro de uma tarefa. */
-export type Role = "planner" | "builder" | "reviewer";
+/** Papel/especialidade de um agente. Aberto — comuns: planner, builder,
+ * reviewer, designer, tester, security, docs. */
+export type Role = string;
 
 /** Um agente atribuído a uma tarefa, com o seu papel. */
 export interface AgentRole {
@@ -21,6 +22,25 @@ export interface AgentRole {
   name: string; // nome do agente (ex.: "Íris")
   engine: string; // "mock" | "claude"
   model?: string;
+  persona?: string; // instrução de perfil injetada no system prompt
+}
+
+/** Definição reutilizável de um agente (do cardume.config.json). */
+export interface Agent {
+  id: string;
+  name: string;
+  role: Role;
+  engine: string;
+  model?: string;
+  persona?: string;
+  color?: string;
+}
+
+/** Um workflow = sequência de agentes (por id) para tocar uma tarefa. */
+export interface Workflow {
+  id: string;
+  name: string;
+  steps: string[]; // ids de agentes, em ordem
 }
 
 export interface TaskScope {
@@ -28,10 +48,14 @@ export interface TaskScope {
   offLimits: string[];
 }
 
+export type ApprovalMode = "auto" | "ask";
+
 export interface TaskAutonomy {
   clarifications: ClarMode;
   commit: CommitMode;
   runTests: boolean;
+  /** "auto" = aprova as ações do agente sozinho; "ask" = pede aprovação humana. */
+  approval: ApprovalMode;
 }
 
 /** O "briefing" declarativo de uma tarefa — vira o .cardume/TASK.yaml na worktree. */

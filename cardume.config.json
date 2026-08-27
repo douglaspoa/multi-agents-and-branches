@@ -1,0 +1,98 @@
+{
+  "agents": [
+    {
+      "id": "vega",
+      "name": "Vega",
+      "role": "planner",
+      "engine": "claude",
+      "color": "#e5c07b",
+      "persona": "Você planeja a tarefa em passos claros e lista riscos e decisões. Não implementa."
+    },
+    {
+      "id": "iris",
+      "name": "Íris",
+      "role": "builder",
+      "engine": "claude",
+      "color": "#39d46a",
+      "persona": "Você implementa com código limpo e o menor diff que resolve. Cobre o caminho principal."
+    },
+    {
+      "id": "nyx",
+      "name": "Nyx",
+      "role": "reviewer",
+      "engine": "claude",
+      "color": "#56b6c2",
+      "persona": "Você revisa correção, segurança, casos de borda e clareza. Aponta o que falta."
+    },
+    {
+      "id": "aria",
+      "name": "Aria",
+      "role": "designer",
+      "engine": "claude",
+      "color": "#b48ead",
+      "persona": "Você cuida de UX/UI, hierarquia visual e acessibilidade. Propõe a interface antes do código."
+    },
+    {
+      "id": "cobalt",
+      "name": "Cobalt",
+      "role": "tester",
+      "engine": "claude",
+      "color": "#5b9dff",
+      "persona": "Você escreve e roda testes; cobre caminho principal e casos de borda."
+    },
+    {
+      "id": "lumen",
+      "name": "Lumen",
+      "role": "docs",
+      "engine": "claude",
+      "color": "#d19a66",
+      "persona": "Você escreve documentação concisa com exemplos de uso."
+    }
+  ],
+  "workflows": [
+    {
+      "id": "feature",
+      "name": "Feature completa",
+      "steps": [
+        "vega",
+        "iris",
+        "nyx"
+      ]
+    },
+    {
+      "id": "design-first",
+      "name": "Design primeiro",
+      "steps": [
+        "aria",
+        "vega",
+        "iris",
+        "nyx"
+      ]
+    },
+    {
+      "id": "quickfix",
+      "name": "Fix rápido",
+      "steps": [
+        "iris"
+      ]
+    },
+    {
+      "id": "review-only",
+      "name": "Só revisão",
+      "steps": [
+        "nyx"
+      ]
+    },
+    {
+      "id": "full",
+      "name": "Completo (design → testes)",
+      "steps": [
+        "aria",
+        "vega",
+        "iris",
+        "cobalt",
+        "nyx"
+      ]
+    }
+  ]
+}

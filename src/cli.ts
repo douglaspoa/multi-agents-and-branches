@@ -8,6 +8,7 @@ import { Workspace } from "./workspace.ts";
 import { run } from "./util/run.ts";
 import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
+import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
 import type { AgentRole, Role, TaskSpec } from "./types.ts";
 
 // ---------- parse de flags simples ----------
@@ -64,23 +65,52 @@ async function cmdInit(repo: string) {
   ws.ensure();
   new Store(ws.dbFile).close();
   console.log(c.green("✔") + ` workspace Cardume pronto em ${c.dim(ws.dir)}`);
+  if (ensureConfig(repo)) console.log(c.green("✔") + ` catálogo criado em ${c.dim("cardume.config.json")} (agentes + workflows)`);
   console.log(c.dim("  dica: adicione .cardume/ ao seu .gitignore"));
 }
 
-function buildRoles(a: Args): AgentRole[] {
-  const engine = a.flags.engine ?? "mock";
+function cmdAgents(repo: string) {
+  const cfg = loadConfig(repo);
+  console.log("\n" + c.bold(c.green("🐙 Agentes")) + c.dim("  (cardume.config.json)\n"));
+  for (const a of cfg.agents) {
+    console.log(`  ${c.bold(a.name.padEnd(8))} ${c.cyan(a.role.padEnd(9))} ${c.dim(a.engine)}  ${c.dim("#" + a.id)}`);
+    if (a.persona) console.log(`      ${c.dim("↳ " + a.persona)}`);
+  }
+  console.log("");
+}
+
+function cmdWorkflows(repo: string) {
+  const cfg = loadConfig(repo);
+  const byId = Object.fromEntries(cfg.agents.map((a) => [a.id, a]));
+  console.log("\n" + c.bold(c.green("🐙 Workflows")) + c.dim("  (cardume.config.json)\n"));
+  for (const w of cfg.workflows) {
+    const chain = w.steps.map((s) => `${byId[s]?.name ?? s}${c.dim("(" + (byId[s]?.role ?? "?") + ")")}`).join(c.dim(" → "));
+    console.log(`  ${c.bold(w.name.padEnd(22))} ${c.dim("#" + w.id)}`);
+    console.log(`      ${chain}`);
+  }
+  console.log(c.dim("\n  use: ") + c.green("cardume new --title \"...\" --workflow <id>") + "\n");
+}
+
+function buildRoles(a: Args, repo: string): AgentRole[] {
+  const engine = a.flags.engine; // se omitido, usa o do agente no config
   const model = a.flags.model;
+
+  // 1) --workflow <id> resolve pelo catálogo
+  if (a.flags.workflow) {
+    return resolveWorkflow(loadConfig(repo), a.flags.workflow, engine, model);
+  }
+  // 2) --roles + --agents (papéis + nomes explícitos, sem catálogo)
   const roleNames = list(a.flags.roles) as Role[];
   const agents = list(a.flags.agents);
-  if (roleNames.length === 0) {
-    return [{ role: "builder", name: a.flags.agent ?? "Agente", engine, model }];
+  if (roleNames.length > 0) {
+    return roleNames.map((role, i) => ({ role, name: agents[i] ?? `Agente ${i + 1}`, engine: engine ?? "mock", model }));
   }
-  return roleNames.map((role, i) => ({
-    role,
-    name: agents[i] ?? `Agente ${i + 1}`,
-    engine,
-    model,
-  }));
+  // 3) --agents <ids do catálogo>
+  if (agents.length > 0) {
+    return resolveAgents(loadConfig(repo), agents, engine, model);
+  }
+  // 4) padrão: 1 builder
+  return [{ role: "builder", name: a.flags.agent ?? "Agente", engine: engine ?? "mock", model }];
 }
 
 async function cmdNew(repo: string, a: Args) {
@@ -90,7 +120,7 @@ async function cmdNew(repo: string, a: Args) {
     process.exit(1);
   }
   const id = slugify(title);
-  const roles = buildRoles(a);
+  const roles = buildRoles(a, repo);
   const lead = roles.find((r) => r.role === "builder") ?? roles[0];
   const spec: TaskSpec = {
     id,
@@ -104,6 +134,7 @@ async function cmdNew(repo: string, a: Args) {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",
       commit: "at-end",
       runTests: a.flags["no-tests"] ? false : true,
+      approval: (a.flags.approve as TaskSpec["autonomy"]["approval"]) ?? "ask",
     },
     engine: a.flags.engine ?? "mock",
     model: a.flags.model,
@@ -249,7 +280,7 @@ async function cmdDemo() {
     deliverables: ["Verificar código TOTP", "Gerar códigos de recuperação"],
     requirements: ["Testes de auth verdes"],
     scope: { owns: ["src/auth", "src/components/Header.tsx"], offLimits: ["src/api"] },
-    autonomy: { clarifications: "ask", commit: "at-end", runTests: true },
+    autonomy: { clarifications: "ask", commit: "at-end", runTests: true , approval: "ask" },
     engine: "mock",
     roles: [
       { role: "planner", name: "Vega", engine: "mock" },
@@ -265,7 +296,7 @@ async function cmdDemo() {
     deliverables: ["Aplicar rate limit", "Configurar limite por plano"],
     requirements: ["Sem quebrar rotas existentes"],
     scope: { owns: ["src/api", "src/components/Header.tsx"], offLimits: ["src/auth"] },
-    autonomy: { clarifications: "assume", commit: "at-end", runTests: true },
+    autonomy: { clarifications: "assume", commit: "at-end", runTests: true , approval: "ask" },
     engine: "mock",
     roles: [
       { role: "builder", name: "Onda", engine: "mock" },
@@ -314,6 +345,12 @@ async function main() {
     case "list":
       cmdListCmd(repo);
       break;
+    case "agents":
+      cmdAgents(repo);
+      break;
+    case "workflows":
+      cmdWorkflows(repo);
+      break;
     case "logs":
       cmdLogs(repo, a._[1]);
       break;
@@ -335,7 +372,9 @@ ${c.bold(c.green("🐙 Cardume"))} ${c.dim("— Fase 0 (núcleo)")}
 
   ${c.green("cardume demo")}                        loop completo, 2 agentes em paralelo (mock)
   ${c.green("cardume init")} ${c.dim("[--repo <p>]")}            prepara .cardume/ num repo
-  ${c.green("cardume new")}  ${c.dim('--title "..." [--roles planner,builder,reviewer --agents Vega,Íris,Nyx] [--owns a,b]')}
+  ${c.green("cardume new")}  ${c.dim('--title "..." --workflow <id>  (ou --agents vega,iris,nyx) [--engine claude --approve auto]')}
+  ${c.green("cardume agents")} ${c.dim("[--repo <p>]")}          catálogo de agentes (review, design, testes…)
+  ${c.green("cardume workflows")} ${c.dim("[--repo <p>]")}       workflows prontos (feature, design-first, …)
   ${c.green("cardume list")} ${c.dim("[--repo <p>]")}            estado das tarefas
   ${c.green("cardume watch")} ${c.dim("[--repo <p>]")}           acompanha ao vivo (lê o SQLite)
   ${c.green("cardume logs")} ${c.dim("<taskId> [--repo <p>]")}   eventos de uma tarefa
