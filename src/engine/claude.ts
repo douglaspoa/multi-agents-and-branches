@@ -54,10 +54,12 @@ export class ClaudeEngine implements AgentEngine {
       artifactRule =
         ` Ao final, produza também estes ARTEFATOS (crie a pasta .cardume/artifacts/ se não existir):\n${lines.join("\n")}`;
     }
-    const prompt =
+    const baseline =
       `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
       ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}`;
+    // Modo "resume": continua a sessão existente com uma instrução nova do humano.
+    const prompt = input.resume ? input.resume.instruction : baseline;
 
     // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
     const serverPath = fileURLToPath(new URL("../mcp/server.ts", import.meta.url));
@@ -92,8 +94,14 @@ export class ClaudeEngine implements AgentEngine {
       "--permission-mode",
       "bypassPermissions", // auto-aprova ações; o humano entra via ask_human
     ];
-    if (input.systemContext) args.push("--append-system-prompt", input.systemContext);
-    if (this.model) args.push("--model", this.model);
+    if (input.resume?.sessionId) {
+      // continua a MESMA sessão (modelo + system prompt já ficam na sessão)
+      args.push("--resume", input.resume.sessionId);
+    } else {
+      // turno normal, ou instrução nova sem sessão capturada (fallback: turno fresco)
+      if (input.systemContext) args.push("--append-system-prompt", input.systemContext);
+      if (this.model) args.push("--model", this.model);
+    }
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
     const child = spawn("claude", args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"] });
@@ -178,7 +186,9 @@ function mapLine(line: string): AgentEvent[] {
 
   if (o.type === "system") {
     if (o.subtype === "init") {
-      return [{ type: "status", text: `sessão iniciada · ${o.model ?? ""} · ${o.permissionMode ?? ""}`.trim(), status: "running" }];
+      const evs: AgentEvent[] = [{ type: "status", text: `sessão iniciada · ${o.model ?? ""} · ${o.permissionMode ?? ""}`.trim(), status: "running" }];
+      if (o.session_id) evs.unshift({ type: "session", text: String(o.session_id) });
+      return evs;
     }
     if (o.subtype === "post_turn_summary") {
       const st = o.status_category === "review_ready" ? "review" : undefined;

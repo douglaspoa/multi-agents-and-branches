@@ -83,6 +83,7 @@ export class Orchestrator {
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
       const ctx = persona + this.bus.buildContext(spec);
+      let sessionId = "";
 
       try {
         for await (const ev of engine.run({
@@ -93,6 +94,11 @@ export class Orchestrator {
           agentName: r.name,
           dbFile: this.ws.dbFile,
         })) {
+          if (ev.type === "session") {
+            sessionId = ev.text;
+            this.store.setSession(taskId, sessionId);
+            continue;
+          }
           if (ev.type === "claim" && ev.path) {
             this.bus.claim(taskId, r.name, ev.path, ev.mode ?? "write");
             continue;
@@ -106,6 +112,9 @@ export class Orchestrator {
         notify("Cardume", "Tarefa falhou — veja o log", task.title);
         return;
       }
+
+      // Instruções que o humano enviou durante o turno → aplica agora (resume).
+      sessionId = await this.applyInstructions(taskId, task.worktree, spec, r, ctx, sessionId);
 
       // Commita o que sobrou solto (o agente pode ter commitado sozinho) e
       // sempre recalcula o diff da branch vs base — assim o diff aparece mesmo
@@ -144,6 +153,60 @@ export class Orchestrator {
     this.store.setStatus(taskId, "review");
     const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
     if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
+  }
+
+  /**
+   * Aplica instruções que o humano enfileirou durante o turno do agente,
+   * continuando a MESMA sessão do Claude (--resume) quando possível.
+   * Retorna o sessionId (pode mudar a cada turno).
+   */
+  private async applyInstructions(
+    taskId: string,
+    worktree: string,
+    spec: TaskSpec,
+    role: { role: Role; name: string; engine: string; model?: string; persona?: string },
+    ctx: string,
+    sessionId: string
+  ): Promise<string> {
+    if (role.engine !== "claude") return sessionId; // mock não continua sessão
+    let guard = 0;
+    while (guard++ < 20) {
+      const open = this.store.openInstructions(taskId);
+      if (!open.length) break;
+      this.store.addEvent(taskId, role.name, "note", `aplicando ${open.length} instrução(ões) enviada(s) por você`, true, role.role);
+      this.store.setStatus(taskId, "running");
+      const engine = this.engineFor(role.engine, role.model, spec.autonomy.approval);
+      const instruction =
+        `O humano enviou instruções adicionais no meio da execução — talvez tenha lembrado de algo. ` +
+        `Incorpore-as agora, continuando de onde parou:\n${open.map((i) => `- ${i.text}`).join("\n")}`;
+      try {
+        for await (const ev of engine.run({
+          cwd: worktree,
+          spec,
+          systemContext: ctx,
+          role: role.role,
+          agentName: role.name,
+          dbFile: this.ws.dbFile,
+          resume: { sessionId, instruction },
+        })) {
+          if (ev.type === "session") {
+            sessionId = ev.text;
+            this.store.setSession(taskId, sessionId);
+            continue;
+          }
+          if (ev.type === "claim" && ev.path) {
+            this.bus.claim(taskId, role.name, ev.path, ev.mode ?? "write");
+            continue;
+          }
+          this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
+          if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
+        }
+      } catch (err) {
+        this.store.addEvent(taskId, role.name, "error", `falha ao aplicar instrução: ${(err as Error).message}`, false, role.role);
+      }
+      for (const i of open) this.store.markInstructionApplied(i.id);
+    }
+    return sessionId;
   }
 
   /**

@@ -862,14 +862,79 @@ fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<()
     Ok(())
 }
 
+/// Enfileira uma instrução do humano no meio da execução — o orquestrador a
+/// aplica (via --resume) ao fim do turno atual do agente.
+#[tauri::command]
+fn add_instruction(state: State<AppState>, task_id: String, text: String) -> Result<(), String> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err("instrução vazia".to_string());
+    }
+    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS instruction (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL, applied_at INTEGER)",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO instruction (task_id, text, status, created_at) VALUES (?1, ?2, 'open', ?3)",
+        params![task_id, t, now],
+    )
+    .map_err(|e| e.to_string())?;
+    // registra no log da tarefa
+    conn.execute(
+        "INSERT INTO event (task_id, agent, role, ts, type, text, ok) VALUES (?1, 'você', NULL, ?2, 'note', ?3, 1)",
+        params![task_id, now, format!("instrução enviada: {t}")],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Catálogo de agentes/workflows (cardume.config.json) para o modal de nova tarefa.
 #[tauri::command]
 fn config(state: State<AppState>) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;
-    match std::fs::read_to_string(repo.join("cardume.config.json")) {
-        Ok(s) => serde_json::from_str(&s).map_err(|e| e.to_string()),
-        Err(_) => Ok(serde_json::json!({ "agents": [], "workflows": [] })),
+    let repo_cfg = match std::fs::read_to_string(repo.join("cardume.config.json")) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| e.to_string())?,
+        Err(_) => serde_json::json!({ "agents": [], "workflows": [] }),
+    };
+    Ok(merge_global_catalog(repo_cfg))
+}
+
+/// Catálogo global do usuário (~/.cardume/agents.json) — agentes/workflows
+/// disponíveis em TODO projeto. O config do repo tem precedência por id.
+fn merge_global_catalog(mut cfg: serde_json::Value) -> serde_json::Value {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let gpath = PathBuf::from(home).join(".cardume").join("agents.json");
+    let global: serde_json::Value = std::fs::read_to_string(&gpath)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({ "agents": [], "workflows": [] }));
+    for key in ["agents", "workflows"] {
+        let have: std::collections::HashSet<String> = cfg
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(String::from)).collect())
+            .unwrap_or_default();
+        let extra: Vec<serde_json::Value> = global
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter(|x| x.get("id").and_then(|i| i.as_str()).map(|id| !have.contains(id)).unwrap_or(false)).cloned().collect())
+            .unwrap_or_default();
+        if !extra.is_empty() {
+            let arr = cfg.get_mut(key).and_then(|v| v.as_array_mut());
+            if let Some(a) = arr {
+                a.extend(extra);
+            } else {
+                cfg[key] = serde_json::Value::Array(extra);
+            }
+        }
     }
+    cfg
 }
 
 /// Salva o catálogo (agentes + workflows) editado na UI em cardume.config.json.
@@ -1057,6 +1122,7 @@ pub fn run() {
             snapshot,
             graph,
             resolve_pending,
+            add_instruction,
             config,
             new_task,
             merge_task,

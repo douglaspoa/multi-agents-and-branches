@@ -10,6 +10,7 @@ export type AgentEventType =
   | "note"
   | "claim"
   | "error"
+  | "session"
   | "done";
 
 export interface AgentEvent {
@@ -30,6 +31,8 @@ export interface RunInput {
   role: string; // papel/especialidade
   agentName: string; // agente que está atuando neste papel
   dbFile: string; // state.sqlite — para o servidor MCP (ask_human/claim)
+  /** Continuar uma sessão existente com uma instrução nova do humano (mid-run). */
+  resume?: { sessionId: string; instruction: string };
 }
 
 /**

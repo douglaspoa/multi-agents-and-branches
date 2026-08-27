@@ -97,11 +97,20 @@ export class Store {
         created_at INTEGER NOT NULL,
         resolved_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS instruction (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',  -- open | applied
+        created_at INTEGER NOT NULL,
+        applied_at INTEGER
+      );
     `);
     // migração leve para workspaces antigos (ignora se a coluna já existe)
     for (const stmt of [
       "ALTER TABLE task ADD COLUMN stage TEXT NOT NULL DEFAULT 'builder'",
       "ALTER TABLE task ADD COLUMN roles_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE task ADD COLUMN session_id TEXT",
       "ALTER TABLE event ADD COLUMN role TEXT",
     ]) {
       try {
@@ -274,6 +283,29 @@ export class Store {
     this.db
       .prepare(`UPDATE pending SET status = 'answered', answer = ?, resolved_at = ? WHERE id = ?`)
       .run(answer, Date.now(), id);
+  }
+
+  // ---------- sessão do agente (para --resume) ----------
+  setSession(taskId: string, sessionId: string): void {
+    this.db.prepare(`UPDATE task SET session_id = ? WHERE id = ?`).run(sessionId, taskId);
+  }
+
+  // ---------- instruções do humano no meio da execução ----------
+  addInstruction(taskId: string, text: string): number {
+    const res = this.db
+      .prepare(`INSERT INTO instruction (task_id, text, status, created_at) VALUES (?, ?, 'open', ?)`)
+      .run(taskId, text, Date.now());
+    return Number(res.lastInsertRowid);
+  }
+
+  openInstructions(taskId: string): { id: number; text: string }[] {
+    return this.db
+      .prepare(`SELECT id, text FROM instruction WHERE task_id = ? AND status = 'open' ORDER BY id`)
+      .all(taskId) as { id: number; text: string }[];
+  }
+
+  markInstructionApplied(id: number): void {
+    this.db.prepare(`UPDATE instruction SET status = 'applied', applied_at = ? WHERE id = ?`).run(Date.now(), id);
   }
 
   close(): void {

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentRole, Workflow } from "./types.ts";
 
@@ -30,18 +31,43 @@ export function configPath(repo: string): string {
   return join(repo, "cardume.config.json");
 }
 
+/** Catálogo global do usuário (~/.cardume/agents.json), disponível em todo projeto. */
+function loadGlobalCatalog(): { agents: Agent[]; workflows: Workflow[] } {
+  const p = join(homedir(), ".cardume", "agents.json");
+  if (!existsSync(p)) return { agents: [], workflows: [] };
+  try {
+    const raw = JSON.parse(readFileSync(p, "utf8"));
+    return { agents: raw.agents ?? [], workflows: raw.workflows ?? [] };
+  } catch {
+    return { agents: [], workflows: [] };
+  }
+}
+
+/** Junta o catálogo do repo com o global (repo tem precedência por id). */
+function mergeCatalog(base: CardumeConfig): CardumeConfig {
+  const g = loadGlobalCatalog();
+  const agentIds = new Set(base.agents.map((a) => a.id));
+  const wfIds = new Set(base.workflows.map((w) => w.id));
+  return {
+    agents: [...base.agents, ...g.agents.filter((a) => a.id && !agentIds.has(a.id))],
+    workflows: [...base.workflows, ...g.workflows.filter((w) => w.id && !wfIds.has(w.id))],
+  };
+}
+
 export function loadConfig(repo: string): CardumeConfig {
   const f = configPath(repo);
-  if (!existsSync(f)) return DEFAULT_CONFIG;
-  try {
-    const raw = JSON.parse(readFileSync(f, "utf8"));
-    return {
-      agents: raw.agents ?? DEFAULT_CONFIG.agents,
-      workflows: raw.workflows ?? DEFAULT_CONFIG.workflows,
-    };
-  } catch {
-    return DEFAULT_CONFIG;
+  let base: CardumeConfig;
+  if (!existsSync(f)) {
+    base = DEFAULT_CONFIG;
+  } else {
+    try {
+      const raw = JSON.parse(readFileSync(f, "utf8"));
+      base = { agents: raw.agents ?? DEFAULT_CONFIG.agents, workflows: raw.workflows ?? DEFAULT_CONFIG.workflows };
+    } catch {
+      base = DEFAULT_CONFIG;
+    }
   }
+  return mergeCatalog(base);
 }
 
 /** Escreve o catálogo padrão se ainda não existir. Retorna true se criou. */
