@@ -1238,9 +1238,11 @@ struct TaskFile {
 #[tauri::command]
 fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, String> {
     let (wt, base) = task_wt_base(&state, &task_id)?;
+    // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
+    // assim os arquivos aparecem ao vivo enquanto o agente edita, antes do commit.
     let out = Command::new("git")
         .arg("-C").arg(&wt)
-        .args(["diff", "--numstat", &format!("{base}...HEAD")])
+        .args(["diff", "--numstat", &base])
         .output()
         .map_err(|e| e.to_string())?;
     let mut files = Vec::new();
@@ -1269,7 +1271,7 @@ fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<Fi
     let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| e.to_string())?;
     // linhas novas (do diff unified=0): parse dos hunks @@ -a,b +c,d @@
     let mut added: Vec<i64> = Vec::new();
-    if let Ok(out) = Command::new("git").arg("-C").arg(&wt).args(["diff", "--unified=0", &format!("{base}...HEAD"), "--", &path]).output() {
+    if let Ok(out) = Command::new("git").arg("-C").arg(&wt).args(["diff", "--unified=0", &base, "--", &path]).output() {
         let text = String::from_utf8_lossy(&out.stdout);
         for line in text.lines() {
             if let Some(rest) = line.strip_prefix("@@") {

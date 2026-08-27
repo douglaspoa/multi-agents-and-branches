@@ -515,6 +515,12 @@
   .costrow .cnm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .costrow .ctok{color:var(--muted);font-variant-numeric:tabular-nums;font-size:11px}
   .costrow .cusd{font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+  /* painel de progresso (tarefa ativa) */
+  .progbox{margin:11px 0 2px;padding:10px 11px;border:1px solid var(--border);border-radius:var(--r-sm);background:color-mix(in srgb,var(--good) 6%,var(--surface-2))}
+  .progh{font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .progchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .pchip{font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:2px 9px;font-variant-numeric:tabular-nums}
+  .pchip.live{border-color:color-mix(in srgb,var(--good) 40%,var(--border))}
   /* instrução mid-run */
   .instrbox{margin:13px 0 4px;padding:11px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2)}
   .instrbox .ilbl{font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--text-2);display:flex;align-items:center;gap:6px}
@@ -805,7 +811,8 @@ async function refresh(){
   document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
   renderProjName();
   const sig = snapSig();
-  if(sig===lastSig) return;   // nada mudou → não re-renderiza
+  const hasActive = (state.tasks||[]).some(t=>ACTIVE_ST.has(t.status));
+  if(sig===lastSig && !hasActive) return;   // nada mudou → não re-renderiza (mas mantém vivo se há tarefa ativa)
   lastSig = sig;
   render();
 }
@@ -906,18 +913,37 @@ document.getElementById('planClose').onclick=closePlan;
 document.getElementById('planOverlay').addEventListener('click', e=>{ if(e.target.id==='planOverlay') closePlan(); });
 
 // ---------- revisor de arquivos (abrir/editar/salvar + falar por linha) ----------
-const fileCache={}; // taskId -> {status, list}
+const fileCache={}; // taskId -> {status, at, list}
 async function loadTaskFiles(taskId, status){
   const c=fileCache[taskId];
-  if(c && c.status===status) return c.list;
-  try{ fileCache[taskId]={status, list: await invoke("task_files",{ taskId })}; }catch(e){ fileCache[taskId]={status,list:[]}; }
+  // tarefas ativas: revalida a cada ~2.5s (o diff da worktree muda ao vivo)
+  const fresh = c && c.status===status && (!ACTIVE_ST.has(status) || (Date.now()-c.at < 2500));
+  if(fresh) return c.list;
+  try{ fileCache[taskId]={status, at:Date.now(), list: await invoke("task_files",{ taskId })}; }
+  catch(e){ fileCache[taskId]={status, at:Date.now(), list:[]}; }
   return fileCache[taskId].list;
 }
 function filesBlock(t){
   if(t.status==='draft') return '';
   const c=fileCache[t.id];
-  if(!c || c.status!==t.status){ loadTaskFiles(t.id,t.status).then(()=>{ if(selected===t.id) renderSide(); }); return c?filesListHtml(c.list):''; }
-  return filesListHtml(c.list);
+  loadTaskFiles(t.id,t.status).then(()=>{ if(selected===t.id && ACTIVE_ST.has(t.status)) { /* re-render vem do poll */ } });
+  return c ? filesListHtml(c.list) : (loadTaskFiles(t.id,t.status).then(()=>{ if(selected===t.id) renderSide(); }), '');
+}
+function activityBlock(t){
+  if(!ACTIVE_ST.has(t.status)) return '';
+  const evs=eventsOf(t.id); if(!evs.length) return '';
+  const t0=evs[0].ts||t.created_at;
+  const ms=Math.max(0, Date.now()-t0); const mins=Math.floor(ms/60000);
+  const elapsed = mins<1 ? Math.floor(ms/1000)+'s' : mins+' min';
+  const cnt=(ty)=>evs.filter(e=>e.type===ty).length;
+  const edits=cnt('edit')+cnt('write'), reads=cnt('read'), cmds=cnt('bash');
+  const fc=fileCache[t.id], files=fc?fc.list:[];
+  const add=files.reduce((s,f)=>s+(f.add||0),0), del=files.reduce((s,f)=>s+(f.del||0),0);
+  const diffLine = files.length ? `<span class="pchip live"><span style="color:var(--good)">+${add}</span> <span style="color:var(--crit)">−${del}</span> · ${files.length} arq</span>` : '';
+  return `<div class="progbox">
+    <div class="progh"><span class="pulse" style="--pc:var(--good)"></span>Trabalhando há <b>${elapsed}</b></div>
+    <div class="progchips"><span class="pchip">${edits} edições</span><span class="pchip">${reads} leituras</span><span class="pchip">${cmds} comandos</span>${diffLine}</div>
+  </div>`;
 }
 function filesListHtml(files){
   if(!files.length) return '';
@@ -1582,6 +1608,7 @@ function renderSide(){
     <div class="sub">${esc(t.branch)} · ${esc(t.engine)}${t.model?(" · "+esc(t.model)):""}</div>
     <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
     ${pipe}
+    ${activityBlock(t)}
     ${ACTIVE_ST.has(t.status) ? `<div class="instrbox">
       <div class="ilbl">${IC.ai} Enviar instrução ao agente</div>
       <div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (continua a mesma sessão).</div>
