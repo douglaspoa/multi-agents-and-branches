@@ -255,6 +255,20 @@
   .errbox{background:color-mix(in srgb,var(--crit) 13%,var(--surface));border:.5px solid var(--crit);color:var(--text);border-radius:var(--r-sm);padding:9px 11px;margin-bottom:12px;font-size:12.5px;line-height:1.45}
   /* aba Fluxo */
   #flowPane{padding:12px 12px 20px}
+  .ffbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:12px}
+  .ffbar .ffsep{width:1px;height:18px;background:var(--border);margin:0 3px}
+  .ffbar .fflbl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:1px}
+  .fchip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);cursor:pointer;white-space:nowrap}
+  .fchip:hover{background:var(--surface-2)}
+  .fchip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .fchip .n{font-size:10.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+  .fchip.on .n{color:var(--on-accent);opacity:.8}
+  .fchip .dot{width:7px;height:7px;border-radius:50%}
+  .ffsel{font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--fg);cursor:pointer}
+  .ffsearch{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);width:150px;outline:none}
+  .ffsearch:focus{border-color:var(--accent)}
+  .ffsearch::placeholder{color:var(--muted)}
+  .ffbar .grow{flex:1}
   .fcard{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);cursor:pointer;transition:border-color .12s}
   .fcard:hover{border-color:var(--border-strong)}
   .fcard.sel{border-color:var(--accent);box-shadow:var(--ring)}
@@ -431,7 +445,7 @@
         </div>
         <span class="chint" id="chint">quem fez o quê · commits por tarefa</span>
       </div>
-      <div id="flowPane" class="pane"><div id="flow"></div></div>
+      <div id="flowPane" class="pane"><div id="flowFilters" class="ffbar"></div><div id="flow"></div></div>
       <div id="graphPane" class="pane" style="display:none"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
       <div id="emptyRepo" class="emptyrepo" style="display:none">
@@ -638,16 +652,64 @@ function flowTaskCard(t){
     <div class="fcommits">${cchips}</div>
   </div>`;
 }
+// ----- filtros do Fluxo (status · período · agente · busca) -----
+let flowStatus = 'all';   // all | active | review | merged | error
+let flowPeriod = 'all';   // all | today | week
+let flowAgent  = 'all';   // 'all' | nome do agente
+let flowQuery  = '';      // busca por nome da tarefa
+const STATUS_GROUP = { running:'active', thinking:'active', queued:'active', review:'review', merged:'merged', done:'merged', error:'error', conflict:'error' };
+function taskGroup(t){ return STATUS_GROUP[t.status] || 'other'; }
+function inPeriod(t){
+  if(flowPeriod==='all') return true;
+  const now=Date.now(), d=new Date();
+  if(flowPeriod==='today'){ return t.created_at >= new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+  if(flowPeriod==='week'){ return t.created_at >= now-7*864e5; }
+  return true;
+}
+// agentes de uma tarefa = líder + toda a equipe (papéis) — assim o filtro cobre "agente" e "equipe"
+function taskAgents(t){ const s=new Set((t.roles||[]).map(r=>r.name)); if(t.agent) s.add(t.agent); return [...s]; }
+function flowVisible(tasks){
+  const q=flowQuery.trim().toLowerCase();
+  return tasks.filter(t=>
+    (flowStatus==='all'||taskGroup(t)===flowStatus) &&
+    inPeriod(t) &&
+    (flowAgent==='all'||taskAgents(t).includes(flowAgent)) &&
+    (!q || (t.title||'').toLowerCase().includes(q))
+  );
+}
+function renderFlowFilters(){
+  const el=document.getElementById('flowFilters'); if(!el) return;
+  // preserva foco/caret da busca (o poll pode re-renderizar durante digitação)
+  const ae=document.activeElement, wasSearch=ae&&ae.id==='ffSearch', caret=wasSearch?ae.selectionStart:0;
+  const byPeriod=(state.tasks||[]).filter(inPeriod);
+  const count=g=> g==='all'?byPeriod.length:byPeriod.filter(t=>taskGroup(t)===g).length;
+  const ST=[['all','Todas',null],['active','Rodando','var(--good)'],['review','Review','var(--warn)'],['merged','Merged','var(--info)'],['error','Erro','var(--crit)']];
+  const stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}">${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
+  const PE=[['all','Tudo'],['today','Hoje'],['week','7 dias']];
+  const peChips=PE.map(([k,label])=>`<button class="fchip${flowPeriod===k?' on':''}" data-pe="${k}">${label}</button>`).join('');
+  const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
+  if(flowAgent!=='all' && !agents.includes(flowAgent)) flowAgent='all';
+  const agOpts=['all',...agents].map(a=>`<option value="${escA(a)}"${flowAgent===a?' selected':''}>${a==='all'?'Todos os agentes':esc(a)}</option>`).join('');
+  el.innerHTML = `<span class="fflbl">Status</span>${stChips}<span class="ffsep"></span>`+
+    `<span class="fflbl">Período</span>${peChips}<span class="ffsep"></span>`+
+    `<select class="ffsel" id="ffAgent">${agOpts}</select>`+
+    `<span class="grow"></span>`+
+    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}">`;
+  el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; lastSig=''; renderFlow(); });
+  el.querySelectorAll('[data-pe]').forEach(b=>b.onclick=()=>{ flowPeriod=b.dataset.pe; lastSig=''; renderFlow(); });
+  document.getElementById('ffAgent').onchange=(e)=>{ flowAgent=e.target.value; lastSig=''; renderFlow(); };
+  const s=document.getElementById('ffSearch');
+  s.oninput=(e)=>{ flowQuery=e.target.value; lastSig=''; renderFlow(); };
+  if(wasSearch){ s.focus(); try{ s.setSelectionRange(caret,caret); }catch(e){} }
+}
 function renderFlow(){
+  renderFlowFilters();
   const el=document.getElementById("flow");
-  const tasks=state.tasks||[];
-  if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa ainda — clique em “+ Nova tarefa”.</div>'; return; }
-  const groups=new Map();
-  for(const t of tasks){ const a=t.agent||"—"; if(!groups.has(a)) groups.set(a,[]); groups.get(a).push(t); }
-  el.innerHTML = [...groups.entries()].map(([agent,ts])=>{
-    const col=agentColor(agent);
-    return `<div class="fgroup"><div class="fgh"><span class="fgav" style="background:${col}">${esc(agent.slice(0,2).toUpperCase())}</span><b>${esc(agent)}</b><span class="fgn">${ts.length} tarefa(s)</span></div>${ts.map(flowTaskCard).join("")}</div>`;
-  }).join("");
+  if(!(state.tasks||[]).length){ el.innerHTML='<div class="empty">nenhuma tarefa ainda — clique em “+ Nova tarefa”.</div>'; return; }
+  const rank=t=>taskGroup(t)==='active'?0:1;   // rodando primeiro, depois mais recentes
+  const tasks=flowVisible(state.tasks).slice().sort((a,b)=> rank(a)-rank(b) || b.created_at-a.created_at);
+  if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa neste filtro.</div>'; return; }
+  el.innerHTML = tasks.map(flowTaskCard).join("");
   el.querySelectorAll('.fcard').forEach(card=>card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); });
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
   for(const t of tasks){ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('flow')) renderFlow(); }); }
