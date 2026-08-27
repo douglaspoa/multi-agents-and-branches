@@ -303,6 +303,7 @@
   .fcard{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);cursor:pointer;transition:border-color .12s}
   .fcard:hover{border-color:var(--border-strong)}
   .fcard.sel{border-color:var(--accent);box-shadow:var(--ring)}
+  .fcard.dragging{opacity:.4;cursor:grabbing}
   .fhead{display:flex;align-items:center;gap:9px}
   .fhead b{font-size:13.5px;font-weight:600}
   .fhead .sd{width:9px;height:9px;border-radius:50%;flex:none}
@@ -672,7 +673,7 @@ async function connect(repo){
 function curView(){ return (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow"; }
 // Assinatura barata do estado: se nada mudou, pulamos o render inteiro.
 function snapSig(){
-  const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage).join(",");
+  const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage+":"+(x.sortOrder??"")).join(",");
   const d=(state.diffs||[]).map(x=>x.taskId+":"+x.additions+":"+x.deletions).join(",");
   const lastEv = (state.events&&state.events.length) ? state.events[state.events.length-1].id : 0;
   const cost = (state.costs||[]).length+":"+(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0).toFixed(4);
@@ -832,17 +833,38 @@ function renderFlowFilters(){
   s.oninput=(e)=>{ flowQuery=e.target.value; lastSig=''; renderFlow(); };
   if(wasSearch){ s.focus(); try{ s.setSelectionRange(caret,caret); }catch(e){} }
 }
+let flowDragId=null;
 function renderFlow(){
+  if(flowDragId) return;   // não re-renderiza no meio de um arrasto
   renderFlowFilters();
   const el=document.getElementById("flow");
   if(!(state.tasks||[]).length){ el.innerHTML='<div class="empty">nenhuma tarefa ainda — clique em “+ Nova tarefa”.</div>'; return; }
-  const rank=t=>taskGroup(t)==='active'?0:1;   // rodando primeiro, depois mais recentes
-  const tasks=flowVisible(state.tasks).slice().sort((a,b)=> rank(a)-rank(b) || b.created_at-a.created_at);
+  const vis=flowVisible(state.tasks).slice();
+  const hasManual=vis.some(t=>t.sortOrder!=null);
+  const tasks = hasManual
+    ? vis.sort((a,b)=> (a.sortOrder??1e15)-(b.sortOrder??1e15) || b.created_at-a.created_at)
+    : vis.sort((a,b)=> (taskGroup(a)==='active'?0:1)-(taskGroup(b)==='active'?0:1) || b.created_at-a.created_at);
   if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa neste filtro.</div>'; return; }
   el.innerHTML = tasks.map(flowTaskCard).join("");
-  el.querySelectorAll('.fcard').forEach(card=>card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); });
+  el.querySelectorAll('.fcard').forEach(card=>{
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); };
+    card.setAttribute('draggable','true');
+    card.addEventListener('dragstart',e=>{ flowDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+    card.addEventListener('dragend',()=>{ flowDragId=null; card.classList.remove('dragging'); });
+    card.addEventListener('dragover',e=>{ if(flowDragId&&flowDragId!==card.dataset.id){ e.preventDefault(); e.dataTransfer.dropEffect='move'; } });
+    card.addEventListener('drop',e=>{ e.preventDefault(); const tgt=card.dataset.id; const drag=flowDragId; flowDragId=null; if(drag&&drag!==tgt) reorderFlow(drag,tgt); });
+  });
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
   for(const t of tasks){ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('flow')) renderFlow(); }); }
+}
+async function reorderFlow(dragId, targetId){
+  const el=document.getElementById("flow");
+  const ids=[...el.querySelectorAll('.fcard')].map(c=>c.dataset.id);
+  const from=ids.indexOf(dragId), to=ids.indexOf(targetId);
+  if(from<0||to<0) return;
+  ids.splice(to,0, ids.splice(from,1)[0]);
+  try{ await invoke("reorder_tasks",{ ids }); lastSig=""; await refresh(); }
+  catch(e){ console.error("reorder_tasks", e); }
 }
 function commitsBlock(taskId){
   const c=commitsCache[taskId];

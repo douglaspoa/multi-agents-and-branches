@@ -81,6 +81,7 @@ struct Task {
     engine: String,
     model: Option<String>,
     created_at: i64,
+    sort_order: Option<i64>,
     deliverables: serde_json::Value,
     requirements: serde_json::Value,
 }
@@ -735,7 +736,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
 
     let tasks = conn
         .prepare(
-            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json \
+            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order \
              FROM task ORDER BY created_at",
         )
         .map_err(|e| e.to_string())?
@@ -757,6 +758,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 engine: r.get(10)?,
                 model: r.get(11)?,
                 created_at: r.get(12)?,
+                sort_order: r.get(14)?,
                 deliverables: spec.get("deliverables").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 requirements: spec.get("requirements").cloned().unwrap_or(serde_json::Value::Array(vec![])),
             })
@@ -1080,6 +1082,20 @@ fn new_task(
     Ok(())
 }
 
+/// Reordena as tarefas no Fluxo: grava sort_order = posição na lista recebida.
+#[tauri::command]
+fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
+    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    for (i, id) in ids.iter().enumerate() {
+        conn.execute("UPDATE task SET sort_order=?1 WHERE id=?2", params![i as i64, id])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Inicia uma tarefa em rascunho (roda a equipe). Detached, como new_task.
 #[tauri::command]
 fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
@@ -1211,6 +1227,7 @@ pub fn run() {
             config,
             new_task,
             start_task,
+            reorder_tasks,
             merge_task,
             remove_task,
             pick_folder,

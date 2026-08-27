@@ -121,6 +121,7 @@ export class Store {
       "ALTER TABLE task ADD COLUMN stage TEXT NOT NULL DEFAULT 'builder'",
       "ALTER TABLE task ADD COLUMN roles_json TEXT NOT NULL DEFAULT '[]'",
       "ALTER TABLE task ADD COLUMN session_id TEXT",
+      "ALTER TABLE task ADD COLUMN sort_order INTEGER",
       "ALTER TABLE event ADD COLUMN role TEXT",
     ]) {
       try {
