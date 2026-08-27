@@ -595,6 +595,112 @@ fn remove_project(path: String) -> Vec<String> {
     list
 }
 
+// ---------- artefatos da tarefa (docs/provas produzidos pelo agente) ----------
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Artifact {
+    name: String,
+    kind: String, // "doc" | "image" | "file"
+    size: u64,
+}
+
+fn artifact_kind(name: &str) -> &'static str {
+    let l = name.to_lowercase();
+    if l.ends_with(".md") || l.ends_with(".markdown") || l.ends_with(".txt") {
+        "doc"
+    } else if l.ends_with(".png") || l.ends_with(".jpg") || l.ends_with(".jpeg") || l.ends_with(".gif") || l.ends_with(".webp") || l.ends_with(".svg") {
+        "image"
+    } else {
+        "file"
+    }
+}
+
+#[tauri::command]
+fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifact>, String> {
+    let repo = repo_of(&state)?;
+    let dir = repo.join(".cardume").join("artifacts").join(&task_id);
+    let mut out: Vec<Artifact> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_file() {
+                let name = e.file_name().to_string_lossy().to_string();
+                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                out.push(Artifact { kind: artifact_kind(&name).to_string(), name, size });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtifactContent {
+    kind: String,
+    text: Option<String>,
+    data_url: Option<String>,
+}
+
+#[tauri::command]
+fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("nome de artefato inválido".to_string());
+    }
+    let repo = repo_of(&state)?;
+    let path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    if !path.is_file() {
+        return Err("artefato não encontrado".to_string());
+    }
+    let kind = artifact_kind(&name);
+    if kind == "image" {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let l = name.to_lowercase();
+        let mime = if l.ends_with(".png") {
+            "image/png"
+        } else if l.ends_with(".jpg") || l.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if l.ends_with(".gif") {
+            "image/gif"
+        } else if l.ends_with(".webp") {
+            "image/webp"
+        } else if l.ends_with(".svg") {
+            "image/svg+xml"
+        } else {
+            "application/octet-stream"
+        };
+        Ok(ArtifactContent {
+            kind: "image".to_string(),
+            text: None,
+            data_url: Some(format!("data:{};base64,{}", mime, base64_encode(&bytes))),
+        })
+    } else {
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        Ok(ArtifactContent {
+            kind: if kind == "doc" { "doc".to_string() } else { "file".to_string() },
+            text: Some(text),
+            data_url: None,
+        })
+    }
+}
+
+/// base64 padrão (sem depender de crate externa).
+fn base64_encode(bytes: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { T[((n >> 6) & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
 #[tauri::command]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
     let path = state.db.lock().unwrap().clone();
@@ -791,6 +897,8 @@ fn new_task(
     objective: Option<String>,
     deliverables: Option<Vec<String>>,
     requirements: Option<Vec<String>>,
+    doc: Option<String>,
+    proof: Option<bool>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let mut args = vec![
@@ -823,6 +931,15 @@ fn new_task(
             args.push("--requirements".to_string());
             args.push(joined.join(","));
         }
+    }
+    if let Some(d) = &doc {
+        if !d.is_empty() {
+            args.push("--artifact-doc".to_string());
+            args.push(d.clone());
+        }
+    }
+    if proof.unwrap_or(false) {
+        args.push("--artifact-proof".to_string());
     }
 
     Command::new(node_bin())
@@ -950,7 +1067,9 @@ pub fn run() {
             commit_detail,
             ai_commit_summary,
             commit_summary_cached,
-            task_commits
+            task_commits,
+            list_artifacts,
+            read_artifact
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");

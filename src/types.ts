@@ -60,12 +60,21 @@ export interface TaskAutonomy {
 }
 
 /** O "briefing" declarativo de uma tarefa — vira o .cardume/TASK.yaml na worktree. */
+/** Artefato pedido na criação da tarefa (doc de arquitetura, prova, etc.). */
+export interface ArtifactReq {
+  kind: "doc" | "proof";
+  name: string;
+  desc?: string;
+}
+
 export interface TaskSpec {
   id: string;
   title: string;
   objective: string;
   deliverables: string[];
   requirements: string[];
+  /** Artefatos que o agente deve produzir em .cardume/artifacts/. */
+  artifacts?: ArtifactReq[];
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

@@ -43,10 +43,21 @@ export class ClaudeEngine implements AgentEngine {
       this.approval === "ask"
         ? " IMPORTANTE: em QUALQUER decisão de requisito não trivial, chame mcp__cardume__ask_human e AGUARDE a resposta antes de prosseguir."
         : "";
+    const arts = input.spec.artifacts ?? [];
+    let artifactRule = "";
+    if (arts.length && input.role !== "planner") {
+      const lines = arts.map((a) =>
+        a.kind === "doc"
+          ? `- DOCUMENTO: escreva ".cardume/artifacts/${a.name}" em Markdown — ${a.desc ?? "documente a solução"}: contexto, decisões de design, principais componentes/arquivos criados e como se conectam. Seja claro e conciso.`
+          : `- PROVA: comprove que a solução funciona. Se for algo visual/web, capture um screenshot e salve como ".cardume/artifacts/proof.png". Caso contrário, salve ".cardume/artifacts/proof.md" com a evidência (comandos executados, saída de testes, antes/depois).`
+      );
+      artifactRule =
+        ` Ao final, produza também estes ARTEFATOS (crie a pasta .cardume/artifacts/ se não existir):\n${lines.join("\n")}`;
+    }
     const prompt =
       `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}`;
 
     // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
     const serverPath = fileURLToPath(new URL("../mcp/server.ts", import.meta.url));

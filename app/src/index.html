@@ -438,6 +438,29 @@
   .step.cur .srole{color:var(--accent)}
   .step.wait .srole,.step.wait .sname{color:var(--muted)}
   .sact{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+  /* artefatos */
+  .ckrow{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;padding:7px 0;cursor:pointer}
+  .ckrow input{margin-top:2px;accent-color:var(--accent);width:15px;height:15px;flex:none}
+  .artlist{display:flex;flex-direction:column;gap:5px;margin:3px 0 2px}
+  .artitem{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:8px 11px;cursor:pointer;font:inherit}
+  .artitem:hover{background:var(--surface-2);border-color:var(--border-strong)}
+  .artic{display:grid;place-items:center;color:var(--accent)}
+  .artic svg{width:16px;height:16px}
+  .artnm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .artkb{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .artmodal{max-width:820px;width:min(820px,92vw)}
+  .artmodal .mbody{max-height:74vh;overflow:auto}
+  .artimg{max-width:100%;height:auto;display:block;border-radius:var(--r-sm);border:1px solid var(--border)}
+  .artpre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--text)}
+  .mdview{font-size:13.5px;line-height:1.6;color:var(--text)}
+  .mdview h1{font-size:20px;margin:2px 0 10px} .mdview h2{font-size:16.5px;margin:18px 0 8px}
+  .mdview h3{font-size:14px;margin:15px 0 6px;color:var(--text-2)} .mdview h4,.mdview h5,.mdview h6{font-size:12.5px;margin:12px 0 5px;color:var(--text-2)}
+  .mdview p{margin:9px 0} .mdview ul,.mdview ol{margin:8px 0 8px 20px} .mdview li{margin:3px 0}
+  .mdview code{font-family:var(--mono);font-size:.88em;background:var(--surface-3);padding:1px 5px;border-radius:5px}
+  .mdview pre.mdcode{font-family:var(--mono);font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:11px 13px;overflow-x:auto;line-height:1.5;white-space:pre}
+  .mdview pre.mdcode code{background:none;padding:0}
+  .mdview a{color:var(--accent)} .mdview hr{border:none;border-top:1px solid var(--border);margin:14px 0}
+  .mdview strong{font-weight:700} .mdview h1,.mdview h2{border-bottom:1px solid var(--border);padding-bottom:5px}
   .pipe .st b{color:var(--text-2);text-transform:none;letter-spacing:0}
   .pipe .st.cur b{color:var(--accent)}
   /* review humano */
@@ -546,6 +569,11 @@
         <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
       </div>
       <div style="margin-top:11px"><label>Aprovação</label><select class="sel" id="ntApprove" style="width:100%"><option value="auto">Auto — o agente decide sozinho</option><option value="ask">Perguntar quando incerto</option></select></div>
+
+      <div class="seclbl2" style="margin-top:15px">Artefatos a produzir</div>
+      <label class="ckrow"><input type="checkbox" id="ntArtDoc"><span><b>Documento de arquitetura</b> <span class="dim">— o agente escreve um .md que você abre no app</span></span></label>
+      <label class="ckrow"><input type="checkbox" id="ntArtProof"><span><b>Prova da solução</b> <span class="dim">— screenshot ou evidência (testes, antes/depois)</span></span></label>
+
       <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
     </div>
     <div class="mfoot">
@@ -554,6 +582,13 @@
       <button class="btn" id="ntCancel">cancelar</button>
       <button class="btn primary" id="ntCreate"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>criar e iniciar</button>
     </div>
+  </div>
+</div>
+
+<div class="overlay" id="artOverlay" style="display:none">
+  <div class="modal artmodal">
+    <div class="mhead"><span class="artic" id="artIcon"></span><b id="artTitle"></b><span style="flex:1"></span><button class="x" id="artClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="artBody"></div>
   </div>
 </div>
 
@@ -590,6 +625,8 @@ const IC = {
   merge:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4.2" cy="4" r="1.5"/><circle cx="4.2" cy="12" r="1.5"/><circle cx="11.8" cy="8" r="1.5"/><path d="M4.2 5.5v5M5.7 5.4C6 8 8.2 8 10.3 8" stroke-linecap="round"/></svg>',
   check:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.4 8.4l3 3 6.2-6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   ai:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/><path d="M12 9.4l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5z" stroke-linejoin="round"/></svg>',
+  doc:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4M6 8.5h4M6 10.6h4" stroke-linecap="round"/></svg>',
+  image:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="6" cy="6.6" r="1"/><path d="M3 11l3-2.6 2.4 2 2.3-1.8L13 11" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 const STATUS_COLOR = { running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)" };
@@ -790,6 +827,64 @@ function errBanner(t){
 }
 
 function pendingOf(taskId){ return (state.pending||[]).filter(p=>p.taskId===taskId); }
+
+// ---------- artefatos da tarefa ----------
+const artifactsCache = {}; // taskId -> { status, list }
+async function loadArtifacts(taskId, status){
+  const c = artifactsCache[taskId];
+  if(c && c.status===status) return c.list;
+  try{ artifactsCache[taskId] = { status, list: await invoke("list_artifacts",{ taskId }) }; }
+  catch(e){ artifactsCache[taskId] = { status, list: [] }; }
+  return artifactsCache[taskId].list;
+}
+function artListHtml(a){
+  if(!a.length) return '';
+  return `<div class="seclbl">Artefatos <span class="n">${a.length}</span></div><div class="artlist">`+
+    a.map(x=>`<button class="artitem" data-art="${escA(x.name)}"><span class="artic">${x.kind==='image'?IC.image:IC.doc}</span><span class="artnm">${esc(x.name)}</span><span class="artkb">${x.size<1024?x.size+' B':(x.size/1024).toFixed(x.size<10240?1:0)+' KB'}</span></button>`).join('')+
+    `</div>`;
+}
+function artifactsBlock(t){
+  const c = artifactsCache[t.id];
+  if(!c || c.status!==t.status){ loadArtifacts(t.id, t.status).then(()=>{ if(selected===t.id) renderSide(); }); return c ? artListHtml(c.list) : ''; }
+  return artListHtml(c.list);
+}
+async function openArtifact(taskId, name){
+  let c;
+  try{ c = await invoke("read_artifact",{ taskId, name }); }
+  catch(e){ alert("Falha ao abrir o artefato:\n"+e); return; }
+  const body = c.kind==='image'
+    ? `<img class="artimg" src="${c.dataUrl}" alt="${escA(name)}">`
+    : c.kind==='doc'
+      ? `<div class="mdview">${mdToHtml(c.text||'')}</div>`
+      : `<pre class="artpre">${esc(c.text||'')}</pre>`;
+  document.getElementById("artIcon").innerHTML = c.kind==='image'?IC.image:IC.doc;
+  document.getElementById("artTitle").textContent = name;
+  document.getElementById("artBody").innerHTML = body;
+  document.getElementById("artOverlay").style.display = "flex";
+}
+function closeArtifact(){ document.getElementById("artOverlay").style.display="none"; document.getElementById("artBody").innerHTML=""; }
+// mini-renderer de Markdown (headings, listas, code, bold/italic, links, hr)
+function mdToHtml(md){
+  const e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline=s=>e(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  const lines=String(md).replace(/\r\n/g,'\n').split('\n');
+  let html='', inCode=false, code=[], list=null, para=[];
+  const fp=()=>{ if(para.length){ html+='<p>'+inline(para.join(' '))+'</p>'; para=[]; } };
+  const fl=()=>{ if(list){ html+='</'+list+'>'; list=null; } };
+  for(const line of lines){
+    if(line.trim().startsWith('```')){ if(inCode){ html+='<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>'; code=[]; inCode=false; } else { fp(); fl(); inCode=true; } continue; }
+    if(inCode){ code.push(line); continue; }
+    const h=line.match(/^(#{1,6})\s+(.*)$/);
+    if(h){ fp(); fl(); const lv=h[1].length; html+='<h'+lv+'>'+inline(h[2])+'</h'+lv+'>'; continue; }
+    if(/^\s*[-*+]\s+/.test(line)){ fp(); if(list!=='ul'){ fl(); html+='<ul>'; list='ul'; } html+='<li>'+inline(line.replace(/^\s*[-*+]\s+/,''))+'</li>'; continue; }
+    if(/^\s*\d+[.)]\s+/.test(line)){ fp(); if(list!=='ol'){ fl(); html+='<ol>'; list='ol'; } html+='<li>'+inline(line.replace(/^\s*\d+[.)]\s+/,''))+'</li>'; continue; }
+    if(/^\s*(---|\*\*\*|___)\s*$/.test(line)){ fp(); fl(); html+='<hr>'; continue; }
+    if(line.trim()===''){ fp(); fl(); continue; }
+    para.push(line.trim());
+  }
+  fp(); fl(); if(inCode&&code.length) html+='<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>';
+  return html;
+}
 
 async function resolvePending(id, answer){
   try{ await invoke("resolve_pending", { id, answer }); await refresh(); }
@@ -1100,6 +1195,7 @@ function renderSide(){
       <b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b>
       <span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span>
     </div>
+    ${artifactsBlock(t)}
     ${commitsBlock(t.id)}
     <div class="seclbl">Log <span class="n">${evs.length}</span></div>
     <div class="log">${evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join("")||'<span class="dim">—</span>'}</div>
@@ -1110,6 +1206,7 @@ function renderSide(){
   el.querySelectorAll('[data-act="merge"]').forEach(b=>b.onclick=()=>mergeTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
+  el.querySelectorAll('.artitem').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   wireQuestion(el);
 }
 
@@ -1166,7 +1263,7 @@ async function openNewTask(){
   document.getElementById("ntTitle").focus();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); }
 async function submitNewTask(){
   const title = document.getElementById("ntTitle").value.trim();
   if(!title){ document.getElementById("ntTitle").focus(); return; }
@@ -1181,6 +1278,8 @@ async function submitNewTask(){
     objective: document.getElementById("ntObj").value.trim() || null,
     deliverables: ntDel.map(x=>x.trim()).filter(Boolean),
     requirements: ntReq.map(x=>x.trim()).filter(Boolean),
+    doc: document.getElementById("ntArtDoc").checked ? "ARCHITECTURE.md" : null,
+    proof: document.getElementById("ntArtProof").checked,
   };
   const btn = document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="iniciando…";
   try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); await refresh(); }
@@ -1279,10 +1378,12 @@ document.getElementById("ntImport").onclick = importTaskMd;
 document.getElementById("ntDelAdd").onclick = ()=>{ ntDel.push(""); renderNtList("ntDeliverables",ntDel); };
 document.getElementById("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
 document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });
+document.getElementById("artClose").onclick = closeArtifact;
+document.getElementById("artOverlay").addEventListener("click", e=>{ if(e.target.id==="artOverlay") closeArtifact(); });
 document.getElementById("cmClose").onclick = closeCommit;
 document.getElementById("cmOverlay").addEventListener("click", e=>{ if(e.target.id==="cmOverlay") closeCommit(); });
 document.addEventListener("keydown", e=>{
-  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); return; }
+  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
     if(k==="n"){ e.preventDefault(); if(connected) openNewTask(); }

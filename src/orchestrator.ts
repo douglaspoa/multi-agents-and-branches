@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { GitService } from "./git.ts";
@@ -139,9 +139,32 @@ export class Orchestrator {
       }
     }
 
+    await this.collectArtifacts(taskId, task.worktree, spec.agent);
+
     this.store.setStatus(taskId, "review");
     const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
     if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
+  }
+
+  /**
+   * Copia os artefatos gerados na worktree (.cardume/artifacts/) para um lugar
+   * estável (<repo>/.cardume/artifacts/<taskId>/) — sobrevive ao merge/remoção
+   * da worktree e é de onde o app lê pra exibir.
+   */
+  private async collectArtifacts(taskId: string, worktree: string, agent: string): Promise<void> {
+    const src = join(worktree, ".cardume", "artifacts");
+    try {
+      const files = await readdir(src);
+      if (!files.length) return;
+      const dst = join(this.ws.dir, "artifacts", taskId);
+      await mkdir(dst, { recursive: true });
+      for (const f of files) {
+        await cp(join(src, f), join(dst, f), { recursive: true });
+      }
+      this.store.addEvent(taskId, agent, "note", `${files.length} artefato(s) anexado(s) à tarefa`, true);
+    } catch {
+      /* nenhum artefato produzido */
+    }
   }
 
   /** Gera (via Claude) e guarda o resumo técnico de um commit — o quê + porquê. */
@@ -195,6 +218,7 @@ export class Orchestrator {
       /* worktree pode já ter sido removida */
     }
     await this.git.branchDelete(task.branch);
+    await rm(join(this.ws.dir, "artifacts", taskId), { recursive: true, force: true }).catch(() => {});
     this.store.deleteTask(taskId);
   }
 

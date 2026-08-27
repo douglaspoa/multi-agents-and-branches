@@ -122,6 +122,14 @@ async function cmdNew(repo: string, a: Args) {
   const id = slugify(title);
   const roles = buildRoles(a, repo);
   const lead = roles.find((r) => r.role === "builder") ?? roles[0];
+  const artifacts: TaskSpec["artifacts"] = [];
+  if (a.flags["artifact-doc"]) {
+    const name = a.flags["artifact-doc"] === "true" ? "ARCHITECTURE.md" : a.flags["artifact-doc"];
+    artifacts.push({ kind: "doc", name, desc: "Documento de arquitetura da solução" });
+  }
+  if (a.flags["artifact-proof"]) {
+    artifacts.push({ kind: "proof", name: "proof", desc: "Prova comprovando a solução" });
+  }
   const spec: TaskSpec = {
     id,
     title,
@@ -129,6 +137,7 @@ async function cmdNew(repo: string, a: Args) {
     objective: a.flags.objective ?? title,
     deliverables: a.multi.deliverable ?? [title],
     requirements: list(a.flags.requirements),
+    artifacts: artifacts.length ? artifacts : undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",
