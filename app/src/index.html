@@ -277,6 +277,14 @@
   .fcommit:hover{background:var(--surface-2);color:var(--text)}
   .fcommit .mono{color:var(--muted);font-size:10.5px;flex:none}
   .sidecommits{display:flex;flex-direction:column;gap:1px;margin-top:4px}
+  .fgroup{margin-bottom:20px}
+  .fgh{display:flex;align-items:center;gap:9px;margin:0 2px 9px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  .fgh b{font-size:14px;font-weight:700}
+  .fgav{width:26px;height:26px;border-radius:8px;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none;box-shadow:var(--shadow-sm)}
+  .fgn{margin-left:auto;font-size:11px;color:var(--muted)}
+  .fclabel{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;margin-top:11px;border-top:.5px dashed var(--border);padding-top:9px}
+  .fclabel .dim{text-transform:none;letter-spacing:0;font-weight:400}
+  .fcommits{border-top:0 !important;padding-top:3px !important;margin-top:3px !important}
 
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
@@ -563,24 +571,33 @@ async function loadCommits(taskId, force){
 }
 async function loadAllCommits(){ for(const t of (state.tasks||[])) await loadCommits(t.id); render(); }
 function commitChip(x){ return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA(x.subject)}"><span class="mono">${esc((x.hash||'').slice(0,7))}</span> ${esc((x.subject||'').slice(0,44))}</button>`; }
+const FLOW_PAL=["#1e9e4a","#0a72e0","#a05cff","#e0891f","#e5484d","#12a3a3","#ec4899","#6b7280"];
+function agentColor(name){ let h=0; const s=String(name||""); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return FLOW_PAL[h%FLOW_PAL.length]; }
+function flowTaskCard(t){
+  const col=STATUS_COLOR[t.status]||"var(--muted)";
+  const roles=t.roles||[];
+  const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${esc((r.name||'?').slice(0,2).toUpperCase())}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
+  const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
+  const cchips = c===undefined ? '<span class="dim" style="font-size:11px">carregando…</span>'
+    : c.length ? c.slice(0,8).map(commitChip).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
+    : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
+  return `<div class="fcard${t.id===selected?' sel':''}" data-id="${t.id}">
+    <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b><span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
+    <div class="fpipe">${pipe}</div>
+    <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span></div>
+    <div class="fclabel">Commits desta tarefa <span class="dim">· clique para ver o diff</span></div>
+    <div class="fcommits">${cchips}</div>
+  </div>`;
+}
 function renderFlow(){
   const el=document.getElementById("flow");
   const tasks=state.tasks||[];
-  if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa ainda — clique “+ Nova tarefa”.</div>'; return; }
-  el.innerHTML = tasks.map(t=>{
-    const col=STATUS_COLOR[t.status]||"var(--muted)";
-    const roles=t.roles||[];
-    const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav">${esc((r.name||'?').slice(0,2).toUpperCase())}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
-    const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
-    const cchips = c===undefined ? '<span class="dim" style="font-size:11px">…</span>'
-      : c.length ? c.slice(0,6).map(commitChip).join("")+(c.length>6?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-6}</span>`:"")
-      : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">sem commits ainda</span>');
-    return `<div class="fcard${t.id===selected?' sel':''}" data-id="${t.id}">
-      <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b><span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
-      <div class="fpipe">${pipe}</div>
-      <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span></div>
-      <div class="fcommits">${cchips}</div>
-    </div>`;
+  if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa ainda — clique em “+ Nova tarefa”.</div>'; return; }
+  const groups=new Map();
+  for(const t of tasks){ const a=t.agent||"—"; if(!groups.has(a)) groups.set(a,[]); groups.get(a).push(t); }
+  el.innerHTML = [...groups.entries()].map(([agent,ts])=>{
+    const col=agentColor(agent);
+    return `<div class="fgroup"><div class="fgh"><span class="fgav" style="background:${col}">${esc(agent.slice(0,2).toUpperCase())}</span><b>${esc(agent)}</b><span class="fgn">${ts.length} tarefa(s)</span></div>${ts.map(flowTaskCard).join("")}</div>`;
   }).join("");
   el.querySelectorAll('.fcard').forEach(card=>card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); });
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
