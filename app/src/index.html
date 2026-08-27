@@ -438,6 +438,14 @@
   .step.cur .srole{color:var(--accent)}
   .step.wait .srole,.step.wait .sname{color:var(--muted)}
   .sact{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+  /* custo/tokens */
+  .fcost{color:var(--accent);font-weight:600}
+  .costlist{display:flex;flex-direction:column;gap:5px;margin:3px 0 2px}
+  .costrow{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;font-size:12px}
+  .costrow .cav{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+  .costrow .cnm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .costrow .ctok{color:var(--muted);font-variant-numeric:tabular-nums;font-size:11px}
+  .costrow .cusd{font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
   /* instrução mid-run */
   .instrbox{margin:13px 0 4px;padding:11px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2)}
   .instrbox .ilbl{font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--text-2);display:flex;align-items:center;gap:6px}
@@ -666,8 +674,9 @@ function snapSig(){
   const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage).join(",");
   const d=(state.diffs||[]).map(x=>x.taskId+":"+x.additions+":"+x.deletions).join(",");
   const lastEv = (state.events&&state.events.length) ? state.events[state.events.length-1].id : 0;
+  const cost = (state.costs||[]).length+":"+(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0).toFixed(4);
   return [state.repo||"", t, lastEv, (state.pending||[]).length,
-          (state.reviews||[]).length, (state.claims||[]).length, d,
+          (state.reviews||[]).length, (state.claims||[]).length, d, cost,
           selected, (state.graph||[]).length, curView()].join("|");
 }
 let lastSig = "";
@@ -702,6 +711,19 @@ function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
 function claimsOf(taskId){ return state.claims.filter(c=>c.taskId===taskId); }
 function diffOf(taskId){ return state.diffs.find(d=>d.taskId===taskId); }
 function reviewOf(taskId){ return (state.reviews||[]).find(r=>r.taskId===taskId); }
+function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId); }
+function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
+function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2); }
+function fmtTok(n){ n=n||0; return n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : String(n); }
+function costBlock(taskId){
+  const cs=costsOf(taskId); if(!cs.length) return '';
+  const tc=taskCost(taskId);
+  const byAgent={};
+  for(const c of cs){ const k=c.agent||'?'; (byAgent[k]||(byAgent[k]={usd:0,tok:0}));  byAgent[k].usd+=c.usd||0; byAgent[k].tok+=(c.inTok||0)+(c.outTok||0); }
+  return `<div class="seclbl">Custo <span class="n">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span></div><div class="costlist">`+
+    Object.entries(byAgent).map(([a,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(a)}">${esc(a.slice(0,2).toUpperCase())}</span><span class="cnm">${esc(a)}</span><span class="ctok">${fmtTok(v.tok)} tok</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')+
+    `</div>`;
+}
 const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
 
 function render(){
@@ -752,7 +774,7 @@ function flowTaskCard(t){
   return `<div class="fcard${t.id===selected?' sel':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b><span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span></div>
+    <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel">Commits desta tarefa <span class="dim">· clique para ver o diff</span></div>
     <div class="fcommits">${cchips}</div>
   </div>`;
@@ -1216,6 +1238,7 @@ function renderSide(){
       <b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b>
       <span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span>
     </div>
+    ${costBlock(t.id)}
     ${artifactsBlock(t)}
     ${commitsBlock(t.id)}
     <div class="seclbl">Log <span class="n">${evs.length}</span></div>
@@ -1239,6 +1262,9 @@ function renderBus(){
   const el = document.getElementById("busSummary");
   if(state.tasks.length===0){ el.innerHTML = '<span class="dim">—</span>'; return; }
   const parts = [`${state.tasks.length} agentes · ${totalClaims} reivindicações`];
+  const totUsd=(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0);
+  const totTok=(state.costs||[]).reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0);
+  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">Σ ${fmtUsd(totUsd)} · ${fmtTok(totTok)} tok</span>`);
   for(const c of yields) parts.push(`<span class="warn">⚠ ${esc(c.agent)} cedeu ${esc(c.path)} → ${esc(c.yieldedTo)}</span>`);
   el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
 }

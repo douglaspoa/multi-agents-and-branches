@@ -104,6 +104,9 @@ export class Orchestrator {
             continue;
           }
           this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role);
+          if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
+            this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+          }
           if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
         }
       } catch (err) {
@@ -200,6 +203,9 @@ export class Orchestrator {
             continue;
           }
           this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
+          if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
+            this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+          }
           if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
         }
       } catch (err) {

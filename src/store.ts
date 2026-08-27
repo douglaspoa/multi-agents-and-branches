@@ -105,6 +105,16 @@ export class Store {
         created_at INTEGER NOT NULL,
         applied_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS cost (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        role TEXT,
+        usd REAL NOT NULL,
+        in_tok INTEGER NOT NULL,
+        out_tok INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
     `);
     // migração leve para workspaces antigos (ignora se a coluna já existe)
     for (const stmt of [
@@ -257,6 +267,7 @@ export class Store {
     this.db.prepare(`DELETE FROM review WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM pending WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM instruction WHERE task_id = ?`).run(taskId);
+    this.db.prepare(`DELETE FROM cost WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM task WHERE id = ?`).run(taskId);
   }
 
@@ -312,6 +323,13 @@ export class Store {
 
   markInstructionApplied(id: number): void {
     this.db.prepare(`UPDATE instruction SET status = 'applied', applied_at = ? WHERE id = ?`).run(Date.now(), id);
+  }
+
+  // ---------- custo/tokens por turno de agente ----------
+  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number): void {
+    this.db
+      .prepare(`INSERT INTO cost (task_id, agent, role, usd, in_tok, out_tok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(taskId, agent, role ?? null, usd, inTok, outTok, Date.now());
   }
 
   close(): void {

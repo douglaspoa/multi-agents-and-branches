@@ -208,16 +208,21 @@ function mapLine(line: string): AgentEvent[] {
 
   if (o.type === "result") {
     const ok = !o.is_error;
-    const cost = typeof o.total_cost_usd === "number" ? ` · $${o.total_cost_usd.toFixed(3)}` : "";
+    const usd = typeof o.total_cost_usd === "number" ? o.total_cost_usd : 0;
+    const cost = usd ? ` · $${usd.toFixed(3)}` : "";
     const denials = Array.isArray(o.permission_denials) && o.permission_denials.length
       ? ` · ${o.permission_denials.length} permissão(ões) negada(s)`
       : "";
+    const u = o.usage || {};
+    const inTok = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0);
+    const outTok = Number(u.output_tokens) || 0;
     return [
       {
         type: "done",
         text: (o.result ? String(o.result).slice(0, 120) : "concluído") + cost + denials,
         status: ok ? "review" : "error",
         ok,
+        cost: { usd, inTok, outTok },
       },
     ];
   }

@@ -143,6 +143,17 @@ struct Pending {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct Cost {
+    task_id: String,
+    agent: String,
+    role: Option<String>,
+    usd: f64,
+    in_tok: i64,
+    out_tok: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Snapshot {
     repo: Option<String>,
     tasks: Vec<Task>,
@@ -151,6 +162,7 @@ struct Snapshot {
     diffs: Vec<Diff>,
     reviews: Vec<Review>,
     pending: Vec<Pending>,
+    costs: Vec<Cost>,
 }
 
 fn open(path: &PathBuf) -> Result<Connection, String> {
@@ -715,6 +727,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 diffs: vec![],
                 reviews: vec![],
                 pending: vec![],
+                costs: vec![],
             })
         }
     };
@@ -839,12 +852,28 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
 
+    let costs = conn
+        .prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok) FROM cost GROUP BY task_id, agent, role")
+        .map_err(|e| e.to_string())?
+        .query_map([], |r| {
+            Ok(Cost {
+                task_id: r.get(0)?,
+                agent: r.get(1)?,
+                role: r.get(2)?,
+                usd: r.get(3)?,
+                in_tok: r.get(4)?,
+                out_tok: r.get(5)?,
+            })
+        })
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| e.to_string())?;
+
     let repo = path
         .parent()
         .and_then(|d| d.parent())
         .map(|r| r.display().to_string());
 
-    Ok(Snapshot { repo, tasks, events, claims, diffs, reviews, pending })
+    Ok(Snapshot { repo, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
