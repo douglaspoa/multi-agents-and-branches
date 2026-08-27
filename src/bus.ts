@@ -21,8 +21,18 @@ export class CoordinationBus {
     this.store = store;
   }
 
+  /** Só tarefas AINDA editando (queued/running/thinking) travam um caminho. Uma
+   * tarefa em review/merged/error já terminou de editar — seus claims não valem. */
+  private isActiveTask(taskId: string): boolean {
+    const t = this.store.getTask(taskId);
+    if (!t) return false;
+    return t.status === "queued" || t.status === "running" || t.status === "thinking";
+  }
+
   claim(taskId: string, agent: string, path: string, mode: ClaimMode): ClaimResult {
-    const existing = this.store.claimsForPath(path).filter((c) => c.agent !== agent);
+    const existing = this.store
+      .claimsForPath(path)
+      .filter((c) => c.agent !== agent && this.isActiveTask(c.task_id));
     const writeOwner = existing.find((c) => c.mode === "write");
 
     if (mode === "write" && writeOwner) {
@@ -56,7 +66,7 @@ export class CoordinationBus {
   buildContext(spec: TaskSpec): string {
     const others = this.store
       .allClaims()
-      .filter((c) => c.agent !== spec.agent && c.mode === "write");
+      .filter((c) => c.agent !== spec.agent && c.mode === "write" && this.isActiveTask(c.task_id));
 
     const lines: string[] = ["## Coordenação (outros agentes ativos no repo)"];
     if (others.length === 0) {

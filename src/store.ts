@@ -213,6 +213,11 @@ export class Store {
     return this.db.prepare(`SELECT * FROM claim ORDER BY created_at`).all() as ClaimRow[];
   }
 
+  /** Libera os claims de uma tarefa (ela terminou de editar). */
+  releaseClaims(taskId: string): void {
+    this.db.prepare(`DELETE FROM claim WHERE task_id = ?`).run(taskId);
+  }
+
   setDiff(taskId: string, files: number, add: number, del: number): void {
     this.db
       .prepare(
@@ -251,6 +256,7 @@ export class Store {
     this.db.prepare(`DELETE FROM diffstat WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM review WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM pending WHERE task_id = ?`).run(taskId);
+    this.db.prepare(`DELETE FROM instruction WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM task WHERE id = ?`).run(taskId);
   }
 

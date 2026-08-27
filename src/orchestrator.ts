@@ -150,6 +150,7 @@ export class Orchestrator {
 
     await this.collectArtifacts(taskId, task.worktree, spec.agent);
 
+    this.store.releaseClaims(taskId); // terminou de editar → libera os caminhos
     this.store.setStatus(taskId, "review");
     const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
     if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
@@ -268,6 +269,7 @@ export class Orchestrator {
       /* ok */
     }
     await this.git.branchDelete(task.branch);
+    this.store.releaseClaims(taskId);
     this.store.setStatus(taskId, "merged");
     this.store.addEvent(taskId, task.agent, "note", `merge na ${task.base} concluído`, true);
   }
