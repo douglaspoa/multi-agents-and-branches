@@ -526,6 +526,13 @@
   /* artefatos */
   .ckrow{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;padding:7px 0;cursor:pointer}
   .ckrow input{margin-top:2px;accent-color:var(--accent);width:15px;height:15px;flex:none}
+  .reflist{display:flex;flex-direction:column;gap:5px;margin-top:5px}
+  .refchip{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:6px 10px}
+  .refchip .refic{display:grid;place-items:center;color:var(--accent)}
+  .refchip .refic svg{width:15px;height:15px}
+  .refchip .refnm{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .refchip .refrm{border:none;background:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 4px;border-radius:5px}
+  .refchip .refrm:hover{color:var(--crit);background:var(--surface-3)}
   .artlist{display:flex;flex-direction:column;gap:5px;margin:3px 0 2px}
   .artitem{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:8px 11px;cursor:pointer;font:inherit}
   .artitem:hover{background:var(--surface-2);border-color:var(--border-strong)}
@@ -667,6 +674,9 @@
       <label class="ckrow"><input type="checkbox" id="ntArtDoc"><span><b>Documento de arquitetura</b> <span class="dim">— o agente escreve um .md que você abre no app</span></span></label>
       <label class="ckrow"><input type="checkbox" id="ntArtProof"><span><b>Prova da solução</b> <span class="dim">— screenshot ou evidência (testes, antes/depois)</span></span></label>
 
+      <div class="seclbl2" style="margin-top:15px">Documentos de referência <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· PDF, .md, imagem (print de bug)</span><span style="flex:1"></span><button class="btn sm" id="ntRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
+      <div id="ntRefs" class="reflist"></div>
+
       <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
     </div>
     <div class="mfoot">
@@ -803,6 +813,12 @@ function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
 function claimsOf(taskId){ return state.claims.filter(c=>c.taskId===taskId); }
 function diffOf(taskId){ return state.diffs.find(d=>d.taskId===taskId); }
 function reviewOf(taskId){ return (state.reviews||[]).find(r=>r.taskId===taskId); }
+function refsBlock(t){
+  const rs=Array.isArray(t.refs)?t.refs:[];
+  if(!rs.length) return '';
+  return `<div class="seclbl">Referências <span class="n">${rs.length}</span></div><div class="artlist">`+
+    rs.map(n=>`<div class="artitem" style="cursor:default"><span class="artic">${(/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(n)?IC.image:IC.doc)}</span><span class="artnm mono">${esc(n)}</span><span class="artkb dim">anexado</span></div>`).join('')+`</div>`;
+}
 function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId); }
 function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
 function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2); }
@@ -1568,6 +1584,7 @@ function renderSide(){
       <div class="irow"><input class="in iinput" id="rwTaskInput" placeholder="ex.: renomeia a função X, cobre o caso Y"><button class="btn primary sm" id="rwTaskSend">pedir ajuste</button></div>
     </div>` : ''}
     <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
+    ${refsBlock(t)}
     ${revHtml}
     <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>
     ${claimHtml}
@@ -1642,7 +1659,14 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
   lastSig = snapSig();   // marca o estado já renderizado (evita render duplicado no próximo tick)
 });
 
-let ntDel=[], ntReq=[];
+let ntDel=[], ntReq=[], ntRefs=[];
+function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?IC.image:IC.doc; }
+function renderNtRefs(){
+  const el=document.getElementById('ntRefs'); if(!el) return;
+  el.innerHTML = ntRefs.length ? ntRefs.map((p,i)=>{ const name=(p||'').split('/').pop(); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">×</button></div>`; }).join('') : '<div class="dim" style="font-size:12px;padding:2px">nenhum — anexe specs, PDFs ou um print do bug</div>';
+  el.querySelectorAll('.refrm').forEach(b=>b.onclick=()=>{ ntRefs.splice(+b.dataset.r,1); renderNtRefs(); });
+}
+async function pickRefs(){ try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){ ntRefs.push(...paths); renderNtRefs(); } }catch(e){ console.error('pick_ref_files',e); } }
 function renderNtList(id, arr){
   const el=document.getElementById(id);
   el.innerHTML = arr.length ? arr.map((v,i)=>`<div class="listrow"><input class="in" data-li="${i}" value="${escA(v)}" placeholder="descreva…"><button class="iconbtn" data-lrm="${i}" title="remover">${IC.trash}</button></div>`).join("") : '<div class="dim">nenhum item — clique "+ item"</div>';
@@ -1669,7 +1693,7 @@ async function openNewTask(){
   document.getElementById("ntTitle").focus();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -1738,6 +1762,7 @@ async function submitNewTask(start=true){
     doc: document.getElementById("ntArtDoc").checked ? "ARCHITECTURE.md" : null,
     proof: document.getElementById("ntArtProof").checked,
     planApproval: document.getElementById("ntPlan").value,
+    refs: ntRefs.slice(),
   };
   const btn = document.getElementById(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   document.getElementById("ntCreate").disabled=true; document.getElementById("ntDraft").disabled=true;
@@ -1838,6 +1863,7 @@ document.getElementById("projBtn").onclick = (e)=>{ e.stopPropagation(); toggleP
 document.addEventListener("click", e=>{ if(!e.target.closest(".projsw")) closeProjMenu(); });
 document.getElementById("emAbrir").onclick = pickFolder;
 document.getElementById("ntImport").onclick = importTaskMd;
+document.getElementById("ntRefAdd").onclick = pickRefs;
 document.getElementById("ntDelAdd").onclick = ()=>{ ntDel.push(""); renderNtList("ntDeliverables",ntDel); };
 document.getElementById("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
 document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });

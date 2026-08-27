@@ -151,9 +151,10 @@ async function cmdNew(repo: string, a: Args) {
     roles,
   };
 
+  const refSources = a.multi.ref ?? [];
   const orch = new Orchestrator(repo);
   console.log(c.dim(`→ criando worktree agent/${id} · equipe: ${roles.map((r) => r.role + ":" + r.name).join(" → ")}`));
-  await orch.createTask(spec);
+  await orch.createTask(spec, refSources);
   if (a.flags["no-start"]) {
     orch.store.setStatus(id, "draft");
     console.log(c.green("✔") + ` rascunho ${c.bold(id)} criado — inicie quando quiser (${c.green("cardume start " + id)})`);

@@ -44,7 +44,7 @@ export class Orchestrator {
     return "running";
   }
 
-  async createTask(spec: TaskSpec): Promise<TaskRow> {
+  async createTask(spec: TaskSpec, refSources: string[] = []): Promise<TaskRow> {
     // Garante a equipe (retrocompat: 1 builder).
     if (!spec.roles || spec.roles.length === 0) {
       spec.roles = [{ role: "builder", name: spec.agent, engine: spec.engine, model: spec.model }];
@@ -58,6 +58,21 @@ export class Orchestrator {
 
     const taskDir = join(worktree, ".cardume");
     await mkdir(taskDir, { recursive: true });
+
+    // Copia os documentos de referência anexados para .cardume/refs/.
+    if (refSources.length) {
+      const refDir = join(taskDir, "refs");
+      await mkdir(refDir, { recursive: true });
+      const names: string[] = [];
+      for (const src of refSources) {
+        try {
+          const name = src.split("/").pop() || "ref";
+          await cp(src, join(refDir, name), { recursive: true });
+          names.push(name);
+        } catch { /* ignora arquivo inacessível */ }
+      }
+      spec.refs = names;
+    }
     await writeFile(join(taskDir, "TASK.yaml"), taskToYaml(spec), "utf8");
 
     this.store.createTask(spec, branch, worktree, base);

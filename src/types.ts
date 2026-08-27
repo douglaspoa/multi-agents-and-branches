@@ -77,6 +77,8 @@ export interface TaskSpec {
   requirements: string[];
   /** Artefatos que o agente deve produzir em .cardume/artifacts/. */
   artifacts?: ArtifactReq[];
+  /** Documentos de referência anexados (basenames em .cardume/refs/). */
+  refs?: string[];
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

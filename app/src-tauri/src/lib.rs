@@ -87,6 +87,7 @@ struct Task {
     sort_order: Option<i64>,
     deliverables: serde_json::Value,
     requirements: serde_json::Value,
+    refs: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -796,6 +797,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 sort_order: r.get(14)?,
                 deliverables: spec.get("deliverables").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 requirements: spec.get("requirements").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+                refs: spec.get("refs").cloned().unwrap_or(serde_json::Value::Array(vec![])),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -1061,6 +1063,7 @@ fn new_task(
     proof: Option<bool>,
     start: Option<bool>,
     plan_approval: Option<String>,
+    refs: Option<Vec<String>>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let mut args = vec![
@@ -1109,6 +1112,12 @@ fn new_task(
     if plan_approval.as_deref() == Some("review") {
         args.push("--plan-approval".to_string());
         args.push("review".to_string());
+    }
+    if let Some(rs) = &refs {
+        for r in rs.iter().filter(|x| !x.is_empty()) {
+            args.push("--ref".to_string());
+            args.push(r.clone());
+        }
     }
 
     Command::new(node_bin())
@@ -1554,6 +1563,32 @@ async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
 }
 
 /// Abre um seletor de arquivos .md e devolve [{filename, content}] pra criar agentes.
+/// Seletor nativo de múltiplos arquivos de referência (PDF, md, imagens…).
+#[tauri::command]
+async fn pick_ref_files(app: tauri::AppHandle) -> Vec<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .add_filter("Documentos", &["pdf", "md", "markdown", "txt", "png", "jpg", "jpeg", "gif", "webp", "svg"])
+        .pick_files(move |p| {
+            let _ = tx.send(p);
+        });
+    let picked = tauri::async_runtime::spawn_blocking(move || rx.recv().ok().flatten())
+        .await
+        .ok()
+        .flatten();
+    let mut out = Vec::new();
+    if let Some(paths) = picked {
+        for p in paths {
+            if let Ok(pb) = p.into_path() {
+                out.push(pb.display().to_string());
+            }
+        }
+    }
+    out
+}
+
 #[tauri::command]
 async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     use tauri_plugin_dialog::DialogExt;
@@ -1636,6 +1671,7 @@ pub fn run() {
             merge_task,
             remove_task,
             pick_folder,
+            pick_ref_files,
             save_config,
             import_agent_files,
             commit_detail,
