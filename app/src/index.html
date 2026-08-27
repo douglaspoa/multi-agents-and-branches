@@ -443,6 +443,24 @@
   .step.cur .srole{color:var(--accent)}
   .step.wait .srole,.step.wait .sname{color:var(--muted)}
   .sact{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+  /* pull request */
+  .prbox{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:11px}
+  .prrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .prrow .prlbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+  .prrow .sel{padding:5px 24px 5px 9px}
+  .prlink{font-size:12px;font-weight:600;color:var(--accent);text-decoration:none}
+  .prlink:hover{text-decoration:underline}
+  .prbadge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:100px;border:1px solid var(--border-strong);color:var(--muted)}
+  .prbadge.ok{color:var(--good);border-color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
+  .prbadge.chg{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+  .prcmts{display:flex;flex-direction:column;gap:7px;margin-top:9px;max-height:260px;overflow:auto}
+  .prcmt{border:1px solid var(--border);border-radius:var(--r-xs);padding:7px 9px;background:var(--surface)}
+  .prcmt.bot{border-color:color-mix(in srgb,var(--info) 45%,var(--border))}
+  .prcmt-h{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+  .prau{font-size:11.5px;font-weight:700}
+  .botag{font-size:9px;font-weight:700;color:var(--info);border:1px solid var(--info);border-radius:4px;padding:0 3px;vertical-align:1px}
+  .prloc{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prcmt-b{font-size:12px;color:var(--text-2);white-space:pre-wrap;word-break:break-word;line-height:1.45;max-height:120px;overflow:auto}
   /* custo/tokens */
   .fcost{color:var(--accent);font-weight:600}
   .costlist{display:flex;flex-direction:column;gap:5px;margin:3px 0 2px}
@@ -721,6 +739,57 @@ function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId);
 function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
 function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2); }
 function fmtTok(n){ n=n||0; return n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : String(n); }
+// ---------- Pull Request (GitHub) ----------
+const prCache={}; let branchList=null;
+async function loadBranches(){ if(branchList) return branchList; try{ branchList=await invoke("list_branches"); }catch(e){ branchList=["main"]; } return branchList; }
+async function loadPr(taskId, force){
+  if(prCache[taskId]!==undefined && !force) return prCache[taskId];
+  if(prCache[taskId]===undefined) prCache[taskId]=null; // loading
+  try{ prCache[taskId]=await invoke("pr_status",{ taskId }); }catch(e){ prCache[taskId]={exists:false,error:String(e)}; }
+  return prCache[taskId];
+}
+function prBlock(t){
+  if(!(t.status==='review'||t.status==='error')) return '';
+  const info=prCache[t.id];
+  if(info===undefined){ loadBranches(); loadPr(t.id).then(()=>{ if(selected===t.id) renderSide(); }); return '<div class="seclbl">Pull Request</div><div class="dim" style="font-size:12px;padding:2px">verificando no GitHub…</div>'; }
+  if(info===null){ return '<div class="seclbl">Pull Request</div><div class="dim" style="font-size:12px;padding:2px">verificando no GitHub…</div>'; }
+  if(!info.exists){
+    const opts=(branchList||['main']).map(b=>`<option value="${escA(b)}"${b==='main'?' selected':''}>${esc(b)}</option>`).join('');
+    return `<div class="seclbl">Pull Request</div><div class="prbox">
+      <div class="prrow"><span class="prlbl">base</span><select class="sel" id="prBase">${opts}</select><button class="btn primary sm" id="prOpen">${IC.merge} Abrir PR</button></div>
+      <div class="ihint" style="margin-top:7px">Faz push da branch <b>${esc(t.branch)}</b> e abre o PR na base escolhida.</div>
+    </div>`;
+  }
+  const dec=info.decision||'';
+  const decBadge = dec==='APPROVED'?'<span class="prbadge ok">✓ aprovado</span>' : dec==='CHANGES_REQUESTED'?'<span class="prbadge chg">mudanças pedidas</span>' : dec==='REVIEW_REQUIRED'?'<span class="prbadge">aguardando review</span>' : '<span class="prbadge">sem review</span>';
+  const cmts=info.comments||[];
+  const cmHtml = cmts.length ? cmts.map(c=>`<div class="prcmt${c.isBot?' bot':''}"><div class="prcmt-h"><span class="prau">${esc(c.author)}${c.isBot?' <span class="botag">bot</span>':''}</span>${c.path?`<span class="prloc mono">${esc(c.path)}${c.line?':'+c.line:''}</span>`:'<span class="prloc">conversa</span>'}</div><div class="prcmt-b">${esc((c.body||'').slice(0,500))}</div></div>`).join('') : '<div class="dim" style="font-size:12px;padding:4px 2px">sem comentários ainda</div>';
+  return `<div class="seclbl">Pull Request <span class="n">#${info.number}</span></div><div class="prbox">
+    <div class="prrow"><a class="prlink mono" href="${escA(info.url)}" target="_blank" rel="noreferrer">#${info.number} · ${esc((info.state||'').toLowerCase())}</a>${decBadge}<span class="grow"></span><button class="btn sm" id="prRefresh">atualizar</button></div>
+    <div class="prcmts">${cmHtml}</div>
+    <div class="prrow" style="margin-top:10px">${cmts.length?`<button class="btn primary sm" id="prRework">${IC.ai} mandar o agente revisar</button>`:''}<span class="grow"></span><button class="btn sm" id="prMerge">${IC.merge} merge PR</button></div>
+  </div>`;
+}
+async function openPr(t){
+  const base=document.getElementById('prBase').value;
+  const rev=reviewOf(t.id);
+  const body=`## O quê\n${t.objective||t.title}\n\n`+
+    ((t.deliverables||[]).length?`## Entregáveis\n${(t.deliverables||[]).map(d=>'- '+d).join('\n')}\n\n`:'')+
+    (rev?`## Resumo\n${rev.summary}\n\n## Como testar\n${rev.howToTest}\n\n`:'')+
+    `_Aberto pelo Constellation._`;
+  const btn=document.getElementById('prOpen'); if(btn){ btn.disabled=true; btn.textContent='abrindo…'; }
+  try{ await invoke('open_pr',{ taskId:t.id, base, title:t.title, body }); await loadPr(t.id,true); lastSig=''; renderSide(); }
+  catch(e){ alert('Falha ao abrir PR:\n'+e); if(btn){ btn.disabled=false; btn.textContent='Abrir PR'; } }
+}
+async function reworkFromPr(taskId){
+  try{ await invoke('rework_from_pr',{ taskId }); prCache[taskId]=undefined; lastSig=''; await refresh(); }
+  catch(e){ alert('Falha ao mandar revisar:\n'+e); }
+}
+async function mergePr(taskId){
+  if(!confirm('Mergear o PR no GitHub (squash + apaga a branch remota)?')) return;
+  try{ await invoke('merge_pr',{ taskId, method:'squash' }); prCache[taskId]=undefined; lastSig=''; await refresh(); }
+  catch(e){ alert('Merge do PR falhou:\n'+e); }
+}
 function costBlock(taskId){
   const cs=costsOf(taskId); if(!cs.length) return '';
   const tc=taskCost(taskId);
@@ -1310,6 +1379,7 @@ function renderSide(){
       <b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b>
       <span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span>
     </div>
+    ${prBlock(t)}
     ${costBlock(t.id)}
     ${artifactsBlock(t)}
     ${commitsBlock(t.id)}
@@ -1324,6 +1394,10 @@ function renderSide(){
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('.artitem').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
+  { const b=el.querySelector('#prOpen'); if(b) b.onclick=()=>openPr(t); }
+  { const b=el.querySelector('#prRefresh'); if(b) b.onclick=async()=>{ await loadPr(t.id,true); renderSide(); }; }
+  { const b=el.querySelector('#prRework'); if(b) b.onclick=()=>reworkFromPr(t.id); }
+  { const b=el.querySelector('#prMerge'); if(b) b.onclick=()=>mergePr(t.id); }
   const iSend=el.querySelector('#instrSend'); if(iSend) iSend.onclick=()=>sendInstruction(t.id);
   const iInput=el.querySelector('#instrInput'); if(iInput) iInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendInstruction(t.id); });
   const rwS=el.querySelector('#rwTaskSend'); if(rwS) rwS.onclick=()=>sendRework(t.id, el.querySelector('#rwTaskInput'), '');

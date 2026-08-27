@@ -1118,6 +1118,225 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- integração com Pull Requests (GitHub via gh) ----------
+fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String> {
+    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    conn.query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())
+}
+fn repo_slug(repo: &PathBuf) -> Result<String, String> {
+    let out = Command::new("gh")
+        .args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
+        .current_dir(repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err("sem repositório GitHub (gh)".to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Branches candidatas a BASE do PR (remotas, sem as agent/*).
+#[tauri::command]
+fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
+    let repo = repo_of(&state)?;
+    let out = Command::new("git")
+        .arg("-C").arg(&repo)
+        .args(["branch", "-r", "--format", "%(refname:short)"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut set: Vec<String> = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let b = line.trim();
+        if b.is_empty() || b.contains("HEAD") {
+            continue;
+        }
+        let name = b.strip_prefix("origin/").unwrap_or(b).to_string();
+        if !name.starts_with("agent/") && !set.contains(&name) {
+            set.push(name);
+        }
+    }
+    if !set.iter().any(|b| b == "main") {
+        set.insert(0, "main".to_string());
+    }
+    Ok(set)
+}
+
+/// Abre um PR: faz push da branch da tarefa e cria o PR (base escolhida).
+#[tauri::command]
+fn open_pr(state: State<AppState>, task_id: String, base: String, title: String, body: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let branch = task_branch(&state, &task_id)?;
+    let push = Command::new("git")
+        .arg("-C").arg(&repo)
+        .args(["push", "-u", "origin", &branch])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !push.status.success() {
+        return Err(format!("git push falhou: {}", String::from_utf8_lossy(&push.stderr)));
+    }
+    let out = Command::new("gh")
+        .args(["pr", "create", "--head", &branch, "--base", &base, "--title", &title, "--body", &body])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| format!("gh indisponível: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        if err.contains("already exists") {
+            let u = Command::new("gh").args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).current_dir(&repo).output().map_err(|e| e.to_string())?;
+            if u.status.success() {
+                return Ok(String::from_utf8_lossy(&u.stdout).trim().to_string());
+            }
+        }
+        return Err(format!("gh pr create: {err}"));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrComment {
+    path: Option<String>,
+    line: Option<i64>,
+    author: String,
+    body: String,
+    is_bot: bool,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrInfo {
+    exists: bool,
+    number: i64,
+    url: String,
+    state: String,
+    decision: String,
+    mergeable: String,
+    comments: Vec<PrComment>,
+}
+
+/// Status do PR da tarefa: estado, decisão (aprovado/mudanças) e comentários
+/// (conversa + inline por arquivo — inclui CodeRabbit e pessoas).
+#[tauri::command]
+fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> {
+    let repo = repo_of(&state)?;
+    let branch = task_branch(&state, &task_id)?;
+    let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), comments: vec![] };
+    let view = Command::new("gh")
+        .args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,comments"])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !view.status.success() {
+        return Ok(empty);
+    }
+    let v: serde_json::Value = serde_json::from_slice(&view.stdout).map_err(|e| e.to_string())?;
+    let number = v["number"].as_i64().unwrap_or(0);
+    let is_bot = |a: &str| { let l = a.to_lowercase(); l.contains("coderabbit") || l.contains("[bot]") };
+    let mut comments: Vec<PrComment> = vec![];
+    if let Some(arr) = v["comments"].as_array() {
+        for c in arr {
+            let author = c["author"]["login"].as_str().unwrap_or("").to_string();
+            let body = c["body"].as_str().unwrap_or("").to_string();
+            if body.trim().is_empty() {
+                continue;
+            }
+            let bot = is_bot(&author);
+            comments.push(PrComment { path: None, line: None, author, body, is_bot: bot });
+        }
+    }
+    if number > 0 {
+        if let Ok(slug) = repo_slug(&repo) {
+            if let Ok(o) = Command::new("gh").args(["api", &format!("repos/{}/pulls/{}/comments", slug, number), "--paginate"]).current_dir(&repo).output() {
+                if o.status.success() {
+                    if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&o.stdout) {
+                        if let Some(a) = arr.as_array() {
+                            for c in a {
+                                let author = c["user"]["login"].as_str().unwrap_or("").to_string();
+                                let body = c["body"].as_str().unwrap_or("").to_string();
+                                if body.trim().is_empty() {
+                                    continue;
+                                }
+                                let path = c["path"].as_str().map(|s| s.to_string());
+                                let line = c["line"].as_i64().or_else(|| c["original_line"].as_i64());
+                                let bot = is_bot(&author);
+                                comments.push(PrComment { path, line, author, body, is_bot: bot });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(PrInfo {
+        exists: true,
+        number,
+        url: v["url"].as_str().unwrap_or("").to_string(),
+        state: v["state"].as_str().unwrap_or("").to_string(),
+        decision: v["reviewDecision"].as_str().unwrap_or("").to_string(),
+        mergeable: v["mergeable"].as_str().unwrap_or("").to_string(),
+        comments,
+    })
+}
+
+/// Mergeia o PR (gh) e marca a tarefa como merged localmente.
+#[tauri::command]
+fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let branch = task_branch(&state, &task_id)?;
+    let m = match method.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
+    let out = Command::new("gh")
+        .args(["pr", "merge", &branch, m, "--delete-branch"])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    // marca merged localmente + remove a worktree
+    if let Some(path) = state.db.lock().unwrap().clone() {
+        if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+            let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+            if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+                let _ = Command::new("git").arg("-C").arg(&repo).args(["worktree", "remove", "--force", &wt]).output();
+            }
+            let _ = conn.execute("UPDATE task SET status='merged' WHERE id=?1", params![task_id]);
+        }
+    }
+    Ok("PR mergeado".to_string())
+}
+
+/// Coleta os comentários do PR e manda o agente endereçá-los (rework via --resume).
+#[tauri::command]
+fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let info = pr_status(state.clone(), task_id.clone())?;
+    if !info.exists || info.comments.is_empty() {
+        return Err("nenhum comentário de review pra endereçar".to_string());
+    }
+    let mut text = String::from("Endereça os comentários de review do PR (aplique as correções pedidas):\n");
+    for c in &info.comments {
+        let loc = match (&c.path, c.line) {
+            (Some(p), Some(l)) => format!("{p}:{l}"),
+            (Some(p), None) => p.clone(),
+            _ => "(conversa)".to_string(),
+        };
+        let snippet: String = c.body.replace('\n', " ").chars().take(300).collect();
+        text.push_str(&format!("- [{}] {}: {}\n", c.author, loc, snippet));
+    }
+    let repo = repo_of(&state)?;
+    // enfileira como instrução e dispara o rework
+    add_instruction(state, task_id.clone(), text)?;
+    Command::new(node_bin())
+        .args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "rework", &task_id, "--repo", &repo.display().to_string()])
+        .current_dir(&repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("falha ao iniciar rework: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
@@ -1228,6 +1447,11 @@ pub fn run() {
             new_task,
             start_task,
             reorder_tasks,
+            list_branches,
+            open_pr,
+            pr_status,
+            merge_pr,
+            rework_from_pr,
             merge_task,
             remove_task,
             pick_folder,
