@@ -1,0 +1,21 @@
+{
+  "name": "cardume",
+  "version": "0.0.1",
+  "description": "Orquestrador visual de múltiplos agentes de IA em branches paralelas do mesmo repo. Fase 0: núcleo.",
+  "type": "module",
+  "bin": {
+    "cardume": "./bin/cardume.mjs"
+  },
+  "scripts": {
+    "cardume": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "demo": "node --disable-warning=ExperimentalWarning src/cli.ts demo",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cardume</title>
+<style>
+  :root{
+    /* paper-terminal (claro) */
+    --bg:#eceee7; --surface:#f6f7f2; --surface-2:#eef0e9; --surface-3:#e3e7dc;
+    --border:#d3d7ca; --border-strong:#b7bdac;
+    --text:#131a13; --text-2:#3c473c; --muted:#5f6a5f;
+    --accent:#1a8f47; --on-accent:#f6f7f2;
+    --c-main:#8a948a; --good:#1a8f47; --warn:#9a6b12; --crit:#c0362b; --info:#1f7d8c;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#080b09; --surface:#0d110e; --surface-2:#111713; --surface-3:#16201a;
+    --border:#1e2c22; --border-strong:#2c4030;
+    --text:#cfe0d2; --text-2:#9fb4a4; --muted:#647a6b;
+    --accent:#39d46a; --on-accent:#07120a;
+    --c-main:#4a5f52; --good:#39d46a; --warn:#e5c07b; --crit:#ff6b5f; --info:#56b6c2;
+  }}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace;
+    font-size:13px; line-height:1.55; -webkit-font-smoothing:antialiased;
+    -webkit-user-select:none; user-select:none;
+  }
+  .app{height:100vh;display:grid;grid-template-rows:auto 1fr auto}
+
+  /* topbar */
+  .top{display:flex;align-items:center;gap:12px;padding:10px 14px 10px 90px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .brand{font-weight:800;font-size:16px;letter-spacing:.02em;color:var(--accent);display:flex;gap:7px;align-items:center}
+  .repo{display:flex;align-items:center;gap:6px;margin-left:6px;flex:1;max-width:640px}
+  .repo input{flex:1;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:5px 9px}
+  .repo input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .btn{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);font:inherit;font-weight:600;font-size:12px;padding:5px 11px;cursor:pointer}
+  .btn.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  .conn{margin-left:auto;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .conn .d{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  .conn.live .d{background:var(--good);animation:pulse 1.6s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+
+  /* body */
+  .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0}
+  .rail{border-right:1px solid var(--border);background:var(--surface);overflow:auto;min-height:0}
+  .feed{background:var(--surface-2);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .chead{display:flex;align-items:center;gap:10px;padding:9px 12px;flex:none}
+  .seg2{display:flex;border:1px solid var(--border)}
+  .seg2 button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:600;padding:5px 13px;cursor:pointer}
+  .seg2 button.on{background:var(--accent);color:var(--on-accent)}
+  .chint{font-size:11px;color:var(--muted);margin-left:auto}
+  .pane{overflow:auto;min-height:0;flex:1}
+  #graphPane{padding:4px 0 24px}
+  #graphSvg{display:block}
+  #graphSvg text{font-family:ui-monospace,"SF Mono",Menlo,monospace}
+  .glabel{font-size:10.5px}
+  .gsub{font-size:11px}
+  .side{border-left:1px solid var(--border);background:var(--surface);overflow:auto;min-height:0}
+  .lbl{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:13px 14px 7px}
+
+  .arow{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:8px 12px;border:1px solid transparent;cursor:pointer}
+  .arow:hover{background:var(--surface-2)}
+  .arow.sel{background:var(--accent);border-color:var(--accent)}
+  .arow.sel .nm,.arow.sel .br{color:var(--on-accent)}
+  .arow.sel .ini{background:var(--on-accent);color:var(--accent)}
+  .ini{width:26px;height:26px;display:grid;place-items:center;font-weight:600;font-size:10.5px;color:var(--on-accent)}
+  .nm{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nm::before{content:"❯ ";color:var(--muted)}
+  .arow.sel .nm::before{color:var(--on-accent);opacity:.6}
+  .br{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sd{width:8px;height:8px;border-radius:50%}
+
+  /* feed */
+  .feed .fl{display:flex;gap:9px;padding:2px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .feed .ts{color:var(--muted);flex:none}
+  .feed .ag{flex:none;width:52px;overflow:hidden;text-overflow:ellipsis}
+  .feed .gl{flex:none;width:14px;text-align:center}
+  .feed .tx{color:var(--text-2);overflow:hidden;text-overflow:ellipsis}
+  .empty{color:var(--muted);padding:30px 16px;text-align:center;line-height:1.7}
+
+  /* side detail */
+  .det{padding:14px}
+  .det h2{margin:0;font-size:15px}
+  .det .sub{font-size:11px;color:var(--muted);margin-top:2px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:4px 9px;margin-top:9px}
+  .card{background:var(--surface-2);border:1px solid var(--border);padding:10px 11px;margin-top:12px}
+  .card .t{font-weight:600;font-size:12.5px}
+  .card .o{color:var(--text-2);font-size:12px;margin-top:4px}
+  .seclbl{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:16px 0 7px;display:flex}
+  .seclbl .n{margin-left:auto;color:var(--text-2)}
+  .claim{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:5px 8px;border:1px solid var(--border);background:var(--surface-2);margin-bottom:4px}
+  .claim.y{border-color:color-mix(in srgb,var(--warn) 45%,var(--border))}
+  .claim .m{margin-left:auto;color:var(--muted)}
+  .claim.y .m{color:var(--warn)}
+  .diff{display:flex;gap:12px;align-items:center;background:var(--surface-2);border:1px solid var(--border);padding:9px 11px}
+  .diff b{font-size:14px}
+  .bar{flex:1;height:6px;background:var(--surface-3);display:flex;overflow:hidden}
+  .bar i{height:100%}
+  .log{background:var(--surface-2);border:1px solid var(--border);padding:9px 10px;max-height:240px;overflow:auto;font-size:11.5px}
+  .log .ln{display:flex;gap:8px}
+  .log .ln .ts{color:var(--muted);flex:none}
+
+  /* pipeline de papéis */
+  .pipe{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+  .pipe .st{font-size:10px;padding:3px 8px;border:1px solid var(--border);color:var(--muted);display:flex;gap:5px;align-items:center;text-transform:uppercase;letter-spacing:.04em}
+  .pipe .st.cur{border-color:var(--accent);color:var(--accent)}
+  .pipe .st b{color:var(--text-2);text-transform:none;letter-spacing:0}
+  .pipe .st.cur b{color:var(--accent)}
+  /* review humano */
+  .rev{margin-top:16px;border:1px solid var(--border);background:var(--surface-2)}
+  .rev .h{padding:9px 11px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:7px}
+  .rev .h .by{margin-left:auto;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none}
+  .rev .b{padding:10px 11px}
+  .rev .sm{font-size:12px;color:var(--text-2)}
+  .fn{margin-top:9px;padding-top:9px;border-top:1px dashed var(--border)}
+  .fn:first-of-type{border-top:0;padding-top:0}
+  .fn .n{font-size:12px}
+  .fn .n b{color:var(--good)}
+  .fn .n .k{color:var(--muted);font-size:10px}
+  .fn .n .f{color:var(--muted);font-size:10px}
+  .fn .p{font-size:11px;color:var(--text-2);margin:2px 0 0 12px}
+  .rev .test{margin-top:11px;font-size:11.5px;color:var(--text-2);border-left:2px solid var(--accent);padding-left:9px}
+  .rev .fl2{font-size:11px;color:var(--muted);margin-top:9px;display:flex;flex-wrap:wrap;gap:4px 12px}
+
+  /* bus */
+  .bus{display:flex;align-items:center;gap:12px;padding:7px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:12px}
+  .bus .live{background:var(--accent);color:var(--on-accent);padding:3px 9px;font-weight:700}
+  .bus .warn{color:var(--warn)}
+  .sep{width:1px;height:14px;background:var(--border)}
+  .grow{flex:1}
+  .dim{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div class="brand">🐙 Cardume</div>
+    <div class="repo">
+      <input id="repoInput" placeholder="/caminho/do/repo (com .cardume/)  —  ex.: .../cardume/.cardume-demo/repo" spellcheck="false">
+      <button class="btn" id="connectBtn">conectar</button>
+    </div>
+    <div class="conn" id="conn"><span class="d"></span><span id="connTxt">sem repo</span></div>
+  </div>
+
+  <div class="body">
+    <div class="rail">
+      <div class="lbl">Agentes ativos</div>
+      <div id="rail"></div>
+    </div>
+    <div class="feed">
+      <div class="chead">
+        <div class="seg2" id="viewSeg">
+          <button data-v="graph" class="on">Grafo</button>
+          <button data-v="feed">Atividade</button>
+        </div>
+        <span class="chint" id="chint">branches · agentes nas pontas</span>
+      </div>
+      <div id="graphPane" class="pane"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
+    </div>
+    <div class="side" id="side"></div>
+  </div>
+
+  <div class="bus">
+    <span class="live">Barramento</span>
+    <span class="sep"></span>
+    <span id="busSummary" class="dim">—</span>
+    <span class="grow"></span>
+    <span id="clock" class="dim"></span>
+  </div>
+</div>
+
+<script>
+const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+
+const STATUS_COLOR = { running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)" };
+const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
+const GCOLOR = { collision:"var(--crit)", error:"var(--crit)", claim:"var(--info)", done:"var(--good)", edit:"var(--good)", write:"var(--good)" };
+
+let state = { repo:null, tasks:[], events:[], claims:[], diffs:[] };
+let selected = null;
+let connected = false;
+
+function fmtTime(ms){ const d=new Date(ms); return d.toTimeString().slice(0,8); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+
+async function connect(repo){
+  try{
+    await invoke("set_repo", { repo });
+    connected = true;
+    await refresh();
+  }catch(e){
+    connected = false;
+    document.getElementById("connTxt").textContent = String(e);
+    document.getElementById("conn").classList.remove("live");
+  }
+}
+
+async function refresh(){
+  let snap;
+  try{ snap = await invoke("snapshot"); }
+  catch(e){ return; }
+  const prevGraph = state.graph;
+  state = snap;
+  try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; }
+  connected = !!snap.repo;
+  const conn = document.getElementById("conn");
+  conn.classList.toggle("live", connected && state.tasks.length>0);
+  document.getElementById("connTxt").textContent = snap.repo ? snap.repo.split("/").slice(-2).join("/") : "sem repo";
+  if(snap.repo && document.getElementById("repoInput").value==="") document.getElementById("repoInput").value = snap.repo;
+  if(!selected && state.tasks[0]) selected = state.tasks[0].id;
+  render();
+}
+
+function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
+function claimsOf(taskId){ return state.claims.filter(c=>c.taskId===taskId); }
+function diffOf(taskId){ return state.diffs.find(d=>d.taskId===taskId); }
+function reviewOf(taskId){ return (state.reviews||[]).find(r=>r.taskId===taskId); }
+const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
+
+function render(){
+  document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
+  renderRail(); renderFeed(); renderGraph(); renderSide(); renderBus();
+}
+
+const LANE_COLORS = ["#39d46a","#e5c07b","#56b6c2","#ff6b5f","#b48ead","#5b9dff","#d19a66","#8dd17a"];
+function parseRefs(refs){
+  return refs ? refs.split(",").map(s=>s.trim().replace(/^HEAD -> /,"").replace(/^tag: /,"")).filter(Boolean) : [];
+}
+function layoutGraph(commits){
+  const pos = {}; const lanes = []; const placed = [];
+  commits.forEach((c,row)=>{
+    let lane = lanes.indexOf(c.hash);
+    if(lane===-1){ lane = lanes.indexOf(null); if(lane===-1){ lane=lanes.length; lanes.push(null); } }
+    lanes[lane]=null;
+    for(let j=0;j<lanes.length;j++) if(lanes[j]===c.hash) lanes[j]=null;
+    pos[c.hash]={lane,row};
+    placed.push(Object.assign({lane,row}, c));
+    if(c.parents[0]) lanes[lane]=c.parents[0];
+    for(let k=1;k<c.parents.length;k++){ const ph=c.parents[k]; if(lanes.indexOf(ph)===-1){ let pl=lanes.indexOf(null); if(pl===-1){pl=lanes.length;lanes.push(null);} lanes[pl]=ph; } }
+  });
+  return {placed,pos,laneCount:Math.max(1,lanes.length)};
+}
+function renderGraph(){
+  const svg = document.getElementById("graphSvg");
+  const commits = state.graph||[];
+  if(commits.length===0){ svg.innerHTML=""; svg.setAttribute("height","0"); return; }
+  const {placed,pos,laneCount} = layoutGraph(commits);
+  const laneW=22, rowH=32, padL=24, padT=18;
+  const height = padT*2 + (placed.length-1)*rowH;
+  const width = 780;
+  svg.setAttribute("width", width); svg.setAttribute("height", height);
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  const X = l => padL + l*laneW;
+  const Y = r => padT + r*rowH;
+  const labelX = padL + laneCount*laneW + 12;
+  const subX = labelX + 128;
+  const taskByBranch = {}; (state.tasks||[]).forEach(t=>taskByBranch[t.branch]=t);
+  let edges="", nodes="", labels="";
+  placed.forEach(c=>{
+    const x=X(c.lane), y=Y(c.row), col=LANE_COLORS[c.lane%LANE_COLORS.length];
+    (c.parents||[]).forEach(ph=>{
+      const p=pos[ph]; if(!p) return;
+      const x2=X(p.lane), y2=Y(p.row);
+      const d = x===x2 ? `M${x} ${y} L${x2} ${y2}` : `M${x} ${y} C${x} ${(y+y2)/2} ${x2} ${(y+y2)/2} ${x2} ${y2}`;
+      edges+=`<path d="${d}" style="fill:none;stroke:${col};stroke-width:2" stroke-linecap="round"/>`;
+    });
+  });
+  placed.forEach(c=>{
+    const x=X(c.lane), y=Y(c.row), col=LANE_COLORS[c.lane%LANE_COLORS.length];
+    const refs=parseRefs(c.refs);
+    const agentBranch = refs.find(r=>taskByBranch[r]);
+    if(agentBranch){
+      const t=taskByBranch[agentBranch], scol=STATUS_COLOR[t.status]||col;
+      nodes+=`<g style="cursor:pointer" data-task="${t.id}"><circle cx="${x}" cy="${y}" r="9" style="fill:var(--surface);stroke:${scol};stroke-width:2"/><text x="${x}" y="${y+3}" text-anchor="middle" font-size="8" font-weight="600" style="fill:${scol}">${esc((t.agent||"?").slice(0,2).toUpperCase())}</text></g>`;
+      labels+=`<text class="glabel" x="${labelX}" y="${y+3}" style="fill:${scol}">${esc(agentBranch)}</text><text class="gsub" x="${subX}" y="${y+3}" style="fill:var(--muted)">${esc(c.subject.slice(0,52))}</text>`;
+    } else {
+      nodes+=`<circle cx="${x}" cy="${y}" r="4.5" style="fill:var(--surface);stroke:${col};stroke-width:2"/>`;
+      const mainRef = refs.find(r=>r==="main"||r==="master");
+      if(mainRef) labels+=`<text class="glabel" x="${labelX}" y="${y+3}" style="fill:var(--text-2)">${esc(mainRef)}</text>`;
+      labels+=`<text class="gsub" x="${mainRef?subX:labelX}" y="${y+3}" style="fill:var(--muted)">${esc(c.subject.slice(0,58))}</text>`;
+    }
+  });
+  svg.innerHTML = edges+nodes+labels;
+  svg.querySelectorAll("[data-task]").forEach(g=>g.onclick=()=>{ selected=g.dataset.task; render(); });
+}
+
+function renderRail(){
+  const el = document.getElementById("rail");
+  if(state.tasks.length===0){ el.innerHTML = '<div class="empty">nenhuma tarefa.<br>rode <b>cardume demo</b> ou <b>cardume new</b> e conecte ao repo.</div>'; return; }
+  el.innerHTML = state.tasks.map(t=>{
+    const col = STATUS_COLOR[t.status]||"var(--muted)";
+    const sel = t.id===selected ? " sel":"";
+    const team = (t.roles||[]).map(r=>r.name).join(" ▸ ") || t.agent;
+    const rev = reviewOf(t.id) ? ' <span style="color:var(--good)">✓</span>':'';
+    return `<div class="arow${sel}" data-id="${t.id}">
+      <span class="ini" style="background:${col}">${esc((t.agent||"?").slice(0,2).toUpperCase())}</span>
+      <div><div class="nm">${esc(team)}${rev}</div><div class="br">${esc(t.branch)} · ${esc(t.stage||"")}</div></div>
+      <span class="sd" style="background:${col}"></span>
+    </div>`;
+  }).join("");
+  el.querySelectorAll(".arow").forEach(r=>r.onclick=()=>{ selected=r.dataset.id; render(); });
+}
+
+function renderFeed(){
+  const el = document.getElementById("feed");
+  const evs = state.events.slice(-200);
+  if(evs.length===0){ el.innerHTML = '<div class="empty">aguardando eventos…</div>'; return; }
+  el.innerHTML = evs.map(e=>{
+    const g = GLYPH[e.type]||"·";
+    const gc = GCOLOR[e.type]||"var(--muted)";
+    return `<div class="fl">
+      <span class="ts">${fmtTime(e.ts)}</span>
+      <span class="ag" style="color:var(--text-2)">${esc(e.agent)}</span>
+      <span class="gl" style="color:${gc}">${g}</span>
+      <span class="tx">${esc(e.text)}</span>
+    </div>`;
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderSide(){
+  const el = document.getElementById("side");
+  const t = state.tasks.find(x=>x.id===selected);
+  if(!t){ el.innerHTML = '<div class="empty">selecione um agente</div>'; return; }
+  const col = STATUS_COLOR[t.status]||"var(--muted)";
+  const claims = claimsOf(t.id);
+  const d = diffOf(t.id);
+  const evs = eventsOf(t.id);
+  const tot = d ? (d.additions+d.deletions)||1 : 1;
+  const claimHtml = claims.length ? claims.map(c=>{
+    const y = c.yieldedTo;
+    return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;
+  }).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
+  const roles = t.roles||[];
+  const pipe = roles.length ? `<div class="pipe">${roles.map(r=>`<span class="st${r.role===t.stage?' cur':''}">${ROLE_PT[r.role]||r.role} <b>${esc(r.name)}</b></span>`).join("")}</div>` : "";
+  const rev = reviewOf(t.id);
+  const revHtml = rev ? `<div class="rev">
+    <div class="h">◆ Review humano <span class="by">por ${esc(rev.byAgent)}</span></div>
+    <div class="b">
+      <div class="sm">${esc(rev.summary)}</div>
+      ${(rev.functions||[]).map(f=>`<div class="fn"><div class="n"><b>${esc(f.name)}</b> <span class="k">${esc(f.kind)}</span> <span class="f">· ${esc(f.file)}</span></div><div class="p">↳ ${esc(f.purpose)}</div></div>`).join("")||'<div class="fn"><div class="p">nenhuma função nova detectada</div></div>'}
+      <div class="fl2">${(rev.files||[]).map(f=>`<span>${esc(f.path)} <span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span>`).join("")}</div>
+      <div class="test">como testar · ${esc(rev.howToTest)}</div>
+    </div>
+  </div>` : "";
+  el.innerHTML = `<div class="det">
+    <h2>${esc(t.agent)}</h2>
+    <div class="sub">${esc(t.branch)} · ${esc(t.engine)}${t.model?(" · "+esc(t.model)):""}</div>
+    <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
+    ${pipe}
+    <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
+    ${revHtml}
+    <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>
+    ${claimHtml}
+    <div class="seclbl">Diff da branch <span class="n">${d?d.files+" arq":"—"}</span></div>
+    <div class="diff">
+      <b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b>
+      <span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span>
+    </div>
+    <div class="seclbl">Log <span class="n">${evs.length}</span></div>
+    <div class="log">${evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join("")||'<span class="dim">—</span>'}</div>
+  </div>`;
+}
+
+function renderBus(){
+  const yields = state.claims.filter(c=>c.yieldedTo);
+  const totalClaims = state.claims.length;
+  const el = document.getElementById("busSummary");
+  if(state.tasks.length===0){ el.innerHTML = '<span class="dim">—</span>'; return; }
+  const parts = [`${state.tasks.length} agentes · ${totalClaims} reivindicações`];
+  for(const c of yields) parts.push(`<span class="warn">⚠ ${esc(c.agent)} cedeu ${esc(c.path)} → ${esc(c.yieldedTo)}</span>`);
+  el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+}
+
+document.getElementById("connectBtn").onclick = ()=>{
+  const v = document.getElementById("repoInput").value.trim();
+  if(v) connect(v);
+};
+document.getElementById("repoInput").addEventListener("keydown", e=>{ if(e.key==="Enter") document.getElementById("connectBtn").click(); });
+
+document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+  const v=b.dataset.v;
+  document.getElementById("viewSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
+  document.getElementById("feedPane").style.display = v==="feed"?"block":"none";
+  document.getElementById("chint").textContent = v==="graph"?"branches · agentes nas pontas":"eventos ao vivo de todos os agentes";
+});
+
+// boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
+refresh();
+setInterval(refresh, 700);
+</script>
+</body>
+</html>

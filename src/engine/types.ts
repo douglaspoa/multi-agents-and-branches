@@ -1,0 +1,42 @@
+import type { TaskSpec } from "../types.ts";
+
+export type AgentEventType =
+  | "status"
+  | "think"
+  | "read"
+  | "edit"
+  | "write"
+  | "bash"
+  | "note"
+  | "claim"
+  | "error"
+  | "done";
+
+export interface AgentEvent {
+  type: AgentEventType;
+  text: string;
+  ok?: boolean;
+  /** Para eventos "claim": o caminho e o modo. */
+  path?: string;
+  mode?: "read" | "write";
+  /** Para "status"/"done": novo status do agente. */
+  status?: string;
+}
+
+export interface RunInput {
+  cwd: string; // caminho da worktree
+  spec: TaskSpec;
+  systemContext: string; // estado do barramento (vai no system prompt)
+  role: "planner" | "builder" | "reviewer";
+  agentName: string; // agente que está atuando neste papel
+}
+
+/**
+ * Contrato do motor de agente. O núcleo NUNCA fala com "Claude" direto —
+ * fala com esta interface. Trocar/somar motor = implementar um adapter.
+ */
+export interface AgentEngine {
+  id: string;
+  displayName: string;
+  run(input: RunInput): AsyncIterable<AgentEvent>;
+}
