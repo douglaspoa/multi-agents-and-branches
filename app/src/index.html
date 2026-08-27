@@ -443,6 +443,19 @@
   .step.cur .srole{color:var(--accent)}
   .step.wait .srole,.step.wait .sname{color:var(--muted)}
   .sact{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+  /* assistente IA de spec */
+  #aiAssist{border:1px solid var(--accent);border-radius:var(--r-sm);background:color-mix(in srgb,var(--accent) 6%,var(--surface));padding:11px;margin-bottom:16px}
+  .aichat{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto;margin-bottom:9px}
+  .aimsg{font-size:13px;line-height:1.5;padding:8px 11px;border-radius:10px;max-width:88%}
+  .aimsg.user{align-self:flex-end;background:var(--accent);color:var(--on-accent)}
+  .aimsg.assistant{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border)}
+  .aimsg.assistant.think{color:var(--muted)}
+  .aimsg p{margin:5px 0} .aimsg p:first-child{margin-top:0} .aimsg p:last-child{margin-bottom:0}
+  .aimsg ul,.aimsg ol{margin:5px 0 5px 18px}
+  .aispec{border:1px solid var(--accent);border-radius:var(--r-sm);padding:10px;background:var(--surface)}
+  .airow{display:flex;gap:6px}
+  .airow .aiinput{flex:1;min-width:0}
+  .aihint{font-size:10.5px;margin-top:6px}
   /* pull request */
   .prbox{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:11px}
   .prrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -586,8 +599,13 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead"><b>Nova tarefa</b><span style="flex:1"></span><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><b>Nova tarefa</b><span style="flex:1"></span><button class="btn sm" id="ntAI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg>gerar com IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
+      <div id="aiAssist" style="display:none">
+        <div class="aichat" id="aiChat"></div>
+        <div class="airow"><input class="in aiinput" id="aiInput" placeholder="descreva o que precisa… (ex.: rate limiting no gateway)"><button class="btn primary sm" id="aiSend">enviar</button></div>
+        <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
+      </div>
       <label>Título</label>
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
       <label>Objetivo</label>
@@ -1463,7 +1481,57 @@ async function openNewTask(){
   document.getElementById("ntTitle").focus();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+// ---------- assistente IA de spec ----------
+let aiSid="", aiBusy=false;
+function aiAppend(role, text){
+  const c=document.getElementById('aiChat'); const div=document.createElement('div');
+  div.className='aimsg '+role; div.innerHTML = role==='assistant'?mdToHtml(text):esc(text);
+  c.appendChild(div); c.scrollTop=c.scrollHeight; return div;
+}
+function extractSpec(text){
+  const m=text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
+  let raw = m?m[1]:null;
+  if(!raw){ const j=text.match(/\{[\s\S]*"objective"[\s\S]*\}/); raw=j?j[0]:null; }
+  if(!raw) return null;
+  try{ const o=JSON.parse(raw); return (o && (o.title||o.objective))?o:null; }catch(e){ return null; }
+}
+async function sendAiMsg(){
+  if(aiBusy) return;
+  const inp=document.getElementById('aiInput'); const text=inp.value.trim(); if(!text) return;
+  aiAppend('user', text); inp.value=''; aiBusy=true;
+  const send=document.getElementById('aiSend'); send.disabled=true;
+  const thinking=aiAppend('assistant','…'); thinking.classList.add('think');
+  try{
+    const r=await invoke('ai_chat',{ prompt:text, sessionId:aiSid });
+    aiSid=r.sessionId||aiSid; thinking.remove();
+    const spec=extractSpec(r.text||'');
+    if(spec){
+      aiAppend('assistant','Montei a spec com base no que você me contou:');
+      const div=aiAppend('assistant','');
+      div.innerHTML=`<div class="aispec"><b>${esc(spec.title||'(sem título)')}</b><div class="dim" style="margin:3px 0 8px">${esc(spec.objective||'')}</div>${(spec.deliverables||[]).length?`<div class="dim" style="font-size:11px">Entregáveis: ${esc((spec.deliverables||[]).join(' · '))}</div>`:''}<button class="btn primary sm" id="aiFill" style="margin-top:9px">preencher formulário</button></div>`;
+      document.getElementById('aiFill').onclick=()=>fillFromSpec(spec);
+    } else {
+      aiAppend('assistant', r.text||'(sem resposta)');
+    }
+  }catch(e){ thinking.remove(); aiAppend('assistant','⚠ '+String(e)); }
+  finally{ aiBusy=false; send.disabled=false; const i=document.getElementById('aiInput'); if(i) i.focus(); }
+}
+function fillFromSpec(spec){
+  document.getElementById('ntTitle').value=spec.title||'';
+  document.getElementById('ntObj').value=spec.objective||'';
+  ntDel=(spec.deliverables||[]).filter(Boolean); ntReq=(spec.requirements||[]).filter(Boolean);
+  renderNtList('ntDeliverables',ntDel); renderNtList('ntRequirements',ntReq);
+  document.getElementById('ntOwns').value=(spec.owns||[]).join(', ');
+  document.getElementById('ntOff').value=(spec.off||[]).join(', ');
+  document.getElementById('aiAssist').style.display='none';
+  document.getElementById('ntTitle').focus();
+}
+function toggleAiAssist(){
+  const a=document.getElementById('aiAssist'); const show=a.style.display==='none';
+  a.style.display=show?'block':'none';
+  if(show){ if(!document.getElementById('aiChat').children.length) aiAppend('assistant','Oi! Me conta em uma ou duas frases o que você quer fazer — eu pergunto o resto e monto a tarefa.'); document.getElementById('aiInput').focus(); }
+}
 async function submitNewTask(start=true){
   const title = document.getElementById("ntTitle").value.trim();
   if(!title){ document.getElementById("ntTitle").focus(); return; }
@@ -1574,6 +1642,9 @@ document.getElementById("ntClose").onclick = closeNewTask;
 document.getElementById("ntCancel").onclick = closeNewTask;
 document.getElementById("ntCreate").onclick = ()=>submitNewTask(true);
 document.getElementById("ntDraft").onclick = ()=>submitNewTask(false);
+document.getElementById("ntAI").onclick = toggleAiAssist;
+document.getElementById("aiSend").onclick = sendAiMsg;
+document.getElementById("aiInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendAiMsg(); });
 document.getElementById("projBtn").onclick = (e)=>{ e.stopPropagation(); toggleProjMenu(); };
 document.addEventListener("click", e=>{ if(!e.target.closest(".projsw")) closeProjMenu(); });
 document.getElementById("emAbrir").onclick = pickFolder;

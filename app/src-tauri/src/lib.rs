@@ -1118,6 +1118,49 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- assistente de IA para montar a spec da tarefa ----------
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiChat {
+    text: String,
+    session_id: String,
+}
+
+#[tauri::command]
+fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+    let repo = repo_of(&state)?;
+    let sys = "Você é um assistente que ajuda o Douglas a preencher a ESPECIFICAÇÃO de uma tarefa para um agente de código (produto Constellation). Converse em português, de forma objetiva. Faça poucas perguntas curtas para esclarecer só o essencial: objetivo/por quê, entregáveis, arquivos/escopo que serão tocados, e critérios de aceite. Quando tiver clareza suficiente, responda APENAS com um bloco de código ```json contendo exatamente {\"title\":\"\",\"objective\":\"\",\"deliverables\":[],\"requirements\":[],\"owns\":[],\"off\":[]} preenchido — sem nenhum texto fora do bloco. Enquanto faltar informação, NÃO gere o JSON: faça perguntas.";
+    let claude = std::env::var("CARDUME_CLAUDE").unwrap_or_else(|_| "claude".to_string());
+    let mut args: Vec<String> = vec![
+        "-p".to_string(),
+        prompt,
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--append-system-prompt".to_string(),
+        sys.to_string(),
+    ];
+    if let Some(sid) = &session_id {
+        if !sid.is_empty() {
+            args.push("--resume".to_string());
+            args.push(sid.clone());
+        }
+    }
+    let out = Command::new(&claude)
+        .args(&args)
+        .current_dir(&repo)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("claude indisponível: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    Ok(AiChat {
+        text: v["result"].as_str().unwrap_or("").to_string(),
+        session_id: v["session_id"].as_str().unwrap_or("").to_string(),
+    })
+}
+
 // ---------- integração com Pull Requests (GitHub via gh) ----------
 fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String> {
     let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
@@ -1447,6 +1490,7 @@ pub fn run() {
             new_task,
             start_task,
             reorder_tasks,
+            ai_chat,
             list_branches,
             open_pr,
             pr_status,
