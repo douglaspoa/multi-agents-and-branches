@@ -427,7 +427,9 @@
   .pipe .st.cur{border-color:var(--accent);color:var(--accent)}
   /* stepper de etapas (painel direito) */
   .stepper{display:flex;flex-direction:column;margin:6px 0 2px}
-  .step{display:grid;grid-template-columns:auto 1fr;gap:10px;position:relative;padding:4px 0}
+  .step{display:grid;grid-template-columns:auto 1fr;gap:10px;position:relative;padding:4px 0;cursor:pointer}
+  .step:hover .srole{color:var(--accent)}
+  .sview{font-size:10px;font-weight:600;color:var(--accent);margin-left:7px;opacity:.85}
   .step:not(:last-child)::before{content:"";position:absolute;left:8px;top:21px;bottom:-3px;width:1.5px;background:var(--border)}
   .step.done:not(:last-child)::before{background:var(--good)}
   .smark{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:9.5px;font-weight:700;border:1.5px solid var(--border);color:var(--muted);background:var(--surface);z-index:1}
@@ -456,6 +458,19 @@
   .airow{display:flex;gap:6px}
   .airow .aiinput{flex:1;min-width:0}
   .aihint{font-size:10.5px;margin-top:6px}
+  /* revisor de arquivos */
+  .fvmodal{max-width:920px;width:min(920px,94vw)}
+  .fvmodal .mbody{max-height:76vh;overflow:auto;padding:0}
+  .fvcode{font-family:var(--mono);font-size:12px;line-height:1.55;width:max-content;min-width:100%}
+  .fvln{display:grid;grid-template-columns:46px 1fr;cursor:pointer}
+  .fvln:hover{background:var(--surface-2)}
+  .fvln.sel{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+  .fvln.add{background:color-mix(in srgb,var(--good) 13%,transparent)}
+  .fvln.add:hover{background:color-mix(in srgb,var(--good) 20%,transparent)}
+  .fvnum{color:var(--muted);text-align:right;padding:1px 10px 1px 6px;user-select:none;border-right:1px solid var(--border);position:sticky;left:0;background:var(--surface)}
+  .fvln.add .fvnum{background:color-mix(in srgb,var(--good) 13%,var(--surface))}
+  .fvtxt{padding:1px 12px;white-space:pre}
+  .fvedit{width:100%;min-height:62vh;font-family:var(--mono);font-size:12px;line-height:1.55;border:none;outline:none;background:var(--surface);color:var(--text);padding:12px;resize:vertical}
   /* pull request */
   .prbox{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:11px}
   .prrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -643,6 +658,13 @@
   </div>
 </div>
 
+<div class="overlay" id="fvOverlay" style="display:none">
+  <div class="modal fvmodal">
+    <div class="mhead"><b id="fvTitle" class="mono"></b><span style="flex:1"></span><button class="btn sm" id="fvEdit">editar</button><button class="btn primary sm" id="fvSave" style="display:none">salvar</button><button class="x" id="fvClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="fvBody"></div>
+  </div>
+</div>
+
 <div class="overlay" id="artOverlay" style="display:none">
   <div class="modal artmodal">
     <div class="mhead"><span class="artic" id="artIcon"></span><b id="artTitle"></b><span style="flex:1"></span><button class="x" id="artClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
@@ -757,6 +779,59 @@ function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId);
 function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
 function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2); }
 function fmtTok(n){ n=n||0; return n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : String(n); }
+// ---------- revisor de arquivos (abrir/editar/salvar + falar por linha) ----------
+const fileCache={}; // taskId -> {status, list}
+async function loadTaskFiles(taskId, status){
+  const c=fileCache[taskId];
+  if(c && c.status===status) return c.list;
+  try{ fileCache[taskId]={status, list: await invoke("task_files",{ taskId })}; }catch(e){ fileCache[taskId]={status,list:[]}; }
+  return fileCache[taskId].list;
+}
+function filesBlock(t){
+  if(t.status==='draft') return '';
+  const c=fileCache[t.id];
+  if(!c || c.status!==t.status){ loadTaskFiles(t.id,t.status).then(()=>{ if(selected===t.id) renderSide(); }); return c?filesListHtml(c.list):''; }
+  return filesListHtml(c.list);
+}
+function filesListHtml(files){
+  if(!files.length) return '';
+  return `<div class="seclbl">Arquivos alterados <span class="n">${files.length}</span></div><div class="artlist">`+
+    files.map(f=>`<button class="artitem" data-file="${escA(f.path)}"><span class="artic">${IC.doc}</span><span class="artnm mono">${esc(f.path)}</span><span class="artkb"><span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span></button>`).join('')+`</div>`;
+}
+let fvTask=null, fvPath=null, fvEditing=false, fvContent='', fvAdded=[];
+async function openFile(taskId, path){
+  fvTask=taskId; fvPath=path; fvEditing=false;
+  document.getElementById('fvTitle').textContent=path;
+  document.getElementById('fvOverlay').style.display='flex';
+  document.getElementById('fvBody').innerHTML='<div class="dim" style="font-size:12px;padding:8px">carregando…</div>';
+  try{ const r=await invoke('read_file',{ taskId, path }); fvContent=r.content||''; fvAdded=r.addedLines||[]; renderFileView(); }
+  catch(e){ document.getElementById('fvBody').innerHTML='<div class="dim" style="padding:8px">'+esc(String(e))+'</div>'; }
+}
+function closeFile(){ document.getElementById('fvOverlay').style.display='none'; document.getElementById('fvBody').innerHTML=''; }
+function renderFileView(){
+  const body=document.getElementById('fvBody');
+  document.getElementById('fvEdit').style.display=fvEditing?'none':'';
+  document.getElementById('fvSave').style.display=fvEditing?'':'none';
+  if(fvEditing){ body.innerHTML=`<textarea class="fvedit mono" id="fvText" spellcheck="false"></textarea>`; document.getElementById('fvText').value=fvContent; document.getElementById('fvText').focus(); return; }
+  const added=new Set(fvAdded);
+  const lines=fvContent.split('\n');
+  body.innerHTML=`<div class="fvcode">`+lines.map((ln,i)=>{ const n=i+1; return `<div class="fvln${added.has(n)?' add':''}" data-ln="${n}"><span class="fvnum">${n}</span><span class="fvtxt">${esc(ln)||' '}</span></div>`; }).join('')+`</div><div id="fvLineBox"></div>`;
+  body.querySelectorAll('.fvln').forEach(el=>el.onclick=()=>showLineAsk(+el.dataset.ln));
+}
+function showLineAsk(n){
+  document.querySelectorAll('.fvln.sel').forEach(x=>x.classList.remove('sel'));
+  const row=document.querySelector('.fvln[data-ln="'+n+'"]'); if(row) row.classList.add('sel');
+  const box=document.getElementById('fvLineBox');
+  box.innerHTML=`<div class="instrbox" style="margin:10px 0"><div class="ilbl">${IC.ai} Falar com o agente sobre a linha ${n}</div><div class="ihint">O agente da tarefa refaz na worktree endereçando este ponto (via --resume).</div><div class="irow"><input class="in iinput" id="fvAsk" placeholder="ex.: renomeia essa variável / trata o nulo aqui / explica"><button class="btn primary sm" id="fvAskSend">pedir ajuste</button></div></div>`;
+  const inp=document.getElementById('fvAsk'); inp.focus();
+  const go=async()=>{ const v=inp.value.trim(); if(!v) return; inp.disabled=true; try{ await invoke('rework_task',{ taskId:fvTask, text:`Sobre ${fvPath}:${n}: ${v}` }); closeFile(); lastSig=''; await refresh(); }catch(e){ alert('Falha:\n'+e); inp.disabled=false; } };
+  document.getElementById('fvAskSend').onclick=go;
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+}
+document.getElementById('fvEdit').onclick=()=>{ fvEditing=true; renderFileView(); };
+document.getElementById('fvSave').onclick=async()=>{ const v=document.getElementById('fvText').value; const b=document.getElementById('fvSave'); b.disabled=true; try{ await invoke('write_file',{ taskId:fvTask, path:fvPath, content:v }); fvContent=v; fvEditing=false; fileCache[fvTask]=undefined; renderFileView(); lastSig=''; refresh(); }catch(e){ alert('Falha ao salvar:\n'+e); }finally{ b.disabled=false; } };
+document.getElementById('fvClose').onclick=closeFile;
+document.getElementById('fvOverlay').addEventListener('click', e=>{ if(e.target.id==='fvOverlay') closeFile(); });
 // ---------- Pull Request (GitHub) ----------
 const prCache={}; let branchList=null;
 async function loadBranches(){ if(branchList) return branchList; try{ branchList=await invoke("list_branches"); }catch(e){ branchList=["main"]; } return branchList; }
@@ -1343,7 +1418,8 @@ function stageStepper(t){
     else cls='wait';
     const mark = cls==='done'?IC.check : cls==='err'?'!' : cls==='cur'?'<span class="spin"></span>' : (i+1);
     const sub = (cls==='cur' && ev) ? `<div class="sact">${esc((GLYPH[ev.type]||'·')+' '+ev.text)}</div>` : '';
-    return `<div class="step ${cls}" data-role="${escA(r.role)}" data-name="${escA(r.name)}"><span class="smark">${mark}</span><div class="stx"><span class="srole">${ROLE_PT[r.role]||r.role}</span><span class="sname">${esc(r.name)}</span>${sub}</div></div>`;
+    const view = r.role==='planner'?'<span class="sview">ver plano ›</span>' : r.role==='designer'?'<span class="sview">ver design ›</span>' : '';
+    return `<div class="step ${cls}" data-role="${escA(r.role)}" data-name="${escA(r.name)}"><span class="smark">${mark}</span><div class="stx"><span class="srole">${ROLE_PT[r.role]||r.role}${view}</span><span class="sname">${esc(r.name)}</span>${sub}</div></div>`;
   }).join("");
   return `<div class="seclbl" style="margin-top:13px">Etapas</div><div class="stepper">${steps}</div>`;
 }
@@ -1397,6 +1473,7 @@ function renderSide(){
       <b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b>
       <span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span>
     </div>
+    ${filesBlock(t)}
     ${prBlock(t)}
     ${costBlock(t.id)}
     ${artifactsBlock(t)}
@@ -1411,7 +1488,8 @@ function renderSide(){
   el.querySelectorAll('[data-act="start"]').forEach(b=>b.onclick=()=>startTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
-  el.querySelectorAll('.artitem').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
+  el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
+  el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openFile(t.id, b.dataset.file));
   { const b=el.querySelector('#prOpen'); if(b) b.onclick=()=>openPr(t); }
   { const b=el.querySelector('#prRefresh'); if(b) b.onclick=async()=>{ await loadPr(t.id,true); renderSide(); }; }
   { const b=el.querySelector('#prRework'); if(b) b.onclick=()=>reworkFromPr(t.id); }
@@ -1420,8 +1498,14 @@ function renderSide(){
   const iInput=el.querySelector('#instrInput'); if(iInput) iInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendInstruction(t.id); });
   const rwS=el.querySelector('#rwTaskSend'); if(rwS) rwS.onclick=()=>sendRework(t.id, el.querySelector('#rwTaskInput'), '');
   const rwI=el.querySelector('#rwTaskInput'); if(rwI) rwI.addEventListener('keydown',e=>{ if(e.key==='Enter') sendRework(t.id, rwI, ''); });
-  // clicar numa etapa mira o ajuste nela
-  el.querySelectorAll('.step').forEach(s=>s.onclick=()=>{ const inp=el.querySelector('#rwTaskInput'); if(inp){ inp.value='Sobre a etapa '+(ROLE_PT[s.dataset.role]||s.dataset.role)+' ('+s.dataset.name+'): '; inp.focus(); } });
+  // clicar numa etapa: planner/designer abrem o doc produzido (ver/editar);
+  // as demais miram o "pedir ajuste" naquela etapa.
+  const stageDoc={ planner:'.cardume/PLAN.md', designer:'.cardume/DESIGN.md' };
+  el.querySelectorAll('.step').forEach(s=>s.onclick=()=>{
+    const role=s.dataset.role;
+    if(stageDoc[role]){ openFile(t.id, stageDoc[role]); return; }
+    const inp=el.querySelector('#rwTaskInput'); if(inp){ inp.value='Sobre a etapa '+(ROLE_PT[role]||role)+' ('+s.dataset.name+'): '; inp.focus(); }
+  });
   wireQuestion(el);
 }
 
@@ -1657,7 +1741,7 @@ document.getElementById("artOverlay").addEventListener("click", e=>{ if(e.target
 document.getElementById("cmClose").onclick = closeCommit;
 document.getElementById("cmOverlay").addEventListener("click", e=>{ if(e.target.id==="cmOverlay") closeCommit(); });
 document.addEventListener("keydown", e=>{
-  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); return; }
+  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); closeFile(); return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
     if(k==="n"){ e.preventDefault(); if(connected) openNewTask(); }

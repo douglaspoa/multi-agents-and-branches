@@ -1195,6 +1195,100 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     })
 }
 
+// ---------- revisão de arquivos da tarefa (abrir/editar/salvar) ----------
+fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
+    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    conn.query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| {
+        Ok((PathBuf::from(r.get::<_, String>(0)?), r.get::<_, String>(1)?))
+    })
+    .map_err(|e| e.to_string())
+}
+fn safe_rel(path: &str) -> Result<(), String> {
+    if path.starts_with('/') || path.contains("..") {
+        return Err("caminho inválido".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskFile {
+    path: String,
+    add: i64,
+    del: i64,
+}
+
+/// Arquivos alterados pela tarefa (git diff base...HEAD na worktree).
+#[tauri::command]
+fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, String> {
+    let (wt, base) = task_wt_base(&state, &task_id)?;
+    let out = Command::new("git")
+        .arg("-C").arg(&wt)
+        .args(["diff", "--numstat", &format!("{base}...HEAD")])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut files = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let p: Vec<&str> = line.split('\t').collect();
+        if p.len() >= 3 {
+            files.push(TaskFile { add: p[0].parse().unwrap_or(0), del: p[1].parse().unwrap_or(0), path: p[2].to_string() });
+        }
+    }
+    Ok(files)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileContent {
+    content: String,
+    added_lines: Vec<i64>,
+}
+
+/// Conteúdo atual do arquivo na worktree + as linhas ADICIONADAS pela tarefa
+/// (pra destacar no revisor).
+#[tauri::command]
+fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<FileContent, String> {
+    safe_rel(&path)?;
+    let (wt, base) = task_wt_base(&state, &task_id)?;
+    let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| e.to_string())?;
+    // linhas novas (do diff unified=0): parse dos hunks @@ -a,b +c,d @@
+    let mut added: Vec<i64> = Vec::new();
+    if let Ok(out) = Command::new("git").arg("-C").arg(&wt).args(["diff", "--unified=0", &format!("{base}...HEAD"), "--", &path]).output() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("@@") {
+                // formato: @@ -a,b +c,d @@
+                if let Some(plus) = rest.split('+').nth(1) {
+                    let seg = plus.split('@').next().unwrap_or("").trim();
+                    let mut it = seg.split(',');
+                    let start: i64 = it.next().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+                    let count: i64 = it.next().and_then(|s| s.trim().parse().ok()).unwrap_or(1);
+                    for l in start..start + count.max(if count == 0 { 0 } else { count }) {
+                        if count > 0 {
+                            added.push(l);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(FileContent { content, added_lines: added })
+}
+
+/// Salva o arquivo editado na worktree.
+#[tauri::command]
+fn write_file(state: State<AppState>, task_id: String, path: String, content: String) -> Result<(), String> {
+    safe_rel(&path)?;
+    let (wt, _base) = task_wt_base(&state, &task_id)?;
+    let full = wt.join(&path);
+    if !full.exists() {
+        return Err("arquivo não existe na worktree".to_string());
+    }
+    std::fs::write(&full, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ---------- integração com Pull Requests (GitHub via gh) ----------
 fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String> {
     let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
@@ -1525,6 +1619,9 @@ pub fn run() {
             start_task,
             reorder_tasks,
             ai_chat,
+            task_files,
+            read_file,
+            write_file,
             list_branches,
             open_pr,
             pr_status,
