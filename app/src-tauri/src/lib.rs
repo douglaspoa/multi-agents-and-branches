@@ -72,6 +72,8 @@ struct Task {
     engine: String,
     model: Option<String>,
     created_at: i64,
+    deliverables: serde_json::Value,
+    requirements: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -228,6 +230,8 @@ struct CommitDetail {
     subject: String,
     body: String,
     files: Vec<serde_json::Value>,
+    diff: String,
+    task_id: Option<String>,
 }
 
 /// Resumo técnico de um commit: mensagem (o quê + porquê) + arquivos alterados.
@@ -268,6 +272,37 @@ fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, S
             }));
         }
     }
+    let patch = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["show", "--no-color", "--format=", "-p", "--unified=3", &hash])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let diff = String::from_utf8_lossy(&patch.stdout).trim_start().to_string();
+
+    // A qual tarefa o commit pertence: branch agent/<id> que o contém, ou "(agent/<id>)" no assunto.
+    let branches = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["branch", "--contains", &hash, "--format=%(refname:short)"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut task_id: Option<String> = String::from_utf8_lossy(&branches.stdout)
+        .lines()
+        .find_map(|b| b.trim().strip_prefix("agent/").map(|s| s.to_string()));
+    if task_id.is_none() {
+        let subj = f.get(3).unwrap_or(&"");
+        if let Some(pos) = subj.find("agent/") {
+            let id: String = subj[pos + 6..]
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if !id.is_empty() {
+                task_id = Some(id);
+            }
+        }
+    }
+
     Ok(CommitDetail {
         hash: f[0].to_string(),
         author: f.get(1).unwrap_or(&"").to_string(),
@@ -275,6 +310,8 @@ fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, S
         subject: f.get(3).unwrap_or(&"").to_string(),
         body: f.get(4).unwrap_or(&"").trim().to_string(),
         files,
+        diff,
+        task_id,
     })
 }
 
@@ -309,12 +346,14 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
 
     let tasks = conn
         .prepare(
-            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at \
+            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json \
              FROM task ORDER BY created_at",
         )
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
             let roles_json: String = r.get(6)?;
+            let spec_json: String = r.get(13)?;
+            let spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or_default();
             Ok(Task {
                 id: r.get(0)?,
                 title: r.get(1)?,
@@ -329,6 +368,8 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 engine: r.get(10)?,
                 model: r.get(11)?,
                 created_at: r.get(12)?,
+                deliverables: spec.get("deliverables").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+                requirements: spec.get("requirements").cloned().unwrap_or(serde_json::Value::Array(vec![])),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())

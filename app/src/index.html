@@ -223,6 +223,28 @@
   .cmfiles{display:flex;flex-direction:column;gap:4px;margin-top:6px}
   .cmfile{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;padding:6px 9px;background:var(--surface-2);border:.5px solid var(--border);border-radius:var(--r-xs)}
   .cmfile .mono{font-size:11px}
+  .modal.cm{width:min(720px,100%)}
+  .cmtask{margin-top:12px;border:.5px solid color-mix(in srgb,var(--accent) 40%,var(--border));background:color-mix(in srgb,var(--accent) 7%,var(--surface));border-radius:var(--r-sm);padding:10px 12px}
+  .cmtask-h{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);font-weight:700;margin-bottom:5px}
+  .cmtask-t{font-size:13px;font-weight:600}
+  .cmtask-o{font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.45}
+  .cmtask-dl{font-size:11.5px;color:var(--muted);margin-top:8px;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+  .delchip{border:.5px solid var(--border);background:var(--surface);border-radius:100px;padding:2px 9px;color:var(--text-2);font-size:11px}
+  .delchip.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface));font-weight:600}
+  .cmsum{background:var(--surface-2);border:.5px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;margin-top:11px;font-size:12.5px;color:var(--text);line-height:1.55}
+  .cmsum-h{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:5px}
+  .diffwrap{margin-top:6px}
+  .difffile{border:.5px solid var(--border);border-radius:var(--r-sm);margin-top:9px;overflow:hidden}
+  .difffile .fh{padding:6px 10px;background:var(--surface-2);border-bottom:.5px solid var(--border);font-size:11.5px}
+  .difffile .fh .p{font-size:11px}
+  .dlines{overflow-x:auto;font-family:var(--mono);font-size:11px}
+  .dl{display:flex;white-space:pre;line-height:1.55;min-width:max-content}
+  .dl .ln{width:32px;flex:none;text-align:right;padding:0 5px;color:var(--muted);user-select:none}
+  .dl .ln:nth-child(2){border-right:.5px solid var(--border);margin-right:3px}
+  .dl .lc{padding:0 8px 0 2px;flex:1}
+  .dl.add{background:color-mix(in srgb,var(--good) 14%,transparent)}
+  .dl.del{background:color-mix(in srgb,var(--crit) 14%,transparent)}
+  .dl.hunk{background:var(--surface-3);color:var(--muted)}
   /* estado vazio (sem repo) */
   .emptyrepo{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--muted);text-align:center;padding:40px}
   .emptyrepo .big{font-size:16px;font-weight:600;color:var(--text)}
@@ -421,7 +443,7 @@
 </div>
 
 <div class="overlay" id="cmOverlay" style="display:none">
-  <div class="modal" style="width:min(560px,100%)">
+  <div class="modal cm" style="width:min(720px,100%)">
     <div class="mhead"><b>Resumo do commit</b><span style="flex:1"></span><button class="x" id="cmClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="cmBody"></div>
   </div>
@@ -607,17 +629,84 @@ function renderGraph(){
   svg.innerHTML = edges+nodes+labels+rects;
   svg.querySelectorAll(".cnode").forEach(g=>g.onclick=()=>openCommit(g.dataset.hash));
 }
+const DEFPAT=[/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_,\s]*)\s*=>/,/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/,/^\s*def\s+([A-Za-z0-9_]+)/,/^\s*#\[tauri::command\]/];
+function camelIdJS(s){ const w=String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim().split(/\s+/).slice(0,4); return w.map((x,i)=>i?x.charAt(0).toUpperCase()+x.slice(1):x).join(""); }
+function parseDiff(diff){
+  const files=[]; let cur=null, oldLn=0, newLn=0;
+  for(const l of (diff||"").split("\n")){
+    if(l.startsWith("diff --git")){ const m=l.match(/^diff --git a\/(.+?) b\/(.+)$/); cur={path:m?m[2]:"", rows:[]}; files.push(cur); continue; }
+    if(!cur) continue;
+    if(l.startsWith("index ")||l.startsWith("new file")||l.startsWith("deleted file")||l.startsWith("similarity")||l.startsWith("rename ")||l.startsWith("--- ")||l.startsWith("+++ ")||l.startsWith("\\ ")) continue;
+    if(l.startsWith("@@")){ const m=l.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/); if(m){ oldLn=+m[1]; newLn=+m[2]; } cur.rows.push({t:"hunk", text:l}); continue; }
+    if(l.startsWith("+")){ cur.rows.push({t:"add", n:newLn, text:l.slice(1)}); newLn++; }
+    else if(l.startsWith("-")){ cur.rows.push({t:"del", o:oldLn, text:l.slice(1)}); oldLn++; }
+    else { cur.rows.push({t:"ctx", o:oldLn, n:newLn, text:l.slice(1)}); oldLn++; newLn++; }
+  }
+  return files;
+}
+function commitTech(files){
+  let add=0, del=0; const addFns=[], delFns=[], names=[];
+  for(const f of files){
+    if(f.path && !/^\.cardume\//.test(f.path)) names.push(f.path);
+    for(const r of f.rows){
+      if(r.t==="add"){ add++; for(const p of DEFPAT){ const m=r.text.match(p); if(m&&m[1]){ addFns.push(m[1]); break; } } }
+      else if(r.t==="del"){ del++; for(const p of DEFPAT){ const m=r.text.match(p); if(m&&m[1]){ delFns.push(m[1]); break; } } }
+    }
+  }
+  const uniq=a=>[...new Set(a)];
+  const af=uniq(addFns), df=uniq(delFns).filter(x=>!af.includes(x));
+  const parts=[`Altera ${names.length} arquivo(s) · +${add} −${del} linhas.`];
+  if(af.length) parts.push(`Introduz ${af.slice(0,8).join(", ")}${af.length>8?"…":""}.`);
+  if(df.length) parts.push(`Remove/renomeia ${df.slice(0,6).join(", ")}${df.length>6?"…":""}.`);
+  return { text: parts.join(" "), addFns: af, files: names };
+}
+function renderDiff(files){
+  let total=0, out="", truncated=false;
+  for(const f of files){
+    if(!f.rows.length) continue;
+    let rows="";
+    for(const r of f.rows){
+      if(total>1500){ truncated=true; break; }
+      total++;
+      if(r.t==="hunk"){ rows+=`<div class="dl hunk"><span class="ln"></span><span class="ln"></span><span class="lc">${esc(r.text)}</span></div>`; continue; }
+      const sign=r.t==="add"?"+":r.t==="del"?"−":" ";
+      rows+=`<div class="dl ${r.t}"><span class="ln">${r.o||""}</span><span class="ln">${r.n||""}</span><span class="lc">${esc(sign+" "+r.text)}</span></div>`;
+    }
+    out+=`<div class="difffile"><div class="fh"><span class="p mono">${esc(f.path)}</span></div><div class="dlines">${rows}</div></div>`;
+    if(truncated) break;
+  }
+  if(truncated) out+='<div class="dim" style="font-size:11.5px;margin-top:6px">…diff grande, truncado.</div>';
+  return out || '<div class="dim" style="font-size:12px">sem alterações de linha (ex.: merge)</div>';
+}
 async function openCommit(hash){
   const ov=document.getElementById("cmOverlay"), body=document.getElementById("cmBody");
   ov.style.display="flex"; body.innerHTML='<div class="dim" style="font-size:12px">carregando…</div>';
   let d; try{ d=await invoke("commit_detail",{hash}); }
   catch(e){ body.innerHTML='<div class="dim" style="font-size:12px">'+esc(String(e))+'</div>'; return; }
+  const files = parseDiff(d.diff);
+  const tech = commitTech(files);
+  // vincula à tarefa e ao(s) entregável(is)
+  let taskBox="";
+  const t = d.taskId ? (state.tasks||[]).find(x=>x.id===d.taskId) : null;
+  if(t){
+    const dels = Array.isArray(t.deliverables)?t.deliverables:[];
+    const matched = dels.filter(dl=> tech.addFns.some(fn=> fn.toLowerCase()===camelIdJS(dl).toLowerCase()));
+    const rel = matched.length?matched:dels;
+    taskBox = `<div class="cmtask">
+      <div class="cmtask-h">Parte da tarefa</div>
+      <div class="cmtask-t">${esc(t.title)} <span class="dim">· ${esc(t.agent)}</span></div>
+      ${t.objective?`<div class="cmtask-o">${esc(t.objective)}</div>`:''}
+      ${rel.length?`<div class="cmtask-dl">${matched.length?'Entregável relacionado:':'Entregáveis da tarefa:'}${rel.map(x=>`<span class="delchip${matched.includes(x)?' on':''}">${esc(x)}</span>`).join("")}</div>`:''}
+    </div>`;
+  }
   body.innerHTML = `
     <div class="cmsub">${esc(d.subject)}</div>
     <div class="cmmeta"><span class="mono">${esc((d.hash||"").slice(0,8))}</span> · ${esc(d.author)} · ${esc(d.date)}</div>
-    ${d.body?`<div class="cmbody-txt">${esc(d.body).replace(/\n/g,"<br>")}</div>`:'<div class="cmbody-txt dim">(sem descrição adicional no commit)</div>'}
-    <div class="seclbl2" style="margin-top:15px">Arquivos alterados <span style="flex:1"></span><span class="dim" style="letter-spacing:0;text-transform:none">${d.files.length}</span></div>
-    <div class="cmfiles">${d.files.map(f=>`<div class="cmfile"><span class="mono">${esc(f.path)}</span><span class="mono"><span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span></div>`).join("")||'<div class="dim" style="font-size:12px">sem alterações</div>'}</div>`;
+    ${taskBox}
+    <div class="cmsum"><div class="cmsum-h">Resumo técnico</div>${esc(tech.text)}</div>
+    ${d.body?`<div class="cmbody-txt">${esc(d.body).replace(/\n/g,"<br>")}</div>`:''}
+    <div class="seclbl2" style="margin-top:15px">Alterações <span style="flex:1"></span><span class="dim" style="letter-spacing:0;text-transform:none">${d.files.length} arquivo(s)</span></div>
+    <div class="diffwrap">${renderDiff(files)}</div>`;
 }
 function closeCommit(){ document.getElementById("cmOverlay").style.display="none"; }
 
