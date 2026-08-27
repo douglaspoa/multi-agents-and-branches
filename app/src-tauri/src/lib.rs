@@ -409,6 +409,42 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
     Ok(summary)
 }
 
+/// Commits de uma tarefa (base..branch) — para vincular commits à tarefa.
+#[tauri::command]
+fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_json::Value>, String> {
+    let dbpath = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
+    let conn = open(&dbpath)?;
+    let (branch, base): (String, String) = conn
+        .query_row("SELECT branch, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?;
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args([
+            "log",
+            &format!("{base}..{branch}"),
+            "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad",
+            "--date=short",
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Ok(vec![]); // branch pode ter sido removida (tarefa mergeada)
+    }
+    let mut commits = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let f: Vec<&str> = line.split('\u{1f}').collect();
+        if f.len() >= 2 {
+            commits.push(serde_json::json!({
+                "hash": f[0], "subject": f[1],
+                "author": f.get(2).unwrap_or(&""), "date": f.get(3).unwrap_or(&""),
+            }));
+        }
+    }
+    Ok(commits)
+}
+
 #[tauri::command]
 fn current_repo(state: State<AppState>) -> Option<String> {
     state
@@ -766,7 +802,8 @@ pub fn run() {
             import_agent_files,
             commit_detail,
             ai_commit_summary,
-            commit_summary_cached
+            commit_summary_cached,
+            task_commits
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");

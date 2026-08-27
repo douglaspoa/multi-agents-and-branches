@@ -253,6 +253,30 @@
   .emptyrepo svg{width:44px;height:44px;opacity:.5}
   .emptyrepo .btn svg{width:15px;height:15px;opacity:1}
   .errbox{background:color-mix(in srgb,var(--crit) 13%,var(--surface));border:.5px solid var(--crit);color:var(--text);border-radius:var(--r-sm);padding:9px 11px;margin-bottom:12px;font-size:12.5px;line-height:1.45}
+  /* aba Fluxo */
+  #flowPane{padding:12px 12px 20px}
+  .fcard{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);cursor:pointer;transition:border-color .12s}
+  .fcard:hover{border-color:var(--border-strong)}
+  .fcard.sel{border-color:var(--accent);box-shadow:var(--ring)}
+  .fhead{display:flex;align-items:center;gap:9px}
+  .fhead b{font-size:13.5px;font-weight:600}
+  .fhead .sd{width:9px;height:9px;border-radius:50%;flex:none}
+  .fstatus{margin-left:auto;font-size:11px;font-weight:600;text-transform:capitalize}
+  .fpipe{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:11px}
+  .fstep{display:flex;align-items:center;gap:6px;border:.5px solid var(--border);border-radius:100px;padding:3px 10px 3px 3px;background:var(--surface-2)}
+  .fstep.cur{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+  .fav{width:20px;height:20px;border-radius:50%;background:var(--c-main);color:#fff;display:grid;place-items:center;font-size:9px;font-weight:600;flex:none}
+  .fstep.cur .fav{background:var(--accent)}
+  .fnm{font-size:11.5px;font-weight:600}
+  .frole{font-size:10px;color:var(--muted)}
+  .farrow{color:var(--muted);font-size:12px}
+  .fmeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:11px;font-size:11.5px;color:var(--text-2)}
+  .fmeta .frev{color:var(--good);font-weight:600}
+  .fcommits{display:flex;flex-direction:column;gap:2px;margin-top:10px;border-top:.5px dashed var(--border);padding-top:9px}
+  .fcommit{display:flex;gap:8px;align-items:baseline;text-align:left;border:0;background:none;cursor:pointer;color:var(--text-2);font:inherit;font-size:11.5px;padding:3px 6px;border-radius:var(--r-xs);width:100%}
+  .fcommit:hover{background:var(--surface-2);color:var(--text)}
+  .fcommit .mono{color:var(--muted);font-size:10.5px;flex:none}
+  .sidecommits{display:flex;flex-direction:column;gap:1px;margin-top:4px}
 
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
@@ -368,12 +392,14 @@
     <div class="feed">
       <div class="chead">
         <div class="seg2" id="viewSeg">
-          <button data-v="graph" class="on">Grafo</button>
+          <button data-v="flow" class="on">Fluxo</button>
+          <button data-v="graph">Grafo</button>
           <button data-v="feed">Atividade</button>
         </div>
-        <span class="chint" id="chint">branches · agentes nas pontas</span>
+        <span class="chint" id="chint">quem fez o quê · commits por tarefa</span>
       </div>
-      <div id="graphPane" class="pane"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div id="flowPane" class="pane"><div id="flow"></div></div>
+      <div id="graphPane" class="pane" style="display:none"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
       <div id="emptyRepo" class="emptyrepo" style="display:none">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>
@@ -522,10 +548,49 @@ function render(){
     document.getElementById("busSummary").innerHTML='<span class="dim">—</span>';
     return;
   }
-  const feedOn = (document.querySelector('#viewSeg button.on')||{}).dataset?.v==="feed";
-  document.getElementById("graphPane").style.display = feedOn?"none":"block";
-  document.getElementById("feedPane").style.display = feedOn?"block":"none";
-  renderRail(); renderFeed(); renderGraph(); renderSide(); renderBus();
+  const v = (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow";
+  document.getElementById("flowPane").style.display = v==="flow"?"block":"none";
+  document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
+  document.getElementById("feedPane").style.display = v==="feed"?"block":"none";
+  renderRail(); renderFeed(); renderGraph(); renderFlow(); renderSide(); renderBus();
+}
+function activeIs(x){ return ((((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v)===x; }
+const commitsCache={};
+async function loadCommits(taskId, force){
+  if(commitsCache[taskId]!==undefined && !force) return commitsCache[taskId];
+  try{ commitsCache[taskId]=await invoke("task_commits",{taskId}); }catch(e){ commitsCache[taskId]=[]; }
+  return commitsCache[taskId];
+}
+async function loadAllCommits(){ for(const t of (state.tasks||[])) await loadCommits(t.id); render(); }
+function commitChip(x){ return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA(x.subject)}"><span class="mono">${esc((x.hash||'').slice(0,7))}</span> ${esc((x.subject||'').slice(0,44))}</button>`; }
+function renderFlow(){
+  const el=document.getElementById("flow");
+  const tasks=state.tasks||[];
+  if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa ainda — clique “+ Nova tarefa”.</div>'; return; }
+  el.innerHTML = tasks.map(t=>{
+    const col=STATUS_COLOR[t.status]||"var(--muted)";
+    const roles=t.roles||[];
+    const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav">${esc((r.name||'?').slice(0,2).toUpperCase())}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
+    const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
+    const cchips = c===undefined ? '<span class="dim" style="font-size:11px">…</span>'
+      : c.length ? c.slice(0,6).map(commitChip).join("")+(c.length>6?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-6}</span>`:"")
+      : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">sem commits ainda</span>');
+    return `<div class="fcard${t.id===selected?' sel':''}" data-id="${t.id}">
+      <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b><span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
+      <div class="fpipe">${pipe}</div>
+      <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span></div>
+      <div class="fcommits">${cchips}</div>
+    </div>`;
+  }).join("");
+  el.querySelectorAll('.fcard').forEach(card=>card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); });
+  el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
+  for(const t of tasks){ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('flow')) renderFlow(); }); }
+}
+function commitsBlock(taskId){
+  const c=commitsCache[taskId];
+  if(c===undefined){ loadCommits(taskId).then(()=>{ if(selected===taskId) renderSide(); }); return '<div class="seclbl">Commits</div><div class="dim" style="font-size:12px">…</div>'; }
+  if(!c.length) return '';
+  return `<div class="seclbl">Commits <span class="n">${c.length}</span></div><div class="sidecommits">${c.map(commitChip).join("")}</div>`;
 }
 function errBanner(t){
   if(t.status!=='error' && t.status!=='conflict') return '';
@@ -805,6 +870,7 @@ function renderSide(){
       <b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b>
       <span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span>
     </div>
+    ${commitsBlock(t.id)}
     <div class="seclbl">Log <span class="n">${evs.length}</span></div>
     <div class="log">${evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join("")||'<span class="dim">—</span>'}</div>
     ${t.status==='merged'
@@ -813,6 +879,7 @@ function renderSide(){
   </div>`;
   el.querySelectorAll('[data-act="merge"]').forEach(b=>b.onclick=()=>mergeTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
+  el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   wireQuestion(el);
 }
 
@@ -835,9 +902,9 @@ document.getElementById("repoInput").addEventListener("keydown", e=>{ if(e.key==
 document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   const v=b.dataset.v;
   document.getElementById("viewSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
-  document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
-  document.getElementById("feedPane").style.display = v==="feed"?"block":"none";
-  document.getElementById("chint").textContent = v==="graph"?"branches · agentes nas pontas":"eventos ao vivo de todos os agentes";
+  document.getElementById("chint").textContent = v==="flow"?"quem fez o quê · commits por tarefa":v==="graph"?"branches · agentes nas pontas":"eventos ao vivo de todos os agentes";
+  if(v==="flow") loadAllCommits();
+  render();
 });
 
 let ntDel=[], ntReq=[];
