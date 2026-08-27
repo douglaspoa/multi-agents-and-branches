@@ -82,6 +82,27 @@
   /* ações do agente */
   .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:15px}
   .mergedtag{display:inline-block;margin-top:12px;font-size:11px;font-weight:700;color:var(--good);border:1px solid var(--good);padding:3px 9px}
+  .top .grow{flex:1}
+  .repoinput{width:210px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:6px 9px}
+  .repoinput:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  /* editor de agentes & equipes */
+  .modal.wide{width:min(860px,100%)}
+  .seclbl2{display:flex;align-items:center;gap:10px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:6px 0 8px}
+  .agrow{display:grid;grid-template-columns:26px 1.1fr .9fr .9fr 2fr 30px;gap:7px;align-items:center;margin-bottom:6px}
+  .agrow .sw{width:20px;height:20px;border:1px solid var(--border);padding:0;cursor:pointer;background:none}
+  .agrow .in{font-size:12px;padding:5px 7px}
+  .iconbtn{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);cursor:pointer;font-size:12px;padding:4px 7px}
+  .iconbtn:hover{color:var(--crit);border-color:var(--crit)}
+  .wfrow{border:1px solid var(--border);background:var(--surface-2);padding:9px 10px;margin-bottom:8px}
+  .wfrow .wftop{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .wfrow .wftop .in{flex:1;font-size:12.5px;font-weight:600}
+  .steps{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .stepchip{display:flex;align-items:center;gap:5px;border:1px solid var(--border);background:var(--surface);padding:3px 6px;font-size:11.5px}
+  .stepchip b{font-weight:600}
+  .stepchip .mv,.stepchip .rm{cursor:pointer;color:var(--muted);border:0;background:none;font-size:11px;padding:0 1px}
+  .stepchip .rm:hover{color:var(--crit)}
+  .stepadd{font-size:11.5px;padding:4px 6px}
+  .colhdr{display:grid;grid-template-columns:26px 1.1fr .9fr .9fr 2fr 30px;gap:7px;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
 
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
@@ -178,12 +199,12 @@
 <div class="app">
   <div class="top">
     <div class="brand">🐙 Cardume</div>
-    <div class="repo">
-      <button class="btn" id="folderBtn" title="Escolher pasta do projeto">📁</button>
-      <input id="repoInput" placeholder="/caminho/do/repo (com .cardume/)" spellcheck="false">
-      <button class="btn" id="connectBtn">abrir</button>
-    </div>
+    <button class="btn" id="folderBtn" title="Escolher a pasta do projeto">📁 Abrir projeto</button>
+    <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho do repo" spellcheck="false">
+    <button class="btn" id="connectBtn">abrir</button>
     <div class="conn" id="conn"><span class="d"></span><span id="connTxt">sem repo</span></div>
+    <span class="grow"></span>
+    <button class="btn" id="agentsBtn">👥 Agentes & Equipes</button>
     <button class="btn primary" id="newTaskBtn">+ Nova tarefa</button>
   </div>
 
@@ -243,6 +264,24 @@
       <button class="btn" id="ntCancel">cancelar</button>
       <button class="btn primary" id="ntCreate">criar e iniciar</button>
     </div>
+  </div>
+</div>
+
+<div class="overlay" id="agOverlay" style="display:none">
+  <div class="modal wide">
+    <div class="mhead"><b>👥 Agentes & Equipes</b><button class="x" id="agClose" aria-label="Fechar">✕</button></div>
+    <div class="mbody">
+      <div class="seclbl2">Agentes <span style="flex:1"></span><button class="btn sm" id="agAdd">+ novo agente</button></div>
+      <div class="colhdr"><span></span><span>nome</span><span>papel</span><span>motor</span><span>persona (instrução)</span><span></span></div>
+      <div id="agList"></div>
+      <div class="seclbl2" style="margin-top:18px">Workflows (equipes) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ novo workflow</button></div>
+      <div id="wfList"></div>
+      <datalist id="roleOptions">
+        <option value="planner"></option><option value="builder"></option><option value="reviewer"></option>
+        <option value="designer"></option><option value="tester"></option><option value="docs"></option><option value="security"></option>
+      </datalist>
+    </div>
+    <div class="mfoot"><span class="dim">grava no cardume.config.json</span><span style="flex:1"></span><button class="btn" id="agCancel">cancelar</button><button class="btn primary" id="agSave">salvar catálogo</button></div>
   </div>
 </div>
 
@@ -559,7 +598,63 @@ document.getElementById("ntCancel").onclick = closeNewTask;
 document.getElementById("ntCreate").onclick = submitNewTask;
 document.getElementById("folderBtn").onclick = pickFolder;
 document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });
-document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeNewTask(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ closeNewTask(); closeAgents(); } });
+
+/* ---------- editor Agentes & Equipes ---------- */
+let cfgEdit = { agents:[], workflows:[] };
+function escA(s){ return esc(s).replace(/"/g,"&quot;"); }
+function agSlug(s){ return (String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,24))||"item"; }
+function uniqueId(base){ let id=base, n=2; while(cfgEdit.agents.some(a=>a.id===id)){ id=base+"-"+n; n++; } return id; }
+async function openAgents(){
+  let cfg; try{ cfg = await invoke("config"); }catch(e){ cfg={agents:[],workflows:[]}; }
+  cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
+  renderAg(); renderWf();
+  document.getElementById("agOverlay").style.display="flex";
+}
+function closeAgents(){ const o=document.getElementById("agOverlay"); if(o) o.style.display="none"; }
+function renderAg(){
+  const el=document.getElementById("agList");
+  el.innerHTML = cfgEdit.agents.map((a,i)=>`<div class="agrow">
+    <input class="sw" type="color" value="${escA(a.color||'#39d46a')}" data-i="${i}" data-k="color">
+    <input class="in" value="${escA(a.name||'')}" data-i="${i}" data-k="name" placeholder="Nome">
+    <input class="in" list="roleOptions" value="${escA(a.role||'builder')}" data-i="${i}" data-k="role" placeholder="papel">
+    <select class="in" data-i="${i}" data-k="engine"><option value="claude"${a.engine==='claude'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select>
+    <input class="in" value="${escA(a.persona||'')}" data-i="${i}" data-k="persona" placeholder="instrução de perfil (ex.: revisa segurança e clareza)">
+    <button class="iconbtn" data-del="${i}" title="remover">🗑</button>
+  </div>`).join("") || '<div class="dim" style="font-size:12px">nenhum agente — clique "+ novo agente"</div>';
+  el.querySelectorAll("[data-k]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; }));
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ cfgEdit.agents.splice(+b.dataset.del,1); renderAg(); renderWf(); });
+}
+function renderWf(){
+  const el=document.getElementById("wfList");
+  const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
+  const agentOpts = cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name)} (${esc(a.role)})</option>`).join("");
+  el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow">
+    <div class="wftop"><input class="in" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><button class="iconbtn" data-wdel="${i}" title="remover">🗑</button></div>
+    <div class="steps">${(w.steps||[]).map((sid,si)=>`<span class="stepchip"><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="-1" title="mover p/ trás">◀</button><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="1" title="mover p/ frente">▶</button><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">✕</button></span>`).join("")}
+    <select class="in stepadd" data-wadd="${i}"><option value="">+ agente…</option>${agentOpts}</select></div>
+  </div>`).join("") || '<div class="dim" style="font-size:12px">nenhum workflow — clique "+ novo workflow"</div>';
+  el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
+  el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
+  el.querySelectorAll("[data-wadd]").forEach(sel=>sel.onchange=()=>{ if(sel.value){ (cfgEdit.workflows[+sel.dataset.wadd].steps ||= []).push(sel.value); renderWf(); } });
+  el.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows[+b.dataset.wi].steps.splice(+b.dataset.rm,1); renderWf(); });
+  el.querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{ const w=cfgEdit.workflows[+b.dataset.wi], si=+b.dataset.mv, j=si+(+b.dataset.dir); if(j<0||j>=w.steps.length)return; const t=w.steps[si]; w.steps[si]=w.steps[j]; w.steps[j]=t; renderWf(); });
+}
+async function saveConfig(){
+  cfgEdit.agents.forEach(a=>{ if(!a.id) a.id=uniqueId(agSlug(a.name)); });
+  cfgEdit.workflows.forEach(w=>{ if(!w.id) w.id=agSlug(w.name); if(!w.steps) w.steps=[]; });
+  const btn=document.getElementById("agSave"); btn.disabled=true; btn.textContent="salvando…";
+  try{ await invoke("save_config",{config:cfgEdit}); closeAgents(); }
+  catch(e){ alert("Falha ao salvar catálogo:\n"+e); }
+  finally{ btn.disabled=false; btn.textContent="salvar catálogo"; }
+}
+document.getElementById("agentsBtn").onclick = openAgents;
+document.getElementById("agClose").onclick = closeAgents;
+document.getElementById("agCancel").onclick = closeAgents;
+document.getElementById("agSave").onclick = saveConfig;
+document.getElementById("agAdd").onclick = ()=>{ cfgEdit.agents.push({ id:uniqueId("agente"), name:"Novo agente", role:"builder", engine:"claude", persona:"", color:"#39d46a" }); renderAg(); };
+document.getElementById("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Novo workflow", steps:[] }); renderWf(); };
+document.getElementById("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 refresh();

@@ -393,6 +393,15 @@ fn config(state: State<AppState>) -> Result<serde_json::Value, String> {
     }
 }
 
+/// Salva o catálogo (agentes + workflows) editado na UI em cardume.config.json.
+#[tauri::command]
+fn save_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    let s = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    std::fs::write(repo.join("cardume.config.json"), s + "\n").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Cria e dispara uma tarefa (detached) — roda o núcleo em background; o SQLite
 /// é atualizado ao vivo. Tarefas paralelas se coordenam pelo mesmo state.sqlite.
 #[tauri::command]
@@ -505,7 +514,8 @@ pub fn run() {
             new_task,
             merge_task,
             remove_task,
-            pick_folder
+            pick_folder,
+            save_config
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");
