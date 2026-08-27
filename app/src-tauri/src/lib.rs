@@ -315,6 +315,85 @@ fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, S
     })
 }
 
+/// Resumo técnico do commit escrito pela IA (Claude) — explica o quê e o porquê.
+/// Cacheado por hash em commit_summary (gera uma vez; depois é instantâneo).
+#[tauri::command]
+async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<String, String> {
+    let dbpath = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let repo = dbpath
+        .parent()
+        .and_then(|d| d.parent())
+        .map(|r| r.to_path_buf())
+        .ok_or("repo inválido")?;
+
+    let conn = Connection::open_with_flags(&dbpath, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS commit_summary(hash TEXT PRIMARY KEY, summary TEXT, created_at INTEGER)",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    if let Ok(s) = conn.query_row("SELECT summary FROM commit_summary WHERE hash=?1", params![&hash], |r| r.get::<_, String>(0)) {
+        return Ok(s);
+    }
+
+    let git = |args: &[&str]| {
+        Command::new("git").arg("-C").arg(&repo).args(args).output().map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    };
+    let msg = git(&["show", "-s", "--format=%s%n%b", &hash]).map_err(|e| e.to_string())?.trim().to_string();
+    let mut diff = git(&["show", "--no-color", "--format=", "-p", &hash]).map_err(|e| e.to_string())?;
+    if diff.len() > 8000 {
+        diff.truncate(8000);
+        diff.push_str("\n…(diff truncado)");
+    }
+
+    // contexto da tarefa (objetivo + entregáveis), quando o commit é de um agente
+    let branches = git(&["branch", "--contains", &hash, "--format=%(refname:short)"]).map_err(|e| e.to_string())?;
+    let task_id = branches
+        .lines()
+        .find_map(|b| b.trim().strip_prefix("agent/").map(|s| s.to_string()))
+        .or_else(|| {
+            msg.find("agent/").map(|p| {
+                msg[p + 6..].chars().take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect::<String>()
+            }).filter(|x| !x.is_empty())
+        });
+    let mut ctx = String::new();
+    if let Some(tid) = &task_id {
+        if let Ok((obj, spec)) = conn.query_row("SELECT objective, spec_json FROM task WHERE id=?1", params![tid], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+            ctx.push_str(&format!("Objetivo da tarefa: {obj}\n"));
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&spec) {
+                if let Some(dels) = v.get("deliverables").and_then(|d| d.as_array()) {
+                    let list: Vec<String> = dels.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
+                    if !list.is_empty() {
+                        ctx.push_str(&format!("Entregáveis pedidos: {}\n", list.join("; ")));
+                    }
+                }
+            }
+        }
+    }
+
+    let prompt = format!(
+        "Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n{ctx}Mensagem do commit: {msg}\n\nDiff:\n{diff}"
+    );
+    let claude = std::env::var("CARDUME_CLAUDE").unwrap_or_else(|_| "claude".to_string());
+    let out = Command::new(&claude)
+        .args(["-p", &prompt])
+        .stdin(Stdio::null())
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("claude falhou: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let summary = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if summary.is_empty() {
+        return Err("resposta vazia do claude".into());
+    }
+    let _ = conn.execute("INSERT OR REPLACE INTO commit_summary(hash,summary,created_at) VALUES(?1,?2,?3)", params![&hash, &summary, now_ms()]);
+    Ok(summary)
+}
+
 #[tauri::command]
 fn current_repo(state: State<AppState>) -> Option<String> {
     state
@@ -670,7 +749,8 @@ pub fn run() {
             pick_folder,
             save_config,
             import_agent_files,
-            commit_detail
+            commit_detail,
+            ai_commit_summary
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");
