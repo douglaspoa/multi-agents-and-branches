@@ -113,7 +113,11 @@
   .qbox{background:color-mix(in srgb,var(--warn) 18%,var(--surface));border:1px solid var(--warn);padding:10px 11px;margin-bottom:13px}
   .qbox .qh{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);font-weight:700;margin-bottom:5px}
   .qbox .qq{font-size:12.5px;color:var(--text)}
-  .qbox .qc{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;align-items:center}
+  .qbox .qc{display:flex;flex-direction:column;gap:8px;margin-top:9px}
+  .qbox .qopts{display:flex;gap:6px;flex-wrap:wrap}
+  .qbox .qin{display:flex;gap:6px}
+  .qbox .qin .askinput{flex:1;min-width:0}
+  .qbox .qorlbl{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
   .qbadge{color:var(--warn);font-weight:700}
   /* ações do agente */
   .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:15px}
@@ -416,6 +420,24 @@
   .pipe{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
   .pipe .st{font-size:10px;padding:3px 8px;border:1px solid var(--border);color:var(--muted);display:flex;gap:5px;align-items:center;text-transform:uppercase;letter-spacing:.04em}
   .pipe .st.cur{border-color:var(--accent);color:var(--accent)}
+  /* stepper de etapas (painel direito) */
+  .stepper{display:flex;flex-direction:column;margin:6px 0 2px}
+  .step{display:grid;grid-template-columns:auto 1fr;gap:10px;position:relative;padding:4px 0}
+  .step:not(:last-child)::before{content:"";position:absolute;left:8px;top:21px;bottom:-3px;width:1.5px;background:var(--border)}
+  .step.done:not(:last-child)::before{background:var(--good)}
+  .smark{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:9.5px;font-weight:700;border:1.5px solid var(--border);color:var(--muted);background:var(--surface);z-index:1}
+  .smark svg{width:10px;height:10px}
+  .step.done .smark{background:var(--good);border-color:var(--good);color:#fff}
+  .step.cur .smark{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--surface))}
+  .step.err .smark{background:var(--crit);border-color:var(--crit);color:#fff}
+  .step.wait .smark{opacity:.65}
+  .spin{width:8px;height:8px;border-radius:50%;background:var(--accent);--pc:var(--accent);animation:lpulse 1.4s ease-out infinite}
+  .stx{display:flex;flex-direction:column;gap:0;padding-top:1px;min-width:0}
+  .srole{font-size:12px;font-weight:600;text-transform:capitalize}
+  .sname{font-size:11px;color:var(--muted)}
+  .step.cur .srole{color:var(--accent)}
+  .step.wait .srole,.step.wait .sname{color:var(--muted)}
+  .sact{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
   .pipe .st b{color:var(--text-2);text-transform:none;letter-spacing:0}
   .pipe .st.cur b{color:var(--accent)}
   /* review humano */
@@ -778,11 +800,10 @@ function questionBlock(taskId){
   const ps = pendingOf(taskId);
   if(ps.length===0) return "";
   return ps.map(p=>{
-    const opts = Array.isArray(p.options) ? p.options : null;
-    const controls = opts
-      ? opts.map(o=>`<button class="askopt" data-id="${p.id}" data-ans="${esc(o)}">${esc(o)}</button>`).join("")
-      : `<input class="askinput" data-id="${p.id}" placeholder="sua resposta…"><button class="asksend" data-id="${p.id}">responder</button>`;
-    return `<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq">${esc(p.prompt)}</div><div class="qc">${controls}</div></div>`;
+    const opts = Array.isArray(p.options) && p.options.length ? p.options : null;
+    const optBtns = opts ? `<div class="qopts">${opts.map(o=>`<button class="askopt" data-id="${p.id}" data-ans="${escA(o)}">${esc(o)}</button>`).join("")}</div>${opts?'<div class="qorlbl">ou escreva sua própria resposta</div>':''}` : "";
+    const inputRow = `<div class="qin"><input class="askinput" data-id="${p.id}" placeholder="${opts?'sua resposta…':'sua resposta…'}"><button class="asksend" data-id="${p.id}">responder</button></div>`;
+    return `<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq">${esc(p.prompt)}</div><div class="qc">${optBtns}${inputRow}</div></div>`;
   }).join("");
 }
 function wireQuestion(root){
@@ -1021,6 +1042,24 @@ function renderFeed(){
   el.scrollTop = el.scrollHeight;
 }
 
+// Stepper vertical das etapas da tarefa — mostra "em que pé está".
+function stageStepper(t){
+  const roles=t.roles||[];
+  if(!roles.length) return "";
+  const finished=(t.status==='review'||t.status==='merged'||t.status==='done');
+  let curIdx=roles.findIndex(r=>r.role===t.stage); if(curIdx<0) curIdx=0;
+  const ev=lastEventOf(t.id);
+  const steps=roles.map((r,i)=>{
+    let cls;
+    if(finished || i<curIdx) cls='done';
+    else if(i===curIdx) cls=(t.status==='error'?'err':(ACTIVE_ST.has(t.status)?'cur':'wait'));
+    else cls='wait';
+    const mark = cls==='done'?IC.check : cls==='err'?'!' : cls==='cur'?'<span class="spin"></span>' : (i+1);
+    const sub = (cls==='cur' && ev) ? `<div class="sact">${esc((GLYPH[ev.type]||'·')+' '+ev.text)}</div>` : '';
+    return `<div class="step ${cls}"><span class="smark">${mark}</span><div class="stx"><span class="srole">${ROLE_PT[r.role]||r.role}</span><span class="sname">${esc(r.name)}</span>${sub}</div></div>`;
+  }).join("");
+  return `<div class="seclbl" style="margin-top:13px">Etapas</div><div class="stepper">${steps}</div>`;
+}
 function renderSide(){
   const el = document.getElementById("side");
   const t = state.tasks.find(x=>x.id===selected);
@@ -1034,8 +1073,7 @@ function renderSide(){
     const y = c.yieldedTo;
     return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;
   }).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
-  const roles = t.roles||[];
-  const pipe = roles.length ? `<div class="pipe">${roles.map(r=>`<span class="st${r.role===t.stage?' cur':''}">${ROLE_PT[r.role]||r.role} <b>${esc(r.name)}</b></span>`).join("")}</div>` : "";
+  const pipe = stageStepper(t);
   const rev = reviewOf(t.id);
   const revHtml = rev ? `<div class="rev">
     <div class="h">◆ Review humano <span class="by">por ${esc(rev.byAgent)}</span></div>
