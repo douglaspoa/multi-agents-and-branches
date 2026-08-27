@@ -273,9 +273,11 @@
   .fmeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:11px;font-size:11.5px;color:var(--text-2)}
   .fmeta .frev{color:var(--good);font-weight:600}
   .fcommits{display:flex;flex-direction:column;gap:2px;margin-top:10px;border-top:.5px dashed var(--border);padding-top:9px}
-  .fcommit{display:flex;gap:8px;align-items:baseline;text-align:left;border:0;background:none;cursor:pointer;color:var(--text-2);font:inherit;font-size:11.5px;padding:3px 6px;border-radius:var(--r-xs);width:100%}
+  .fcommit{display:flex;gap:8px;align-items:center;text-align:left;border:0;background:none;cursor:pointer;color:var(--text-2);font:inherit;font-size:11.5px;padding:4px 6px;border-radius:var(--r-xs);width:100%;min-width:0}
   .fcommit:hover{background:var(--surface-2);color:var(--text)}
-  .fcommit .mono{color:var(--muted);font-size:10.5px;flex:none}
+  .fcommit .cav{width:17px;height:17px;border-radius:5px;color:#fff;display:grid;place-items:center;font-size:8px;font-weight:700;flex:none}
+  .fcommit .chash{color:var(--muted);font-size:10.5px;flex:none}
+  .fcommit .csub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
   .sidecommits{display:flex;flex-direction:column;gap:1px;margin-top:4px}
   .fgroup{margin-bottom:20px}
   .fgh{display:flex;align-items:center;gap:9px;margin:0 2px 9px;padding-bottom:8px;border-bottom:1px solid var(--border)}
@@ -570,7 +572,10 @@ async function loadCommits(taskId, force){
   return commitsCache[taskId];
 }
 async function loadAllCommits(){ for(const t of (state.tasks||[])) await loadCommits(t.id); render(); }
-function commitChip(x){ return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA(x.subject)}"><span class="mono">${esc((x.hash||'').slice(0,7))}</span> ${esc((x.subject||'').slice(0,44))}</button>`; }
+function commitChip(x, agent){
+  const av = agent ? `<span class="cav" style="background:${agentColor(agent)}" title="${escA(agent)}">${esc(agent.slice(0,2).toUpperCase())}</span>` : '';
+  return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA((agent?agent+' · ':'')+x.subject)}">${av}<span class="chash mono">${esc((x.hash||'').slice(0,7))}</span><span class="csub">${esc(x.subject||'')}</span></button>`;
+}
 const FLOW_PAL=["#1e9e4a","#0a72e0","#a05cff","#e0891f","#e5484d","#12a3a3","#ec4899","#6b7280"];
 function agentColor(name){ let h=0; const s=String(name||""); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return FLOW_PAL[h%FLOW_PAL.length]; }
 function flowTaskCard(t){
@@ -579,7 +584,7 @@ function flowTaskCard(t){
   const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${esc((r.name||'?').slice(0,2).toUpperCase())}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
   const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
   const cchips = c===undefined ? '<span class="dim" style="font-size:11px">carregando…</span>'
-    : c.length ? c.slice(0,8).map(commitChip).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
+    : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
     : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
   return `<div class="fcard${t.id===selected?' sel':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b><span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
@@ -607,7 +612,8 @@ function commitsBlock(taskId){
   const c=commitsCache[taskId];
   if(c===undefined){ loadCommits(taskId).then(()=>{ if(selected===taskId) renderSide(); }); return '<div class="seclbl">Commits</div><div class="dim" style="font-size:12px">…</div>'; }
   if(!c.length) return '';
-  return `<div class="seclbl">Commits <span class="n">${c.length}</span></div><div class="sidecommits">${c.map(commitChip).join("")}</div>`;
+  const ag=((state.tasks||[]).find(x=>x.id===taskId)||{}).agent||'';
+  return `<div class="seclbl">Commits <span class="n">${c.length}</span></div><div class="sidecommits">${c.map(x=>commitChip(x,ag)).join("")}</div>`;
 }
 function errBanner(t){
   if(t.status!=='error' && t.status!=='conflict') return '';
