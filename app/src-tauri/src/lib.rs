@@ -471,25 +471,37 @@ fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String>
 }
 
 /// Abre o seletor de pasta nativo do macOS e devolve o caminho escolhido.
+/// async: roda fora da thread principal (senão o diálogo bloqueante congela a UI).
 #[tauri::command]
-fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    app.dialog()
-        .file()
-        .blocking_pick_folder()
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog().file().pick_folder(move |p| {
+        let _ = tx.send(p);
+    });
+    tauri::async_runtime::spawn_blocking(move || rx.recv().ok().flatten())
+        .await
+        .ok()
+        .flatten()
         .and_then(|p| p.into_path().ok())
         .map(|pb| pb.display().to_string())
 }
 
 /// Abre um seletor de arquivos .md e devolve [{filename, content}] pra criar agentes.
 #[tauri::command]
-fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
+async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     use tauri_plugin_dialog::DialogExt;
-    let picked = app
-        .dialog()
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
         .file()
         .add_filter("Markdown", &["md", "markdown"])
-        .blocking_pick_files();
+        .pick_files(move |p| {
+            let _ = tx.send(p);
+        });
+    let picked = tauri::async_runtime::spawn_blocking(move || rx.recv().ok().flatten())
+        .await
+        .ok()
+        .flatten();
     let mut out = Vec::new();
     if let Some(paths) = picked {
         for p in paths {

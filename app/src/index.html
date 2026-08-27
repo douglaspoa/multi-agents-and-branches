@@ -189,6 +189,28 @@
   .iconbtn svg{width:14px;height:14px}
   .stepchip .cdot{box-shadow:0 0 0 1px rgba(0,0,0,.05)}
   .feed .gl{font-family:var(--mono)}
+  /* grid de agentes (quadradinhos) */
+  .aggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;margin-bottom:12px}
+  .agtile{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:12px 8px;display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;box-shadow:var(--shadow-sm);transition:border-color .12s,transform .06s;text-align:center;font:inherit;color:inherit}
+  .agtile:hover{border-color:var(--border-strong)}
+  .agtile:active{transform:scale(.98)}
+  .agtile.sel{border-color:var(--accent);box-shadow:var(--ring)}
+  .agtile .av{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;color:#fff;font-weight:600;font-size:17px;box-shadow:var(--shadow-sm)}
+  .agtile .tn{font-size:12.5px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .agtile .tc{font-size:10.5px;color:var(--muted);text-transform:capitalize}
+  .agtile.new{border-style:dashed;justify-content:center;color:var(--muted);min-height:106px}
+  .agtile.new .plus{font-size:24px;line-height:1;font-weight:300}
+  .ageditor{border:.5px solid var(--border);background:var(--surface-2);border-radius:var(--r-sm);padding:13px 14px;margin-bottom:14px;box-shadow:var(--shadow-sm)}
+  .aged-top{display:flex;gap:11px;align-items:center;margin-bottom:11px}
+  .aged-top .av{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;color:#fff;font-weight:600;font-size:18px;flex:none;box-shadow:var(--shadow-sm)}
+  .ageditor label{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+  .pickrow{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:11px}
+  .pickrow .lbl3{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);width:100%;margin-bottom:1px}
+  .colorsw{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;box-shadow:var(--shadow-sm);padding:0}
+  .colorsw.on{border-color:var(--text)}
+  .glyph{width:30px;height:30px;border-radius:9px;border:.5px solid var(--border);background:var(--surface);cursor:pointer;display:grid;place-items:center;font-size:15px;padding:0}
+  .glyph.on{border-color:var(--accent);box-shadow:var(--ring)}
+  .glyph.ini{font-size:11px;font-weight:700;color:var(--muted)}
 
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
@@ -606,8 +628,8 @@ function renderSide(){
     <div class="seclbl">Log <span class="n">${evs.length}</span></div>
     <div class="log">${evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join("")||'<span class="dim">—</span>'}</div>
     ${t.status==='merged'
-      ? `<span class="mergedtag"> merged na ${esc(t.base)}</span>`
-      : `<div class="acts">${t.status==='review'?`<button class="btn primary sm" data-act="merge"> merge na ${esc(t.base)}</button>`:''}<button class="btn danger sm" data-act="rm">${t.status==='review'?'descartar':'cancelar'}</button></div>`}
+      ? `<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`
+      : `<div class="acts">${t.status==='review'?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:''}<button class="btn danger sm" data-act="rm">${t.status==='review'?'descartar':'cancelar'}</button></div>`}
   </div>`;
   el.querySelectorAll('[data-act="merge"]').forEach(b=>b.onclick=()=>mergeTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
@@ -700,41 +722,62 @@ function uniqueId(base){ let id=base, n=2; while(cfgEdit.agents.some(a=>a.id===i
 async function openAgents(){
   let cfg; try{ cfg = await invoke("config"); }catch(e){ cfg={agents:[],workflows:[]}; }
   cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
+  agOpen = -1;
   renderAg(); renderWf();
   document.getElementById("agOverlay").style.display="flex";
 }
 function closeAgents(){ const o=document.getElementById("agOverlay"); if(o) o.style.display="none"; }
 const ROLES=["planner","builder","reviewer","designer","tester","docs","security"];
-function roleSelect(i,role){
-  const known = ROLES.includes(role);
-  const opts = ROLES.map(r=>`<option value="${r}"${role===r?' selected':''}>${r}</option>`).join("") + (known?"":`<option value="${escA(role)}" selected>${esc(role)}</option>`);
-  return `<select class="sel" data-i="${i}" data-k="role" title="papel">${opts}</select>`;
+const PALETTE=["#1e9e4a","#e6b53c","#0a72e0","#a05cff","#e5484d","#12a3a3","#e07b39","#ec4899"];
+const GLYPHS=["🦊","🦉","🐙","🐢","🦋","🐝","🦁","🐬","🧠","⚡","🛠️","🔍","🎨","🧪","📝","🛡️"];
+let agOpen=-1;
+function avatarInner(a){ return a.avatar ? esc(a.avatar) : esc((a.name||"?").trim().slice(0,2).toUpperCase()); }
+function allCats(){ const s=new Set(ROLES); cfgEdit.agents.forEach(a=>{ if(a.role) s.add(a.role); }); return [...s]; }
+function addAgent(){ cfgEdit.agents.push({id:uniqueId("agente"),name:"Novo agente",role:"builder",engine:"claude",persona:"",color:"#1e9e4a",avatar:""}); agOpen=cfgEdit.agents.length-1; renderAg(); renderWf(); }
+function agEditor(i){
+  const a=cfgEdit.agents[i];
+  return `<div class="ageditor">
+    <div class="aged-top">
+      <div class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</div>
+      <input class="in" data-i="${i}" data-k="name" value="${escA(a.name||'')}" placeholder="Nome do agente" style="flex:1;font-weight:700;font-size:14px">
+      <button class="iconbtn" data-del="${i}" title="remover agente">${IC.trash}</button>
+    </div>
+    <div class="two">
+      <div><label>Categoria</label><input class="in" list="catList" data-i="${i}" data-k="role" value="${escA(a.role||'')}" placeholder="ex.: designer, backend…"></div>
+      <div><label>Motor</label><select class="sel" data-i="${i}" data-k="engine" style="width:100%"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select></div>
+    </div>
+    <label style="display:block;margin-top:10px">Persona (instrução)</label>
+    <textarea class="agpersona" data-i="${i}" data-k="persona" placeholder="o que este agente faz e como pensa">${esc(a.persona||'')}</textarea>
+    <div class="pickrow"><span class="lbl3">Cor</span>${PALETTE.map(c=>`<button class="colorsw${(a.color||'').toLowerCase()===c?' on':''}" style="background:${c}" data-color="${i}" data-c="${c}"></button>`).join("")}<input class="swatch" type="color" value="${escA(a.color||'#1e9e4a')}" data-i="${i}" data-k="color" title="cor personalizada"></div>
+    <div class="pickrow"><span class="lbl3">Avatar</span><button class="glyph ini${!a.avatar?' on':''}" data-glyph="${i}" data-g="">Aa</button>${GLYPHS.map(gp=>`<button class="glyph${a.avatar===gp?' on':''}" data-glyph="${i}" data-g="${escA(gp)}">${gp}</button>`).join("")}</div>
+    <datalist id="catList">${allCats().map(c=>`<option value="${escA(c)}"></option>`).join("")}</datalist>
+  </div>`;
 }
 function renderAg(){
   const el=document.getElementById("agList");
-  el.innerHTML = cfgEdit.agents.map((a,i)=>`<div class="agcard">
-    <div class="agtop">
-      <input class="swatch" type="color" value="${escA(a.color||'#39d46a')}" data-i="${i}" data-k="color" title="cor">
-      <input class="agname" value="${escA(a.name||'')}" data-i="${i}" data-k="name" placeholder="Nome do agente">
-      ${roleSelect(i,a.role||'builder')}
-      <select class="sel" data-i="${i}" data-k="engine" title="motor"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select>
-      <button class="iconbtn" data-del="${i}" title="remover agente"></button>
-    </div>
-    <textarea class="agpersona" data-i="${i}" data-k="persona" placeholder="persona / instrução: o que este agente faz e como pensa">${esc(a.persona||'')}</textarea>
-  </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhum agente — clique "+ novo agente" ou importe um .md</div>';
-  el.querySelectorAll("[data-k]").forEach(inp=>{
-    const h=()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; };
+  const tiles = cfgEdit.agents.map((a,i)=>`<button class="agtile${i===agOpen?' sel':''}" data-open="${i}">
+    <span class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</span>
+    <span class="tn">${esc(a.name||'—')}</span><span class="tc">${esc(a.role||'')}</span>
+  </button>`).join("");
+  const add = `<button class="agtile new" data-add><span class="plus">+</span><span class="tc">novo agente</span></button>`;
+  el.innerHTML = `<div class="aggrid">${tiles}${add}</div>${agOpen>=0&&cfgEdit.agents[agOpen]?agEditor(agOpen):''}`;
+  el.querySelectorAll("[data-open]").forEach(t=>t.onclick=()=>{ const i=+t.dataset.open; agOpen=(agOpen===i?-1:i); renderAg(); });
+  const addBtn=el.querySelector("[data-add]"); if(addBtn) addBtn.onclick=addAgent;
+  el.querySelectorAll(".ageditor [data-k]").forEach(inp=>{
+    const h=()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; if(inp.dataset.k==='color') renderAg(); };
     inp.addEventListener("input",h); inp.addEventListener("change",h);
   });
-  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ cfgEdit.agents.splice(+b.dataset.del,1); renderAg(); renderWf(); });
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ cfgEdit.agents.splice(+b.dataset.del,1); agOpen=-1; renderAg(); renderWf(); });
+  el.querySelectorAll("[data-color]").forEach(s=>s.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+s.dataset.color].color=s.dataset.c; renderAg(); });
+  el.querySelectorAll("[data-glyph]").forEach(b=>b.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+b.dataset.glyph].avatar=b.dataset.g; renderAg(); });
 }
 function renderWf(){
   const el=document.getElementById("wfList");
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
   const agentOpts = cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name)} · ${esc(a.role)}</option>`).join("");
   el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow">
-    <div class="wftop"><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><button class="iconbtn" data-wdel="${i}" title="remover workflow"></button></div>
-    <div class="steps">${(w.steps||[]).map((sid,si)=>`<span class="stepchip"><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="-1" title="antes"></button><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="1" title="depois"></button><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar"></button></span>`).join("")}
+    <div class="wftop"><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><button class="iconbtn" data-wdel="${i}" title="remover workflow">${IC.trash}</button></div>
+    <div class="steps">${(w.steps||[]).map((sid,si)=>`<span class="stepchip"><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="-1" title="antes">${IC.cleft}</button><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="1" title="depois">${IC.cright}</button><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")}
     <select class="sel" data-wadd="${i}"><option value="">+ agente…</option>${agentOpts}</select></div>
   </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhum workflow — clique "+ novo workflow"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
@@ -752,7 +795,7 @@ function parseAgentMd(filename, content){
   }
   const name = fm.name || filename;
   const persona = (fm.description ? fm.description.trim()+(body?" ":"") : "") + body;
-  return { id: uniqueId(agSlug(name)), name, role: fm.role || "builder", engine: (fm.engine==="mock"?"mock":"claude"), model: fm.model||undefined, color: fm.color || "#39d46a", persona: persona.trim() };
+  return { id: uniqueId(agSlug(name)), name, role: fm.role || fm.category || "builder", engine: (fm.engine==="mock"?"mock":"claude"), model: fm.model||undefined, color: fm.color || "#1e9e4a", avatar: fm.avatar || "", persona: persona.trim() };
 }
 async function importAgents(){
   let files;
@@ -773,7 +816,7 @@ document.getElementById("agentsBtn").onclick = openAgents;
 document.getElementById("agClose").onclick = closeAgents;
 document.getElementById("agCancel").onclick = closeAgents;
 document.getElementById("agSave").onclick = saveConfig;
-document.getElementById("agAdd").onclick = ()=>{ cfgEdit.agents.push({ id:uniqueId("agente"), name:"Novo agente", role:"builder", engine:"claude", persona:"", color:"#39d46a" }); renderAg(); };
+document.getElementById("agAdd").onclick = addAgent;
 document.getElementById("agImport").onclick = importAgents;
 document.getElementById("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Novo workflow", steps:[] }); renderWf(); };
 document.getElementById("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
