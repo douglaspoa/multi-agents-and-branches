@@ -455,6 +455,132 @@ fn current_repo(state: State<AppState>) -> Option<String> {
         .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
 }
 
+// ---------- lista de projetos (switcher multi-projeto) ----------
+fn projects_file() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".cardume").join("projects.json")
+}
+fn read_project_list() -> Vec<String> {
+    std::fs::read_to_string(projects_file())
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default()
+}
+fn write_project_list(list: &[String]) {
+    let f = projects_file();
+    if let Some(dir) = f.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(s) = serde_json::to_string_pretty(list) {
+        let _ = std::fs::write(&f, s);
+    }
+}
+fn active_repo_of(state: &State<AppState>) -> Option<String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .clone()
+        .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Project {
+    path: String,
+    name: String,
+    active: bool,
+}
+
+#[tauri::command]
+fn list_projects(state: State<AppState>) -> Vec<Project> {
+    let mut list = read_project_list();
+    let active = active_repo_of(&state);
+    // garante que o repo ativo (ex.: aberto via CARDUME_REPO no boot) esteja na lista
+    if let Some(a) = &active {
+        if !list.iter().any(|p| p == a) {
+            list.insert(0, a.clone());
+            write_project_list(&list);
+        }
+    }
+    list.iter()
+        .map(|p| Project {
+            name: PathBuf::from(p)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| p.clone()),
+            active: active.as_deref() == Some(p.as_str()),
+            path: p.clone(),
+        })
+        .collect()
+}
+
+/// Abre um projeto: valida git, inicializa o workspace Cardume se preciso,
+/// torna-o o projeto ativo e adiciona ao topo da lista.
+#[tauri::command]
+fn open_project(state: State<AppState>, path: String) -> Result<String, String> {
+    let repo = PathBuf::from(&path);
+    let is_git = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !is_git {
+        return Err(format!("{} não é um repositório git", path));
+    }
+    let db = repo.join(".cardume").join("state.sqlite");
+    if !db.exists() {
+        let out = Command::new(node_bin())
+            .args([
+                "--disable-warning=ExperimentalWarning",
+                &cli_path(&repo),
+                "init",
+                "--repo",
+                &repo.display().to_string(),
+            ])
+            .current_dir(&repo)
+            .output()
+            .map_err(|e| format!("falha ao inicializar o workspace: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "cardume init falhou: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+    }
+    if !db.exists() {
+        return Err("workspace Cardume não pôde ser criado".to_string());
+    }
+    *state.db.lock().unwrap() = Some(db);
+    let mut list = read_project_list();
+    list.retain(|p| p != &path);
+    list.insert(0, path.clone());
+    write_project_list(&list);
+    Ok(path)
+}
+
+/// Troca o projeto ativo para um já existente na lista.
+#[tauri::command]
+fn switch_project(state: State<AppState>, path: String) -> Result<String, String> {
+    let db = PathBuf::from(&path).join(".cardume").join("state.sqlite");
+    if !db.exists() {
+        return Err(format!("sem workspace Cardume em {path}"));
+    }
+    *state.db.lock().unwrap() = Some(db);
+    Ok(path)
+}
+
+/// Remove um projeto da lista (não apaga nada do repo em disco).
+#[tauri::command]
+fn remove_project(path: String) -> Vec<String> {
+    let mut list = read_project_list();
+    list.retain(|p| p != &path);
+    write_project_list(&list);
+    list
+}
+
 #[tauri::command]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
     let path = state.db.lock().unwrap().clone();
@@ -793,6 +919,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_repo,
             current_repo,
+            list_projects,
+            open_project,
+            switch_project,
+            remove_project,
             snapshot,
             graph,
             resolve_pending,

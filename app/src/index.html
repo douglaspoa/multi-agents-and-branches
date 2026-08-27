@@ -53,6 +53,32 @@
   .conn.live .d{background:var(--good);animation:pulse 1.6s infinite}
   @keyframes pulse{50%{opacity:.35}}
 
+  /* switcher de projetos */
+  .projsw{position:relative}
+  .projbtn{display:inline-flex;align-items:center;gap:8px;max-width:280px}
+  .projbtn b{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .projbtn .pdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+  .projbtn .pdot.live{background:var(--good);animation:pulse 1.6s infinite}
+  .projbtn .chev{width:9px;height:7px;color:var(--muted);flex:none}
+  .projmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:50;min-width:300px;max-width:420px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-sm);box-shadow:var(--shadow,0 12px 32px rgba(0,0,0,.28));padding:5px;max-height:60vh;overflow:auto}
+  .projmenu .phead{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:6px 9px 4px}
+  .prow{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:7px 9px;border-radius:var(--r-xs);cursor:pointer}
+  .prow:hover{background:var(--surface-2)}
+  .prow .pd{width:8px;height:8px;border-radius:50%;background:var(--border-strong)}
+  .prow.on .pd{background:var(--good)}
+  .prow .pn{min-width:0}
+  .prow .pnm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prow.on .pnm{color:var(--accent)}
+  .prow .pp{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+  .prow .px{opacity:0;color:var(--muted);border:none;background:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:5px}
+  .prow:hover .px{opacity:.7}
+  .prow .px:hover{opacity:1;background:var(--surface-3);color:var(--crit)}
+  .projmenu .psep{height:1px;background:var(--border);margin:5px 4px}
+  .projadd{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:var(--r-xs);cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent)}
+  .projadd svg{width:15px;height:15px;flex:none}
+  .projadd:hover{background:var(--surface-2)}
+  .projerr{font-size:11px;color:var(--crit);padding:6px 9px}
+
   /* barra de perguntas do agente */
   .askbar{background:color-mix(in srgb, var(--warn) 20%, var(--surface));border-bottom:1px solid var(--warn);padding:9px 14px;display:flex;flex-direction:column;gap:8px;flex:none}
   .askrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -421,10 +447,16 @@
 <div class="app">
   <div class="top">
     <div class="brand"><span class="logo"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M2.5 10c2-3.2 5.8-4.4 9-4.4 2 0 3.6.6 4.7 1.6L18 5.2v9.6l-1.8-2C15.1 13.8 13.5 14.4 11.5 14.4c-3.2 0-7-1.2-9-4.4z"/><circle cx="12.2" cy="9" r=".9" fill="#fff" opacity=".85"/></svg></span>Cardume</div>
-    <button class="btn" id="folderBtn" title="Escolher a pasta do projeto"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>Abrir projeto</button>
-    <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho do repo" spellcheck="false">
-    <button class="btn" id="connectBtn">abrir</button>
-    <div class="conn" id="conn"><span class="d"></span><span id="connTxt">sem repo</span></div>
+    <div class="projsw">
+      <button class="btn projbtn" id="projBtn" title="Trocar de projeto">
+        <span class="pdot" id="projDot"></span><b id="projName">sem projeto</b>
+        <svg class="chev" viewBox="0 0 10 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+      </button>
+      <div class="projmenu" id="projMenu" style="display:none"></div>
+    </div>
+    <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho do repo" spellcheck="false" style="display:none">
+    <button class="btn" id="connectBtn" style="display:none">abrir</button>
+    <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow"></span>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
     <button class="btn primary" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova tarefa</button>
@@ -592,6 +624,7 @@ async function refresh(){
   document.getElementById("connectBtn").style.display = hasRepo?"none":"";
   if(!selected && state.tasks[0]) selected = state.tasks[0].id;
   document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
+  renderProjName();
   const sig = snapSig();
   if(sig===lastSig) return;   // nada mudou → não re-renderiza
   lastSig = sig;
@@ -1147,19 +1180,62 @@ async function importTaskMd(){
   if(t.engine){ const en=document.getElementById("ntEngine"); if([...en.options].some(o=>o.value===t.engine)) en.value=t.engine; }
   if(t.approval){ const ap=document.getElementById("ntApprove"); if([...ap.options].some(o=>o.value===t.approval)) ap.value=t.approval; }
 }
-async function pickFolder(){
+// ---------- switcher de projetos ----------
+let projects = [];
+let projErr = "";
+function clearProjectCaches(){ for(const k in commitsCache) delete commitsCache[k]; }
+async function loadProjects(){
+  try{ projects = await invoke("list_projects"); }catch(e){ projects = []; }
+  renderProjName();
+  if(projMenuOpen()) renderProjMenu();
+}
+function renderProjName(){
+  const active = projects.find(p=>p.active);
+  const nm = active ? active.name : (state.repo ? state.repo.split("/").filter(Boolean).slice(-1)[0] : "sem projeto");
+  const el=document.getElementById("projName"); if(el) el.textContent = nm;
+  const dot=document.getElementById("projDot"); if(dot) dot.classList.toggle("live", connected && (state.tasks||[]).length>0);
+}
+function projMenuOpen(){ const m=document.getElementById("projMenu"); return m && m.style.display!=="none"; }
+function openProjMenu(){ renderProjMenu(); document.getElementById("projMenu").style.display="block"; }
+function closeProjMenu(){ const m=document.getElementById("projMenu"); if(m) m.style.display="none"; }
+function toggleProjMenu(){ projMenuOpen()?closeProjMenu():openProjMenu(); }
+function renderProjMenu(){
+  const m=document.getElementById("projMenu"); if(!m) return;
+  const rows = projects.length ? projects.map(p=>`<div class="prow${p.active?' on':''}" data-path="${escA(p.path)}">
+      <span class="pd"></span>
+      <div class="pn"><div class="pnm">${esc(p.name)}</div><div class="pp">${esc(p.path)}</div></div>
+      <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">✕</button>
+    </div>`).join("") : '<div class="projerr" style="color:var(--muted)">nenhum projeto ainda</div>';
+  m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr">${esc(projErr)}</div>`:""}<div class="psep"></div>`+
+    `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`;
+  m.querySelectorAll('.prow').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.px')) return; switchProject(r.dataset.path); });
+  m.querySelectorAll('.px').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke("remove_project",{path:b.dataset.rm}); }catch(_){}; await loadProjects(); });
+  document.getElementById("projAdd").onclick = pickFolder;
+}
+async function switchProject(path){
   try{
-    const dir = await invoke("pick_folder");
-    if(dir){ document.getElementById("repoInput").value = dir; connect(dir); return; }
-    return; // usuário cancelou
-  }catch(e){ console.error("pick_folder", e); }
-  document.getElementById("repoInput").focus();
+    await invoke("switch_project",{ path });
+    projErr=""; closeProjMenu(); selected=null; lastSig=""; clearProjectCaches();
+    await refresh(); await loadProjects();
+  }catch(err){ projErr=String(err); openProjMenu(); }
+}
+async function pickFolder(){
+  let dir;
+  try{ dir = await invoke("pick_folder"); }
+  catch(e){ console.error("pick_folder", e); return; }
+  if(!dir) return; // usuário cancelou
+  try{
+    await invoke("open_project",{ path: dir });
+    projErr=""; closeProjMenu(); selected=null; lastSig=""; clearProjectCaches();
+    await refresh(); await loadProjects();
+  }catch(err){ projErr=String(err); openProjMenu(); }
 }
 document.getElementById("newTaskBtn").onclick = openNewTask;
 document.getElementById("ntClose").onclick = closeNewTask;
 document.getElementById("ntCancel").onclick = closeNewTask;
 document.getElementById("ntCreate").onclick = submitNewTask;
-document.getElementById("folderBtn").onclick = pickFolder;
+document.getElementById("projBtn").onclick = (e)=>{ e.stopPropagation(); toggleProjMenu(); };
+document.addEventListener("click", e=>{ if(!e.target.closest(".projsw")) closeProjMenu(); });
 document.getElementById("emAbrir").onclick = pickFolder;
 document.getElementById("ntImport").onclick = importTaskMd;
 document.getElementById("ntDelAdd").onclick = ()=>{ ntDel.push(""); renderNtList("ntDeliverables",ntDel); };
@@ -1284,7 +1360,7 @@ document.getElementById("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"",
 document.getElementById("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
-refresh();
+refresh().then(loadProjects);
 setInterval(refresh, 1000);
 </script>
 </body>
