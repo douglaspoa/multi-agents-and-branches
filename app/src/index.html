@@ -547,12 +547,10 @@ async function submitNewTask(){
 }
 async function pickFolder(){
   try{
-    const dlg = window.__TAURI__ && window.__TAURI__.dialog;
-    if(dlg && dlg.open){
-      const dir = await dlg.open({ directory:true, multiple:false });
-      if(dir){ document.getElementById("repoInput").value = dir; connect(dir); return; }
-    }
-  }catch(e){ console.error("dialog", e); }
+    const dir = await invoke("pick_folder");
+    if(dir){ document.getElementById("repoInput").value = dir; connect(dir); return; }
+    return; // usuário cancelou
+  }catch(e){ console.error("pick_folder", e); }
   document.getElementById("repoInput").focus();
 }
 document.getElementById("newTaskBtn").onclick = openNewTask;

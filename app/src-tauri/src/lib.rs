@@ -461,6 +461,17 @@ fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String>
     }
 }
 
+/// Abre o seletor de pasta nativo do macOS e devolve o caminho escolhido.
+#[tauri::command]
+fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .blocking_pick_folder()
+        .and_then(|p| p.into_path().ok())
+        .map(|pb| pb.display().to_string())
+}
+
 #[tauri::command]
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
@@ -482,6 +493,7 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::from_env())
         .invoke_handler(tauri::generate_handler![
             set_repo,
@@ -492,7 +504,8 @@ pub fn run() {
             config,
             new_task,
             merge_task,
-            remove_task
+            remove_task,
+            pick_folder
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");
