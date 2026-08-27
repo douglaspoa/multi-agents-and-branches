@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Orchestrator } from "./orchestrator.ts";
 import { GitService } from "./git.ts";
@@ -217,6 +217,98 @@ function cmdReview(repo: string, taskId: string) {
   store.close();
 }
 
+function buildExportMarkdown(store: Store, t: TaskRow): string {
+  const spec = JSON.parse(t.spec_json) as TaskSpec;
+  const roles = (JSON.parse(t.roles_json || "[]") as { role: string; name: string }[]);
+  const review = store.getReview(t.id);
+  const diff = store.getDiff(t.id);
+  const events = store.eventsForTask(t.id);
+
+  const out: string[] = [];
+  out.push(`# ${t.title}`);
+  out.push("");
+  out.push("## Objetivo");
+  out.push(t.objective || spec.objective || "—");
+  out.push("");
+
+  out.push("## Entregáveis");
+  if (spec.deliverables && spec.deliverables.length) {
+    for (const d of spec.deliverables) out.push(`- ${d}`);
+  } else {
+    out.push("—");
+  }
+  out.push("");
+
+  out.push("## Equipe");
+  if (roles.length) {
+    for (const r of roles) out.push(`- **${r.role}** → ${r.name}`);
+  } else {
+    out.push(`- **builder** → ${t.agent}`);
+  }
+  out.push("");
+
+  out.push("## Resumo do review");
+  out.push(review ? review.summary : "_(sem review)_");
+  out.push("");
+
+  out.push("## Funções criadas");
+  if (review && review.functions.length) {
+    for (const f of review.functions) {
+      out.push(`- \`${f.name}\` (${f.kind}, ${f.file}) — ${f.purpose}`);
+    }
+  } else {
+    out.push("_(nenhuma detectada)_");
+  }
+  out.push("");
+
+  out.push("## Arquivos alterados");
+  const files = review?.files ?? [];
+  if (files.length) {
+    for (const f of files) out.push(`- \`${f.path}\` +${f.add}/-${f.del}`);
+  } else if (diff) {
+    out.push(`- ${diff.files} arquivo(s), +${diff.additions}/-${diff.deletions}`);
+  } else {
+    out.push("—");
+  }
+  out.push("");
+
+  out.push("## Como testar");
+  out.push(review ? review.howToTest : "_(sem instruções)_");
+  out.push("");
+
+  out.push("## Timeline");
+  if (events.length) {
+    for (const e of events) {
+      const when = new Date(e.ts).toISOString();
+      out.push(`- \`${when}\` **${e.type}** — ${e.text}`);
+    }
+  } else {
+    out.push("_(sem eventos)_");
+  }
+  out.push("");
+
+  return out.join("\n");
+}
+
+function cmdExport(repo: string, taskId: string, a: Args) {
+  const store = openStore(repo);
+  const t = store.getTask(taskId);
+  if (!t) {
+    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    store.close();
+    process.exit(1);
+  }
+  const md = buildExportMarkdown(store, t);
+  const out = a.flags.out;
+  if (out && out !== "true") {
+    writeFileSync(out, md);
+    console.log(c.green("✔") + ` relatório gravado em ${c.dim(out)}`);
+  } else {
+    console.log(md);
+  }
+  store.close();
+}
+
 async function cmdRm(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   await orch.removeTask(taskId);
@@ -371,6 +463,9 @@ async function main() {
     case "review":
       cmdReview(repo, a._[1]);
       break;
+    case "export":
+      cmdExport(repo, a._[1], a);
+      break;
     case "watch":
       await cmdWatch(repo);
       break;
@@ -396,6 +491,7 @@ ${c.bold(c.green("🐙 Cardume"))} ${c.dim("— Fase 0 (núcleo)")}
   ${c.green("cardume watch")} ${c.dim("[--repo <p>]")}           acompanha ao vivo (lê o SQLite)
   ${c.green("cardume logs")} ${c.dim("<taskId> [--repo <p>]")}   eventos de uma tarefa
   ${c.green("cardume review")} ${c.dim("<taskId> [--repo <p>]")} review humano (funções criadas, arquivos, como testar)
+  ${c.green("cardume export")} ${c.dim("<taskId> [--repo <p>] [--out <arquivo.md>]")} relatório Markdown p/ descrição de PR
   ${c.green("cardume rm")}   ${c.dim("<taskId> [--repo <p>]")}   remove worktree + branch + registros
 `);
   }
