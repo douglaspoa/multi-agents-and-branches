@@ -133,6 +133,21 @@ export class Orchestrator {
     this.store.setStatus(taskId, "review");
   }
 
+  /** Faz merge da branch da tarefa na base, remove a worktree/branch e marca 'merged'. */
+  async mergeTask(taskId: string): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    await this.git.mergeBranch(task.branch, `cardume: merge ${task.title} (${task.branch})`);
+    try {
+      await this.git.worktreeRemove(task.worktree);
+    } catch {
+      /* ok */
+    }
+    await this.git.branchDelete(task.branch);
+    this.store.setStatus(taskId, "merged");
+    this.store.addEvent(taskId, task.agent, "note", `merge na ${task.base} concluído`, true);
+  }
+
   async removeTask(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) return;

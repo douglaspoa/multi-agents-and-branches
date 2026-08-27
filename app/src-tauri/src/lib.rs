@@ -1,6 +1,33 @@
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
+
+fn repo_of(state: &State<AppState>) -> Result<PathBuf, String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .clone()
+        .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()))
+        .ok_or_else(|| "repo não definido".to_string())
+}
+
+fn cli_path(repo: &PathBuf) -> String {
+    std::env::var("CARDUME_CLI").unwrap_or_else(|_| repo.join("src").join("cli.ts").display().to_string())
+}
+
+fn node_bin() -> String {
+    std::env::var("CARDUME_NODE").unwrap_or_else(|_| "node".to_string())
+}
+
+fn push_opt(args: &mut Vec<String>, flag: &str, val: &Option<String>) {
+    if let Some(v) = val {
+        if !v.is_empty() {
+            args.push(flag.to_string());
+            args.push(v.clone());
+        }
+    }
+}
 
 use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;
@@ -116,11 +143,13 @@ struct Snapshot {
 }
 
 fn open(path: &PathBuf) -> Result<Connection, String> {
-    Connection::open_with_flags(
+    let c = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
     )
-    .map_err(|e| format!("abrindo {}: {}", path.display(), e))
+    .map_err(|e| format!("abrindo {}: {}", path.display(), e))?;
+    let _ = c.busy_timeout(std::time::Duration::from_millis(8000));
+    Ok(c)
 }
 
 #[tauri::command]
@@ -345,6 +374,7 @@ fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<()
     let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
     conn.execute(
         "UPDATE pending SET status='answered', answer=?1, resolved_at=?2 WHERE id=?3",
         params![answer, now_ms(), id],
@@ -353,11 +383,117 @@ fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<()
     Ok(())
 }
 
+/// Catálogo de agentes/workflows (cardume.config.json) para o modal de nova tarefa.
+#[tauri::command]
+fn config(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let repo = repo_of(&state)?;
+    match std::fs::read_to_string(repo.join("cardume.config.json")) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| e.to_string()),
+        Err(_) => Ok(serde_json::json!({ "agents": [], "workflows": [] })),
+    }
+}
+
+/// Cria e dispara uma tarefa (detached) — roda o núcleo em background; o SQLite
+/// é atualizado ao vivo. Tarefas paralelas se coordenam pelo mesmo state.sqlite.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn new_task(
+    state: State<AppState>,
+    title: String,
+    workflow: Option<String>,
+    agents: Option<String>,
+    engine: String,
+    approval: String,
+    owns: Option<String>,
+    off: Option<String>,
+    objective: Option<String>,
+) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    let mut args = vec![
+        "--disable-warning=ExperimentalWarning".to_string(),
+        cli_path(&repo),
+        "new".to_string(),
+        "--repo".to_string(),
+        repo.display().to_string(),
+        "--title".to_string(),
+        title,
+        "--engine".to_string(),
+        engine,
+        "--approve".to_string(),
+        approval,
+    ];
+    push_opt(&mut args, "--workflow", &workflow);
+    push_opt(&mut args, "--agents", &agents);
+    push_opt(&mut args, "--owns", &owns);
+    push_opt(&mut args, "--off", &off);
+    push_opt(&mut args, "--objective", &objective);
+
+    Command::new(node_bin())
+        .args(&args)
+        .current_dir(&repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("falha ao iniciar tarefa: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let out = Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning",
+            &cli_path(&repo),
+            "merge",
+            &task_id,
+            "--repo",
+            &repo.display().to_string(),
+        ])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok("merge concluído".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning",
+            &cli_path(&repo),
+            "rm",
+            &task_id,
+            "--repo",
+            &repo.display().to_string(),
+        ])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::from_env())
-        .invoke_handler(tauri::generate_handler![set_repo, current_repo, snapshot, graph, resolve_pending])
+        .invoke_handler(tauri::generate_handler![
+            set_repo,
+            current_repo,
+            snapshot,
+            graph,
+            resolve_pending,
+            config,
+            new_task,
+            merge_task,
+            remove_task
+        ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");
 }

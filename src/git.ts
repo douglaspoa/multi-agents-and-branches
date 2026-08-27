@@ -115,6 +115,11 @@ export class GitService {
     return { files, add, del };
   }
 
+  /** Faz merge (--no-ff) de uma branch na base atualmente em check-out no repo. */
+  async mergeBranch(branch: string, message: string): Promise<void> {
+    await run("git", ["-C", this.repo, "merge", "--no-ff", "-m", message, branch]);
+  }
+
   /** Diff unificado da branch contra a base — insumo do review humano. */
   async diffText(worktree: string, base: string): Promise<string> {
     const { stdout } = await run("git", [

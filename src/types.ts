@@ -10,7 +10,8 @@ export type AgentStatus =
   | "review"
   | "conflict"
   | "done"
-  | "error";
+  | "error"
+  | "merged";
 
 /** Papel/especialidade de um agente. Aberto — comuns: planner, builder,
  * reviewer, designer, tester, security, docs. */

@@ -224,6 +224,20 @@ async function cmdRm(repo: string, taskId: string) {
   orch.close();
 }
 
+async function cmdMerge(repo: string, taskId: string) {
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.mergeTask(taskId);
+    console.log(c.green("✔") + ` ${taskId} mergeado na base (worktree e branch removidas)`);
+  } catch (err) {
+    console.error(c.red("✖ merge falhou: " + (err as Error).message));
+    console.error(c.dim("  (conflito? resolva manualmente na base e tente de novo)"));
+    orch.close();
+    process.exit(1);
+  }
+  orch.close();
+}
+
 async function cmdWatch(repo: string) {
   const store = openStore(repo);
   const tick = () => {
@@ -362,6 +376,9 @@ async function main() {
       break;
     case "rm":
       await cmdRm(repo, a._[1]);
+      break;
+    case "merge":
+      await cmdMerge(repo, a._[1]);
       break;
     case "demo":
       await cmdDemo();

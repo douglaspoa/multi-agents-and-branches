@@ -54,6 +54,35 @@
   .askopt,.asksend{border:1px solid var(--warn);background:var(--surface);color:var(--text);font:inherit;font-weight:600;font-size:12px;padding:5px 11px;cursor:pointer}
   .askopt:hover,.asksend:hover{background:var(--warn);color:#160f00}
 
+  /* botões extras */
+  .btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.danger{color:var(--crit);border-color:var(--crit)}
+  .btn.sm{padding:5px 10px;font-size:12px}
+  /* modal nova tarefa */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
+  .modal{width:min(600px,100%);max-height:92vh;overflow:auto;background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,.5);display:flex;flex-direction:column}
+  .mhead{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:15px}
+  .mhead .x{border:0;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}
+  .mbody{padding:14px 16px;display:flex;flex-direction:column;gap:5px}
+  .mbody label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:8px}
+  .in{background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:13px;padding:7px 9px;width:100%}
+  .in:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .ta{min-height:54px;resize:vertical;line-height:1.5}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .two>div{display:flex;flex-direction:column;gap:5px}
+  .wfprev{margin-top:11px;font-size:11.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);padding:8px 10px}
+  .mfoot{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+  /* pergunta no fluxo do agente */
+  .qbox{background:color-mix(in srgb,var(--warn) 18%,var(--surface));border:1px solid var(--warn);padding:10px 11px;margin-bottom:13px}
+  .qbox .qh{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);font-weight:700;margin-bottom:5px}
+  .qbox .qq{font-size:12.5px;color:var(--text)}
+  .qbox .qc{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;align-items:center}
+  .qbadge{color:var(--warn);font-weight:700}
+  /* ações do agente */
+  .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:15px}
+  .mergedtag{display:inline-block;margin-top:12px;font-size:11px;font-weight:700;color:var(--good);border:1px solid var(--good);padding:3px 9px}
+
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
   .rail{border-right:1px solid var(--border);background:var(--surface);overflow:auto;min-height:0}
@@ -150,10 +179,12 @@
   <div class="top">
     <div class="brand">🐙 Cardume</div>
     <div class="repo">
-      <input id="repoInput" placeholder="/caminho/do/repo (com .cardume/)  —  ex.: .../cardume/.cardume-demo/repo" spellcheck="false">
-      <button class="btn" id="connectBtn">conectar</button>
+      <button class="btn" id="folderBtn" title="Escolher pasta do projeto">📁</button>
+      <input id="repoInput" placeholder="/caminho/do/repo (com .cardume/)" spellcheck="false">
+      <button class="btn" id="connectBtn">abrir</button>
     </div>
     <div class="conn" id="conn"><span class="d"></span><span id="connTxt">sem repo</span></div>
+    <button class="btn primary" id="newTaskBtn">+ Nova tarefa</button>
   </div>
 
   <div id="askBar" class="askbar" style="display:none"></div>
@@ -183,6 +214,35 @@
     <span id="busSummary" class="dim">—</span>
     <span class="grow"></span>
     <span id="clock" class="dim"></span>
+  </div>
+</div>
+
+<div class="overlay" id="ntOverlay" style="display:none">
+  <div class="modal">
+    <div class="mhead"><b>Nova tarefa</b><button class="x" id="ntClose" aria-label="Fechar">✕</button></div>
+    <div class="mbody">
+      <label>Título</label>
+      <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
+      <label>Objetivo</label>
+      <textarea class="in ta" id="ntObj" placeholder="o que o(s) agente(s) deve(m) fazer"></textarea>
+      <div class="two">
+        <div><label>Workflow (equipe)</label><select class="in" id="ntWorkflow"></select></div>
+        <div><label>Motor</label><select class="in" id="ntEngine"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
+      </div>
+      <div class="two">
+        <div><label>Aprovação</label><select class="in" id="ntApprove"><option value="auto">Auto (agente decide)</option><option value="ask">Perguntar quando incerto</option></select></div>
+        <div><label>Reivindica (owns)</label><input class="in" id="ntOwns" placeholder="src/auth, src/x.ts"></div>
+      </div>
+      <label>Fora dos limites (off)</label>
+      <input class="in" id="ntOff" placeholder="src/checkout">
+      <div class="wfprev" id="ntWfPrev"></div>
+    </div>
+    <div class="mfoot">
+      <span class="dim" id="ntHint">cada tarefa vira uma branch + worktree isolada</span>
+      <span style="flex:1"></span>
+      <button class="btn" id="ntCancel">cancelar</button>
+      <button class="btn primary" id="ntCreate">criar e iniciar</button>
+    </div>
   </div>
 </div>
 
@@ -236,33 +296,44 @@ const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
 
 function render(){
   document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
-  renderRail(); renderFeed(); renderGraph(); renderSide(); renderBus(); renderAsk();
+  renderRail(); renderFeed(); renderGraph(); renderSide(); renderBus();
 }
+
+function pendingOf(taskId){ return (state.pending||[]).filter(p=>p.taskId===taskId); }
 
 async function resolvePending(id, answer){
   try{ await invoke("resolve_pending", { id, answer }); await refresh(); }
   catch(e){ console.error("resolve_pending", e); }
 }
-function renderAsk(){
-  const bar = document.getElementById("askBar");
-  const pend = state.pending || [];
-  if(pend.length===0){ bar.style.display="none"; bar.innerHTML=""; return; }
-  bar.style.display="flex";
-  bar.innerHTML = pend.map(p=>{
+/** Monta o bloco de pergunta (dentro do fluxo do agente selecionado). */
+function questionBlock(taskId){
+  const ps = pendingOf(taskId);
+  if(ps.length===0) return "";
+  return ps.map(p=>{
     const opts = Array.isArray(p.options) ? p.options : null;
     const controls = opts
       ? opts.map(o=>`<button class="askopt" data-id="${p.id}" data-ans="${esc(o)}">${esc(o)}</button>`).join("")
       : `<input class="askinput" data-id="${p.id}" placeholder="sua resposta…"><button class="asksend" data-id="${p.id}">responder</button>`;
-    return `<div class="askrow"><span class="q">❓ <b>${esc(p.agent)}</b> pergunta: ${esc(p.prompt)}</span><span class="ac">${controls}</span></div>`;
+    return `<div class="qbox"><div class="qh">❓ ${esc(p.agent)} está esperando você</div><div class="qq">${esc(p.prompt)}</div><div class="qc">${controls}</div></div>`;
   }).join("");
-  bar.querySelectorAll(".askopt").forEach(b=>b.onclick=()=>resolvePending(+b.dataset.id, b.dataset.ans));
-  bar.querySelectorAll(".asksend").forEach(b=>b.onclick=()=>{
-    const inp = bar.querySelector('.askinput[data-id="'+b.dataset.id+'"]');
+}
+function wireQuestion(root){
+  root.querySelectorAll(".askopt").forEach(b=>b.onclick=()=>resolvePending(+b.dataset.id, b.dataset.ans));
+  root.querySelectorAll(".asksend").forEach(b=>b.onclick=()=>{
+    const inp = root.querySelector('.askinput[data-id="'+b.dataset.id+'"]');
     resolvePending(+b.dataset.id, (inp && inp.value.trim()) || "ok");
   });
-  bar.querySelectorAll(".askinput").forEach(i=>i.addEventListener("keydown",e=>{
-    if(e.key==="Enter") bar.querySelector('.asksend[data-id="'+i.dataset.id+'"]').click();
+  root.querySelectorAll(".askinput").forEach(i=>i.addEventListener("keydown",e=>{
+    if(e.key==="Enter") root.querySelector('.asksend[data-id="'+i.dataset.id+'"]').click();
   }));
+}
+async function mergeTask(taskId){
+  try{ await invoke("merge_task",{taskId}); await refresh(); }
+  catch(e){ alert("Merge falhou:\n"+e); }
+}
+async function removeTask(taskId){
+  try{ await invoke("remove_task",{taskId}); if(selected===taskId) selected=null; await refresh(); }
+  catch(e){ console.error("remove_task", e); }
 }
 
 const LANE_COLORS = ["#39d46a","#e5c07b","#56b6c2","#ff6b5f","#b48ead","#5b9dff","#d19a66","#8dd17a"];
@@ -337,7 +408,7 @@ function renderRail(){
     const rev = reviewOf(t.id) ? ' <span style="color:var(--good)">✓</span>':'';
     return `<div class="arow${sel}" data-id="${t.id}">
       <span class="ini" style="background:${col}">${esc((t.agent||"?").slice(0,2).toUpperCase())}</span>
-      <div><div class="nm">${esc(team)}${rev}</div><div class="br">${esc(t.branch)} · ${esc(t.stage||"")}</div></div>
+      <div><div class="nm">${esc(team)}${rev}${pendingOf(t.id).length?' <span class="qbadge">❓</span>':''}</div><div class="br">${esc(t.branch)} · ${esc(t.stage||"")}</div></div>
       <span class="sd" style="background:${col}"></span>
     </div>`;
   }).join("");
@@ -387,6 +458,7 @@ function renderSide(){
     </div>
   </div>` : "";
   el.innerHTML = `<div class="det">
+    ${questionBlock(t.id)}
     <h2>${esc(t.agent)}</h2>
     <div class="sub">${esc(t.branch)} · ${esc(t.engine)}${t.model?(" · "+esc(t.model)):""}</div>
     <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
@@ -402,7 +474,13 @@ function renderSide(){
     </div>
     <div class="seclbl">Log <span class="n">${evs.length}</span></div>
     <div class="log">${evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join("")||'<span class="dim">—</span>'}</div>
+    ${t.status==='merged'
+      ? `<span class="mergedtag">✓ merged na ${esc(t.base)}</span>`
+      : `<div class="acts">${t.status==='review'?`<button class="btn primary sm" data-act="merge">✓ merge na ${esc(t.base)}</button>`:''}<button class="btn danger sm" data-act="rm">${t.status==='review'?'descartar':'cancelar'}</button></div>`}
   </div>`;
+  el.querySelectorAll('[data-act="merge"]').forEach(b=>b.onclick=()=>mergeTask(t.id));
+  el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
+  wireQuestion(el);
 }
 
 function renderBus(){
@@ -428,6 +506,62 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
   document.getElementById("feedPane").style.display = v==="feed"?"block":"none";
   document.getElementById("chint").textContent = v==="graph"?"branches · agentes nas pontas":"eventos ao vivo de todos os agentes";
 });
+
+async function openNewTask(){
+  try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
+  const wfSel = document.getElementById("ntWorkflow");
+  const wfs = (state.config && state.config.workflows) || [];
+  const byId = Object.fromEntries(((state.config&&state.config.agents)||[]).map(a=>[a.id,a]));
+  wfSel.innerHTML = wfs.length
+    ? wfs.map(w=>`<option value="${esc(w.id)}">${esc(w.name)}</option>`).join("")
+    : `<option value="">(sem catálogo — 1 builder)</option>`;
+  const updatePrev = ()=>{
+    const w = wfs.find(x=>x.id===wfSel.value);
+    document.getElementById("ntWfPrev").textContent = w
+      ? "equipe: " + w.steps.map(s=>(byId[s]?byId[s].name+" ("+byId[s].role+")":s)).join("  →  ")
+      : "1 agente builder";
+  };
+  wfSel.onchange = updatePrev; updatePrev();
+  document.getElementById("ntOverlay").style.display = "flex";
+  document.getElementById("ntTitle").focus();
+}
+function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); }
+async function submitNewTask(){
+  const title = document.getElementById("ntTitle").value.trim();
+  if(!title){ document.getElementById("ntTitle").focus(); return; }
+  const payload = {
+    title,
+    workflow: document.getElementById("ntWorkflow").value || null,
+    agents: null,
+    engine: document.getElementById("ntEngine").value,
+    approval: document.getElementById("ntApprove").value,
+    owns: document.getElementById("ntOwns").value.trim() || null,
+    off: document.getElementById("ntOff").value.trim() || null,
+    objective: document.getElementById("ntObj").value.trim() || null,
+  };
+  const btn = document.getElementById("ntCreate"); btn.disabled=true; btn.textContent="iniciando…";
+  try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); await refresh(); }
+  catch(e){ alert("Falha ao criar tarefa:\n"+e); }
+  finally{ btn.disabled=false; btn.textContent="criar e iniciar"; }
+}
+async function pickFolder(){
+  try{
+    const dlg = window.__TAURI__ && window.__TAURI__.dialog;
+    if(dlg && dlg.open){
+      const dir = await dlg.open({ directory:true, multiple:false });
+      if(dir){ document.getElementById("repoInput").value = dir; connect(dir); return; }
+    }
+  }catch(e){ console.error("dialog", e); }
+  document.getElementById("repoInput").focus();
+}
+document.getElementById("newTaskBtn").onclick = openNewTask;
+document.getElementById("ntClose").onclick = closeNewTask;
+document.getElementById("ntCancel").onclick = closeNewTask;
+document.getElementById("ntCreate").onclick = submitNewTask;
+document.getElementById("folderBtn").onclick = pickFolder;
+document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeNewTask(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 refresh();

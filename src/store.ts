@@ -21,6 +21,9 @@ export class Store {
   constructor(file: string) {
     this.db = new DatabaseSync(file);
     this.db.exec("PRAGMA journal_mode = WAL;");
+    // Tarefas paralelas rodam em processos separados escrevendo no mesmo DB:
+    // espera o lock (até 8s) em vez de falhar com "database is locked".
+    this.db.exec("PRAGMA busy_timeout = 8000;");
     this.migrate();
   }
 
