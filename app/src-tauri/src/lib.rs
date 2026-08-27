@@ -219,6 +219,65 @@ fn graph(state: State<AppState>) -> Result<Vec<Commit>, String> {
     Ok(commits)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitDetail {
+    hash: String,
+    author: String,
+    date: String,
+    subject: String,
+    body: String,
+    files: Vec<serde_json::Value>,
+}
+
+/// Resumo técnico de um commit: mensagem (o quê + porquê) + arquivos alterados.
+#[tauri::command]
+fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, String> {
+    let repo = repo_of(&state)?;
+    let meta = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args([
+            "show",
+            "-s",
+            "--date=short",
+            "--format=%H\u{1f}%an\u{1f}%ad\u{1f}%s\u{1f}%b",
+            &hash,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&meta.stdout);
+    let f: Vec<&str> = text.trim_end().splitn(5, '\u{1f}').collect();
+    if f.len() < 4 {
+        return Err("commit não encontrado".into());
+    }
+    let stat = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["diff-tree", "--no-commit-id", "--numstat", "-r", &hash])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut files = Vec::new();
+    for line in String::from_utf8_lossy(&stat.stdout).lines() {
+        let p: Vec<&str> = line.split('\t').collect();
+        if p.len() >= 3 {
+            files.push(serde_json::json!({
+                "path": p[2],
+                "add": p[0].parse::<i64>().unwrap_or(0),
+                "del": p[1].parse::<i64>().unwrap_or(0),
+            }));
+        }
+    }
+    Ok(CommitDetail {
+        hash: f[0].to_string(),
+        author: f.get(1).unwrap_or(&"").to_string(),
+        date: f.get(2).unwrap_or(&"").to_string(),
+        subject: f.get(3).unwrap_or(&"").to_string(),
+        body: f.get(4).unwrap_or(&"").trim().to_string(),
+        files,
+    })
+}
+
 #[tauri::command]
 fn current_repo(state: State<AppState>) -> Option<String> {
     state
@@ -569,7 +628,8 @@ pub fn run() {
             remove_task,
             pick_folder,
             save_config,
-            import_agent_files
+            import_agent_files,
+            commit_detail
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");

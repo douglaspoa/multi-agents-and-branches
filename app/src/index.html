@@ -216,6 +216,19 @@
   .listrow{display:flex;gap:7px;align-items:center}
   .listrow .in{flex:1}
   .listed .dim{font-size:11.5px;padding:2px 0}
+  /* detalhe do commit */
+  .cmsub{font-size:15px;font-weight:600;line-height:1.35}
+  .cmmeta{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .cmbody-txt{font-size:12.5px;color:var(--text-2);margin-top:11px;line-height:1.55;background:var(--surface-2);border:.5px solid var(--border);border-radius:var(--r-sm);padding:10px 12px}
+  .cmfiles{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+  .cmfile{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;padding:6px 9px;background:var(--surface-2);border:.5px solid var(--border);border-radius:var(--r-xs)}
+  .cmfile .mono{font-size:11px}
+  /* estado vazio (sem repo) */
+  .emptyrepo{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--muted);text-align:center;padding:40px}
+  .emptyrepo .big{font-size:16px;font-weight:600;color:var(--text)}
+  .emptyrepo svg{width:44px;height:44px;opacity:.5}
+  .emptyrepo .btn svg{width:15px;height:15px;opacity:1}
+  .errbox{background:color-mix(in srgb,var(--crit) 13%,var(--surface));border:.5px solid var(--crit);color:var(--text);border-radius:var(--r-sm);padding:9px 11px;margin-bottom:12px;font-size:12.5px;line-height:1.45}
 
   /* body */
   .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
@@ -338,6 +351,12 @@
       </div>
       <div id="graphPane" class="pane"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
+      <div id="emptyRepo" class="emptyrepo" style="display:none">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>
+        <div class="big">Nenhum projeto aberto</div>
+        <div>Escolha a pasta de um repositório git para começar.</div>
+        <button class="btn primary" id="emAbrir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>Abrir projeto</button>
+      </div>
     </div>
     <div class="side" id="side"></div>
   </div>
@@ -401,6 +420,13 @@
   </div>
 </div>
 
+<div class="overlay" id="cmOverlay" style="display:none">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="mhead"><b>Resumo do commit</b><span style="flex:1"></span><button class="x" id="cmClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="cmBody"></div>
+  </div>
+</div>
+
 <script>
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 const IC = {
@@ -460,7 +486,26 @@ const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
 
 function render(){
   document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
+  const noRepo = !state.repo;
+  const chead=document.querySelector(".chead"); if(chead) chead.style.display = noRepo?"none":"flex";
+  document.getElementById("emptyRepo").style.display = noRepo ? "flex":"none";
+  if(noRepo){
+    document.getElementById("graphPane").style.display="none";
+    document.getElementById("feedPane").style.display="none";
+    document.getElementById("rail").innerHTML='';
+    document.getElementById("side").innerHTML='';
+    document.getElementById("busSummary").innerHTML='<span class="dim">—</span>';
+    return;
+  }
+  const feedOn = (document.querySelector('#viewSeg button.on')||{}).dataset?.v==="feed";
+  document.getElementById("graphPane").style.display = feedOn?"none":"block";
+  document.getElementById("feedPane").style.display = feedOn?"block":"none";
   renderRail(); renderFeed(); renderGraph(); renderSide(); renderBus();
+}
+function errBanner(t){
+  if(t.status!=='error' && t.status!=='conflict') return '';
+  const e = eventsOf(t.id).filter(x=>x.type==='error').slice(-1)[0];
+  return `<div class="errbox">${esc(e?e.text:(t.status==='conflict'?'conflito de merge — resolva manualmente':'erro no agente'))}</div>`;
 }
 
 function pendingOf(taskId){ return (state.pending||[]).filter(p=>p.taskId===taskId); }
@@ -558,9 +603,23 @@ function renderGraph(){
       labels+=`<text class="gsub" x="${mainRef?subX:labelX}" y="${y+3}" style="fill:var(--muted)">${esc(c.subject.slice(0,58))}</text>`;
     }
   });
-  svg.innerHTML = edges+nodes+labels;
-  svg.querySelectorAll("[data-task]").forEach(g=>g.onclick=()=>{ selected=g.dataset.task; render(); });
+  const rects = placed.map(c=>`<rect class="cnode" data-hash="${escA(c.hash)}" x="0" y="${Y(c.row)-rowH/2}" width="${width}" height="${rowH}" fill="transparent" style="cursor:pointer"/>`).join("");
+  svg.innerHTML = edges+nodes+labels+rects;
+  svg.querySelectorAll(".cnode").forEach(g=>g.onclick=()=>openCommit(g.dataset.hash));
 }
+async function openCommit(hash){
+  const ov=document.getElementById("cmOverlay"), body=document.getElementById("cmBody");
+  ov.style.display="flex"; body.innerHTML='<div class="dim" style="font-size:12px">carregando…</div>';
+  let d; try{ d=await invoke("commit_detail",{hash}); }
+  catch(e){ body.innerHTML='<div class="dim" style="font-size:12px">'+esc(String(e))+'</div>'; return; }
+  body.innerHTML = `
+    <div class="cmsub">${esc(d.subject)}</div>
+    <div class="cmmeta"><span class="mono">${esc((d.hash||"").slice(0,8))}</span> · ${esc(d.author)} · ${esc(d.date)}</div>
+    ${d.body?`<div class="cmbody-txt">${esc(d.body).replace(/\n/g,"<br>")}</div>`:'<div class="cmbody-txt dim">(sem descrição adicional no commit)</div>'}
+    <div class="seclbl2" style="margin-top:15px">Arquivos alterados <span style="flex:1"></span><span class="dim" style="letter-spacing:0;text-transform:none">${d.files.length}</span></div>
+    <div class="cmfiles">${d.files.map(f=>`<div class="cmfile"><span class="mono">${esc(f.path)}</span><span class="mono"><span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span></div>`).join("")||'<div class="dim" style="font-size:12px">sem alterações</div>'}</div>`;
+}
+function closeCommit(){ document.getElementById("cmOverlay").style.display="none"; }
 
 function renderRail(){
   const el = document.getElementById("rail");
@@ -623,6 +682,7 @@ function renderSide(){
   </div>` : "";
   el.innerHTML = `<div class="det">
     ${questionBlock(t.id)}
+    ${errBanner(t)}
     <h2>${esc(t.agent)}</h2>
     <div class="sub">${esc(t.branch)} · ${esc(t.engine)}${t.model?(" · "+esc(t.model)):""}</div>
     <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
@@ -763,11 +823,21 @@ document.getElementById("ntClose").onclick = closeNewTask;
 document.getElementById("ntCancel").onclick = closeNewTask;
 document.getElementById("ntCreate").onclick = submitNewTask;
 document.getElementById("folderBtn").onclick = pickFolder;
+document.getElementById("emAbrir").onclick = pickFolder;
 document.getElementById("ntImport").onclick = importTaskMd;
 document.getElementById("ntDelAdd").onclick = ()=>{ ntDel.push(""); renderNtList("ntDeliverables",ntDel); };
 document.getElementById("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
 document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });
-document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ closeNewTask(); closeAgents(); } });
+document.getElementById("cmClose").onclick = closeCommit;
+document.getElementById("cmOverlay").addEventListener("click", e=>{ if(e.target.id==="cmOverlay") closeCommit(); });
+document.addEventListener("keydown", e=>{
+  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); return; }
+  if((e.metaKey||e.ctrlKey) && !e.shiftKey){
+    const k=e.key.toLowerCase();
+    if(k==="n"){ e.preventDefault(); if(connected) openNewTask(); }
+    else if(k==="o"){ e.preventDefault(); pickFolder(); }
+  }
+});
 
 /* ---------- editor Agentes & Equipes ---------- */
 let cfgEdit = { agents:[], workflows:[] };

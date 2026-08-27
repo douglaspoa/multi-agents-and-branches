@@ -99,6 +99,19 @@ export class ClaudeEngine implements AgentEngine {
       }
     };
 
+    // Timeout de segurança: se o agente travar, encerra e marca erro.
+    const timeoutMin = 20;
+    const killTimer = setTimeout(() => {
+      queue.push({ type: "error", text: `timeout de ${timeoutMin}min — agente encerrado`, status: "error" });
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* já morreu */
+      }
+      done = true;
+      wake();
+    }, timeoutMin * 60 * 1000);
+
     rl.on("line", (line) => {
       for (const ev of mapLine(line)) queue.push(ev);
       wake();
@@ -109,6 +122,7 @@ export class ClaudeEngine implements AgentEngine {
       wake();
     });
     child.on("close", (code) => {
+      clearTimeout(killTimer);
       if (!queue.some((e) => e.type === "done")) {
         queue.push({
           type: code === 0 ? "note" : "error",
@@ -120,6 +134,7 @@ export class ClaudeEngine implements AgentEngine {
       wake();
     });
     child.on("error", (err) => {
+      clearTimeout(killTimer);
       queue.push({ type: "error", text: `falha ao iniciar claude: ${err.message}`, status: "error" });
       done = true;
       wake();

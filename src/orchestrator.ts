@@ -137,7 +137,14 @@ export class Orchestrator {
   async mergeTask(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
-    await this.git.mergeBranch(task.branch, `cardume: merge ${task.title} (${task.branch})`);
+    try {
+      await this.git.mergeBranch(task.branch, `cardume: merge ${task.title} (${task.branch})`);
+    } catch (err) {
+      await this.git.abortMerge();
+      this.store.setStatus(taskId, "conflict");
+      this.store.addEvent(taskId, task.agent, "error", `merge conflitou com ${task.base} — resolva manualmente`, false);
+      throw new Error(`conflito ao mergear em ${task.base}. O merge foi abortado e a branch preservada — resolva o conflito e tente de novo.`);
+    }
     try {
       await this.git.worktreeRemove(task.worktree);
     } catch {

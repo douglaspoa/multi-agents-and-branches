@@ -120,6 +120,15 @@ export class GitService {
     await run("git", ["-C", this.repo, "merge", "--no-ff", "-m", message, branch]);
   }
 
+  /** Aborta um merge em andamento (usado quando dá conflito). */
+  async abortMerge(): Promise<void> {
+    try {
+      await run("git", ["-C", this.repo, "merge", "--abort"]);
+    } catch {
+      /* sem merge em andamento */
+    }
+  }
+
   /** Diff unificado da branch contra a base — insumo do review humano. */
   async diffText(worktree: string, base: string): Promise<string> {
     const { stdout } = await run("git", [
