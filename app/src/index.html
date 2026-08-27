@@ -461,6 +461,7 @@ const IC = {
   xs:'<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.2 3.2l5.6 5.6M8.8 3.2l-5.6 5.6" stroke-linecap="round"/></svg>',
   merge:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4.2" cy="4" r="1.5"/><circle cx="4.2" cy="12" r="1.5"/><circle cx="11.8" cy="8" r="1.5"/><path d="M4.2 5.5v5M5.7 5.4C6 8 8.2 8 10.3 8" stroke-linecap="round"/></svg>',
   check:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.4 8.4l3 3 6.2-6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  ai:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/><path d="M12 9.4l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5z" stroke-linejoin="round"/></svg>',
 };
 
 const STATUS_COLOR = { running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)" };
@@ -707,18 +708,25 @@ async function openCommit(hash){
     <div class="cmsub">${esc(d.subject)}</div>
     <div class="cmmeta"><span class="mono">${esc((d.hash||"").slice(0,8))}</span> · ${esc(d.author)} · ${esc(d.date)}</div>
     ${taskBox}
-    <div class="cmsum"><div class="cmsum-h">Resumo técnico</div><div id="cmAI" class="cmai dim">Gerando resumo com IA…</div><div class="cmstat">${esc(tech.text)}</div></div>
+    <div class="cmsum"><div class="cmsum-h">Resumo técnico</div><div id="cmAI" class="cmai"></div><div class="cmstat">${esc(tech.text)}</div></div>
     ${d.body?`<div class="cmbody-txt">${esc(d.body).replace(/\n/g,"<br>")}</div>`:''}
     <div class="seclbl2" style="margin-top:15px">Alterações <span style="flex:1"></span><span class="dim" style="letter-spacing:0;text-transform:none">${d.files.length} arquivo(s)</span></div>
     <div class="diffwrap">${renderDiff(files)}</div>`;
   const h=hash;
-  invoke("ai_commit_summary",{hash:h}).then(s=>{
-    if(curCommit!==h) return; const el=document.getElementById("cmAI");
-    if(el){ el.textContent=s; el.classList.remove("dim"); }
-  }).catch(e=>{
-    if(curCommit!==h) return; const el=document.getElementById("cmAI");
-    if(el){ el.classList.add("dim"); el.textContent="Não foi possível gerar o resumo com IA ("+String(e).slice(0,90)+"). Abaixo, o resumo automático."; }
-  });
+  const aiEl=document.getElementById("cmAI");
+  let cached=null; try{ cached=await invoke("commit_summary_cached",{hash:h}); }catch(e){}
+  if(curCommit!==h) return;
+  if(cached){ aiEl.textContent=cached; }
+  else{
+    aiEl.innerHTML=`<button class="btn sm" id="cmAIbtn">${IC.ai} Explicar com IA</button> <span class="dim" style="font-size:11px">gera um resumo do que foi feito e por quê (usa Claude · fica em cache)</span>`;
+    const b=document.getElementById("cmAIbtn"); if(b) b.onclick=()=>genAI(h);
+  }
+}
+async function genAI(h){
+  const el=document.getElementById("cmAI"); if(!el) return;
+  el.innerHTML='<span class="dim">gerando resumo com IA…</span>';
+  try{ const s=await invoke("ai_commit_summary",{hash:h}); if(curCommit!==h) return; document.getElementById("cmAI").textContent=s; }
+  catch(e){ if(curCommit!==h) return; const x=document.getElementById("cmAI"); x.innerHTML='<span class="dim">não foi possível gerar: '+esc(String(e).slice(0,90))+'</span> <button class="btn sm" id="cmAIbtn2">tentar de novo</button>'; const b=document.getElementById("cmAIbtn2"); if(b) b.onclick=()=>genAI(h); }
 }
 function closeCommit(){ curCommit=null; document.getElementById("cmOverlay").style.display="none"; }
 

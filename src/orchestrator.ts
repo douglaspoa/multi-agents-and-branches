@@ -5,6 +5,7 @@ import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
+import { run } from "./util/run.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
@@ -112,6 +113,12 @@ export class Orchestrator {
           await this.git.commitAll(task.worktree, `cardume(${r.role}): ${task.title}`);
           const d = await this.git.diffStat(task.worktree, task.base);
           this.store.setDiff(taskId, d.files, d.add, d.del);
+          // Tarefas via Claude já geram o resumo do commit no fluxo (fica em cache).
+          const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
+          if (usesClaude && process.env.CARDUME_AUTOSUMMARY !== "0") {
+            const head = await this.git.headHash(task.worktree);
+            if (!this.store.hasCommitSummary(head)) await this.summarizeCommit(taskId, head, task.worktree, spec);
+          }
         } catch (err) {
           this.store.addEvent(taskId, r.name, "note", `falha ao finalizar: ${(err as Error).message}`, false, r.role);
         }
@@ -131,6 +138,26 @@ export class Orchestrator {
     }
 
     this.store.setStatus(taskId, "review");
+  }
+
+  /** Gera (via Claude) e guarda o resumo técnico de um commit — o quê + porquê. */
+  private async summarizeCommit(taskId: string, hash: string, worktree: string, spec: TaskSpec): Promise<void> {
+    try {
+      const diff = (await run("git", ["-C", worktree, "show", "--no-color", "--format=", "-p", hash])).stdout.slice(0, 8000);
+      const dels = spec.deliverables?.length ? `Entregáveis pedidos: ${spec.deliverables.join("; ")}\n` : "";
+      const prompt =
+        `Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n` +
+        `Objetivo da tarefa: ${spec.objective}\n${dels}\nDiff:\n${diff}`;
+      const claude = process.env.CARDUME_CLAUDE || "claude";
+      const { stdout } = await run(claude, ["-p", prompt], { cwd: worktree });
+      const s = stdout.trim();
+      if (s) {
+        this.store.addCommitSummary(hash, s);
+        this.store.addEvent(taskId, spec.agent, "note", "resumo técnico do commit gerado", true);
+      }
+    } catch (err) {
+      this.store.addEvent(taskId, spec.agent, "note", `resumo IA do commit falhou: ${(err as Error).message}`, false);
+    }
   }
 
   /** Faz merge da branch da tarefa na base, remove a worktree/branch e marca 'merged'. */

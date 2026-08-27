@@ -129,6 +129,12 @@ export class GitService {
     }
   }
 
+  /** Hash do HEAD de uma worktree. */
+  async headHash(worktree: string): Promise<string> {
+    const { stdout } = await run("git", ["-C", worktree, "rev-parse", "HEAD"]);
+    return stdout.trim();
+  }
+
   /** Diff unificado da branch contra a base — insumo do review humano. */
   async diffText(worktree: string, base: string): Promise<string> {
     const { stdout } = await run("git", [

@@ -315,6 +315,21 @@ fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, S
     })
 }
 
+/// Lê apenas o cache do resumo por IA (não gera). Retorna null se ainda não existe.
+#[tauri::command]
+fn commit_summary_cached(state: State<AppState>, hash: String) -> Result<Option<String>, String> {
+    let dbpath = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&dbpath, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| e.to_string())?;
+    let _ = conn.execute(
+        "CREATE TABLE IF NOT EXISTS commit_summary(hash TEXT PRIMARY KEY, summary TEXT, created_at INTEGER)",
+        [],
+    );
+    Ok(conn
+        .query_row("SELECT summary FROM commit_summary WHERE hash=?1", params![&hash], |r| r.get::<_, String>(0))
+        .ok())
+}
+
 /// Resumo técnico do commit escrito pela IA (Claude) — explica o quê e o porquê.
 /// Cacheado por hash em commit_summary (gera uma vez; depois é instantâneo).
 #[tauri::command]
@@ -750,7 +765,8 @@ pub fn run() {
             save_config,
             import_agent_files,
             commit_detail,
-            ai_commit_summary
+            ai_commit_summary,
+            commit_summary_cached
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Cardume");

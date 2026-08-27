@@ -80,6 +80,11 @@ export class Store {
         by_agent TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS commit_summary (
+        hash TEXT PRIMARY KEY,
+        summary TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS pending (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT NOT NULL,
@@ -238,6 +243,17 @@ export class Store {
     this.db.prepare(`DELETE FROM review WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM pending WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM task WHERE id = ?`).run(taskId);
+  }
+
+  // ---------- resumo de commit (gerado pela IA) ----------
+  addCommitSummary(hash: string, summary: string): void {
+    this.db
+      .prepare(`INSERT OR REPLACE INTO commit_summary (hash, summary, created_at) VALUES (?, ?, ?)`)
+      .run(hash, summary, Date.now());
+  }
+
+  hasCommitSummary(hash: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM commit_summary WHERE hash = ?`).get(hash);
   }
 
   // ---------- pending (perguntas do agente para o humano) ----------
