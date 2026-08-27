@@ -543,6 +543,7 @@
   .artmodal{max-width:820px;width:min(820px,92vw)}
   .artmodal .mbody{max-height:74vh;overflow:auto}
   .artimg{max-width:100%;height:auto;display:block;border-radius:var(--r-sm);border:1px solid var(--border)}
+  .pdfview{width:100%;height:74vh;border:1px solid var(--border);border-radius:var(--r-sm);background:#fff}
   .artpre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--text)}
   .mdview{font-size:13.5px;line-height:1.6;color:var(--text)}
   .mdview h1{font-size:20px;margin:2px 0 10px} .mdview h2{font-size:16.5px;margin:18px 0 8px}
@@ -817,7 +818,20 @@ function refsBlock(t){
   const rs=Array.isArray(t.refs)?t.refs:[];
   if(!rs.length) return '';
   return `<div class="seclbl">Referências <span class="n">${rs.length}</span></div><div class="artlist">`+
-    rs.map(n=>`<div class="artitem" style="cursor:default"><span class="artic">${(/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(n)?IC.image:IC.doc)}</span><span class="artnm mono">${esc(n)}</span><span class="artkb dim">anexado</span></div>`).join('')+`</div>`;
+    rs.map(n=>`<button class="artitem" data-refopen="${escA(n)}"><span class="artic">${(/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(n)?IC.image:IC.doc)}</span><span class="artnm mono">${esc(n)}</span><span class="artkb dim">abrir</span></button>`).join('')+`</div>`;
+}
+async function openRef(taskId, name){
+  let c;
+  try{ c=await invoke('read_ref',{ taskId, name }); }
+  catch(e){ alert('Falha ao abrir a referência:\n'+e); return; }
+  const body = c.kind==='image' ? `<img class="artimg" src="${c.dataUrl}" alt="${escA(name)}">`
+    : c.kind==='pdf' ? `<iframe class="pdfview" src="${c.dataUrl}" title="${escA(name)}"></iframe>`
+    : c.kind==='doc' ? `<div class="mdview">${mdToHtml(c.text||'')}</div>`
+    : `<pre class="artpre">${esc(c.text||'')}</pre>`;
+  document.getElementById('artIcon').innerHTML = c.kind==='image'?IC.image:IC.doc;
+  document.getElementById('artTitle').textContent=name;
+  document.getElementById('artBody').innerHTML=body;
+  document.getElementById('artOverlay').style.display='flex';
 }
 function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId); }
 function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
@@ -1611,6 +1625,7 @@ function renderSide(){
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openFile(t.id, b.dataset.file));
+  el.querySelectorAll('[data-refopen]').forEach(b=>b.onclick=()=>openRef(t.id, b.dataset.refopen));
   { const b=el.querySelector('#prOpen'); if(b) b.onclick=()=>openPr(t); }
   { const b=el.querySelector('#prRefresh'); if(b) b.onclick=async()=>{ await loadPr(t.id,true); renderSide(); }; }
   { const b=el.querySelector('#prRework'); if(b) b.onclick=()=>reworkFromPr(t.id); }

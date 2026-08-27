@@ -1304,6 +1304,48 @@ fn write_file(state: State<AppState>, task_id: String, path: String, content: St
     Ok(())
 }
 
+/// Abre um documento de referência (.cardume/refs/) — imagem/PDF como dataURL,
+/// md/txt como texto.
+#[tauri::command]
+fn read_ref(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("nome inválido".to_string());
+    }
+    let (wt, _base) = task_wt_base(&state, &task_id)?;
+    let path = wt.join(".cardume").join("refs").join(&name);
+    if !path.is_file() {
+        return Err("referência não encontrada".to_string());
+    }
+    let l = name.to_lowercase();
+    let img = ["png", "jpg", "jpeg", "gif", "webp", "svg"].iter().any(|e| l.ends_with(&format!(".{e}")));
+    if img || l.ends_with(".pdf") {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let mime = if l.ends_with(".pdf") {
+            "application/pdf"
+        } else if l.ends_with(".png") {
+            "image/png"
+        } else if l.ends_with(".jpg") || l.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if l.ends_with(".gif") {
+            "image/gif"
+        } else if l.ends_with(".webp") {
+            "image/webp"
+        } else if l.ends_with(".svg") {
+            "image/svg+xml"
+        } else {
+            "application/octet-stream"
+        };
+        Ok(ArtifactContent {
+            kind: if l.ends_with(".pdf") { "pdf".to_string() } else { "image".to_string() },
+            text: None,
+            data_url: Some(format!("data:{};base64,{}", mime, base64_encode(&bytes))),
+        })
+    } else {
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        Ok(ArtifactContent { kind: "doc".to_string(), text: Some(text), data_url: None })
+    }
+}
+
 // ---------- integração com Pull Requests (GitHub via gh) ----------
 fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String> {
     let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
@@ -1663,6 +1705,7 @@ pub fn run() {
             task_files,
             read_file,
             write_file,
+            read_ref,
             list_branches,
             open_pr,
             pr_status,
