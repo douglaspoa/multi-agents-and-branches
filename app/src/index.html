@@ -255,18 +255,19 @@
   .errbox{background:color-mix(in srgb,var(--crit) 13%,var(--surface));border:.5px solid var(--crit);color:var(--text);border-radius:var(--r-sm);padding:9px 11px;margin-bottom:12px;font-size:12.5px;line-height:1.45}
   /* aba Fluxo */
   #flowPane{padding:12px 12px 20px}
-  .ffbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:12px}
-  .ffbar .ffsep{width:1px;height:18px;background:var(--border);margin:0 3px}
-  .ffbar .fflbl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:1px}
-  .fchip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);cursor:pointer;white-space:nowrap}
+  .ffbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px}
+  .ffchips{display:flex;flex-wrap:wrap;gap:6px}
+  .fchip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
   .fchip:hover{background:var(--surface-2)}
   .fchip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .fchip .n{font-size:10.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
   .fchip.on .n{color:var(--on-accent);opacity:.8}
   .fchip .dot{width:7px;height:7px;border-radius:50%}
-  .ffsel{font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--fg);cursor:pointer}
-  .ffsearch{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);width:150px;outline:none}
-  .ffsearch:focus{border-color:var(--accent)}
+  .ffbar .sel{padding:5px 26px 5px 10px}
+  .ffsearchwrap{position:relative;display:flex;align-items:center}
+  .ffic{position:absolute;left:10px;width:13px;height:13px;color:var(--muted);pointer-events:none}
+  .ffsearch{font-size:12px;padding:5px 10px 5px 29px;border-radius:var(--r-sm);border:.5px solid var(--border-strong);background:var(--surface);color:var(--text);width:170px;outline:none}
+  .ffsearch:focus{border-color:var(--accent);box-shadow:var(--ring)}
   .ffsearch::placeholder{color:var(--muted)}
   .ffbar .grow{flex:1}
   .fcard{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);cursor:pointer;transition:border-color .12s}
@@ -344,7 +345,7 @@
   .lrow .nm{font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:5px}
   .lrow .stg{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:0 4px}
   .lrow .act{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-  .lrow.ask .act{color:var(--fg)}
+  .lrow.ask .act{color:var(--text)}
   .pulse{width:9px;height:9px;border-radius:50%;background:var(--pc,var(--good));box-shadow:0 0 0 0 var(--pc,var(--good));animation:lpulse 1.4s ease-out infinite}
   @keyframes lpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--pc,var(--good)) 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
   .ridle{padding:22px 16px;color:var(--muted);font-size:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
@@ -585,6 +586,10 @@ async function refresh(){
   conn.classList.toggle("live", connected && state.tasks.length>0);
   document.getElementById("connTxt").textContent = snap.repo ? snap.repo.split("/").slice(-2).join("/") : "sem repo";
   if(snap.repo && document.getElementById("repoInput").value==="") document.getElementById("repoInput").value = snap.repo;
+  // header enxuto: com repo aberto, o caminho + "abrir" viram redundantes (o chip já mostra o repo)
+  const hasRepo=!!snap.repo;
+  document.getElementById("repoInput").style.display = hasRepo?"none":"";
+  document.getElementById("connectBtn").style.display = hasRepo?"none":"";
   if(!selected && state.tasks[0]) selected = state.tasks[0].id;
   document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
   const sig = snapSig();
@@ -685,18 +690,20 @@ function renderFlowFilters(){
   const count=g=> g==='all'?byPeriod.length:byPeriod.filter(t=>taskGroup(t)===g).length;
   const ST=[['all','Todas',null],['active','Rodando','var(--good)'],['review','Review','var(--warn)'],['merged','Merged','var(--info)'],['error','Erro','var(--crit)']];
   const stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}">${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
-  const PE=[['all','Tudo'],['today','Hoje'],['week','7 dias']];
-  const peChips=PE.map(([k,label])=>`<button class="fchip${flowPeriod===k?' on':''}" data-pe="${k}">${label}</button>`).join('');
+  const PE=[['all','Todo período'],['today','Hoje'],['week','Últimos 7 dias']];
+  const peOpts=PE.map(([k,label])=>`<option value="${k}"${flowPeriod===k?' selected':''}>${label}</option>`).join('');
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
   if(flowAgent!=='all' && !agents.includes(flowAgent)) flowAgent='all';
   const agOpts=['all',...agents].map(a=>`<option value="${escA(a)}"${flowAgent===a?' selected':''}>${a==='all'?'Todos os agentes':esc(a)}</option>`).join('');
-  el.innerHTML = `<span class="fflbl">Status</span>${stChips}<span class="ffsep"></span>`+
-    `<span class="fflbl">Período</span>${peChips}<span class="ffsep"></span>`+
-    `<select class="ffsel" id="ffAgent">${agOpts}</select>`+
+  el.innerHTML =
+    `<div class="ffchips">${stChips}</div>`+
+    `<select class="sel" id="ffPeriod">${peOpts}</select>`+
+    `<select class="sel" id="ffAgent">${agOpts}</select>`+
     `<span class="grow"></span>`+
-    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}">`;
+    `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
+    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div>`;
   el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; lastSig=''; renderFlow(); });
-  el.querySelectorAll('[data-pe]').forEach(b=>b.onclick=()=>{ flowPeriod=b.dataset.pe; lastSig=''; renderFlow(); });
+  document.getElementById('ffPeriod').onchange=(e)=>{ flowPeriod=e.target.value; lastSig=''; renderFlow(); };
   document.getElementById('ffAgent').onchange=(e)=>{ flowAgent=e.target.value; lastSig=''; renderFlow(); };
   const s=document.getElementById('ffSearch');
   s.oninput=(e)=>{ flowQuery=e.target.value; lastSig=''; renderFlow(); };
