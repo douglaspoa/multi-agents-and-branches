@@ -58,8 +58,9 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     if (!question) return { text: "pergunta vazia", isError: true };
     const id = store.addPending(TASK, AGENT, "question", question, options);
     store.addEvent(TASK, AGENT, "note", `perguntou ao humano: ${question}`, undefined);
-    // bloqueia até a UI responder (poll no SQLite), com teto de segurança
-    const deadline = Date.now() + 30 * 60 * 1000;
+    // bloqueia até a UI responder (poll no SQLite). O teto fica abaixo do
+    // timeout do engine (20min) para não seguir esperando um agente já morto.
+    const deadline = Date.now() + 18 * 60 * 1000;
     while (Date.now() < deadline) {
       const p = store.getPending(id);
       if (p && p.status === "answered") {
@@ -133,4 +134,11 @@ rl.on("line", async (line) => {
   if (id !== undefined) {
     send({ jsonrpc: "2.0", id, error: { code: -32601, message: `método não suportado: ${method}` } });
   }
+});
+
+// Quando o Claude Code encerra (fim do turno ou timeout do engine), o stdin
+// fecha — encerramos o servidor para não vazar o processo poll de ask_human.
+rl.on("close", () => {
+  try { store.close(); } catch { /* ok */ }
+  process.exit(0);
 });

@@ -396,7 +396,7 @@
 
   <div class="body">
     <div class="rail">
-      <div class="lbl">Agentes ativos</div>
+      <div class="lbl">Tarefas ativas</div>
       <div id="rail"></div>
     </div>
     <div class="feed">
@@ -523,19 +523,36 @@ async function connect(repo){
   }
 }
 
+function curView(){ return (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow"; }
+// Assinatura barata do estado: se nada mudou, pulamos o render inteiro.
+function snapSig(){
+  const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage).join(",");
+  const d=(state.diffs||[]).map(x=>x.taskId+":"+x.additions+":"+x.deletions).join(",");
+  const lastEv = (state.events&&state.events.length) ? state.events[state.events.length-1].id : 0;
+  return [state.repo||"", t, lastEv, (state.pending||[]).length,
+          (state.reviews||[]).length, (state.claims||[]).length, d,
+          selected, (state.graph||[]).length, curView()].join("|");
+}
+let lastSig = "";
 async function refresh(){
   let snap;
   try{ snap = await invoke("snapshot"); }
   catch(e){ return; }
   const prevGraph = state.graph;
   state = snap;
-  try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; }
   connected = !!snap.repo;
+  // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
+  if(curView()==="graph"){ try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; } }
+  else state.graph = prevGraph || [];
   const conn = document.getElementById("conn");
   conn.classList.toggle("live", connected && state.tasks.length>0);
   document.getElementById("connTxt").textContent = snap.repo ? snap.repo.split("/").slice(-2).join("/") : "sem repo";
   if(snap.repo && document.getElementById("repoInput").value==="") document.getElementById("repoInput").value = snap.repo;
   if(!selected && state.tasks[0]) selected = state.tasks[0].id;
+  document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
+  const sig = snapSig();
+  if(sig===lastSig) return;   // nada mudou → não re-renderiza
+  lastSig = sig;
   render();
 }
 
@@ -546,7 +563,6 @@ function reviewOf(taskId){ return (state.reviews||[]).find(r=>r.taskId===taskId)
 const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
 
 function render(){
-  document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
   const noRepo = !state.repo;
   const chead=document.querySelector(".chead"); if(chead) chead.style.display = noRepo?"none":"flex";
   document.getElementById("emptyRepo").style.display = noRepo ? "flex":"none";
@@ -562,7 +578,11 @@ function render(){
   document.getElementById("flowPane").style.display = v==="flow"?"block":"none";
   document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
   document.getElementById("feedPane").style.display = v==="feed"?"block":"none";
-  renderRail(); renderFeed(); renderGraph(); renderFlow(); renderSide(); renderBus();
+  renderRail(); renderSide(); renderBus();
+  // só renderiza o painel central ativo (os outros ficam ocultos)
+  if(v==="graph") renderGraph();
+  else if(v==="feed") renderFeed();
+  else renderFlow();
 }
 function activeIs(x){ return ((((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v)===x; }
 const commitsCache={};
@@ -927,7 +947,9 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
   document.getElementById("viewSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
   document.getElementById("chint").textContent = v==="flow"?"quem fez o quê · commits por tarefa":v==="graph"?"branches · agentes nas pontas":"eventos ao vivo de todos os agentes";
   if(v==="flow") loadAllCommits();
+  if(v==="graph"){ refresh(); return; }   // busca o grafo (git log) só ao abrir a aba
   render();
+  lastSig = snapSig();   // marca o estado já renderizado (evita render duplicado no próximo tick)
 });
 
 let ntDel=[], ntReq=[];
@@ -1147,7 +1169,7 @@ document.getElementById("agOverlay").addEventListener("click", e=>{ if(e.target.
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 refresh();
-setInterval(refresh, 700);
+setInterval(refresh, 1000);
 </script>
 </body>
 </html>

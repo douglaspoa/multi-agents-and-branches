@@ -505,8 +505,11 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
 
+    // Limita o payload: só os eventos mais recentes (evita serializar todo o
+    // histórico a cada poll). 5000 é folgado para o uso real e bloqueia o
+    // crescimento ilimitado do snapshot.
     let events = conn
-        .prepare("SELECT id,task_id,agent,ts,\"type\",text,ok FROM event ORDER BY id")
+        .prepare("SELECT id,task_id,agent,ts,\"type\",text,ok FROM (SELECT id,task_id,agent,ts,\"type\",text,ok FROM event ORDER BY id DESC LIMIT 5000) ORDER BY id")
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
             Ok(Event {
