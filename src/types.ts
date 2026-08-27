@@ -57,6 +57,8 @@ export interface TaskAutonomy {
   runTests: boolean;
   /** "auto" = aprova as ações do agente sozinho; "ask" = pede aprovação humana. */
   approval: ApprovalMode;
+  /** "review" = pausa após o planner para o humano aprovar o plano; "auto" = segue direto. */
+  planApproval?: "auto" | "review";
 }
 
 /** O "briefing" declarativo de uma tarefa — vira o .cardume/TASK.yaml na worktree. */
@@ -117,6 +119,8 @@ export interface TaskRow {
   model: string | null;
   spec_json: string;
   created_at: number;
+  session_id?: string | null;
+  done_roles?: number;
 }
 
 export interface ClaimRow {

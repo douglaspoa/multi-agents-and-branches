@@ -76,8 +76,10 @@ export class Orchestrator {
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
+    const startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
 
-    for (const r of roles) {
+    for (let i = startIdx; i < roles.length; i++) {
+      const r = roles[i];
       this.store.setStage(taskId, r.role);
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
@@ -148,6 +150,17 @@ export class Orchestrator {
         } catch (err) {
           this.store.addEvent(taskId, r.name, "note", `falha no review: ${(err as Error).message}`, false, r.role);
         }
+      }
+
+      this.store.setDoneRoles(taskId, i + 1);
+
+      // GATE do plano: se acabou o planner e o humano quer aprovar antes,
+      // pausa aqui. A UI mostra o plano (editável) e o botão "aprovar e continuar".
+      if (r.role === "planner" && spec.autonomy.planApproval === "review" && i < roles.length - 1) {
+        this.store.setStatus(taskId, "plan-review");
+        this.store.addEvent(taskId, r.name, "note", "plano pronto — aguardando sua aprovação para continuar", true);
+        notify("Constellation", "Plano pronto para sua aprovação", task.title);
+        return;
       }
     }
 

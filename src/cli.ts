@@ -144,6 +144,7 @@ async function cmdNew(repo: string, a: Args) {
       commit: "at-end",
       runTests: a.flags["no-tests"] ? false : true,
       approval: (a.flags.approve as TaskSpec["autonomy"]["approval"]) ?? "ask",
+      planApproval: a.flags["plan-approval"] === "review" ? "review" : "auto",
     },
     engine: a.flags.engine ?? "mock",
     model: a.flags.model,

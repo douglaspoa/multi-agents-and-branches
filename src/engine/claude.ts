@@ -54,8 +54,12 @@ export class ClaudeEngine implements AgentEngine {
       artifactRule =
         ` Ao final, produza também estes ARTEFATOS (crie a pasta .cardume/artifacts/ se não existir):\n${lines.join("\n")}`;
     }
+    const planRule =
+      input.role === "builder" || input.role === "tester"
+        ? " Se existir .cardume/PLAN.md, leia e SIGA o plano (o humano pode tê-lo revisado/ajustado)."
+        : "";
     const baseline =
-      `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}` +
+      `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${planRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
       ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.

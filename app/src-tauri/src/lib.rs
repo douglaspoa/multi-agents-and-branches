@@ -183,6 +183,7 @@ fn ensure_app_schema(db: &PathBuf) {
             "ALTER TABLE task ADD COLUMN roles_json TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE task ADD COLUMN session_id TEXT",
             "ALTER TABLE task ADD COLUMN sort_order INTEGER",
+            "ALTER TABLE task ADD COLUMN done_roles INTEGER NOT NULL DEFAULT 0",
         ] {
             let _ = conn.execute(stmt, []);
         }
@@ -1059,6 +1060,7 @@ fn new_task(
     doc: Option<String>,
     proof: Option<bool>,
     start: Option<bool>,
+    plan_approval: Option<String>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let mut args = vec![
@@ -1103,6 +1105,10 @@ fn new_task(
     }
     if start == Some(false) {
         args.push("--no-start".to_string());
+    }
+    if plan_approval.as_deref() == Some("review") {
+        args.push("--plan-approval".to_string());
+        args.push("review".to_string());
     }
 
     Command::new(node_bin())

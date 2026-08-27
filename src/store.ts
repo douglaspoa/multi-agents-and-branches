@@ -122,6 +122,7 @@ export class Store {
       "ALTER TABLE task ADD COLUMN roles_json TEXT NOT NULL DEFAULT '[]'",
       "ALTER TABLE task ADD COLUMN session_id TEXT",
       "ALTER TABLE task ADD COLUMN sort_order INTEGER",
+      "ALTER TABLE task ADD COLUMN done_roles INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE event ADD COLUMN role TEXT",
     ]) {
       try {
@@ -162,6 +163,10 @@ export class Store {
 
   setStage(taskId: string, stage: string): void {
     this.db.prepare(`UPDATE task SET stage = ? WHERE id = ?`).run(stage, taskId);
+  }
+
+  setDoneRoles(taskId: string, n: number): void {
+    this.db.prepare(`UPDATE task SET done_roles = ? WHERE id = ?`).run(n, taskId);
   }
 
   addEvent(taskId: string, agent: string, type: string, text: string, ok?: boolean, role?: string): number {

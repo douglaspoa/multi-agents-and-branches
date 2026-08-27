@@ -656,7 +656,10 @@
         <div><label>Equipe (workflow)</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
         <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
       </div>
-      <div style="margin-top:11px"><label>Aprovação</label><select class="sel" id="ntApprove" style="width:100%"><option value="auto">Auto — o agente decide sozinho</option><option value="ask">Perguntar quando incerto</option></select></div>
+      <div class="two" style="margin-top:11px">
+        <div><label>Aprovação das ações</label><select class="sel" id="ntApprove" style="width:100%"><option value="auto">Auto — o agente decide sozinho</option><option value="ask">Perguntar quando incerto</option></select></div>
+        <div><label>Plano <span class="dim" style="text-transform:none;letter-spacing:0">(se houver etapa de plano)</span></label><select class="sel" id="ntPlan" style="width:100%"><option value="auto">Aceitar automaticamente</option><option value="review">Revisar antes de começar</option></select></div>
+      </div>
 
       <div class="seclbl2" style="margin-top:15px">Artefatos a produzir</div>
       <label class="ckrow"><input type="checkbox" id="ntArtDoc"><span><b>Documento de arquitetura</b> <span class="dim">— o agente escreve um .md que você abre no app</span></span></label>
@@ -732,7 +735,7 @@ const IC = {
   image:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="6" cy="6.6" r="1"/><path d="M3 11l3-2.6 2.4 2 2.3-1.8L13 11" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
-const STATUS_COLOR = { draft:"var(--muted)", running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)" };
+const STATUS_COLOR = { draft:"var(--muted)", "plan-review":"var(--warn)", running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)" };
 const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
 const GCOLOR = { collision:"var(--crit)", error:"var(--crit)", claim:"var(--info)", done:"var(--good)", edit:"var(--good)", write:"var(--good)" };
 
@@ -1051,7 +1054,7 @@ function dayLabel(ts){
   if(same(d,y)) return 'Ontem';
   return d.toLocaleDateString('pt-BR',{ day:'2-digit', month:'short', ...(d.getFullYear()!==today.getFullYear()?{year:'numeric'}:{}) });
 }
-const STATUS_GROUP = { draft:'draft', running:'active', thinking:'active', queued:'active', review:'review', merged:'merged', done:'merged', error:'error', conflict:'error' };
+const STATUS_GROUP = { draft:'draft', 'plan-review':'review', running:'active', thinking:'active', queued:'active', review:'review', merged:'merged', done:'merged', error:'error', conflict:'error' };
 function taskGroup(t){ return STATUS_GROUP[t.status] || 'other'; }
 function inPeriod(t){
   if(flowPeriod==='all') return true;
@@ -1444,18 +1447,20 @@ function lastEventOf(taskId){ const es=eventsOf(taskId); return es.length?es[es.
 function renderRail(){
   const el = document.getElementById("rail");
   if(state.tasks.length===0){ el.innerHTML = '<div class="empty">nenhuma tarefa.<br>clique em <b>+ Nova tarefa</b> e conecte ao repo.</div>'; return; }
-  const asking  = state.tasks.filter(t=>pendingOf(t.id).length);
-  const running = state.tasks.filter(t=>ACTIVE_ST.has(t.status) && !pendingOf(t.id).length);
+  const asking  = state.tasks.filter(t=>pendingOf(t.id).length || t.status==='plan-review');
+  const running = state.tasks.filter(t=>ACTIVE_ST.has(t.status) && !pendingOf(t.id).length && t.status!=='plan-review');
   let html = "";
   if(asking.length){
     html += '<div class="rsub crit">Precisa de você</div>';
     html += asking.map(t=>{
       const p=pendingOf(t.id)[0];
+      const isPlan=!p && t.status==='plan-review';
+      const msg=p ? (p.prompt||'aguardando sua resposta') : 'plano pronto — aprove pra continuar';
       return `<div class="lrow ask${t.id===selected?' sel':''}" data-id="${t.id}">
         <span class="pulse" style="--pc:var(--crit)"></span>
         <span class="ini" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
-        <div class="lrt"><div class="nm">${esc(t.agent)} <span class="qbadge">${IC.q}</span></div>
-        <div class="act">${esc(p.prompt||'aguardando sua resposta')}</div></div></div>`;
+        <div class="lrt"><div class="nm">${esc(t.agent)} ${isPlan?'<span class="stg">plano</span>':'<span class="qbadge">'+IC.q+'</span>'}</div>
+        <div class="act">${esc(msg)}</div></div></div>`;
     }).join("");
   }
   if(running.length){
@@ -1550,6 +1555,11 @@ function renderSide(){
       <div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (continua a mesma sessão).</div>
       <div class="irow"><input class="in iinput" id="instrInput" placeholder="ex.: cobre também o caso de erro X"><button class="btn primary sm" id="instrSend">enviar</button></div>
     </div>` : ''}
+    ${t.status==='plan-review' ? `<div class="instrbox" style="border-color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--surface-2))">
+      <div class="ilbl" style="color:var(--warn)">${IC.check} Plano pronto — revise e aprove</div>
+      <div class="ihint">Clique em <b>ver plano</b> na etapa acima pra revisar/editar. Quando estiver bom:</div>
+      <div class="irow" style="margin-top:8px"><button class="btn primary sm" data-act="approveplan">${IC.cright} Aprovar plano e continuar</button></div>
+    </div>` : ''}
     ${(t.status==='review'||t.status==='error') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox">
       <div class="ilbl">${IC.ai} Pedir ajuste ao agente</div>
       <div class="ihint">Não gostou de algo? Descreva — ele refaz na mesma worktree e recompõe o review. Clique numa etapa acima pra mirar nela.</div>
@@ -1577,6 +1587,7 @@ function renderSide(){
   </div>`;
   el.querySelectorAll('[data-act="merge"]').forEach(b=>b.onclick=()=>mergeTask(t.id));
   el.querySelectorAll('[data-act="start"]').forEach(b=>b.onclick=()=>startTask(t.id));
+  el.querySelectorAll('[data-act="approveplan"]').forEach(b=>b.onclick=()=>startTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
@@ -1656,7 +1667,7 @@ async function openNewTask(){
   document.getElementById("ntTitle").focus();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; ntDel=[]; ntReq=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -1724,6 +1735,7 @@ async function submitNewTask(start=true){
     requirements: ntReq.map(x=>x.trim()).filter(Boolean),
     doc: document.getElementById("ntArtDoc").checked ? "ARCHITECTURE.md" : null,
     proof: document.getElementById("ntArtProof").checked,
+    planApproval: document.getElementById("ntPlan").value,
   };
   const btn = document.getElementById(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   document.getElementById("ntCreate").disabled=true; document.getElementById("ntDraft").disabled=true;
