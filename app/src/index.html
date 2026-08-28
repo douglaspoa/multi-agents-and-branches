@@ -323,6 +323,8 @@
   .fcard.flagged:hover{opacity:1}
   .flagrow{margin-top:7px}
   .delivrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .lnk{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+  .lnk:hover{color:var(--accent-2)}
   .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
   .btn.ghost:hover{background:var(--surface-2);color:var(--text)}
   .fchip.on .n{color:var(--on-accent);opacity:.8}
@@ -1534,7 +1536,7 @@ async function fwSendMsg(){
   inp.value=''; inp.disabled=true;
   try{
     if(ACTIVE_ST.has(t.status)) await invoke('add_instruction',{ taskId:t.id, text:full });
-    else await invoke('rework_task',{ taskId:t.id, text:full });
+    else await invoke('talk_task',{ taskId:t.id, message:full });
     fwChat[t.id].push({who:'sys', text:`→ enviado ao ${t.agent} (mesma sessão). Acompanhe em "O que estou fazendo agora".`});
     lastSig=''; await refresh();
   }catch(e){ fwChat[t.id].push({who:'sys', text:'falha ao enviar: '+String(e)}); }
@@ -2002,6 +2004,11 @@ async function setFlag(taskId, flag){
   try{ await invoke("set_task_flag",{ taskId, flag: flag||null }); lastSig=""; await refresh(); }
   catch(e){ alert("Falha:\n"+e); }
 }
+async function talkTask(taskId, message){
+  const m=(message||'').trim(); if(!m) return;
+  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; lastSig=""; await refresh(); }
+  catch(e){ alert("Falha ao conversar:\n"+e); }
+}
 async function deliverArtifact(taskId, kind){
   const lbl={doc:'documento de arquitetura',tests:'testes',proof:'prova (prints)',all:'todos os entregáveis'}[kind]||kind;
   try{ await invoke("deliver_artifact",{ taskId, kind }); artifactsCache[taskId]=undefined; lastSig=""; await refresh(); }
@@ -2370,7 +2377,7 @@ function renderSide(){
     ${questionBlock(t.id)}
     ${t.status==='plan-review' ? `<div class="instrbox" style="border-color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--surface-2))"><div class="ilbl" style="color:var(--warn)">${IC.check} Plano pronto — revise e aprove</div><div class="ihint">Clique em <b>ver plano</b> na etapa acima pra revisar/editar. Quando estiver bom:</div><div class="irow" style="margin-top:8px"><button class="btn primary sm" data-act="approveplan">${IC.cright} Aprovar plano e continuar</button></div></div>`:''}
     ${ACTIVE_ST.has(t.status) ? `<div class="instrbox"><div class="ilbl">${IC.ai} Enviar instrução ao agente</div><div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (mesma sessão).</div><div class="irow"><input class="in iinput" id="instrInput" placeholder="ex.: cobre também o caso de erro X"><button class="btn primary sm" id="instrSend">enviar</button></div></div>`:''}
-    ${(t.status==='review'||t.status==='error') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox"><div class="ilbl">${IC.ai} Pedir ajuste ao agente</div><div class="ihint">Descreva o ajuste — passa pelo time inteiro (planeja → coda → revisa → docs). Clique numa etapa pra mirar nela.</div><div class="irow"><input class="in iinput" id="rwTaskInput" placeholder="ex.: renomeia a função X, cobre o caso Y"><button class="btn primary sm" id="rwTaskSend">pedir ajuste</button></div></div>`:''}`;
+    ${(t.status==='review'||t.status==='error'||t.status==='aborted'||t.status==='conflict') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox"><div class="ilbl">${IC.ai} Conversar com o agente</div><div class="ihint">Mande um pedido — ele <b>retoma a sessão</b> e corrige/entrega (ex.: "não testou na UI, abre a app e me dá os prints"). Mesma sessão, um turno.</div><div class="irow"><input class="in iinput" id="talkInput" placeholder="ex.: teste na UI real e me dê os prints"><button class="btn primary sm" id="talkSend">enviar</button></div><div class="dim" style="font-size:10.5px;margin-top:6px">Precisa refazer do zero pelo time todo? <a class="lnk" id="rwFull">pedir ajuste completo (planeja → coda → revisa → docs)</a></div></div>`:''}`;
   }
 
   // rodapé: ações conforme o estado. Para tarefas VIVAS, pausar/abortar de
@@ -2431,8 +2438,9 @@ function renderSide(){
   { const b=el.querySelector('#prMerge'); if(b) b.onclick=()=>mergePr(t.id); }
   const iSend=el.querySelector('#instrSend'); if(iSend) iSend.onclick=()=>sendInstruction(t.id);
   const iInput=el.querySelector('#instrInput'); if(iInput) iInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendInstruction(t.id); });
-  const rwS=el.querySelector('#rwTaskSend'); if(rwS) rwS.onclick=()=>sendRework(t.id, el.querySelector('#rwTaskInput'), '');
-  const rwI=el.querySelector('#rwTaskInput'); if(rwI) rwI.addEventListener('keydown',e=>{ if(e.key==='Enter') sendRework(t.id, rwI, ''); });
+  { const s=el.querySelector('#talkSend'); if(s) s.onclick=()=>{ const i=el.querySelector('#talkInput'); if(i&&i.value.trim()){ talkTask(t.id, i.value.trim()); i.value=''; } }; }
+  { const i=el.querySelector('#talkInput'); if(i) i.addEventListener('keydown',e=>{ if(e.key==='Enter'&&i.value.trim()){ talkTask(t.id, i.value.trim()); i.value=''; } }); }
+  { const a=el.querySelector('#rwFull'); if(a) a.onclick=()=>{ const txt=prompt('Ajuste completo (passa pelo time inteiro — planeja → coda → revisa → docs):'); if(txt&&txt.trim()){ invoke('rework_task',{taskId:t.id, text:txt.trim()}).then(()=>{ lastSig=''; refresh(); }).catch(e=>alert('Falha:\n'+e)); } }; }
   // clicar numa etapa: planner/designer abrem o doc produzido (ver/editar);
   // as demais miram o "pedir ajuste" naquela etapa.
   const stageDoc={ planner:'.cardume/PLAN.md', designer:'.cardume/DESIGN.md' };
@@ -2440,7 +2448,7 @@ function renderSide(){
     const role=s.dataset.role;
     // plano/design abrem no workspace estilo Cursor (markdown editável + chat)
     if(stageDoc[role]){ openWorkspace(t.id, stageDoc[role]); return; }
-    const inp=el.querySelector('#rwTaskInput'); if(inp){ inp.value='Sobre a etapa '+(ROLE_PT[role]||role)+' ('+s.dataset.name+'): '; inp.focus(); }
+    const inp=el.querySelector('#talkInput'); if(inp){ inp.value='Sobre a etapa '+(ROLE_PT[role]||role)+' ('+s.dataset.name+'): '; inp.focus(); }
   });
   wireQuestion(el);
   // restaura foco/caret do input que estava sendo digitado

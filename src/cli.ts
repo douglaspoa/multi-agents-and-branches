@@ -385,6 +385,23 @@ async function cmdDeliver(repo: string, taskId: string, kind?: string) {
   orch.close();
 }
 
+async function cmdTalk(repo: string, taskId: string, msg?: string) {
+  if (!msg || !msg.trim()) {
+    console.error(c.red('✖ use --msg "sua mensagem"'));
+    process.exit(1);
+  }
+  const orch = new Orchestrator(repo);
+  if (!orch.store.getTask(taskId)) {
+    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    orch.close();
+    process.exit(1);
+  }
+  console.log(c.dim(`→ conversando com o agente …`));
+  await orch.talkToAgent(taskId, msg.trim());
+  console.log(c.green("✔") + " o agente respondeu");
+  orch.close();
+}
+
 async function cmdStart(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   const t = orch.store.getTask(taskId);
@@ -582,6 +599,9 @@ async function main() {
       break;
     case "deliver":
       await cmdDeliver(repo, a._[1], a.flags.kind);
+      break;
+    case "talk":
+      await cmdTalk(repo, a._[1], a.flags.msg);
       break;
     case "demo":
       await cmdDemo();

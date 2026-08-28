@@ -1151,6 +1151,31 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
     Ok(())
 }
 
+/// Conversa com o agente numa tarefa pronta: retoma a sessão (--resume) por um
+/// turno pra corrigir/entregar o que faltou (ex.: "teste na UI real e me dê os prints").
+#[tauri::command]
+fn talk_task(state: State<AppState>, task_id: String, message: String) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    let m = message.trim().to_string();
+    if m.is_empty() {
+        return Err("mensagem vazia".to_string());
+    }
+    let mut cmd = Command::new(node_bin());
+    cmd.args([
+        "--disable-warning=ExperimentalWarning",
+        &cli_path(&repo),
+        "talk",
+        &task_id,
+        "--msg",
+        &m,
+        "--repo",
+        &repo.display().to_string(),
+    ])
+    .current_dir(&repo);
+    spawn_tracked(&state, &task_id, cmd)?;
+    Ok(())
+}
+
 /// Enfileira uma instrução do humano no meio da execução — o orquestrador a
 /// aplica (via --resume) ao fim do turno atual do agente.
 #[tauri::command]
@@ -2080,6 +2105,7 @@ pub fn run() {
             start_task,
             rerun_task,
             deliver_artifact,
+            talk_task,
             review_pr,
             save_draft,
             load_draft,

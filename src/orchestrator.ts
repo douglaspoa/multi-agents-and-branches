@@ -398,7 +398,7 @@ export class Orchestrator {
 
     const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
     const TESTS = "TESTES: escreva e RODE testes cobrindo a funcionalidade principal e casos de borda; salve a comprovação em `.cardume/artifacts/tests.md` com o(s) comando(s) e a SAÍDA real (quantos passaram/falharam). Se algo falhar, aponte a causa.";
-    const PROOF = "PROVA: comprove que funciona. Se for visual/web, capture screenshots em `.cardume/artifacts/proof.png` (ou proof-1.png, proof-2.png…); senão salve `.cardume/artifacts/proof.md` com a evidência (comandos, saída, antes/depois).";
+    const PROOF = "PROVA na UI REAL (não só script de teste): se for algo visual/web, SUBA a aplicação de verdade (dev server) e capture screenshots reais da tela funcionando — salve em `.cardume/artifacts/proof.png` (ou proof-1.png, proof-2.png…). Se não conseguir subir a UI no ambiente headless, DIGA isso claramente em `.cardume/artifacts/proof.md` e entregue a melhor evidência possível (passos exatos pra reproduzir na UI, comandos, saída, antes/depois) — não finja que testou na UI se só rodou um script.";
     const head = "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada além do necessário pra testar. ";
     const PROMPTS: Record<string, string> = {
       doc: head + "Produza o " + DOC,
@@ -433,6 +433,48 @@ export class Orchestrator {
     this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
     this.store.addEvent(taskId, role.name, "note", `${label} pronto — veja em Artefatos`, true, role.role);
     notify("Constellation", `${label} pronto ✓`, task.title);
+  }
+
+  /**
+   * CONVERSAR com o agente numa tarefa já pronta: manda uma mensagem e RETOMA a
+   * sessão do agente (--resume) por UM turno, então ele lembra o que fez e
+   * corrige/entrega o que faltou. Leve (um agente, um turno) — diferente do
+   * rework, que re-roda o time inteiro. Coleta artefatos ao fim.
+   */
+  async talkToAgent(taskId: string, message: string): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida");
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const roles = spec.roles || [];
+    const role =
+      roles.find((r) => r.engine === "claude") ||
+      ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
+    const engine = this.engineFor(role.engine, role.model, "auto");
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
+    const prev = task.status;
+    const sid = task.session_id || "";
+    this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
+    this.store.setStatus(taskId, "thinking");
+    try {
+      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile };
+      const input = sid
+        ? { ...base, resume: { sessionId: sid, instruction: message } }
+        : { ...base, promptOverride: `Esta tarefa JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}` };
+      for await (const ev of engine.run(input)) {
+        if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
+        if (ev.type === "claim") continue;
+        this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
+        if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+        }
+      }
+    } catch (err) {
+      this.store.addEvent(taskId, role.name, "error", (err as Error).message, false, role.role);
+    }
+    await this.collectArtifacts(taskId, task.worktree, role.name);
+    this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+    notify("Constellation", `${role.name} respondeu`, task.title);
   }
 
   /**
