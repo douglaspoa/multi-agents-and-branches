@@ -1979,6 +1979,7 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState::from_env())
         .invoke_handler(tauri::generate_handler![
             set_repo,

@@ -1100,10 +1100,40 @@ function snapSig(){
           selected, (state.graph||[]).length, curView()].join("|");
 }
 let lastSig = "";
+// ---------- notificações nativas (via plugin do Tauri → atribuídas ao app) ----------
+let notifReady=false, notifOn=false, prevStatus={}, prevPending=new Set();
+function notifApi(){ return (window.__TAURI__ && (window.__TAURI__.notification)) || null; }
+async function initNotifs(){
+  const n=notifApi(); if(!n){ return; }
+  try{ let ok = await n.isPermissionGranted(); if(!ok){ const p=await n.requestPermission(); ok = p==='granted'; } notifOn=!!ok; }
+  catch(_){ notifOn=false; }
+}
+function pushNotif(title, body){ if(!notifOn) return; const n=notifApi(); if(!n) return; try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} }
+function detectNotifs(snap){
+  const tasks=snap.tasks||[]; const pend=snap.pending||[];
+  if(notifReady){
+    for(const t of tasks){
+      const prev=prevStatus[t.id];
+      if(prev!==undefined && prev!==t.status){
+        if(t.status==='review') pushNotif('Pronta para review ✓', t.title);
+        else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title);
+        else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title);
+        else if(t.status==='merged') pushNotif('Mergeada na base ✓', t.title);
+      } else if(prev===undefined && (t.status==='running'||t.status==='queued'||t.status==='thinking')){
+        pushNotif('Nova tarefa iniciada', t.title);
+      }
+    }
+    for(const p of pend){ if(!prevPending.has(p.id)){ pushNotif('Precisa de você — '+(p.agent||'agente'), p.prompt||'aguardando sua resposta'); } }
+  }
+  prevStatus={}; tasks.forEach(t=>prevStatus[t.id]=t.status);
+  prevPending=new Set(pend.map(p=>p.id));
+  notifReady=true;
+}
 async function refresh(){
   let snap;
   try{ snap = await invoke("snapshot"); }
   catch(e){ return; }
+  detectNotifs(snap);
   const prevGraph = state.graph;
   state = snap;
   connected = !!snap.repo;
@@ -2233,6 +2263,9 @@ function stageStepper(t){
   }).join("");
   return `<div class="seclbl" style="margin-top:13px">Etapas</div><div class="stepper">${steps}</div>`;
 }
+// motor REAL exibido: o do papel da etapa atual (o campo t.engine é só fallback
+// e pode ficar "mock" quando a tarefa foi criada por workflow sem --engine).
+function effEngine(t){ const rs=t.roles||[]; const cur=rs.find(r=>r.role===t.stage); return (cur&&cur.engine)||(rs[0]&&rs[0].engine)||t.engine||'mock'; }
 let sideTab='etapas';
 function fmtDur(ms){ ms=Math.max(0,ms); const s=Math.floor(ms/1000); if(s<60) return s+'s'; const m=Math.floor(s/60); if(m<60) return m+' min'; const h=Math.floor(m/60); return h+'h'+String(m%60).padStart(2,'0'); }
 function renderSide(){
@@ -2313,7 +2346,7 @@ function renderSide(){
     ${errBanner(t)}
     <div class="sidehead">
       <h2>${esc(t.agent)}</h2>
-      <div class="sub"><span id="brnText">${esc(t.branch)}</span>${t.status!=='merged'?` <button class="brnedit" data-act="renbranch" title="renomear branch">${IC.pencil}</button>`:''} · ${esc(t.engine)}${t.model?(" · "+esc(t.model)):""}</div>
+      <div class="sub"><span id="brnText">${esc(t.branch)}</span>${t.status!=='merged'?` <button class="brnedit" data-act="renbranch" title="renomear branch">${IC.pencil}</button>`:''} · ${esc(effEngine(t))}${t.model?(" · "+esc(t.model)):""}</div>
       <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
     </div>
     <div class="sidestats"><div class="ss"><span class="ssv">${dur}</span><span class="ssl">tempo</span></div><div class="ss"><span class="ssv">${tc.usd?fmtUsd(tc.usd):'—'}</span><span class="ssl">custo</span></div><div class="ss"><span class="ssv">${files.length||(d?d.files:0)||0}</span><span class="ssl">arquivos</span></div></div>
@@ -2943,6 +2976,7 @@ window.addEventListener("error", e=>{ console.error("erro global:", e.error||e.m
 window.addEventListener("unhandledrejection", e=>{ console.error("promise sem catch:", e.reason); e.preventDefault(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
+initNotifs();
 refresh().then(loadProjects).catch(e=>console.error("boot:", e));
 // poll blindado: uma volta que falhe não derruba o ciclo
 setInterval(()=>{ refresh().catch(e=>console.error("refresh:", e)); }, 1000);
