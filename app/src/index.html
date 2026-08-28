@@ -323,6 +323,10 @@
   .fcard.flagged:hover{opacity:1}
   .flagrow{margin-top:7px}
   .delivrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .fchip svg{width:12px;height:12px}
+  .flagbadge{display:inline-flex;align-items:center;gap:4px}
+  .flagbadge svg{width:11px;height:11px}
+  .ntmodebtn svg{width:13px;height:13px;vertical-align:-2px;margin-right:4px}
   .lnk{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
   .lnk:hover{color:var(--accent-2)}
   .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
@@ -902,9 +906,9 @@
         <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
       </div>
       <div class="ntmode" id="ntMode">
-        <button class="ntmodebtn on" data-mode="build">🛠 Entrega</button>
-        <button class="ntmodebtn" data-mode="review">🔍 Code review</button>
-        <button class="ntmodebtn" data-mode="fix">⚡ Fix rápido</button>
+        <button class="ntmodebtn on" data-mode="build">${IC.wrench} Entrega</button>
+        <button class="ntmodebtn" data-mode="review">${IC.search} Code review</button>
+        <button class="ntmodebtn" data-mode="fix">${IC.bolt} Fix rápido</button>
       </div>
       <div id="ntFixFields" style="display:none">
         <label>O que corrigir</label>
@@ -1077,7 +1081,20 @@ const IC = {
   image:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="6" cy="6.6" r="1"/><path d="M3 11l3-2.6 2.4 2 2.3-1.8L13 11" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   pencil:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.5 3.2l2.3 2.3M3 11.4l7-7 2.3 2.3-7 7-2.8.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   extlink:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M9 3.5h3.5V7M12.2 3.8L7 9M7.5 3.5H4.2c-.4 0-.7.3-.7.7v7.6c0 .4.3.7.7.7h7.6c.4 0 .7-.3.7-.7V8.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  beaker:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.2 2.5h3.6M6.7 2.5v3.8L3.7 11.6a1 1 0 0 0 .9 1.5h6.8a1 1 0 0 0 .9-1.5L9.3 6.3V2.5" stroke-linejoin="round"/><path d="M5 9.5h6" stroke-linecap="round"/></svg>',
+  camera:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="4.6" width="12" height="8.2" rx="1.4"/><path d="M5.6 4.6l1-1.6h2.8l1 1.6" stroke-linejoin="round"/><circle cx="8" cy="8.8" r="2.1"/></svg>',
+  stack:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2.4l5.4 2.7L8 7.8 2.6 5.1z" stroke-linejoin="round"/><path d="M2.6 8l5.4 2.7L13.4 8M2.6 10.9l5.4 2.7 5.4-2.7" stroke-linejoin="round"/></svg>',
+  pause:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4v8M10 4v8" stroke-linecap="round"/></svg>',
+  checkc:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.6"/><path d="M5.6 8.2l1.6 1.6 3.2-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  refresh:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12.6 8a4.6 4.6 0 1 1-1.4-3.3M12.7 2.4V5H10.1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  wrench:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg>',
+  search:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>',
+  bolt:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8.7 2L4 9h3l-.6 5L12 6.8H8.9z" stroke-linejoin="round"/></svg>',
+  hand:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M5.2 8.2V4.6a1 1 0 0 1 2 0v3m0-.4V3.6a1 1 0 0 1 2 0V7.2m0-.2V4.7a1 1 0 0 1 2 0v4.5c0 2.1-1.6 3.9-4 3.9-1.6 0-2.6-.7-3.3-1.7L3 9.6a1 1 0 0 1 1.4-1.4z" stroke-linejoin="round"/></svg>',
+  clip:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
+// helper: ícone + rótulo num botão (substitui os emojis por SVG da biblioteca)
+function ico(name, label){ return (IC[name]||'') + (label?(' '+label):''); }
 async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
@@ -1444,7 +1461,7 @@ function fwPlan(t){
 function fwNowHtml(t){
   const ev=lastEventOf(t.id);
   return ACTIVE_ST.has(t.status)
-    ? `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div><div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${ (t.roles||[]).some(r=>r.engine==='claude') ? '<button class="btn sm fwsteer" id="fwSteer">✋ mudar o rumo</button>':''}`
+    ? `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div><div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${ (t.roles||[]).some(r=>r.engine==='claude') ? '<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>':''}`
     : `<div class="fwnowh">${IC.check} ${t.status==='merged'?'Mergeada':(t.status==='review'?'Pronta pra review':esc(t.status))}</div><div class="fwnowtx">${fwPlan(t)}</div>`;
 }
 function fwLiveUpdate(){
@@ -1660,7 +1677,7 @@ function flowTaskCard(t){
     : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
     : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';
-  const flagBadge = t.flag==='blocked'?'<span class="flagbadge blk">⏸ bloqueada</span>':t.flag==='closed'?'<span class="flagbadge cls">✓ encerrada</span>':'';
+  const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:t.flag==='closed'?`<span class="flagbadge cls">${IC.checkc} encerrada</span>`:'';
   return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${flagBadge}<span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
@@ -1715,8 +1732,8 @@ function renderFlowFilters(){
   let stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}">${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
   const nBlocked=(state.tasks||[]).filter(t=>t.flag==='blocked'&&inPeriod(t)).length;
   const nClosed=(state.tasks||[]).filter(t=>t.flag==='closed'&&inPeriod(t)).length;
-  if(nBlocked) stChips+=`<button class="fchip flagchip${flowShowBlocked?' on':''}" data-flag="blocked" title="mostrar/ocultar bloqueadas">⏸ Bloqueadas<span class="n">${nBlocked}</span></button>`;
-  if(nClosed) stChips+=`<button class="fchip flagchip${flowShowClosed?' on':''}" data-flag="closed" title="mostrar/ocultar encerradas">✓ Encerradas<span class="n">${nClosed}</span></button>`;
+  if(nBlocked) stChips+=`<button class="fchip flagchip${flowShowBlocked?' on':''}" data-flag="blocked" title="mostrar/ocultar bloqueadas">${IC.pause} Bloqueadas<span class="n">${nBlocked}</span></button>`;
+  if(nClosed) stChips+=`<button class="fchip flagchip${flowShowClosed?' on':''}" data-flag="closed" title="mostrar/ocultar encerradas">${IC.checkc} Encerradas<span class="n">${nClosed}</span></button>`;
   const PE=[['all','Todo período'],['today','Hoje'],['week','Últimos 7 dias']];
   const peOpts=PE.map(([k,label])=>`<option value="${k}"${flowPeriod===k?' selected':''}>${label}</option>`).join('');
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
@@ -1791,7 +1808,7 @@ function kCard(t){
     : t.status==='review'?'review pronto · aprovar ou pedir ajuste'
     : t.status==='error'?'erro — veja o log'
     : t.status==='aborted'?'abortada — descarte ou refaça'
-    : t.status==='paused'?'⏸ pausada — retome quando quiser'
+    : t.status==='paused'?'pausada — retome quando quiser'
     : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
   return `<div class="kcard${t.id===selected?' sel':''}" draggable="true" data-id="${t.id}">
     <div class="kctop">${t.status==='draft'?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:''}<b class="ktitle">${esc(t.title)}</b></div>
@@ -2017,8 +2034,8 @@ async function deliverArtifact(taskId, kind){
 function deliverBlock(t){
   if(t.kind==='review' || !['review','error','aborted','conflict'].includes(t.status)) return '';
   return `<div class="seclbl">Pedir entregáveis</div>`+
-    `<div class="delivrow"><button class="btn primary sm" data-deliver="all">📦 Pedir todos</button></div>`+
-    `<div class="delivrow" style="margin-top:5px"><button class="btn sm" data-deliver="doc">📄 Doc de arquitetura</button><button class="btn sm" data-deliver="tests">🧪 Testes</button><button class="btn sm" data-deliver="proof">📸 Prova (prints)</button></div>`+
+    `<div class="delivrow"><button class="btn primary sm" data-deliver="all">${IC.stack} Pedir todos</button></div>`+
+    `<div class="delivrow" style="margin-top:5px"><button class="btn sm" data-deliver="doc">${IC.doc} Doc de arquitetura</button><button class="btn sm" data-deliver="tests">${IC.beaker} Testes</button><button class="btn sm" data-deliver="proof">${IC.camera} Prova (prints)</button></div>`+
     `<div class="dim" style="font-size:10.5px;margin-top:5px">Um agente lê o código já pronto e gera os artefatos — aparecem na seção <b>Artefatos</b> aqui do Briefing (clique pra abrir).</div>`;
 }
 async function rerunTask(taskId){
@@ -2259,8 +2276,8 @@ function renderRail(){
       const ev=lastEventOf(t.id);
       const act = paused ? 'pausada — retome quando quiser' : (ev ? `${GLYPH[ev.type]||'·'} ${ev.text}` : 'iniciando…');
       const acts = paused
-        ? `<button class="lract" data-run="resume" data-id="${t.id}" title="retomar">${IC.cright}</button><button class="lract danger" data-run="abort" data-id="${t.id}" title="abortar">✕</button>`
-        : `<button class="lract" data-run="pause" data-id="${t.id}" title="pausar">❚❚</button><button class="lract danger" data-run="abort" data-id="${t.id}" title="abortar">✕</button>`;
+        ? `<button class="lract" data-run="resume" data-id="${t.id}" title="retomar">${IC.cright}</button><button class="lract danger" data-run="abort" data-id="${t.id}" title="abortar">${IC.xs}</button>`
+        : `<button class="lract" data-run="pause" data-id="${t.id}" title="pausar">${IC.pause}</button><button class="lract danger" data-run="abort" data-id="${t.id}" title="abortar">${IC.xs}</button>`;
       return `<div class="lrow run${paused?' paused':''}${t.id===selected?' sel':''}" data-id="${t.id}">
         <span class="pulse${paused?' off':''}" style="--pc:${col}"></span>
         <span class="ini" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
@@ -2385,20 +2402,20 @@ function renderSide(){
   // apagava a linha e deixava o processo rodando fantasma.
   const mainActs = (()=>{
     if(t.status==='merged') return `<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`;
-    if(t.status==='paused') return `<div class="acts"><button class="btn primary sm" data-act="resume">${IC.cright} retomar</button><button class="btn danger sm" data-act="abort">✕ abortar</button></div>`;
-    if(ACTIVE_ST.has(t.status)) return `<div class="acts"><button class="btn sm" data-act="pause">❚❚ pausar</button><button class="btn danger sm" data-act="abort">✕ abortar</button></div>`;
+    if(t.status==='paused') return `<div class="acts"><button class="btn primary sm" data-act="resume">${IC.cright} retomar</button><button class="btn danger sm" data-act="abort">${IC.xs} abortar</button></div>`;
+    if(ACTIVE_ST.has(t.status)) return `<div class="acts"><button class="btn sm" data-act="pause">${IC.pause} pausar</button><button class="btn danger sm" data-act="abort">${IC.xs} abortar</button></div>`;
     const start=t.status==='draft'?`<button class="btn primary sm" data-act="start">${IC.cright} iniciar</button>`:'';
     // review de PR não gera branch → não há merge; só concluir/descartar
     const merge=(t.status==='review'&&t.kind!=='review')?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:'';
     const rmlbl=(t.kind==='review'&&t.status==='review')?'concluir'
       :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
-    const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm" data-act="rerun">↻ re-rodar</button>`:'';
+    const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
     return `<div class="acts">${start}${rerun}${merge}<button class="btn danger sm" data-act="rm">${rmlbl}</button></div>`;
   })();
   // ações de organização (não poluir a UI): bloquear / encerrar / reabrir
-  const flagBtns = t.flag==='blocked' ? `<button class="btn sm ghost" data-flag="">↺ desbloquear</button>`
-    : t.flag==='closed' ? `<button class="btn sm ghost" data-flag="">↺ reabrir</button>`
-    : `<button class="btn sm ghost" data-flag="blocked">⏸ bloquear</button>${t.status!=='draft'?`<button class="btn sm ghost" data-flag="closed">✓ encerrar</button>`:''}`;
+  const flagBtns = t.flag==='blocked' ? `<button class="btn sm ghost" data-flag="">${IC.refresh} desbloquear</button>`
+    : t.flag==='closed' ? `<button class="btn sm ghost" data-flag="">${IC.refresh} reabrir</button>`
+    : `<button class="btn sm ghost" data-flag="blocked">${IC.pause} bloquear</button>${t.status!=='draft'?`<button class="btn sm ghost" data-flag="closed">${IC.checkc} encerrar</button>`:''}`;
   const footInner = mainActs + `<div class="acts flagrow">${flagBtns}</div>`;
 
   el.innerHTML = `<div class="det">
