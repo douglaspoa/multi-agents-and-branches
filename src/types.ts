@@ -82,6 +82,8 @@ export interface TaskSpec {
   /** Convenção de branch: tipo (feat/fix/chore…) e código da issue (FND-xxx), se houver. */
   branchType?: string;
   issueCode?: string;
+  /** Ajuste pedido pelo humano num rework — injetado no contexto de TODOS os papéis. */
+  adjustment?: string;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

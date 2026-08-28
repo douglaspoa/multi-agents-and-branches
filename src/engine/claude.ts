@@ -63,8 +63,11 @@ export class ClaudeEngine implements AgentEngine {
       input.role === "builder" || input.role === "tester"
         ? " Se existir .cardume/PLAN.md, leia e SIGA o plano (o humano pode tê-lo revisado/ajustado)."
         : "";
+    const adjustRule = input.spec.adjustment
+      ? `⚠ AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${input.spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
+      : "";
     const baseline =
-      `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${planRule}` +
+      `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${planRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
       ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.

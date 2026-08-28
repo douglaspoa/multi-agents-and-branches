@@ -286,47 +286,29 @@ export class Orchestrator {
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa já mergeada — a worktree foi removida, não dá pra refazer");
     const spec = JSON.parse(task.spec_json) as TaskSpec;
-    const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
-    const builderIdx = Math.max(0, roles.findIndex((r) => r.role === "builder"));
-    const lead = roles[builderIdx] as AgentRole;
-    if (lead.engine !== "claude") throw new Error("rework só funciona com agentes Claude");
 
-    this.store.setStatus(taskId, "running");
-    this.store.setStage(taskId, lead.role);
-    const persona = lead.persona ? `## Seu perfil (${lead.name} · ${lead.role})\n${lead.persona}\n\n` : "";
-    const ctx = persona + this.bus.buildContext(spec);
+    // Junta os ajustes que o humano pediu e injeta no spec — TODOS os papéis vão
+    // vê-lo. O ajuste passa pelo TIME INTEIRO (planejar → codar → revisar → docs),
+    // incorporando sobre o trabalho que já existe na worktree.
+    const open = this.store.openInstructions(taskId);
+    const adjustment = open.map((i) => i.text.trim()).filter(Boolean).join("\n");
+    if (adjustment) spec.adjustment = adjustment;
+    for (const i of open) this.store.markInstructionApplied(i.id);
 
-    // 1) Retoma o builder com o ajuste (direcionado, na mesma sessão).
-    await this.applyInstructions(taskId, task.worktree, spec, lead, ctx, task.session_id ?? "");
-
-    // 2) Commit + diff do ajuste.
+    // Persiste o spec (DB + TASK.yaml) pra o agente ler o ajuste.
+    this.store.updateSpec(taskId, JSON.stringify(spec));
     try {
-      await this.git.commitAll(task.worktree, `cardume(rework): ${task.title}`);
-      const d = await this.git.diffStat(task.worktree, task.base);
-      this.store.setDiff(taskId, d.files, d.add, d.del);
-      const head = await this.git.headHash(task.worktree);
-      if (!this.store.hasCommitSummary(head) && process.env.CARDUME_AUTOSUMMARY !== "0") {
-        await this.summarizeCommit(taskId, head, task.worktree, spec);
-      }
-    } catch (err) {
-      this.store.addEvent(taskId, lead.name, "note", `falha ao commitar rework: ${(err as Error).message}`, false);
-    }
+      await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+    } catch { /* worktree pode ter mudado */ }
 
-    // 3) Re-roda as ETAPAS SEGUINTES (reviewer, docs…) pra atualizar review/doc e
-    //    fazer o stepper AVANÇAR — não deixa "preso no builder".
-    if (builderIdx + 1 < roles.length) {
-      this.store.setDoneRoles(taskId, builderIdx + 1);
-      await this.runTask(taskId); // resume de builderIdx+1 → CR, Docs… e finaliza em review
-    } else {
-      try {
-        const diff = await this.git.diffText(task.worktree, task.base);
-        this.store.addReview(taskId, buildReview(diff, lead.name));
-      } catch { /* ok */ }
-      await this.collectArtifacts(taskId, task.worktree, spec.agent);
-      this.store.releaseClaims(taskId);
-      this.store.setStatus(taskId, "review");
-    }
-    notify("Constellation", "Ajuste aplicado — pronto para review", task.title);
+    this.store.addEvent(taskId, spec.agent, "note", `rework: aplicando ajuste pelo time inteiro — "${adjustment.slice(0, 80)}"`, true);
+
+    // Re-roda o pipeline do começo: planner re-planeja com o ajuste, builder aplica,
+    // reviewer re-revisa, docs re-atualiza. O stepper anda por todas as etapas.
+    this.store.setDoneRoles(taskId, 0);
+    this.store.setStatus(taskId, "running");
+    await this.runTask(taskId);
+    notify("Constellation", "Ajuste aplicado (time inteiro) — pronto para review", task.title);
   }
 
   /** Detecta um código de issue (FND-853, ABC-12…) nos eventos e renomeia a branch. */

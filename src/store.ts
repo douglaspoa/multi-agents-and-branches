@@ -169,6 +169,10 @@ export class Store {
     this.db.prepare(`UPDATE task SET branch = ? WHERE id = ?`).run(branch, taskId);
   }
 
+  updateSpec(taskId: string, specJson: string): void {
+    this.db.prepare(`UPDATE task SET spec_json = ? WHERE id = ?`).run(specJson, taskId);
+  }
+
   setDoneRoles(taskId: string, n: number): void {
     this.db.prepare(`UPDATE task SET done_roles = ? WHERE id = ?`).run(n, taskId);
   }
