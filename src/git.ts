@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { run } from "./util/run.ts";
 
 export interface WorktreeInfo {
@@ -22,6 +24,36 @@ export class GitService {
 
   constructor(repo: string) {
     this.repo = repo;
+  }
+
+  /**
+   * Garante padrões no exclude LOCAL do git (.git/info/exclude, comum a todas as
+   * worktrees) — assim a pasta do Constellation NUNCA é rastreada/commitada, sem
+   * tocar no .gitignore rastreado do repo do usuário. Idempotente, best-effort.
+   */
+  async ensureExcluded(patterns: string[]): Promise<void> {
+    try {
+      const { stdout } = await run("git", ["-C", this.repo, "rev-parse", "--git-common-dir"]);
+      const common = stdout.trim();
+      const gitDir = isAbsolute(common) ? common : join(this.repo, common);
+      const infoDir = join(gitDir, "info");
+      await mkdir(infoDir, { recursive: true });
+      const exclude = join(infoDir, "exclude");
+      let cur = "";
+      try {
+        cur = await readFile(exclude, "utf8");
+      } catch {
+        /* arquivo ainda não existe */
+      }
+      const have = new Set(cur.split("\n").map((l) => l.trim()));
+      const add = patterns.filter((p) => !have.has(p));
+      if (add.length) {
+        const prefix = cur && !cur.endsWith("\n") ? cur + "\n" : cur;
+        await writeFile(exclude, prefix + add.join("\n") + "\n", "utf8");
+      }
+    } catch {
+      /* best-effort */
+    }
   }
 
   async isRepo(): Promise<boolean> {

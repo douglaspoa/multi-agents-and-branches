@@ -61,6 +61,8 @@ export class Orchestrator {
     const worktree = this.ws.worktreePath(spec.id);
     const base = await this.git.currentBranch();
 
+    // A pasta do Constellation nunca deve entrar no repo do usuário.
+    await this.git.ensureExcluded([".cardume/", ".constellation/"]);
     await this.git.worktreeAdd(worktree, branch, base);
 
     const taskDir = join(worktree, ".cardume");
