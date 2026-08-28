@@ -2552,7 +2552,13 @@ async function plSend(text){
       plDone=!!obj.done;
       plChips=Array.isArray(obj.chips)?obj.chips.slice(0,4):[];
       if(obj.say) plMsgs.push({who:'bot', text:String(obj.say)});
-      if(plDone && plReady()) plMsgs.push({who:'sys', text:'Tudo pronto — clique em "criar e rodar" à direita.'});
+      // você confirmou (done) e os obrigatórios fecharam → cria automaticamente
+      if(plDone && plReady()){
+        plMsgs.push({who:'sys', text:'Confirmado — criando a tarefa e iniciando…'});
+        renderPlanner();
+        await plCreate();
+        return;
+      }
     } else {
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }

@@ -1396,7 +1396,7 @@ struct AiChat {
     session_id: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
     let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, UMA pergunta por vez, fechando só o que ainda falta. Responda SEMPRE E SOMENTE com um bloco de código ```json contendo exatamente as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. Nada de texto fora do bloco json.";
@@ -1619,7 +1619,7 @@ fn open_url(url: String) -> Result<(), String> {
 }
 
 /// Branches candidatas a BASE do PR (remotas, sem as agent/*).
-#[tauri::command]
+#[tauri::command(async)]
 fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
     let repo = repo_of(&state)?;
     let out = Command::new("git")
@@ -1645,7 +1645,7 @@ fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
 }
 
 /// Abre um PR: faz push da branch da tarefa e cria o PR (base escolhida).
-#[tauri::command]
+#[tauri::command(async)]
 fn open_pr(state: State<AppState>, task_id: String, base: String, title: String, body: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
@@ -1698,7 +1698,7 @@ struct PrInfo {
 
 /// Status do PR da tarefa: estado, decisão (aprovado/mudanças) e comentários
 /// (conversa + inline por arquivo — inclui CodeRabbit e pessoas).
-#[tauri::command]
+#[tauri::command(async)]
 fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> {
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
@@ -1765,7 +1765,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
 }
 
 /// Mergeia o PR (gh) e marca a tarefa como merged localmente.
-#[tauri::command]
+#[tauri::command(async)]
 fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
@@ -1792,7 +1792,7 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
 }
 
 /// Coleta os comentários do PR e manda o agente endereçá-los (rework via --resume).
-#[tauri::command]
+#[tauri::command(async)]
 fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String> {
     let info = pr_status(state.clone(), task_id.clone())?;
     if !info.exists || info.comments.is_empty() {
