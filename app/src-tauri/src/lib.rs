@@ -1128,6 +1128,29 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Pede um ENTREGÁVEL sob demanda numa tarefa já pronta: doc de arquitetura,
+/// testes comprovando, ou prova (prints). Roda um agente que lê o código e
+/// produz o artefato — sem reimplementar. kind: "doc" | "tests" | "proof".
+#[tauri::command]
+fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    let k = if kind == "tests" || kind == "proof" { kind } else { "doc".to_string() };
+    let mut cmd = Command::new(node_bin());
+    cmd.args([
+        "--disable-warning=ExperimentalWarning",
+        &cli_path(&repo),
+        "deliver",
+        &task_id,
+        "--kind",
+        &k,
+        "--repo",
+        &repo.display().to_string(),
+    ])
+    .current_dir(&repo);
+    spawn_tracked(&state, &task_id, cmd)?;
+    Ok(())
+}
+
 /// Enfileira uma instrução do humano no meio da execução — o orquestrador a
 /// aplica (via --resume) ao fim do turno atual do agente.
 #[tauri::command]
@@ -2056,6 +2079,7 @@ pub fn run() {
             new_task,
             start_task,
             rerun_task,
+            deliver_artifact,
             review_pr,
             save_draft,
             load_draft,

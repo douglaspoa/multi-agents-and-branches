@@ -371,6 +371,20 @@ async function cmdReviewPr(repo: string, a: Args) {
   orch.close();
 }
 
+async function cmdDeliver(repo: string, taskId: string, kind?: string) {
+  const k = kind === "tests" || kind === "proof" ? kind : "doc";
+  const orch = new Orchestrator(repo);
+  if (!orch.store.getTask(taskId)) {
+    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    orch.close();
+    process.exit(1);
+  }
+  console.log(c.dim(`→ gerando entregável (${k}) …`));
+  await orch.deliverArtifact(taskId, k as "doc" | "tests" | "proof");
+  console.log(c.green("✔") + " entregável pronto — veja em Artefatos");
+  orch.close();
+}
+
 async function cmdStart(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   const t = orch.store.getTask(taskId);
@@ -565,6 +579,9 @@ async function main() {
       break;
     case "review-pr":
       await cmdReviewPr(repo, a);
+      break;
+    case "deliver":
+      await cmdDeliver(repo, a._[1], a.flags.kind);
       break;
     case "demo":
       await cmdDemo();

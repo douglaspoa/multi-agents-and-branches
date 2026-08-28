@@ -322,6 +322,7 @@
   .fcard.flagged{opacity:.72}
   .fcard.flagged:hover{opacity:1}
   .flagrow{margin-top:7px}
+  .delivrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
   .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
   .btn.ghost:hover{background:var(--surface-2);color:var(--text)}
   .fchip.on .n{color:var(--on-accent);opacity:.8}
@@ -2001,6 +2002,17 @@ async function setFlag(taskId, flag){
   try{ await invoke("set_task_flag",{ taskId, flag: flag||null }); lastSig=""; await refresh(); }
   catch(e){ alert("Falha:\n"+e); }
 }
+async function deliverArtifact(taskId, kind){
+  const lbl={doc:'documento de arquitetura',tests:'testes',proof:'prova (prints)'}[kind]||kind;
+  try{ await invoke("deliver_artifact",{ taskId, kind }); lastSig=""; await refresh(); }
+  catch(e){ alert("Falha ao pedir "+lbl+":\n"+e); }
+}
+function deliverBlock(t){
+  if(t.kind==='review' || !['review','error','aborted','conflict'].includes(t.status)) return '';
+  return `<div class="seclbl">Pedir entregáveis</div>`+
+    `<div class="delivrow"><button class="btn sm" data-deliver="doc">📄 Doc de arquitetura</button><button class="btn sm" data-deliver="tests">🧪 Testes</button><button class="btn sm" data-deliver="proof">📸 Prova (prints)</button></div>`+
+    `<div class="dim" style="font-size:10.5px;margin-top:5px">Um agente lê o código já pronto e gera o artefato — aparece em <b>Artefatos</b> acima.</div>`;
+}
 async function rerunTask(taskId){
   const t=state.tasks.find(x=>x.id===taskId);
   if(!confirm(`Re-rodar "${t?t.title:taskId}" do zero?\n\nDescarta o trabalho parcial na worktree (reset pra base) e roda o time inteiro de novo. O plano/spec são mantidos.`)) return;
@@ -2347,6 +2359,7 @@ function renderSide(){
     ${prBlock(t)}
     ${costBlock(t.id)}
     ${artifactsBlock(t)}
+    ${deliverBlock(t)}
     ${commitsBlock(t.id)}
     <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>${claimHtml}`;
   } else {
@@ -2403,6 +2416,7 @@ function renderSide(){
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>setFlag(t.id, b.dataset.flag));
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
+  el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openWorkspace(t.id, b.dataset.file));

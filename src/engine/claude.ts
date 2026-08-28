@@ -75,7 +75,8 @@ export class ClaudeEngine implements AgentEngine {
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
       ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
-    const prompt = input.resume ? input.resume.instruction : baseline;
+    // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
+    const prompt = input.resume ? input.resume.instruction : (input.promptOverride ?? baseline);
 
     // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
     const serverPath = fileURLToPath(new URL("../mcp/server.ts", import.meta.url));

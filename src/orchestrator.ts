@@ -379,6 +379,54 @@ export class Orchestrator {
   }
 
   /**
+   * ENTREGÁVEL SOB DEMANDA: depois que a tarefa está pronta, o humano pede um
+   * artefato específico (doc de arquitetura / testes comprovando / prova em
+   * prints). Roda UM agente num turno fresco que LÊ o código já implementado e
+   * produz o arquivo em .cardume/artifacts/ — sem reimplementar nada.
+   */
+  async deliverArtifact(taskId: string, kind: "doc" | "tests" | "proof"): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida; não dá pra gerar entregável");
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const roles = spec.roles || [];
+    const pref = kind === "doc" ? ["docs", "builder"] : ["tester", "builder"];
+    const role =
+      roles.find((r) => pref.includes(r.role) && r.engine === "claude") ||
+      roles.find((r) => r.engine === "claude") ||
+      ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
+
+    const PROMPTS: Record<string, string> = {
+      doc: "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada. Leia o código e o diff e produza o MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados entre eles; 3) Resultado esperado & como validar. Conciso e visual, pro humano entender a entrega sem ler o código.",
+      tests: "Esta tarefa JÁ FOI implementada nesta worktree. Escreva e RODE testes cobrindo a funcionalidade principal e os casos de borda. Salve a comprovação em `.cardume/artifacts/tests.md`: o(s) comando(s) executado(s) e a SAÍDA real (quantos passaram/falharam). Se algo falhar, aponte a causa. Não altere a lógica de produção além do necessário pra testar.",
+      proof: "Esta tarefa JÁ FOI implementada nesta worktree. COMPROVE que funciona. Se for algo visual/web, capture screenshots e salve em `.cardume/artifacts/proof.png` (ou proof-1.png, proof-2.png…). Caso contrário, salve `.cardume/artifacts/proof.md` com a evidência: comandos executados, saída, antes/depois. NÃO reimplemente nada.",
+    };
+    const label = kind === "doc" ? "documento de arquitetura" : kind === "tests" ? "testes de comprovação" : "prova (prints/evidência)";
+    const engine = this.engineFor(role.engine, role.model, "auto");
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
+    const prev = task.status;
+    this.store.setStatus(taskId, "thinking");
+    this.store.setStage(taskId, role.role);
+    this.store.addEvent(taskId, role.name, "status", `gerando ${label}…`, true, role.role);
+    try {
+      for await (const ev of engine.run({ cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, promptOverride: PROMPTS[kind] })) {
+        if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
+        if (ev.type === "claim") continue;
+        this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
+        if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+        }
+      }
+    } catch (err) {
+      this.store.addEvent(taskId, role.name, "error", (err as Error).message, false, role.role);
+    }
+    await this.collectArtifacts(taskId, task.worktree, role.name);
+    this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+    this.store.addEvent(taskId, role.name, "note", `${label} pronto — veja em Artefatos`, true, role.role);
+    notify("Constellation", `${label} pronto ✓`, task.title);
+  }
+
+  /**
    * REWORK: aplica um ajuste pedido pelo humano (sobre um commit/etapa) numa
    * tarefa já concluída (review/error), continuando a sessão do agente via
    * --resume na worktree existente, recommitando e refazendo o review.

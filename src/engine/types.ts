@@ -35,6 +35,8 @@ export interface RunInput {
   dbFile: string; // state.sqlite — para o servidor MCP (ask_human/claim)
   /** Continuar uma sessão existente com uma instrução nova do humano (mid-run). */
   resume?: { sessionId: string; instruction: string };
+  /** Prompt customizado pra um turno fresco (ex.: gerar um entregável sob demanda). */
+  promptOverride?: string;
 }
 
 /**
