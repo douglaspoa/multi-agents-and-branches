@@ -1793,27 +1793,26 @@ function renderSide(){
   const dur = fmtDur(t1-t0);
   const tot = d ? (d.additions+d.deletions)||1 : 1;
 
-  // ---- conteúdo por aba ----
-  const tabEtapas = `
-    ${activityBlock(t)}
-    ${stageStepper(t)}
-    ${questionBlock(t.id)}
-    ${t.status==='plan-review' ? `<div class="instrbox" style="border-color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--surface-2))"><div class="ilbl" style="color:var(--warn)">${IC.check} Plano pronto — revise e aprove</div><div class="ihint">Clique em <b>ver plano</b> na etapa acima pra revisar/editar. Quando estiver bom:</div><div class="irow" style="margin-top:8px"><button class="btn primary sm" data-act="approveplan">${IC.cright} Aprovar plano e continuar</button></div></div>`:''}
-    ${ACTIVE_ST.has(t.status) ? `<div class="instrbox"><div class="ilbl">${IC.ai} Enviar instrução ao agente</div><div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (mesma sessão).</div><div class="irow"><input class="in iinput" id="instrInput" placeholder="ex.: cobre também o caso de erro X"><button class="btn primary sm" id="instrSend">enviar</button></div></div>`:''}
-    ${(t.status==='review'||t.status==='error') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox"><div class="ilbl">${IC.ai} Pedir ajuste ao agente</div><div class="ihint">Descreva o ajuste — passa pelo time inteiro (planeja → coda → revisa → docs). Clique numa etapa pra mirar nela.</div><div class="irow"><input class="in iinput" id="rwTaskInput" placeholder="ex.: renomeia a função X, cobre o caso Y"><button class="btn primary sm" id="rwTaskSend">pedir ajuste</button></div></div>`:''}`;
-
-  const tabStream = `<div class="log stream">${evs.length?evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join(""):'<span class="dim">sem eventos ainda…</span>'}${ACTIVE_ST.has(t.status)?'<div class="ln livecursor"><span class="ts"></span><span style="color:var(--good)">▸</span><span class="blink">▍</span></div>':''}</div>`;
-
-  const revHtml = rev ? `<div class="rev"><div class="h">◆ Review humano <span class="by">por ${esc(rev.byAgent)}</span></div><div class="b"><div class="sm">${esc(rev.summary)}</div>${(rev.functions||[]).map(f=>`<div class="fn"><div class="n"><b>${esc(f.name)}</b> <span class="k">${esc(f.kind)}</span> <span class="f">· ${esc(f.file)}</span></div><div class="p">↳ ${esc(f.purpose)}</div></div>`).join("")||''}<div class="test">como testar · ${esc(rev.howToTest)}</div></div></div>` : "";
-  const tabDiff = `
+  // ---- conteúdo SÓ da aba ativa ----
+  // Antes montávamos as 4 abas a cada render; as abas Diff/Briefing disparam
+  // loads de rede/subprocesso (pr_status via gh, task_files, commits, artifacts),
+  // então TROCAR de tarefa disparava tudo isso mesmo na aba Etapas → lentidão.
+  // Agora só a aba ativa é construída (e só ela dispara seus loads).
+  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Diff'],['briefing','Briefing']];
+  let content;
+  if(sideTab==='stream'){
+    content = `<div class="log stream">${evs.length?evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join(""):'<span class="dim">sem eventos ainda…</span>'}${ACTIVE_ST.has(t.status)?'<div class="ln livecursor"><span class="ts"></span><span style="color:var(--good)">▸</span><span class="blink">▍</span></div>':''}</div>`;
+  } else if(sideTab==='diff'){
+    const revHtml = rev ? `<div class="rev"><div class="h">◆ Review humano <span class="by">por ${esc(rev.byAgent)}</span></div><div class="b"><div class="sm">${esc(rev.summary)}</div>${(rev.functions||[]).map(f=>`<div class="fn"><div class="n"><b>${esc(f.name)}</b> <span class="k">${esc(f.kind)}</span> <span class="f">· ${esc(f.file)}</span></div><div class="p">↳ ${esc(f.purpose)}</div></div>`).join("")||''}<div class="test">como testar · ${esc(rev.howToTest)}</div></div></div>` : "";
+    content = `
     <div class="diff"><b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b><span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span></div>
     ${filesBlock(t)}
     ${revHtml}`;
-
-  const claimHtml = claims.length ? claims.map(c=>{const y=c.yieldedTo;return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;}).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
-  const reqs = Array.isArray(t.requirements)?t.requirements:[];
-  const reviewPrHtml = (t.kind==='review' && t.prUrl) ? `<div class="seclbl">Pull Request revisado</div><div class="prreview"><span class="prnum">${esc(t.branch)}</span><button class="btn sm" id="revPrOpen">${IC.ext||'↗'} abrir PR</button></div>` : '';
-  const tabBriefing = `
+  } else if(sideTab==='briefing'){
+    const claimHtml = claims.length ? claims.map(c=>{const y=c.yieldedTo;return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;}).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
+    const reqs = Array.isArray(t.requirements)?t.requirements:[];
+    const reviewPrHtml = (t.kind==='review' && t.prUrl) ? `<div class="seclbl">Pull Request revisado</div><div class="prreview"><span class="prnum">${esc(t.branch)}</span><button class="btn sm" id="revPrOpen">${IC.ext||'↗'} abrir PR</button></div>` : '';
+    content = `
     <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
     ${reviewPrHtml}
     ${reqs.length?`<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${reqs.map(r=>`<div class="critrow">✓ ${esc(r)}</div>`).join("")}`:''}
@@ -1823,9 +1822,15 @@ function renderSide(){
     ${artifactsBlock(t)}
     ${commitsBlock(t.id)}
     <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>${claimHtml}`;
-
-  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Diff'],['briefing','Briefing']];
-  const content = sideTab==='stream'?tabStream : sideTab==='diff'?tabDiff : sideTab==='briefing'?tabBriefing : tabEtapas;
+  } else {
+    content = `
+    ${activityBlock(t)}
+    ${stageStepper(t)}
+    ${questionBlock(t.id)}
+    ${t.status==='plan-review' ? `<div class="instrbox" style="border-color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--surface-2))"><div class="ilbl" style="color:var(--warn)">${IC.check} Plano pronto — revise e aprove</div><div class="ihint">Clique em <b>ver plano</b> na etapa acima pra revisar/editar. Quando estiver bom:</div><div class="irow" style="margin-top:8px"><button class="btn primary sm" data-act="approveplan">${IC.cright} Aprovar plano e continuar</button></div></div>`:''}
+    ${ACTIVE_ST.has(t.status) ? `<div class="instrbox"><div class="ilbl">${IC.ai} Enviar instrução ao agente</div><div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (mesma sessão).</div><div class="irow"><input class="in iinput" id="instrInput" placeholder="ex.: cobre também o caso de erro X"><button class="btn primary sm" id="instrSend">enviar</button></div></div>`:''}
+    ${(t.status==='review'||t.status==='error') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox"><div class="ilbl">${IC.ai} Pedir ajuste ao agente</div><div class="ihint">Descreva o ajuste — passa pelo time inteiro (planeja → coda → revisa → docs). Clique numa etapa pra mirar nela.</div><div class="irow"><input class="in iinput" id="rwTaskInput" placeholder="ex.: renomeia a função X, cobre o caso Y"><button class="btn primary sm" id="rwTaskSend">pedir ajuste</button></div></div>`:''}`;
+  }
 
   // rodapé: ações conforme o estado. Para tarefas VIVAS, pausar/abortar de
   // verdade (encerram o processo do agente) em vez do antigo "cancelar" que só
