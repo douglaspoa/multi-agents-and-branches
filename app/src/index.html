@@ -94,6 +94,15 @@
   .mhead{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:15px}
   .mhead .x{border:0;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}
   .mbody{padding:14px 16px;display:flex;flex-direction:column;gap:5px}
+  /* modal de resposta ao agente */
+  .askmodal{width:min(680px,100%)}
+  .askq{font-size:14px;line-height:1.62;color:var(--text);white-space:pre-wrap;max-height:46vh;overflow:auto;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:13px 15px}
+  .askoptlbl{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 7px}
+  .askoptgrid{display:flex;flex-direction:column;gap:6px}
+  .askoptbtn{text-align:left;border:1px solid var(--border);background:var(--surface-2);color:var(--text);border-radius:8px;padding:9px 12px;font:inherit;font-size:12.5px;line-height:1.5;cursor:pointer}
+  .askoptbtn:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface-2))}
+  .askta{min-height:88px;line-height:1.5}
+  .clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .ntmode{display:flex;gap:6px;background:var(--surface-2);border:1px solid var(--border);padding:4px;border-radius:8px;margin-bottom:4px}
   .ntmodebtn{flex:1;border:1px solid transparent;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;padding:7px 10px;border-radius:6px;cursor:pointer}
   .ntmodebtn:hover{color:var(--text-2)}
@@ -1001,6 +1010,20 @@
   </div>
 </div>
 
+<!-- modal de resposta à pergunta do agente (ask_human) — legível + input estável -->
+<div class="overlay" id="askOverlay" style="display:none">
+  <div class="modal askmodal">
+    <div class="mhead"><span class="pmdot" style="background:var(--warn)"></span><b id="askAgent">Agente</b>&nbsp;<span class="dim">está esperando você</span><span style="flex:1"></span><button class="x" id="askClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody">
+      <div class="askq" id="askQ"></div>
+      <div class="askopts" id="askOpts"></div>
+      <label style="margin-top:14px">Sua resposta</label>
+      <textarea class="in ta askta" id="askTa" rows="4" placeholder="escreva sua resposta… (⌘+Enter envia)"></textarea>
+    </div>
+    <div class="mfoot"><span class="dim">responder libera o agente pra continuar</span><span style="flex:1"></span><button class="btn" id="askCancel">fechar</button><button class="btn primary" id="askSend">responder</button></div>
+  </div>
+</div>
+
 <div class="overlay" id="agOverlay" style="display:none">
   <div class="modal wide">
     <div class="mhead"><b>Agentes & Equipes</b><button class="x" id="agClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
@@ -1850,27 +1873,38 @@ async function resolvePending(id, answer){
   try{ await invoke("resolve_pending", { id, answer }); await refresh(); }
   catch(e){ console.error("resolve_pending", e); }
 }
-/** Monta o bloco de pergunta (dentro do fluxo do agente selecionado). */
+/** Bloco compacto no painel: preview da pergunta + botão que abre o MODAL. */
 function questionBlock(taskId){
   const ps = pendingOf(taskId);
   if(ps.length===0) return "";
-  return ps.map(p=>{
-    const opts = Array.isArray(p.options) && p.options.length ? p.options : null;
-    const optBtns = opts ? `<div class="qopts">${opts.map(o=>`<button class="askopt" data-id="${p.id}" data-ans="${escA(o)}">${esc(o)}</button>`).join("")}</div>${opts?'<div class="qorlbl">ou escreva sua própria resposta</div>':''}` : "";
-    const inputRow = `<div class="qin"><input class="askinput" id="ask-${p.id}" data-id="${p.id}" placeholder="sua resposta…"><button class="asksend" data-id="${p.id}">responder</button></div>`;
-    return `<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq">${esc(p.prompt)}</div><div class="qc">${optBtns}${inputRow}</div></div>`;
-  }).join("");
+  return ps.map(p=>`<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq clamp3">${esc(p.prompt)}</div><div class="qc"><button class="btn primary sm" data-askopen="${p.id}">${IC.q} Responder ›</button></div></div>`).join("");
 }
 function wireQuestion(root){
-  root.querySelectorAll(".askopt").forEach(b=>b.onclick=()=>resolvePending(+b.dataset.id, b.dataset.ans));
-  root.querySelectorAll(".asksend").forEach(b=>b.onclick=()=>{
-    const inp = root.querySelector('.askinput[data-id="'+b.dataset.id+'"]');
-    resolvePending(+b.dataset.id, (inp && inp.value.trim()) || "ok");
-  });
-  root.querySelectorAll(".askinput").forEach(i=>i.addEventListener("keydown",e=>{
-    if(e.key==="Enter") root.querySelector('.asksend[data-id="'+i.dataset.id+'"]').click();
-  }));
+  root.querySelectorAll("[data-askopen]").forEach(b=>b.onclick=()=>openAsk(+b.dataset.askopen));
 }
+// ---------- modal de resposta ao agente (legível, input estável fora do poll) ----------
+let askId=null;
+function openAsk(pendingId){
+  const p=(state.pending||[]).find(x=>x.id===pendingId); if(!p) return;
+  askId=pendingId;
+  document.getElementById('askAgent').textContent=p.agent||'Agente';
+  document.getElementById('askQ').textContent=p.prompt||'';
+  const opts=Array.isArray(p.options)?p.options:[];
+  const oe=document.getElementById('askOpts');
+  oe.innerHTML = opts.length ? `<div class="askoptlbl">respostas rápidas</div><div class="askoptgrid">`+opts.map((o,i)=>`<button class="askoptbtn" data-o="${i}">${esc(o)}</button>`).join('')+`</div>` : '';
+  oe.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{ resolvePending(askId, opts[+b.dataset.o]); closeAsk(); });
+  document.getElementById('askTa').value='';
+  document.getElementById('askOverlay').style.display='flex';
+  document.getElementById('askTa').focus();
+}
+function closeAsk(){ document.getElementById('askOverlay').style.display='none'; askId=null; }
+function askDoSend(){ const v=document.getElementById('askTa').value.trim(); if(!v||askId==null) return; resolvePending(askId, v); closeAsk(); }
+document.getElementById('askClose').onclick=closeAsk;
+document.getElementById('askCancel').onclick=closeAsk;
+document.getElementById('askSend').onclick=askDoSend;
+document.getElementById('askTa').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) askDoSend(); });
+document.getElementById('askOverlay').addEventListener('click',e=>{ if(e.target.id==='askOverlay') closeAsk(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('askOverlay').style.display!=='none') closeAsk(); });
 async function mergeTask(taskId){
   try{ await invoke("merge_task",{taskId}); await refresh(); }
   catch(e){ alert("Merge falhou:\n"+e); }
@@ -2128,7 +2162,7 @@ function renderRail(){
       const p=pendingOf(t.id)[0];
       const isPlan=!p && t.status==='plan-review';
       const msg=p ? (p.prompt||'aguardando sua resposta') : 'plano pronto — aprove pra continuar';
-      return `<div class="lrow ask${t.id===selected?' sel':''}" data-id="${t.id}">
+      return `<div class="lrow ask${t.id===selected?' sel':''}" data-id="${t.id}" data-pending="${p?p.id:''}">
         <span class="pulse" style="--pc:var(--crit)"></span>
         <span class="ini" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
         <div class="lrt"><div class="nm">${esc(t.agent)} ${isPlan?'<span class="stg">plano</span>':'<span class="qbadge">'+IC.q+'</span>'}</div>
@@ -2157,7 +2191,7 @@ function renderRail(){
     html = '<div class="ridle"><span class="zdot"></span>nenhum agente trabalhando agora<div class="dim">as tarefas concluídas ficam no Fluxo →</div></div>';
   }
   el.innerHTML = html;
-  el.querySelectorAll(".lrow").forEach(r=>r.onclick=()=>{ selected=r.dataset.id; render(); });
+  el.querySelectorAll(".lrow").forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.lract')) return; selected=r.dataset.id; render(); const pid=r.dataset.pending; if(pid) openAsk(+pid); });
   el.querySelectorAll(".lract").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const id=b.dataset.id, a=b.dataset.run;
     if(a==='pause') pauseTask(id); else if(a==='resume') resumeTask(id); else if(a==='abort') abortTask(id); });
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=()=>setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)));
