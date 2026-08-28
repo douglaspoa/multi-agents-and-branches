@@ -554,6 +554,75 @@
   .fvgutter{font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--muted);text-align:right;padding:12px 8px;background:var(--surface-3);border-right:1px solid var(--border);user-select:none;overflow:hidden;white-space:pre;min-width:46px}
   .fvedit{flex:1;height:100%;font-family:var(--mono);font-size:12px;line-height:1.55;border:none;outline:none;background:var(--surface-2);color:var(--text);padding:12px;resize:none;white-space:pre;overflow:auto;tab-size:2}
   .fvedit:focus{background:var(--surface)}
+  /* ===== workspace 3 colunas (arquivos · código · chat) ===== */
+  .fwoverlay{padding:14px;align-items:stretch;justify-content:stretch}
+  .fw{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
+  .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+  .fwhead b{font-size:13.5px}
+  .fwhead .fwsub{font-size:11px;color:var(--muted)}
+  .fwhead .x{margin-left:auto;border:0;background:transparent;color:var(--muted);cursor:pointer}
+  .fwcols{flex:1;display:grid;grid-template-columns:238px 1fr 348px;min-height:0}
+  .fwtree{border-right:1px solid var(--border);overflow:auto;padding:10px;display:flex;flex-direction:column;gap:3px;background:var(--surface-2)}
+  .fwtreeh{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:2px 4px 6px}
+  .fwfile{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;text-align:left;border:1px solid transparent;background:transparent;border-radius:7px;padding:7px 9px;cursor:pointer;font:inherit}
+  .fwfile:hover{background:var(--surface-3)}
+  .fwfile.on{background:var(--surface-3);border-color:var(--border-strong)}
+  .fwtag{width:17px;height:17px;display:grid;place-items:center;border-radius:4px;font-size:9.5px;font-weight:700}
+  .fwtag.a{background:color-mix(in srgb,var(--good) 22%,transparent);color:var(--good)}
+  .fwtag.m{background:color-mix(in srgb,var(--info) 22%,transparent);color:var(--info)}
+  .fwfp{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
+  .fwadd{font-size:10.5px;color:var(--good);font-variant-numeric:tabular-nums}
+  .fwtreehint{margin-top:auto;font-size:10.5px;color:var(--muted);line-height:1.5;padding:10px 4px 2px}
+  .fwmain{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .fwmhead{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border)}
+  .fwmpath{font-size:12.5px;font-weight:600}
+  .fwmadd{font-size:11px;color:var(--good);font-variant-numeric:tabular-nums}
+  .fwmby{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+  .fwav{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;color:#04241a}
+  .fwav.sm{width:17px;height:17px;font-size:8.5px;flex:none}
+  .fwwhy{display:flex;gap:9px;padding:10px 14px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--accent) 5%,var(--surface-2))}
+  .fwwhy svg{width:15px;height:15px;flex:none;margin-top:1px}
+  .fwwhyl{font-weight:700;font-size:11.5px}
+  .fwwhyt{font-size:12px;color:var(--text-2);line-height:1.55}
+  .fwcode{flex:1;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.55;padding:6px 0}
+  .fwln{display:grid;grid-template-columns:52px 1fr;cursor:pointer;width:max-content;min-width:100%}
+  .fwln:hover{background:var(--surface-2)}
+  .fwln.add{background:color-mix(in srgb,var(--good) 12%,transparent)}
+  .fwln.sel{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+  .fwnum{color:var(--muted);text-align:right;padding:0 12px 0 8px;user-select:none;position:sticky;left:0;background:var(--surface);border-right:1px solid var(--border)}
+  .fwln.add .fwnum{background:color-mix(in srgb,var(--good) 12%,var(--surface))}
+  .fwln.sel .fwnum{background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
+  .fwtxt{padding:0 14px;white-space:pre}
+  .fwselbar{border-top:1px solid var(--border);padding:8px 14px;font-size:11.5px;color:var(--muted);background:var(--surface-2)}
+  .fwselbar b{color:var(--accent)}
+  .fwchat{border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--surface-2)}
+  .fwchath{display:flex;align-items:center;gap:9px;padding:11px 13px;border-bottom:1px solid var(--border)}
+  .fwchatt{font-size:12.5px;font-weight:600}
+  .fwchatd{font-size:10.5px;color:var(--muted)}
+  .fwnow{margin:11px 13px;padding:11px;border:1px solid var(--border);border-radius:9px;background:var(--surface)}
+  .fwnow.done{opacity:.9}
+  .fwnowh{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600}
+  .fwnowstep{margin-left:auto;font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+  .fwnowtx{font-size:11.5px;color:var(--text-2);margin-top:6px;line-height:1.5}
+  .fwplan{margin-top:9px;display:flex;flex-direction:column;gap:3px}
+  .fwstep{display:flex;align-items:center;gap:8px;font-size:11px}
+  .fwstep .fwmark{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:9px;border:1px solid var(--border);color:var(--muted);flex:none}
+  .fwstep.done .fwmark{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .fwstep.cur .fwmark{border-color:var(--good);color:var(--good)}
+  .fwstep.done .fwsteptx{color:var(--text-2)}
+  .fwstep.wait{color:var(--muted)}
+  .fwsteer{margin-top:10px;width:100%}
+  .fwthread{flex:1;overflow:auto;padding:6px 13px;display:flex;flex-direction:column;gap:8px}
+  .fwmsg{display:flex;gap:7px;align-items:flex-start}
+  .fwmsg.you{justify-content:flex-end}
+  .fwmsg.you .fwbub{background:var(--accent);color:var(--on-accent);border-color:transparent}
+  .fwmsg.sys .fwbub{background:transparent;border:0;color:var(--muted);font-size:11px;padding:2px 0}
+  .fwbub{max-width:82%;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.5}
+  .fwinput{border-top:1px solid var(--border);padding:10px 13px}
+  .fwselchip{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-family:var(--mono);color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:6px;padding:3px 7px;margin-bottom:7px}
+  .fwselx{border:0;background:transparent;color:var(--accent);cursor:pointer;font-size:10px;padding:0}
+  .fwinrow{display:flex;gap:7px;align-items:flex-end}
+  .fwta{flex:1;resize:none;min-height:40px;line-height:1.45}
   /* pull request */
   .prbox{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:11px;min-width:0}
   .prrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
@@ -792,6 +861,23 @@
       <button class="btn" id="ntCancel">cancelar</button>
       <button class="btn" id="ntDraft"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 3.5h6.5L12.5 6v6.5c0 .3-.2.5-.5.5H3.5c-.3 0-.5-.2-.5-.5v-9c0-.3.2-.5.5-.5z" stroke-linejoin="round"/></svg>salvar rascunho</button>
       <button class="btn primary" id="ntCreate"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>criar e iniciar</button>
+    </div>
+  </div>
+</div>
+
+<!-- workspace 3 colunas estilo Cursor: arquivos · código+linhas · chat do agente -->
+<div class="overlay fwoverlay" id="fwOverlay" style="display:none">
+  <div class="fw">
+    <div class="fwhead">
+      <b class="mono" id="fwTaskName">Arquivos & chat</b>
+      <span class="fwsub" id="fwTaskBranch"></span>
+      <span style="flex:1"></span>
+      <button class="x" id="fwClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="fwcols">
+      <div class="fwtree" id="fwTree"></div>
+      <div class="fwmain" id="fwMain"></div>
+      <div class="fwchat" id="fwChatCol"></div>
     </div>
   </div>
 </div>
@@ -1103,6 +1189,110 @@ document.getElementById('fvEdit').onclick=()=>{ fvEditing=true; renderFileView()
 document.getElementById('fvSave').onclick=async()=>{ const v=document.getElementById('fvText').value; const b=document.getElementById('fvSave'); b.disabled=true; try{ await invoke('write_file',{ taskId:fvTask, path:fvPath, content:v }); fvContent=v; fvEditing=false; fileCache[fvTask]=undefined; renderFileView(); lastSig=''; refresh(); }catch(e){ alert('Falha ao salvar:\n'+e); }finally{ b.disabled=false; } };
 document.getElementById('fvClose').onclick=closeFile;
 document.getElementById('fvOverlay').addEventListener('click', e=>{ if(e.target.id==='fvOverlay') closeFile(); });
+
+// ---------- workspace 3 colunas (arquivos · código · chat do agente) ----------
+let fwTask=null, fwPath=null, fwContent='', fwAdded=[], fwSelA=0, fwSelB=0, fwFiles=[];
+const fwChat={}; // taskId -> [{who:'you'|'sys', text}]
+function fwTaskObj(){ return (state.tasks||[]).find(t=>t.id===fwTask); }
+async function openWorkspace(taskId, path){
+  fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[];
+  document.getElementById('fwOverlay').style.display='flex';
+  try{ fwFiles = await invoke('task_files',{ taskId }); }catch(e){ fwFiles=[]; }
+  if(!fwPath && fwFiles.length) fwPath=fwFiles[0].path;
+  await fwLoadFile();
+}
+async function fwLoadFile(){
+  if(!fwPath){ fwContent=''; fwAdded=[]; renderWorkspace(); return; }
+  try{ const r=await invoke('read_file',{ taskId:fwTask, path:fwPath }); fwContent=r.content||''; fwAdded=r.addedLines||[]; }
+  catch(e){ fwContent='// não consegui abrir: '+String(e); fwAdded=[]; }
+  fwSelA=0; fwSelB=0; renderWorkspace();
+}
+function closeWorkspace(){ document.getElementById('fwOverlay').style.display='none'; }
+function fwSelRange(){ if(!fwSelA) return null; const a=Math.min(fwSelA,fwSelB||fwSelA), b=Math.max(fwSelA,fwSelB||fwSelA); return {a,b}; }
+function fwPlan(t){
+  const roles=t.roles||[]; if(!roles.length) return '';
+  let cur=roles.findIndex(r=>r.role===t.stage); if(cur<0) cur=0;
+  const fin=(t.status==='review'||t.status==='merged'||t.status==='done');
+  return `<div class="fwplan">`+roles.map((r,i)=>{
+    let cls = fin||i<cur?'done':(i===cur&&ACTIVE_ST.has(t.status)?'cur':'wait');
+    const mark = cls==='done'?IC.check:cls==='cur'?'<span class="spin"></span>':(i+1);
+    return `<div class="fwstep ${cls}"><span class="fwmark">${mark}</span><span class="fwsteptx">${ROLE_PT[r.role]||r.role} · ${esc(r.name)}</span></div>`;
+  }).join('')+`</div>`;
+}
+function fwNowHtml(t){
+  const ev=lastEventOf(t.id);
+  return ACTIVE_ST.has(t.status)
+    ? `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div><div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${ (t.roles||[]).some(r=>r.engine==='claude') ? '<button class="btn sm fwsteer" id="fwSteer">✋ mudar o rumo</button>':''}`
+    : `<div class="fwnowh">${IC.check} ${t.status==='merged'?'Mergeada':(t.status==='review'?'Pronta pra review':esc(t.status))}</div><div class="fwnowtx">${fwPlan(t)}</div>`;
+}
+function fwLiveUpdate(){
+  const t=fwTaskObj(); if(!t) return;
+  const now=document.getElementById('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo — o time reprocessa'; } }; }
+}
+function renderWorkspace(){
+  const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
+  // preserva o que está sendo digitado no chat entre re-renders
+  const ai=document.activeElement, keepInput=(ai&&ai.id==='fwInput'), inEl=document.getElementById('fwInput'), inVal=inEl?inEl.value:null, inCaret=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
+  document.getElementById('fwTaskName').textContent=t.title;
+  document.getElementById('fwTaskBranch').textContent=t.branch+' · '+t.agent;
+  // ---- coluna 1: árvore de arquivos ----
+  const tree=document.getElementById('fwTree');
+  tree.innerHTML=`<div class="fwtreeh">Arquivos desta tarefa</div>`+
+    (fwFiles.length?fwFiles.map(f=>{const tag=(f.del===0&&f.add>0)?'A':'M';return `<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}"><span class="fwtag ${tag==='A'?'a':'m'}">${tag}</span><span class="fwfp mono">${esc(f.path)}</span><span class="fwadd">+${f.add}</span></button>`;}).join(''):'<div class="dim" style="padding:8px;font-size:11.5px">nenhum arquivo alterado</div>')+
+    `<div class="fwtreehint">Selecione linhas no código e pergunte ao agente que escreveu — ele responde e reescreve na mesma worktree.</div>`;
+  tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=()=>{ fwPath=b.dataset.fwf; fwLoadFile(); });
+  // ---- coluna 2: código ----
+  const main=document.getElementById('fwMain');
+  const added=new Set(fwAdded); const sel=fwSelRange();
+  const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
+  const lines=fwContent.split('\n');
+  const why = reviewOf(t.id)?reviewOf(t.id).summary : t.objective;
+  main.innerHTML = fwPath ? `
+    <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span><button class="btn sm" id="fwOpenEditor">${IC.pencil||'✎'} abrir no editor</button></div>
+    <div class="fwwhy"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div><span class="fwwhyl">Por que este arquivo</span> <span class="fwwhyt">${esc(why)}</span></div></div>
+    <div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>
+    <div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique numa linha (shift+clique pra faixa) pra mirar sua pergunta'}</div>`
+    : '<div class="empty">selecione um arquivo à esquerda</div>';
+  const codeEl=document.getElementById('fwCode');
+  if(codeEl) codeEl.querySelectorAll('.fwln').forEach(el=>el.onclick=(e)=>{ const n=+el.dataset.ln; if(e.shiftKey&&fwSelA){ fwSelB=n; } else { fwSelA=n; fwSelB=n; } renderWorkspace(); const inp=document.getElementById('fwInput'); if(inp&&!e.shiftKey) inp.focus(); });
+  { const b=document.getElementById('fwOpenEditor'); if(b) b.onclick=()=>openFile(fwTask, fwPath); }
+  // ---- coluna 3: chat com o agente ----
+  const chat=document.getElementById('fwChatCol');
+  const nowBox = `<div class="fwnow${ACTIVE_ST.has(t.status)?'':' done'}" id="fwNow">${fwNowHtml(t)}</div>`;
+  const msgs=(fwChat[t.id]||[]);
+  const thread = msgs.length?msgs.map(m=>`<div class="fwmsg ${m.who}">${m.who==='you'?'':'<span class="fwav sm" style="background:'+agentColor(t.agent)+'">'+esc((t.agent||'?').slice(0,2).toUpperCase())+'</span>'}<div class="fwbub">${esc(m.text)}</div></div>`).join(''):'<div class="dim" style="font-size:11.5px;padding:8px 2px">Selecione linhas e pergunte — vira uma instrução pro agente na mesma sessão.</div>';
+  const sel2=fwSelRange();
+  chat.innerHTML=`
+    <div class="fwchath"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">Perguntar ao ${esc(t.agent)}</div><div class="fwchatd">quem escreveu este arquivo · mesma sessão</div></div></div>
+    ${nowBox}
+    <div class="fwthread" id="fwThread">${thread}</div>
+    <div class="fwinput">${sel2?`<div class="fwselchip">↳ ${esc(fwPath.split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}<div class="fwinrow"><textarea class="in fwta" id="fwInput" rows="2" placeholder="ex.: renomeia essa variável / trata o nulo / explica esse trecho"></textarea><button class="btn primary sm" id="fwSend">enviar</button></div></div>`;
+  { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo — o time reprocessa'; } }; }
+  { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
+  { const b=document.getElementById('fwSend'); if(b) b.onclick=fwSendMsg; }
+  { const i=document.getElementById('fwInput'); if(i){ i.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) fwSendMsg(); }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
+  const th=document.getElementById('fwThread'); if(th) th.scrollTop=th.scrollHeight;
+}
+async function fwSendMsg(){
+  const t=fwTaskObj(); if(!t) return;
+  const inp=document.getElementById('fwInput'); const v=inp.value.trim(); if(!v) return;
+  const sel=fwSelRange();
+  const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : `Sobre ${fwPath}: `;
+  const full = ctx+v;
+  (fwChat[t.id]||(fwChat[t.id]=[])).push({who:'you', text:v+(sel?`  (${fwPath.split('/').pop()}:${sel.a}${sel.b>sel.a?'–'+sel.b:''})`:'')});
+  inp.value=''; inp.disabled=true;
+  try{
+    if(ACTIVE_ST.has(t.status)) await invoke('add_instruction',{ taskId:t.id, text:full });
+    else await invoke('rework_task',{ taskId:t.id, text:full });
+    fwChat[t.id].push({who:'sys', text:`→ enviado ao ${t.agent} (mesma sessão). Acompanhe em "O que estou fazendo agora".`});
+    lastSig=''; await refresh();
+  }catch(e){ fwChat[t.id].push({who:'sys', text:'falha ao enviar: '+String(e)}); }
+  finally{ inp.disabled=false; renderWorkspace(); }
+}
+document.getElementById('fwClose').onclick=closeWorkspace;
+document.getElementById('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
+// atualiza SÓ o "O que estou fazendo agora" ao vivo (não mexe no código/input)
+setInterval(()=>{ if(document.getElementById('fwOverlay').style.display!=='none' && fwTask) { try{ fwLiveUpdate(); }catch(e){} } }, 1500);
 // ---------- Pull Request (GitHub) ----------
 const prCache={}; let branchList=null;
 async function loadBranches(){ if(branchList) return branchList; try{ branchList=await invoke("list_branches"); }catch(e){ branchList=["main"]; } return branchList; }
@@ -1896,7 +2086,7 @@ function renderSide(){
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
-  el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openFile(t.id, b.dataset.file));
+  el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openWorkspace(t.id, b.dataset.file));
   el.querySelectorAll('[data-refopen]').forEach(b=>b.onclick=()=>openRef(t.id, b.dataset.refopen));
   { const b=el.querySelector('#revPrOpen'); if(b) b.onclick=()=>{ if(t.prUrl) openExternal(t.prUrl); }; }
   { const b=el.querySelector('#prOpen'); if(b) b.onclick=()=>openPr(t); }
