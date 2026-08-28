@@ -110,6 +110,7 @@ export class Orchestrator {
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
       const ctx = persona + this.bus.buildContext(spec);
       let sessionId = "";
+      let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
       try {
         for await (const ev of engine.run({
@@ -129,6 +130,7 @@ export class Orchestrator {
             this.bus.claim(taskId, r.name, ev.path, ev.mode ?? "write");
             continue;
           }
+          if (ev.type === "error") roleFailed = true;
           this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role);
           if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
             this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
@@ -139,6 +141,22 @@ export class Orchestrator {
         this.store.addEvent(taskId, r.name, "error", (err as Error).message, false, r.role);
         this.store.setStatus(taskId, "error");
         notify("Cardume", "Tarefa falhou — veja o log", task.title);
+        return;
+      }
+
+      // Se o papel FALHOU (timeout/erro), PARA aqui — não avança pro próximo
+      // (antes o pipeline seguia pro review mesmo sem o builder ter implementado).
+      if (roleFailed) {
+        this.store.setStatus(taskId, "error");
+        this.store.addEvent(
+          taskId,
+          r.name,
+          "note",
+          `pipeline parado: o papel ${r.role} não concluiu (timeout/erro). Reveja e mande "pedir ajuste"/rework pra continuar.`,
+          false,
+          r.role,
+        );
+        notify("Constellation", `${r.name} não concluiu — veja o log`, task.title);
         return;
       }
 

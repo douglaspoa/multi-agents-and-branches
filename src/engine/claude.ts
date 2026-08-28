@@ -134,24 +134,33 @@ export class ClaudeEngine implements AgentEngine {
       }
     };
 
-    // Timeout de segurança: se o agente travar, encerra e marca erro.
-    const timeoutMin = 20;
-    const killTimer = setTimeout(() => {
-      queue.push({ type: "error", text: `timeout de ${timeoutMin}min — agente encerrado`, status: "error" });
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* já morreu */
-      }
-      done = true;
-      wake();
-    }, timeoutMin * 60 * 1000);
+    // Timeout de INATIVIDADE (não de relógio): reseta a cada sinal de vida do
+    // agente. Assim um agente que trabalha muito (ou espera o humano responder)
+    // não é morto — só encerra se ficar realmente parado por N minutos.
+    const idleMin = 30;
+    let killTimer: ReturnType<typeof setTimeout>;
+    const resetIdle = () => {
+      clearTimeout(killTimer);
+      killTimer = setTimeout(() => {
+        queue.push({ type: "error", text: `inatividade de ${idleMin}min — agente encerrado`, status: "error" });
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* já morreu */
+        }
+        done = true;
+        wake();
+      }, idleMin * 60 * 1000);
+    };
+    resetIdle();
 
     rl.on("line", (line) => {
+      resetIdle();
       for (const ev of mapLine(line)) queue.push(ev);
       wake();
     });
     child.stderr.on("data", (d) => {
+      resetIdle();
       const s = String(d).trim();
       if (s) queue.push({ type: "note", text: `stderr: ${s.slice(0, 140)}` });
       wake();
