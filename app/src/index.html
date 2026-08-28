@@ -616,6 +616,13 @@
   .artic svg{width:16px;height:16px}
   .artnm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .artkb{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  /* arquivos editáveis (abrir editor + chat por linha) */
+  .fileshint{font-size:11px;color:var(--muted);margin:2px 0 8px;line-height:1.5}
+  .fileitem{grid-template-columns:auto 1fr auto auto}
+  .fileopen{font-size:11px;font-weight:600;color:var(--accent);opacity:0;transition:opacity .12s;white-space:nowrap}
+  .fileitem:hover .fileopen{opacity:1}
+  .fvtip{font-size:11.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;margin-bottom:10px;line-height:1.5}
+  .fvtip svg{width:13px;height:13px;vertical-align:-2px;color:var(--accent)}
   .artmodal{max-width:820px;width:min(820px,92vw)}
   .artmodal .mbody{max-height:74vh;overflow:auto}
   .artimg{max-width:100%;height:auto;display:block;border-radius:var(--r-sm);border:1px solid var(--border)}
@@ -1039,9 +1046,10 @@ function activityBlock(t){
   </div>`;
 }
 function filesListHtml(files){
-  if(!files.length) return '';
-  return `<div class="seclbl">Arquivos alterados <span class="n">${files.length}</span></div><div class="artlist">`+
-    files.map(f=>`<button class="artitem" data-file="${escA(f.path)}"><span class="artic">${IC.doc}</span><span class="artnm mono">${esc(f.path)}</span><span class="artkb"><span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span></button>`).join('')+`</div>`;
+  if(!files.length) return '<div class="seclbl">Arquivos alterados</div><div class="dim" style="font-size:11.5px">nenhum arquivo alterado ainda</div>';
+  return `<div class="seclbl">Arquivos alterados <span class="n">${files.length}</span></div>`+
+    `<div class="fileshint">Clique num arquivo pra <b>abrir, editar</b> e <b>falar com o agente linha a linha</b>.</div><div class="artlist">`+
+    files.map(f=>`<button class="artitem fileitem" data-file="${escA(f.path)}"><span class="artic">${IC.doc}</span><span class="artnm mono">${esc(f.path)}</span><span class="artkb"><span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span><span class="fileopen">abrir ›</span></button>`).join('')+`</div>`;
 }
 let fvTask=null, fvPath=null, fvEditing=false, fvContent='', fvAdded=[];
 async function openFile(taskId, path){
@@ -1060,7 +1068,7 @@ function renderFileView(){
   if(fvEditing){ body.innerHTML=`<textarea class="fvedit mono" id="fvText" spellcheck="false"></textarea>`; document.getElementById('fvText').value=fvContent; document.getElementById('fvText').focus(); return; }
   const added=new Set(fvAdded);
   const lines=fvContent.split('\n');
-  body.innerHTML=`<div class="fvcode">`+lines.map((ln,i)=>{ const n=i+1; return `<div class="fvln${added.has(n)?' add':''}" data-ln="${n}"><span class="fvnum">${n}</span><span class="fvtxt">${esc(ln)||' '}</span></div>`; }).join('')+`</div><div id="fvLineBox"></div>`;
+  body.innerHTML=`<div class="fvtip">${IC.ai} Clique numa <b>linha</b> pra falar com o agente sobre ela · ou <b>editar</b> pra alterar e salvar direto na worktree${fvAdded.length?` · <span style="color:var(--good)">verde</span> = linhas que o agente adicionou`:''}</div><div class="fvcode">`+lines.map((ln,i)=>{ const n=i+1; return `<div class="fvln${added.has(n)?' add':''}" data-ln="${n}"><span class="fvnum">${n}</span><span class="fvtxt">${esc(ln)||' '}</span></div>`; }).join('')+`</div><div id="fvLineBox"></div>`;
   body.querySelectorAll('.fvln').forEach(el=>el.onclick=()=>showLineAsk(+el.dataset.ln));
 }
 function showLineAsk(n){
@@ -1798,7 +1806,7 @@ function renderSide(){
   // loads de rede/subprocesso (pr_status via gh, task_files, commits, artifacts),
   // então TROCAR de tarefa disparava tudo isso mesmo na aba Etapas → lentidão.
   // Agora só a aba ativa é construída (e só ela dispara seus loads).
-  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Diff'],['briefing','Briefing']];
+  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Arquivos'],['briefing','Briefing']];
   let content;
   if(sideTab==='stream'){
     content = `<div class="log stream">${evs.length?evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join(""):'<span class="dim">sem eventos ainda…</span>'}${ACTIVE_ST.has(t.status)?'<div class="ln livecursor"><span class="ts"></span><span style="color:var(--good)">▸</span><span class="blink">▍</span></div>':''}</div>`;
