@@ -141,6 +141,7 @@ async function cmdNew(repo: string, a: Args) {
     artifacts: artifacts.length ? artifacts : undefined,
     branchType: a.flags["branch-type"] || undefined,
     issueCode: a.flags.issue || undefined,
+    base: a.flags.base || undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",

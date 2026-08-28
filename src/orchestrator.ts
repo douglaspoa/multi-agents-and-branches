@@ -59,7 +59,9 @@ export class Orchestrator {
 
     const branch = branchName(spec);
     const worktree = this.ws.worktreePath(spec.id);
-    const base = await this.git.currentBranch();
+    // Novas tarefas nascem da main (default do repo), não da branch em check-out
+    // — a não ser que uma base explícita seja passada em spec.base.
+    const base = spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase();
 
     // A pasta do Constellation nunca deve entrar no repo do usuário.
     await this.git.ensureExcluded([".cardume/", ".constellation/"]);

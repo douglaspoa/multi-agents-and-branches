@@ -89,6 +89,8 @@ export interface TaskSpec {
   /** Só para kind="review": link e número do PR sendo revisado. */
   prUrl?: string;
   prNumber?: number;
+  /** Branch base da worktree. Se vazio, usa a default do repo (main). */
+  base?: string;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

@@ -76,6 +76,33 @@ export class GitService {
     return stdout.trim();
   }
 
+  /**
+   * Branch BASE padrão pra novas tarefas: o default do repo (origin/HEAD →
+   * geralmente main), com fallback pra main/master (local ou remoto). Assim as
+   * tarefas nascem da main mesmo que o usuário esteja numa branch de trabalho —
+   * a não ser que passe uma base explícita. Último recurso: a branch atual.
+   */
+  async defaultBase(): Promise<string> {
+    const cands: string[] = [];
+    try {
+      const { stdout } = await run("git", ["-C", this.repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+      const b = stdout.trim().replace(/^origin\//, "");
+      if (b) cands.push(b, "origin/" + b);
+    } catch {
+      /* sem origin/HEAD */
+    }
+    cands.push("main", "origin/main", "master", "origin/master");
+    for (const c of cands) {
+      try {
+        await run("git", ["-C", this.repo, "rev-parse", "--verify", "--quiet", c]);
+        return c;
+      } catch {
+        /* ref não existe, tenta a próxima */
+      }
+    }
+    return this.currentBranch();
+  }
+
   async worktreeAdd(path: string, branch: string, base: string): Promise<void> {
     await run("git", ["-C", this.repo, "worktree", "add", "-b", branch, path, base]);
   }

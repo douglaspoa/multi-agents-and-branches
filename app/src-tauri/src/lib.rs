@@ -1087,6 +1087,47 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     Ok(())
 }
 
+/// Re-roda a tarefa do ZERO: mata o processo se estiver rodando, reseta a
+/// worktree pro estado da base (descarta o trabalho parcial, preserva .cardume),
+/// limpa os registros (eventos/claims/review/pendências/custo/diff) e re-executa
+/// o time inteiro. Usado quando uma execução deu ruim (ex.: timeout sem implementar).
+#[tauri::command]
+fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    // 1) encerra o processo atual, se houver
+    if let Some(p) = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() } {
+        signal_group(p, libc::SIGCONT);
+        signal_group(p, libc::SIGTERM);
+        if let Ok(mut m) = state.procs.lock() { m.remove(&task_id); }
+    }
+    // 2) worktree + base
+    let (wt, base) = task_wt_base(&state, &task_id)?;
+    // 3) reseta a worktree pro estado da base (clean -fd NÃO remove ignorados → .cardume fica)
+    let _ = Command::new("git").arg("-C").arg(&wt).args(["reset", "--hard", &base]).output();
+    let _ = Command::new("git").arg("-C").arg(&wt).args(["clean", "-fd"]).output();
+    // 4) reseta os registros da tarefa (fresh run, preserva a task e o spec)
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    let _ = conn.execute("UPDATE task SET done_roles=0, status='queued', session_id=NULL WHERE id=?1", params![task_id]);
+    for tbl in ["event", "claim", "review", "pending", "cost", "diffstat"] {
+        let _ = conn.execute(&format!("DELETE FROM {tbl} WHERE task_id=?1"), params![task_id]);
+    }
+    // 5) re-executa o time
+    let mut cmd = Command::new(node_bin());
+    cmd.args([
+        "--disable-warning=ExperimentalWarning",
+        &cli_path(&repo),
+        "start",
+        &task_id,
+        "--repo",
+        &repo.display().to_string(),
+    ])
+    .current_dir(&repo);
+    spawn_tracked(&state, &task_id, cmd)?;
+    Ok(())
+}
+
 /// Enfileira uma instrução do humano no meio da execução — o orquestrador a
 /// aplica (via --resume) ao fim do turno atual do agente.
 #[tauri::command]
@@ -1194,6 +1235,7 @@ fn new_task(
     refs: Option<Vec<String>>,
     branch_type: Option<String>,
     issue: Option<String>,
+    base: Option<String>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
@@ -1256,6 +1298,7 @@ fn new_task(
     }
     push_opt(&mut args, "--branch-type", &branch_type);
     push_opt(&mut args, "--issue", &issue);
+    push_opt(&mut args, "--base", &base);
 
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);
@@ -2012,6 +2055,7 @@ pub fn run() {
             config,
             new_task,
             start_task,
+            rerun_task,
             review_pr,
             save_draft,
             load_draft,
