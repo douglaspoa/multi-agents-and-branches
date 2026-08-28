@@ -201,6 +201,86 @@ export class Orchestrator {
   }
 
   /**
+   * REVIEW DE PR: revisa um Pull Request por link/número, SEM criar branch nem
+   * worktree. Busca o diff via `gh pr diff`, roda o(s) revisor(es) numa pasta
+   * isolada (.cardume/reviews/<id>/) e monta o review factual do diff do PR.
+   * Reaproveita toda a máquina de streaming/custo/pause-abort das tarefas.
+   */
+  async reviewPr(spec: TaskSpec, pr: string): Promise<void> {
+    const repo = this.git.repo;
+    let meta: { number?: number; title?: string; url?: string; baseRefName?: string } = {};
+    try {
+      const { stdout } = await run("gh", ["pr", "view", pr, "--json", "number,title,url,baseRefName"], { cwd: repo });
+      meta = JSON.parse(stdout);
+    } catch (e) {
+      throw new Error(`não consegui ler o PR (${pr}). Confirme o link/número e o gh autenticado.\n${(e as Error).message}`);
+    }
+    let diff = "";
+    try {
+      diff = (await run("gh", ["pr", "diff", pr], { cwd: repo })).stdout;
+    } catch (e) {
+      throw new Error(`gh pr diff falhou: ${(e as Error).message}`);
+    }
+    if (!diff.trim()) throw new Error("o PR não tem diff (vazio?).");
+
+    const number = meta.number ?? 0;
+    const base = meta.baseRefName || "main";
+    // pasta de trabalho isolada — nada de branch/worktree do git
+    const dir = join(repo, ".cardume", "reviews", spec.id);
+    await mkdir(join(dir, ".cardume"), { recursive: true });
+    await this.git.ensureExcluded([".cardume/", ".constellation/"]);
+    await writeFile(join(dir, "DIFF.patch"), diff, "utf8");
+
+    spec.kind = "review";
+    spec.prUrl = meta.url || pr;
+    spec.prNumber = number || undefined;
+    spec.title = spec.title || (number ? `Review PR #${number}` : "Review de PR") + (meta.title ? ` — ${meta.title}` : "");
+    spec.objective = spec.objective || `Revisar ${number ? `o PR #${number}` : "o PR"}: ${meta.title ?? spec.prUrl}`;
+    await writeFile(join(dir, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+
+    const branch = number ? `PR #${number}` : "PR";
+    this.store.createTask(spec, branch, dir, base);
+    const lines = diff.split("\n").length;
+    this.store.addEvent(spec.id, spec.agent, "status", `review do ${branch} — ${lines} linhas de diff`, true);
+
+    const roles = spec.roles.length ? spec.roles : [{ role: "reviewer" as Role, name: spec.agent, engine: spec.engine }];
+    for (let i = 0; i < roles.length; i++) {
+      const r = roles[i];
+      this.store.setStage(spec.id, r.role);
+      this.store.setStatus(spec.id, "running");
+      const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
+      const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
+      const ctx = persona + this.bus.buildContext(spec);
+      try {
+        for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
+          if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
+          if (ev.type === "claim") continue; // sem repo pra reivindicar num review de PR
+          this.store.addEvent(spec.id, r.name, ev.type, ev.text, ev.ok, r.role);
+          if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
+            this.store.addCost(spec.id, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+          }
+        }
+      } catch (err) {
+        this.store.addEvent(spec.id, r.name, "error", (err as Error).message, false, r.role);
+        this.store.setStatus(spec.id, "error");
+        return;
+      }
+      this.store.setDoneRoles(spec.id, i + 1);
+    }
+
+    // review FATUAL a partir do diff do PR (mesma função das tarefas normais)
+    try {
+      const review = buildReview(diff, spec.agent);
+      this.store.addReview(spec.id, review);
+      this.store.addEvent(spec.id, spec.agent, "note", `review pronto: ${review.summary}`, true, "reviewer");
+    } catch (err) {
+      this.store.addEvent(spec.id, spec.agent, "note", `falha no review factual: ${(err as Error).message}`, false, "reviewer");
+    }
+    this.store.setStatus(spec.id, "review");
+    notify("Constellation", "Review do PR pronto ✓", spec.title);
+  }
+
+  /**
    * Aplica instruções que o humano enfileirou durante o turno do agente,
    * continuando a MESMA sessão do Claude (--resume) quando possível.
    * Retorna o sessionId (pode mudar a cada turno).

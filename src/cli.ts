@@ -336,6 +336,40 @@ async function cmdRm(repo: string, taskId: string) {
   orch.close();
 }
 
+async function cmdReviewPr(repo: string, a: Args) {
+  const pr = a.flags.pr;
+  if (!pr) {
+    console.error(c.red("✖ use --pr <url|número>"));
+    process.exit(1);
+  }
+  const engine = a.flags.engine ?? "claude"; // review sem Claude não faz sentido
+  let roles = buildRoles({ ...a, flags: { ...a.flags, engine } } as Args, repo);
+  // garante ao menos um revisor
+  if (!roles.some((r) => r.role === "reviewer")) {
+    roles = [{ role: "reviewer", name: roles[0]?.name ?? (a.flags.agent ?? "Revisor"), engine, model: a.flags.model }];
+  }
+  const id = a.flags.id ? slugify(a.flags.id) : slugify("pr " + pr);
+  const spec: TaskSpec = {
+    id,
+    title: "",
+    objective: "",
+    deliverables: [],
+    requirements: [],
+    scope: { owns: [], offLimits: [] },
+    autonomy: { clarifications: "auto", commit: "at-end", runTests: false, approval: "auto", planApproval: "auto" },
+    engine,
+    model: a.flags.model,
+    agent: roles[0].name,
+    roles,
+    kind: "review",
+  };
+  const orch = new Orchestrator(repo);
+  console.log(c.dim(`→ revisando ${pr} · revisor: ${roles.map((r) => r.name).join(", ")}`));
+  await orch.reviewPr(spec, pr);
+  console.log(c.green("✔") + " review do PR pronto");
+  orch.close();
+}
+
 async function cmdStart(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   const t = orch.store.getTask(taskId);
@@ -527,6 +561,9 @@ async function main() {
       break;
     case "start":
       await cmdStart(repo, a._[1]);
+      break;
+    case "review-pr":
+      await cmdReviewPr(repo, a);
       break;
     case "demo":
       await cmdDemo();

@@ -186,6 +186,8 @@ struct Task {
     deliverables: serde_json::Value,
     requirements: serde_json::Value,
     refs: serde_json::Value,
+    kind: String,
+    pr_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -896,6 +898,8 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 deliverables: spec.get("deliverables").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 requirements: spec.get("requirements").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 refs: spec.get("refs").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+                kind: spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
+                pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -1265,6 +1269,38 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     ])
     .current_dir(&repo);
     spawn_tracked(&state, &task_id, cmd)?;
+    Ok(())
+}
+
+/// Revisa um PR por link/número — SEM criar branch. Roda `review-pr` (detached,
+/// rastreado como as demais tarefas: aparece na trilha/Kanban, com pausar/abortar).
+#[tauri::command]
+fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    // id amigável: pr-<número> quando dá pra extrair; senão, slug do link.
+    let num: Option<String> = pr_url
+        .rsplit(|c: char| !c.is_ascii_digit())
+        .find(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let id = match &num {
+        Some(n) => format!("pr-{n}"),
+        None => slug_id(&format!("pr {pr_url}")),
+    };
+    let mut args = vec![
+        "--disable-warning=ExperimentalWarning".to_string(),
+        cli_path(&repo),
+        "review-pr".to_string(),
+        "--id".to_string(),
+        id.clone(),
+        "--pr".to_string(),
+        pr_url,
+        "--repo".to_string(),
+        repo.display().to_string(),
+    ];
+    push_opt(&mut args, "--agents", &agents);
+    let mut cmd = Command::new(node_bin());
+    cmd.args(&args).current_dir(&repo);
+    spawn_tracked(&state, &id, cmd)?;
     Ok(())
 }
 
@@ -1900,6 +1936,7 @@ pub fn run() {
             config,
             new_task,
             start_task,
+            review_pr,
             pause_task,
             resume_task,
             abort_task,

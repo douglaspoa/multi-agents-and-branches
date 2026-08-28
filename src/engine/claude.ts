@@ -66,8 +66,12 @@ export class ClaudeEngine implements AgentEngine {
     const adjustRule = input.spec.adjustment
       ? `⚠ AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${input.spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
       : "";
+    // REVIEW DE PR: não há repositório pra editar — o diff completo está em DIFF.patch.
+    const prRule = input.spec.kind === "review" && input.spec.prUrl
+      ? ` Este é um REVIEW DE PULL REQUEST (${input.spec.prUrl}). NÃO há repositório pra editar; leia o arquivo DIFF.patch nesta pasta (o diff completo do PR) e faça um review CRÍTICO: bugs e correção, riscos/segurança, cobertura de testes, legibilidade e sugestões concretas por arquivo/trecho. Aponte também o que está bom. Escreva o parecer no chat (texto), com severidade por achado. NÃO tente implementar nem rodar o código.`
+      : "";
     const baseline =
-      `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${planRule}` +
+      `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
       ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.

@@ -94,6 +94,13 @@
   .mhead{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:15px}
   .mhead .x{border:0;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}
   .mbody{padding:14px 16px;display:flex;flex-direction:column;gap:5px}
+  .ntmode{display:flex;gap:6px;background:var(--surface-2);border:1px solid var(--border);padding:4px;border-radius:8px;margin-bottom:4px}
+  .ntmodebtn{flex:1;border:1px solid transparent;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;padding:7px 10px;border-radius:6px;cursor:pointer}
+  .ntmodebtn:hover{color:var(--text-2)}
+  .ntmodebtn.on{background:var(--surface-3);color:var(--text);border-color:var(--border-strong)}
+  .prreview{display:flex;align-items:center;gap:9px;background:var(--surface-2);border:1px solid var(--border);padding:8px 10px;border-radius:7px}
+  .prreview .prnum{font-weight:600;font-size:12.5px}
+  .prreview .btn{margin-left:auto}
   .mbody label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:8px}
   .in{background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:13px;padding:7px 9px;width:100%}
   .in:focus{outline:2px solid var(--accent);outline-offset:-1px}
@@ -718,6 +725,18 @@
         <div class="airow"><input class="in aiinput" id="aiInput" placeholder="descreva o que precisa… (ex.: rate limiting no gateway)"><button class="btn primary sm" id="aiSend">enviar</button></div>
         <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
       </div>
+      <div class="ntmode" id="ntMode">
+        <button class="ntmodebtn on" data-mode="build">🛠 Nova feature</button>
+        <button class="ntmodebtn" data-mode="review">🔍 Revisar PR</button>
+      </div>
+      <div id="ntReviewFields" style="display:none">
+        <label>Link ou número do PR</label>
+        <input class="in" id="ntPr" placeholder="ex.: https://github.com/org/repo/pull/123  ou  123">
+        <label style="margin-top:13px">Revisor</label>
+        <select class="sel" id="ntReviewer" style="width:100%"></select>
+        <div class="aihint dim" style="margin-top:9px">Busca o diff do PR (via <b>gh</b>), roda o revisor e monta o parecer — <b>sem criar branch</b>. Aparece na trilha/Kanban como as demais, com custo e pausar/abortar.</div>
+      </div>
+      <div id="ntBuildFields">
       <label>Título</label>
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
       <label>Objetivo</label>
@@ -754,6 +773,7 @@
       <div id="ntRefs" class="reflist"></div>
 
       <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
+      </div>
     </div>
     <div class="mfoot">
       <span class="dim" id="ntHint">cada tarefa vira uma branch + worktree isolada</span>
@@ -1067,6 +1087,7 @@ async function loadPr(taskId, force){
   return prCache[taskId];
 }
 function prBlock(t){
+  if(t.kind==='review') return ''; // review de PR não tem branch pra abrir PR
   if(!(t.status==='review'||t.status==='error')) return '';
   const info=prCache[t.id];
   if(info===undefined){ loadBranches(); loadPr(t.id).then(()=>{ if(selected===t.id) renderSide(); }); return '<div class="seclbl">Pull Request</div><div class="dim" style="font-size:12px;padding:2px">verificando no GitHub…</div>'; }
@@ -1788,8 +1809,10 @@ function renderSide(){
 
   const claimHtml = claims.length ? claims.map(c=>{const y=c.yieldedTo;return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;}).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
   const reqs = Array.isArray(t.requirements)?t.requirements:[];
+  const reviewPrHtml = (t.kind==='review' && t.prUrl) ? `<div class="seclbl">Pull Request revisado</div><div class="prreview"><span class="prnum">${esc(t.branch)}</span><button class="btn sm" id="revPrOpen">${IC.ext||'↗'} abrir PR</button></div>` : '';
   const tabBriefing = `
     <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
+    ${reviewPrHtml}
     ${reqs.length?`<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${reqs.map(r=>`<div class="critrow">✓ ${esc(r)}</div>`).join("")}`:''}
     ${refsBlock(t)}
     ${prBlock(t)}
@@ -1809,8 +1832,10 @@ function renderSide(){
     if(t.status==='paused') return `<div class="acts"><button class="btn primary sm" data-act="resume">${IC.cright} retomar</button><button class="btn danger sm" data-act="abort">✕ abortar</button></div>`;
     if(ACTIVE_ST.has(t.status)) return `<div class="acts"><button class="btn sm" data-act="pause">❚❚ pausar</button><button class="btn danger sm" data-act="abort">✕ abortar</button></div>`;
     const start=t.status==='draft'?`<button class="btn primary sm" data-act="start">${IC.cright} iniciar</button>`:'';
-    const merge=t.status==='review'?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:'';
-    const rmlbl=(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
+    // review de PR não gera branch → não há merge; só concluir/descartar
+    const merge=(t.status==='review'&&t.kind!=='review')?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:'';
+    const rmlbl=(t.kind==='review'&&t.status==='review')?'concluir'
+      :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
     return `<div class="acts">${start}${merge}<button class="btn danger sm" data-act="rm">${rmlbl}</button></div>`;
   })();
 
@@ -1839,6 +1864,7 @@ function renderSide(){
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openFile(t.id, b.dataset.file));
   el.querySelectorAll('[data-refopen]').forEach(b=>b.onclick=()=>openRef(t.id, b.dataset.refopen));
+  { const b=el.querySelector('#revPrOpen'); if(b) b.onclick=()=>{ if(t.prUrl) openExternal(t.prUrl); }; }
   { const b=el.querySelector('#prOpen'); if(b) b.onclick=()=>openPr(t); }
   { const b=el.querySelector('#prLink'); if(b) b.onclick=()=>{ const u=(prCache[t.id]||{}).url; if(u) openExternal(u); }; }
   { const b=el.querySelector('#prCopy'); if(b) b.onclick=()=>{ const u=(prCache[t.id]||{}).url; if(u) copyLink(u,b); }; }
@@ -1922,12 +1948,32 @@ async function openNewTask(){
       : "1 agente builder";
   };
   wfSel.onchange = updatePrev; updatePrev();
+  // revisores: agentes do catálogo (papel reviewer primeiro) + padrão
+  const ags = (state.config&&state.config.agents)||[];
+  const revFirst = [...ags].sort((a,b)=>((b.role==='reviewer')?1:0)-((a.role==='reviewer')?1:0));
+  document.getElementById("ntReviewer").innerHTML = `<option value="">Revisor padrão (Claude)</option>`+
+    revFirst.map(a=>`<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("");
+  setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq);
   document.getElementById("ntOverlay").style.display = "flex";
-  document.getElementById("ntTitle").focus();
+  (ntMode==='review'?document.getElementById("ntPr"):document.getElementById("ntTitle")).focus();
+}
+let ntMode='build';
+function setNtMode(m){
+  ntMode=m;
+  document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.classList.toggle('on', b.dataset.mode===m));
+  document.getElementById("ntBuildFields").style.display = m==='build'?'':'none';
+  document.getElementById("ntReviewFields").style.display = m==='review'?'':'none';
+  document.getElementById("ntDraft").style.display = m==='review'?'none':'';
+  document.getElementById("ntAI").style.display = m==='review'?'none':'';
+  document.getElementById("ntImport").style.display = m==='review'?'none':'';
+  document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':'cada tarefa vira uma branch + worktree isolada';
+  const create=document.getElementById("ntCreate");
+  const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
+  if(tn) tn.textContent = m==='review'?' revisar PR':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr"].forEach(id=>document.getElementById(id).value=""); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -1979,6 +2025,16 @@ function toggleAiAssist(){
   if(show){ if(!document.getElementById('aiChat').children.length) aiAppend('assistant','Oi! Me conta em uma ou duas frases o que você quer fazer — eu pergunto o resto e monto a tarefa.'); document.getElementById('aiInput').focus(); }
 }
 async function submitNewTask(start=true){
+  if(ntMode==='review'){
+    const pr = document.getElementById("ntPr").value.trim();
+    if(!pr){ document.getElementById("ntPr").focus(); return; }
+    const agents = document.getElementById("ntReviewer").value || null;
+    const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="revisando…";
+    try{ await invoke("review_pr", { prUrl: pr, agents }); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    catch(e){ alert("Falha ao iniciar o review:\n"+e); }
+    finally{ btn.innerHTML=orig; btn.disabled=false; }
+    return;
+  }
   const title = document.getElementById("ntTitle").value.trim();
   if(!title){ document.getElementById("ntTitle").focus(); return; }
   const payload = {
@@ -2092,6 +2148,7 @@ document.getElementById("ntClose").onclick = closeNewTask;
 document.getElementById("ntCancel").onclick = closeNewTask;
 document.getElementById("ntCreate").onclick = ()=>submitNewTask(true);
 document.getElementById("ntDraft").onclick = ()=>submitNewTask(false);
+document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMode(b.dataset.mode));
 document.getElementById("ntAI").onclick = toggleAiAssist;
 document.getElementById("aiSend").onclick = sendAiMsg;
 document.getElementById("aiInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendAiMsg(); });

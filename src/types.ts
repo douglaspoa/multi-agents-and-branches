@@ -84,6 +84,11 @@ export interface TaskSpec {
   issueCode?: string;
   /** Ajuste pedido pelo humano num rework — injetado no contexto de TODOS os papéis. */
   adjustment?: string;
+  /** Tipo da tarefa: "build" (padrão, cria branch/worktree) ou "review" (revisa um PR por link, sem branch). */
+  kind?: "build" | "review";
+  /** Só para kind="review": link e número do PR sendo revisado. */
+  prUrl?: string;
+  prNumber?: number;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)
