@@ -19,6 +19,13 @@ import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts
  * worktree, persistindo cada evento no SQLite. Ao final, monta o review humano
  * a partir do diff real.
  */
+/** Nome da branch pela convenção: <tipo>/<CÓDIGO->-<slug>. Sem tipo → agent/ (retrocompat). */
+export function branchName(spec: TaskSpec): string {
+  const type = (spec.branchType || "agent").replace(/[^a-z0-9]/gi, "").toLowerCase() || "agent";
+  const code = spec.issueCode ? spec.issueCode.trim().toUpperCase().replace(/\s+/g, "-") + "-" : "";
+  return `${type}/${code}${spec.id}`;
+}
+
 export class Orchestrator {
   ws: Workspace;
   git: GitService;
@@ -50,7 +57,7 @@ export class Orchestrator {
       spec.roles = [{ role: "builder", name: spec.agent, engine: spec.engine, model: spec.model }];
     }
 
-    const branch = `agent/${spec.id}`;
+    const branch = branchName(spec);
     const worktree = this.ws.worktreePath(spec.id);
     const base = await this.git.currentBranch();
 
@@ -168,6 +175,10 @@ export class Orchestrator {
       }
 
       this.store.setDoneRoles(taskId, i + 1);
+
+      // Se o agente de issues criou uma issue (ex.: FND-853), renomeia a branch
+      // pra convenção <tipo>/<CÓDIGO>-<slug> (ex.: agent/... → feat/FND-853-...).
+      if (r.role === "planner") await this.maybeRenameBranchFromIssue(taskId, task, spec);
 
       // GATE do plano: se acabou o planner e o humano quer aprovar antes,
       // pausa aqui. A UI mostra o plano (editável) e o botão "aprovar e continuar".
@@ -302,6 +313,26 @@ export class Orchestrator {
     this.store.releaseClaims(taskId);
     this.store.setStatus(taskId, "review");
     notify("Constellation", "Ajuste aplicado — pronto para review", task.title);
+  }
+
+  /** Detecta um código de issue (FND-853, ABC-12…) nos eventos e renomeia a branch. */
+  private async maybeRenameBranchFromIssue(taskId: string, task: TaskRow, spec: TaskSpec): Promise<void> {
+    const text = this.store.eventsForTask(taskId).map((e) => e.text).join("  ");
+    const m = text.match(/\b([A-Z]{2,10}-\d+)\b/);
+    if (!m) return;
+    const code = m[1].toUpperCase();
+    const cur = this.store.getTask(taskId)?.branch ?? task.branch;
+    if (cur.includes(code)) return;
+    const type = spec.branchType && spec.branchType !== "agent" ? spec.branchType : "feat";
+    const newBranch = `${type}/${code}-${spec.id}`;
+    try {
+      await this.git.renameBranch(task.worktree, newBranch);
+      this.store.setBranch(taskId, newBranch);
+      task.branch = newBranch;
+      this.store.addEvent(taskId, spec.agent, "note", `branch renomeada → ${newBranch} (issue ${code})`, true);
+    } catch (err) {
+      this.store.addEvent(taskId, spec.agent, "note", `não deu pra renomear a branch: ${(err as Error).message}`, false);
+    }
   }
 
   /** Gera (via Claude) e guarda o resumo técnico de um commit — o quê + porquê. */

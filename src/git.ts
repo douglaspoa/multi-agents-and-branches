@@ -52,6 +52,11 @@ export class GitService {
     await run("git", ["-C", this.repo, "worktree", "remove", "--force", path]);
   }
 
+  /** Renomeia a branch atual da worktree (git branch -m). */
+  async renameBranch(worktree: string, newName: string): Promise<void> {
+    await run("git", ["-C", worktree, "branch", "-m", newName]);
+  }
+
   async branchDelete(branch: string): Promise<void> {
     try {
       await run("git", ["-C", this.repo, "branch", "-D", branch]);

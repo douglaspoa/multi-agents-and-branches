@@ -1064,6 +1064,8 @@ fn new_task(
     start: Option<bool>,
     plan_approval: Option<String>,
     refs: Option<Vec<String>>,
+    branch_type: Option<String>,
+    issue: Option<String>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let mut args = vec![
@@ -1119,6 +1121,8 @@ fn new_task(
             args.push(r.clone());
         }
     }
+    push_opt(&mut args, "--branch-type", &branch_type);
+    push_opt(&mut args, "--issue", &issue);
 
     Command::new(node_bin())
         .args(&args)

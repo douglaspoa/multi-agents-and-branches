@@ -79,6 +79,9 @@ export interface TaskSpec {
   artifacts?: ArtifactReq[];
   /** Documentos de referência anexados (basenames em .cardume/refs/). */
   refs?: string[];
+  /** Convenção de branch: tipo (feat/fix/chore…) e código da issue (FND-xxx), se houver. */
+  branchType?: string;
+  issueCode?: string;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

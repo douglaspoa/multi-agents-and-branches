@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Orchestrator } from "./orchestrator.ts";
+import { Orchestrator, branchName } from "./orchestrator.ts";
 import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
@@ -138,6 +138,8 @@ async function cmdNew(repo: string, a: Args) {
     deliverables: a.multi.deliverable ?? [title],
     requirements: list(a.flags.requirements),
     artifacts: artifacts.length ? artifacts : undefined,
+    branchType: a.flags["branch-type"] || undefined,
+    issueCode: a.flags.issue || undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",
@@ -153,7 +155,7 @@ async function cmdNew(repo: string, a: Args) {
 
   const refSources = a.multi.ref ?? [];
   const orch = new Orchestrator(repo);
-  console.log(c.dim(`→ criando worktree agent/${id} · equipe: ${roles.map((r) => r.role + ":" + r.name).join(" → ")}`));
+  console.log(c.dim(`→ criando worktree ${branchName(spec)} · equipe: ${roles.map((r) => r.role + ":" + r.name).join(" → ")}`));
   await orch.createTask(spec, refSources);
   if (a.flags["no-start"]) {
     orch.store.setStatus(id, "draft");

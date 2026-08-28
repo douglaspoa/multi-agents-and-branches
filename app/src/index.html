@@ -673,6 +673,10 @@
         <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
       </div>
       <div class="two" style="margin-top:11px">
+        <div><label>Tipo da branch</label><select class="sel" id="ntBranchType" style="width:100%"><option value="feat">feat</option><option value="fix">fix</option><option value="chore">chore</option><option value="refactor">refactor</option><option value="docs">docs</option><option value="perf">perf</option><option value="agent">agent (padrão antigo)</option></select></div>
+        <div><label>Código da issue <span class="dim" style="text-transform:none;letter-spacing:0">(opcional — auto se houver etapa de issue)</span></label><input class="in" id="ntIssue" placeholder="ex.: FND-853"></div>
+      </div>
+      <div class="two" style="margin-top:11px">
         <div><label>Aprovação das ações</label><select class="sel" id="ntApprove" style="width:100%"><option value="auto">Auto — o agente decide sozinho</option><option value="ask">Perguntar quando incerto</option></select></div>
         <div><label>Plano <span class="dim" style="text-transform:none;letter-spacing:0">(se houver etapa de plano)</span></label><select class="sel" id="ntPlan" style="width:100%"><option value="auto">Aceitar automaticamente</option><option value="review">Revisar antes de começar</option></select></div>
       </div>
@@ -1735,7 +1739,7 @@ async function openNewTask(){
   document.getElementById("ntTitle").focus();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff"].forEach(id=>document.getElementById(id).value=""); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -1805,6 +1809,8 @@ async function submitNewTask(start=true){
     proof: document.getElementById("ntArtProof").checked,
     planApproval: document.getElementById("ntPlan").value,
     refs: ntRefs.slice(),
+    branchType: document.getElementById("ntBranchType").value,
+    issue: document.getElementById("ntIssue").value.trim() || null,
   };
   const btn = document.getElementById(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   document.getElementById("ntCreate").disabled=true; document.getElementById("ntDraft").disabled=true;
