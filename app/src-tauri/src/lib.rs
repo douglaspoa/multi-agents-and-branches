@@ -1392,6 +1392,20 @@ fn repo_slug(repo: &PathBuf) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Abre uma URL no navegador do sistema (o WKWebView não abre target=_blank).
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("url inválida".to_string());
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    Command::new(opener)
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("falha ao abrir o link: {e}"))?;
+    Ok(())
+}
+
 /// Branches candidatas a BASE do PR (remotas, sem as agent/*).
 #[tauri::command]
 fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
@@ -1729,6 +1743,7 @@ pub fn run() {
             start_task,
             reorder_tasks,
             ai_chat,
+            open_url,
             task_files,
             read_file,
             write_file,
