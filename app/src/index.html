@@ -1857,7 +1857,7 @@ function questionBlock(taskId){
   return ps.map(p=>{
     const opts = Array.isArray(p.options) && p.options.length ? p.options : null;
     const optBtns = opts ? `<div class="qopts">${opts.map(o=>`<button class="askopt" data-id="${p.id}" data-ans="${escA(o)}">${esc(o)}</button>`).join("")}</div>${opts?'<div class="qorlbl">ou escreva sua própria resposta</div>':''}` : "";
-    const inputRow = `<div class="qin"><input class="askinput" data-id="${p.id}" placeholder="${opts?'sua resposta…':'sua resposta…'}"><button class="asksend" data-id="${p.id}">responder</button></div>`;
+    const inputRow = `<div class="qin"><input class="askinput" id="ask-${p.id}" data-id="${p.id}" placeholder="sua resposta…"><button class="asksend" data-id="${p.id}">responder</button></div>`;
     return `<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq">${esc(p.prompt)}</div><div class="qc">${optBtns}${inputRow}</div></div>`;
   }).join("");
 }
