@@ -1157,13 +1157,16 @@ function render(){
   document.getElementById("kanbanPane").style.display = v==="kanban"?"block":"none";
   document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
   document.getElementById("feedPane").style.display = v==="feed"?"block":"none";
-  renderRail(); renderSide(); renderBus();
+  // cada painel isolado: um erro num deles não derruba os outros nem o poll
+  safe(renderRail); safe(renderSide); safe(renderBus);
   // só renderiza o painel central ativo (os outros ficam ocultos)
-  if(v==="graph") renderGraph();
-  else if(v==="feed") renderFeed();
-  else if(v==="kanban") renderKanban();
-  else renderFlow();
+  if(v==="graph") safe(renderGraph);
+  else if(v==="feed") safe(renderFeed);
+  else if(v==="kanban") safe(renderKanban);
+  else safe(renderFlow);
 }
+// executa um render defensivamente — loga o erro em vez de propagar/travar a UI
+function safe(fn){ try{ fn(); }catch(e){ console.error("render "+(fn.name||"?")+":", e); } }
 function activeIs(x){ return ((((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v)===x; }
 const commitsCache={};
 async function loadCommits(taskId, force){
@@ -2280,9 +2283,15 @@ document.getElementById("agImport").onclick = importAgents;
 document.getElementById("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Novo workflow", steps:[] }); renderWf(); };
 document.getElementById("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
 
+// rede de segurança global: um erro solto (ex.: invoke que rejeitou sem catch,
+// rede caída) não deve deixar a UI num estado quebrado — só loga.
+window.addEventListener("error", e=>{ console.error("erro global:", e.error||e.message); });
+window.addEventListener("unhandledrejection", e=>{ console.error("promise sem catch:", e.reason); e.preventDefault(); });
+
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
-refresh().then(loadProjects);
-setInterval(refresh, 1000);
+refresh().then(loadProjects).catch(e=>console.error("boot:", e));
+// poll blindado: uma volta que falhe não derruba o ciclo
+setInterval(()=>{ refresh().catch(e=>console.error("refresh:", e)); }, 1000);
 </script>
 </body>
 </html>

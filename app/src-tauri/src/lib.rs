@@ -8,7 +8,7 @@ fn repo_of(state: &State<AppState>) -> Result<PathBuf, String> {
     state
         .db
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()))
         .ok_or_else(|| "repo não definido".to_string())
@@ -112,6 +112,31 @@ fn slug_id(input: &str) -> String {
     if s.is_empty() { "tarefa".to_string() } else { s }
 }
 
+/// Roda um comando com TETO de tempo; mata o processo se estourar. Evita que a
+/// UI trave quando a rede cai (gh/claude podem pendurar) ou que processos se
+/// acumulem. Best-effort — em caso de timeout retorna Err e o processo é morto.
+fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, String> {
+    use std::sync::mpsc;
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let pid = child.id() as i32;
+    let (tx, rx) = mpsc::channel::<()>();
+    let watch = std::thread::spawn(move || {
+        // se o processo não avisar que terminou dentro do tempo, mata.
+        if rx.recv_timeout(std::time::Duration::from_secs(secs)).is_err() {
+            unsafe { libc::kill(pid, libc::SIGKILL); }
+        }
+    });
+    let out = child.wait_with_output();
+    let _ = tx.send(()); // terminou a tempo → cancela o watchdog
+    let _ = watch.join();
+    match out {
+        Ok(o) if o.status.success() || o.status.code().is_some() => Ok(o),
+        Ok(_) => Err(format!("comando expirou após {secs}s (rede indisponível?)")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Envia um sinal ao GRUPO de processos (pid negativo) — atinge node + claude.
 fn signal_group(pid: i32, sig: i32) {
     unsafe {
@@ -157,7 +182,7 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
 /// Grava o status de uma tarefa direto no DB (usado por pausar/abortar, já que o
 /// orquestrador está congelado/morto e não vai gravar sozinho).
 fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Result<(), String> {
-    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
@@ -316,7 +341,7 @@ fn set_repo(state: State<AppState>, repo: String) -> Result<String, String> {
         return Err(format!("sem state.sqlite em {} — rode `cardume init`", db.display()));
     }
     ensure_app_schema(&db);
-    *state.db.lock().unwrap() = Some(db.clone());
+    *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db.clone());
     Ok(repo)
 }
 
@@ -334,7 +359,7 @@ struct Commit {
 /// Lê o grafo de commits do repo (git log --all) para desenhar as branches.
 #[tauri::command]
 fn graph(state: State<AppState>) -> Result<Vec<Commit>, String> {
-    let db = state.db.lock().unwrap().clone();
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let repo = db
         .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()))
         .ok_or("repo não definido")?;
@@ -474,7 +499,7 @@ fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, S
 /// Lê apenas o cache do resumo por IA (não gera). Retorna null se ainda não existe.
 #[tauri::command]
 fn commit_summary_cached(state: State<AppState>, hash: String) -> Result<Option<String>, String> {
-    let dbpath = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&dbpath, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| e.to_string())?;
     let _ = conn.execute(
@@ -490,7 +515,7 @@ fn commit_summary_cached(state: State<AppState>, hash: String) -> Result<Option<
 /// Cacheado por hash em commit_summary (gera uma vez; depois é instantâneo).
 #[tauri::command]
 async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<String, String> {
-    let dbpath = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath
         .parent()
         .and_then(|d| d.parent())
@@ -548,12 +573,9 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
         "Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n{ctx}Mensagem do commit: {msg}\n\nDiff:\n{diff}"
     );
     let claude = std::env::var("CARDUME_CLAUDE").unwrap_or_else(|_| "claude".to_string());
-    let out = Command::new(&claude)
-        .args(["-p", &prompt])
-        .stdin(Stdio::null())
-        .current_dir(&repo)
-        .output()
-        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    let mut cmd = Command::new(&claude);
+    cmd.args(["-p", &prompt]).current_dir(&repo);
+    let out = output_timeout(cmd, 60)?;
     if !out.status.success() {
         return Err(format!("claude falhou: {}", String::from_utf8_lossy(&out.stderr)));
     }
@@ -568,7 +590,7 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
 /// Commits de uma tarefa (base..branch) — para vincular commits à tarefa.
 #[tauri::command]
 fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_json::Value>, String> {
-    let dbpath = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
     let conn = open(&dbpath)?;
     let (branch, base): (String, String) = conn
@@ -606,7 +628,7 @@ fn current_repo(state: State<AppState>) -> Option<String> {
     state
         .db
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
 }
@@ -635,7 +657,7 @@ fn active_repo_of(state: &State<AppState>) -> Option<String> {
     state
         .db
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
 }
@@ -710,7 +732,7 @@ fn open_project(state: State<AppState>, path: String) -> Result<String, String> 
         return Err("workspace Cardume não pôde ser criado".to_string());
     }
     ensure_app_schema(&db);
-    *state.db.lock().unwrap() = Some(db);
+    *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
     let mut list = read_project_list();
     list.retain(|p| p != &path);
     list.insert(0, path.clone());
@@ -726,7 +748,7 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
         return Err(format!("sem workspace Cardume em {path}"));
     }
     ensure_app_schema(&db);
-    *state.db.lock().unwrap() = Some(db);
+    *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
     // move pro topo: o topo da lista é o "último projeto ativo" restaurado no boot
     let mut list = read_project_list();
     list.retain(|p| p != &path);
@@ -852,7 +874,7 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[tauri::command]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
-    let path = state.db.lock().unwrap().clone();
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let path = match path {
         Some(p) => p,
         None => {
@@ -1020,7 +1042,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
 #[tauri::command]
 fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<(), String> {
-    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
@@ -1065,7 +1087,7 @@ fn add_instruction(state: State<AppState>, task_id: String, text: String) -> Res
     if t.is_empty() {
         return Err("instrução vazia".to_string());
     }
-    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
@@ -1243,7 +1265,7 @@ fn new_task(
 /// Reordena as tarefas no Fluxo: grava sort_order = posição na lista recebida.
 #[tauri::command]
 fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
-    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
@@ -1309,7 +1331,7 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
 /// Congela a árvore de processos do agente (SIGSTOP no grupo) e marca 'paused'.
 #[tauri::command]
 fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap().get(&task_id).copied();
+    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
     match pid {
         Some(p) => {
             signal_group(p, libc::SIGSTOP);
@@ -1323,7 +1345,7 @@ fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// segue e atualiza o status conforme avança nas etapas.
 #[tauri::command]
 fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap().get(&task_id).copied();
+    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
     match pid {
         Some(p) => {
             signal_group(p, libc::SIGCONT);
@@ -1338,7 +1360,7 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
 #[tauri::command]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = { state.procs.lock().unwrap().get(&task_id).copied() };
+    let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
     if let Some(p) = pid {
         signal_group(p, libc::SIGCONT); // caso esteja pausado, destrava pra poder morrer
         signal_group(p, libc::SIGTERM);
@@ -1356,7 +1378,7 @@ fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     }
     set_task_status(&state, &task_id, "aborted")?;
     // libera claims de arquivo + perguntas pendentes desta tarefa (best-effort)
-    if let Some(path) = state.db.lock().unwrap().clone() {
+    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
@@ -1393,12 +1415,9 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
             args.push(sid.clone());
         }
     }
-    let out = Command::new(&claude)
-        .args(&args)
-        .current_dir(&repo)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("claude indisponível: {e}"))?;
+    let mut cmd = Command::new(&claude);
+    cmd.args(&args).current_dir(&repo);
+    let out = output_timeout(cmd, 90)?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).to_string());
     }
@@ -1411,7 +1430,7 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
 
 // ---------- revisão de arquivos da tarefa (abrir/editar/salvar) ----------
 fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
-    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = open(&path)?;
     conn.query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| {
         Ok((PathBuf::from(r.get::<_, String>(0)?), r.get::<_, String>(1)?))
@@ -1504,7 +1523,7 @@ fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Resul
     if !out.status.success() {
         return Err(format!("git branch -m: {}", String::from_utf8_lossy(&out.stderr)));
     }
-    if let Some(path) = state.db.lock().unwrap().clone() {
+    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             let _ = conn.execute("UPDATE task SET branch=?1 WHERE id=?2", params![clean, task_id]);
@@ -1570,17 +1589,15 @@ fn read_ref(state: State<AppState>, task_id: String, name: String) -> Result<Art
 
 // ---------- integração com Pull Requests (GitHub via gh) ----------
 fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String> {
-    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = open(&path)?;
     conn.query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0))
         .map_err(|e| e.to_string())
 }
 fn repo_slug(repo: &PathBuf) -> Result<String, String> {
-    let out = Command::new("gh")
-        .args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
-        .current_dir(repo)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = Command::new("gh");
+    cmd.args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).current_dir(repo);
+    let out = output_timeout(cmd, 10)?;
     if !out.status.success() {
         return Err("sem repositório GitHub (gh)".to_string());
     }
@@ -1686,11 +1703,13 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
     let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), comments: vec![] };
-    let view = Command::new("gh")
-        .args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,comments"])
-        .current_dir(&repo)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut vcmd = Command::new("gh");
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,comments"]).current_dir(&repo);
+    // rede caída / gh pendurado → devolve "sem PR" em vez de travar/errar a UI
+    let view = match output_timeout(vcmd, 12) {
+        Ok(o) => o,
+        Err(_) => return Ok(empty),
+    };
     if !view.status.success() {
         return Ok(empty);
     }
@@ -1711,7 +1730,9 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     }
     if number > 0 {
         if let Ok(slug) = repo_slug(&repo) {
-            if let Ok(o) = Command::new("gh").args(["api", &format!("repos/{}/pulls/{}/comments", slug, number), "--paginate"]).current_dir(&repo).output() {
+            let mut acmd = Command::new("gh");
+            acmd.args(["api", &format!("repos/{}/pulls/{}/comments", slug, number), "--paginate"]).current_dir(&repo);
+            if let Ok(o) = output_timeout(acmd, 15) {
                 if o.status.success() {
                     if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&o.stdout) {
                         if let Some(a) = arr.as_array() {
@@ -1758,7 +1779,7 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
         return Err(String::from_utf8_lossy(&out.stderr).to_string());
     }
     // marca merged localmente + remove a worktree
-    if let Some(path) = state.db.lock().unwrap().clone() {
+    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
