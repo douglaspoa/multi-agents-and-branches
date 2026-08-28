@@ -950,7 +950,7 @@
 <!-- Planner (chat) — monta o TASK.yaml conversando, 2 colunas -->
 <div class="overlay fwoverlay" id="plannerOverlay" style="display:none">
   <div class="fw">
-    <div class="fwhead"><span class="pmdot"></span><b>Planner — montar a tarefa conversando</b><span class="fwsub" id="plMeter"></span><span style="flex:1"></span><button class="btn sm" id="plClose"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button></div>
+    <div class="fwhead"><span class="pmdot"></span><b>Planner — montar a tarefa conversando</b><span class="fwsub" id="plMeter"></span><span style="flex:1"></span><button class="btn sm" id="plNew" title="começar do zero (descarta o rascunho)">novo</button><button class="btn sm" id="plClose"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button></div>
     <div class="plcols">
       <div class="plchatcol">
         <div class="plthread" id="plThread"></div>
@@ -2487,13 +2487,26 @@ function plVal(k){ if(k==='id') return plFields.title?agSlug(plFields.title):'';
 function plHas(k){ const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
 function plReady(){ return plHas('title')&&plHas('objective')&&plHas('deliverables'); }
-function openPlanner(){
+let plSaveTimer=null;
+function plAutoSave(){ clearTimeout(plSaveTimer); plSaveTimer=setTimeout(()=>{ try{ invoke('save_draft',{ json: JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40), chips:plChips, asking:plAsking }) }); }catch(_){} }, 400); }
+async function openPlanner(){
   plReset();
   document.getElementById('plannerOverlay').style.display='flex';
-  plMsgs.push({who:'bot', text:'Bora montar a tarefa conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê?'});
-  plChips=[];
-  renderPlanner();
+  let draft=null; try{ draft=await invoke('load_draft'); }catch(_){}
+  if(draft){ try{ const d=JSON.parse(draft);
+    if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
+      plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||'';
+      plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou "novo" no topo pra começar do zero).'});
+    }
+  }catch(_){} }
+  if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar a tarefa conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê?'}); }
+  renderPlanner(); plRenderRefs();
   const i=document.getElementById('plInput'); if(i) i.focus();
+}
+async function plNew(){
+  try{ await invoke('clear_draft'); }catch(_){}
+  plReset(); plMsgs.push({who:'bot', text:'Novo. Qual é o objetivo — o que precisa ser feito e por quê?'});
+  renderPlanner(); plRenderRefs();
 }
 function closePlanner(){ document.getElementById('plannerOverlay').style.display='none'; }
 function plApplyPatch(patch){
@@ -2525,7 +2538,7 @@ function renderPlanner(){
       return `<div class="plfield ${st}"><div class="plfhead"><span class="pldot"></span><span class="plfk mono">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`;
     }).join('')+
     `<div class="plmeshfoot"><button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
-  mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); }));
+  mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
   { const b=document.getElementById('plCreate'); if(b) b.onclick=plCreate; }
   if(keep){ const i=document.getElementById('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
 }
@@ -2563,7 +2576,7 @@ async function plSend(text){
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }
   }catch(e){ plBusy=false; plMsgs.push({who:'sys', text:'⚠ '+String(e)}); }
-  renderPlanner();
+  renderPlanner(); plAutoSave();
 }
 async function plCreate(){
   if(!plReady()) return;
@@ -2575,10 +2588,11 @@ async function plCreate(){
     requirements:(plFields.requirements||[]).filter(Boolean), doc:null, proof:false,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null };
-  try{ await invoke('new_task', payload); closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
+  try{ await invoke('new_task', payload); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 document.getElementById('plClose').onclick=closePlanner;
+document.getElementById('plNew').onclick=plNew;
 document.getElementById('plAttach').onclick=plAttach;
 document.getElementById('plSend').onclick=()=>plSend(document.getElementById('plInput').value);
 document.getElementById('plInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); plSend(document.getElementById('plInput').value); } });

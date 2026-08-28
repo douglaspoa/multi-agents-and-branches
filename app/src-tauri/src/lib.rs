@@ -321,6 +321,11 @@ fn ensure_app_schema(db: &PathBuf) {
             "CREATE TABLE IF NOT EXISTS instruction (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at INTEGER NOT NULL, applied_at INTEGER)",
             [],
         );
+        // rascunho do Planner (1 linha) — sobrevive a fechar/crashar o app
+        let _ = conn.execute(
+            "CREATE TABLE IF NOT EXISTS planner_draft (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+            [],
+        );
     }
 }
 
@@ -1326,6 +1331,39 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
     Ok(())
 }
 
+// ---------- rascunho do Planner (persistência no banco) ----------
+/// Salva/atualiza o rascunho do Planner (1 linha). Chamado a cada rodada da
+/// conversa, pra sobreviver a fechar/crashar o app.
+#[tauri::command]
+fn save_draft(state: State<AppState>, json: String) -> Result<(), String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    let _ = conn.execute("CREATE TABLE IF NOT EXISTS planner_draft (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL, updated_at INTEGER NOT NULL)", []);
+    conn.execute(
+        "INSERT INTO planner_draft(id,json,updated_at) VALUES(1,?1,?2) ON CONFLICT(id) DO UPDATE SET json=?1, updated_at=?2",
+        params![json, now_ms()],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+/// Lê o rascunho salvo (ou None).
+#[tauri::command]
+fn load_draft(state: State<AppState>) -> Result<Option<String>, String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let r = conn.query_row("SELECT json FROM planner_draft WHERE id=1", [], |row| row.get::<_, String>(0));
+    match r { Ok(s) => Ok(Some(s)), Err(_) => Ok(None) }
+}
+/// Descarta o rascunho (após criar a tarefa ou o usuário começar do zero).
+#[tauri::command]
+fn clear_draft(state: State<AppState>) -> Result<(), String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+        let _ = conn.execute("DELETE FROM planner_draft WHERE id=1", []);
+    }
+    Ok(())
+}
+
 // ---------- controles por execução (pausar / retomar / abortar) ----------
 
 /// Congela a árvore de processos do agente (SIGSTOP no grupo) e marca 'paused'.
@@ -1958,6 +1996,9 @@ pub fn run() {
             new_task,
             start_task,
             review_pr,
+            save_draft,
+            load_draft,
+            clear_draft,
             pause_task,
             resume_task,
             abort_task,
