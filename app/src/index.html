@@ -2207,6 +2207,8 @@ function renderSide(){
   if(!t){ el.innerHTML = '<div class="empty">selecione uma tarefa</div>'; return; }
   // preserva foco/caret de inputs do painel entre re-renders (pra digitar sem perder)
   const ae=document.activeElement, aeId=(ae&&el.contains(ae)&&ae.id)?ae.id:null, aeVal=aeId?ae.value:null, aeCaret=(aeId&&ae.selectionStart!=null)?ae.selectionStart:null;
+  // preserva a posição do scroll do corpo (senão o poll de 1s joga tudo pro topo)
+  const sbPrev=el.querySelector('.sidebody'), sbTop=sbPrev?sbPrev.scrollTop:0;
   const col = STATUS_COLOR[t.status]||"var(--muted)";
   const claims = claimsOf(t.id);
   const d = diffOf(t.id);
@@ -2321,6 +2323,8 @@ function renderSide(){
   wireQuestion(el);
   // restaura foco/caret do input que estava sendo digitado
   if(aeId){ const n=el.querySelector('#'+aeId); if(n){ try{ n.focus(); if(aeVal!=null && 'value' in n) n.value=aeVal; if(aeCaret!=null && n.setSelectionRange) n.setSelectionRange(aeCaret,aeCaret); }catch(e){} } }
+  // restaura o scroll do corpo (menos na aba Stream, que segue o fim ao vivo)
+  { const nsb=el.querySelector('.sidebody'); if(nsb && sideTab!=='stream' && sbTop>0) nsb.scrollTop=sbTop; }
   // stream rola pro fim (ao vivo)
   if(sideTab==='stream'){ const s=el.querySelector('.stream'); if(s) s.scrollTop=s.scrollHeight; }
 }
