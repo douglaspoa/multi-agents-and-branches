@@ -119,7 +119,8 @@ async function cmdNew(repo: string, a: Args) {
     console.error(c.red("✖ use --title \"...\""));
     process.exit(1);
   }
-  const id = slugify(title);
+  // id pode vir do app (pra ele já rastrear o processo); senão, do título.
+  const id = a.flags.id ? slugify(a.flags.id) : slugify(title);
   const roles = buildRoles(a, repo);
   const lead = roles.find((r) => r.role === "builder") ?? roles[0];
   const artifacts: TaskSpec["artifacts"] = [];

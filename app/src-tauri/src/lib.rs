@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 fn repo_of(state: &State<AppState>) -> Result<PathBuf, String> {
     state
@@ -45,6 +47,9 @@ fn now_ms() -> i64 {
 #[derive(Default)]
 struct AppState {
     db: Mutex<Option<PathBuf>>,
+    /// PID (= líder do grupo de processos) de cada tarefa em execução, por id.
+    /// Permite pausar/retomar/abortar a árvore inteira do agente (node + claude).
+    procs: Arc<Mutex<HashMap<String, i32>>>,
 }
 
 impl AppState {
@@ -64,8 +69,101 @@ impl AppState {
         if let Some(d) = &db {
             ensure_app_schema(d);
         }
-        AppState { db: Mutex::new(db) }
+        AppState { db: Mutex::new(db), procs: Arc::new(Mutex::new(HashMap::new())) }
     }
+}
+
+/// Slug ascii idempotente sob o slugify() do TS (types.ts): minúsculas, acentos
+/// PT→ascii, runs não-alfanuméricos viram '-', apara pontas, corta em 32.
+/// Gerado no Rust pra podermos RASTREAR o processo da tarefa pelo id desde já.
+fn slug_id(input: &str) -> String {
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in input.trim().chars() {
+        let c = ch.to_ascii_lowercase();
+        let mapped: Option<char> = match c {
+            'a'..='z' | '0'..='9' => Some(c),
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => Some('a'),
+            'ç' => Some('c'),
+            'è' | 'é' | 'ê' | 'ë' => Some('e'),
+            'ì' | 'í' | 'î' | 'ï' => Some('i'),
+            'ñ' => Some('n'),
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' => Some('o'),
+            'ù' | 'ú' | 'û' | 'ü' => Some('u'),
+            _ => None,
+        };
+        match mapped {
+            Some(m) => {
+                out.push(m);
+                prev_dash = false;
+            }
+            None => {
+                if !prev_dash && !out.is_empty() {
+                    out.push('-');
+                    prev_dash = true;
+                }
+            }
+        }
+        if out.len() >= 32 {
+            break;
+        }
+    }
+    let s = out.trim_matches('-').to_string();
+    if s.is_empty() { "tarefa".to_string() } else { s }
+}
+
+/// Envia um sinal ao GRUPO de processos (pid negativo) — atinge node + claude.
+fn signal_group(pid: i32, sig: i32) {
+    unsafe {
+        libc::kill(-pid, sig);
+    }
+}
+
+/// Spawna um processo de tarefa em um NOVO grupo (setsid) e o registra por id,
+/// pra podermos pausar/abortar a árvore inteira. Uma thread limpa o registro
+/// quando o processo termina naturalmente (evita PID reciclado no mapa).
+fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Result<(), String> {
+    unsafe {
+        cmd.pre_exec(|| {
+            // novo grupo/sessão: o node vira líder e o claude herda o grupo
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("falha ao iniciar processo: {e}"))?;
+    let pid = child.id() as i32;
+    if let Ok(mut m) = state.procs.lock() {
+        m.insert(task_id.to_string(), pid);
+    }
+    let procs = state.procs.clone();
+    let tid = task_id.to_string();
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = child.wait();
+        if let Ok(mut m) = procs.lock() {
+            if m.get(&tid) == Some(&pid) {
+                m.remove(&tid);
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Grava o status de uma tarefa direto no DB (usado por pausar/abortar, já que o
+/// orquestrador está congelado/morto e não vai gravar sozinho).
+fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Result<(), String> {
+    let path = state.db.lock().unwrap().clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    conn.execute("UPDATE task SET status=?1 WHERE id=?2", params![status, task_id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -941,21 +1039,17 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
     add_instruction(state.clone(), task_id.clone(), text.clone())?;
     let repo = repo_of(&state)?;
-    Command::new(node_bin())
-        .args([
-            "--disable-warning=ExperimentalWarning",
-            &cli_path(&repo),
-            "rework",
-            &task_id,
-            "--repo",
-            &repo.display().to_string(),
-        ])
-        .current_dir(&repo)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("falha ao iniciar rework: {e}"))?;
+    let mut cmd = Command::new(node_bin());
+    cmd.args([
+        "--disable-warning=ExperimentalWarning",
+        &cli_path(&repo),
+        "rework",
+        &task_id,
+        "--repo",
+        &repo.display().to_string(),
+    ])
+    .current_dir(&repo);
+    spawn_tracked(&state, &task_id, cmd)?;
     Ok(())
 }
 
@@ -1068,10 +1162,15 @@ fn new_task(
     issue: Option<String>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
+    // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
+    // o processo desta tarefa e permitir pausar/abortar.
+    let id = slug_id(&title);
     let mut args = vec![
         "--disable-warning=ExperimentalWarning".to_string(),
         cli_path(&repo),
         "new".to_string(),
+        "--id".to_string(),
+        id.clone(),
         "--repo".to_string(),
         repo.display().to_string(),
         "--title".to_string(),
@@ -1124,14 +1223,16 @@ fn new_task(
     push_opt(&mut args, "--branch-type", &branch_type);
     push_opt(&mut args, "--issue", &issue);
 
-    Command::new(node_bin())
-        .args(&args)
-        .current_dir(&repo)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("falha ao iniciar tarefa: {e}"))?;
+    let mut cmd = Command::new(node_bin());
+    cmd.args(&args).current_dir(&repo);
+    // rastreia só quando a tarefa realmente vai rodar (rascunho não tem processo)
+    if start == Some(false) {
+        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("falha ao criar rascunho: {e}"))?;
+    } else {
+        spawn_tracked(&state, &id, cmd)?;
+    }
     Ok(())
 }
 
@@ -1153,21 +1254,79 @@ fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String>
 #[tauri::command]
 fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
-    Command::new(node_bin())
-        .args([
-            "--disable-warning=ExperimentalWarning",
-            &cli_path(&repo),
-            "start",
-            &task_id,
-            "--repo",
-            &repo.display().to_string(),
-        ])
-        .current_dir(&repo)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("falha ao iniciar tarefa: {e}"))?;
+    let mut cmd = Command::new(node_bin());
+    cmd.args([
+        "--disable-warning=ExperimentalWarning",
+        &cli_path(&repo),
+        "start",
+        &task_id,
+        "--repo",
+        &repo.display().to_string(),
+    ])
+    .current_dir(&repo);
+    spawn_tracked(&state, &task_id, cmd)?;
+    Ok(())
+}
+
+// ---------- controles por execução (pausar / retomar / abortar) ----------
+
+/// Congela a árvore de processos do agente (SIGSTOP no grupo) e marca 'paused'.
+#[tauri::command]
+fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let pid = state.procs.lock().unwrap().get(&task_id).copied();
+    match pid {
+        Some(p) => {
+            signal_group(p, libc::SIGSTOP);
+            set_task_status(&state, &task_id, "paused")
+        }
+        None => Err("tarefa não está em execução".to_string()),
+    }
+}
+
+/// Retoma a árvore congelada (SIGCONT) e volta pra 'running' — o orquestrador
+/// segue e atualiza o status conforme avança nas etapas.
+#[tauri::command]
+fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let pid = state.procs.lock().unwrap().get(&task_id).copied();
+    match pid {
+        Some(p) => {
+            signal_group(p, libc::SIGCONT);
+            set_task_status(&state, &task_id, "running")
+        }
+        None => Err("tarefa não está pausada".to_string()),
+    }
+}
+
+/// Aborta a tarefa: mata a árvore de processos (SIGCONT p/ destravar + SIGTERM,
+/// e SIGKILL após um respiro), marca 'aborted' e libera os claims de arquivo
+/// pra não travar outros agentes. A worktree é preservada pra inspeção.
+#[tauri::command]
+fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let pid = { state.procs.lock().unwrap().get(&task_id).copied() };
+    if let Some(p) = pid {
+        signal_group(p, libc::SIGCONT); // caso esteja pausado, destrava pra poder morrer
+        signal_group(p, libc::SIGTERM);
+        let procs = state.procs.clone();
+        let tid = task_id.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+            signal_group(p, libc::SIGKILL);
+            if let Ok(mut m) = procs.lock() {
+                if m.get(&tid) == Some(&p) {
+                    m.remove(&tid);
+                }
+            }
+        });
+    }
+    set_task_status(&state, &task_id, "aborted")?;
+    // libera claims de arquivo + perguntas pendentes desta tarefa (best-effort)
+    if let Some(path) = state.db.lock().unwrap().clone() {
+        if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+            let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+            let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
+            let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
+        }
+    }
     Ok(())
 }
 
@@ -1741,6 +1900,9 @@ pub fn run() {
             config,
             new_task,
             start_task,
+            pause_task,
+            resume_task,
+            abort_task,
             reorder_tasks,
             ai_chat,
             open_url,
