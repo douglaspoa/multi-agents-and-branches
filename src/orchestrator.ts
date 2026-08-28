@@ -398,7 +398,7 @@ export class Orchestrator {
 
     const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
     const TESTS = "TESTES: escreva e RODE testes cobrindo a funcionalidade principal e casos de borda; salve a comprovação em `.cardume/artifacts/tests.md` com o(s) comando(s) e a SAÍDA real (quantos passaram/falharam). Se algo falhar, aponte a causa.";
-    const PROOF = "PROVA na UI REAL (não só script de teste): se for algo visual/web, SUBA a aplicação de verdade (dev server) e capture screenshots reais da tela funcionando — salve em `.cardume/artifacts/proof.png` (ou proof-1.png, proof-2.png…). Se não conseguir subir a UI no ambiente headless, DIGA isso claramente em `.cardume/artifacts/proof.md` e entregue a melhor evidência possível (passos exatos pra reproduzir na UI, comandos, saída, antes/depois) — não finja que testou na UI se só rodou um script.";
+    const PROOF = "PROVA na UI REAL — prints de verdade, NÃO um script de teste. Tente de fato: 1) rode a aplicação localmente (ache o dev server e as ENVS necessárias — procure nos repos, ex.: `code-refuge-relay/supabase`, `.env`, docker-compose); 2) exercite a funcionalidade na tela e capture screenshots em `.cardume/artifacts/proof.png` (proof-1.png, proof-2.png…). Se FALTAR alguma credencial/env/acesso que você não achou, PERGUNTE ao humano (mcp__cardume__ask_human) — ele tem as envs — em vez de desistir. Se o serviço externo (ex.: OpenSearch/RDS de produção) for realmente inalcançável, monte um DEMO isolado da UI com dados mockados (como o `_demo/` de outras tasks), suba e printe ele. Só caia pra evidência textual (proof.md) se o humano confirmar que não há como printar a UI.";
     const head = "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada além do necessário pra testar. ";
     const PROMPTS: Record<string, string> = {
       doc: head + "Produza o " + DOC,
@@ -411,7 +411,7 @@ export class Orchestrator {
       : kind === "tests" ? "testes de comprovação"
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
-    const engine = this.engineFor(role.engine, role.model, "auto");
+    const engine = this.engineFor(role.engine, role.model, "ask");
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
@@ -450,7 +450,7 @@ export class Orchestrator {
     const role =
       roles.find((r) => r.engine === "claude") ||
       ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
-    const engine = this.engineFor(role.engine, role.model, "auto");
+    const engine = this.engineFor(role.engine, role.model, "ask");
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
     const prev = task.status;
     const sid = task.session_id || "";
