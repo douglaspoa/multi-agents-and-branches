@@ -567,24 +567,32 @@
   .fvedit{flex:1;height:100%;font-family:var(--mono);font-size:12px;line-height:1.55;border:none;outline:none;background:var(--surface-2);color:var(--text);padding:12px;resize:none;white-space:pre;overflow:auto;tab-size:2}
   .fvedit:focus{background:var(--surface)}
   /* ===== workspace 3 colunas (arquivos · código · chat) ===== */
-  .fwoverlay{padding:14px;align-items:stretch;justify-content:stretch}
-  .fw{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
+  /* deixa o topo livre: não cobrir os controles da janela (semáforo do macOS) */
+  .fwoverlay{top:34px;padding:0 12px 12px;align-items:stretch;justify-content:stretch}
+  .fw{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 0 0;display:flex;flex-direction:column;overflow:hidden}
   .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2)}
   .fwhead b{font-size:13.5px}
   .fwhead .fwsub{font-size:11px;color:var(--muted)}
   .fwhead .x{margin-left:auto;border:0;background:transparent;color:var(--muted);cursor:pointer}
   .fwcols{flex:1;display:grid;grid-template-columns:238px 1fr 348px;min-height:0}
-  .fwtree{border-right:1px solid var(--border);overflow:auto;padding:10px;display:flex;flex-direction:column;gap:3px;background:var(--surface-2)}
-  .fwtreeh{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:2px 4px 6px}
-  .fwfile{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;text-align:left;border:1px solid transparent;background:transparent;border-radius:7px;padding:7px 9px;cursor:pointer;font:inherit}
+  .fwtree{border-right:1px solid var(--border);overflow:auto;padding:10px 8px;display:flex;flex-direction:column;background:var(--surface-2)}
+  .fwtreeh{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:2px 4px 8px}
+  .fwtreebody{display:flex;flex-direction:column;gap:1px}
+  .fwdir{display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:pointer;border-radius:6px;color:var(--text-2);font-size:12px;font-weight:600}
+  .fwdir:hover{background:var(--surface-3)}
+  .fwchev{width:11px;font-size:9px;color:var(--muted)}
+  .fwdname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fwfile{display:grid;grid-template-columns:auto 1fr auto;gap:7px;align-items:center;text-align:left;border:1px solid transparent;background:transparent;border-radius:6px;padding:4px 6px;cursor:pointer;font:inherit}
   .fwfile:hover{background:var(--surface-3)}
-  .fwfile.on{background:var(--surface-3);border-color:var(--border-strong)}
-  .fwtag{width:17px;height:17px;display:grid;place-items:center;border-radius:4px;font-size:9.5px;font-weight:700}
+  .fwfile.on{background:color-mix(in srgb,var(--accent) 14%,transparent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+  .fwtag{width:16px;height:16px;display:grid;place-items:center;border-radius:4px;font-size:9px;font-weight:700}
   .fwtag.a{background:color-mix(in srgb,var(--good) 22%,transparent);color:var(--good)}
   .fwtag.m{background:color-mix(in srgb,var(--info) 22%,transparent);color:var(--info)}
-  .fwfp{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
-  .fwadd{font-size:10.5px;color:var(--good);font-variant-numeric:tabular-nums}
-  .fwtreehint{margin-top:auto;font-size:10.5px;color:var(--muted);line-height:1.5;padding:10px 4px 2px}
+  .fwfp{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fwadd{font-size:10px;color:var(--good);font-variant-numeric:tabular-nums}
+  .fwtreehint{margin-top:auto;font-size:10.5px;color:var(--muted);line-height:1.5;padding:12px 4px 2px}
+  .fwedit{flex:1;height:auto;border:0;border-radius:0}
+  .kbd{font-size:9.5px;font-family:var(--mono);background:var(--surface-3);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted);margin-left:2px}
   .fwmain{display:flex;flex-direction:column;min-width:0;overflow:hidden}
   .fwmhead{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border)}
   .fwmpath{font-size:12.5px;font-weight:600}
@@ -884,7 +892,7 @@
       <b class="mono" id="fwTaskName">Arquivos & chat</b>
       <span class="fwsub" id="fwTaskBranch"></span>
       <span style="flex:1"></span>
-      <button class="x" id="fwClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
+      <button class="btn sm" id="fwClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
     </div>
     <div class="fwcols">
       <div class="fwtree" id="fwTree"></div>
@@ -1203,11 +1211,44 @@ document.getElementById('fvClose').onclick=closeFile;
 document.getElementById('fvOverlay').addEventListener('click', e=>{ if(e.target.id==='fvOverlay') closeFile(); });
 
 // ---------- workspace 3 colunas (arquivos · código · chat do agente) ----------
-let fwTask=null, fwPath=null, fwContent='', fwAdded=[], fwSelA=0, fwSelB=0, fwFiles=[];
+let fwTask=null, fwPath=null, fwContent='', fwAdded=[], fwSelA=0, fwSelB=0, fwFiles=[], fwEditing=false, fwDrag=false;
 const fwChat={}; // taskId -> [{who:'you'|'sys', text}]
+const fwCollapsed=new Set(); // pastas recolhidas na árvore
+// pinta a seleção de linhas durante o arraste sem re-render completo (leve)
+function fwPaintSel(){
+  const sel=fwSelRange(); const code=document.getElementById('fwCode'); if(!code) return;
+  code.querySelectorAll('.fwln').forEach(el=>{ const n=+el.dataset.ln; el.classList.toggle('sel', !!(sel&&n>=sel.a&&n<=sel.b)); });
+  const bar=document.querySelector('.fwselbar'); const t=fwTaskObj();
+  if(bar) bar.innerHTML = sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t?t.agent:'agente')} no chat →`:'clique e <b>arraste</b> pra selecionar várias linhas (ou shift+clique) e pergunte no chat';
+}
+async function fwSaveFile(){
+  const ta=document.getElementById('fwText'); if(!ta) return; const v=ta.value; const b=document.getElementById('fwSave'); if(b) b.disabled=true;
+  try{ await invoke('write_file',{ taskId:fwTask, path:fwPath, content:v }); fwContent=v; fwEditing=false; fileCache[fwTask]=undefined; lastSig=''; await refresh(); }
+  catch(e){ alert('Falha ao salvar:\n'+e); }
+  renderWorkspace();
+}
+window.addEventListener('mouseup', ()=>{ if(fwDrag){ fwDrag=false; renderWorkspace(); } });
 function fwTaskObj(){ return (state.tasks||[]).find(t=>t.id===fwTask); }
+function fwBuildTree(files){
+  const root={dirs:{},files:[]};
+  for(const f of files){ const parts=f.path.split('/'); let node=root;
+    for(let i=0;i<parts.length-1;i++){ const d=parts[i]; node.dirs[d]=node.dirs[d]||{dirs:{},files:[],path:parts.slice(0,i+1).join('/')}; node=node.dirs[d]; }
+    node.files.push(f); }
+  return root;
+}
+function fwTreeHtml(node, depth){
+  let h='';
+  for(const d of Object.keys(node.dirs).sort()){ const dir=node.dirs[d]; const col=fwCollapsed.has(dir.path);
+    h+=`<div class="fwdir" data-fwdir="${escA(dir.path)}" style="padding-left:${depth*13+8}px"><span class="fwchev">${col?'▸':'▾'}</span><span class="fwdname">${esc(d)}</span></div>`;
+    if(!col) h+=fwTreeHtml(dir, depth+1);
+  }
+  for(const f of node.files.slice().sort((a,b)=>a.path.localeCompare(b.path))){ const tag=(f.del===0&&f.add>0)?'A':'M';
+    h+=`<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" style="padding-left:${depth*13+8}px"><span class="fwtag ${tag==='A'?'a':'m'}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span><span class="fwadd">+${f.add}</span></button>`;
+  }
+  return h;
+}
 async function openWorkspace(taskId, path){
-  fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[];
+  fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false;
   document.getElementById('fwOverlay').style.display='flex';
   try{ fwFiles = await invoke('task_files',{ taskId }); }catch(e){ fwFiles=[]; }
   if(!fwPath && fwFiles.length) fwPath=fwFiles[0].path;
@@ -1250,24 +1291,48 @@ function renderWorkspace(){
   // ---- coluna 1: árvore de arquivos ----
   const tree=document.getElementById('fwTree');
   tree.innerHTML=`<div class="fwtreeh">Arquivos desta tarefa</div>`+
-    (fwFiles.length?fwFiles.map(f=>{const tag=(f.del===0&&f.add>0)?'A':'M';return `<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}"><span class="fwtag ${tag==='A'?'a':'m'}">${tag}</span><span class="fwfp mono">${esc(f.path)}</span><span class="fwadd">+${f.add}</span></button>`;}).join(''):'<div class="dim" style="padding:8px;font-size:11.5px">nenhum arquivo alterado</div>')+
+    (fwFiles.length?`<div class="fwtreebody">${fwTreeHtml(fwBuildTree(fwFiles),0)}</div>`:'<div class="dim" style="padding:8px;font-size:11.5px">nenhum arquivo alterado</div>')+
     `<div class="fwtreehint">Selecione linhas no código e pergunte ao agente que escreveu — ele responde e reescreve na mesma worktree.</div>`;
-  tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=()=>{ fwPath=b.dataset.fwf; fwLoadFile(); });
-  // ---- coluna 2: código ----
+  tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=()=>{ fwPath=b.dataset.fwf; fwEditing=false; fwLoadFile(); });
+  tree.querySelectorAll('[data-fwdir]').forEach(b=>b.onclick=()=>{ const p=b.dataset.fwdir; if(fwCollapsed.has(p)) fwCollapsed.delete(p); else fwCollapsed.add(p); renderWorkspace(); });
+  // ---- coluna 2: código (visualizar + editar inline) ----
   const main=document.getElementById('fwMain');
   const added=new Set(fwAdded); const sel=fwSelRange();
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
   const lines=fwContent.split('\n');
   const why = reviewOf(t.id)?reviewOf(t.id).summary : t.objective;
-  main.innerHTML = fwPath ? `
-    <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span><button class="btn sm" id="fwOpenEditor">${IC.pencil||'✎'} abrir no editor</button></div>
-    <div class="fwwhy"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div><span class="fwwhyl">Por que este arquivo</span> <span class="fwwhyt">${esc(why)}</span></div></div>
-    <div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>
-    <div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique numa linha (shift+clique pra faixa) pra mirar sua pergunta'}</div>`
-    : '<div class="empty">selecione um arquivo à esquerda</div>';
-  const codeEl=document.getElementById('fwCode');
-  if(codeEl) codeEl.querySelectorAll('.fwln').forEach(el=>el.onclick=(e)=>{ const n=+el.dataset.ln; if(e.shiftKey&&fwSelA){ fwSelB=n; } else { fwSelA=n; fwSelB=n; } renderWorkspace(); const inp=document.getElementById('fwInput'); if(inp&&!e.shiftKey) inp.focus(); });
-  { const b=document.getElementById('fwOpenEditor'); if(b) b.onclick=()=>openFile(fwTask, fwPath); }
+  const whyBand = `<div class="fwwhy"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div><span class="fwwhyl">Por que este arquivo</span> <span class="fwwhyt">${esc(why)}</span></div></div>`;
+  if(!fwPath){ main.innerHTML='<div class="empty">selecione um arquivo à esquerda</div>'; }
+  else {
+    const headBtns = fwEditing
+      ? `<button class="btn primary sm" id="fwSave">${IC.check} salvar</button><button class="btn sm" id="fwCancel">cancelar</button>`
+      : `<button class="btn sm" id="fwEditBtn">${IC.pencil||'✎'} editar</button>`;
+    const body = fwEditing
+      ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off"></textarea></div>`
+      : `<div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>`;
+    const bar = fwEditing
+      ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela`
+      : `<div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique e <b>arraste</b> pra selecionar várias linhas (ou shift+clique) e pergunte no chat'}</div>`;
+    main.innerHTML = `
+      <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
+      ${whyBand}
+      ${body}
+      ${bar}`;
+  }
+  if(fwEditing){
+    const ta=document.getElementById('fwText'), gut=document.getElementById('fwGutter');
+    if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); ta.focus(); }
+    const sv=document.getElementById('fwSave'); if(sv) sv.onclick=fwSaveFile;
+    const cc=document.getElementById('fwCancel'); if(cc) cc.onclick=()=>{ fwEditing=false; renderWorkspace(); };
+  } else {
+    const codeEl=document.getElementById('fwCode');
+    if(codeEl){
+      // seleção por ARRASTE (várias linhas) + shift-clique; sem native text-select
+      codeEl.addEventListener('mousedown',e=>{ const ln=e.target.closest('.fwln'); if(!ln)return; e.preventDefault(); const n=+ln.dataset.ln; if(e.shiftKey&&fwSelA){ fwSelB=n; } else { fwSelA=n; fwSelB=n; } fwDrag=true; fwPaintSel(); });
+      codeEl.addEventListener('mouseover',e=>{ if(!fwDrag)return; const ln=e.target.closest('.fwln'); if(!ln)return; fwSelB=+ln.dataset.ln; fwPaintSel(); });
+    }
+    const eb=document.getElementById('fwEditBtn'); if(eb) eb.onclick=()=>{ fwEditing=true; renderWorkspace(); };
+  }
   // ---- coluna 3: chat com o agente ----
   const chat=document.getElementById('fwChatCol');
   const nowBox = `<div class="fwnow${ACTIVE_ST.has(t.status)?'':' done'}" id="fwNow">${fwNowHtml(t)}</div>`;
@@ -1303,6 +1368,7 @@ async function fwSendMsg(){
 }
 document.getElementById('fwClose').onclick=closeWorkspace;
 document.getElementById('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('fwOverlay').style.display!=='none'){ if(fwEditing){ fwEditing=false; renderWorkspace(); } else closeWorkspace(); } });
 // atualiza SÓ o "O que estou fazendo agora" ao vivo (não mexe no código/input)
 setInterval(()=>{ if(document.getElementById('fwOverlay').style.display!=='none' && fwTask) { try{ fwLiveUpdate(); }catch(e){} } }, 1500);
 // ---------- Pull Request (GitHub) ----------
