@@ -39,7 +39,7 @@ export class Orchestrator {
   }
 
   private statusFor(role: Role): AgentStatus {
-    if (role === "planner") return "thinking";
+    if (role === "planner" || role === "investigator") return "thinking";
     if (role === "reviewer") return "review";
     return "running";
   }

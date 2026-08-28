@@ -36,6 +36,7 @@ export class ClaudeEngine implements AgentEngine {
       tester: "Seu papel é TESTER: escreva e rode testes cobrindo o caminho principal e casos de borda.",
       docs: "Seu papel é DOCS: escreva documentação concisa com exemplos de uso.",
       security: "Seu papel é SECURITY: audite riscos (injeção, authz, segredos) e proponha correções.",
+      investigator: "Seu papel é INVESTIGADOR: ache a CAUSA RAIZ do problema com evidência — NÃO implemente a correção. Reproduza o caso no ambiente/telemetria reais, prove a causa com experimento e entregue um diagnóstico.",
       builder: "Seu papel é BUILDER: implemente a tarefa descrita.",
     };
     const roleInstr = ROLE_INSTR[input.role] ?? ROLE_INSTR.builder;
