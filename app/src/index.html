@@ -146,12 +146,24 @@
   .wftop{display:flex;gap:9px;align-items:center;margin-bottom:10px}
   .wfname{flex:1;background:transparent;border:0;border-bottom:1px solid transparent;color:var(--text);font:inherit;font-size:13.5px;font-weight:700;padding:3px 2px;min-width:0}
   .wfname:focus{outline:none;border-bottom-color:var(--accent)}
-  .steps{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
-  .stepchip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface);padding:4px 6px 4px 9px;font-size:11.5px}
+  .steps{display:flex;flex-wrap:wrap;gap:7px;align-items:center;min-height:34px}
+  .wfgrip{color:var(--muted);cursor:grab;font-size:13px;user-select:none}
+  .wfcount{font-size:10.5px;color:var(--muted);white-space:nowrap}
+  .stepchip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface);padding:4px 7px 4px 6px;font-size:11.5px;border-radius:7px;cursor:grab}
+  .stepchip:active{cursor:grabbing}
+  .stepchip .sgrip{color:var(--muted);font-size:12px;user-select:none}
+  .stepchip .snum{width:15px;height:15px;border-radius:50%;background:var(--surface-3);color:var(--muted);font-size:9px;font-weight:700;display:grid;place-items:center;flex:none}
   .stepchip .cdot{width:8px;height:8px;border-radius:50%;flex:none}
   .stepchip b{font-weight:600}
-  .stepchip .mv,.stepchip .rm{cursor:pointer;color:var(--muted);border:0;background:none;font-size:11px;padding:0 2px;line-height:1}
-  .stepchip .mv:hover{color:var(--accent)} .stepchip .rm:hover{color:var(--crit)}
+  .stepchip .rm{cursor:pointer;color:var(--muted);border:0;background:none;font-size:11px;padding:0 2px;line-height:1}
+  .stepchip .rm:hover{color:var(--crit)}
+  .stepchip.dragging{opacity:.4}
+  .stepchip.insbefore{box-shadow:-3px 0 0 0 var(--accent)}
+  .stepempty{font-size:11px;color:var(--muted);font-style:italic}
+  .wfrow.over{border-color:var(--accent);border-style:dashed;background:color-mix(in srgb,var(--accent) 6%,var(--surface-2))}
+  .agtile{cursor:grab}
+  .agtile:active{cursor:grabbing}
+  .agtile.dragging{opacity:.4}
 
   /* ===================== refinamento macOS (override) ===================== */
   .mono,.br,.feed .fl,.log,.log .ts,#graphSvg text,.hash,.gsub,.glabel,.claim{font-family:var(--mono)}
@@ -2438,13 +2450,18 @@ function agEditor(i){
 }
 function renderAg(){
   const el=document.getElementById("agList");
-  const tiles = cfgEdit.agents.map((a,i)=>`<button class="agtile${i===agOpen?' sel':''}" data-open="${i}">
+  const tiles = cfgEdit.agents.map((a,i)=>`<button class="agtile${i===agOpen?' sel':''}" data-open="${i}" data-agtile="${i}" draggable="true" title="arraste pra dentro de uma equipe →">
     <span class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</span>
     <span class="tn">${esc(a.name||'—')}</span><span class="tc">${esc(a.role||'')}</span>
   </button>`).join("");
   const add = `<button class="agtile new" data-add><span class="plus">+</span><span class="tc">novo agente</span></button>`;
   el.innerHTML = `<div class="aggrid">${tiles}${add}</div>${agOpen>=0&&cfgEdit.agents[agOpen]?agEditor(agOpen):''}`;
   el.querySelectorAll("[data-open]").forEach(t=>t.onclick=()=>{ const i=+t.dataset.open; agOpen=(agOpen===i?-1:i); renderAg(); });
+  // tiles arrastáveis → soltar dentro de uma equipe insere uma etapa
+  el.querySelectorAll("[data-agtile]").forEach(t=>{
+    t.addEventListener("dragstart",e=>{ const a=cfgEdit.agents[+t.dataset.agtile]; if(a&&!a.id) a.id=uniqueId(agSlug(a.name||'agente')); agDrag={type:'agent', agentId:a?a.id:null}; t.classList.add('dragging'); e.dataTransfer.effectAllowed='copy'; });
+    t.addEventListener("dragend",()=>{ agDrag=null; t.classList.remove('dragging'); document.querySelectorAll('.wfrow,.stepchip').forEach(x=>x.classList.remove('over','insbefore')); });
+  });
   const addBtn=el.querySelector("[data-add]"); if(addBtn) addBtn.onclick=addAgent;
   el.querySelectorAll(".ageditor [data-k]").forEach(inp=>{
     const h=()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; if(inp.dataset.k==='color') renderAg(); };
@@ -2454,20 +2471,43 @@ function renderAg(){
   el.querySelectorAll("[data-color]").forEach(s=>s.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+s.dataset.color].color=s.dataset.c; renderAg(); });
   el.querySelectorAll("[data-glyph]").forEach(b=>b.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+b.dataset.glyph].avatar=b.dataset.g; renderAg(); });
 }
+let agDrag=null; // {type:'agent'|'step', agentId, fromWi, fromSi}
+function wfInsert(wi, agentId, idx){
+  const w=cfgEdit.workflows[wi]; if(!w) return; (w.steps ||= []);
+  if(idx==null||idx<0||idx>w.steps.length) idx=w.steps.length;
+  w.steps.splice(idx,0,agentId); renderWf();
+}
+function wfMoveStep(fromWi, fromSi, toWi, idx){
+  const fw=cfgEdit.workflows[fromWi]; if(!fw) return; const sid=fw.steps.splice(fromSi,1)[0];
+  const tw=cfgEdit.workflows[toWi]; (tw.steps ||= []);
+  if(fromWi===toWi && idx>fromSi) idx--;
+  if(idx==null||idx<0||idx>tw.steps.length) idx=tw.steps.length;
+  tw.steps.splice(idx,0,sid); renderWf();
+}
 function renderWf(){
   const el=document.getElementById("wfList");
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
-  const agentOpts = cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name)} · ${esc(a.role)}</option>`).join("");
-  el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow">
-    <div class="wftop"><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><button class="iconbtn" data-wdel="${i}" title="remover workflow">${IC.trash}</button></div>
-    <div class="steps">${(w.steps||[]).map((sid,si)=>`<span class="stepchip"><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="-1" title="antes">${IC.cleft}</button><button class="mv" data-wi="${i}" data-mv="${si}" data-dir="1" title="depois">${IC.cright}</button><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")}
-    <select class="sel" data-wadd="${i}"><option value="">+ agente…</option>${agentOpts}</select></div>
-  </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhum workflow — clique "+ novo workflow"</div>';
+  el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow" data-drop="${i}">
+    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
+    <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente do grid pra cá →</span>'}</div>
+  </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
   el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
-  el.querySelectorAll("[data-wadd]").forEach(sel=>sel.onchange=()=>{ if(sel.value){ (cfgEdit.workflows[+sel.dataset.wadd].steps ||= []).push(sel.value); renderWf(); } });
   el.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows[+b.dataset.wi].steps.splice(+b.dataset.rm,1); renderWf(); });
-  el.querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{ const w=cfgEdit.workflows[+b.dataset.wi], si=+b.dataset.mv, j=si+(+b.dataset.dir); if(j<0||j>=w.steps.length)return; const t=w.steps[si]; w.steps[si]=w.steps[j]; w.steps[j]=t; renderWf(); });
+  // chips arrastáveis (reordenar etapas, inclusive entre equipes)
+  el.querySelectorAll(".stepchip").forEach(chip=>{
+    chip.addEventListener("dragstart",e=>{ agDrag={type:'step', fromWi:+chip.dataset.wi, fromSi:+chip.dataset.si}; chip.classList.add("dragging"); e.dataTransfer.effectAllowed='move'; e.stopPropagation(); });
+    chip.addEventListener("dragend",()=>{ agDrag=null; el.querySelectorAll('.wfrow,.stepchip').forEach(x=>x.classList.remove('over','insbefore')); chip.classList.remove('dragging'); });
+    chip.addEventListener("dragover",e=>{ if(!agDrag)return; e.preventDefault(); e.stopPropagation(); chip.classList.add('insbefore'); });
+    chip.addEventListener("dragleave",()=>chip.classList.remove('insbefore'));
+    chip.addEventListener("drop",e=>{ if(!agDrag)return; e.preventDefault(); e.stopPropagation(); const toWi=+chip.dataset.wi, idx=+chip.dataset.si; const d=agDrag; agDrag=null; if(d.type==='agent') wfInsert(toWi,d.agentId,idx); else wfMoveStep(d.fromWi,d.fromSi,toWi,idx); });
+  });
+  // a equipe inteira é drop zone (insere no fim)
+  el.querySelectorAll(".wfrow").forEach(row=>{
+    row.addEventListener("dragover",e=>{ if(!agDrag)return; e.preventDefault(); row.classList.add('over'); });
+    row.addEventListener("dragleave",e=>{ if(!row.contains(e.relatedTarget)) row.classList.remove('over'); });
+    row.addEventListener("drop",e=>{ if(!agDrag)return; e.preventDefault(); const toWi=+row.dataset.drop; const d=agDrag; agDrag=null; row.classList.remove('over'); if(d.type==='agent') wfInsert(toWi,d.agentId,null); else wfMoveStep(d.fromWi,d.fromSi,toWi,null); });
+  });
 }
 function parseAgentMd(filename, content){
   let fm={}, body=content;
