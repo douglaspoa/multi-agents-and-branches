@@ -588,6 +588,7 @@
   .fwtag{width:16px;height:16px;display:grid;place-items:center;border-radius:4px;font-size:9px;font-weight:700}
   .fwtag.a{background:color-mix(in srgb,var(--good) 22%,transparent);color:var(--good)}
   .fwtag.m{background:color-mix(in srgb,var(--info) 22%,transparent);color:var(--info)}
+  .fwtag.doc{background:var(--surface-3);color:var(--muted)}
   .fwfp{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .fwadd{font-size:10px;color:var(--good);font-variant-numeric:tabular-nums}
   .fwtreehint{margin-top:auto;font-size:10.5px;color:var(--muted);line-height:1.5;padding:12px 4px 2px}
@@ -1242,8 +1243,8 @@ function fwTreeHtml(node, depth){
     h+=`<div class="fwdir" data-fwdir="${escA(dir.path)}" style="padding-left:${depth*13+8}px"><span class="fwchev">${col?'▸':'▾'}</span><span class="fwdname">${esc(d)}</span></div>`;
     if(!col) h+=fwTreeHtml(dir, depth+1);
   }
-  for(const f of node.files.slice().sort((a,b)=>a.path.localeCompare(b.path))){ const tag=(f.del===0&&f.add>0)?'A':'M';
-    h+=`<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" style="padding-left:${depth*13+8}px"><span class="fwtag ${tag==='A'?'a':'m'}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span><span class="fwadd">+${f.add}</span></button>`;
+  for(const f of node.files.slice().sort((a,b)=>a.path.localeCompare(b.path))){ const tag=f.doc?'·':((f.del===0&&f.add>0)?'A':'M');
+    h+=`<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" style="padding-left:${depth*13+8}px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span>${f.doc?'':`<span class="fwadd">+${f.add}</span>`}</button>`;
   }
   return h;
 }
@@ -1251,6 +1252,8 @@ async function openWorkspace(taskId, path){
   fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false;
   document.getElementById('fwOverlay').style.display='flex';
   try{ fwFiles = await invoke('task_files',{ taskId }); }catch(e){ fwFiles=[]; }
+  // arquivo pedido (ex.: .cardume/PLAN.md) que não é um diff → injeta na árvore
+  if(fwPath && !fwFiles.some(f=>f.path===fwPath)) fwFiles.unshift({ path:fwPath, add:0, del:0, doc:true });
   if(!fwPath && fwFiles.length) fwPath=fwFiles[0].path;
   await fwLoadFile();
 }
@@ -2179,10 +2182,11 @@ function renderSide(){
   const rwI=el.querySelector('#rwTaskInput'); if(rwI) rwI.addEventListener('keydown',e=>{ if(e.key==='Enter') sendRework(t.id, rwI, ''); });
   // clicar numa etapa: planner/designer abrem o doc produzido (ver/editar);
   // as demais miram o "pedir ajuste" naquela etapa.
-  const stageDoc={ planner:['.cardume/PLAN.md','Plano'], designer:['.cardume/DESIGN.md','Design'] };
+  const stageDoc={ planner:'.cardume/PLAN.md', designer:'.cardume/DESIGN.md' };
   el.querySelectorAll('.step').forEach(s=>s.onclick=()=>{
     const role=s.dataset.role;
-    if(stageDoc[role]){ openPlan(t.id, stageDoc[role][0], stageDoc[role][1]); return; }
+    // plano/design abrem no workspace estilo Cursor (markdown editável + chat)
+    if(stageDoc[role]){ openWorkspace(t.id, stageDoc[role]); return; }
     const inp=el.querySelector('#rwTaskInput'); if(inp){ inp.value='Sobre a etapa '+(ROLE_PT[role]||role)+' ('+s.dataset.name+'): '; inp.focus(); }
   });
   wireQuestion(el);
