@@ -1297,6 +1297,27 @@ fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<Fi
     Ok(FileContent { content, added_lines: added })
 }
 
+/// Renomeia a branch de uma tarefa existente (git branch -m) + atualiza o DB.
+#[tauri::command]
+fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
+    let clean: String = name.trim().replace(' ', "-").chars().filter(|c| c.is_ascii_alphanumeric() || "/_.-".contains(*c)).collect();
+    if clean.is_empty() || clean.contains("..") || clean.starts_with('/') || clean.ends_with('/') {
+        return Err("nome de branch inválido".to_string());
+    }
+    let (wt, _base) = task_wt_base(&state, &task_id)?;
+    let out = Command::new("git").arg("-C").arg(&wt).args(["branch", "-m", &clean]).output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!("git branch -m: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    if let Some(path) = state.db.lock().unwrap().clone() {
+        if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+            let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+            let _ = conn.execute("UPDATE task SET branch=?1 WHERE id=?2", params![clean, task_id]);
+        }
+    }
+    Ok(clean)
+}
+
 /// Salva o arquivo editado na worktree.
 #[tauri::command]
 fn write_file(state: State<AppState>, task_id: String, path: String, content: String) -> Result<(), String> {
@@ -1711,6 +1732,7 @@ pub fn run() {
             task_files,
             read_file,
             write_file,
+            rename_branch,
             read_ref,
             list_branches,
             open_pr,

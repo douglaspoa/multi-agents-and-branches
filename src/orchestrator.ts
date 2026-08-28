@@ -286,7 +286,9 @@ export class Orchestrator {
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa já mergeada — a worktree foi removida, não dá pra refazer");
     const spec = JSON.parse(task.spec_json) as TaskSpec;
-    const lead = (spec.roles.find((r) => r.role === "builder") ?? spec.roles[0]) as AgentRole;
+    const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
+    const builderIdx = Math.max(0, roles.findIndex((r) => r.role === "builder"));
+    const lead = roles[builderIdx] as AgentRole;
     if (lead.engine !== "claude") throw new Error("rework só funciona com agentes Claude");
 
     this.store.setStatus(taskId, "running");
@@ -294,24 +296,36 @@ export class Orchestrator {
     const persona = lead.persona ? `## Seu perfil (${lead.name} · ${lead.role})\n${lead.persona}\n\n` : "";
     const ctx = persona + this.bus.buildContext(spec);
 
+    // 1) Retoma o builder com o ajuste (direcionado, na mesma sessão).
     await this.applyInstructions(taskId, task.worktree, spec, lead, ctx, task.session_id ?? "");
 
+    // 2) Commit + diff do ajuste.
     try {
       await this.git.commitAll(task.worktree, `cardume(rework): ${task.title}`);
       const d = await this.git.diffStat(task.worktree, task.base);
       this.store.setDiff(taskId, d.files, d.add, d.del);
-      const diff = await this.git.diffText(task.worktree, task.base);
-      this.store.addReview(taskId, buildReview(diff, lead.name));
       const head = await this.git.headHash(task.worktree);
       if (!this.store.hasCommitSummary(head) && process.env.CARDUME_AUTOSUMMARY !== "0") {
         await this.summarizeCommit(taskId, head, task.worktree, spec);
       }
     } catch (err) {
-      this.store.addEvent(taskId, lead.name, "note", `falha ao finalizar rework: ${(err as Error).message}`, false);
+      this.store.addEvent(taskId, lead.name, "note", `falha ao commitar rework: ${(err as Error).message}`, false);
     }
-    await this.collectArtifacts(taskId, task.worktree, spec.agent);
-    this.store.releaseClaims(taskId);
-    this.store.setStatus(taskId, "review");
+
+    // 3) Re-roda as ETAPAS SEGUINTES (reviewer, docs…) pra atualizar review/doc e
+    //    fazer o stepper AVANÇAR — não deixa "preso no builder".
+    if (builderIdx + 1 < roles.length) {
+      this.store.setDoneRoles(taskId, builderIdx + 1);
+      await this.runTask(taskId); // resume de builderIdx+1 → CR, Docs… e finaliza em review
+    } else {
+      try {
+        const diff = await this.git.diffText(task.worktree, task.base);
+        this.store.addReview(taskId, buildReview(diff, lead.name));
+      } catch { /* ok */ }
+      await this.collectArtifacts(taskId, task.worktree, spec.agent);
+      this.store.releaseClaims(taskId);
+      this.store.setStatus(taskId, "review");
+    }
     notify("Constellation", "Ajuste aplicado — pronto para review", task.title);
   }
 
