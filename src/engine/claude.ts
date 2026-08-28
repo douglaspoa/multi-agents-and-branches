@@ -1,10 +1,26 @@
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
+
+/**
+ * Acha o binário do `claude` sem depender do PATH — que pode estar stale quando
+ * o app é lançado via LaunchServices (LSEnvironment). Ordem: CARDUME_CLAUDE →
+ * ao lado do node em uso (mesma pasta bin do nvm/homebrew) → "claude" no PATH.
+ */
+function resolveClaude(): string {
+  if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
+  try {
+    const near = join(dirname(process.execPath), "claude");
+    if (existsSync(near)) return near;
+  } catch {
+    /* ignora */
+  }
+  return "claude";
+}
 
 /**
  * Motor REAL — roda o Claude Code headless dentro da worktree.
@@ -121,7 +137,7 @@ export class ClaudeEngine implements AgentEngine {
     }
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
-    const child = spawn("claude", args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"] });
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];

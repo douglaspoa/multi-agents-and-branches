@@ -22,6 +22,25 @@ fn node_bin() -> String {
     std::env::var("CARDUME_NODE").unwrap_or_else(|_| "node".to_string())
 }
 
+/// Acha o binário do `claude` sem depender do PATH (que pode estar stale via
+/// LSEnvironment): CARDUME_CLAUDE → ao lado do node → "claude" no PATH.
+fn claude_bin() -> String {
+    if let Ok(c) = std::env::var("CARDUME_CLAUDE") {
+        if !c.is_empty() {
+            return c;
+        }
+    }
+    if let Ok(node) = std::env::var("CARDUME_NODE") {
+        if let Some(dir) = std::path::Path::new(&node).parent() {
+            let cand = dir.join("claude");
+            if cand.exists() {
+                return cand.display().to_string();
+            }
+        }
+    }
+    "claude".to_string()
+}
+
 fn push_opt(args: &mut Vec<String>, flag: &str, val: &Option<String>) {
     if let Some(v) = val {
         if !v.is_empty() {
@@ -579,7 +598,7 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
     let prompt = format!(
         "Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n{ctx}Mensagem do commit: {msg}\n\nDiff:\n{diff}"
     );
-    let claude = std::env::var("CARDUME_CLAUDE").unwrap_or_else(|_| "claude".to_string());
+    let claude = claude_bin();
     let mut cmd = Command::new(&claude);
     cmd.args(["-p", &prompt]).current_dir(&repo);
     let out = output_timeout(cmd, 60)?;
@@ -1545,7 +1564,7 @@ struct AiChat {
 fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
     let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, UMA pergunta por vez, fechando só o que ainda falta. Responda SEMPRE E SOMENTE com um bloco de código ```json contendo exatamente as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. Nada de texto fora do bloco json.";
-    let claude = std::env::var("CARDUME_CLAUDE").unwrap_or_else(|_| "claude".to_string());
+    let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
         prompt,

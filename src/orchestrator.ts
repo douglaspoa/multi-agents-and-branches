@@ -417,22 +417,29 @@ export class Orchestrator {
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
     this.store.addEvent(taskId, role.name, "status", `gerando ${label}…`, true, role.role);
+    let failed = false;
     try {
       for await (const ev of engine.run({ cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, promptOverride: PROMPTS[kind] })) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
         if (ev.type === "claim") continue;
+        if (ev.type === "error") failed = true;
         this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
           this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
         }
       }
     } catch (err) {
+      failed = true;
       this.store.addEvent(taskId, role.name, "error", (err as Error).message, false, role.role);
     }
     await this.collectArtifacts(taskId, task.worktree, role.name);
     this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
-    this.store.addEvent(taskId, role.name, "note", `${label} pronto — veja em Artefatos`, true, role.role);
-    notify("Constellation", `${label} pronto ✓`, task.title);
+    if (failed) {
+      this.store.addEvent(taskId, role.name, "note", `não consegui gerar ${label} — veja o erro acima e tente de novo`, false, role.role);
+    } else {
+      this.store.addEvent(taskId, role.name, "note", `${label} pronto — veja em Artefatos`, true, role.role);
+      notify("Constellation", `${label} pronto ✓`, task.title);
+    }
   }
 
   /**
@@ -456,6 +463,7 @@ export class Orchestrator {
     const sid = task.session_id || "";
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
     this.store.setStatus(taskId, "thinking");
+    let failed = false;
     try {
       const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile };
       const input = sid
@@ -464,17 +472,20 @@ export class Orchestrator {
       for await (const ev of engine.run(input)) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
         if (ev.type === "claim") continue;
+        if (ev.type === "error") failed = true;
         this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
           this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
         }
       }
     } catch (err) {
+      failed = true;
       this.store.addEvent(taskId, role.name, "error", (err as Error).message, false, role.role);
     }
-    await this.collectArtifacts(taskId, task.worktree, role.name);
+    if (!failed) await this.collectArtifacts(taskId, task.worktree, role.name);
     this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
-    notify("Constellation", `${role.name} respondeu`, task.title);
+    if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
+    else notify("Constellation", `${role.name} respondeu`, task.title);
   }
 
   /**
