@@ -384,24 +384,33 @@ export class Orchestrator {
    * prints). Roda UM agente num turno fresco que LÊ o código já implementado e
    * produz o arquivo em .cardume/artifacts/ — sem reimplementar nada.
    */
-  async deliverArtifact(taskId: string, kind: "doc" | "tests" | "proof"): Promise<void> {
+  async deliverArtifact(taskId: string, kind: "doc" | "tests" | "proof" | "all"): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida; não dá pra gerar entregável");
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     const roles = spec.roles || [];
-    const pref = kind === "doc" ? ["docs", "builder"] : ["tester", "builder"];
+    const pref = kind === "doc" ? ["docs", "builder"] : ["builder", "tester"];
     const role =
       roles.find((r) => pref.includes(r.role) && r.engine === "claude") ||
       roles.find((r) => r.engine === "claude") ||
       ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
 
+    const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
+    const TESTS = "TESTES: escreva e RODE testes cobrindo a funcionalidade principal e casos de borda; salve a comprovação em `.cardume/artifacts/tests.md` com o(s) comando(s) e a SAÍDA real (quantos passaram/falharam). Se algo falhar, aponte a causa.";
+    const PROOF = "PROVA: comprove que funciona. Se for visual/web, capture screenshots em `.cardume/artifacts/proof.png` (ou proof-1.png, proof-2.png…); senão salve `.cardume/artifacts/proof.md` com a evidência (comandos, saída, antes/depois).";
+    const head = "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada além do necessário pra testar. ";
     const PROMPTS: Record<string, string> = {
-      doc: "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada. Leia o código e o diff e produza o MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados entre eles; 3) Resultado esperado & como validar. Conciso e visual, pro humano entender a entrega sem ler o código.",
-      tests: "Esta tarefa JÁ FOI implementada nesta worktree. Escreva e RODE testes cobrindo a funcionalidade principal e os casos de borda. Salve a comprovação em `.cardume/artifacts/tests.md`: o(s) comando(s) executado(s) e a SAÍDA real (quantos passaram/falharam). Se algo falhar, aponte a causa. Não altere a lógica de produção além do necessário pra testar.",
-      proof: "Esta tarefa JÁ FOI implementada nesta worktree. COMPROVE que funciona. Se for algo visual/web, capture screenshots e salve em `.cardume/artifacts/proof.png` (ou proof-1.png, proof-2.png…). Caso contrário, salve `.cardume/artifacts/proof.md` com a evidência: comandos executados, saída, antes/depois. NÃO reimplemente nada.",
+      doc: head + "Produza o " + DOC,
+      tests: head + TESTS,
+      proof: head + PROOF,
+      all: head + "Produza TRÊS entregáveis em `.cardume/artifacts/`:\n1) " + DOC + "\n2) " + TESTS + "\n3) " + PROOF + "\nGere os três.",
     };
-    const label = kind === "doc" ? "documento de arquitetura" : kind === "tests" ? "testes de comprovação" : "prova (prints/evidência)";
+    const label =
+      kind === "doc" ? "documento de arquitetura"
+      : kind === "tests" ? "testes de comprovação"
+      : kind === "proof" ? "prova (prints/evidência)"
+      : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "auto");
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
     const prev = task.status;

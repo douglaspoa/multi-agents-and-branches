@@ -1134,7 +1134,7 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 #[tauri::command]
 fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
-    let k = if kind == "tests" || kind == "proof" { kind } else { "doc".to_string() };
+    let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
     let mut cmd = Command::new(node_bin());
     cmd.args([
         "--disable-warning=ExperimentalWarning",

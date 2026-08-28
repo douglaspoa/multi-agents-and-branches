@@ -372,7 +372,7 @@ async function cmdReviewPr(repo: string, a: Args) {
 }
 
 async function cmdDeliver(repo: string, taskId: string, kind?: string) {
-  const k = kind === "tests" || kind === "proof" ? kind : "doc";
+  const k = kind === "tests" || kind === "proof" || kind === "all" ? kind : "doc";
   const orch = new Orchestrator(repo);
   if (!orch.store.getTask(taskId)) {
     console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
@@ -380,7 +380,7 @@ async function cmdDeliver(repo: string, taskId: string, kind?: string) {
     process.exit(1);
   }
   console.log(c.dim(`→ gerando entregável (${k}) …`));
-  await orch.deliverArtifact(taskId, k as "doc" | "tests" | "proof");
+  await orch.deliverArtifact(taskId, k as "doc" | "tests" | "proof" | "all");
   console.log(c.green("✔") + " entregável pronto — veja em Artefatos");
   orch.close();
 }

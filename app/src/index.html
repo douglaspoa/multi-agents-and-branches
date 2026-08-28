@@ -2003,15 +2003,16 @@ async function setFlag(taskId, flag){
   catch(e){ alert("Falha:\n"+e); }
 }
 async function deliverArtifact(taskId, kind){
-  const lbl={doc:'documento de arquitetura',tests:'testes',proof:'prova (prints)'}[kind]||kind;
-  try{ await invoke("deliver_artifact",{ taskId, kind }); lastSig=""; await refresh(); }
+  const lbl={doc:'documento de arquitetura',tests:'testes',proof:'prova (prints)',all:'todos os entregáveis'}[kind]||kind;
+  try{ await invoke("deliver_artifact",{ taskId, kind }); artifactsCache[taskId]=undefined; lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao pedir "+lbl+":\n"+e); }
 }
 function deliverBlock(t){
   if(t.kind==='review' || !['review','error','aborted','conflict'].includes(t.status)) return '';
   return `<div class="seclbl">Pedir entregáveis</div>`+
-    `<div class="delivrow"><button class="btn sm" data-deliver="doc">📄 Doc de arquitetura</button><button class="btn sm" data-deliver="tests">🧪 Testes</button><button class="btn sm" data-deliver="proof">📸 Prova (prints)</button></div>`+
-    `<div class="dim" style="font-size:10.5px;margin-top:5px">Um agente lê o código já pronto e gera o artefato — aparece em <b>Artefatos</b> acima.</div>`;
+    `<div class="delivrow"><button class="btn primary sm" data-deliver="all">📦 Pedir todos</button></div>`+
+    `<div class="delivrow" style="margin-top:5px"><button class="btn sm" data-deliver="doc">📄 Doc de arquitetura</button><button class="btn sm" data-deliver="tests">🧪 Testes</button><button class="btn sm" data-deliver="proof">📸 Prova (prints)</button></div>`+
+    `<div class="dim" style="font-size:10.5px;margin-top:5px">Um agente lê o código já pronto e gera os artefatos — aparecem na seção <b>Artefatos</b> aqui do Briefing (clique pra abrir).</div>`;
 }
 async function rerunTask(taskId){
   const t=state.tasks.find(x=>x.id===taskId);
