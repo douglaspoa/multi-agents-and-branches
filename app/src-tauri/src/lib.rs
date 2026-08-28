@@ -213,6 +213,7 @@ struct Task {
     refs: serde_json::Value,
     kind: String,
     pr_url: Option<String>,
+    flag: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -310,6 +311,7 @@ fn ensure_app_schema(db: &PathBuf) {
             "ALTER TABLE task ADD COLUMN session_id TEXT",
             "ALTER TABLE task ADD COLUMN sort_order INTEGER",
             "ALTER TABLE task ADD COLUMN done_roles INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE task ADD COLUMN flag TEXT",
         ] {
             let _ = conn.execute(stmt, []);
         }
@@ -899,7 +901,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
 
     let tasks = conn
         .prepare(
-            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order \
+            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag \
              FROM task ORDER BY created_at",
         )
         .map_err(|e| e.to_string())?
@@ -927,6 +929,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 refs: spec.get("refs").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 kind: spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
                 pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                flag: r.get::<_, Option<String>>(15).unwrap_or(None),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -1328,6 +1331,19 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);
     spawn_tracked(&state, &id, cmd)?;
+    Ok(())
+}
+
+/// Marca a tarefa como 'blocked' | 'closed' (ou limpa com "" / null). Estado do
+/// usuário, ortogonal ao status do agente — usado pra filtrar/arquivar no Fluxo.
+#[tauri::command]
+fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) -> Result<(), String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    let _ = conn.execute("ALTER TABLE task ADD COLUMN flag TEXT", []); // idempotente
+    let f = flag.filter(|s| s == "blocked" || s == "closed");
+    conn.execute("UPDATE task SET flag=?1 WHERE id=?2", params![f, task_id]).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -2000,6 +2016,7 @@ pub fn run() {
             save_draft,
             load_draft,
             clear_draft,
+            set_task_flag,
             pause_task,
             resume_task,
             abort_task,

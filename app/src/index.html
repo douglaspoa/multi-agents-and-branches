@@ -312,6 +312,18 @@
   .fchip:hover{background:var(--surface-2)}
   .fchip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .fchip .n{font-size:10.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+  .fchip.on .n{color:var(--on-accent)}
+  .fchip.flagchip{border-style:dashed;color:var(--muted)}
+  .fchip.flagchip.on{background:var(--surface-3);border-color:var(--border-strong);border-style:solid;color:var(--text)}
+  /* selo bloqueada/encerrada + card apagado */
+  .flagbadge{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 6px;border-radius:5px;white-space:nowrap}
+  .flagbadge.blk{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+  .flagbadge.cls{background:var(--surface-3);color:var(--muted)}
+  .fcard.flagged{opacity:.72}
+  .fcard.flagged:hover{opacity:1}
+  .flagrow{margin-top:7px}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  .btn.ghost:hover{background:var(--surface-2);color:var(--text)}
   .fchip.on .n{color:var(--on-accent);opacity:.8}
   .fchip .dot{width:7px;height:7px;border-radius:50%}
   .ffbar .sel{padding:5px 26px 5px 10px}
@@ -1644,8 +1656,9 @@ function flowTaskCard(t){
     : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
     : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';
-  return `<div class="fcard${t.id===selected?' sel':''}" data-id="${t.id}">
-    <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b><span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
+  const flagBadge = t.flag==='blocked'?'<span class="flagbadge blk">⏸ bloqueada</span>':t.flag==='closed'?'<span class="flagbadge cls">✓ encerrada</span>':'';
+  return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}" data-id="${t.id}">
+    <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${flagBadge}<span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel">Commits desta tarefa <span class="dim">· clique para ver o diff</span></div>
@@ -1658,6 +1671,7 @@ let flowPeriod = 'all';   // all | today | week
 let flowAgent  = 'all';   // 'all' | nome do agente
 let flowQuery  = '';      // busca por nome da tarefa
 let flowGroupBy= 'none';  // none | day
+let flowShowBlocked=false, flowShowClosed=false; // por padrão, escondidas do Fluxo
 function dayLabel(ts){
   const d=new Date(ts), today=new Date(), y=new Date(); y.setDate(today.getDate()-1);
   const same=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
@@ -1676,9 +1690,11 @@ function inPeriod(t){
 }
 // agentes de uma tarefa = líder + toda a equipe (papéis) — assim o filtro cobre "agente" e "equipe"
 function taskAgents(t){ const s=new Set((t.roles||[]).map(r=>r.name)); if(t.agent) s.add(t.agent); return [...s]; }
+function notHidden(t){ return (t.flag!=='blocked'||flowShowBlocked) && (t.flag!=='closed'||flowShowClosed); }
 function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
   return tasks.filter(t=>
+    notHidden(t) &&
     (flowStatus==='all'||taskGroup(t)===flowStatus) &&
     inPeriod(t) &&
     (flowAgent==='all'||taskAgents(t).includes(flowAgent)) &&
@@ -1689,10 +1705,14 @@ function renderFlowFilters(){
   const el=document.getElementById('flowFilters'); if(!el) return;
   // preserva foco/caret da busca (o poll pode re-renderizar durante digitação)
   const ae=document.activeElement, wasSearch=ae&&ae.id==='ffSearch', caret=wasSearch?ae.selectionStart:0;
-  const byPeriod=(state.tasks||[]).filter(inPeriod);
+  const byPeriod=(state.tasks||[]).filter(t=>inPeriod(t)&&notHidden(t));
   const count=g=> g==='all'?byPeriod.length:byPeriod.filter(t=>taskGroup(t)===g).length;
   const ST=[['all','Todas',null],['draft','Rascunho','var(--muted)'],['active','Rodando','var(--good)'],['review','Review','var(--warn)'],['merged','Merged','var(--info)'],['error','Erro','var(--crit)']];
-  const stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}">${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
+  let stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}">${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
+  const nBlocked=(state.tasks||[]).filter(t=>t.flag==='blocked'&&inPeriod(t)).length;
+  const nClosed=(state.tasks||[]).filter(t=>t.flag==='closed'&&inPeriod(t)).length;
+  if(nBlocked) stChips+=`<button class="fchip flagchip${flowShowBlocked?' on':''}" data-flag="blocked" title="mostrar/ocultar bloqueadas">⏸ Bloqueadas<span class="n">${nBlocked}</span></button>`;
+  if(nClosed) stChips+=`<button class="fchip flagchip${flowShowClosed?' on':''}" data-flag="closed" title="mostrar/ocultar encerradas">✓ Encerradas<span class="n">${nClosed}</span></button>`;
   const PE=[['all','Todo período'],['today','Hoje'],['week','Últimos 7 dias']];
   const peOpts=PE.map(([k,label])=>`<option value="${k}"${flowPeriod===k?' selected':''}>${label}</option>`).join('');
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
@@ -1707,6 +1727,7 @@ function renderFlowFilters(){
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
     `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div>`;
   el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; lastSig=''; renderFlow(); });
+  el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
   document.getElementById('ffPeriod').onchange=(e)=>{ flowPeriod=e.target.value; lastSig=''; renderFlow(); };
   document.getElementById('ffAgent').onchange=(e)=>{ flowAgent=e.target.value; lastSig=''; renderFlow(); };
   document.getElementById('ffGroup').onchange=(e)=>{ flowGroupBy=e.target.value; lastSig=''; renderFlow(); };
@@ -1778,7 +1799,7 @@ let kDragId=null;
 function renderKanban(){
   const el=document.getElementById('kanban');
   const byCol={}; KCOLS.forEach(([k])=>byCol[k]=[]);
-  for(const t of (state.tasks||[])) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
+  for(const t of (state.tasks||[]).filter(notHidden)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
   el.innerHTML = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
   el.querySelectorAll('.kcard').forEach(card=>{
     card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); };
@@ -1974,6 +1995,10 @@ function startRenameBranch(t){
 async function removeTask(taskId){
   try{ await invoke("remove_task",{taskId}); if(selected===taskId) selected=null; await refresh(); }
   catch(e){ console.error("remove_task", e); }
+}
+async function setFlag(taskId, flag){
+  try{ await invoke("set_task_flag",{ taskId, flag: flag||null }); lastSig=""; await refresh(); }
+  catch(e){ alert("Falha:\n"+e); }
 }
 
 const LANE_COLORS = ["#39d46a","#e5c07b","#56b6c2","#ff6b5f","#b48ead","#5b9dff","#d19a66","#8dd17a"];
@@ -2330,7 +2355,7 @@ function renderSide(){
   // rodapé: ações conforme o estado. Para tarefas VIVAS, pausar/abortar de
   // verdade (encerram o processo do agente) em vez do antigo "cancelar" que só
   // apagava a linha e deixava o processo rodando fantasma.
-  const footInner = (()=>{
+  const mainActs = (()=>{
     if(t.status==='merged') return `<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`;
     if(t.status==='paused') return `<div class="acts"><button class="btn primary sm" data-act="resume">${IC.cright} retomar</button><button class="btn danger sm" data-act="abort">✕ abortar</button></div>`;
     if(ACTIVE_ST.has(t.status)) return `<div class="acts"><button class="btn sm" data-act="pause">❚❚ pausar</button><button class="btn danger sm" data-act="abort">✕ abortar</button></div>`;
@@ -2341,6 +2366,11 @@ function renderSide(){
       :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
     return `<div class="acts">${start}${merge}<button class="btn danger sm" data-act="rm">${rmlbl}</button></div>`;
   })();
+  // ações de organização (não poluir a UI): bloquear / encerrar / reabrir
+  const flagBtns = t.flag==='blocked' ? `<button class="btn sm ghost" data-flag="">↺ desbloquear</button>`
+    : t.flag==='closed' ? `<button class="btn sm ghost" data-flag="">↺ reabrir</button>`
+    : `<button class="btn sm ghost" data-flag="blocked">⏸ bloquear</button>${t.status!=='draft'?`<button class="btn sm ghost" data-flag="closed">✓ encerrar</button>`:''}`;
+  const footInner = mainActs + `<div class="acts flagrow">${flagBtns}</div>`;
 
   el.innerHTML = `<div class="det">
     ${errBanner(t)}
@@ -2363,6 +2393,7 @@ function renderSide(){
   el.querySelectorAll('[data-act="resume"]').forEach(b=>b.onclick=()=>resumeTask(t.id));
   el.querySelectorAll('[data-act="abort"]').forEach(b=>b.onclick=()=>abortTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
+  el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>setFlag(t.id, b.dataset.flag));
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openWorkspace(t.id, b.dataset.file));
