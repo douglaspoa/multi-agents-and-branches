@@ -346,7 +346,25 @@
   #graphSvg text{font-family:ui-monospace,"SF Mono",Menlo,monospace}
   .glabel{font-size:10.5px}
   .gsub{font-size:11px}
-  .side{border-left:1px solid var(--border);background:var(--surface);overflow:auto;min-height:0}
+  .side{border-left:1px solid var(--border);background:var(--surface-2);overflow:hidden;min-height:0;display:flex;flex-direction:column}
+  .det{display:flex;flex-direction:column;height:100%;min-height:0;padding:0!important}
+  .sidehead{padding:14px 15px 10px}
+  .sidestats{display:flex;padding:0 15px 12px;gap:0;border-bottom:1px solid var(--border)}
+  .sidestats .ss{flex:1;display:flex;flex-direction:column;gap:2px;padding:0 2px;border-right:1px solid var(--border)}
+  .sidestats .ss:last-child{border-right:none}
+  .sidestats .ssv{font-size:14px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+  .sidestats .ssl{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+  .sidetabs{display:flex;gap:3px;padding:8px 12px 0;border-bottom:1px solid var(--border)}
+  .sidetab{border:none;background:none;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;padding:7px 11px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .sidetab:hover{color:var(--text-2)}
+  .sidetab.on{color:var(--text);border-bottom-color:var(--accent)}
+  .sidebody{flex:1;min-height:0;overflow:auto;padding:13px 15px}
+  .sidefoot{padding:11px 15px;border-top:1px solid var(--border);background:var(--surface-2)}
+  .sidefoot .acts{margin-top:0}
+  .critrow{font-size:12.5px;color:var(--text-2);padding:3px 0;line-height:1.4}
+  .log.stream{max-height:none;min-height:min(56vh,420px);height:100%}
+  .livecursor .blink{color:var(--good);animation:blink 1.05s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
   .lbl{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:13px 14px 7px}
 
   .arow{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:8px 12px;border:1px solid transparent;cursor:pointer}
@@ -1596,74 +1614,73 @@ function stageStepper(t){
   }).join("");
   return `<div class="seclbl" style="margin-top:13px">Etapas</div><div class="stepper">${steps}</div>`;
 }
+let sideTab='etapas';
+function fmtDur(ms){ ms=Math.max(0,ms); const s=Math.floor(ms/1000); if(s<60) return s+'s'; const m=Math.floor(s/60); if(m<60) return m+' min'; const h=Math.floor(m/60); return h+'h'+String(m%60).padStart(2,'0'); }
 function renderSide(){
   const el = document.getElementById("side");
   const t = state.tasks.find(x=>x.id===selected);
-  if(!t){ el.innerHTML = '<div class="empty">selecione um agente</div>'; return; }
+  if(!t){ el.innerHTML = '<div class="empty">selecione uma tarefa</div>'; return; }
+  // preserva foco/caret de inputs do painel entre re-renders (pra digitar sem perder)
+  const ae=document.activeElement, aeId=(ae&&el.contains(ae)&&ae.id)?ae.id:null, aeVal=aeId?ae.value:null, aeCaret=(aeId&&ae.selectionStart!=null)?ae.selectionStart:null;
   const col = STATUS_COLOR[t.status]||"var(--muted)";
   const claims = claimsOf(t.id);
   const d = diffOf(t.id);
   const evs = eventsOf(t.id);
-  const tot = d ? (d.additions+d.deletions)||1 : 1;
-  const claimHtml = claims.length ? claims.map(c=>{
-    const y = c.yieldedTo;
-    return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;
-  }).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
-  const pipe = stageStepper(t);
   const rev = reviewOf(t.id);
-  const revHtml = rev ? `<div class="rev">
-    <div class="h">◆ Review humano <span class="by">por ${esc(rev.byAgent)}</span></div>
-    <div class="b">
-      <div class="sm">${esc(rev.summary)}</div>
-      ${(rev.functions||[]).map(f=>`<div class="fn"><div class="n"><b>${esc(f.name)}</b> <span class="k">${esc(f.kind)}</span> <span class="f">· ${esc(f.file)}</span></div><div class="p">↳ ${esc(f.purpose)}</div></div>`).join("")||'<div class="fn"><div class="p">nenhuma função nova detectada</div></div>'}
-      <div class="fl2">${(rev.files||[]).map(f=>`<span>${esc(f.path)} <span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span>`).join("")}</div>
-      <div class="test">como testar · ${esc(rev.howToTest)}</div>
-    </div>
-  </div>` : "";
-  el.innerHTML = `<div class="det">
-    ${questionBlock(t.id)}
-    ${errBanner(t)}
-    <h2>${esc(t.agent)}</h2>
-    <div class="sub"><span id="brnText">${esc(t.branch)}</span>${t.status!=='merged'?` <button class="brnedit" data-act="renbranch" title="renomear branch">${IC.pencil}</button>`:''} · ${esc(t.engine)}${t.model?(" · "+esc(t.model)):""}</div>
-    <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
-    ${pipe}
+  const tc = taskCost(t.id);
+  const fc = fileCache[t.id], files = fc?fc.list:[];
+  const t0 = evs.length?evs[0].ts:t.created_at;
+  const t1 = ACTIVE_ST.has(t.status)?Date.now():(evs.length?evs[evs.length-1].ts:Date.now());
+  const dur = fmtDur(t1-t0);
+  const tot = d ? (d.additions+d.deletions)||1 : 1;
+
+  // ---- conteúdo por aba ----
+  const tabEtapas = `
     ${activityBlock(t)}
-    ${ACTIVE_ST.has(t.status) ? `<div class="instrbox">
-      <div class="ilbl">${IC.ai} Enviar instrução ao agente</div>
-      <div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (continua a mesma sessão).</div>
-      <div class="irow"><input class="in iinput" id="instrInput" placeholder="ex.: cobre também o caso de erro X"><button class="btn primary sm" id="instrSend">enviar</button></div>
-    </div>` : ''}
-    ${t.status==='plan-review' ? `<div class="instrbox" style="border-color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--surface-2))">
-      <div class="ilbl" style="color:var(--warn)">${IC.check} Plano pronto — revise e aprove</div>
-      <div class="ihint">Clique em <b>ver plano</b> na etapa acima pra revisar/editar. Quando estiver bom:</div>
-      <div class="irow" style="margin-top:8px"><button class="btn primary sm" data-act="approveplan">${IC.cright} Aprovar plano e continuar</button></div>
-    </div>` : ''}
-    ${(t.status==='review'||t.status==='error') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox">
-      <div class="ilbl">${IC.ai} Pedir ajuste ao agente</div>
-      <div class="ihint">Não gostou de algo? Descreva — ele refaz na mesma worktree e recompõe o review. Clique numa etapa acima pra mirar nela.</div>
-      <div class="irow"><input class="in iinput" id="rwTaskInput" placeholder="ex.: renomeia a função X, cobre o caso Y"><button class="btn primary sm" id="rwTaskSend">pedir ajuste</button></div>
-    </div>` : ''}
-    <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
-    ${refsBlock(t)}
-    ${revHtml}
-    <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>
-    ${claimHtml}
-    <div class="seclbl">Diff da branch <span class="n">${d?d.files+" arq":"—"}</span></div>
-    <div class="diff">
-      <b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b>
-      <span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span>
-    </div>
+    ${stageStepper(t)}
+    ${questionBlock(t.id)}
+    ${t.status==='plan-review' ? `<div class="instrbox" style="border-color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--surface-2))"><div class="ilbl" style="color:var(--warn)">${IC.check} Plano pronto — revise e aprove</div><div class="ihint">Clique em <b>ver plano</b> na etapa acima pra revisar/editar. Quando estiver bom:</div><div class="irow" style="margin-top:8px"><button class="btn primary sm" data-act="approveplan">${IC.cright} Aprovar plano e continuar</button></div></div>`:''}
+    ${ACTIVE_ST.has(t.status) ? `<div class="instrbox"><div class="ilbl">${IC.ai} Enviar instrução ao agente</div><div class="ihint">Lembrou de algo? Ele aplica ao terminar o passo atual (mesma sessão).</div><div class="irow"><input class="in iinput" id="instrInput" placeholder="ex.: cobre também o caso de erro X"><button class="btn primary sm" id="instrSend">enviar</button></div></div>`:''}
+    ${(t.status==='review'||t.status==='error') && (t.roles||[]).some(r=>r.engine==='claude') ? `<div class="instrbox"><div class="ilbl">${IC.ai} Pedir ajuste ao agente</div><div class="ihint">Descreva o ajuste — passa pelo time inteiro (planeja → coda → revisa → docs). Clique numa etapa pra mirar nela.</div><div class="irow"><input class="in iinput" id="rwTaskInput" placeholder="ex.: renomeia a função X, cobre o caso Y"><button class="btn primary sm" id="rwTaskSend">pedir ajuste</button></div></div>`:''}`;
+
+  const tabStream = `<div class="log stream">${evs.length?evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join(""):'<span class="dim">sem eventos ainda…</span>'}${ACTIVE_ST.has(t.status)?'<div class="ln livecursor"><span class="ts"></span><span style="color:var(--good)">▸</span><span class="blink">▍</span></div>':''}</div>`;
+
+  const revHtml = rev ? `<div class="rev"><div class="h">◆ Review humano <span class="by">por ${esc(rev.byAgent)}</span></div><div class="b"><div class="sm">${esc(rev.summary)}</div>${(rev.functions||[]).map(f=>`<div class="fn"><div class="n"><b>${esc(f.name)}</b> <span class="k">${esc(f.kind)}</span> <span class="f">· ${esc(f.file)}</span></div><div class="p">↳ ${esc(f.purpose)}</div></div>`).join("")||''}<div class="test">como testar · ${esc(rev.howToTest)}</div></div></div>` : "";
+  const tabDiff = `
+    <div class="diff"><b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b><span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span></div>
     ${filesBlock(t)}
+    ${revHtml}`;
+
+  const claimHtml = claims.length ? claims.map(c=>{const y=c.yieldedTo;return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;}).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
+  const reqs = Array.isArray(t.requirements)?t.requirements:[];
+  const tabBriefing = `
+    <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
+    ${reqs.length?`<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${reqs.map(r=>`<div class="critrow">✓ ${esc(r)}</div>`).join("")}`:''}
+    ${refsBlock(t)}
     ${prBlock(t)}
     ${costBlock(t.id)}
     ${artifactsBlock(t)}
     ${commitsBlock(t.id)}
-    <div class="seclbl">Log <span class="n">${evs.length}</span></div>
-    <div class="log">${evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join("")||'<span class="dim">—</span>'}</div>
+    <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>${claimHtml}`;
+
+  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Diff'],['briefing','Briefing']];
+  const content = sideTab==='stream'?tabStream : sideTab==='diff'?tabDiff : sideTab==='briefing'?tabBriefing : tabEtapas;
+
+  el.innerHTML = `<div class="det">
+    ${errBanner(t)}
+    <div class="sidehead">
+      <h2>${esc(t.agent)}</h2>
+      <div class="sub"><span id="brnText">${esc(t.branch)}</span>${t.status!=='merged'?` <button class="brnedit" data-act="renbranch" title="renomear branch">${IC.pencil}</button>`:''} · ${esc(t.engine)}${t.model?(" · "+esc(t.model)):""}</div>
+      <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
+    </div>
+    <div class="sidestats"><div class="ss"><span class="ssv">${dur}</span><span class="ssl">tempo</span></div><div class="ss"><span class="ssv">${tc.usd?fmtUsd(tc.usd):'—'}</span><span class="ssl">custo</span></div><div class="ss"><span class="ssv">${files.length||(d?d.files:0)||0}</span><span class="ssl">arquivos</span></div></div>
+    <div class="sidetabs">${TABS.map(([k,l])=>`<button class="sidetab${sideTab===k?' on':''}" data-tab="${k}">${l}</button>`).join("")}</div>
+    <div class="sidebody">${content}</div>
     ${t.status==='merged'
-      ? `<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`
-      : `<div class="acts">${t.status==='draft'?`<button class="btn primary sm" data-act="start">${IC.cright} iniciar</button>`:''}${t.status==='review'?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:''}<button class="btn danger sm" data-act="rm">${(t.status==='review'||t.status==='draft')?'descartar':'cancelar'}</button></div>`}
+      ? `<div class="sidefoot"><span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span></div>`
+      : `<div class="sidefoot"><div class="acts">${t.status==='draft'?`<button class="btn primary sm" data-act="start">${IC.cright} iniciar</button>`:''}${t.status==='review'?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:''}<button class="btn danger sm" data-act="rm">${(t.status==='review'||t.status==='draft')?'descartar':'cancelar'}</button></div></div>`}
   </div>`;
+  el.querySelectorAll('.sidetab').forEach(b=>b.onclick=()=>{ sideTab=b.dataset.tab; renderSide(); });
   el.querySelectorAll('[data-act="merge"]').forEach(b=>b.onclick=()=>mergeTask(t.id));
   el.querySelectorAll('[data-act="start"]').forEach(b=>b.onclick=()=>startTask(t.id));
   el.querySelectorAll('[data-act="approveplan"]').forEach(b=>b.onclick=()=>startTask(t.id));
@@ -1692,6 +1709,10 @@ function renderSide(){
     const inp=el.querySelector('#rwTaskInput'); if(inp){ inp.value='Sobre a etapa '+(ROLE_PT[role]||role)+' ('+s.dataset.name+'): '; inp.focus(); }
   });
   wireQuestion(el);
+  // restaura foco/caret do input que estava sendo digitado
+  if(aeId){ const n=el.querySelector('#'+aeId); if(n){ try{ n.focus(); if(aeVal!=null && 'value' in n) n.value=aeVal; if(aeCaret!=null && n.setSelectionRange) n.setSelectionRange(aeCaret,aeCaret); }catch(e){} } }
+  // stream rola pro fim (ao vivo)
+  if(sideTab==='stream'){ const s=el.querySelector('.stream'); if(s) s.scrollTop=s.scrollHeight; }
 }
 
 function renderBus(){
