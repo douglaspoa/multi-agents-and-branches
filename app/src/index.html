@@ -1247,7 +1247,7 @@
 
 <!-- Time na nuvem (Supabase): login → org/time → convites → seletor -->
 <div class="overlay" id="cloudOverlay" style="display:none">
-  <div class="modal" style="width:min(640px,100%)">
+  <div class="modal" style="width:min(780px,100%)">
     <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:15px;height:15px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><b id="cloudHead">Time na nuvem</b><span style="flex:1"></span><button class="x" id="cloudClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="cloudBody"></div>
   </div>
@@ -3776,24 +3776,26 @@ function closeCloud(){ document.getElementById('cloudOverlay').style.display='no
 
 async function cloudLoad(){
   const orgs = await sbGet('orgs?select=*');
-  if(!orgs || !orgs.length){ cloudData = { org:null, teams:[], members:[], profileByUser:{} }; return; }
+  if(!orgs || !orgs.length){ cloudData = { org:null, teams:[], members:[], teamMembers:{}, orgMembers:[], invites:[], profileByUser:{}, meRole:'member' }; return; }
   const org = orgs[0]; // v1: uma org por usuário
-  const [teams, myOrg] = await Promise.all([
+  const [teams, myOrg, orgMembers] = await Promise.all([
     sbGet('teams?select=id,name&org_id=eq.'+org.id+'&order=name'),
     sbGet('org_members?select=role&org_id=eq.'+org.id+'&user_id=eq.'+cloudUserId()),
+    sbGet('org_members?select=user_id,role&org_id=eq.'+org.id), // admin vê todos; membro só ele (RLS)
   ]);
   let teamId = cloudTeamId();
   if(!teams.find(t=>t.id===teamId)){ teamId = teams[0] ? teams[0].id : ''; lsSet('sb:team', teamId); }
-  let members=[], profileByUser={};
-  if(teamId){
-    members = await sbGet('team_members?select=user_id,role&team_id=eq.'+teamId);
-    if(members.length){
-      const ids = members.map(m=>'"'+m.user_id+'"').join(',');
-      const profs = await sbGet('profiles?select=user_id,name,email&user_id=in.('+ids+')');
-      for(const p of profs) profileByUser[p.user_id]=p;
-    }
-  }
-  cloudData = { org, teams, members, profileByUser, meRole: (myOrg[0]||{}).role || 'member' };
+  // membros de TODOS os times que o usuário enxerga (RLS filtra sozinho)
+  const tms = teams.length ? await sbGet('team_members?select=team_id,user_id,role&team_id=in.('+teams.map(t=>'"'+t.id+'"').join(',')+')') : [];
+  const teamMembers={}; teams.forEach(t=>{ teamMembers[t.id]=[]; });
+  tms.forEach(m=>{ (teamMembers[m.team_id]||(teamMembers[m.team_id]=[])).push(m); });
+  // convites em aberto (só lead/admin enxergam — RLS; membro comum recebe [])
+  let invites=[]; try{ invites=await sbGet('invites?select=id,email,role,token,team_id,expires_at&org_id=eq.'+org.id+'&accepted_at=is.null&order=expires_at.desc'); }catch(_){ }
+  // perfis de todo mundo citado
+  const uids=new Set(); tms.forEach(m=>uids.add(m.user_id)); orgMembers.forEach(m=>uids.add(m.user_id));
+  const profileByUser={};
+  if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); profs.forEach(p=>{ profileByUser[p.user_id]=p; }); }
+  cloudData = { org, teams, teamMembers, orgMembers, invites, profileByUser, meRole:(myOrg[0]||{}).role||'member', members: teamMembers[teamId]||[] };
 }
 
 function cloudBtnSync(){
@@ -3882,23 +3884,32 @@ async function renderCloud(){
     document.getElementById('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
     return;
   }
-  // 4) home: org + times + membros + convites
+  // 4) home: gestão da org — times, membros por time, convites, catálogo, visão
   const d=cloudData, teamId=cloudTeamId();
   head.textContent=d.org.name;
   const isAdmin = d.meRole==='owner'||d.meRole==='admin';
-  const meLead = d.members.find(m=>m.user_id===cloudUserId() && m.role==='lead');
-  const teamOpts = d.teams.map(t=>`<option value="${escA(t.id)}"${t.id===teamId?' selected':''}>${esc(t.name)}</option>`).join('');
-  const memRows = d.members.map(m=>{ const p=d.profileByUser[m.user_id]||{}; return `<div class="costrow"><span class="cav" style="background:${agentColor(p.name||p.email||'?')}">${esc((p.name||p.email||'?').slice(0,2).toUpperCase())}</span><span class="cnm">${esc(p.name||p.email||m.user_id.slice(0,8))}${m.user_id===cloudUserId()?' <span class="dim">(você)</span>':''}</span><span class="dim" style="font-size:11px">${m.role==='lead'?'lead':'membro'}</span></div>`; }).join('') || '<div class="dim" style="font-size:12px;padding:4px 2px">time vazio</div>';
+  const myLeadTeams = d.teams.filter(t=>(d.teamMembers[t.id]||[]).some(m=>m.user_id===cloudUserId()&&m.role==='lead'));
+  const canManage = t => isAdmin || myLeadTeams.some(x=>x.id===t.id);
+  const meLead = myLeadTeams.length>0;
+  const pName = uid => { const p=d.profileByUser[uid]||{}; return p.name||p.email||String(uid).slice(0,8); };
+  const teamsHtml = d.teams.map(t=>{
+    const mems=d.teamMembers[t.id]||[];
+    const rows=mems.map(m=>`<div class="costrow"><span class="cav" style="background:${agentColor(pName(m.user_id))}">${esc(pName(m.user_id).slice(0,2).toUpperCase())}</span><span class="cnm">${esc(pName(m.user_id))}${m.user_id===cloudUserId()?' <span class="dim">(você)</span>':''}</span><span class="dim" style="font-size:11px">${m.role==='lead'?'lead':'membro'}</span>${canManage(t)?`<button class="btn sm" data-mact="lead" data-team="${escA(t.id)}" data-uid="${escA(m.user_id)}" title="${m.role==='lead'?'tornar membro':'tornar lead'}">${m.role==='lead'?'⇣ membro':'⇡ lead'}</button><button class="btn sm" data-mact="rm" data-team="${escA(t.id)}" data-uid="${escA(m.user_id)}" title="remover do time">✕</button>`:''}</div>`).join('') || '<div class="dim" style="font-size:12px;padding:4px 2px">time vazio</div>';
+    const fora=(d.orgMembers||[]).filter(om=>!mems.some(m=>m.user_id===om.user_id));
+    const addRow = canManage(t)&&fora.length ? `<div style="display:flex;gap:8px;margin-top:7px"><select class="sel" id="sbAdd-${escA(t.id)}" style="flex:1">${fora.map(om=>`<option value="${escA(om.user_id)}">${esc(pName(om.user_id))}</option>`).join('')}</select><button class="btn sm" data-mact="add" data-team="${escA(t.id)}">+ adicionar ao time</button></div>` : '';
+    return `<div class="tmcard" style="margin-bottom:10px"><div class="tmrow1"><b class="tmtitle">${esc(t.name)}</b><span class="dim" style="font-size:11px">${mems.length} membro${mems.length===1?'':'s'}</span><span style="flex:1"></span>${t.id===teamId?'<span class="tmbadge" style="color:var(--good);border-color:var(--good)">time atual</span>':`<button class="btn sm" data-mact="use" data-team="${escA(t.id)}">usar este time</button>`}</div><div class="costlist" style="margin-top:8px">${rows}</div>${addRow}</div>`;
+  }).join('');
+  const invTeams = isAdmin ? d.teams : myLeadTeams;
+  const invListHtml=(d.invites||[]).map(iv=>{ const tn=(d.teams.find(x=>x.id===iv.team_id)||{}).name||'?'; return `<div class="costrow"><span class="cnm">${esc(iv.email)}</span><span class="dim" style="font-size:11px">${esc(tn)} · ${iv.role==='lead'?'lead':'membro'} · expira em ${Math.max(0,Math.round((new Date(iv.expires_at)-Date.now())/86400e3))}d</span><span style="flex:1"></span><button class="btn sm" data-iact="copy" data-iv="${escA(iv.id)}">copiar mensagem</button><button class="btn sm" data-iact="rev" data-iv="${escA(iv.id)}" title="revogar convite">✕</button></div>`; }).join('');
   body.innerHTML = cloudMsgHtml()+`
-    <div class="imhint">Plano <b>${esc(d.org.plan)}</b> · ${d.org.seats} assentos · seu papel na org: <b>${esc(d.meRole)}</b>${isAdmin?' — você vê todos os times':''}</div>
-    <div class="seclbl2" style="margin-top:14px">Time atual</div>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><select class="sel" id="sbTeamSel" style="flex:1">${teamOpts}</select>${isAdmin?'<button class="btn sm" id="sbTeamAdd">+ novo time</button>':''}</div>
-    <div class="seclbl2" style="margin-top:18px">Membros</div>
-    <div class="costlist">${memRows}</div>
+    <div class="imhint">Plano <b>${esc(d.org.plan)}</b> · ${(d.orgMembers||[]).length}/${d.org.seats} assentos · seu papel na org: <b>${esc(d.meRole)}</b>${isAdmin?' — você vê e administra todos os times':''}</div>
+    <div class="seclbl2" style="margin-top:16px">Times da organização <span class="n">${d.teams.length}</span><span style="flex:1"></span>${isAdmin?'<button class="btn sm" id="sbTeamAdd">+ novo time</button>':''}</div>
+    ${teamsHtml||'<div class="dim" style="font-size:12px">nenhum time ainda</div>'}
     ${(isAdmin||meLead)?`
-    <div class="seclbl2" style="margin-top:18px">Convidar pro time</div>
-    <div style="display:flex;gap:8px;margin-top:6px"><input class="in" id="sbInvEmail" placeholder="email@empresa.com" style="flex:1"><select class="sel" id="sbInvRole" style="width:110px"><option value="member">membro</option><option value="lead">lead</option></select><button class="btn primary sm" id="sbInvite">gerar convite</button></div>
-    <div id="sbInvOut"></div>`:''}
+    <div class="seclbl2" style="margin-top:18px">Convidar gente nova <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pra quem ainda não tem conta — quem já tem, use "+ adicionar ao time"</span></div>
+    <div style="display:flex;gap:8px;margin-top:6px"><input class="in" id="sbInvEmail" placeholder="email@empresa.com" style="flex:1"><select class="sel" id="sbInvTeam" style="width:150px">${invTeams.map(t=>`<option value="${escA(t.id)}"${t.id===teamId?' selected':''}>${esc(t.name)}</option>`).join('')}</select><select class="sel" id="sbInvRole" style="width:100px"><option value="member">membro</option><option value="lead">lead</option></select><button class="btn primary sm" id="sbInvite">gerar convite</button></div>
+    <div id="sbInvOut"></div>
+    ${invListHtml?`<div class="seclbl2" style="margin-top:14px">Convites pendentes <span class="n">${d.invites.length}</span></div><div class="costlist">${invListHtml}</div>`:''}`:''}
     <div class="seclbl2" style="margin-top:18px">Agentes &amp; equipes da organização</div>
     <div id="sbCat" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>
     <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="grava os agentes/workflows da org no cardume.config.json do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
@@ -3906,16 +3917,37 @@ async function renderCloud(){
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbLogout">sair</button></div>
     <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;
-  document.getElementById('sbTeamSel').onchange=e=>{ lsSet('sb:team', e.target.value); cloudData=null; renderCloud(); cloudBtnSync(); };
   { const b=document.getElementById('sbTeamAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do novo time:'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg='Falhou: '+e.message; } renderCloud(); }; }
+  // ações nos times: usar / promover-rebaixar / remover / adicionar membro
+  body.querySelectorAll('[data-mact]').forEach(b=>{ b.onclick=async()=>{
+    const act=b.dataset.mact, tid=b.dataset.team, uid=b.dataset.uid; cloudMsg='';
+    try{
+      if(act==='use'){ lsSet('sb:team', tid); cloudData=null; renderCloud(); cloudBtnSync(); return; }
+      if(act==='add'){ const sel=document.getElementById('sbAdd-'+tid); if(!sel||!sel.value) return; await sbPost('team_members',{ team_id:tid, user_id:sel.value, role:'member' }); cloudMsg='✓ adicionado ao time'; }
+      if(act==='rm'){ const nm=pName(uid); if(!confirm('Remover '+nm+' deste time?')) return; await sbFetch('/rest/v1/team_members?team_id=eq.'+tid+'&user_id=eq.'+uid, { method:'DELETE' }); cloudMsg='✓ removido do time'; }
+      if(act==='lead'){ const cur=(d.teamMembers[tid]||[]).find(m=>m.user_id===uid); await sbFetch('/rest/v1/team_members?team_id=eq.'+tid+'&user_id=eq.'+uid, { method:'PATCH', body: JSON.stringify({ role: cur&&cur.role==='lead'?'member':'lead' }) }); cloudMsg='✓ papel atualizado'; }
+      cloudData=null; renderCloud();
+    }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
+  }; });
+  // convites pendentes: copiar mensagem / revogar
+  const invMsg=(iv)=>{ const tn=(d.teams.find(x=>x.id===iv.team_id)||{}).name||''; return `Você foi convidado(a) pro time ${tn} da ${d.org.name} no Constellation.\n1. Abra o Constellation e clique em Entrar\n2. Crie sua conta com o e-mail ${iv.email}\n3. Em "aceitar convite", cole o token:\n${iv.token}`; };
+  body.querySelectorAll('[data-iact]').forEach(b=>{ b.onclick=async()=>{
+    const iv=(d.invites||[]).find(x=>x.id===b.dataset.iv); if(!iv) return;
+    if(b.dataset.iact==='copy'){ navigator.clipboard.writeText(invMsg(iv)); b.textContent='copiado ✓'; return; }
+    if(!confirm('Revogar o convite de '+iv.email+'?')) return;
+    cloudMsg='';
+    try{ await sbFetch('/rest/v1/invites?id=eq.'+iv.id, { method:'DELETE' }); cloudData=null; cloudMsg='✓ convite revogado'; }catch(e){ cloudMsg='Falhou: '+e.message; }
+    renderCloud();
+  }; });
   { const b=document.getElementById('sbInvite'); if(b) b.onclick=async()=>{
       cloudMsg='';
       try{
         const mail=document.getElementById('sbInvEmail').value.trim();
         if(!mail){ document.getElementById('sbInvEmail').focus(); throw new Error('informe o e-mail da pessoa'); }
-        const rows=await sbPost('invites',{ org_id:d.org.id, team_id:teamId, email:mail, role:document.getElementById('sbInvRole').value, created_by:cloudUserId() });
+        const invTeamId=document.getElementById('sbInvTeam').value;
+        const rows=await sbPost('invites',{ org_id:d.org.id, team_id:invTeamId, email:mail, role:document.getElementById('sbInvRole').value, created_by:cloudUserId() });
         const tok=rows[0].token;
-        const teamName=(d.teams.find(x=>x.id===teamId)||{}).name||'';
+        const teamName=(d.teams.find(x=>x.id===invTeamId)||{}).name||'';
         const msg=`Você foi convidado(a) pro time ${teamName} da ${d.org.name} no Constellation.\n1. Abra o Constellation e clique em Entrar\n2. Crie sua conta com o e-mail ${mail}\n3. Em "aceitar convite", cole o token:\n${tok}`;
         document.getElementById('sbInvOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
         document.getElementById('sbInvCopy').onclick=function(){ navigator.clipboard.writeText(msg); this.textContent='copiado ✓'; };
@@ -4051,6 +4083,13 @@ function renderTeamBoard(){
     const prs=teamTasks.filter(t=>t.pr_url && t.status!=='merged');
     const chip=(lbl,val,color)=>`<div class="tmstat"><div class="v" style="${color?'color:'+color:''}">${val}</div><div class="l">${lbl}</div></div>`;
     html+=`<div class="tmstats">${chip('tarefas',n)}${chip('backlog',backlog,'var(--muted)')}${chip('em andamento',andamento,'var(--warn)')}${chip('entregues',entregues,'var(--good)')}${chip('PRs abertos',prs.length,'var(--accent)')}${chip('custo',fmtUsd(custo))}</div>`;
+    // entregas por membro — quem entregou o quê (demandas entregues do time)
+    {
+      const per={};
+      for(const t of teamTasks){ const who=t.assignee||t.created_by; const b=per[who]||(per[who]={done:0,run:0,usd:0}); if(groups[2][1](t)) b.done++; else if(groups[1][1](t)) b.run++; b.usd+=(+t.cost_usd||0); }
+      const rows=Object.entries(per).sort((a,b)=>b[1].done-a[1].done);
+      if(rows.length) html+=`<div class="seclbl2" style="margin:12px 2px 6px">Entregas por membro</div><div class="costlist" style="margin:0 2px">${rows.map(([uid,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(tmName(uid))}">${esc(tmName(uid).slice(0,2).toUpperCase())}</span><span class="cnm">${esc(tmName(uid))}</span><span class="dim" style="font-size:11px">${v.done} entregue${v.done===1?'':'s'} · ${v.run} em andamento</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')}</div>`;
+    }
     // inbox: PRs do time pra revisar (decisão: notificado + 1 clique pra revisar)
     if(prs.length){
       html+=`<div class="seclbl2" style="margin:14px 2px 8px">PRs do time — pra revisar <span class="n">${prs.length}</span></div>`;
