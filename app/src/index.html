@@ -419,7 +419,10 @@
   .farrow{color:var(--muted);font-size:12px}
   .fmeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:11px;font-size:11.5px;color:var(--text-2)}
   .fmeta .frev{color:var(--good);font-weight:600}
-  .fcommits{display:flex;flex-direction:column;gap:2px;margin-top:10px;border-top:.5px dashed var(--border);padding-top:9px}
+  .fcommits{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+  .fctog{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;border-top:.5px dashed var(--border);padding-top:8px;margin-top:9px}
+  .fctog:hover{color:var(--text)}
+  .fcchev{font-size:9px;color:var(--muted);width:10px}
   .fcommit{display:flex;gap:8px;align-items:center;text-align:left;border:0;background:none;cursor:pointer;color:var(--text-2);font:inherit;font-size:11.5px;padding:4px 6px;border-radius:var(--r-xs);width:100%;min-width:0}
   .fcommit:hover{background:var(--surface-2);color:var(--text)}
   .fcommit .cav{width:17px;height:17px;border-radius:5px;color:#fff;display:grid;place-items:center;font-size:8px;font-weight:700;flex:none}
@@ -2018,10 +2021,11 @@ function flowTaskCard(t){
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${flagBadge}<span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
-    <div class="fclabel">Commits desta tarefa <span class="dim">· clique para ver o diff</span></div>
-    <div class="fcommits">${cchips}</div>
+    <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
+    ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;
 }
+const flowCommitsOpen=new Set(); // cards com a lista de commits expandida
 // ----- filtros do Fluxo (status · período · agente · busca) -----
 let flowStatus = 'all';   // all | active | review | merged | error
 let flowPeriod = 'all';   // all | today | week
@@ -2123,6 +2127,7 @@ function renderFlow(){
     card.addEventListener('drop',e=>{ e.preventDefault(); const tgt=card.dataset.id; const drag=flowDragId; flowDragId=null; if(drag&&drag!==tgt) reorderFlow(drag,tgt); });
   });
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
+  el.querySelectorAll('[data-ctog]').forEach(h=>h.onclick=(e)=>{ e.stopPropagation(); const id=h.dataset.ctog; if(flowCommitsOpen.has(id)) flowCommitsOpen.delete(id); else flowCommitsOpen.add(id); lastSig=''; renderFlow(); });
   for(const t of tasks){ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('flow')) renderFlow(); }); }
 }
 // ---------- Kanban ----------
