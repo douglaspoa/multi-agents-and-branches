@@ -378,7 +378,10 @@
   .flagbadge.cls{background:var(--surface-3);color:var(--muted)}
   .fcard.flagged{opacity:.72}
   .fcard.flagged:hover{opacity:1}
-  .foot1{display:flex;align-items:center;flex-wrap:wrap;gap:7px;width:100%}
+  .footcol{display:flex;flex-direction:column;gap:8px;width:100%}
+  .btn.wide{width:100%;justify-content:center}
+  .foot1{display:flex;align-items:center;gap:4px;width:100%;overflow:hidden}
+  .foot1 .btn.ghost{padding:5px 7px}
   .foot1 .grow{flex:1}
   .foot1 .btn{white-space:nowrap}
   .btn.danger.ghost{background:transparent;border-color:transparent;color:var(--crit);opacity:.85}
@@ -2949,16 +2952,17 @@ function renderSide(){
     : t.flag==='closed' ? `<button class="btn sm ghost" data-flag="">${IC.refresh} reabrir</button>`
     : `<button class="btn sm ghost" data-flag="blocked">${IC.pause} bloquear</button>${t.status!=='draft'?`<button class="btn sm ghost" data-flag="closed">${IC.checkc} encerrar</button>`:''}`;
   const footInner = (()=>{
-    if(t.status==='paused') return `<div class="acts foot1"><button class="btn danger sm ghost" data-act="abort">${IC.xs} abortar</button>${flagBtns}<span class="grow"></span><button class="btn primary sm" data-act="resume">${IC.cright} retomar</button></div>`;
-    if(ACTIVE_ST.has(t.status)) return `<div class="acts foot1"><button class="btn sm ghost" data-act="pause">${IC.pause} pausar</button>${flagBtns}<span class="grow"></span><button class="btn danger sm" data-act="abort">${IC.xs} abortar</button></div>`;
-    const merge=(t.status==='review'&&t.kind!=='review')?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:'';
-    const start=t.status==='draft'?`<button class="btn primary sm" data-act="start">${IC.cright} iniciar</button>`:'';
+    if(t.status==='paused') return `<div class="footcol"><button class="btn primary sm wide" data-act="resume">${IC.cright} retomar</button><div class="acts foot1">${flagBtns}<span class="grow"></span><button class="btn danger sm ghost" data-act="abort">${IC.xs} abortar</button></div></div>`;
+    if(ACTIVE_ST.has(t.status)) return `<div class="acts foot1"><button class="btn sm ghost" data-act="pause">${IC.pause} pausar</button>${flagBtns}<span class="grow"></span><button class="btn danger sm ghost" data-act="abort">${IC.xs} abortar</button></div>`;
+    const merge=(t.status==='review'&&t.kind!=='review')?`<button class="btn primary sm wide" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:'';
+    const start=t.status==='draft'?`<button class="btn primary sm wide" data-act="start">${IC.cright} iniciar</button>`:'';
     const rmlbl=(t.kind==='review'&&t.status==='review')?'concluir'
       :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
     const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm ghost" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
-    const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm ghost" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} abrir correção</button>`:'';
+    const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm ghost" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} correção</button>`:'';
     const merged=t.status==='merged'?`<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`:'';
-    return `<div class="acts foot1">${merged}${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}${start}${merge}</div>`;
+    const primary=merge||start;
+    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${primary}<div class="acts foot1">${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
   })();
 
   el.innerHTML = `<div class="det">
