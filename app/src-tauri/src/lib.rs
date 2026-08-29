@@ -1883,6 +1883,37 @@ fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String>
     conn.query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0))
         .map_err(|e| e.to_string())
 }
+/// Head que realmente tem PR: a branch atual — ou, se ela foi RENOMEADA depois
+/// do push (ex.: agent/... → feat/FND-853-...), o nome remoto antigo, que
+/// sobrevive no upstream. (Sem isso, PR aberto "some" da UI após o rename.)
+fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
+    let repo = repo_of(state)?;
+    let branch = task_branch(state, task_id)?;
+    let mut cands = vec![branch.clone()];
+    if let Ok(o) = Command::new("git")
+        .arg("-C").arg(&repo)
+        .args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", &format!("{branch}@{{upstream}}")])
+        .output()
+    {
+        if o.status.success() {
+            let up = String::from_utf8_lossy(&o.stdout).trim().trim_start_matches("origin/").to_string();
+            if !up.is_empty() && up != branch {
+                cands.push(up);
+            }
+        }
+    }
+    for c in &cands {
+        let mut v = Command::new(gh_bin());
+        v.args(["pr", "view", c, "--json", "number"]).current_dir(&repo);
+        if let Ok(o) = output_timeout(v, 10) {
+            if o.status.success() {
+                return Ok((repo, c.clone()));
+            }
+        }
+    }
+    Ok((repo, branch))
+}
+
 fn repo_slug(repo: &PathBuf) -> Result<String, String> {
     let mut cmd = Command::new(gh_bin());
     cmd.args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).current_dir(repo);
@@ -1938,6 +1969,19 @@ fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
 fn open_pr(state: State<AppState>, task_id: String, base: String, title: String, body: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
+    // já existe PR (na branch atual OU no nome antigo pós-rename)? devolve ele
+    if let Ok((r2, head)) = pr_head(&state, &task_id) {
+        let mut v = Command::new(gh_bin());
+        v.args(["pr", "view", &head, "--json", "url", "-q", ".url"]).current_dir(&r2);
+        if let Ok(o) = output_timeout(v, 10) {
+            if o.status.success() {
+                let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !u.is_empty() {
+                    return Ok(u);
+                }
+            }
+        }
+    }
     let push = Command::new("git")
         .arg("-C").arg(&repo)
         .args(["push", "-u", "origin", &branch])
@@ -1989,8 +2033,7 @@ struct PrInfo {
 /// (conversa + inline por arquivo — inclui CodeRabbit e pessoas).
 #[tauri::command(async)]
 fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> {
-    let repo = repo_of(&state)?;
-    let branch = task_branch(&state, &task_id)?;
+    let (repo, branch) = pr_head(&state, &task_id)?;
     let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), comments: vec![] };
     let mut vcmd = Command::new(gh_bin());
     vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,comments"]).current_dir(&repo);
@@ -2056,8 +2099,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
 /// Mergeia o PR (gh) e marca a tarefa como merged localmente.
 #[tauri::command(async)]
 fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
-    let repo = repo_of(&state)?;
-    let branch = task_branch(&state, &task_id)?;
+    let (repo, branch) = pr_head(&state, &task_id)?;
     let m = match method.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
     let out = Command::new(gh_bin())
         .args(["pr", "merge", &branch, m, "--delete-branch"])
