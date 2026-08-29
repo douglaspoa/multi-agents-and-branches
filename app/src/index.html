@@ -3728,12 +3728,13 @@ setInterval(()=>{ refresh().catch(e=>console.error("refresh:", e)); }, 1000);
    → home (org, times, membros, convites, seletor de time atual).
    RLS mora no banco; aqui só autentica e consome /auth/v1 + /rest/v1.
    ========================================================================= */
-// Credenciais do projeto: baked no build quando o Douglas criar o projeto;
-// enquanto vazio, a tela de conexão pede uma vez e guarda em localStorage.
-const SB_DEFAULT = { url: '', key: '' };
+// Padrão: Supabase LOCAL (supabase start neste repo — portas 543x1..7 movidas
+// pra não colidir com outros projetos). Pra apontar pra nuvem depois, é só
+// colar URL + chave em "backend…" (localStorage tem precedência sobre o baked).
+const SB_DEFAULT = { url: 'http://127.0.0.1:54341', key: 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' };
 const SB = {
-  url(){ return (SB_DEFAULT.url || lsGet('sb:url') || '').replace(/\/+$/,''); },
-  key(){ return SB_DEFAULT.key || lsGet('sb:key') || ''; },
+  url(){ return (lsGet('sb:url') || SB_DEFAULT.url || '').replace(/\/+$/,''); },
+  key(){ return lsGet('sb:key') || SB_DEFAULT.key || ''; },
   sess(){ try{ return JSON.parse(lsGet('sb:sess')||'null'); }catch(_){ return null; } },
   setSess(s){ if(s) lsSet('sb:sess', JSON.stringify(s)); else lsSet('sb:sess',''); },
   configured(){ return !!(this.url() && this.key()); },
@@ -3768,6 +3769,7 @@ let cloudMsg = '';      // feedback (erro/ok) da última ação
 function cloudTeamId(){ return lsGet('sb:team') || ''; }
 function cloudUserId(){ const s=SB.sess(); return s && s.user ? s.user.id : ''; }
 
+let cloudCfgOpen=false; // força a tela de backend mesmo com o default baked
 function openCloud(){ document.getElementById('cloudOverlay').style.display='flex'; renderCloud(); }
 function closeCloud(){ document.getElementById('cloudOverlay').style.display='none'; cloudMsg=''; }
 
@@ -3806,15 +3808,17 @@ function cloudMsgHtml(){ return cloudMsg ? `<div class="imhint" style="border-le
 async function renderCloud(){
   const body=document.getElementById('cloudBody'); if(!body) return;
   const head=document.getElementById('cloudHead');
-  // 1) sem credenciais do backend
-  if(!SB.configured()){
+  // 1) tela de backend (aparece se não há default nem config, ou via "backend…")
+  if(!SB.configured() || cloudCfgOpen){
     head.textContent='Conectar ao backend';
+    const isLocal=SB.url().startsWith('http://127.0.0.1');
     body.innerHTML = cloudMsgHtml()+`
-      <div class="imhint">Cole as credenciais do projeto <b>Supabase</b> do Constellation (Settings → API). Fica salvo nesta máquina — nas próximas versões já vem embutido no app.</div>
+      <div class="imhint">Backend atual: <b>${esc(SB.url()||'nenhum')}</b>${isLocal?' <span class="dim">(Supabase local — dev)</span>':''}. Pra usar o projeto na nuvem, cole as credenciais (Settings → API) — vale só nesta máquina.</div>
       <label style="margin-top:10px">Project URL</label><input class="in" id="sbUrl" placeholder="https://xxxx.supabase.co" value="${escA(lsGet('sb:url')||'')}">
-      <label style="margin-top:12px">anon key</label><input class="in mono" id="sbKey" placeholder="eyJhbGciOi…" value="${escA(lsGet('sb:key')||'')}">
-      <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span><button class="btn primary" id="sbSaveCfg">salvar e continuar</button></div>`;
-    document.getElementById('sbSaveCfg').onclick=()=>{ lsSet('sb:url', document.getElementById('sbUrl').value.trim()); lsSet('sb:key', document.getElementById('sbKey').value.trim()); cloudMsg=''; renderCloud(); };
+      <label style="margin-top:12px">anon key / publishable key</label><input class="in mono" id="sbKey" placeholder="eyJhbGciOi… ou sb_publishable_…" value="${escA(lsGet('sb:key')||'')}">
+      <div style="display:flex;gap:8px;margin-top:16px"><button class="btn sm" id="sbCfgLocal" title="volta pro Supabase local (padrão)">usar local (dev)</button><span style="flex:1"></span><button class="btn primary" id="sbSaveCfg">salvar e continuar</button></div>`;
+    document.getElementById('sbSaveCfg').onclick=()=>{ lsSet('sb:url', document.getElementById('sbUrl').value.trim()); lsSet('sb:key', document.getElementById('sbKey').value.trim()); SB.setSess(null); cloudData=null; cloudCfgOpen=false; cloudMsg=''; renderCloud(); cloudBtnSync(); };
+    document.getElementById('sbCfgLocal').onclick=()=>{ lsSet('sb:url',''); lsSet('sb:key',''); SB.setSess(null); cloudData=null; cloudCfgOpen=false; cloudMsg=''; renderCloud(); cloudBtnSync(); };
     return;
   }
   // 2) sem sessão → login / criar conta
@@ -3844,7 +3848,7 @@ async function renderCloud(){
     document.getElementById('sbLogin').onclick=()=>go('in');
     document.getElementById('sbSignup').onclick=()=>go('up');
     document.getElementById('sbPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go('in'); });
-    document.getElementById('sbCfgEdit').onclick=()=>{ lsSet('sb:url',''); lsSet('sb:key',''); renderCloud(); };
+    document.getElementById('sbCfgEdit').onclick=()=>{ cloudCfgOpen=true; renderCloud(); };
     return;
   }
   // dados frescos
