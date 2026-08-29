@@ -378,6 +378,11 @@
   .flagbadge.cls{background:var(--surface-3);color:var(--muted)}
   .fcard.flagged{opacity:.72}
   .fcard.flagged:hover{opacity:1}
+  .foot1{display:flex;align-items:center;flex-wrap:wrap;gap:7px;width:100%}
+  .foot1 .grow{flex:1}
+  .foot1 .btn{white-space:nowrap}
+  .btn.danger.ghost{background:transparent;border-color:transparent;color:var(--crit);opacity:.85}
+  .btn.danger.ghost:hover{background:color-mix(in srgb,var(--crit) 10%,transparent);opacity:1}
   .flagrow{margin-top:7px}
   .delivrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
   .fchip svg{width:12px;height:12px}
@@ -2938,24 +2943,23 @@ function renderSide(){
   // rodapé: ações conforme o estado. Para tarefas VIVAS, pausar/abortar de
   // verdade (encerram o processo do agente) em vez do antigo "cancelar" que só
   // apagava a linha e deixava o processo rodando fantasma.
-  const mainActs = (()=>{
-    if(t.status==='merged') return `<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`;
-    if(t.status==='paused') return `<div class="acts"><button class="btn primary sm" data-act="resume">${IC.cright} retomar</button><button class="btn danger sm" data-act="abort">${IC.xs} abortar</button></div>`;
-    if(ACTIVE_ST.has(t.status)) return `<div class="acts"><button class="btn sm" data-act="pause">${IC.pause} pausar</button><button class="btn danger sm" data-act="abort">${IC.xs} abortar</button></div>`;
-    const start=t.status==='draft'?`<button class="btn primary sm" data-act="start">${IC.cright} iniciar</button>`:'';
-    // review de PR não gera branch → não há merge; só concluir/descartar
-    const merge=(t.status==='review'&&t.kind!=='review')?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:'';
-    const rmlbl=(t.kind==='review'&&t.status==='review')?'concluir'
-      :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
-    const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
-    const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} abrir correção</button>`:'';
-    return `<div class="acts">${start}${rerun}${linkfix}${merge}<button class="btn danger sm" data-act="rm">${rmlbl}</button></div>`;
-  })();
-  // ações de organização (não poluir a UI): bloquear / encerrar / reabrir
+  // Rodapé: UMA barra alinhada — utilidades discretas à esquerda,
+  // destrutiva + ação primária à direita.
   const flagBtns = t.flag==='blocked' ? `<button class="btn sm ghost" data-flag="">${IC.refresh} desbloquear</button>`
     : t.flag==='closed' ? `<button class="btn sm ghost" data-flag="">${IC.refresh} reabrir</button>`
     : `<button class="btn sm ghost" data-flag="blocked">${IC.pause} bloquear</button>${t.status!=='draft'?`<button class="btn sm ghost" data-flag="closed">${IC.checkc} encerrar</button>`:''}`;
-  const footInner = mainActs + `<div class="acts flagrow">${flagBtns}</div>`;
+  const footInner = (()=>{
+    if(t.status==='paused') return `<div class="acts foot1"><button class="btn danger sm ghost" data-act="abort">${IC.xs} abortar</button>${flagBtns}<span class="grow"></span><button class="btn primary sm" data-act="resume">${IC.cright} retomar</button></div>`;
+    if(ACTIVE_ST.has(t.status)) return `<div class="acts foot1"><button class="btn sm ghost" data-act="pause">${IC.pause} pausar</button>${flagBtns}<span class="grow"></span><button class="btn danger sm" data-act="abort">${IC.xs} abortar</button></div>`;
+    const merge=(t.status==='review'&&t.kind!=='review')?`<button class="btn primary sm" data-act="merge">${IC.merge} merge na ${esc(t.base)}</button>`:'';
+    const start=t.status==='draft'?`<button class="btn primary sm" data-act="start">${IC.cright} iniciar</button>`:'';
+    const rmlbl=(t.kind==='review'&&t.status==='review')?'concluir'
+      :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
+    const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm ghost" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
+    const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm ghost" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} abrir correção</button>`:'';
+    const merged=t.status==='merged'?`<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`:'';
+    return `<div class="acts foot1">${merged}${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}${start}${merge}</div>`;
+  })();
 
   el.innerHTML = `<div class="det">
     ${errBanner(t)}
