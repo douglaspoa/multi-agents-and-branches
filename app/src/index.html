@@ -964,6 +964,16 @@
   .rev .test{margin-top:11px;font-size:11.5px;color:var(--text-2);border-left:2px solid var(--accent);padding-left:9px}
   .rev .fl2{font-size:11px;color:var(--muted);margin-top:9px;display:flex;flex-wrap:wrap;gap:4px 12px}
 
+  /* backlog do time (aba Time) */
+  .tmcard{border:1px solid var(--border);background:var(--surface);padding:10px 12px;margin:0 2px 8px;border-radius:6px}
+  .tmcard:hover{border-color:var(--accent)}
+  .tmrow1,.tmrow2,.tmrow3{display:flex;align-items:center;gap:8px}
+  .tmrow2{margin-top:4px}
+  .tmrow3{margin-top:8px}
+  .tmtitle{font-size:13px}
+  .tmst{font-size:11px;white-space:nowrap}
+  .tmbadge{font-size:10px;color:var(--warn);border:1px solid var(--warn);padding:1px 6px;border-radius:99px;white-space:nowrap}
+
   /* bus */
   .bus{display:flex;align-items:center;gap:12px;padding:7px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:12px}
   .bus .live{background:var(--accent);color:var(--on-accent);padding:3px 9px;font-weight:700}
@@ -1007,6 +1017,7 @@
           <button data-v="kanban">Kanban</button>
           <button data-v="graph">Grafo</button>
           <button data-v="feed">Atividade</button>
+          <button data-v="team">Time</button>
         </div>
         <span class="chint" id="chint">quem fez o quê · commits por tarefa</span>
       </div>
@@ -1014,6 +1025,7 @@
       <div id="kanbanPane" class="pane" style="display:none"><div id="kanban" class="kanban"></div></div>
       <div id="graphPane" class="pane" style="display:none"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
+      <div id="teamPane" class="pane" style="display:none;padding:12px 12px 16px"><div id="teamBoard"></div></div>
       <div id="emptyRepo" class="emptyrepo" style="display:none">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>
         <div class="big">Nenhum projeto aberto</div>
@@ -1115,6 +1127,16 @@
       <div id="ntRefs" class="reflist"></div>
 
       <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
+
+      <div id="ntShareRow" style="display:none">
+        <div class="seclbl2" style="margin-top:15px">Time</div>
+        <select class="sel" id="ntShare" style="width:100%">
+          <option value="self" selected>Realizar eu mesmo — sincroniza o cartão no time (reservada pra você)</option>
+          <option value="team">Compartilhar tarefa com o time — vai pro backlog; qualquer membro assume &amp; inicia</option>
+          <option value="local">Não compartilhar — só nesta máquina</option>
+        </select>
+        <div class="aihint dim" style="margin-top:7px">O time vê só o cartão (spec, status, custo, provas) — o stream do agente fica na sua máquina.</div>
+      </div>
       </div>
     </div>
     <div class="mfoot">
@@ -1224,6 +1246,14 @@
   <div class="modal" style="width:min(640px,100%)">
     <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:15px;height:15px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><b id="cloudHead">Time na nuvem</b><span style="flex:1"></span><button class="x" id="cloudClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="cloudBody"></div>
+  </div>
+</div>
+
+<!-- detalhe/edição de um cartão compartilhado do time -->
+<div class="overlay" id="ctOverlay" style="display:none">
+  <div class="modal" style="width:min(680px,100%)">
+    <div class="mhead"><b id="ctHead">Tarefa do time</b><span style="flex:1"></span><button class="x" id="ctClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="ctBody"></div>
   </div>
 </div>
 
@@ -1361,7 +1391,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -2031,12 +2061,14 @@ function render(){
   document.getElementById("kanbanPane").style.display = v==="kanban"?"block":"none";
   document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
   document.getElementById("feedPane").style.display = v==="feed"?"block":"none";
+  document.getElementById("teamPane").style.display = v==="team"?"block":"none";
   // cada painel isolado: um erro num deles não derruba os outros nem o poll
   safe(renderRail); safe(renderSide); safe(renderBus);
   // só renderiza o painel central ativo (os outros ficam ocultos)
   if(v==="graph") safe(renderGraph);
   else if(v==="feed") safe(renderFeed);
   else if(v==="kanban") safe(renderKanban);
+  else if(v==="team") safe(renderTeamBoard);
   else safe(renderFlow);
 }
 // executa um render defensivamente — loga o erro em vez de propagar/travar a UI
@@ -3074,7 +3106,7 @@ document.getElementById("repoInput").addEventListener("keydown", e=>{ if(e.key==
 document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   const v=b.dataset.v;
   document.getElementById("viewSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
-  document.getElementById("chint").textContent = v==="flow"?"quem fez o quê · commits por tarefa":v==="kanban"?"arraste entre colunas · play no card":v==="graph"?"branches · agentes nas pontas":"eventos ao vivo de todos os agentes";
+  document.getElementById("chint").textContent = v==="flow"?"quem fez o quê · commits por tarefa":v==="kanban"?"arraste entre colunas · play no card":v==="graph"?"branches · agentes nas pontas":v==="team"?"backlog compartilhado do time · assumir & iniciar":"eventos ao vivo de todos os agentes";
   if(v==="flow") loadAllCommits();
   if(v==="graph"){ refresh(); return; }   // busca o grafo (git log) só ao abrir a aba
   render();
@@ -3411,9 +3443,20 @@ async function submitNewTask(start=true){
     base: document.getElementById("ntBase").value.trim() || null,
     linkedTo: ntLinkedTo,
   };
+  const share = (document.getElementById("ntShareRow").style.display!=='none') ? document.getElementById("ntShare").value : 'local';
   const btn = document.getElementById(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   document.getElementById("ntCreate").disabled=true; document.getElementById("ntDraft").disabled=true;
-  try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+  try{
+    if(share==='team' && start){
+      // compartilhar com o time: NÃO roda aqui — vira cartão no backlog do time
+      await cloudShareTask(payload);
+      closeNewTask(); resetNewTask(); setView('team');
+    } else {
+      const localId = await invoke("new_task", payload);
+      if(share==='self' && start){ cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e)); }
+      closeNewTask(); resetNewTask(); lastSig=""; await refresh();
+    }
+  }
   catch(e){ alert("Falha ao criar tarefa:\n"+e); }
   finally{ btn.innerHTML=orig; document.getElementById("ntCreate").disabled=false; document.getElementById("ntDraft").disabled=false; }
 }
@@ -3866,6 +3909,201 @@ document.getElementById('cloudClose').onclick=closeCloud;
 document.getElementById('cloudOverlay').addEventListener('click',e=>{ if(e.target.id==='cloudOverlay') closeCloud(); });
 // boot: sincroniza o rótulo do botão (e renova o token se já havia sessão)
 if(SB.configured() && SB.sess()){ sbRefresh().then(()=>cloudLoad()).then(cloudBtnSync).catch(()=>cloudBtnSync()); } else cloudBtnSync();
+
+/* ============================================================================
+   F2 — TAREFAS COMPARTILHADAS: o "cartão" da tarefa vive no time (Supabase);
+   o trabalho (worktree, stream do agente) vive na máquina de quem assumiu.
+   - criar: "realizar eu mesmo" (cartão reservado) × "compartilhar" (backlog)
+   - backlog do time: ver spec, editar, assumir & iniciar, remover
+   - sync: status/etapa/custo/branch/PR/provas do cartão, a cada 6s
+   ========================================================================= */
+function setView(v){ const b=document.querySelector('#viewSeg button[data-v="'+v+'"]'); if(b) b.click(); }
+function tmap(){ try{ return JSON.parse(lsGet('sb:tmap')||'{}'); }catch(_){ return {}; } }
+function tmapSet(localId, cloudId){ const m=tmap(); m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
+function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
+const CT_ST_PT={ backlog:'backlog', queued:'na fila', running:'rodando', thinking:'pensando', 'plan-review':'plano em revisão', review:'pronta pra review', delivered:'entregue', done:'concluída', merged:'mergeada', error:'erro', conflict:'conflito', aborted:'abortada' };
+function ctStColor(st){ return st==='backlog'?'var(--muted)':(st==='review'||st==='delivered'||st==='done')?'var(--good)':(st==='merged')?'var(--accent)':(st==='error'||st==='conflict')?'var(--bad, #e5534b)':'var(--warn)'; }
+
+async function cloudEnsureProject(){
+  const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão do topo');
+  const remote=await invoke('repo_remote');
+  const rows=await sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId+'&repo_remote=eq.'+encodeURIComponent(remote));
+  if(rows.length) return rows[0];
+  const name=String(remote).split('/').pop();
+  const ins=await sbPost('projects',{ team_id:teamId, name, repo_remote:remote });
+  return ins[0];
+}
+// compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
+async function cloudShareTask(payload){
+  if(!SB.sess()) throw new Error('entre na sua conta (botão no topo)');
+  const proj=await cloudEnsureProject();
+  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', spec:payload });
+  sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
+  teamTasks=null;
+  return rows[0];
+}
+// realizar eu mesmo: roda aqui + sobe o cartão reservado (decisão: "pra si")
+async function cloudPublishSelf(localId, payload){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const proj=await cloudEnsureProject();
+  const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', spec:payload });
+  tmapSet(localId, rows[0].id);
+  sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
+  teamTasks=null;
+}
+
+// ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
+const cloudSyncSigs={};
+async function cloudSyncTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
+  for(const lid of ids){
+    const t=(state.tasks||[]).find(x=>x.id===lid); if(!t) continue;
+    const cost=taskCost(lid);
+    const body={ status:t.status, stage:t.stage||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0 };
+    const proofs=reqProofCache[lid]; if(proofs) body.requirements_proof=proofs;
+    const sig=JSON.stringify(body);
+    if(cloudSyncSigs[lid]===sig) continue;
+    try{ await sbFetch('/rest/v1/tasks?id=eq.'+m[lid], { method:'PATCH', body: JSON.stringify(body) }); cloudSyncSigs[lid]=sig; }
+    catch(e){ console.error('sync '+lid+':', e.message); }
+  }
+}
+setInterval(()=>{ cloudSyncTick().catch(()=>{}); }, 6000);
+
+// ---- backlog do time (aba Time) ----
+let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='';
+async function teamFetch(force){
+  if(teamFetching) return; if(!force && teamTasks && Date.now()-teamFetchedAt<10000) return;
+  teamFetching=true;
+  try{
+    const teamId=cloudTeamId(); if(!teamId) return;
+    const [tasks, projs]=await Promise.all([
+      sbGet('tasks?select=*&team_id=eq.'+teamId+'&order=updated_at.desc&limit=200'),
+      sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId),
+    ]);
+    teamProj={}; projs.forEach(p=>teamProj[p.id]=p);
+    const uids=new Set(); tasks.forEach(t=>{ uids.add(t.created_by); if(t.assignee) uids.add(t.assignee); });
+    if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
+    try{ teamRepoRemote=await invoke('repo_remote'); }catch(_){ teamRepoRemote=''; }
+    teamTasks=tasks; teamFetchedAt=Date.now();
+  } finally { teamFetching=false; }
+}
+function tmName(uid){ const p=teamProfiles[uid]; return p?(p.name||p.email):((uid||'').slice(0,8)); }
+function tmAv(uid){ const n=tmName(uid); return `<span class="cav" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
+
+function renderTeamBoard(){
+  const el=document.getElementById('teamBoard'); if(!el) return;
+  if(!SB.sess() || !cloudTeamId()){
+    const need=!SB.sess()?'Entre na sua conta pra ver o backlog do time.':'Escolha um time no botão do topo.';
+    const html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog do time</div><div>${need}</div><button class="btn primary" id="tbGo">abrir Time na nuvem</button></div>`;
+    if(teamPaintSig!==html){ teamPaintSig=html; el.innerHTML=html; document.getElementById('tbGo').onclick=openCloud; }
+    return;
+  }
+  if(!teamTasks){
+    el.innerHTML='<div class="dim" style="padding:10px 4px">carregando backlog do time…</div>'; teamPaintSig='';
+    teamFetch(true).then(()=>renderTeamBoard()).catch(e=>{ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">Falhou: '+esc(e.message)+'</div>'; });
+    return;
+  }
+  if(Date.now()-teamFetchedAt>10000){ teamFetch().then(()=>renderTeamBoard()).catch(()=>{}); }
+  const me=cloudUserId();
+  const isAdmin=cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin');
+  const groups=[['Backlog — livre pra assumir', t=>t.status==='backlog'], ['Em andamento', t=>!['backlog','review','delivered','done','merged','aborted'].includes(t.status)], ['Entregues', t=>['review','delivered','done','merged'].includes(t.status)]];
+  let html='';
+  for(const [label, fil] of groups){
+    const list=teamTasks.filter(fil); if(!list.length) continue;
+    html+=`<div class="seclbl2" style="margin:14px 2px 8px">${label} <span class="n">${list.length}</span></div>`;
+    html+=list.map(t=>{
+      const proj=teamProj[t.project_id]||{};
+      const sameRepo=!proj.repo_remote || proj.repo_remote===teamRepoRemote;
+      const canClaim=t.status==='backlog' && (t.claim_mode==='open' || t.created_by===me);
+      const reserved=t.claim_mode==='reserved';
+      const cost=(t.cost_usd>0)?` · ${fmtUsd(+t.cost_usd)}`:'';
+      const who=t.assignee?`${tmAv(t.assignee)} <span class="dim" style="font-size:11px">${esc(tmName(t.assignee))}</span>`:`<span class="dim" style="font-size:11px">ninguém assumiu</span>`;
+      return `<div class="tmcard" data-ct="${escA(t.id)}">
+        <div class="tmrow1"><b class="tmtitle">${esc(t.title)}</b>${reserved?'<span class="tmbadge" title="o criador reservou esta tarefa pra si">pra si</span>':''}<span style="flex:1"></span><span class="tmst" style="color:${ctStColor(t.status)}">● ${esc(CT_ST_PT[t.status]||t.status)}</span></div>
+        <div class="tmrow2"><span class="dim" style="font-size:11px">${esc(proj.name||'?')}${t.branch?' · <span class=mono>'+esc(t.branch)+'</span>':''}${cost} · ${agoTx(t.updated_at)}</span><span style="flex:1"></span>${who}</div>
+        <div class="tmrow3"><span class="dim" style="font-size:11px">por ${esc(tmName(t.created_by))}</span><span style="flex:1"></span>
+          ${t.pr_url?`<button class="btn sm" data-act="pr">PR ↗</button>`:''}
+          <button class="btn sm" data-act="ver">ver</button>
+          ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim">${IC.play||'▶'} assumir &amp; iniciar</button>`:`<button class="btn sm" disabled title="abra o projeto ${escA(proj.repo_remote||'')} pra assumir">outro repositório</button>`):''}
+          ${(t.status==='backlog' && (t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" title="remover do backlog">✕</button>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+  if(!html) html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog vazio</div><div>Crie uma tarefa e escolha <b>“Compartilhar com o time”</b> — qualquer membro pode assumir &amp; iniciar.</div></div>`;
+  html=`<div style="display:flex;align-items:center;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
+  if(teamPaintSig===html) return;
+  teamPaintSig=html; el.innerHTML=html;
+  document.getElementById('tbRefresh').onclick=()=>{ teamTasks=null; renderTeamBoard(); };
+  el.querySelectorAll('.tmcard [data-act]').forEach(b=>{
+    b.onclick=()=>{
+      const id=b.closest('.tmcard').dataset.ct; const ct=teamTasks.find(x=>x.id===id); if(!ct) return;
+      if(b.dataset.act==='ver') openCloudTask(ct);
+      else if(b.dataset.act==='pr') openExternal(ct.pr_url);
+      else if(b.dataset.act==='claim') teamClaimStart(ct, b);
+      else if(b.dataset.act==='del') teamDeleteCard(ct);
+    };
+  });
+}
+
+async function teamClaimStart(ct, btn){
+  if(btn){ btn.disabled=true; btn.textContent='assumindo…'; }
+  try{
+    const j=await sbRpc('claim_task',{ p_task: ct.id });
+    if(!j.ok) throw new Error(j.error||'não deu pra assumir');
+    const payload={ ...(ct.spec||{}), title: ct.spec?.title||ct.title, start:true };
+    const localId=await invoke('new_task', payload);
+    tmapSet(localId, ct.id);
+    await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
+    sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
+    teamTasks=null; lastSig=''; await refresh(); setView('flow');
+  }catch(e){ alert('Não deu pra assumir & iniciar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.textContent='assumir & iniciar'; } }
+}
+async function teamDeleteCard(ct){
+  if(!confirm('Remover "'+ct.title+'" do backlog do time?')) return;
+  try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'DELETE' }); teamTasks=null; renderTeamBoard(); }
+  catch(e){ alert('Falhou: '+e.message); }
+}
+
+// ---- detalhe/edição do cartão ----
+function openCloudTask(ct){
+  document.getElementById('ctOverlay').style.display='flex';
+  document.getElementById('ctHead').textContent=ct.title;
+  const me=cloudUserId();
+  const canEdit=ct.status==='backlog' && (ct.created_by===me || (cloudData&&(cloudData.meRole==='owner'||cloudData.meRole==='admin')));
+  const sp=ct.spec||{};
+  const reqs=(sp.requirements||[]);
+  const body=document.getElementById('ctBody');
+  body.innerHTML=`
+    <div class="imhint">criada por <b>${esc(tmName(ct.created_by))}</b> · ${esc(CT_ST_PT[ct.status]||ct.status)}${ct.assignee?' · com <b>'+esc(tmName(ct.assignee))+'</b>':''}${ct.claim_mode==='reserved'?' · <b>reservada pra si</b>':''}</div>
+    <label style="margin-top:10px">Título</label><input class="in" id="ctTitle" value="${escA(ct.title)}" ${canEdit?'':'disabled'}>
+    <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
+    <label style="margin-top:12px">Requisitos <span class="dim" style="text-transform:none;letter-spacing:0">(um por linha — o agente é cobrado por cada um)</span></label>
+    <textarea class="in ta" id="ctReqs" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
+    <div id="ctAct" class="dim" style="font-size:11px;margin-top:12px">carregando atividade…</div>
+    <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${canEdit?'<button class="btn primary" id="ctSave">salvar alterações</button>':''}</div>`;
+  sbGet('task_activity?select=user_id,kind,body,at&task_id=eq.'+ct.id+'&order=id.desc&limit=8').then(rows=>{
+    const K={created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'entregou',comment:'comentou',status:'status'};
+    const d=document.getElementById('ctAct'); if(d) d.innerHTML = rows.length? rows.map(a=>`${esc(tmName(a.user_id))} <b>${K[a.kind]||a.kind}</b> · ${agoTx(a.at)}`).join('<br>') : 'sem atividade ainda';
+  }).catch(()=>{});
+  { const b=document.getElementById('ctSave'); if(b) b.onclick=async()=>{
+      b.disabled=true; b.textContent='salvando…';
+      try{
+        const title=document.getElementById('ctTitle').value.trim()||ct.title;
+        const spec={ ...sp, title, objective:document.getElementById('ctObj').value.trim(), requirements:document.getElementById('ctReqs').value.split('\n').map(x=>x.trim()).filter(Boolean) };
+        await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ title, spec }) });
+        sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'edited', body:'' }).catch(()=>{});
+        teamTasks=null; document.getElementById('ctOverlay').style.display='none'; renderTeamBoard();
+      }catch(e){ alert('Falhou: '+e.message); b.disabled=false; b.textContent='salvar alterações'; }
+    }; }
+}
+document.getElementById('ctClose').onclick=()=>{ document.getElementById('ctOverlay').style.display='none'; };
+document.getElementById('ctOverlay').addEventListener('click',e=>{ if(e.target.id==='ctOverlay') document.getElementById('ctOverlay').style.display='none'; });
+
+// mostra o seletor "Time" na criação de tarefa só quando logado + time escolhido
+function ntShareSync(){ const r=document.getElementById('ntShareRow'); if(r) r.style.display=(SB.sess()&&cloudTeamId())?'block':'none'; }
+document.getElementById('newTaskBtn').addEventListener('click', ntShareSync);
 </script>
 </body>
 </html>

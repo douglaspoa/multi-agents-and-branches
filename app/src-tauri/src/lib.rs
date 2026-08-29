@@ -1345,7 +1345,7 @@ fn new_task(
     auto_pr: Option<String>,
     pr_base: Option<String>,
     linked_to: Option<String>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let repo = repo_of(&state)?;
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
     // o processo desta tarefa e permitir pausar/abortar.
@@ -1425,7 +1425,33 @@ fn new_task(
     } else {
         spawn_tracked(&state, &id, cmd)?;
     }
-    Ok(())
+    Ok(id)
+}
+
+/// Remote origin do repo aberto, normalizado (ex.: github.com/org/repo) —
+/// identifica o "projeto" no time da nuvem, independente de https/ssh.
+#[tauri::command(async)]
+fn repo_remote(state: State<AppState>) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let out = Command::new("git")
+        .arg("-C").arg(&repo)
+        .args(["config", "--get", "remote.origin.url"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if raw.is_empty() {
+        // sem remote: usa o nome da pasta como identidade local
+        return Ok(format!("local/{}", repo.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
+    }
+    let mut s = raw.trim_end_matches(".git").to_string();
+    if let Some(rest) = s.strip_prefix("git@") {
+        s = rest.replacen(':', "/", 1);
+    } else {
+        for p in ["https://", "http://", "ssh://git@", "ssh://"] {
+            if let Some(rest) = s.strip_prefix(p) { s = rest.to_string(); break; }
+        }
+    }
+    Ok(s)
 }
 
 /// Reordena as tarefas no Fluxo: grava sort_order = posição na lista recebida.
@@ -2330,6 +2356,7 @@ pub fn run() {
             abort_task,
             stop_task,
             reorder_tasks,
+            repo_remote,
             ai_chat,
             open_url,
             task_files,
