@@ -1053,6 +1053,8 @@
         <textarea class="in ta" id="ntFixObj" rows="6" style="min-height:120px" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
         <label style="margin-top:12px">Arquivos/escopo <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntFixOwns" placeholder="src/telemetry/cost.ts">
+        <label style="margin-top:12px">Quem corrige</label>
+        <select class="sel" id="ntFixTeam" style="width:100%"></select>
         <div class="seclbl2" style="margin-top:14px">Critérios de aceite <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o agente é COBRADO por cada um (com prova)</span><span style="flex:1"></span><button class="btn sm" id="ntFixReqAdd">+ item</button></div>
         <div id="ntFixReqs" class="listed"></div>
         <div class="seclbl2" style="margin-top:14px">Comprovações da correção</div>
@@ -3098,6 +3100,9 @@ async function openNewTask(){
   const revFirst = [...ags].sort((a,b)=>((b.role==='reviewer')?1:0)-((a.role==='reviewer')?1:0));
   document.getElementById("ntReviewer").innerHTML = `<option value="">Revisor padrão (Claude)</option>`+
     revFirst.map(a=>`<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("");
+  document.getElementById("ntFixTeam").innerHTML = `<option value="">Builder padrão (1 agente)</option>`+
+    (wfs.length?`<optgroup label="Equipes">${wfs.map(w=>`<option value="wf:${esc(w.id)}">${esc(w.name)}</option>`).join("")}</optgroup>`:"")+
+    (ags.length?`<optgroup label="Agentes">${ags.map(a=>`<option value="ag:${esc(a.id)}">${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("")}</optgroup>`:"");
   setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq);
   { const b=document.getElementById("ntFixReqAdd"); if(b) b.onclick=()=>{ ntFixReq.push(""); renderNtList("ntFixReqs", ntFixReq); }; }
@@ -3142,7 +3147,7 @@ function setNtMode(m){
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -3358,7 +3363,8 @@ async function submitNewTask(start=true){
     if(!ft){ document.getElementById("ntFixTitle").focus(); return; }
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
-    const payload={ start:true, title:ft, workflow:null, agents:null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:[], branchType:'fix', issue:null, linkedTo: ntLinkedTo };
+    const team=document.getElementById('ntFixTeam').value;
+    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:[], branchType:'fix', issue:null, linkedTo: ntLinkedTo };
     try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
