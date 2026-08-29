@@ -1032,9 +1032,9 @@
         <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
       </div>
       <div class="ntmode" id="ntMode">
-        <button class="ntmodebtn on" data-mode="build">${IC.wrench} Entrega</button>
-        <button class="ntmodebtn" data-mode="review">${IC.search} Code review</button>
-        <button class="ntmodebtn" data-mode="fix">${IC.bolt} Fix rápido</button>
+        <button class="ntmodebtn on" data-mode="build"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg> Entrega</button>
+        <button class="ntmodebtn" data-mode="review"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg> Code review</button>
+        <button class="ntmodebtn" data-mode="fix"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8.7 2L4 9h3l-.6 5L12 6.8H8.9z" stroke-linejoin="round"/></svg> Fix rápido</button>
       </div>
       <div id="ntFixFields" style="display:none">
         <label>O que corrigir</label>
@@ -2948,7 +2948,8 @@ function renderSide(){
     const rmlbl=(t.kind==='review'&&t.status==='review')?'concluir'
       :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
     const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
-    return `<div class="acts">${start}${rerun}${merge}<button class="btn danger sm" data-act="rm">${rmlbl}</button></div>`;
+    const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} abrir correção</button>`:'';
+    return `<div class="acts">${start}${rerun}${linkfix}${merge}<button class="btn danger sm" data-act="rm">${rmlbl}</button></div>`;
   })();
   // ações de organização (não poluir a UI): bloquear / encerrar / reabrir
   const flagBtns = t.flag==='blocked' ? `<button class="btn sm ghost" data-flag="">${IC.refresh} desbloquear</button>`
@@ -2981,6 +2982,7 @@ function renderSide(){
   { const p=el.querySelector('#stPill'); if(p) p.onclick=(e)=>{ e.stopPropagation(); stMenuOpen=!stMenuOpen; renderSide(); }; }
   el.querySelectorAll('.stitem').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const it=statusMenuItems(t)[+b.dataset.sti]; stMenuOpen=false; renderSide(); if(it) it.a(); });
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
+  el.querySelectorAll('[data-act="linkfix"]').forEach(b=>b.onclick=()=>openLinkedFix(t));
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
   { const b=el.querySelector('#brReqCheck'); if(b) b.onclick=()=>{ b.disabled=true; b.textContent='verificando…'; talkTask(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json (o campo req deve ser o TEXTO EXATO do requisito). Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); }; }
