@@ -1,0 +1,206 @@
+<title>Constellation Teams — Plano</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#0b0d0f; --surface:#13171a; --surface2:#0e1113; --surface3:#1b2024;
+    --border:rgba(255,255,255,.08); --border2:rgba(255,255,255,.14);
+    --text:#e9edef; --text2:#c9d1d6; --muted:#8b959b;
+    --accent:#3fd68a; --on-accent:#04241a; --info:#5b9df9; --warn:#f0b449; --crit:#f2685c; --purple:#b47ce0; --cyan:#4fc4c9;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:40px 24px 90px}
+  h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance}
+  h2{font-size:19px;letter-spacing:-.01em;margin:44px 0 12px;display:flex;align-items:center;gap:10px}
+  h2 .n{font-family:var(--mono);font-size:12px;color:var(--on-accent);background:var(--accent);border-radius:6px;padding:2px 8px;font-weight:700}
+  h3{font-size:14.5px;margin:22px 0 8px}
+  p{margin:0 0 12px;color:var(--text2);max-width:68ch}
+  .lead{color:var(--muted);font-size:14px;margin-bottom:26px;font-family:var(--mono)}
+  .mono{font-family:var(--mono)}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--surface3);border-radius:5px;padding:1px 6px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .callout{border-left:3px solid var(--accent);background:var(--surface2)}
+  .callout.warn{border-left-color:var(--warn)}
+  .callout b{color:var(--text)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+  th{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--border2)}
+  td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  td:first-child{color:var(--text);font-weight:600;white-space:nowrap}
+  .tbl{overflow-x:auto}
+  .ok{color:var(--accent)} .no{color:var(--muted)}
+  ul{margin:0 0 12px;padding-left:20px;color:var(--text2)}
+  li{margin-bottom:6px}
+  li::marker{color:var(--accent)}
+  .phase{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin:10px 0;background:var(--surface)}
+  .phase .pn{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-family:var(--mono);font-weight:800;font-size:15px;flex:none;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
+  .phase h3{margin:0 0 4px}
+  .phase .sz{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:2px 8px;white-space:nowrap}
+  .phase p{margin:4px 0 0;font-size:13.5px}
+  figure{margin:18px 0;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px}
+  figcaption{font-size:12px;color:var(--muted);margin-top:10px;font-family:var(--mono)}
+  svg{max-width:100%;height:auto;display:block}
+  .q{border:1px dashed var(--border2);border-radius:10px;padding:12px 16px;margin:10px 0;background:var(--surface2)}
+  .q b{color:var(--warn)}
+  .schema{font-family:var(--mono);font-size:12px;line-height:1.8;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;overflow-x:auto;color:var(--text2)}
+  .schema b{color:var(--accent);font-weight:600}
+  .schema i{color:var(--muted);font-style:normal}
+  .pill{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;border-radius:5px;padding:1px 7px;text-transform:uppercase;letter-spacing:.04em}
+  .pill.a{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+  .pill.i{background:color-mix(in srgb,var(--info) 16%,transparent);color:var(--info)}
+  .pill.p{background:color-mix(in srgb,var(--purple) 16%,transparent);color:var(--purple)}
+</style>
+
+<div class="wrap">
+  <h1>Constellation Teams — Plano</h1>
+  <div class="lead">times · enterprise · visibilidade por papel · tarefas compartilhadas · dashboard — planejado antes de codar</div>
+
+  <div class="card callout">
+    <b>A ideia em uma frase:</b> um <b>time de devs</b> compartilha um backlog de tarefas de agentes — qualquer membro cria, outro revisa/edita/assume e roda na própria máquina; membros veem só o seu time, e papéis acima (enterprise) enxergam todos os times num <b>dashboard</b>.
+  </div>
+
+  <h2><span class="n">0</span>A decisão estrutural: local-first + servidor de coordenação</h2>
+  <p>Hoje o Constellation é <b>100% local</b>: estado em SQLite dentro de cada repo, agentes rodando na máquina do dev com a assinatura Claude dele. Isso é uma força (privacidade, custo zero de infra, código nunca sai do git) — e times não devem destruí-la.</p>
+  <p>A proposta: <b>a execução continua local</b>; o que sobe pra nuvem é só a <b>coordenação</b> — identidade, times, o "cartão" de cada tarefa (spec/status/progresso/custo), artefatos de prova e os eventos de time. Recomendo <b>Supabase</b> como backend v1:</p>
+  <ul>
+    <li><b>Auth</b> pronta (e-mail + Google/GitHub SSO) — a tela de login do mock pluga direto;</li>
+    <li><b>Postgres + RLS</b> (row-level security) — "membro só vê o próprio time" vira <i>política de banco</i>, não código de UI;</li>
+    <li><b>Realtime</b> — backlog e dashboard atualizam ao vivo sem polling pesado;</li>
+    <li><b>Storage</b> — prints/docs de prova visíveis pro time;</li>
+    <li>Vocês já operam Supabase no dia a dia (code-refuge-relay) — zero curva nova.</li>
+  </ul>
+
+  <figure>
+    <svg viewBox="0 0 720 300" role="img" aria-label="Arquitetura: apps locais dos devs sincronizam cartões de tarefa com o Supabase; código e agentes ficam locais/git" font-family="JetBrains Mono, monospace" font-size="11" fill="none" stroke="currentColor" color="#c9d1d6">
+      <!-- devs -->
+      <rect x="20" y="30" width="180" height="90" rx="10" stroke="#3fd68a"/>
+      <text x="110" y="52" text-anchor="middle" fill="#3fd68a" stroke="none" font-weight="700">app da Ana</text>
+      <text x="110" y="72" text-anchor="middle" fill="#8b959b" stroke="none">agentes rodam AQUI</text>
+      <text x="110" y="88" text-anchor="middle" fill="#8b959b" stroke="none">SQLite + worktrees</text>
+      <text x="110" y="104" text-anchor="middle" fill="#8b959b" stroke="none">claude do dev</text>
+      <rect x="20" y="180" width="180" height="90" rx="10" stroke="#5b9df9"/>
+      <text x="110" y="202" text-anchor="middle" fill="#5b9df9" stroke="none" font-weight="700">app do João</text>
+      <text x="110" y="222" text-anchor="middle" fill="#8b959b" stroke="none">agentes rodam AQUI</text>
+      <text x="110" y="238" text-anchor="middle" fill="#8b959b" stroke="none">SQLite + worktrees</text>
+      <text x="110" y="254" text-anchor="middle" fill="#8b959b" stroke="none">claude do dev</text>
+      <!-- supabase -->
+      <rect x="290" y="95" width="190" height="120" rx="10" stroke="#b47ce0"/>
+      <text x="385" y="118" text-anchor="middle" fill="#b47ce0" stroke="none" font-weight="700">Supabase</text>
+      <text x="385" y="138" text-anchor="middle" fill="#8b959b" stroke="none">auth · orgs · times</text>
+      <text x="385" y="154" text-anchor="middle" fill="#8b959b" stroke="none">cartões de tarefa (RLS)</text>
+      <text x="385" y="170" text-anchor="middle" fill="#8b959b" stroke="none">artefatos (storage)</text>
+      <text x="385" y="186" text-anchor="middle" fill="#8b959b" stroke="none">realtime</text>
+      <!-- git -->
+      <rect x="550" y="95" width="150" height="120" rx="10" stroke="#f0b449"/>
+      <text x="625" y="118" text-anchor="middle" fill="#f0b449" stroke="none" font-weight="700">GitHub / git</text>
+      <text x="625" y="140" text-anchor="middle" fill="#8b959b" stroke="none">o CÓDIGO vive aqui</text>
+      <text x="625" y="156" text-anchor="middle" fill="#8b959b" stroke="none">branches · PRs</text>
+      <text x="625" y="172" text-anchor="middle" fill="#8b959b" stroke="none">CodeRabbit · CI</text>
+      <!-- arrows -->
+      <path d="M200 75 C 250 75 250 120 288 128" stroke="#3fd68a" marker-end="url(#a)"/>
+      <text x="228" y="86" fill="#3fd68a" stroke="none" font-size="10">sync: cartão/status/custo</text>
+      <path d="M200 225 C 250 225 250 190 288 182" stroke="#5b9df9" marker-end="url(#a)"/>
+      <text x="222" y="238" fill="#5b9df9" stroke="none" font-size="10">sync + realtime ↓</text>
+      <path d="M480 155 L 548 155" stroke="#f0b449" marker-end="url(#a)"/>
+      <text x="490" y="147" fill="#f0b449" stroke="none" font-size="10">só metadados</text>
+      <path d="M110 120 L 110 178" stroke="#4fc4c9" stroke-dasharray="4 3"/>
+      <text x="118" y="152" fill="#4fc4c9" stroke="none" font-size="10">push/pull da branch = handoff real</text>
+      <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor" stroke="none"/></marker></defs>
+    </svg>
+    <figcaption>execução e código nunca saem do dev/git — a nuvem coordena (identidade, backlog, status, provas)</figcaption>
+  </figure>
+
+  <div class="card callout warn"><b>Privacidade a decidir:</b> os <b>prints/docs de prova</b> podem conter tela de produto e trechos de código. Subir pro Storage do time é o que dá visibilidade — mas precisa ser uma decisão consciente (e ter um toggle "não subir artefatos" por projeto pra clientes sensíveis).</div>
+
+  <h2><span class="n">1</span>Conceitos & papéis</h2>
+  <div class="tbl"><table>
+    <tr><th>conceito</th><th>o que é</th></tr>
+    <tr><td>Org</td><td>a empresa (plano enterprise = 1 org com N times). Dona da licença e dos assentos.</td></tr>
+    <tr><td>Time</td><td>grupo de devs + seus projetos + seu backlog compartilhado. Um dev pode estar em vários.</td></tr>
+    <tr><td>Projeto</td><td>um repo git (identificado pelo remote normalizado — assim o mesmo repo clonado em 2 máquinas é o MESMO projeto).</td></tr>
+    <tr><td>Tarefa compartilhada</td><td>o "cartão" sincronizado: spec, status, assignee, branch, custo, requisitos+provas, links de PR/artefatos.</td></tr>
+  </table></div>
+  <div class="tbl"><table>
+    <tr><th>papel</th><th>vê</th><th>pode</th></tr>
+    <tr><td><span class="pill p">org owner</span></td><td>tudo da org</td><td>tudo + cobrança/assentos + criar times</td></tr>
+    <tr><td><span class="pill p">org admin</span></td><td>tudo da org (dashboard geral)</td><td>gerenciar times/membros; não mexe em cobrança</td></tr>
+    <tr><td><span class="pill i">team lead</span></td><td>o(s) seu(s) time(s)</td><td>convidar/remover membro, editar catálogo de agentes do time, apagar tarefas</td></tr>
+    <tr><td><span class="pill a">member</span></td><td>o(s) seu(s) time(s)</td><td>criar/editar/revisar/assumir/rodar tarefas; compartilhar as suas</td></tr>
+  </table></div>
+  <p>“Usuários mais acima veem o todo” = <b>org owner/admin</b>: dashboard com todos os times, projetos, tarefas entregues e custo — sem precisar entrar em cada time.</p>
+
+  <h2><span class="n">2</span>Modelo de dados (Postgres + RLS)</h2>
+  <div class="schema">
+<b>orgs</b>(id, name, plan <i>solo|team|enterprise</i>, seats, created_at)<br>
+<b>org_members</b>(org_id, user_id, role <i>owner|admin|member</i>)<br>
+<b>teams</b>(id, org_id, name, created_at)<br>
+<b>team_members</b>(team_id, user_id, role <i>lead|member</i>)<br>
+<b>invites</b>(id, org_id, team_id, email, role, token, expires_at)<br>
+<b>projects</b>(id, team_id, name, repo_remote <i>-- git remote normalizado</i>)<br>
+<b>tasks</b>(id, project_id, team_id, created_by, assignee, title, status, flag,<br>
+&nbsp;&nbsp;spec <i>jsonb</i>, branch, linked_to, cost_usd, cost_tokens,<br>
+&nbsp;&nbsp;requirements_proof <i>jsonb -- o requirements.json</i>, pr_url, updated_at, version)<br>
+<b>task_activity</b>(id, task_id, user_id, kind <i>created|edited|claimed|started|delivered|comment</i>, body, at)<br>
+<b>artifacts_meta</b>(id, task_id, name, kind, size, storage_path, created_at)  <i>-- arquivos no Storage</i>
+</div>
+  <ul>
+    <li><b>RLS núcleo:</b> <code>team_id IN (select team_id from team_members where user_id = auth.uid())</code> — e uma segunda política <code>OR is_org_admin(auth.uid(), org_id)</code>. A visibilidade inteira mora aqui.</li>
+    <li><b>Eventos pesados NÃO sobem</b> (o stream de um agente é enorme e íntimo da máquina). Sobe o resumo: status, etapa, última narração, custo, provas. Quem quiser a thread completa assume a tarefa (branch + histórico via git).</li>
+    <li><code>version</code> + <code>updated_at</code> → conflito de edição de spec resolve por <b>last-write-wins com aviso</b> (v1); locking otimista fino fica pra depois.</li>
+  </ul>
+
+  <h2><span class="n">3</span>Fluxos-chave</h2>
+  <h3>3.1 Criar time & entrar</h3>
+  <ul>
+    <li>Onboarding: login → "criar time" (vira lead) ou "entrar com convite" (link/token por e-mail).</li>
+    <li>Convite consome assento da org quando aceito; sem assento livre, bloqueia com CTA de upgrade.</li>
+    <li>Catálogo de agentes/equipes do time: o <code>cardume.config.json</code> ganha uma camada "do time" sincronizada (as personas Logcomex viram padrão pra todos).</li>
+  </ul>
+  <h3>3.2 Tarefa compartilhada — o ciclo</h3>
+  <div class="tbl"><table>
+    <tr><th>passo</th><th>quem</th><th>o que acontece</th></tr>
+    <tr><td>1 criar</td><td>qualquer membro</td><td>cria no app (planner/έpico/fix) e marca "compartilhar com o time" → cartão nasce no backlog do time (status <code>backlog</code>), sem rodar.</td></tr>
+    <tr><td>2 revisar/editar</td><td>outro dev</td><td>abre o cartão, edita spec/critérios (activity registra), comenta. Nada roda ainda.</td></tr>
+    <tr><td>3 assumir</td><td>um dev</td><td>“assumir e iniciar” → <b>claim</b> (assignee = ele, lock). O app DELE cria a worktree do projeto local e roda os agentes na máquina dele.</td></tr>
+    <tr><td>4 acompanhar</td><td>o time</td><td>status/etapa/narração/custo sincronizam no cartão; provas e artefatos aparecem quando gerados.</td></tr>
+    <tr><td>5 entregar</td><td>assignee</td><td>review → PR → merge. Cartão vira <code>delivered</code>; entra nas métricas do dashboard.</td></tr>
+    <tr><td>↔ handoff</td><td>outro dev</td><td>branch está no git: outro membro pode “assumir” uma tarefa parada — puxa a branch e continua (o claim troca).</td></tr>
+  </table></div>
+  <h3>3.3 Dashboard</h3>
+  <ul>
+    <li><b>Time (lead/membro):</b> rodando agora, precisa de review, entregues na semana, custo por agente, PRs abertos do time (o inbox do mock).</li>
+    <li><b>Org (owner/admin):</b> grade de times → entregues/semana, custo total e por time, tarefas ativas, gargalos (tarefas paradas > X dias), assentos usados.</li>
+  </ul>
+
+  <h2><span class="n">4</span>Fases de construção</h2>
+  <div class="phase"><span class="pn">F1</span><div style="flex:1"><h3>Identidade & times <span class="pill a">fundação</span></h3><p>Supabase setup (schema + RLS) · login no app (e-mail/SSO) · criar org/time · convites com assento · seletor de time no topo (como o de projetos). Sem sync de tarefas ainda.</p></div><span class="sz">~1 semana</span></div>
+  <div class="phase"><span class="pn">F2</span><div style="flex:1"><h3>Tarefas compartilhadas <span class="pill a">o coração</span></h3><p>"Compartilhar com o time" na criação · backlog do time (nova visão) · editar/revisar spec de tarefa dos outros · assumir & iniciar (claim + mapeamento por repo_remote) · sync engine (push status/custo/provas, pull backlog, realtime).</p></div><span class="sz">~2 semanas</span></div>
+  <div class="phase"><span class="pn">F3</span><div style="flex:1"><h3>Dashboard do time + PRs do time <span class="pill i">visibilidade</span></h3><p>Dashboard do time (entregues, custo, ativos) · inbox de PRs do time com notificação (mock já aprovado) · artefatos de prova no Storage com viewer.</p></div><span class="sz">~1 semana</span></div>
+  <div class="phase"><span class="pn">F4</span><div style="flex:1"><h3>Enterprise <span class="pill p">org</span></h3><p>Papéis de org (owner/admin veem tudo) · dashboard geral multi-time · gestão de assentos/licença (chave manual v1; Stripe depois) · catálogo de agentes da org.</p></div><span class="sz">~1 semana</span></div>
+  <div class="phase"><span class="pn">F5</span><div style="flex:1"><h3>Épicos em time + refinamentos <span class="pill i">depois</span></h3><p>Épicos compartilhados (breakdown vira backlog do time) · comentários no cartão · auditoria · self-host enterprise (Supabase próprio) se algum cliente exigir.</p></div><span class="sz">contínuo</span></div>
+
+  <h2><span class="n">5</span>Decisões — FECHADAS (29/08)</h2>
+  <div class="tbl"><table>
+    <tr><th>#</th><th>decisão</th><th>resposta do Douglas</th></tr>
+    <tr><td>Q1</td><td>Backend</td><td class="ok">✔ Supabase</td></tr>
+    <tr><td>Q2</td><td>Artefatos na nuvem</td><td class="ok">✔ O DEV escolhe o que sobe (upload manual por artefato — nada sobe sozinho)</td></tr>
+    <tr><td>Q3</td><td>Stream do agente</td><td class="ok">✔ NÃO sobe — fica na máquina do dev; o time vê só o cartão</td></tr>
+    <tr><td>Q4</td><td>Assumir tarefa</td><td class="ok">✔ Livre pra qualquer membro — exceto se o criador marcá-la PRA SI. Na criação: "compartilhar com o time" × "realizar eu mesmo"</td></tr>
+    <tr><td>Q5</td><td>Licença v1</td><td class="ok">✔ Chave manual por org (Stripe depois)</td></tr>
+  </table></div>
+  <details><summary style="cursor:pointer;color:var(--muted);font-size:12px">ver as perguntas originais</summary>
+  <div class="q"><b>Q1 — Backend:</b> confirma <b>Supabase</b> (recomendo: RLS = modelo de permissão pronto, vocês já dominam)? Alternativas: API própria (mais controle, muito mais trabalho) ou git-as-backend (frágil pra enterprise/dashboard).</div>
+  <div class="q"><b>Q2 — Artefatos na nuvem:</b> prints/docs de prova sobem pro Storage do time por padrão, com opt-out por projeto? Ou opt-in?</div>
+  <div class="q"><b>Q3 — O que o time VÊ de uma tarefa alheia:</b> só o cartão (status/etapa/narração/custo/provas) — recomendado — ou também o stream completo do agente (pesado e expõe a máquina do dev)?</div>
+  <div class="q"><b>Q4 — Assumir tarefa de outro:</b> livre pra qualquer membro, ou só com aprovação do criador/lead?</div>
+  <div class="q"><b>Q5 — Licença v1:</b> chave manual por org (você emite) já basta pra começar, ou Stripe desde o dia 1?</div>
+
+  </details>
+
+  <div class="card callout" style="margin-top:34px">
+    <b>Resumo executivo:</b> manter o produto <b>local-first</b> e adicionar uma camada fina de coordenação (Supabase: auth + Postgres/RLS + realtime + storage). Membro vê o time (RLS), org admin vê tudo (dashboard). Tarefa compartilhada = cartão sincronizado com claim de "assumir e iniciar"; execução sempre na máquina de quem assumiu; handoff via branch no git. Construir em 5 fases, começando por identidade+times (F1) e o coração (F2 — backlog compartilhado).
+  </div>
+</div>
