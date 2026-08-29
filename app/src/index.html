@@ -1062,6 +1062,21 @@
         <button class="ntmodebtn on" data-mode="build"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg> Entrega</button>
         <button class="ntmodebtn" data-mode="review"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg> Code review</button>
         <button class="ntmodebtn" data-mode="fix"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8.7 2L4 9h3l-.6 5L12 6.8H8.9z" stroke-linejoin="round"/></svg> Fix rápido</button>
+        <button class="ntmodebtn" data-mode="design"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2.6a5.4 5.4 0 1 0 0 10.8c.9 0 1.3-.55 1.3-1.15 0-.55-.4-.95-.4-1.5 0-.6.5-1.05 1.15-1.05h1.3A2.05 2.05 0 0 0 13.4 7.6 5.1 5.1 0 0 0 8 2.6z" stroke-linejoin="round"/><circle cx="5.6" cy="6.4" r=".7" fill="currentColor" stroke="none"/><circle cx="8.2" cy="5" r=".7" fill="currentColor" stroke="none"/><circle cx="10.7" cy="6.3" r=".7" fill="currentColor" stroke="none"/></svg> Design</button>
+      </div>
+      <div id="ntDesignFields" style="display:none">
+        <label>O que projetar</label>
+        <input class="in" id="ntDzTitle" placeholder="ex.: tela de dashboard de times">
+        <label style="margin-top:12px">Contexto e fluxo <span class="dim" style="text-transform:none;letter-spacing:0">(o problema, quem usa, o que precisa aparecer)</span></label>
+        <textarea class="in ta" id="ntDzObj" rows="6" style="min-height:120px" placeholder="ex.: o gestor precisa ver as entregas do time por membro; hoje isso não existe. Fluxo: abre o app → aba Time → vê os números e clica pra detalhar…"></textarea>
+        <label style="margin-top:12px">Telas / estados a cobrir <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
+        <input class="in" id="ntDzScreens" placeholder="ex.: lista, detalhe, estado vazio, carregando, erro">
+        <label style="margin-top:12px">Quem desenha</label>
+        <select class="sel" id="ntDzAgent" style="width:100%"></select>
+        <div class="seclbl2" style="margin-top:14px">Entregáveis do design</div>
+        <label class="ckrow"><input type="checkbox" id="ntDzMock" checked><span><b>Mockup navegável (HTML)</b> <span class="dim">— telas clicáveis em um arquivo só, abre no navegador</span></span></label>
+        <label class="ckrow"><input type="checkbox" id="ntDzDoc" checked><span><b>DESIGN.md</b> <span class="dim">— decisões, hierarquia, estados e o porquê</span></span></label>
+        <div class="aihint dim" style="margin-top:9px">Não mexe no código do produto — nasce numa branch <span class="mono">design/…</span> só com os artefatos. Aprovou? Um clique cria a tarefa de <b>Entrega</b> linkada ao design.</div>
       </div>
       <div id="ntFixFields" style="display:none">
         <label>O que corrigir</label>
@@ -2368,6 +2383,8 @@ async function openArtifact(taskId, name){
   let c;
   try{ c = await invoke("read_artifact",{ taskId, name }); }
   catch(e){ alert("Falha ao abrir o artefato:\n"+e); return; }
+  const isHtml=/\.html?$/i.test(name);
+  const extBtn = isHtml ? `<div style="display:flex;margin-bottom:10px"><button class="btn primary sm" id="artExt">${IC.extlink||'↗'} abrir no navegador</button><span class="dim" style="margin-left:10px;font-size:11px;align-self:center">mockup navegável — abre com as telas clicáveis</span></div>` : '';
   const body = c.kind==='image'
     ? `<img class="artimg" src="${c.dataUrl}" alt="${escA(name)}">`
     : c.kind==='doc'
@@ -2375,7 +2392,8 @@ async function openArtifact(taskId, name){
       : `<pre class="artpre">${esc(c.text||'')}</pre>`;
   document.getElementById("artIcon").innerHTML = c.kind==='image'?IC.image:IC.doc;
   document.getElementById("artTitle").textContent = name;
-  document.getElementById("artBody").innerHTML = body;
+  document.getElementById("artBody").innerHTML = extBtn + body;
+  { const b=document.getElementById('artExt'); if(b) b.onclick=()=>{ invoke('open_artifact',{ taskId, name }).catch(e=>alert('Falha ao abrir:\n'+e)); }; }
   document.getElementById("artOverlay").style.display = "flex";
 }
 function closeArtifact(){ document.getElementById("artOverlay").style.display="none"; document.getElementById("artBody").innerHTML=""; }
@@ -3020,9 +3038,10 @@ function renderSide(){
       :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
     const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm ghost" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
     const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm ghost" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} correção</button>`:'';
+    const linkdz=((t.branch||'').startsWith('design/')&&['review','merged'].includes(t.status))?`<button class="btn primary sm ghost" data-act="linkdz" title="design aprovado? cria a tarefa de Entrega linkada, com o mockup e o DESIGN.md anexados como referência">${IC.cright} criar entrega deste design</button>`:'';
     const merged=t.status==='merged'?`<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`:'';
     const primary=merge||start;
-    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${primary}<div class="acts foot1">${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
+    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${primary}<div class="acts foot1">${linkdz}${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
   })();
 
   el.innerHTML = `<div class="det">
@@ -3051,6 +3070,7 @@ function renderSide(){
   el.querySelectorAll('.stitem').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const it=statusMenuItems(t)[+b.dataset.sti]; stMenuOpen=false; renderSide(); if(it) it.a(); });
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
   el.querySelectorAll('[data-act="linkfix"]').forEach(b=>b.onclick=()=>openLinkedFix(t));
+  el.querySelectorAll('[data-act="linkdz"]').forEach(b=>b.onclick=()=>openFromDesign(t));
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
@@ -3154,14 +3174,34 @@ async function openNewTask(){
   document.getElementById("ntFixTeam").innerHTML = `<option value="">Builder padrão (1 agente)</option>`+
     (wfs.length?`<optgroup label="Equipes">${wfs.map(w=>`<option value="wf:${esc(w.id)}">${esc(w.name)}</option>`).join("")}</optgroup>`:"")+
     (ags.length?`<optgroup label="Agentes">${ags.map(a=>`<option value="ag:${esc(a.id)}">${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("")}</optgroup>`:"");
+  // designer: agentes com papel designer primeiro (ex.: Aria)
+  const dzFirst=[...ags].sort((a,b)=>((b.role==='designer')?1:0)-((a.role==='designer')?1:0));
+  const dzDefault=ags.find(a=>a.role==='designer');
+  document.getElementById("ntDzAgent").innerHTML =
+    dzFirst.map(a=>`<option value="${esc(a.id)}"${dzDefault&&a.id===dzDefault.id?' selected':''}>${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("")
+    + `<option value=""${dzDefault?'':' selected'}>Designer padrão (Claude)</option>`;
   setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq);
   { const b=document.getElementById("ntFixReqAdd"); if(b) b.onclick=()=>{ ntFixReq.push(""); renderNtList("ntFixReqs", ntFixReq); }; }
   document.getElementById("ntOverlay").style.display = "flex";
-  (ntMode==='review'?document.getElementById("ntPr"):document.getElementById("ntTitle")).focus();
+  (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):document.getElementById("ntTitle")).focus();
 }
 let ntMode='build';
 let ntLinkedTo=null; // id da tarefa de origem quando esta é uma correção linkada
+// design aprovado → cria a tarefa de ENTREGA linkada, com os artefatos do
+// design (mockup/DESIGN.md) anexados como referência obrigatória.
+async function openFromDesign(t){
+  const arts = await loadArtifacts(t.id, t.status).catch(()=>[]) || [];
+  await openNewTask();
+  setNtMode('build');
+  ntLinkedTo=t.id; renderNtLink();
+  document.getElementById('ntTitle').value = t.title.replace(/^design[:\s—-]*/i,'').trim() || t.title;
+  document.getElementById('ntObj').value = `Implementar o design aprovado na tarefa "${t.title}". Os anexos em .cardume/refs/ (mockup.html e DESIGN.md) são a REFERÊNCIA OBRIGATÓRIA: siga fielmente as telas, os estados (vazio/carregando/erro) e as decisões documentadas. Divergiu do mockup? Pergunte antes.`;
+  ntRefs = (arts||[]).filter(a=>/\.(html|md|png|jpe?g|webp)$/i.test(a.name)).map(a=>state.repo+'/.cardume/artifacts/'+t.id+'/'+a.name);
+  renderNtRefs();
+  document.getElementById('ntArtProof').checked=true;
+  document.getElementById('ntArtTests').checked=true;
+}
 async function openLinkedFix(t){
   await openNewTask();
   setNtMode('fix');
@@ -3189,16 +3229,17 @@ function setNtMode(m){
   document.getElementById("ntBuildFields").style.display = m==='build'?'':'none';
   document.getElementById("ntReviewFields").style.display = m==='review'?'':'none';
   document.getElementById("ntFixFields").style.display = m==='fix'?'':'none';
+  document.getElementById("ntDesignFields").style.display = m==='design'?'':'none';
   document.getElementById("ntDraft").style.display = m==='build'?'':'none';
   document.getElementById("ntAI").style.display = m==='build'?'':'none';
   document.getElementById("ntImport").style.display = m==='build'?'':'none';
-  document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':'cada tarefa vira uma branch + worktree isolada';
+  document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':'cada tarefa vira uma branch + worktree isolada';
   const create=document.getElementById("ntCreate");
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
-  if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':' criar e iniciar';
+  if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':m==='design'?' gerar design':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -3418,6 +3459,31 @@ async function submitNewTask(start=true){
     const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:[], branchType:'fix', issue:null, linkedTo: ntLinkedTo };
     try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
+    finally{ btn.innerHTML=orig; btn.disabled=false; }
+    return;
+  }
+  if(ntMode==='design'){
+    const dt=document.getElementById("ntDzTitle").value.trim();
+    if(!dt){ document.getElementById("ntDzTitle").focus(); return; }
+    const what=document.getElementById("ntDzObj").value.trim();
+    const screens=document.getElementById("ntDzScreens").value.trim();
+    const mock=document.getElementById("ntDzMock").checked, docCk=document.getElementById("ntDzDoc").checked;
+    if(!mock && !docCk){ alert('Escolha pelo menos um entregável (mockup ou DESIGN.md).'); return; }
+    let n=0;
+    const objective =
+      `TAREFA DE DESIGN — projete ANTES de existir código. PROIBIDO implementar ou alterar arquivos do produto; você só escreve em .cardume/artifacts/.\n\n`+
+      `${what||dt}\n\n`+(screens?`Telas/estados a cobrir: ${screens}\n\n`:'')+
+      `Explore o codebase pra entender a identidade visual do produto (cores, tipografia, espaçamento, componentes) e siga-a. Entregue em .cardume/artifacts/:\n`+
+      (mock?`${++n}) mockup.html — mockup NAVEGÁVEL num arquivo só (HTML+CSS+JS inline, SEM libs externas): todas as telas/estados pedidos com navegação clicável entre elas, dados de exemplo realistas do domínio.\n`:'')+
+      (docCk?`${++n}) DESIGN.md — as decisões de UX/UI: fluxo, hierarquia, estados (vazio/carregando/erro), acessibilidade, e o PORQUÊ de cada escolha. Termine com "Perguntas em aberto" se houver.\n`:'');
+    const requirements=[
+      ...(mock?['mockup.html navegável em .cardume/artifacts cobrindo todas as telas/estados pedidos, num arquivo só e sem libs externas']:[]),
+      ...(docCk?['DESIGN.md com fluxo, hierarquia e estados (vazio/carregando/erro) e o porquê das decisões']:[]),
+    ];
+    const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
+    const payload={ start:true, title:dt, workflow:null, agents:document.getElementById('ntDzAgent').value||null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:[], branchType:'design', issue:null, base:null, linkedTo: ntLinkedTo };
+    try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    catch(e){ alert("Falha ao criar o design:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
   }

@@ -1975,8 +1975,24 @@ fn repo_slug(repo: &PathBuf) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Abre um artefato da tarefa no app padrão do sistema (ex.: mockup.html no navegador).
+#[tauri::command(async)]
+fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Result<(), String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("nome de artefato inválido".to_string());
+    }
+    let repo = repo_of(&state)?;
+    let path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    if !path.is_file() {
+        return Err("artefato não encontrado".to_string());
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    Command::new(opener).arg(&path).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Abre uma URL no navegador do sistema (o WKWebView não abre target=_blank).
-#[tauri::command]
+#[tauri::command(async)]
 fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("url inválida".to_string());
@@ -2359,6 +2375,7 @@ pub fn run() {
             repo_remote,
             ai_chat,
             open_url,
+            open_artifact,
             task_files,
             read_file,
             write_file,
