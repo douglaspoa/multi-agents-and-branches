@@ -420,6 +420,14 @@
   .fmeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:11px;font-size:11.5px;color:var(--text-2)}
   .fmeta .frev{color:var(--good);font-weight:600}
   .fcommits{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+  .linkchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--cyan);background:color-mix(in srgb,var(--cyan) 10%,transparent);border:1px solid color-mix(in srgb,var(--cyan) 35%,var(--border));border-radius:7px;padding:4px 9px;margin:8px 0}
+  .linkchip svg{width:12px;height:12px}
+  .linkrows{display:flex;flex-direction:column;gap:5px}
+  .linkrow{display:flex;align-items:center;gap:7px;text-align:left;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font:inherit;font-size:12px;padding:7px 10px;border-radius:8px;cursor:pointer;width:100%}
+  .linkrow:hover{border-color:color-mix(in srgb,var(--cyan) 40%,var(--border))}
+  .linkrow svg{width:12px;height:12px;color:var(--cyan);flex:none}
+  .linkbadge{display:inline-grid;place-items:center;color:var(--cyan)}
+  .linkbadge svg{width:12px;height:12px}
   .stwrap{position:relative;display:inline-block}
   .stpill{cursor:pointer;border:0;font:inherit;font-size:11px;font-weight:600;padding:4px 9px;margin-top:9px;border-radius:6px;display:inline-flex;align-items:center;gap:5px}
   .stchev{font-size:8px;opacity:.7}
@@ -1035,7 +1043,7 @@
         <textarea class="in ta" id="ntFixObj" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
         <label style="margin-top:12px">Arquivos/escopo <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntFixOwns" placeholder="src/telemetry/cost.ts">
-        <div class="aihint dim" style="margin-top:9px">Um builder só — <b>sem etapa de plano nem docs</b>. Vira uma branch <span class="mono">fix/…</span> e roda direto.</div>
+        <div id="ntLinkChip"></div><div class="aihint dim" style="margin-top:9px">Um builder só — <b>sem etapa de plano nem docs</b>. Vira uma branch <span class="mono">fix/…</span> e roda direto.</div>
       </div>
       <div id="ntReviewFields" style="display:none">
         <label>Link ou número do PR</label>
@@ -2025,7 +2033,7 @@ function flowTaskCard(t){
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';
   const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:t.flag==='closed'?`<span class="flagbadge cls">${IC.checkc} encerrada</span>`:'';
   return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}" data-id="${t.id}">
-    <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${flagBadge}<span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
+    <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}<span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
@@ -2431,6 +2439,7 @@ function statusMenuItems(t){
     it.push({l:'Mergear na '+t.base+' (merge local)', a:()=>mergeTask(t.id)});
     it.push({l:'Marcar como mergeada (PR já mergeado)', a:()=>markStatus(t.id,'merged')});
   }
+  if(['review','merged','error'].includes(t.status)) it.push({l:'Abrir tarefa de correção linkada…', a:()=>openLinkedFix(t)});
   if(['error','aborted','conflict'].includes(t.status)) it.push({l:'Voltar pra review', a:()=>markStatus(t.id,'review')});
   if(t.status==='draft') it.push({l:'Iniciar agora', a:()=>startTask(t.id)});
   if(ACTIVE_ST.has(t.status)){ it.push({l:'Pausar', a:()=>pauseTask(t.id)}); it.push({l:'Abortar', a:()=>abortTask(t.id), danger:true}); }
@@ -2901,9 +2910,13 @@ function renderSide(){
   } else if(sideTab==='briefing'){
     const claimHtml = claims.length ? claims.map(c=>{const y=c.yieldedTo;return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;}).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
     const reqs = Array.isArray(t.requirements)?t.requirements:[];
-    const reviewPrHtml = (t.kind==='review' && t.prUrl) ? `<div class="seclbl">Pull Request revisado</div><div class="prreview"><span class="prnum">${esc(t.branch)}</span><button class="btn sm" id="revPrOpen">${IC.ext||'↗'} abrir PR</button></div>` : '';
+    const orig=t.linkedTo?(state.tasks||[]).find(x=>x.id===t.linkedTo):null;
+  const fixes=(state.tasks||[]).filter(x=>x.linkedTo===t.id);
+  const linksHtml=(orig||fixes.length)?`<div class="seclbl">Ligações</div><div class="linkrows">${orig?`<button class="linkrow" data-linksel="${escA(orig.id)}">${IC.clip} corrige → <b>${esc(orig.title)}</b><span class="dim" style="margin-left:auto;font-size:10px">${esc(orig.status)}</span></button>`:''}${fixes.map(f=>`<button class="linkrow" data-linksel="${escA(f.id)}">${IC.clip} correção ← <b>${esc(f.title)}</b><span class="dim" style="margin-left:auto;font-size:10px">${esc(f.status)}</span></button>`).join('')}</div>`:'';
+  const reviewPrHtml = (t.kind==='review' && t.prUrl) ? `<div class="seclbl">Pull Request revisado</div><div class="prreview"><span class="prnum">${esc(t.branch)}</span><button class="btn sm" id="revPrOpen">${IC.ext||'↗'} abrir PR</button></div>` : '';
     content = `
     <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
+    ${linksHtml}
     ${reviewPrHtml}
     ${reqsBlock(t)}
     ${refsBlock(t)}
@@ -2969,6 +2982,7 @@ function renderSide(){
   el.querySelectorAll('.stitem').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const it=statusMenuItems(t)[+b.dataset.sti]; stMenuOpen=false; renderSide(); if(it) it.a(); });
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
+  el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
   { const b=el.querySelector('#brReqCheck'); if(b) b.onclick=()=>{ b.disabled=true; b.textContent='verificando…'; talkTask(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json (o campo req deve ser o TEXTO EXATO do requisito). Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); }; }
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
@@ -3072,6 +3086,22 @@ async function openNewTask(){
   (ntMode==='review'?document.getElementById("ntPr"):document.getElementById("ntTitle")).focus();
 }
 let ntMode='build';
+let ntLinkedTo=null; // id da tarefa de origem quando esta é uma correção linkada
+async function openLinkedFix(t){
+  await openNewTask();
+  setNtMode('fix');
+  ntLinkedTo=t.id;
+  document.getElementById('ntFixTitle').value='Corrigir: '+t.title;
+  document.getElementById('ntFixObj').value='Correção LINKADA à tarefa "'+t.title+'" (id '+t.id+', branch '+t.branch+'). Ela foi entregue mas algo não está funcionando em produção.\n\nO que está acontecendo: ';
+  renderNtLink();
+  const o=document.getElementById('ntFixObj'); o.focus(); o.setSelectionRange(o.value.length,o.value.length);
+}
+function renderNtLink(){
+  const el=document.getElementById('ntLinkChip'); if(!el) return;
+  const t=(state.tasks||[]).find(x=>x.id===ntLinkedTo);
+  el.innerHTML = ntLinkedTo ? `<span class="linkchip">${IC.clip} linkada a: <b>${esc(t?t.title:ntLinkedTo)}</b><button class="fwselx" id="ntLinkX">✕</button></span>` : '';
+  const x=document.getElementById('ntLinkX'); if(x) x.onclick=()=>{ ntLinkedTo=null; renderNtLink(); };
+}
 function setNtMode(m){
   ntMode=m;
   document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.classList.toggle('on', b.dataset.mode===m));
@@ -3087,7 +3117,7 @@ function setNtMode(m){
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -3303,7 +3333,7 @@ async function submitNewTask(start=true){
     if(!ft){ document.getElementById("ntFixTitle").focus(); return; }
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
-    const payload={ start:true, title:ft, workflow:null, agents:null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:[], doc:null, proof:false, planApproval:'auto', refs:[], branchType:'fix', issue:null };
+    const payload={ start:true, title:ft, workflow:null, agents:null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:[], doc:null, proof:false, planApproval:'auto', refs:[], branchType:'fix', issue:null, linkedTo: ntLinkedTo };
     try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -3333,6 +3363,7 @@ async function submitNewTask(start=true){
     branchType: document.getElementById("ntBranchType").value,
     issue: document.getElementById("ntIssue").value.trim() || null,
     base: document.getElementById("ntBase").value.trim() || null,
+    linkedTo: ntLinkedTo,
   };
   const btn = document.getElementById(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   document.getElementById("ntCreate").disabled=true; document.getElementById("ntDraft").disabled=true;

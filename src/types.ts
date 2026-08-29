@@ -95,6 +95,8 @@ export interface TaskSpec {
   autoPr?: "no" | "ask" | "auto";
   /** Base do PR (padrão: main/default do repo). */
   prBase?: string;
+  /** Tarefa de ORIGEM quando esta é uma correção/continuação linkada. */
+  linkedTo?: string;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

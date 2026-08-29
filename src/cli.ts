@@ -147,6 +147,7 @@ async function cmdNew(repo: string, a: Args) {
     base: a.flags.base || undefined,
     autoPr: (a.flags["auto-pr"] === "no" || a.flags["auto-pr"] === "auto" ? a.flags["auto-pr"] : "ask") as TaskSpec["autoPr"],
     prBase: a.flags["pr-base"] || undefined,
+    linkedTo: a.flags["linked-to"] || undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",

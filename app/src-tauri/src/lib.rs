@@ -249,6 +249,7 @@ struct Task {
     pr_url: Option<String>,
     flag: Option<String>,
     auto_pr: Option<String>,
+    linked_to: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -976,6 +977,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 flag: r.get::<_, Option<String>>(15).unwrap_or(None),
                 auto_pr: spec.get("autoPr").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                linked_to: spec.get("linkedTo").and_then(|v| v.as_str()).map(|s| s.to_string()),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -1342,6 +1344,7 @@ fn new_task(
     tests: Option<bool>,
     auto_pr: Option<String>,
     pr_base: Option<String>,
+    linked_to: Option<String>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
@@ -1410,6 +1413,7 @@ fn new_task(
     }
     push_opt(&mut args, "--auto-pr", &auto_pr);
     push_opt(&mut args, "--pr-base", &pr_base);
+    push_opt(&mut args, "--linked-to", &linked_to);
 
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);
