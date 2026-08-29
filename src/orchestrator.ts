@@ -562,10 +562,12 @@ export class Orchestrator {
     this.store.setStatus(taskId, "thinking");
     let failed = false;
     try {
+      const chatRule =
+        "\n\n[CONVERSA CONTÍNUA] Se você precisar de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (inclua options com alternativas quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno. NÃO finalize o turno com uma pergunta em texto. Só finalize quando o pedido estiver concluído (ou após eu responder).";
       const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile };
       const input = sid
-        ? { ...base, resume: { sessionId: sid, instruction: message } }
-        : { ...base, promptOverride: `Esta tarefa JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}` };
+        ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
+        : { ...base, promptOverride: `Esta tarefa JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };
       for await (const ev of engine.run(input)) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
         if (ev.type === "claim") continue;

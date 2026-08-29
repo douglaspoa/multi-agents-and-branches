@@ -102,16 +102,37 @@
   .chatid b{font-size:14px}
   .chatsub{font-size:11px}
   .chatthread{flex:1;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px;background:var(--surface-2)}
-  .cmsg{display:flex;gap:8px;align-items:flex-start;max-width:86%}
+  .cmsg{display:flex;gap:8px;align-items:flex-start;max-width:88%;min-width:0}
   .cmsg.you{align-self:flex-end}
-  .cav{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;color:var(--on-accent);flex:none;margin-top:1px}
-  .cbub{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:8px 11px;font-size:12.5px;line-height:1.55;white-space:pre-wrap}
-  .cmsg.you .cbub{background:var(--accent);color:var(--on-accent);border-color:transparent}
-  .cbub.think{color:var(--muted)}
+  .cav{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;color:var(--on-accent);flex:none;margin-top:3px}
+  .cbub{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:12px;border-top-left-radius:4px;padding:9px 12px;font-size:12.5px;line-height:1.58;min-width:0;overflow-wrap:anywhere;word-break:break-word;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  .cmsg.you .cbub{background:color-mix(in srgb,var(--accent) 88%,#000);color:var(--on-accent);border-color:transparent;border-top-left-radius:12px;border-top-right-radius:4px}
+  .cbub.think{color:var(--muted);box-shadow:none}
   .cbub.err{border-color:color-mix(in srgb,var(--crit) 45%,var(--border));color:var(--crit)}
-  .cact{display:flex;gap:7px;align-items:baseline;padding:0 2px;opacity:.6;font-size:11px}
+  /* markdown dentro das bolhas — nada de ** cru */
+  .cbub p{margin:0 0 7px} .cbub p:last-child{margin:0}
+  .cbub h1,.cbub h2,.cbub h3,.cbub h4{font-size:12.5px;margin:4px 0 6px;font-weight:700;letter-spacing:0}
+  .cbub ul,.cbub ol{margin:4px 0 7px;padding-left:18px} .cbub li{margin-bottom:3px}
+  .cbub code{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.08);border-radius:4px;padding:0 4px}
+  .cmsg.you .cbub code{background:rgba(0,0,0,.22)}
+  .cbub .mdcode{background:var(--surface-3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;overflow-x:auto;margin:6px 0}
+  .cbub .mdcode code{background:transparent;padding:0;font-size:11px;line-height:1.5}
+  .cbub hr{border:0;border-top:1px solid var(--border);margin:7px 0}
+  .cbub a{color:var(--accent)}
+  /* linha de sistema (meta) — discreta e central */
+  .csys{align-self:center;max-width:92%;text-align:center;color:var(--muted);font-size:10.5px;font-family:var(--mono);padding:1px 0;opacity:.85}
+  .cact{display:flex;gap:7px;align-items:baseline;padding:0 2px 0 30px;opacity:.55;font-size:10.5px}
   .cact .cg{flex:none;width:12px;text-align:center}
   .cact .ct{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* chip de estado final + etapas (sem check gigante) */
+  .fwnow svg{width:13px;height:13px;flex:none}
+  .fwdone{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:99px;text-transform:uppercase;letter-spacing:.04em}
+  .fwdone svg{width:12px;height:12px}
+  /* expandir o chat */
+  .fwexp{margin-left:auto;width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-3);color:var(--muted);border-radius:7px;cursor:pointer;font-size:13px}
+  .fwexp:hover{color:var(--text);border-color:var(--border-strong)}
+  .fwcols.chatwide{grid-template-columns:200px 1fr 560px}
+  @media(max-width:1100px){ .fwcols.chatwide{grid-template-columns:180px 1fr 480px} }
   .chatstop{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
   .chatstop:hover{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}
   .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border);position:relative}
@@ -767,7 +788,21 @@
   .reqevb:hover{border-color:var(--accent)}
   .reqnote{color:var(--crit);font-size:11px;margin-top:3px}
   .crt{min-width:0;flex:1}
-  /* chat do workspace */
+  /* chat do workspace — contexto compacto expansível (thread fica com o espaço) */
+  .fwctx{margin:9px 13px 4px;border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden}
+  .fwctxbar{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;color:var(--text);font:inherit;font-size:11.5px;padding:8px 11px;cursor:pointer;text-align:left}
+  .fwctxbar:hover{background:var(--surface-2)}
+  .fwctxst{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .fwctxst svg{width:12px;height:12px}
+  .fwctxreq{display:inline-flex;align-items:center;gap:7px;color:var(--text-2);margin-left:auto}
+  .fwctxreq b{font-variant-numeric:tabular-nums}
+  .minibar{width:54px;height:4px;border-radius:99px;background:var(--surface-3);overflow:hidden;display:inline-block}
+  .minibar i{display:block;height:100%;background:var(--accent)}
+  .fwchev{color:var(--muted);font-size:10px;margin-left:8px}
+  .fwctxbar .fwctxreq+.fwchev{margin-left:8px}
+  .fwctxbody{border-top:1px solid var(--border);padding:0 11px 11px}
+  .fwctxbody .fwnow{margin:10px 0 0;border:0;padding:0;background:transparent}
+  .fwctxbody .fwreqs{margin:10px 0 0;max-height:200px;overflow:auto}
   .fwreqs{margin:0 13px 6px;max-height:170px;overflow:auto}
   .fwreqs:empty{display:none}
   .fwreqh{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-family:var(--mono);margin:2px 0 6px;display:flex;justify-content:space-between}
@@ -1531,11 +1566,32 @@ function fwPlan(t){
     return `<div class="fwstep ${cls}"><span class="fwmark">${mark}</span><span class="fwsteptx">${ROLE_PT[r.role]||r.role} · ${esc(r.name)}</span></div>`;
   }).join('')+`</div>`;
 }
+let fwCtxOpen=(lsGet('fwCtxOpen')==='1');
+// barra compacta: estado da tarefa + progresso dos requisitos (expande no clique)
+function fwCtxBarHtml(t){
+  const asking=pendingOf(t.id);
+  const working=(ACTIVE_ST.has(t.status)||t.status==='thinking')&&!asking.length;
+  const col=STATUS_COLOR[t.status]||'var(--muted)';
+  const st = asking.length?`<span class="fwctxst" style="color:var(--warn)"><span class="pulse" style="--pc:var(--warn)"></span>esperando você</span>`
+    : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(ROLE_PT[t.stage]||t.stage||'trabalhando')}</span>`
+    : `<span class="fwctxst" style="color:${col}">${IC.checkc} ${esc(t.status==='review'?'pronta pra review':t.status==='merged'?'mergeada':t.status)}</span>`;
+  const reqs=Array.isArray(t.requirements)?t.requirements:[];
+  let reqPart='';
+  if(reqs.length){
+    const c=reqProofCache[t.id];
+    const done=(c&&Array.isArray(c.list))?c.list.filter(x=>x.status==='done').length:0;
+    const pct=reqs.length?Math.round(done/reqs.length*100):0;
+    reqPart=`<span class="fwctxreq">requisitos <b>${done}/${reqs.length}</b><span class="minibar"><i style="width:${pct}%"></i></span></span>`;
+  }
+  return `${st}${reqPart}<span class="fwchev">${fwCtxOpen?'▾':'▸'}</span>`;
+}
 function fwNowHtml(t){
   const ev=lastEventOf(t.id);
-  return ACTIVE_ST.has(t.status)
-    ? `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div><div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${ (t.roles||[]).some(r=>r.engine==='claude') ? '<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>':''}`
-    : `<div class="fwnowh">${IC.check} ${t.status==='merged'?'Mergeada':(t.status==='review'?'Pronta pra review':esc(t.status))}</div><div class="fwnowtx">${fwPlan(t)}</div>`;
+  if(ACTIVE_ST.has(t.status)){
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div><div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+  }
+  // estado final: só as etapas (o status já está na barra de contexto)
+  return fwPlan(t);
 }
 function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
@@ -1544,13 +1600,16 @@ function fwLiveUpdate(){
   const th=document.getElementById('fwThread');
   if(th){ const atBottom=th.scrollHeight-th.scrollTop-th.clientHeight<80; th.innerHTML=fwThreadHtml(t); if(atBottom) th.scrollTop=th.scrollHeight; }
   const rq=document.getElementById('fwReqs'); if(rq) rq.innerHTML=fwReqsHtml(t);
+  const cb=document.getElementById('fwCtxBar'); if(cb) cb.innerHTML=fwCtxBarHtml(t);
   const sub=document.getElementById('fwChatSub');
   const asking=pendingOf(t.id); const working=(ACTIVE_ST.has(t.status)||t.status==='thinking')&&!asking.length;
   if(sub) sub.textContent=asking.length?'esperando sua resposta':working?'trabalhando…':'mesma sessão — ele lembra o que fez';
   const send=document.getElementById('fwSend'); if(send) send.textContent=asking.length?'responder':working?'parar e enviar':'enviar';
 }
+let fwChatWide=(lsGet('fwChatWide')==='1');
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
+  { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.toggle('chatwide', fwChatWide); }
   // preserva o que está sendo digitado no chat entre re-renders
   const ai=document.activeElement, keepInput=(ai&&ai.id==='fwInput'), inEl=document.getElementById('fwInput'), inVal=inEl?inEl.value:null, inCaret=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
   document.getElementById('fwTaskName').textContent=t.title;
@@ -1614,15 +1673,16 @@ function renderWorkspace(){
   const workingW=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !askingW.length;
   const sel2=fwSelRange();
   chat.innerHTML=`
-    <div class="fwchath"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
-    ${nowBox}
-    <div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div>
+    <div class="fwchath"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwChatWide?'recolher chat':'expandir chat'}">${fwChatWide?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
+    <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput">${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
       <div class="fwinrow"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… (Enter envia)'}"></textarea><button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
       <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
+  { const b=document.getElementById('fwExpand'); if(b) b.onclick=()=>{ fwChatWide=!fwChatWide; lsSet('fwChatWide', fwChatWide?'1':'0'); renderWorkspace(); }; }
+  { const b=document.getElementById('fwCtxBar'); if(b) b.onclick=()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); }; }
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=fwSendMsg; }
   { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ try{ const ps=await invoke('pick_ref_files'); if(ps&&ps.length){ const i=document.getElementById('fwInput'); i.value=(i.value?i.value+'\n':'')+ps.map(p=>'Anexo: '+p).join('\n'); i.focus(); } }catch(_){} }; }
@@ -1630,19 +1690,26 @@ function renderWorkspace(){
   { const i=document.getElementById('fwInput'); if(i){ i.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); fwSendMsg(); } }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
   const th=document.getElementById('fwThread'); if(th) th.scrollTop=th.scrollHeight;
 }
+// markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
+function chatMd(t){ try{ return mdToHtml(String(t||'')); }catch(_){ return esc(String(t||'')); } }
+// notas "de sistema" (não são fala do agente) viram linha discreta central
+function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
 function fwThreadHtml(t){
   const evs=eventsOf(t.id);
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !asking.length;
   return evs.map(e=>{
-    if(e.agent==='Você' && (e.text||'').startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^💬\s*/,''))}</div></div>`;
-    if((e.text||'').startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^humano respondeu:\s*/,''))}</div></div>`;
-    if(['think','note','done'].includes(e.type) && (e.text||'').trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${esc(e.text)}</div></div>`;
-    if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(e.text)}</div></div>`;
-    return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(e.text||'')}</span></div>`;
+    const tx=e.text||'';
+    if(e.agent==='Você' && tx.startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^💬\s*/,''))}</div></div>`;
+    if(tx.startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^humano respondeu:\s*/,''))}</div></div>`;
+    if(isMetaNote(tx)) return `<div class="csys">${esc(tx)}</div>`;
+    if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) return ''; // a pergunta já aparece no card destacado
+    if(['think','note','done'].includes(e.type) && tx.trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${chatMd(tx)}</div></div>`;
+    if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`;
+    return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(tx)}</span></div>`;
   }).join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub asknow">${esc(asking[0].prompt||'aguardando sua resposta')}<div class="asknote">↳ responda abaixo — o turno continua</div></div></div>`:'')
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}<div class="asknote">↳ responda abaixo — o turno continua</div></div></div>`:'')
   + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
 }
 // requisitos com status ao vivo (o "no que ele está trabalhando")

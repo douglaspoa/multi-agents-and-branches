@@ -256,7 +256,7 @@ function mapLine(line: string): AgentEvent[] {
     const out: AgentEvent[] = [];
     for (const p of o.message.content) {
       if (p.type === "tool_use") out.push(mapTool(p.name, p.input));
-      else if (p.type === "text" && p.text?.trim()) out.push({ type: "think", text: p.text.trim().slice(0, 200) });
+      else if (p.type === "text" && p.text?.trim()) out.push({ type: "think", text: p.text.trim().slice(0, 4000) });
     }
     return out;
   }
@@ -274,7 +274,7 @@ function mapLine(line: string): AgentEvent[] {
     return [
       {
         type: "done",
-        text: (o.result ? String(o.result).slice(0, 120) : "concluído") + cost + denials,
+        text: (o.result ? String(o.result).slice(0, 4000) : "concluído") + cost + denials,
         status: ok ? "review" : "error",
         ok,
         cost: { usd, inTok, outTok },
