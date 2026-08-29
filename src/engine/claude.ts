@@ -86,10 +86,14 @@ export class ClaudeEngine implements AgentEngine {
     const prRule = input.spec.kind === "review" && input.spec.prUrl
       ? ` Este é um REVIEW DE PULL REQUEST (${input.spec.prUrl}). NÃO há repositório pra editar; leia o arquivo DIFF.patch nesta pasta (o diff completo do PR) e faça um review CRÍTICO: bugs e correção, riscos/segurança, cobertura de testes, legibilidade e sugestões concretas por arquivo/trecho. Aponte também o que está bom. Escreva o parecer no chat (texto), com severidade por achado. NÃO tente implementar nem rodar o código.`
       : "";
+    // Regras INEGOCIÁVEIS (valem pra todos os papéis, em qualquer modo de autonomia):
+    // o pior desfecho possível é entregar sem os requisitos ou "decidir não fazer".
+    const integrityRule =
+      " REGRAS INEGOCIÁVEIS: (1) Se você não entendeu algo, ou NÃO CONSEGUIR cumprir QUALQUER requisito/entregável do TASK.yaml, PERGUNTE ao humano via mcp__cardume__ask_human e AGUARDE — mesmo que a autonomia diga pra não perguntar; quebrar a regra de autonomia pra perguntar é MELHOR do que entregar sem um requisito, entregar errado ou decidir não fazer. NUNCA finalize silenciosamente com requisito de fora: ou cumpre, ou pergunta. (2) Antes de finalizar, CONFIRA a lista de requirements/deliverables um a um e diga no resumo final o status de cada um (cumprido / não cumprido + por quê). (3) NUNCA abra um Pull Request por conta própria; se o humano pedir pra abrir, só abra se NÃO houver pendências nem ressalvas — existindo qualquer ressalva, pergunte primeiro via ask_human.";
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${integrityRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     const prompt = input.resume ? input.resume.instruction : (input.promptOverride ?? baseline);

@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { GitService } from "./git.ts";
@@ -362,6 +362,11 @@ export class Orchestrator {
    * estável (<repo>/.cardume/artifacts/<taskId>/) — sobrevive ao merge/remoção
    * da worktree e é de onde o app lê pra exibir.
    */
+  /**
+   * Copia os artefatos da worktree pro workspace. Se um artefato de mesmo nome
+   * JÁ existe com conteúdo diferente, salva como VERSÃO nova (nome-v2.ext,
+   * -v3…) em vez de sobrescrever — o histórico fica visível na UI.
+   */
   private async collectArtifacts(taskId: string, worktree: string, agent: string): Promise<void> {
     const src = join(worktree, ".cardume", "artifacts");
     try {
@@ -369,10 +374,48 @@ export class Orchestrator {
       if (!files.length) return;
       const dst = join(this.ws.dir, "artifacts", taskId);
       await mkdir(dst, { recursive: true });
+      let added = 0;
       for (const f of files) {
-        await cp(join(src, f), join(dst, f), { recursive: true });
+        try {
+          const s = join(src, f);
+          const st = await stat(s);
+          if (st.isDirectory()) {
+            await cp(s, join(dst, f), { recursive: true });
+            added++;
+            continue;
+          }
+          const buf = await readFile(s);
+          let target: string | null = join(dst, f);
+          try {
+            const old = await readFile(target);
+            if (Buffer.compare(old, buf) === 0) continue; // idêntico → já coletado
+            // difere → procura o próximo slot de versão (ou detecta duplicata)
+            const dot = f.lastIndexOf(".");
+            const stem = dot > 0 ? f.slice(0, dot) : f;
+            const ext = dot > 0 ? f.slice(dot) : "";
+            let n = 2;
+            for (;;) {
+              const cand = join(dst, `${stem}-v${n}${ext}`);
+              try {
+                const ex = await readFile(cand);
+                if (Buffer.compare(ex, buf) === 0) { target = null; break; } // versão já existe
+                n++;
+              } catch {
+                target = cand; // slot livre
+                break;
+              }
+            }
+            if (target === null) continue;
+          } catch {
+            /* destino ainda não existe → grava direto */
+          }
+          await writeFile(target, buf);
+          added++;
+        } catch {
+          /* ignora arquivo problemático */
+        }
       }
-      this.store.addEvent(taskId, agent, "note", `${files.length} artefato(s) anexado(s) à tarefa`, true);
+      if (added) this.store.addEvent(taskId, agent, "note", `${added} artefato(s) anexado(s) à tarefa`, true);
     } catch {
       /* nenhum artefato produzido */
     }
@@ -397,7 +440,7 @@ export class Orchestrator {
       ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
 
     const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
-    const TESTS = "TESTES: escreva e RODE testes cobrindo a funcionalidade principal e casos de borda; salve a comprovação em `.cardume/artifacts/tests.md` com o(s) comando(s) e a SAÍDA real (quantos passaram/falharam). Se algo falhar, aponte a causa.";
+    const TESTS = "TESTES REAIS na branch desta worktree — PROIBIDO testar num script isolado ou num front mockado que nao reflete o ambiente real. Faca: 1) suba o ambiente LOCAL de verdade nesta branch (as envs reais existem — procure `.env`, `code-refuge-relay/supabase`, docker-compose); 2) escreva e RODE os testes na suite real do projeto (unittest/pytest/vitest — a que o repo usa), exercitando a funcionalidade contra o ambiente que subiu; 3) salve a comprovacao em `.cardume/artifacts/tests.md` com os comandos e a SAIDA real (quantos passaram/falharam). Se algo nao subir/rodar, escreva EXATAMENTE o que travou (comando, erro literal) e PERGUNTE ao humano (mcp__cardume__ask_human) — nao improvise mock.";
     const PROOF = "PROVA na UI REAL com o AMBIENTE REAL — prints de verdade. PROIBIDO usar dados mockados ou entregar so um script: o ambiente e as credenciais EXISTEM e funcionam. Faca: 1) rode a aplicacao localmente com as ENVS reais (ache e use o que precisa — ex.: `.env`, `code-refuge-relay/supabase`, docker-compose); 2) exercite a funcionalidade na tela e capture screenshots REAIS em `.cardume/artifacts/proof.png` (proof-1.png, proof-2.png…). Se voce NAO conseguir rodar ALGO (faltou uma env, um comando falhou, um servico nao subiu), NAO improvise mock nem script: escreva em `.cardume/artifacts/proof.md` EXATAMENTE o que travou (o comando exato, o erro literal, o que faltou) e PERGUNTE ao humano (mcp__cardume__ask_human) o que precisa pra destravar — ele tem o env e sabe que funciona, entao vai te ajudar a rodar. Sem print real da UI o humano nao consegue validar a entrega — a prova e obrigatoria, entao persista (perguntando quando travar) ate conseguir o print real.";
     const head = "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada além do necessário pra testar. ";
     const PROMPTS: Record<string, string> = {
