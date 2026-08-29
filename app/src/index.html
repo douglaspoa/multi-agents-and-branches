@@ -973,6 +973,10 @@
   .tmtitle{font-size:13px}
   .tmst{font-size:11px;white-space:nowrap}
   .tmbadge{font-size:10px;color:var(--warn);border:1px solid var(--warn);padding:1px 6px;border-radius:99px;white-space:nowrap}
+  .tmstats{display:flex;gap:8px;margin:4px 2px 6px;flex-wrap:wrap}
+  .tmstat{border:1px solid var(--border);background:var(--surface);padding:8px 14px;border-radius:6px;min-width:86px}
+  .tmstat .v{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+  .tmstat .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
 
   /* bus */
   .bus{display:flex;align-items:center;gap:12px;padding:7px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:12px}
@@ -3889,8 +3893,10 @@ async function renderCloud(){
     <div class="seclbl2" style="margin-top:18px">Convidar pro time</div>
     <div style="display:flex;gap:8px;margin-top:6px"><input class="in" id="sbInvEmail" placeholder="email@empresa.com" style="flex:1"><select class="sel" id="sbInvRole" style="width:110px"><option value="member">membro</option><option value="lead">lead</option></select><button class="btn primary sm" id="sbInvite">gerar convite</button></div>
     <div id="sbInvOut"></div>`:''}
+    ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>`:''}
+    ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbLogout">sair</button></div>
-    <div class="imhint" style="margin-top:12px">Próximo passo (F2): tarefas compartilhadas — criar “pro time” ou “pra mim”, backlog do time e assumir &amp; iniciar.</div>`;
+    <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;
   document.getElementById('sbTeamSel').onchange=e=>{ lsSet('sb:team', e.target.value); cloudData=null; renderCloud(); cloudBtnSync(); };
   { const b=document.getElementById('sbTeamAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do novo time:'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg='Falhou: '+e.message; } renderCloud(); }; }
   { const b=document.getElementById('sbInvite'); if(b) b.onclick=async()=>{
@@ -3902,6 +3908,19 @@ async function renderCloud(){
       }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
     }; }
   document.getElementById('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+  if(isAdmin){
+    cloudOrgView().then(rows=>{
+      const el=document.getElementById('sbOrgView'); if(!el) return;
+      el.innerHTML = rows.length ? `<div class="costlist">`+rows.map(r=>`<div class="costrow"><span class="cnm">${esc(r.name)}</span><span class="dim" style="font-size:11px">${r.n} tarefas · ${r.run} em andamento · ${r.done} entregues</span><span class="cusd">${fmtUsd(r.usd)}</span></div>`).join('')+`</div>` : 'nenhum time ainda';
+    }).catch(e=>{ const el=document.getElementById('sbOrgView'); if(el) el.textContent='falhou: '+e.message; });
+  }
+  { const b=document.getElementById('sbLicSet'); if(b) b.onclick=async()=>{
+      const k=prompt('Chave de licença da organização:', d.org.license_key||''); if(k===null) return;
+      cloudMsg='';
+      try{ await sbFetch('/rest/v1/orgs?id=eq.'+d.org.id, { method:'PATCH', body: JSON.stringify({ license_key: k.trim()||null }) }); cloudData=null; cloudMsg='✓ licença atualizada'; }
+      catch(e){ cloudMsg='Falhou: '+e.message; }
+      renderCloud();
+    }; }
   cloudBtnSync();
 }
 document.getElementById('cloudBtn').onclick=openCloud;
@@ -4009,6 +4028,25 @@ function renderTeamBoard(){
   const isAdmin=cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin');
   const groups=[['Backlog — livre pra assumir', t=>t.status==='backlog'], ['Em andamento', t=>!['backlog','review','delivered','done','merged','aborted'].includes(t.status)], ['Entregues', t=>['review','delivered','done','merged'].includes(t.status)]];
   let html='';
+  // dashboard do time: números que importam, no topo
+  {
+    const n=teamTasks.length;
+    const andamento=teamTasks.filter(groups[1][1]).length, entregues=teamTasks.filter(groups[2][1]).length, backlog=teamTasks.filter(groups[0][1]).length;
+    const custo=teamTasks.reduce((s,t)=>s+(+t.cost_usd||0),0);
+    const prs=teamTasks.filter(t=>t.pr_url && t.status!=='merged');
+    const chip=(lbl,val,color)=>`<div class="tmstat"><div class="v" style="${color?'color:'+color:''}">${val}</div><div class="l">${lbl}</div></div>`;
+    html+=`<div class="tmstats">${chip('tarefas',n)}${chip('backlog',backlog,'var(--muted)')}${chip('em andamento',andamento,'var(--warn)')}${chip('entregues',entregues,'var(--good)')}${chip('PRs abertos',prs.length,'var(--accent)')}${chip('custo',fmtUsd(custo))}</div>`;
+    // inbox: PRs do time pra revisar (decisão: notificado + 1 clique pra revisar)
+    if(prs.length){
+      html+=`<div class="seclbl2" style="margin:14px 2px 8px">PRs do time — pra revisar <span class="n">${prs.length}</span></div>`;
+      html+=prs.map(t=>{
+        const proj=teamProj[t.project_id]||{};
+        const sameRepo=!proj.repo_remote || proj.repo_remote===teamRepoRemote;
+        return `<div class="tmcard" data-ct="${escA(t.id)}"><div class="tmrow1"><b class="tmtitle">${esc(t.title)}</b><span style="flex:1"></span><span class="tmst" style="color:${ctStColor(t.status)}">● ${esc(CT_ST_PT[t.status]||t.status)}</span></div>
+        <div class="tmrow3"><span class="dim" style="font-size:11px">${esc(proj.name||'?')} · de ${esc(tmName(t.assignee||t.created_by))} · ${agoTx(t.updated_at)}</span><span style="flex:1"></span><button class="btn sm" data-act="pr">abrir PR ↗</button>${sameRepo?`<button class="btn primary sm" data-act="revisar" title="cria uma tarefa de code review deste PR com um agente">revisar com agente</button>`:''}</div></div>`;
+      }).join('');
+    }
+  }
   for(const [label, fil] of groups){
     const list=teamTasks.filter(fil); if(!list.length) continue;
     html+=`<div class="seclbl2" style="margin:14px 2px 8px">${label} <span class="n">${list.length}</span></div>`;
@@ -4043,6 +4081,7 @@ function renderTeamBoard(){
       else if(b.dataset.act==='pr') openExternal(ct.pr_url);
       else if(b.dataset.act==='claim') teamClaimStart(ct, b);
       else if(b.dataset.act==='del') teamDeleteCard(ct);
+      else if(b.dataset.act==='revisar'){ b.disabled=true; b.textContent='criando review…'; invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(e=>{ alert('Falha ao iniciar o review:\n'+e); b.disabled=false; b.textContent='revisar com agente'; }); }
     };
   });
 }
@@ -4104,6 +4143,37 @@ document.getElementById('ctOverlay').addEventListener('click',e=>{ if(e.target.i
 // mostra o seletor "Time" na criação de tarefa só quando logado + time escolhido
 function ntShareSync(){ const r=document.getElementById('ntShareRow'); if(r) r.style.display=(SB.sess()&&cloudTeamId())?'block':'none'; }
 document.getElementById('newTaskBtn').addEventListener('click', ntShareSync);
+
+/* ---- F3: notificações do time (novo PR de um colega / nova tarefa no backlog) ----
+   Poll leve a cada 30s; "já visto" persiste em localStorage pra não re-notificar. */
+function seenSet(k){ try{ return new Set(JSON.parse(lsGet(k)||'[]')); }catch(_){ return new Set(); } }
+function seenAdd(k,id){ const s=seenSet(k); s.add(id); lsSet(k, JSON.stringify([...s].slice(-500))); }
+let teamNotifReady=false;
+async function teamNotifTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  await teamFetch(); if(!teamTasks) return;
+  const me=cloudUserId(), prs=seenSet('sb:seenpr'), cards=seenSet('sb:seencard');
+  for(const t of teamTasks){
+    if(t.pr_url && !prs.has(t.id)){ seenAdd('sb:seenpr', t.id); if(teamNotifReady && (t.assignee||t.created_by)!==me) pushNotif('PR do time pra revisar ↗', tmName(t.assignee||t.created_by)+': '+t.title); }
+    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(teamNotifReady && t.created_by!==me) pushNotif('Nova tarefa no backlog do time', tmName(t.created_by)+': '+t.title); }
+  }
+  teamNotifReady=true;
+  if(activeIs('team')) renderTeamBoard();
+}
+setInterval(()=>{ teamNotifTick().catch(()=>{}); }, 30000);
+setTimeout(()=>{ teamNotifTick().catch(()=>{}); }, 4000);
+
+/* ---- F4 (fatia): visão da organização pra owner/admin + chave de licença ---- */
+async function cloudOrgView(){
+  // RLS: admin enxerga as tasks de todos os times da org — agrega por time
+  const [tasks, teams]=await Promise.all([
+    sbGet('tasks?select=team_id,status,cost_usd&limit=1000'),
+    sbGet('teams?select=id,name&order=name'),
+  ]);
+  const by={};
+  for(const t of tasks){ const b=by[t.team_id]||(by[t.team_id]={n:0,run:0,done:0,usd:0}); b.n++; if(['review','delivered','done','merged'].includes(t.status)) b.done++; else if(t.status!=='backlog') b.run++; b.usd+=(+t.cost_usd||0); }
+  return teams.map(tm=>({ name:tm.name, ...(by[tm.id]||{n:0,run:0,done:0,usd:0}) }));
+}
 </script>
 </body>
 </html>
