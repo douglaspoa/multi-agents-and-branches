@@ -378,6 +378,8 @@
   .flagbadge.cls{background:var(--surface-3);color:var(--muted)}
   .fcard.flagged{opacity:.72}
   .fcard.flagged:hover{opacity:1}
+  .wsopen{margin-bottom:12px;border-color:color-mix(in srgb,var(--accent) 35%,var(--border));color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface-2))}
+  .wsopen:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
   .footcol{display:flex;flex-direction:column;gap:8px;width:100%}
   .btn.wide{width:100%;justify-content:center}
   .foot1{display:flex;align-items:center;gap:4px;width:100%;overflow:hidden}
@@ -2903,16 +2905,17 @@ function renderSide(){
   // loads de rede/subprocesso (pr_status via gh, task_files, commits, artifacts),
   // então TROCAR de tarefa disparava tudo isso mesmo na aba Etapas → lentidão.
   // Agora só a aba ativa é construída (e só ela dispara seus loads).
-  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Arquivos'],['pr','PR'],['briefing','Briefing']];
+  const TABS=[['etapas','Etapas'],['stream','Stream'],['entregas','Entregas'],['pr','PR'],['briefing','Briefing']];
   let content;
   if(sideTab==='stream'){
     content = `<div class="log stream">${evs.length?evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join(""):'<span class="dim">sem eventos ainda…</span>'}${ACTIVE_ST.has(t.status)?'<div class="ln livecursor"><span class="ts"></span><span style="color:var(--good)">▸</span><span class="blink">▍</span></div>':''}</div>`;
-  } else if(sideTab==='diff'){
-    const revHtml = rev ? `<div class="rev"><div class="h">◆ Review humano <span class="by">por ${esc(rev.byAgent)}</span></div><div class="b"><div class="sm">${esc(rev.summary)}</div>${(rev.functions||[]).map(f=>`<div class="fn"><div class="n"><b>${esc(f.name)}</b> <span class="k">${esc(f.kind)}</span> <span class="f">· ${esc(f.file)}</span></div><div class="p">↳ ${esc(f.purpose)}</div></div>`).join("")||''}<div class="test">como testar · ${esc(rev.howToTest)}</div></div></div>` : "";
+  } else if(sideTab==='entregas'){
+    const dels=Array.isArray(t.deliverables)?t.deliverables.filter(Boolean):[];
     content = `
-    <div class="diff"><b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b><span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span></div>
-    ${filesBlock(t)}
-    ${revHtml}`;
+    ${reqsBlock(t)}
+    ${dels.length?`<div class="seclbl">Entregáveis <span class="n">${dels.length}</span></div>${dels.map(d=>`<div class="critrow2 na"><span class="reqst na">·</span><div class="crt">${esc(d)}</div></div>`).join('')}`:''}
+    ${artifactsBlock(t)}
+    ${deliverBlock(t)}`;
   } else if(sideTab==='pr'){
     content = prBlock(t, true);
   } else if(sideTab==='briefing'){
@@ -2926,16 +2929,14 @@ function renderSide(){
     <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
     ${linksHtml}
     ${reviewPrHtml}
-    ${reqsBlock(t)}
     ${refsBlock(t)}
     ${prBlock(t)}
     ${costBlock(t.id)}
-    ${artifactsBlock(t)}
-    ${deliverBlock(t)}
     ${commitsBlock(t.id)}
     <div class="seclbl">Arquivos reivindicados <span class="n">${claims.length}</span></div>${claimHtml}`;
   } else {
     content = `
+    ${t.kind!=='review'?`<button class="btn sm wide wsopen" id="openWs"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M2.5 3.5h11c.3 0 .5.2.5.5v8c0 .3-.2.5-.5.5h-11c-.3 0-.5-.2-.5-.5V4c0-.3.2-.5.5-.5z"/><path d="M6 3.5v9M9.2 6.8l1.6 1.2-1.6 1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Abrir no editor — arquivos · código · chat</button>`:''}
     ${activityBlock(t)}
     ${stageStepper(t)}
     ${questionBlock(t.id)}
@@ -2991,6 +2992,7 @@ function renderSide(){
   el.querySelectorAll('.stitem').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const it=statusMenuItems(t)[+b.dataset.sti]; stMenuOpen=false; renderSide(); if(it) it.a(); });
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
   el.querySelectorAll('[data-act="linkfix"]').forEach(b=>b.onclick=()=>openLinkedFix(t));
+  { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
   { const b=el.querySelector('#brReqCheck'); if(b) b.onclick=()=>{ b.disabled=true; b.textContent='verificando…'; talkTask(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json (o campo req deve ser o TEXTO EXATO do requisito). Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); }; }
