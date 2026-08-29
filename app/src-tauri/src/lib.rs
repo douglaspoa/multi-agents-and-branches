@@ -1649,6 +1649,25 @@ fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, Stri
     })
     .map_err(|e| e.to_string())
 }
+/// Ponto de comparação REAL da tarefa: merge-base entre a base e o HEAD da
+/// worktree, preferindo origin/<base>. Sem isso, se o agente mergear
+/// origin/main na branch (ou a main local estiver defasada), o diff contra a
+/// base local mostra TODOS os arquivos do merge como se fossem da tarefa.
+fn task_diff_base(wt: &PathBuf, base: &str) -> String {
+    let clean = base.trim_start_matches("origin/");
+    for cand in [format!("origin/{clean}"), clean.to_string()] {
+        if let Ok(o) = Command::new("git").arg("-C").arg(wt).args(["merge-base", &cand, "HEAD"]).output() {
+            if o.status.success() {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !s.is_empty() {
+                    return s;
+                }
+            }
+        }
+    }
+    base.to_string()
+}
+
 fn safe_rel(path: &str) -> Result<(), String> {
     if path.starts_with('/') || path.contains("..") {
         return Err("caminho inválido".to_string());
@@ -1670,6 +1689,7 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
     let (wt, base) = task_wt_base(&state, &task_id)?;
     // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
     // assim os arquivos aparecem ao vivo enquanto o agente edita, antes do commit.
+    let base = task_diff_base(&wt, &base);
     let out = Command::new("git")
         .arg("-C").arg(&wt)
         .args(["diff", "--numstat", &base])
@@ -1701,6 +1721,7 @@ fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<Fi
     let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| e.to_string())?;
     // linhas novas (do diff unified=0): parse dos hunks @@ -a,b +c,d @@
     let mut added: Vec<i64> = Vec::new();
+    let base = task_diff_base(&wt, &base);
     if let Ok(out) = Command::new("git").arg("-C").arg(&wt).args(["diff", "--unified=0", &base, "--", &path]).output() {
         let text = String::from_utf8_lossy(&out.stdout);
         for line in text.lines() {

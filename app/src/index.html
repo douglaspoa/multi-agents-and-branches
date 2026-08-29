@@ -119,6 +119,12 @@
   .cbub .mdcode code{background:transparent;padding:0;font-size:11px;line-height:1.5}
   .cbub hr{border:0;border-top:1px solid var(--border);margin:7px 0}
   .cbub a{color:var(--accent)}
+  /* copiar mensagem + seleção de texto */
+  .cbub{position:relative;user-select:text;cursor:text}
+  .ccopy{position:absolute;top:4px;right:4px;width:20px;height:20px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-3);color:var(--muted);border-radius:5px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .12s;padding:0}
+  .cbub:hover .ccopy{opacity:.85}
+  .cmsg.you .ccopy{background:rgba(0,0,0,.25);border-color:transparent;color:var(--on-accent)}
+  .fwinput{position:relative}
   /* linha de sistema (meta) — discreta e central */
   .csys{align-self:center;max-width:92%;text-align:center;color:var(--muted);font-size:10.5px;font-family:var(--mono);padding:1px 0;opacity:.85}
   .cact{display:flex;gap:7px;align-items:baseline;padding:0 2px 0 30px;opacity:.55;font-size:10.5px}
@@ -653,7 +659,7 @@
   .fwhead b{font-size:13.5px}
   .fwhead .fwsub{font-size:11px;color:var(--muted)}
   .fwhead .x{margin-left:auto;border:0;background:transparent;color:var(--muted);cursor:pointer}
-  .fwcols{flex:1;display:grid;grid-template-columns:238px 1fr 348px;min-height:0}
+  .fwcols{flex:1;display:grid;grid-template-columns:238px 1fr 348px;min-height:0;transition:grid-template-columns .28s ease}
   .fwtree{border-right:1px solid var(--border);overflow:auto;padding:10px 8px;display:flex;flex-direction:column;background:var(--surface-2)}
   .fwtreeh{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:2px 4px 8px}
   .fwtreebody{display:flex;flex-direction:column;gap:1px}
@@ -1676,18 +1682,25 @@ function renderWorkspace(){
     <div class="fwchath"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwChatWide?'recolher chat':'expandir chat'}">${fwChatWide?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
-    <div class="fwinput">${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
+    <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
       <div class="fwinrow"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… (Enter envia)'}"></textarea><button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
       <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
-  { const b=document.getElementById('fwExpand'); if(b) b.onclick=()=>{ fwChatWide=!fwChatWide; lsSet('fwChatWide', fwChatWide?'1':'0'); renderWorkspace(); }; }
+  { const b=document.getElementById('fwExpand'); if(b) b.onclick=()=>{ fwChatWide=!fwChatWide; lsSet('fwChatWide', fwChatWide?'1':'0'); const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.toggle('chatwide', fwChatWide); b.textContent=fwChatWide?'⇥':'⇤'; b.title=fwChatWide?'recolher chat':'expandir chat'; }; }
   { const b=document.getElementById('fwCtxBar'); if(b) b.onclick=()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); }; }
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=fwSendMsg; }
   { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ try{ const ps=await invoke('pick_ref_files'); if(ps&&ps.length){ const i=document.getElementById('fwInput'); i.value=(i.value?i.value+'\n':'')+ps.map(p=>'Anexo: '+p).join('\n'); i.focus(); } }catch(_){} }; }
-  chat.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
-  { const i=document.getElementById('fwInput'); if(i){ i.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); fwSendMsg(); } }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
+  chat.onclick=(e)=>{
+    const cp=e.target.closest('.ccopy');
+    if(cp){ const bub=cp.parentElement; const cl=bub.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove()); try{ navigator.clipboard.writeText(cl.innerText.trim()); cp.textContent='✓'; setTimeout(()=>{cp.textContent='⧉';},900); }catch(_){} return; }
+    const a=e.target.closest('[data-art]'); if(a){ openArtifact(t.id, a.dataset.art); return; }
+    if(e.target.closest('#fwReqCheck')){ fwSendText(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json. Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); return; }
+  };
+  { const i=document.getElementById('fwInput'); if(i){ i.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('fwMenu').style.display!=='none'){ e.stopPropagation(); fwHideMenu(); return; } if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); fwHideMenu(); fwSendMsg(); } });
+    i.addEventListener('input',()=>{ const v=i.value, last=v.slice(-1), ws=(v.length===1||/\s/.test(v.slice(-2,-1)));
+      if(last==='/'&&ws) fwShowMenu(t,'req'); else if(last==='@'&&ws) fwShowMenu(t,'ref'); else fwHideMenu(); }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
   const th=document.getElementById('fwThread'); if(th) th.scrollTop=th.scrollHeight;
 }
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
@@ -1701,11 +1714,11 @@ function fwThreadHtml(t){
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !asking.length;
   return evs.map(e=>{
     const tx=e.text||'';
-    if(e.agent==='Você' && tx.startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^💬\s*/,''))}</div></div>`;
-    if(tx.startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^humano respondeu:\s*/,''))}</div></div>`;
+    if(e.agent==='Você' && tx.startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
+    if(tx.startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
     if(isMetaNote(tx)) return `<div class="csys">${esc(tx)}</div>`;
     if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) return ''; // a pergunta já aparece no card destacado
-    if(['think','note','done'].includes(e.type) && tx.trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${chatMd(tx)}</div></div>`;
+    if(['think','note','done'].includes(e.type) && tx.trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${chatMd(tx)}<button class="ccopy" title="copiar">⧉</button></div></div>`;
     if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`;
     return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(tx)}</span></div>`;
   }).join('')
@@ -1722,7 +1735,49 @@ function fwReqsHtml(t){
     const icon= st==='ok'?`<span class="reqst ok">${IC.check}</span>`:st==='blk'?'<span class="reqst blk">!</span>':'<span class="reqst na">·</span>';
     const ev=(m&&Array.isArray(m.evidence)&&m.evidence.length)?`<span class="reqev">${m.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</span>`:'';
     return `<div class="critrow2 ${st}">${icon}<div class="crt"><div>${esc(r)} ${ev}</div></div></div>`; }).join('');
-  return `<div class="fwreqh">Requisitos <span class="dim">${(c&&Array.isArray(c.list))?c.list.filter(x=>x.status==='done').length+'/'+reqs.length:reqs.length}</span></div>${rows}`;
+  const canCheck=(!c||c.list===null)&&['review','error','aborted'].includes(t.status);
+  const checkBtn=canCheck?'<button class="btn sm" id="fwReqCheck" style="margin-top:6px;width:100%">verificar requisitos agora (gera as provas)</button>':'';
+  return `<div class="fwreqh">Requisitos <span class="dim">${(c&&Array.isArray(c.list))?c.list.filter(x=>x.status==='done').length+'/'+reqs.length:reqs.length}</span></div>${rows}${checkBtn}`;
+}
+function fwHideMenu(){ const m=document.getElementById('fwMenu'); if(m){ m.style.display='none'; m.innerHTML=''; } }
+// "/" lista os REQUISITOS (pedir revisão de um específico) · "@" referencia arquivos/artefatos
+async function fwShowMenu(t, kind){
+  const m=document.getElementById('fwMenu'); if(!m) return;
+  let items=[];
+  if(kind==='req'){
+    const reqs=Array.isArray(t.requirements)?t.requirements:[];
+    items=reqs.map(r=>({label:r, kind:'requisito', ins:null, req:r}));
+    if(reqs.length>1) items.unshift({label:'TODOS os requisitos (verificação completa)', kind:'ação', req:'__all__'});
+  } else {
+    let files=[]; let arts=[];
+    try{ files=await invoke('task_files',{ taskId:t.id }); }catch(_){ }
+    try{ arts=await invoke('list_artifacts',{ taskId:t.id }); }catch(_){ }
+    items=[...files.slice(0,12).map(f=>({label:f.path, ins:f.path, kind:'arquivo'})),
+           ...arts.filter(a=>a.name!=='requirements.json').slice(0,8).map(a=>({label:a.name, ins:'.cardume/artifacts/'+a.name, kind:'artefato'}))];
+  }
+  if(!items.length){ fwHideMenu(); return; }
+  m.innerHTML=`<div class="ath">${kind==='req'?'revisar requisito':'referenciar'}</div>`+items.map((it,i)=>`<button class="atit" data-mi="${i}"><span class="${kind==='req'?'':'mono'}">${esc(it.label)}</span><span class="atk">${it.kind}</span></button>`).join('');
+  m.style.display='block';
+  m.querySelectorAll('.atit').forEach(b=>b.onclick=()=>{
+    const it=items[+b.dataset.mi]; const i=document.getElementById('fwInput');
+    if(kind==='req'){
+      i.value = it.req==='__all__'
+        ? 'Verifique TODOS os requisitos do TASK.yaml um a um: status real, evidência (print/teste) linkada e requirements.json atualizado; me pergunte se algum não estiver cumprido.'
+        : `Revisar o requisito: "${it.req}" — confira se está REALMENTE cumprido; se não estiver, cumpra agora; e linke a evidência (print e/ou teste) no requirements.json.`;
+    } else {
+      i.value=i.value.replace(/[@/]$/,'')+'`'+it.ins+'` ';
+    }
+    fwHideMenu(); i.focus();
+  });
+}
+async function fwSendText(taskId, text){
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  try{
+    const pend=pendingOf(t.id);
+    if(pend.length){ await resolvePending(pend[0].id, text); }
+    else { if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){ } } await invoke('talk_task',{ taskId:t.id, message:text, asReq:false }); }
+    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; await refresh(); renderWorkspace();
+  }catch(e){ alert('Falha ao enviar:\n'+e); }
 }
 async function fwSendMsg(){
   const t=fwTaskObj(); if(!t) return;
