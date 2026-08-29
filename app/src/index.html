@@ -3897,6 +3897,9 @@ async function renderCloud(){
     <div class="seclbl2" style="margin-top:18px">Convidar pro time</div>
     <div style="display:flex;gap:8px;margin-top:6px"><input class="in" id="sbInvEmail" placeholder="email@empresa.com" style="flex:1"><select class="sel" id="sbInvRole" style="width:110px"><option value="member">membro</option><option value="lead">lead</option></select><button class="btn primary sm" id="sbInvite">gerar convite</button></div>
     <div id="sbInvOut"></div>`:''}
+    <div class="seclbl2" style="margin-top:18px">Agentes &amp; equipes da organização</div>
+    <div id="sbCat" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="grava os agentes/workflows da org no cardume.config.json do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
     ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>`:''}
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbLogout">sair</button></div>
@@ -3906,12 +3909,18 @@ async function renderCloud(){
   { const b=document.getElementById('sbInvite'); if(b) b.onclick=async()=>{
       cloudMsg='';
       try{
-        const rows=await sbPost('invites',{ org_id:d.org.id, team_id:teamId, email:document.getElementById('sbInvEmail').value.trim(), role:document.getElementById('sbInvRole').value, created_by:cloudUserId() });
+        const mail=document.getElementById('sbInvEmail').value.trim();
+        if(!mail){ document.getElementById('sbInvEmail').focus(); throw new Error('informe o e-mail da pessoa'); }
+        const rows=await sbPost('invites',{ org_id:d.org.id, team_id:teamId, email:mail, role:document.getElementById('sbInvRole').value, created_by:cloudUserId() });
         const tok=rows[0].token;
-        document.getElementById('sbInvOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado — mande o token pra pessoa colar em <b>Entrar → aceitar convite</b>:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all">${esc(tok)}</div><button class="btn sm" style="margin-top:8px" onclick="navigator.clipboard.writeText('${escA(tok)}');this.textContent='copiado ✓'">copiar token</button></div>`;
+        const teamName=(d.teams.find(x=>x.id===teamId)||{}).name||'';
+        const msg=`Você foi convidado(a) pro time ${teamName} da ${d.org.name} no Constellation.\n1. Abra o Constellation e clique em Entrar\n2. Crie sua conta com o e-mail ${mail}\n3. Em "aceitar convite", cole o token:\n${tok}`;
+        document.getElementById('sbInvOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
+        document.getElementById('sbInvCopy').onclick=function(){ navigator.clipboard.writeText(msg); this.textContent='copiado ✓'; };
       }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
     }; }
   document.getElementById('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+  cloudCatalog(d.org.id, isAdmin);
   if(isAdmin){
     cloudOrgView().then(rows=>{
       const el=document.getElementById('sbOrgView'); if(!el) return;
@@ -4166,6 +4175,43 @@ async function teamNotifTick(){
 }
 setInterval(()=>{ teamNotifTick().catch(()=>{}); }, 30000);
 setTimeout(()=>{ teamNotifTick().catch(()=>{}); }, 4000);
+
+/* ---- catálogo da org: agentes/workflows compartilhados entre os devs ---- */
+async function cloudCatalog(orgId, isAdmin){
+  const el=document.getElementById('sbCat'); if(!el) return;
+  try{
+    const [ags, wfs]=await Promise.all([
+      sbGet('org_agents?select=id,name,role,color&org_id=eq.'+orgId+'&order=name'),
+      sbGet('org_workflows?select=id,name,steps&org_id=eq.'+orgId+'&order=name'),
+    ]);
+    el.innerHTML = (ags.length||wfs.length)
+      ? `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:2px 0">${ags.map(a=>`<span class="tmbadge" style="color:${escA(a.color||'var(--text-2)')};border-color:${escA(a.color||'var(--border)')}">${esc(a.name)} · ${esc(a.role)}</span>`).join('')}</div>`
+        +(wfs.length?`<div class="dim" style="font-size:11px;margin-top:6px">equipes: ${wfs.map(w=>esc(w.name)+' ('+(w.steps||[]).length+')').join(' · ')}</div>`:'')
+      : 'nenhum agente publicado ainda — use “enviar os deste projeto”';
+    { const b=document.getElementById('sbCatPull'); if(b) b.onclick=async()=>{
+        b.disabled=true; b.textContent='aplicando…';
+        try{
+          const local=await invoke('config');
+          const byId=o=>Object.fromEntries((o||[]).map(x=>[x.id,x]));
+          const la=byId(local.agents), lw=byId(local.workflows);
+          for(const a of ags){ const full=await sbGet('org_agents?select=*&org_id=eq.'+orgId+'&id=eq.'+encodeURIComponent(a.id)); const f=full[0]; la[f.id]={ id:f.id, name:f.name, role:f.role, engine:f.engine||'claude', model:f.model||undefined, color:f.color||undefined, persona:f.persona||'' }; }
+          for(const w of wfs){ lw[w.id]={ id:w.id, name:w.name, steps:w.steps||[] }; }
+          await invoke('save_config',{ config:{ agents:Object.values(la), workflows:Object.values(lw) } });
+          b.textContent='✓ aplicado no projeto';
+        }catch(e){ alert('Falhou: '+(e.message||e)); b.disabled=false; b.textContent='aplicar neste projeto'; }
+      }; }
+    { const b=document.getElementById('sbCatPush'); if(b) b.onclick=async()=>{
+        b.disabled=true; b.textContent='enviando…';
+        try{
+          const local=await invoke('config');
+          for(const a of (local.agents||[])){ if(!a.id) continue; await sbFetch('/rest/v1/org_agents?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:a.id, name:a.name, role:a.role||'builder', engine:a.engine||'claude', model:a.model||null, color:a.color||null, persona:a.persona||'' }) }); }
+          for(const w of (local.workflows||[])){ if(!w.id) continue; await sbFetch('/rest/v1/org_workflows?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:w.id, name:w.name, steps:w.steps||[] }) }); }
+          b.textContent='✓ publicado pra org';
+          cloudCatalog(orgId, isAdmin);
+        }catch(e){ alert('Falhou: '+(e.message||e)); b.disabled=false; b.textContent='enviar os deste projeto'; }
+      }; }
+  }catch(e){ el.textContent='falhou: '+e.message; }
+}
 
 /* ---- F4 (fatia): visão da organização pra owner/admin + chave de licença ---- */
 async function cloudOrgView(){
