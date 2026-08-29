@@ -1050,10 +1050,16 @@
         <label>O que corrigir</label>
         <input class="in" id="ntFixTitle" placeholder="ex.: corrigir cálculo de custo na telemetria">
         <label style="margin-top:12px">Detalhes <span class="dim" style="text-transform:none;letter-spacing:0">(opcional — onde, sintoma, como reproduzir)</span></label>
-        <textarea class="in ta" id="ntFixObj" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
+        <textarea class="in ta" id="ntFixObj" rows="6" style="min-height:120px" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
         <label style="margin-top:12px">Arquivos/escopo <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntFixOwns" placeholder="src/telemetry/cost.ts">
-        <div id="ntLinkChip"></div><div class="aihint dim" style="margin-top:9px">Um builder só — <b>sem etapa de plano nem docs</b>. Vira uma branch <span class="mono">fix/…</span> e roda direto.</div>
+        <div class="seclbl2" style="margin-top:14px">Critérios de aceite <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o agente é COBRADO por cada um (com prova)</span><span style="flex:1"></span><button class="btn sm" id="ntFixReqAdd">+ item</button></div>
+        <div id="ntFixReqs" class="listed"></div>
+        <div class="seclbl2" style="margin-top:14px">Comprovações da correção</div>
+        <label class="ckrow"><input type="checkbox" id="ntFixArtProof" checked><span><b>Prova (prints reais)</b> <span class="dim">— a correção funcionando na UI/ambiente</span></span></label>
+        <label class="ckrow"><input type="checkbox" id="ntFixArtTests" checked><span><b>Teste cobrindo a regressão</b> <span class="dim">— roda a suíte real e anexa a saída</span></span></label>
+        <label class="ckrow"><input type="checkbox" id="ntFixArtDoc" checked><span><b>Doc curta da correção</b> <span class="dim">— causa raiz e o que mudou</span></span></label>
+        <div id="ntLinkChip"></div><div class="aihint dim" style="margin-top:9px">Um builder só — sem etapa de plano. Vira uma branch <span class="mono">fix/…</span> e roda direto.</div>
       </div>
       <div id="ntReviewFields" style="display:none">
         <label>Link ou número do PR</label>
@@ -3058,7 +3064,7 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
   lastSig = snapSig();   // marca o estado já renderizado (evita render duplicado no próximo tick)
 });
 
-let ntDel=[], ntReq=[], ntRefs=[];
+let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[];
 function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?IC.image:IC.doc; }
 function renderNtRefs(){
   const el=document.getElementById('ntRefs'); if(!el) return;
@@ -3093,7 +3099,8 @@ async function openNewTask(){
   document.getElementById("ntReviewer").innerHTML = `<option value="">Revisor padrão (Claude)</option>`+
     revFirst.map(a=>`<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("");
   setNtMode(ntMode);
-  renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq);
+  renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq);
+  { const b=document.getElementById("ntFixReqAdd"); if(b) b.onclick=()=>{ ntFixReq.push(""); renderNtList("ntFixReqs", ntFixReq); }; }
   document.getElementById("ntOverlay").style.display = "flex";
   (ntMode==='review'?document.getElementById("ntPr"):document.getElementById("ntTitle")).focus();
 }
@@ -3105,8 +3112,14 @@ async function openLinkedFix(t){
   ntLinkedTo=t.id;
   document.getElementById('ntFixTitle').value='Corrigir: '+t.title;
   document.getElementById('ntFixObj').value='Correção LINKADA à tarefa "'+t.title+'" (id '+t.id+', branch '+t.branch+'). Ela foi entregue mas algo não está funcionando em produção.\n\nO que está acontecendo: ';
+  ntFixReq=[
+    'O problema relatado não acontece mais (reproduzir o cenário original e validar)',
+    'Prova real na UI/ambiente (print) + teste cobrindo a regressão',
+  ];
+  renderNtList('ntFixReqs', ntFixReq);
+  ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; });
   renderNtLink();
-  const o=document.getElementById('ntFixObj'); o.focus(); o.setSelectionRange(o.value.length,o.value.length);
+  const o=document.getElementById('ntFixObj'); o.focus(); o.setSelectionRange(o.value.length,o.value.length); o.scrollTop=o.scrollHeight;
 }
 function renderNtLink(){
   const el=document.getElementById('ntLinkChip'); if(!el) return;
@@ -3129,7 +3142,7 @@ function setNtMode(m){
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -3345,7 +3358,7 @@ async function submitNewTask(start=true){
     if(!ft){ document.getElementById("ntFixTitle").focus(); return; }
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
-    const payload={ start:true, title:ft, workflow:null, agents:null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:[], doc:null, proof:false, planApproval:'auto', refs:[], branchType:'fix', issue:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:ft, workflow:null, agents:null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:[], branchType:'fix', issue:null, linkedTo: ntLinkedTo };
     try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
