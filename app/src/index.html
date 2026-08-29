@@ -1071,6 +1071,8 @@
         <textarea class="in ta" id="ntDzObj" rows="6" style="min-height:120px" placeholder="ex.: o gestor precisa ver as entregas do time por membro; hoje isso não existe. Fluxo: abre o app → aba Time → vê os números e clica pra detalhar…"></textarea>
         <label style="margin-top:12px">Telas / estados a cobrir <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntDzScreens" placeholder="ex.: lista, detalhe, estado vazio, carregando, erro">
+        <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· mostre EXATAMENTE de que tela/lugar você fala</span><span style="flex:1"></span><button class="btn sm" id="ntDzRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
+        <div id="ntDzRefs" class="reflist"></div>
         <label style="margin-top:12px">Quem desenha</label>
         <select class="sel" id="ntDzAgent" style="width:100%"></select>
         <div class="seclbl2" style="margin-top:14px">Entregáveis do design</div>
@@ -1085,6 +1087,8 @@
         <textarea class="in ta" id="ntFixObj" rows="6" style="min-height:120px" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
         <label style="margin-top:12px">Arquivos/escopo <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntFixOwns" placeholder="src/telemetry/cost.ts">
+        <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· print do bug, log, tela onde acontece</span><span style="flex:1"></span><button class="btn sm" id="ntFixRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
+        <div id="ntFixRefs" class="reflist"></div>
         <label style="margin-top:12px">Quem corrige</label>
         <select class="sel" id="ntFixTeam" style="width:100%"></select>
         <div class="seclbl2" style="margin-top:14px">Critérios de aceite <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o agente é COBRADO por cada um (com prova)</span><span style="flex:1"></span><button class="btn sm" id="ntFixReqAdd">+ item</button></div>
@@ -3137,14 +3141,19 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
   lastSig = snapSig();   // marca o estado já renderizado (evita render duplicado no próximo tick)
 });
 
-let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[];
+let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[], ntDzRefs=[], ntFixRefs=[];
 function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?IC.image:IC.doc; }
-function renderNtRefs(){
-  const el=document.getElementById('ntRefs'); if(!el) return;
-  el.innerHTML = ntRefs.length ? ntRefs.map((p,i)=>{ const name=(p||'').split('/').pop(); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">×</button></div>`; }).join('') : '<div class="dim" style="font-size:12px;padding:2px">nenhum — anexe specs, PDFs ou um print do bug</div>';
-  el.querySelectorAll('.refrm').forEach(b=>b.onclick=()=>{ ntRefs.splice(+b.dataset.r,1); renderNtRefs(); });
+// lista de anexos genérica: prints/PDFs/docs em qualquer modo da Nova tarefa
+function renderRefsInto(elId, arr, emptyMsg){
+  const el=document.getElementById(elId); if(!el) return;
+  el.innerHTML = arr.length ? arr.map((p,i)=>{ const name=(p||'').split('/').pop(); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">×</button></div>`; }).join('') : `<div class="dim" style="font-size:12px;padding:2px">${emptyMsg}</div>`;
+  el.querySelectorAll('.refrm').forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.r,1); renderRefsInto(elId, arr, emptyMsg); });
 }
-async function pickRefs(){ try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){ ntRefs.push(...paths); renderNtRefs(); } }catch(e){ console.error('pick_ref_files',e); } }
+function renderNtRefs(){ renderRefsInto('ntRefs', ntRefs, 'nenhum — anexe specs, PDFs ou um print do bug'); }
+function renderDzRefs(){ renderRefsInto('ntDzRefs', ntDzRefs, 'nenhum — anexe prints da tela atual, rascunhos, referências visuais'); }
+function renderFixRefs(){ renderRefsInto('ntFixRefs', ntFixRefs, 'nenhum — anexe o print do bug pra mostrar exatamente onde acontece'); }
+async function pickRefsInto(arr, render){ try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){ arr.push(...paths); render(); } }catch(e){ console.error('pick_ref_files',e); } }
+async function pickRefs(){ await pickRefsInto(ntRefs, renderNtRefs); }
 function renderNtList(id, arr){
   const el=document.getElementById(id);
   el.innerHTML = arr.length ? arr.map((v,i)=>`<div class="listrow"><input class="in" data-li="${i}" value="${escA(v)}" placeholder="descreva…"><button class="iconbtn" data-lrm="${i}" title="remover">${IC.trash}</button></div>`).join("") : '<div class="dim">nenhum item — clique "+ item"</div>';
@@ -3181,7 +3190,7 @@ async function openNewTask(){
     dzFirst.map(a=>`<option value="${esc(a.id)}"${dzDefault&&a.id===dzDefault.id?' selected':''}>${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("")
     + `<option value=""${dzDefault?'':' selected'}>Designer padrão (Claude)</option>`;
   setNtMode(ntMode);
-  renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq);
+  renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   { const b=document.getElementById("ntFixReqAdd"); if(b) b.onclick=()=>{ ntFixReq.push(""); renderNtList("ntFixReqs", ntFixReq); }; }
   document.getElementById("ntOverlay").style.display = "flex";
   (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):document.getElementById("ntTitle")).focus();
@@ -3239,7 +3248,7 @@ function setNtMode(m){
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':m==='design'?' gerar design':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; renderDzRefs(); renderFixRefs(); renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -3456,7 +3465,7 @@ async function submitNewTask(start=true){
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
     const team=document.getElementById('ntFixTeam').value;
-    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:[], branchType:'fix', issue:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, linkedTo: ntLinkedTo };
     try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -3473,6 +3482,7 @@ async function submitNewTask(start=true){
     const objective =
       `TAREFA DE DESIGN — projete ANTES de existir código. PROIBIDO implementar ou alterar arquivos do produto; você só escreve em .cardume/artifacts/.\n\n`+
       `${what||dt}\n\n`+(screens?`Telas/estados a cobrir: ${screens}\n\n`:'')+
+      (ntDzRefs.length?`ANEXOS em .cardume/refs/ (${ntDzRefs.map(p=>p.split('/').pop()).join(', ')}): são os prints/referências de ONDE e DO QUE se trata — ABRA e analise cada um ANTES de desenhar; o mockup deve conversar com o que aparece neles.\n\n`:'')+
       `Explore o codebase pra entender a identidade visual do produto (cores, tipografia, espaçamento, componentes) e siga-a. Entregue em .cardume/artifacts/:\n`+
       (mock?`${++n}) mockup.html — mockup NAVEGÁVEL num arquivo só (HTML+CSS+JS inline, SEM libs externas): todas as telas/estados pedidos com navegação clicável entre elas, dados de exemplo realistas do domínio.\n`:'')+
       (docCk?`${++n}) DESIGN.md — as decisões de UX/UI: fluxo, hierarquia, estados (vazio/carregando/erro), acessibilidade, e o PORQUÊ de cada escolha. Termine com "Perguntas em aberto" se houver.\n`:'');
@@ -3481,7 +3491,7 @@ async function submitNewTask(start=true){
       ...(docCk?['DESIGN.md com fluxo, hierarquia e estados (vazio/carregando/erro) e o porquê das decisões']:[]),
     ];
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
-    const payload={ start:true, title:dt, workflow:null, agents:document.getElementById('ntDzAgent').value||null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:[], branchType:'design', issue:null, base:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:dt, workflow:null, agents:document.getElementById('ntDzAgent').value||null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, base:null, linkedTo: ntLinkedTo };
     try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao criar o design:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -3625,6 +3635,8 @@ document.addEventListener("click", e=>{ if(!e.target.closest(".projsw")) closePr
 document.getElementById("emAbrir").onclick = pickFolder;
 document.getElementById("ntImport").onclick = importTaskMd;
 document.getElementById("ntRefAdd").onclick = pickRefs;
+document.getElementById("ntDzRefAdd").onclick = ()=>pickRefsInto(ntDzRefs, renderDzRefs);
+document.getElementById("ntFixRefAdd").onclick = ()=>pickRefsInto(ntFixRefs, renderFixRefs);
 document.getElementById("ntDelAdd").onclick = ()=>{ ntDel.push(""); renderNtList("ntDeliverables",ntDel); };
 document.getElementById("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
 document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });
