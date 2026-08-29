@@ -110,6 +110,8 @@
   .cact{display:flex;gap:7px;align-items:baseline;padding:0 2px;opacity:.6;font-size:11px}
   .cact .cg{flex:none;width:12px;text-align:center}
   .cact .ct{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chatstop{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
+  .chatstop:hover{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}
   .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border)}
   .chatinput textarea{flex:1;resize:none;min-height:42px;line-height:1.45}
   /* modal de resposta ao agente */
@@ -2054,6 +2056,10 @@ async function talkTask(taskId, message){
   try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao conversar:\n"+e); }
 }
+async function stopTask(taskId){
+  try{ await invoke("stop_task",{ taskId }); lastSig=""; await refresh(); }
+  catch(e){ alert("Falha ao parar:\n"+e); }
+}
 // ---------- chat com o agente (conversa contínua) ----------
 let chatTask=null;
 function chatIsOpen(){ const o=document.getElementById('chatOverlay'); return o && o.style.display!=='none'; }
@@ -2064,7 +2070,13 @@ function renderChat(){
   const av=document.getElementById('chatAv'); av.style.background=agentColor(t.agent); av.textContent=(t.agent||'?').slice(0,2).toUpperCase();
   document.getElementById('chatWho').textContent=t.agent;
   const working=ACTIVE_ST.has(t.status)||t.status==='thinking';
-  document.getElementById('chatSub').textContent=working?'trabalhando…':(t.status==='review'?'pronto — mande um ajuste':esc(t.status));
+  const sub=document.getElementById('chatSub'); sub.textContent=working?'trabalhando…':(t.status==='review'?'pronto — mande um ajuste':esc(t.status));
+  // botão parar no header enquanto o agente trabalha (pra você intervir)
+  { let stopBtn=document.getElementById('chatStop');
+    if(working && !stopBtn){ stopBtn=document.createElement('button'); stopBtn.id='chatStop'; stopBtn.className='btn sm chatstop'; stopBtn.innerHTML=IC.pause+' parar'; document.querySelector('#chatOverlay .mhead').insertBefore(stopBtn, document.getElementById('chatClose')); }
+    if(stopBtn){ stopBtn.style.display=working?'':'none'; stopBtn.onclick=()=>stopTask(t.id); }
+  }
+  const sendBtn=document.getElementById('chatSend'); if(sendBtn) sendBtn.textContent=working?'parar e enviar':'enviar';
   // preserva o que está sendo digitado entre re-renders do poll
   const inEl=document.getElementById('chatInput'), keep=document.activeElement===inEl, iv=inEl?inEl.value:null, ic=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
   const evs=eventsOf(t.id);
@@ -2082,6 +2094,8 @@ function renderChat(){
 async function chatSend(){
   const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t) return;
   const inp=document.getElementById('chatInput'); const v=inp.value.trim(); if(!v) return;
+  // se o agente estiver trabalhando, PARA o turno atual antes de mandar o novo
+  if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){} }
   inp.value=''; inp.disabled=true;
   try{ await talkTask(t.id, v); } finally{ inp.disabled=false; renderChat(); const i=document.getElementById('chatInput'); if(i) i.focus(); }
 }

@@ -1519,6 +1519,32 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     }
 }
 
+/// PARA o turno atual do agente (ex.: no chat, pra intervir) sem "abortar" a
+/// tarefa: mata o processo em execução e volta o status pra 'review', deixando a
+/// worktree e os registros como estão — aí o humano manda uma nova mensagem.
+#[tauri::command]
+fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
+    if let Some(p) = pid {
+        signal_group(p, libc::SIGCONT);
+        signal_group(p, libc::SIGTERM);
+        let procs = state.procs.clone();
+        let tid = task_id.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            signal_group(p, libc::SIGKILL);
+            if let Ok(mut m) = procs.lock() {
+                if m.get(&tid) == Some(&p) {
+                    m.remove(&tid);
+                }
+            }
+        });
+    }
+    // volta pra review (não 'aborted') pra poder continuar conversando
+    set_task_status(&state, &task_id, "review")?;
+    Ok(())
+}
+
 /// Aborta a tarefa: mata a árvore de processos (SIGCONT p/ destravar + SIGTERM,
 /// e SIGKILL após um respiro), marca 'aborted' e libera os claims de arquivo
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
@@ -2133,6 +2159,7 @@ pub fn run() {
             pause_task,
             resume_task,
             abort_task,
+            stop_task,
             reorder_tasks,
             ai_chat,
             open_url,
