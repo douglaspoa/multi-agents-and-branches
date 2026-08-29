@@ -1306,6 +1306,7 @@ async function refresh(){
   document.getElementById("connectBtn").style.display = hasRepo?"none":"";
   if(!selected && state.tasks[0]) selected = state.tasks[0].id;
   document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
+  if(!window.__buildShown){ window.__buildShown=1; invoke("build_info").then(ms=>{ const d=new Date(Number(ms)||0); if(+d){ const el=document.getElementById("clock"); el.textContent+=" · build "+String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); } }).catch(()=>{}); }
   renderProjName();
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
@@ -1851,7 +1852,8 @@ async function fwSendMsg(){
   const t=fwTaskObj(); if(!t) return;
   const inp=document.getElementById('fwInput'); const v=inp.value.trim(); if(!v) return;
   const sel=fwSelRange();
-  const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : (fwPath?`Sobre ${fwPath}: `:'');
+  // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
+  const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';
   const asReq=!!(document.getElementById('fwAsReq')&&document.getElementById('fwAsReq').checked);
   const full = ctx+v;
   inp.value=''; inp.disabled=true;

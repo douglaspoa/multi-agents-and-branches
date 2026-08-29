@@ -1501,6 +1501,19 @@ fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) 
     Ok(())
 }
 
+/// Momento do build (mtime do executável) — carimbo no rodapé pra saber qual
+/// versão está rodando (evita depurar tela de build antiga).
+#[tauri::command]
+fn build_info() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis().to_string())
+        .unwrap_or_default()
+}
+
 // ---------- rascunho do Planner (persistência no banco) ----------
 /// Salva/atualiza o rascunho do Planner (1 linha). Chamado a cada rodada da
 /// conversa, pra sobreviver a fechar/crashar o app.
@@ -2228,6 +2241,7 @@ pub fn run() {
             remove_project,
             snapshot,
             task_events,
+            build_info,
             graph,
             resolve_pending,
             add_instruction,
