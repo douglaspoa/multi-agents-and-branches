@@ -218,6 +218,53 @@ export class Orchestrator {
     this.store.setStatus(taskId, "review");
     const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
     if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
+    await this.maybeOpenPr(taskId, task, spec);
+  }
+
+  /**
+   * PR ao concluir, conforme escolhido na criação (spec.autoPr):
+   * - "auto": abre o PR sozinho — mas SÓ se não houver requisito pendente
+   *   (requirements.json sem "blocked"); com pendência, avisa e NÃO abre.
+   * - "ask" (padrão): notifica perguntando se quer abrir (a aba PR fica pronta).
+   * - "no": não faz nada.
+   */
+  private async maybeOpenPr(taskId: string, task: TaskRow, spec: TaskSpec): Promise<void> {
+    const mode = spec.autoPr ?? "ask";
+    if (mode === "no") return;
+    if (mode === "ask") {
+      notify("Constellation", "Pronta — quer abrir o PR? (aba PR da tarefa)", task.title);
+      return;
+    }
+    // mode === "auto": checa pendências antes de abrir
+    try {
+      const raw = await readFile(join(task.worktree, ".cardume", "artifacts", "requirements.json"), "utf8");
+      const rj = JSON.parse(raw);
+      const blocked = Array.isArray(rj) ? rj.filter((r: { status?: string }) => r && r.status !== "done") : [];
+      if (blocked.length) {
+        this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto: ${blocked.length} requisito(s) pendente(s) — resolva ou abra manualmente`, false);
+        notify("Constellation", "PR não aberto — requisitos pendentes", task.title);
+        return;
+      }
+    } catch {
+      if ((spec.requirements ?? []).length) {
+        this.store.addEvent(taskId, spec.agent, "note", "PR NÃO aberto: sem requirements.json comprovando os requisitos — abra manualmente após conferir", false);
+        return;
+      }
+    }
+    const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
+    try {
+      await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch]);
+      const body =
+        `## O quê\n${spec.objective || spec.title}\n\n` +
+        ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
+        `_Aberto automaticamente pelo Constellation (sem pendências nos requisitos)._`;
+      const { stdout } = await run("gh", ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree });
+      const url = stdout.trim().split("\n").pop() ?? "";
+      this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
+      notify("Constellation", "PR aberto ✓", task.title);
+    } catch (err) {
+      this.store.addEvent(taskId, spec.agent, "note", `falha ao abrir o PR automaticamente: ${(err as Error).message?.slice(0, 140)}`, false);
+    }
   }
 
   /**
@@ -491,11 +538,18 @@ export class Orchestrator {
    * corrige/entrega o que faltou. Leve (um agente, um turno) — diferente do
    * rework, que re-roda o time inteiro. Coleta artefatos ao fim.
    */
-  async talkToAgent(taskId: string, message: string): Promise<void> {
+  async talkToAgent(taskId: string, message: string, asReq = false): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida");
     const spec = JSON.parse(task.spec_json) as TaskSpec;
+    // pedido novo vira REQUISITO da tarefa (checklist cresce e cobra evidência)
+    if (asReq && message.trim()) {
+      spec.requirements = [...(spec.requirements ?? []), message.trim()];
+      this.store.updateSpec(taskId, JSON.stringify(spec));
+      try { await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8"); } catch { /* worktree pode não existir */ }
+      this.store.addEvent(taskId, "Você", "note", `requisito adicionado: ${message.trim().slice(0, 100)}`, true);
+    }
     const roles = spec.roles || [];
     const role =
       roles.find((r) => r.engine === "claude") ||

@@ -233,6 +233,7 @@ struct Task {
     kind: String,
     pr_url: Option<String>,
     flag: Option<String>,
+    auto_pr: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -958,6 +959,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 kind: spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
                 pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 flag: r.get::<_, Option<String>>(15).unwrap_or(None),
+                auto_pr: spec.get("autoPr").and_then(|v| v.as_str()).map(|s| s.to_string()),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -1182,7 +1184,7 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
 /// Conversa com o agente numa tarefa pronta: retoma a sessão (--resume) por um
 /// turno pra corrigir/entregar o que faltou (ex.: "teste na UI real e me dê os prints").
 #[tauri::command]
-fn talk_task(state: State<AppState>, task_id: String, message: String) -> Result<(), String> {
+fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: Option<bool>) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let m = message.trim().to_string();
     if m.is_empty() {
@@ -1198,8 +1200,11 @@ fn talk_task(state: State<AppState>, task_id: String, message: String) -> Result
         &m,
         "--repo",
         &repo.display().to_string(),
-    ])
-    .current_dir(&repo);
+    ]);
+    if as_req.unwrap_or(false) {
+        cmd.arg("--as-req");
+    }
+    cmd.current_dir(&repo);
     spawn_tracked(&state, &task_id, cmd)?;
     Ok(())
 }
@@ -1312,6 +1317,9 @@ fn new_task(
     branch_type: Option<String>,
     issue: Option<String>,
     base: Option<String>,
+    tests: Option<bool>,
+    auto_pr: Option<String>,
+    pr_base: Option<String>,
 ) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
@@ -1375,6 +1383,11 @@ fn new_task(
     push_opt(&mut args, "--branch-type", &branch_type);
     push_opt(&mut args, "--issue", &issue);
     push_opt(&mut args, "--base", &base);
+    if tests.unwrap_or(false) {
+        args.push("--artifact-tests".to_string());
+    }
+    push_opt(&mut args, "--auto-pr", &auto_pr);
+    push_opt(&mut args, "--pr-base", &pr_base);
 
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);
@@ -1598,7 +1611,7 @@ struct AiChat {
 #[tauri::command(async)]
 fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, UMA pergunta por vez, fechando só o que ainda falta. Responda SEMPRE E SOMENTE com um bloco de código ```json contendo exatamente as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. Nada de texto fora do bloco json.";
+    let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, UMA pergunta por vez, fechando só o que ainda falta. Responda SEMPRE E SOMENTE com um bloco de código ```json contendo exatamente as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. Nada de texto fora do bloco json.";
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),

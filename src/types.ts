@@ -64,7 +64,7 @@ export interface TaskAutonomy {
 /** O "briefing" declarativo de uma tarefa — vira o .cardume/TASK.yaml na worktree. */
 /** Artefato pedido na criação da tarefa (doc de arquitetura, prova, etc.). */
 export interface ArtifactReq {
-  kind: "doc" | "proof";
+  kind: "doc" | "proof" | "tests";
   name: string;
   desc?: string;
 }
@@ -91,6 +91,10 @@ export interface TaskSpec {
   prNumber?: number;
   /** Branch base da worktree. Se vazio, usa a default do repo (main). */
   base?: string;
+  /** PR ao concluir: "no" (não abre), "ask" (avisa e pergunta — padrão), "auto" (abre sozinho se não houver pendências). */
+  autoPr?: "no" | "ask" | "auto";
+  /** Base do PR (padrão: main/default do repo). */
+  prBase?: string;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

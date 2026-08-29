@@ -751,6 +751,29 @@
   .plfv{width:100%;font-size:12px}
   .plfv.auto{color:var(--muted);padding:2px 0}
   textarea.plfv{resize:vertical;line-height:1.5}
+  .plarts{display:flex;gap:6px;flex-wrap:wrap}
+  .plart{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--muted);font:inherit;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:99px;cursor:pointer}
+  .plart.on{background:color-mix(in srgb,var(--accent) 16%,transparent);border-color:var(--accent);color:var(--accent)}
+  /* requisitos com prova linkada */
+  .critrow2{display:flex;gap:9px;align-items:flex-start;font-size:12px;padding:7px 9px;border:1px solid var(--border);background:var(--surface-2);border-radius:8px;margin-bottom:5px;line-height:1.5}
+  .critrow2.ok{border-color:color-mix(in srgb,var(--good) 28%,var(--border))}
+  .critrow2.blk{border-color:color-mix(in srgb,var(--crit) 35%,var(--border))}
+  .reqst{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;flex:none;font-size:10px;font-weight:700;margin-top:1px;border:1px solid var(--border);color:var(--muted)}
+  .reqst.ok{background:var(--good);border-color:var(--good);color:var(--on-accent)}
+  .reqst.ok svg{width:11px;height:11px}
+  .reqst.blk{background:color-mix(in srgb,var(--crit) 20%,transparent);border-color:var(--crit);color:var(--crit)}
+  .reqev{display:inline-flex;gap:4px;flex-wrap:wrap;margin-left:6px;vertical-align:middle}
+  .reqevb{border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));background:color-mix(in srgb,var(--accent) 8%,transparent);color:var(--accent);font-size:9.5px;padding:1px 6px;border-radius:5px;cursor:pointer}
+  .reqevb:hover{border-color:var(--accent)}
+  .reqnote{color:var(--crit);font-size:11px;margin-top:3px}
+  .crt{min-width:0;flex:1}
+  /* chat do workspace */
+  .fwreqs{margin:0 13px 6px;max-height:170px;overflow:auto}
+  .fwreqs:empty{display:none}
+  .fwreqh{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-family:var(--mono);margin:2px 0 6px;display:flex;justify-content:space-between}
+  .fwreqs .critrow2{background:var(--surface);padding:5px 8px;font-size:11.5px;margin-bottom:4px}
+  .fwreqtoggle{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);margin-top:7px;cursor:pointer}
+  .fwreqtoggle input{accent-color:var(--accent)}
   .plmeshfoot{margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
   .plmeshfoot .btn{width:100%}
   /* pull request */
@@ -993,7 +1016,13 @@
 
       <div class="seclbl2" style="margin-top:15px">Artefatos a produzir</div>
       <label class="ckrow"><input type="checkbox" id="ntArtDoc"><span><b>Documento de arquitetura</b> <span class="dim">— o agente escreve um .md que você abre no app</span></span></label>
-      <label class="ckrow"><input type="checkbox" id="ntArtProof"><span><b>Prova da solução</b> <span class="dim">— screenshot ou evidência (testes, antes/depois)</span></span></label>
+      <label class="ckrow"><input type="checkbox" id="ntArtProof"><span><b>Prova da solução (prints)</b> <span class="dim">— screenshots reais da UI/ambiente</span></span></label>
+      <label class="ckrow"><input type="checkbox" id="ntArtTests"><span><b>Testes comprovando</b> <span class="dim">— roda a suíte real e anexa a saída</span></span></label>
+
+      <div class="two" style="margin-top:15px">
+        <div><label>Pull request ao concluir</label><select class="sel" id="ntAutoPr" style="width:100%"><option value="ask" selected>Perguntar quando pronta</option><option value="auto">Abrir sozinho (se sem pendências)</option><option value="no">Não abrir</option></select></div>
+        <div><label>Base do PR</label><input class="in mono" id="ntPrBase" placeholder="main (padrão)"></div>
+      </div>
 
       <div class="seclbl2" style="margin-top:15px">Documentos de referência <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· PDF, .md, imagem (print de bug)</span><span style="flex:1"></span><button class="btn sm" id="ntRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
       <div id="ntRefs" class="reflist"></div>
@@ -1510,7 +1539,15 @@ function fwNowHtml(t){
 }
 function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
-  const now=document.getElementById('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo — o time reprocessa'; } }; }
+  const now=document.getElementById('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
+  // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
+  const th=document.getElementById('fwThread');
+  if(th){ const atBottom=th.scrollHeight-th.scrollTop-th.clientHeight<80; th.innerHTML=fwThreadHtml(t); if(atBottom) th.scrollTop=th.scrollHeight; }
+  const rq=document.getElementById('fwReqs'); if(rq) rq.innerHTML=fwReqsHtml(t);
+  const sub=document.getElementById('fwChatSub');
+  const asking=pendingOf(t.id); const working=(ACTIVE_ST.has(t.status)||t.status==='thinking')&&!asking.length;
+  if(sub) sub.textContent=asking.length?'esperando sua resposta':working?'trabalhando…':'mesma sessão — ele lembra o que fez';
+  const send=document.getElementById('fwSend'); if(send) send.textContent=asking.length?'responder':working?'parar e enviar':'enviar';
 }
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
@@ -1570,38 +1607,80 @@ function renderWorkspace(){
     }
     const eb=document.getElementById('fwEditBtn'); if(eb) eb.onclick=()=>{ fwEditing=true; renderWorkspace(); };
   }
-  // ---- coluna 3: chat com o agente ----
+  // ---- coluna 3: chat com o agente (estilo Cursor: requisitos + conversa real) ----
   const chat=document.getElementById('fwChatCol');
   const nowBox = `<div class="fwnow${ACTIVE_ST.has(t.status)?'':' done'}" id="fwNow">${fwNowHtml(t)}</div>`;
-  const msgs=(fwChat[t.id]||[]);
-  const thread = msgs.length?msgs.map(m=>`<div class="fwmsg ${m.who}">${m.who==='you'?'':'<span class="fwav sm" style="background:'+agentColor(t.agent)+'">'+esc((t.agent||'?').slice(0,2).toUpperCase())+'</span>'}<div class="fwbub">${esc(m.text)}</div></div>`).join(''):'<div class="dim" style="font-size:11.5px;padding:8px 2px">Selecione linhas e pergunte — vira uma instrução pro agente na mesma sessão.</div>';
+  const askingW=pendingOf(t.id);
+  const workingW=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !askingW.length;
   const sel2=fwSelRange();
   chat.innerHTML=`
-    <div class="fwchath"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">Perguntar ao ${esc(t.agent)}</div><div class="fwchatd">quem escreveu este arquivo · mesma sessão</div></div></div>
+    <div class="fwchath"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
     ${nowBox}
-    <div class="fwthread" id="fwThread">${thread}</div>
-    <div class="fwinput">${sel2?`<div class="fwselchip">↳ ${esc(fwPath.split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}<div class="fwinrow"><textarea class="in fwta" id="fwInput" rows="2" placeholder="ex.: renomeia essa variável / trata o nulo / explica esse trecho"></textarea><button class="btn primary sm" id="fwSend">enviar</button></div></div>`;
-  { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo — o time reprocessa'; } }; }
+    <div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div>
+    <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
+    <div class="fwinput">${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
+      <div class="fwinrow"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… (Enter envia)'}"></textarea><button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
+      <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
+  { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
+  { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=fwSendMsg; }
-  { const i=document.getElementById('fwInput'); if(i){ i.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) fwSendMsg(); }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
+  { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ try{ const ps=await invoke('pick_ref_files'); if(ps&&ps.length){ const i=document.getElementById('fwInput'); i.value=(i.value?i.value+'\n':'')+ps.map(p=>'Anexo: '+p).join('\n'); i.focus(); } }catch(_){} }; }
+  chat.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
+  { const i=document.getElementById('fwInput'); if(i){ i.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); fwSendMsg(); } }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
   const th=document.getElementById('fwThread'); if(th) th.scrollTop=th.scrollHeight;
+}
+// thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
+function fwThreadHtml(t){
+  const evs=eventsOf(t.id);
+  const asking=pendingOf(t.id);
+  const working=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !asking.length;
+  return evs.map(e=>{
+    if(e.agent==='Você' && (e.text||'').startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^💬\s*/,''))}</div></div>`;
+    if((e.text||'').startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^humano respondeu:\s*/,''))}</div></div>`;
+    if(['think','note','done'].includes(e.type) && (e.text||'').trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${esc(e.text)}</div></div>`;
+    if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(e.text)}</div></div>`;
+    return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(e.text||'')}</span></div>`;
+  }).join('')
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub asknow">${esc(asking[0].prompt||'aguardando sua resposta')}<div class="asknote">↳ responda abaixo — o turno continua</div></div></div>`:'')
+  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
+}
+// requisitos com status ao vivo (o "no que ele está trabalhando")
+function fwReqsHtml(t){
+  const reqs=Array.isArray(t.requirements)?t.requirements:[]; if(!reqs.length) return '';
+  const c=reqProofCache[t.id];
+  if(c===undefined){ loadReqProofs(t.id).then(()=>{ const el=document.getElementById('fwReqs'); if(el&&fwTask===t.id) el.innerHTML=fwReqsHtml(t); }); }
+  const map={}; if(c&&Array.isArray(c.list)) for(const r of c.list){ map[String(r.req||'').trim().toLowerCase()]=r; }
+  const rows=reqs.map(r=>{ const m=map[String(r||'').trim().toLowerCase()]; const st=m?(m.status==='done'?'ok':'blk'):'na';
+    const icon= st==='ok'?`<span class="reqst ok">${IC.check}</span>`:st==='blk'?'<span class="reqst blk">!</span>':'<span class="reqst na">·</span>';
+    const ev=(m&&Array.isArray(m.evidence)&&m.evidence.length)?`<span class="reqev">${m.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</span>`:'';
+    return `<div class="critrow2 ${st}">${icon}<div class="crt"><div>${esc(r)} ${ev}</div></div></div>`; }).join('');
+  return `<div class="fwreqh">Requisitos <span class="dim">${(c&&Array.isArray(c.list))?c.list.filter(x=>x.status==='done').length+'/'+reqs.length:reqs.length}</span></div>${rows}`;
 }
 async function fwSendMsg(){
   const t=fwTaskObj(); if(!t) return;
   const inp=document.getElementById('fwInput'); const v=inp.value.trim(); if(!v) return;
   const sel=fwSelRange();
-  const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : `Sobre ${fwPath}: `;
+  const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : (fwPath?`Sobre ${fwPath}: `:'');
+  const asReq=!!(document.getElementById('fwAsReq')&&document.getElementById('fwAsReq').checked);
   const full = ctx+v;
-  (fwChat[t.id]||(fwChat[t.id]=[])).push({who:'you', text:v+(sel?`  (${fwPath.split('/').pop()}:${sel.a}${sel.b>sel.a?'–'+sel.b:''})`:'')});
   inp.value=''; inp.disabled=true;
   try{
-    if(ACTIVE_ST.has(t.status)) await invoke('add_instruction',{ taskId:t.id, text:full });
-    else await invoke('talk_task',{ taskId:t.id, message:full });
-    fwChat[t.id].push({who:'sys', text:`→ enviado ao ${t.agent} (mesma sessão). Acompanhe em "O que estou fazendo agora".`});
+    const pend=pendingOf(t.id);
+    if(pend.length){
+      // pergunta aberta → responder CONTINUA o mesmo turno
+      await resolvePending(pend[0].id, full);
+    } else if(ACTIVE_ST.has(t.status)||t.status==='thinking'){
+      // trabalhando → para o turno atual e manda o novo pedido
+      try{ await stopTask(t.id); }catch(_){ }
+      await invoke('talk_task',{ taskId:t.id, message:full, asReq });
+    } else {
+      await invoke('talk_task',{ taskId:t.id, message:full, asReq });
+    }
+    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined;
     lastSig=''; await refresh();
-  }catch(e){ fwChat[t.id].push({who:'sys', text:'falha ao enviar: '+String(e)}); }
-  finally{ inp.disabled=false; renderWorkspace(); }
+  }catch(e){ alert('Falha ao enviar:\n'+e); }
+  finally{ inp.disabled=false; renderWorkspace(); const i=document.getElementById('fwInput'); if(i) i.focus(); }
 }
 document.getElementById('fwClose').onclick=closeWorkspace;
 document.getElementById('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
@@ -1617,9 +1696,17 @@ async function loadPr(taskId, force){
   try{ prCache[taskId]=await invoke("pr_status",{ taskId }); }catch(e){ prCache[taskId]={exists:false,error:String(e)}; }
   return prCache[taskId];
 }
-function prBlock(t){
-  if(t.kind==='review') return ''; // review de PR não tem branch pra abrir PR
-  if(!(t.status==='review'||t.status==='error')) return '';
+function prBlock(t, full){
+  if(t.kind==='review'){
+    // tarefa do tipo "revisar PR": a aba PR mostra o PR revisado
+    return full && t.prUrl ? `<div class="seclbl">Pull Request revisado</div><div class="prreview"><span class="prnum">${esc(t.branch)}</span><button class="btn sm" id="revPrOpen">${IC.extlink} abrir PR</button></div>` : '';
+  }
+  if(!full && !(t.status==='review'||t.status==='error')) return '';
+  if(full && !(t.status==='review'||t.status==='error'||t.status==='merged'||t.status==='conflict')){
+    const mode=t.autoPr||'ask';
+    const modeTx = mode==='auto'?'vai <b>abrir o PR sozinho</b> ao concluir — só se não houver requisito pendente':mode==='no'?'<b>não</b> vai abrir PR automaticamente':'vai <b>te perguntar</b> quando ficar pronta';
+    return `<div class="seclbl">Pull Request</div><div class="prbox"><div class="ihint">A tarefa ainda está em andamento — ${modeTx}. Quando concluir, você abre e acompanha o PR aqui: status, CI, comentários (CodeRabbit e humanos) e o botão de mandar o agente corrigir.</div></div>`;
+  }
   const info=prCache[t.id];
   if(info===undefined){ loadBranches(); loadPr(t.id).then(()=>{ if(selected===t.id) renderSide(); }); return '<div class="seclbl">Pull Request</div><div class="dim" style="font-size:12px;padding:2px">verificando no GitHub…</div>'; }
   if(info===null){ return '<div class="seclbl">Pull Request</div><div class="dim" style="font-size:12px;padding:2px">verificando no GitHub…</div>'; }
@@ -1915,9 +2002,32 @@ const artifactsCache = {}; // taskId -> { status, list }
 async function loadArtifacts(taskId, status){
   const c = artifactsCache[taskId];
   if(c && c.status===status) return c.list;
+  reqProofCache[taskId]=undefined; // status mudou → reavalia as provas
   try{ artifactsCache[taskId] = { status, list: await invoke("list_artifacts",{ taskId }) }; }
   catch(e){ artifactsCache[taskId] = { status, list: [] }; }
   return artifactsCache[taskId].list;
+}
+// ---------- provas por requisito (requirements.json gerado pelo agente) ----------
+const reqProofCache={}; // taskId -> {list:[...]|null}
+async function loadReqProofs(taskId){
+  try{ const c=await invoke('read_artifact',{ taskId, name:'requirements.json' }); const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
+  catch(_){ reqProofCache[taskId]={list:null}; }
+}
+function reqsBlock(t){
+  const reqs=Array.isArray(t.requirements)?t.requirements:[]; if(!reqs.length) return '';
+  const c=reqProofCache[t.id];
+  if(c===undefined){ loadReqProofs(t.id).then(()=>{ if(selected===t.id) renderSide(); }); }
+  const map={}; if(c&&Array.isArray(c.list)) for(const r of c.list){ map[String(r.req||'').trim().toLowerCase()]=r; }
+  const rows=reqs.map(r=>{
+    const m=map[String(r||'').trim().toLowerCase()];
+    const st=m?(m.status==='done'?'ok':'blk'):'na';
+    const icon= st==='ok'?`<span class="reqst ok">${IC.check}</span>` : st==='blk'?'<span class="reqst blk">!</span>' : '<span class="reqst na">·</span>';
+    const ev=(m&&Array.isArray(m.evidence)&&m.evidence.length)?`<span class="reqev">${m.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</span>`:'';
+    const note=(m&&m.note&&st==='blk')?`<div class="reqnote">${esc(m.note)}</div>`:'';
+    return `<div class="critrow2 ${st}">${icon}<div class="crt"><div>${esc(r)} ${ev}</div>${note}</div></div>`;
+  }).join('');
+  const hint=(c&&c.list===null)?'<div class="dim" style="font-size:10.5px;margin-top:4px">provas por requisito aparecem aqui quando o agente gera o requirements.json</div>':'';
+  return `<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${rows}${hint}`;
 }
 function artCategory(name){
   const n=name.toLowerCase();
@@ -1933,6 +2043,7 @@ function artItemHtml(x){
   return `<button class="artitem" data-art="${escA(x.name)}"><span class="artic">${x.kind==='image'?IC.image:IC.doc}</span><span class="artnm">${esc(x.name)}${ver}</span><span class="artdate">${artDate(x.created)}</span><span class="artkb">${x.size<1024?x.size+' B':(x.size/1024).toFixed(x.size<10240?1:0)+' KB'}</span></button>`;
 }
 function artListHtml(a){
+  a=(a||[]).filter(x=>x.name!=='requirements.json'); // meta: vira as provas por requisito
   if(!a.length) return '';
   // agrupa por categoria (Docs/Testes/Provas/Outros); dentro, mais recentes primeiro
   const cats=['Provas','Testes','Docs','Outros'];
@@ -2084,7 +2195,7 @@ async function setFlag(taskId, flag){
 }
 async function talkTask(taskId, message){
   const m=(message||'').trim(); if(!m) return;
-  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; lastSig=""; await refresh(); }
+  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao conversar:\n"+e); }
 }
 async function stopTask(taskId){
@@ -2094,7 +2205,7 @@ async function stopTask(taskId){
 // ---------- chat com o agente (conversa contínua) ----------
 let chatTask=null;
 function chatIsOpen(){ const o=document.getElementById('chatOverlay'); return o && o.style.display!=='none'; }
-function openChat(taskId){ chatTask=taskId; document.getElementById('chatOverlay').style.display='flex'; renderChat(); const i=document.getElementById('chatInput'); if(i) i.focus(); }
+function openChat(taskId){ /* chat agora É o workspace estilo Cursor (arquivos + requisitos + conversa) */ openWorkspace(taskId); setTimeout(()=>{ const i=document.getElementById('fwInput'); if(i) i.focus(); },250); }
 function closeChat(){ document.getElementById('chatOverlay').style.display='none'; chatTask=null; }
 function renderChat(){
   const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t){ closeChat(); return; }
@@ -2188,7 +2299,7 @@ document.getElementById('chatInput').addEventListener('input',e=>{
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&chatIsOpen()) closeChat(); });
 async function deliverArtifact(taskId, kind){
   const lbl={doc:'documento de arquitetura',tests:'testes',proof:'prova (prints)',all:'todos os entregáveis'}[kind]||kind;
-  try{ await invoke("deliver_artifact",{ taskId, kind }); artifactsCache[taskId]=undefined; lastSig=""; await refresh(); }
+  try{ await invoke("deliver_artifact",{ taskId, kind }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao pedir "+lbl+":\n"+e); }
 }
 function deliverBlock(t){
@@ -2522,7 +2633,7 @@ function renderSide(){
   // loads de rede/subprocesso (pr_status via gh, task_files, commits, artifacts),
   // então TROCAR de tarefa disparava tudo isso mesmo na aba Etapas → lentidão.
   // Agora só a aba ativa é construída (e só ela dispara seus loads).
-  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Arquivos'],['briefing','Briefing']];
+  const TABS=[['etapas','Etapas'],['stream','Stream'],['diff','Arquivos'],['pr','PR'],['briefing','Briefing']];
   let content;
   if(sideTab==='stream'){
     content = `<div class="log stream">${evs.length?evs.map(e=>`<div class="ln"><span class="ts">${fmtTime(e.ts)}</span><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span>${esc(e.text)}</span></div>`).join(""):'<span class="dim">sem eventos ainda…</span>'}${ACTIVE_ST.has(t.status)?'<div class="ln livecursor"><span class="ts"></span><span style="color:var(--good)">▸</span><span class="blink">▍</span></div>':''}</div>`;
@@ -2532,6 +2643,8 @@ function renderSide(){
     <div class="diff"><b><span style="color:var(--good)">+${d?d.additions:0}</span> <span style="color:var(--crit)">−${d?d.deletions:0}</span></b><span class="bar"><i style="width:${d?(d.additions/tot*100):0}%;background:var(--good)"></i><i style="width:${d?(d.deletions/tot*100):0}%;background:var(--crit)"></i></span></div>
     ${filesBlock(t)}
     ${revHtml}`;
+  } else if(sideTab==='pr'){
+    content = prBlock(t, true);
   } else if(sideTab==='briefing'){
     const claimHtml = claims.length ? claims.map(c=>{const y=c.yieldedTo;return `<div class="claim${y?" y":""}"><span>${esc(c.path)}</span><span class="m">${y?("cedeu → "+esc(y)):esc(c.mode)}</span></div>`;}).join("") : '<div class="dim" style="font-size:11.5px">nenhuma reivindicação</div>';
     const reqs = Array.isArray(t.requirements)?t.requirements:[];
@@ -2539,7 +2652,7 @@ function renderSide(){
     content = `
     <div class="card"><div class="t">${esc(t.title)}</div><div class="o">${esc(t.objective)}</div></div>
     ${reviewPrHtml}
-    ${reqs.length?`<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${reqs.map(r=>`<div class="critrow">✓ ${esc(r)}</div>`).join("")}`:''}
+    ${reqsBlock(t)}
     ${refsBlock(t)}
     ${prBlock(t)}
     ${costBlock(t.id)}
@@ -2718,7 +2831,7 @@ function setNtMode(m){
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -2773,11 +2886,12 @@ const PL_MESH=[
   {k:'requirements',label:'requirements',src:'você',      list:true},
   {k:'owns',    label:'scope.owns',      src:'você',      list:true},
   {k:'off',     label:'scope.off_limits',src:'barramento',list:true},
+  {k:'artifacts',label:'artifacts',      src:'você',      arts:true},
   {k:'autonomy',label:'autonomy',        src:'padrão'},
   {k:'engine',  label:'engine',          src:'padrão'},
 ];
 let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plBusy=false, plRefs=[];
-function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude'}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; }
+function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; }
 function plRenderRefs(){
   const el=document.getElementById('plRefsBar'); if(!el) return;
   el.innerHTML = plRefs.map((p,i)=>{ const n=(p||'').split('/').pop(); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">×</button></span>`; }).join('');
@@ -2793,7 +2907,7 @@ async function plAttach(){
   } }catch(e){ console.error('pick_ref_files', e); }
 }
 function plVal(k){ if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
-function plHas(k){ const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
+function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
 function plReady(){ return plHas('title')&&plHas('objective')&&plHas('deliverables'); }
 let plSaveTimer=null;
@@ -2822,6 +2936,7 @@ function plApplyPatch(patch){
   if(!patch||typeof patch!=='object') return;
   for(const k of ['title','objective','autonomy','engine']) if(typeof patch[k]==='string'&&patch[k].trim()) plFields[k]=patch[k].trim();
   for(const k of ['deliverables','requirements','owns','off']) if(Array.isArray(patch[k])) plFields[k]=patch[k].map(x=>String(x).trim()).filter(Boolean);
+  if(Array.isArray(patch.artifacts)) plFields.artifacts={doc:patch.artifacts.includes('doc'),proof:patch.artifacts.includes('proof'),tests:patch.artifacts.includes('tests')};
 }
 function renderPlanner(){
   // medidor
@@ -2840,13 +2955,15 @@ function renderPlanner(){
   const mesh=document.getElementById('plMesh');
   mesh.innerHTML=`<div class="plmeshh">TASK.yaml <span class="plmesht">montando ao vivo · ${okCount}/${PL_MESH.length}</span></div>`+
     PL_MESH.map(f=>{ const st=plState(f.k); const v=plVal(f.k); const disp=Array.isArray(v)?v.join('\n'):v;
-      const ctl = f.auto ? `<div class="plfv mono auto">${esc(disp)||'—'}</div>`
+      const ctl = f.arts ? (()=>{ const a=plFields.artifacts||{}; const chip=(k,lbl)=>`<button class="plart${a[k]?' on':''}" data-plart="${k}">${lbl}</button>`; return `<div class="plarts">${chip('doc','📄→doc')}${chip('proof','prints')}${chip('tests','testes')}</div>`.replace('📄→doc','doc de arquitetura'); })()
+        : f.auto ? `<div class="plfv mono auto">${esc(disp)||'—'}</div>`
         : f.list ? `<textarea class="plfv in mono" data-fk="${f.k}" rows="2" placeholder="um por linha…">${esc(Array.isArray(v)?v.join('\n'):'')}</textarea>`
         : f.area ? `<textarea class="plfv in" data-fk="${f.k}" rows="2" placeholder="…">${esc(disp)}</textarea>`
         : `<input class="plfv in ${f.k==='id'?'mono':''}" data-fk="${f.k}" value="${escA(disp)}" placeholder="…">`;
       return `<div class="plfield ${st}"><div class="plfhead"><span class="pldot"></span><span class="plfk mono">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`;
     }).join('')+
     `<div class="plmeshfoot"><button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
+  mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
   { const b=document.getElementById('plCreate'); if(b) b.onclick=plCreate; }
   if(keep){ const i=document.getElementById('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
@@ -2890,11 +3007,12 @@ async function plSend(text){
 async function plCreate(){
   if(!plReady()) return;
   const b=document.getElementById('plCreate'); if(b){ b.disabled=true; b.textContent='criando…'; }
+  const arts=plFields.artifacts||{};
   const payload={ start:true, title:plFields.title, workflow:null, agents:null,
     engine:(plFields.engine||'claude'), approval:'auto',
     owns:(plFields.owns||[]).join(', ')||null, off:(plFields.off||[]).join(', ')||null,
     objective:plFields.objective||null, deliverables:(plFields.deliverables||[]).filter(Boolean),
-    requirements:(plFields.requirements||[]).filter(Boolean), doc:null, proof:false,
+    requirements:(plFields.requirements||[]).filter(Boolean), doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof, tests:!!arts.tests, autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null };
   try{ await invoke('new_task', payload); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
@@ -2951,6 +3069,9 @@ async function submitNewTask(start=true){
     requirements: ntReq.map(x=>x.trim()).filter(Boolean),
     doc: document.getElementById("ntArtDoc").checked ? "ARCHITECTURE.md" : null,
     proof: document.getElementById("ntArtProof").checked,
+    tests: document.getElementById("ntArtTests").checked,
+    autoPr: document.getElementById("ntAutoPr").value,
+    prBase: document.getElementById("ntPrBase").value.trim() || null,
     planApproval: document.getElementById("ntPlan").value,
     refs: ntRefs.slice(),
     branchType: document.getElementById("ntBranchType").value,

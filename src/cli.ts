@@ -131,6 +131,9 @@ async function cmdNew(repo: string, a: Args) {
   if (a.flags["artifact-proof"]) {
     artifacts.push({ kind: "proof", name: "proof", desc: "Prova comprovando a solução" });
   }
+  if (a.flags["artifact-tests"]) {
+    artifacts.push({ kind: "tests", name: "tests.md", desc: "Testes reais comprovando a funcionalidade" });
+  }
   const spec: TaskSpec = {
     id,
     title,
@@ -142,6 +145,8 @@ async function cmdNew(repo: string, a: Args) {
     branchType: a.flags["branch-type"] || undefined,
     issueCode: a.flags.issue || undefined,
     base: a.flags.base || undefined,
+    autoPr: (a.flags["auto-pr"] === "no" || a.flags["auto-pr"] === "auto" ? a.flags["auto-pr"] : "ask") as TaskSpec["autoPr"],
+    prBase: a.flags["pr-base"] || undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",
@@ -385,7 +390,7 @@ async function cmdDeliver(repo: string, taskId: string, kind?: string) {
   orch.close();
 }
 
-async function cmdTalk(repo: string, taskId: string, msg?: string) {
+async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false) {
   if (!msg || !msg.trim()) {
     console.error(c.red('✖ use --msg "sua mensagem"'));
     process.exit(1);
@@ -397,7 +402,7 @@ async function cmdTalk(repo: string, taskId: string, msg?: string) {
     process.exit(1);
   }
   console.log(c.dim(`→ conversando com o agente …`));
-  await orch.talkToAgent(taskId, msg.trim());
+  await orch.talkToAgent(taskId, msg.trim(), asReq);
   console.log(c.green("✔") + " o agente respondeu");
   orch.close();
 }
@@ -601,7 +606,7 @@ async function main() {
       await cmdDeliver(repo, a._[1], a.flags.kind);
       break;
     case "talk":
-      await cmdTalk(repo, a._[1], a.flags.msg);
+      await cmdTalk(repo, a._[1], a.flags.msg, !!a.flags["as-req"]);
       break;
     case "demo":
       await cmdDemo();

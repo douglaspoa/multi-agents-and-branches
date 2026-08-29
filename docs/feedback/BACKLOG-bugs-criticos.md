@@ -27,10 +27,10 @@ recorte Importação Brasil NÃO entram nesse PR (gate real é o contrato da too
       local na branch trabalhada e testar de verdade.
 - [x] 6. **PR sem ressalvas** — o agente não deve abrir PR por conta própria; se
       pedirem, só abrir depois de revisar e SEM pendências (senão pergunta).
-- [ ] 7. **Planner (criar task com IA)** — poder selecionar docs/prints/testes
+- [x] 7. **Planner (criar task com IA)** — poder selecionar docs/prints/testes
       (artefatos) na criação; a IA deve perguntar se queremos.
-- [ ] 8. **Provas por requisito** — linkar print e/ou teste a cada requisito
+- [x] 8. **Provas por requisito** — linkar print e/ou teste a cada requisito
       colocado como entregável (verificar no fim se TODOS foram cumpridos).
-- [ ] 9. **Área dedicada de PR** — abrir PR, ver comentários, corrigir (estava
+- [x] 9. **Área dedicada de PR** — abrir PR, ver comentários, corrigir (estava
       no redesign); ao criar a issue, perguntar se quer abrir PR e pra qual
       branch.

@@ -66,7 +66,9 @@ export class ClaudeEngine implements AgentEngine {
       const lines = arts.map((a) =>
         a.kind === "doc"
           ? `- DOCUMENTO: escreva ".cardume/artifacts/${a.name}" em Markdown — ${a.desc ?? "documente a solução"}: contexto, decisões de design, principais componentes/arquivos criados e como se conectam. Seja claro e conciso.`
-          : `- PROVA: comprove que a solução funciona. Se for algo visual/web, capture um screenshot e salve como ".cardume/artifacts/proof.png". Caso contrário, salve ".cardume/artifacts/proof.md" com a evidência (comandos executados, saída de testes, antes/depois).`
+          : a.kind === "tests"
+            ? `- TESTES: escreva e RODE testes REAIS na suíte do projeto (nada de script isolado ou front mockado — suba o ambiente local desta branch com as envs reais). Salve ".cardume/artifacts/tests.md" com os comandos e a SAÍDA real. Se algo não rodar, diga exatamente o quê e pergunte via ask_human.`
+            : `- PROVA: comprove que a solução funciona NA UI/AMBIENTE REAL. Se for algo visual/web, suba a aplicação e capture screenshots reais como ".cardume/artifacts/proof.png". Caso contrário, salve ".cardume/artifacts/proof.md" com a evidência (comandos executados, saída, antes/depois). Se travar em algo, pergunte via ask_human — não improvise mock.`
       );
       artifactRule =
         ` Ao final, produza também estes ARTEFATOS (crie a pasta .cardume/artifacts/ se não existir):\n${lines.join("\n")}`;
@@ -86,6 +88,13 @@ export class ClaudeEngine implements AgentEngine {
     const prRule = input.spec.kind === "review" && input.spec.prUrl
       ? ` Este é um REVIEW DE PULL REQUEST (${input.spec.prUrl}). NÃO há repositório pra editar; leia o arquivo DIFF.patch nesta pasta (o diff completo do PR) e faça um review CRÍTICO: bugs e correção, riscos/segurança, cobertura de testes, legibilidade e sugestões concretas por arquivo/trecho. Aponte também o que está bom. Escreva o parecer no chat (texto), com severidade por achado. NÃO tente implementar nem rodar o código.`
       : "";
+    // PROVAS POR REQUISITO: cada requirement precisa de evidência linkada
+    // (print e/ou teste) num JSON que a UI mostra junto dos critérios de aceite.
+    const reqs = input.spec.requirements ?? [];
+    const reqProofRule =
+      reqs.length && input.role !== "planner"
+        ? ` Ao FINAL do seu trabalho, escreva/atualize ".cardume/artifacts/requirements.json": um array JSON onde CADA requirement do TASK.yaml vira {"req": "<texto do requisito>", "status": "done"|"blocked", "evidence": ["<arquivos em .cardume/artifacts/ que COMPROVAM — print e/ou teste>"], "note": "<explicação curta>"}. Requirement sem evidência real não é "done". Se algum ficar "blocked", pergunte ao humano ANTES de finalizar.`
+        : "";
     // Regras INEGOCIÁVEIS (valem pra todos os papéis, em qualquer modo de autonomia):
     // o pior desfecho possível é entregar sem os requisitos ou "decidir não fazer".
     const integrityRule =
@@ -93,7 +102,7 @@ export class ClaudeEngine implements AgentEngine {
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${integrityRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     const prompt = input.resume ? input.resume.instruction : (input.promptOverride ?? baseline);
