@@ -813,6 +813,15 @@
   .fwreqs:empty{display:none}
   .fwreqh{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-family:var(--mono);margin:2px 0 6px;display:flex;justify-content:space-between}
   .fwreqs .critrow2{background:var(--surface);padding:5px 8px;font-size:11.5px;margin-bottom:4px}
+  /* narração: o agente dizendo O QUE está fazendo agora */
+  .nowsay{display:flex;gap:8px;align-items:flex-start;margin-top:9px}
+  .nsav{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:8.5px;font-weight:700;color:var(--on-accent);font-family:var(--mono);flex:none;margin-top:1px}
+  .nowsaytx{font-size:12px;line-height:1.55;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:9px;border-top-left-radius:4px;padding:7px 10px;min-width:0;overflow-wrap:anywhere}
+  .clamp4{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .nowfeed{margin-top:8px;display:flex;flex-direction:column;gap:2px}
+  .nowact{display:flex;gap:7px;align-items:baseline;font-size:10.5px;color:var(--muted);opacity:.85}
+  .nowact .mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .progbox .nowsaytx{background:var(--surface-2)}
   .fwreqtoggle{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);margin-top:7px;cursor:pointer}
   .fwreqtoggle input{accent-color:var(--accent)}
   .plmeshfoot{margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
@@ -1440,8 +1449,16 @@ function activityBlock(t){
   const fc=fileCache[t.id], files=fc?fc.list:[];
   const add=files.reduce((s,f)=>s+(f.add||0),0), del=files.reduce((s,f)=>s+(f.del||0),0);
   const diffLine = files.length ? `<span class="pchip live"><span style="color:var(--good)">+${add}</span> <span style="color:var(--crit)">−${del}</span> · ${files.length} arq</span>` : '';
+  // O QUÊ ele está fazendo: a própria narração do agente (último "pensamento")
+  // + as últimas ações concretas — não só quem/contadores.
+  const lastThink=[...evs].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
+  const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${esc((lastThink.agent||'?').slice(0,2).toUpperCase())}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
+  const feed=evs.filter(e=>['bash','edit','write','read'].includes(e.type)).slice(-4)
+    .map(e=>`<div class="nowact"><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="mono">${esc(e.text||'')}</span></div>`).join('');
   return `<div class="progbox">
     <div class="progh"><span class="pulse" style="--pc:var(--good)"></span>Trabalhando há <b>${elapsed}</b></div>
+    ${narr}
+    ${feed?`<div class="nowfeed">${feed}</div>`:''}
     <div class="progchips"><span class="pchip">${edits} edições</span><span class="pchip">${reads} leituras</span><span class="pchip">${cmds} comandos</span>${diffLine}</div>
   </div>`;
 }
@@ -1623,7 +1640,10 @@ function fwCtxBarHtml(t){
 function fwNowHtml(t){
   const ev=lastEventOf(t.id);
   if(ACTIVE_ST.has(t.status)){
-    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div><div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+    const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
+    const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
+    const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${esc((lastThink.agent||'?').slice(0,2).toUpperCase())}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
   return fwPlan(t);
