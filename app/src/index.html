@@ -3728,10 +3728,11 @@ setInterval(()=>{ refresh().catch(e=>console.error("refresh:", e)); }, 1000);
    → home (org, times, membros, convites, seletor de time atual).
    RLS mora no banco; aqui só autentica e consome /auth/v1 + /rest/v1.
    ========================================================================= */
-// Padrão: Supabase LOCAL (supabase start neste repo — portas 543x1..7 movidas
-// pra não colidir com outros projetos). Pra apontar pra nuvem depois, é só
-// colar URL + chave em "backend…" (localStorage tem precedência sobre o baked).
-const SB_DEFAULT = { url: 'http://127.0.0.1:54341', key: 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' };
+// Padrão: NUVEM (projeto Supabase do Constellation) — anon key é pública por
+// design; o RLS protege os dados. "backend…" na tela de login troca o alvo
+// (localStorage tem precedência) e SB_LOCAL volta pro stack de dev.
+const SB_DEFAULT = { url: 'https://fivoakrhazlzcdoocgbg.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpdm9ha3JoYXpsemNkb29jZ2JnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMjcxOTcsImV4cCI6MjEwMzYwMzE5N30.NXr1RjGqhcYHfMU050PRBcBraXsAYw-4FUVyoo3RC8U' };
+const SB_LOCAL = { url: 'http://127.0.0.1:54341', key: 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' };
 const SB = {
   url(){ return (lsGet('sb:url') || SB_DEFAULT.url || '').replace(/\/+$/,''); },
   key(){ return lsGet('sb:key') || SB_DEFAULT.key || ''; },
@@ -3816,9 +3817,10 @@ async function renderCloud(){
       <div class="imhint">Backend atual: <b>${esc(SB.url()||'nenhum')}</b>${isLocal?' <span class="dim">(Supabase local — dev)</span>':''}. Pra usar o projeto na nuvem, cole as credenciais (Settings → API) — vale só nesta máquina.</div>
       <label style="margin-top:10px">Project URL</label><input class="in" id="sbUrl" placeholder="https://xxxx.supabase.co" value="${escA(lsGet('sb:url')||'')}">
       <label style="margin-top:12px">anon key / publishable key</label><input class="in mono" id="sbKey" placeholder="eyJhbGciOi… ou sb_publishable_…" value="${escA(lsGet('sb:key')||'')}">
-      <div style="display:flex;gap:8px;margin-top:16px"><button class="btn sm" id="sbCfgLocal" title="volta pro Supabase local (padrão)">usar local (dev)</button><span style="flex:1"></span><button class="btn primary" id="sbSaveCfg">salvar e continuar</button></div>`;
+      <div style="display:flex;gap:8px;margin-top:16px"><button class="btn sm" id="sbCfgLocal" title="aponta pro Supabase local de desenvolvimento (supabase start)">usar local (dev)</button><button class="btn sm" id="sbCfgCloud" title="volta pro projeto padrão na nuvem">usar nuvem (padrão)</button><span style="flex:1"></span><button class="btn primary" id="sbSaveCfg">salvar e continuar</button></div>`;
     document.getElementById('sbSaveCfg').onclick=()=>{ lsSet('sb:url', document.getElementById('sbUrl').value.trim()); lsSet('sb:key', document.getElementById('sbKey').value.trim()); SB.setSess(null); cloudData=null; cloudCfgOpen=false; cloudMsg=''; renderCloud(); cloudBtnSync(); };
-    document.getElementById('sbCfgLocal').onclick=()=>{ lsSet('sb:url',''); lsSet('sb:key',''); SB.setSess(null); cloudData=null; cloudCfgOpen=false; cloudMsg=''; renderCloud(); cloudBtnSync(); };
+    document.getElementById('sbCfgLocal').onclick=()=>{ lsSet('sb:url',SB_LOCAL.url); lsSet('sb:key',SB_LOCAL.key); SB.setSess(null); cloudData=null; cloudCfgOpen=false; cloudMsg=''; renderCloud(); cloudBtnSync(); };
+    document.getElementById('sbCfgCloud').onclick=()=>{ lsSet('sb:url',''); lsSet('sb:key',''); SB.setSess(null); cloudData=null; cloudCfgOpen=false; cloudMsg=''; renderCloud(); cloudBtnSync(); };
     return;
   }
   // 2) sem sessão → login / criar conta
