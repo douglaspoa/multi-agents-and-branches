@@ -1828,6 +1828,30 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
             files.push(TaskFile { add: p[0].parse().unwrap_or(0), del: p[1].parse().unwrap_or(0), path: p[2].to_string() });
         }
     }
+    // Artefatos da worktree: .cardume/ é git-excluded e NUNCA aparece no diff —
+    // sem isso, tarefa de design (que só escreve artefatos) mostra árvore vazia.
+    // Só arquivos de texto editáveis (imagem abre pela aba Entregas).
+    fn walk_artifacts(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<TaskFile>) {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk_artifacts(&p, root, out);
+                } else {
+                    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
+                    if ["html", "htm", "md", "txt", "json", "csv", "svg", "yaml", "yml"].contains(&ext.as_str()) {
+                        if let Ok(rel) = p.strip_prefix(root) {
+                            out.push(TaskFile { add: 0, del: 0, path: format!(".cardume/artifacts/{}", rel.to_string_lossy()) });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let art_dir = wt.join(".cardume").join("artifacts");
+    if art_dir.is_dir() {
+        walk_artifacts(&art_dir, &art_dir, &mut files);
+    }
     Ok(files)
 }
 
