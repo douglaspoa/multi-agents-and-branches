@@ -988,6 +988,7 @@
     <button class="btn" id="connectBtn" style="display:none">abrir</button>
     <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow"></span>
+    <button class="btn" id="cloudBtn" title="Time na nuvem — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
     <button class="btn primary" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova tarefa</button>
   </div>
@@ -1218,6 +1219,14 @@
   </div>
 </div>
 
+<!-- Time na nuvem (Supabase): login → org/time → convites → seletor -->
+<div class="overlay" id="cloudOverlay" style="display:none">
+  <div class="modal" style="width:min(640px,100%)">
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:15px;height:15px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><b id="cloudHead">Time na nuvem</b><span style="flex:1"></span><button class="x" id="cloudClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="cloudBody"></div>
+  </div>
+</div>
+
 <div class="overlay" id="cmOverlay" style="display:none">
   <div class="modal cm" style="width:min(720px,100%)">
     <div class="mhead"><b>Resumo do commit</b><span style="flex:1"></span><button class="x" id="cmClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
@@ -1352,7 +1361,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -3664,6 +3673,199 @@ initNotifs();
 refresh().then(loadProjects).catch(e=>console.error("boot:", e));
 // poll blindado: uma volta que falhe não derruba o ciclo
 setInterval(()=>{ refresh().catch(e=>console.error("refresh:", e)); }, 1000);
+</script>
+<script>
+/* ============================================================================
+   TIME NA NUVEM (F1) — Supabase via fetch puro, zero dependência.
+   Estados: setup (URL+anon key) → login → sem-org (criar org/aceitar convite)
+   → home (org, times, membros, convites, seletor de time atual).
+   RLS mora no banco; aqui só autentica e consome /auth/v1 + /rest/v1.
+   ========================================================================= */
+// Credenciais do projeto: baked no build quando o Douglas criar o projeto;
+// enquanto vazio, a tela de conexão pede uma vez e guarda em localStorage.
+const SB_DEFAULT = { url: '', key: '' };
+const SB = {
+  url(){ return (SB_DEFAULT.url || lsGet('sb:url') || '').replace(/\/+$/,''); },
+  key(){ return SB_DEFAULT.key || lsGet('sb:key') || ''; },
+  sess(){ try{ return JSON.parse(lsGet('sb:sess')||'null'); }catch(_){ return null; } },
+  setSess(s){ if(s) lsSet('sb:sess', JSON.stringify(s)); else lsSet('sb:sess',''); },
+  configured(){ return !!(this.url() && this.key()); },
+};
+async function sbAuth(path, body){
+  const r = await fetch(SB.url()+'/auth/v1/'+path, { method:'POST', headers:{ 'apikey':SB.key(), 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error_description || j.msg || j.message || ('auth falhou ('+r.status+')'));
+  return j;
+}
+async function sbRefresh(){
+  const s = SB.sess(); if(!s || !s.refresh_token) return null;
+  try{ const j = await sbAuth('token?grant_type=refresh_token', { refresh_token: s.refresh_token }); SB.setSess(j); return j; }
+  catch(_){ SB.setSess(null); return null; }
+}
+async function sbFetch(path, opts, retried){
+  const s = SB.sess(); if(!s) throw new Error('não autenticado');
+  const r = await fetch(SB.url()+path, { ...(opts||{}), headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+s.access_token, 'Content-Type':'application/json', ...((opts||{}).headers||{}) } });
+  if(r.status===401 && !retried){ const n=await sbRefresh(); if(n) return sbFetch(path, opts, true); throw new Error('sessão expirou — entre de novo'); }
+  const tx = await r.text();
+  let j=null; try{ j=tx?JSON.parse(tx):null; }catch(_){ }
+  if(!r.ok) throw new Error((j&&(j.message||j.hint||j.details))||('erro '+r.status));
+  return j;
+}
+const sbGet = (q)=>sbFetch('/rest/v1/'+q);
+const sbPost = (t,body)=>sbFetch('/rest/v1/'+t, { method:'POST', headers:{ 'Prefer':'return=representation' }, body: JSON.stringify(body) });
+const sbRpc = (fn,args)=>sbFetch('/rest/v1/rpc/'+fn, { method:'POST', body: JSON.stringify(args||{}) });
+
+// ---- estado da tela ----
+let cloudData = null;   // { org, teams, members(do time atual), meRole, profileByUser }
+let cloudMsg = '';      // feedback (erro/ok) da última ação
+function cloudTeamId(){ return lsGet('sb:team') || ''; }
+function cloudUserId(){ const s=SB.sess(); return s && s.user ? s.user.id : ''; }
+
+function openCloud(){ document.getElementById('cloudOverlay').style.display='flex'; renderCloud(); }
+function closeCloud(){ document.getElementById('cloudOverlay').style.display='none'; cloudMsg=''; }
+
+async function cloudLoad(){
+  const orgs = await sbGet('orgs?select=*');
+  if(!orgs || !orgs.length){ cloudData = { org:null, teams:[], members:[], profileByUser:{} }; return; }
+  const org = orgs[0]; // v1: uma org por usuário
+  const [teams, myOrg] = await Promise.all([
+    sbGet('teams?select=id,name&org_id=eq.'+org.id+'&order=name'),
+    sbGet('org_members?select=role&org_id=eq.'+org.id+'&user_id=eq.'+cloudUserId()),
+  ]);
+  let teamId = cloudTeamId();
+  if(!teams.find(t=>t.id===teamId)){ teamId = teams[0] ? teams[0].id : ''; lsSet('sb:team', teamId); }
+  let members=[], profileByUser={};
+  if(teamId){
+    members = await sbGet('team_members?select=user_id,role&team_id=eq.'+teamId);
+    if(members.length){
+      const ids = members.map(m=>'"'+m.user_id+'"').join(',');
+      const profs = await sbGet('profiles?select=user_id,name,email&user_id=in.('+ids+')');
+      for(const p of profs) profileByUser[p.user_id]=p;
+    }
+  }
+  cloudData = { org, teams, members, profileByUser, meRole: (myOrg[0]||{}).role || 'member' };
+}
+
+function cloudBtnSync(){
+  const tx=document.getElementById('cloudBtnTx'); if(!tx) return;
+  const s=SB.sess();
+  if(!s){ tx.textContent='Entrar'; return; }
+  const team = cloudData && cloudData.teams.find(t=>t.id===cloudTeamId());
+  tx.textContent = team ? team.name : ((s.user&&s.user.email)||'Equipe').split('@')[0];
+}
+
+function cloudMsgHtml(){ return cloudMsg ? `<div class="imhint" style="border-left:2px solid ${cloudMsg.startsWith('✓')?'var(--good)':'var(--warn)'};margin-bottom:12px">${esc(cloudMsg)}</div>` : ''; }
+
+async function renderCloud(){
+  const body=document.getElementById('cloudBody'); if(!body) return;
+  const head=document.getElementById('cloudHead');
+  // 1) sem credenciais do backend
+  if(!SB.configured()){
+    head.textContent='Conectar ao backend';
+    body.innerHTML = cloudMsgHtml()+`
+      <div class="imhint">Cole as credenciais do projeto <b>Supabase</b> do Constellation (Settings → API). Fica salvo nesta máquina — nas próximas versões já vem embutido no app.</div>
+      <label style="margin-top:10px">Project URL</label><input class="in" id="sbUrl" placeholder="https://xxxx.supabase.co" value="${escA(lsGet('sb:url')||'')}">
+      <label style="margin-top:12px">anon key</label><input class="in mono" id="sbKey" placeholder="eyJhbGciOi…" value="${escA(lsGet('sb:key')||'')}">
+      <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span><button class="btn primary" id="sbSaveCfg">salvar e continuar</button></div>`;
+    document.getElementById('sbSaveCfg').onclick=()=>{ lsSet('sb:url', document.getElementById('sbUrl').value.trim()); lsSet('sb:key', document.getElementById('sbKey').value.trim()); cloudMsg=''; renderCloud(); };
+    return;
+  }
+  // 2) sem sessão → login / criar conta
+  if(!SB.sess()){
+    head.textContent='Entrar';
+    body.innerHTML = cloudMsgHtml()+`
+      <label>E-mail</label><input class="in" id="sbEmail" placeholder="voce@empresa.com" value="${escA(lsGet('sb:email')||'')}">
+      <label style="margin-top:12px">Senha</label><input class="in" id="sbPass" type="password" placeholder="••••••••">
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center"><button class="btn sm" id="sbCfgEdit" title="trocar URL/chave do backend">backend…</button><span style="flex:1"></span><button class="btn" id="sbSignup">criar conta</button><button class="btn primary" id="sbLogin">entrar</button></div>
+      <div class="aihint dim" style="margin-top:10px">A conta é sua identidade no time — quem criou a tarefa, quem assumiu, quem entregou.</div>`;
+    const email=()=>document.getElementById('sbEmail').value.trim(), pass=()=>document.getElementById('sbPass').value;
+    const go=async(kind)=>{
+      cloudMsg='';
+      try{
+        lsSet('sb:email', email());
+        if(kind==='up'){
+          const j=await sbAuth('signup',{ email:email(), password:pass() });
+          if(j.access_token){ SB.setSess(j); await cloudLoad(); }
+          else { cloudMsg='✓ conta criada — confirme o e-mail que o Supabase enviou e depois clique em entrar.'; }
+        } else {
+          const j=await sbAuth('token?grant_type=password',{ email:email(), password:pass() });
+          SB.setSess(j); await cloudLoad();
+        }
+      }catch(e){ cloudMsg='Falhou: '+e.message; }
+      cloudBtnSync(); renderCloud();
+    };
+    document.getElementById('sbLogin').onclick=()=>go('in');
+    document.getElementById('sbSignup').onclick=()=>go('up');
+    document.getElementById('sbPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go('in'); });
+    document.getElementById('sbCfgEdit').onclick=()=>{ lsSet('sb:url',''); lsSet('sb:key',''); renderCloud(); };
+    return;
+  }
+  // dados frescos
+  if(!cloudData){ body.innerHTML='<div class="dim" style="padding:8px 2px">carregando…</div>'; try{ await cloudLoad(); }catch(e){ cloudMsg='Falhou: '+e.message; SB.setSess(SB.sess()); } }
+  // 3) logado mas sem org → criar ou aceitar convite
+  if(!cloudData || !cloudData.org){
+    head.textContent='Sua organização';
+    body.innerHTML = cloudMsgHtml()+`
+      <div class="seclbl2">Criar organização + primeiro time</div>
+      <label style="margin-top:6px">Nome da organização</label><input class="in" id="sbOrgName" placeholder="ex.: Logcomex">
+      <label style="margin-top:12px">Nome do time</label><input class="in" id="sbTeamName" placeholder="ex.: Foundations">
+      <div style="display:flex;margin-top:12px"><span style="flex:1"></span><button class="btn primary" id="sbCreateOrg">criar</button></div>
+      <div class="seclbl2" style="margin-top:22px">…ou entrar num time existente</div>
+      <label style="margin-top:6px">Token do convite</label><input class="in mono" id="sbInvTok" placeholder="cole o token que o lead te mandou">
+      <div style="display:flex;margin-top:12px"><span style="flex:1"></span><button class="btn" id="sbAccept">aceitar convite</button></div>
+      <div style="display:flex;margin-top:18px"><button class="btn sm" id="sbLogout">sair da conta</button></div>`;
+    document.getElementById('sbCreateOrg').onclick=async()=>{
+      cloudMsg='';
+      try{ const j=await sbRpc('create_org_with_team',{ p_org_name:document.getElementById('sbOrgName').value.trim()||'Minha org', p_team_name:document.getElementById('sbTeamName').value.trim()||'Time 1' }); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ organização criada'; }
+      catch(e){ cloudMsg='Falhou: '+e.message; }
+      renderCloud();
+    };
+    document.getElementById('sbAccept').onclick=async()=>{
+      cloudMsg='';
+      try{ const j=await sbRpc('accept_invite',{ p_token:document.getElementById('sbInvTok').value.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; }
+      catch(e){ cloudMsg='Falhou: '+e.message; }
+      renderCloud();
+    };
+    document.getElementById('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+    return;
+  }
+  // 4) home: org + times + membros + convites
+  const d=cloudData, teamId=cloudTeamId();
+  head.textContent=d.org.name;
+  const isAdmin = d.meRole==='owner'||d.meRole==='admin';
+  const meLead = d.members.find(m=>m.user_id===cloudUserId() && m.role==='lead');
+  const teamOpts = d.teams.map(t=>`<option value="${escA(t.id)}"${t.id===teamId?' selected':''}>${esc(t.name)}</option>`).join('');
+  const memRows = d.members.map(m=>{ const p=d.profileByUser[m.user_id]||{}; return `<div class="costrow"><span class="cav" style="background:${agentColor(p.name||p.email||'?')}">${esc((p.name||p.email||'?').slice(0,2).toUpperCase())}</span><span class="cnm">${esc(p.name||p.email||m.user_id.slice(0,8))}${m.user_id===cloudUserId()?' <span class="dim">(você)</span>':''}</span><span class="dim" style="font-size:11px">${m.role==='lead'?'lead':'membro'}</span></div>`; }).join('') || '<div class="dim" style="font-size:12px;padding:4px 2px">time vazio</div>';
+  body.innerHTML = cloudMsgHtml()+`
+    <div class="imhint">Plano <b>${esc(d.org.plan)}</b> · ${d.org.seats} assentos · seu papel na org: <b>${esc(d.meRole)}</b>${isAdmin?' — você vê todos os times':''}</div>
+    <div class="seclbl2" style="margin-top:14px">Time atual</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><select class="sel" id="sbTeamSel" style="flex:1">${teamOpts}</select>${isAdmin?'<button class="btn sm" id="sbTeamAdd">+ novo time</button>':''}</div>
+    <div class="seclbl2" style="margin-top:18px">Membros</div>
+    <div class="costlist">${memRows}</div>
+    ${(isAdmin||meLead)?`
+    <div class="seclbl2" style="margin-top:18px">Convidar pro time</div>
+    <div style="display:flex;gap:8px;margin-top:6px"><input class="in" id="sbInvEmail" placeholder="email@empresa.com" style="flex:1"><select class="sel" id="sbInvRole" style="width:110px"><option value="member">membro</option><option value="lead">lead</option></select><button class="btn primary sm" id="sbInvite">gerar convite</button></div>
+    <div id="sbInvOut"></div>`:''}
+    <div style="display:flex;margin-top:22px;align-items:center"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbLogout">sair</button></div>
+    <div class="imhint" style="margin-top:12px">Próximo passo (F2): tarefas compartilhadas — criar “pro time” ou “pra mim”, backlog do time e assumir &amp; iniciar.</div>`;
+  document.getElementById('sbTeamSel').onchange=e=>{ lsSet('sb:team', e.target.value); cloudData=null; renderCloud(); cloudBtnSync(); };
+  { const b=document.getElementById('sbTeamAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do novo time:'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg='Falhou: '+e.message; } renderCloud(); }; }
+  { const b=document.getElementById('sbInvite'); if(b) b.onclick=async()=>{
+      cloudMsg='';
+      try{
+        const rows=await sbPost('invites',{ org_id:d.org.id, team_id:teamId, email:document.getElementById('sbInvEmail').value.trim(), role:document.getElementById('sbInvRole').value, created_by:cloudUserId() });
+        const tok=rows[0].token;
+        document.getElementById('sbInvOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado — mande o token pra pessoa colar em <b>Entrar → aceitar convite</b>:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all">${esc(tok)}</div><button class="btn sm" style="margin-top:8px" onclick="navigator.clipboard.writeText('${escA(tok)}');this.textContent='copiado ✓'">copiar token</button></div>`;
+      }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
+    }; }
+  document.getElementById('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+  cloudBtnSync();
+}
+document.getElementById('cloudBtn').onclick=openCloud;
+document.getElementById('cloudClose').onclick=closeCloud;
+document.getElementById('cloudOverlay').addEventListener('click',e=>{ if(e.target.id==='cloudOverlay') closeCloud(); });
+// boot: sincroniza o rótulo do botão (e renova o token se já havia sessão)
+if(SB.configured() && SB.sess()){ sbRefresh().then(()=>cloudLoad()).then(cloudBtnSync).catch(()=>cloudBtnSync()); } else cloudBtnSync();
 </script>
 </body>
 </html>
