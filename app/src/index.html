@@ -1298,6 +1298,18 @@ async function refresh(){
   if(!selected && state.tasks[0]) selected = state.tasks[0].id;
   document.getElementById("clock").textContent = connected ? "sincronizado · "+fmtTime(Date.now()) : "";
   renderProjName();
+  // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
+  // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
+  // uma das causas da digitação travada.
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay']
+    .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
+  if(bigOverlay){
+    lastSig='';                                   // ao fechar, força um render completo
+    const fw=document.getElementById('fwOverlay');
+    if(fw && fw.style.display!=='none' && fwTask){ try{ fwLiveUpdate(); }catch(_){} }
+    if(chatIsOpen()){ try{ renderChat(); }catch(_){} }
+    return;
+  }
   const sig = snapSig();
   const hasActive = (state.tasks||[]).some(t=>ACTIVE_ST.has(t.status));
   if(sig===lastSig && !hasActive) return;   // nada mudou → não re-renderiza (mas mantém vivo se há tarefa ativa)
@@ -1599,8 +1611,14 @@ function fwNowHtml(t){
   // estado final: só as etapas (o status já está na barra de contexto)
   return fwPlan(t);
 }
+let fwLiveSig='';
 function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
+  const evs0=eventsOf(t.id);
+  const rp=reqProofCache[t.id];
+  const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
+  if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
+  fwLiveSig=sig;
   const now=document.getElementById('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
   const th=document.getElementById('fwThread');
@@ -1705,6 +1723,8 @@ function renderWorkspace(){
 }
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
 function chatMd(t){ try{ return mdToHtml(String(t||'')); }catch(_){ return esc(String(t||'')); } }
+const mdMemo=new Map(); // evId:len → html (evita re-parsear a thread toda a cada tick)
+function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(k); if(v===undefined){ v=chatMd(t); if(mdMemo.size>800) mdMemo.clear(); mdMemo.set(k,v); } return v; }
 // notas "de sistema" (não são fala do agente) viram linha discreta central
 function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
@@ -1714,11 +1734,11 @@ function fwThreadHtml(t){
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !asking.length;
   return evs.map(e=>{
     const tx=e.text||'';
-    if(e.agent==='Você' && tx.startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
-    if(tx.startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${chatMd(tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
+    if(e.agent==='Você' && tx.startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
+    if(tx.startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
     if(isMetaNote(tx)) return `<div class="csys">${esc(tx)}</div>`;
     if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) return ''; // a pergunta já aparece no card destacado
-    if(['think','note','done'].includes(e.type) && tx.trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${chatMd(tx)}<button class="ccopy" title="copiar">⧉</button></div></div>`;
+    if(['think','note','done'].includes(e.type) && tx.trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div>`;
     if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`;
     return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(tx)}</span></div>`;
   }).join('')
@@ -1808,7 +1828,7 @@ document.getElementById('fwClose').onclick=closeWorkspace;
 document.getElementById('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('fwOverlay').style.display!=='none'){ if(fwEditing){ fwEditing=false; renderWorkspace(); } else closeWorkspace(); } });
 // atualiza SÓ o "O que estou fazendo agora" ao vivo (não mexe no código/input)
-setInterval(()=>{ if(document.getElementById('fwOverlay').style.display!=='none' && fwTask) { try{ fwLiveUpdate(); }catch(e){} } }, 1500);
+// (o refresh de 1s chama fwLiveUpdate quando o workspace está aberto — sem timer duplicado)
 // ---------- Pull Request (GitHub) ----------
 const prCache={}; let branchList=null;
 async function loadBranches(){ if(branchList) return branchList; try{ branchList=await invoke("list_branches"); }catch(e){ branchList=["main"]; } return branchList; }

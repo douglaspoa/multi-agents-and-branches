@@ -384,7 +384,7 @@ struct Commit {
 }
 
 /// Lê o grafo de commits do repo (git log --all) para desenhar as branches.
-#[tauri::command]
+#[tauri::command(async)]
 fn graph(state: State<AppState>) -> Result<Vec<Commit>, String> {
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let repo = db
@@ -443,7 +443,7 @@ struct CommitDetail {
 }
 
 /// Resumo técnico de um commit: mensagem (o quê + porquê) + arquivos alterados.
-#[tauri::command]
+#[tauri::command(async)]
 fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, String> {
     let repo = repo_of(&state)?;
     let meta = Command::new("git")
@@ -524,7 +524,7 @@ fn commit_detail(state: State<AppState>, hash: String) -> Result<CommitDetail, S
 }
 
 /// Lê apenas o cache do resumo por IA (não gera). Retorna null se ainda não existe.
-#[tauri::command]
+#[tauri::command(async)]
 fn commit_summary_cached(state: State<AppState>, hash: String) -> Result<Option<String>, String> {
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&dbpath, OpenFlags::SQLITE_OPEN_READ_WRITE)
@@ -615,7 +615,7 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
 }
 
 /// Commits de uma tarefa (base..branch) — para vincular commits à tarefa.
-#[tauri::command]
+#[tauri::command(async)]
 fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_json::Value>, String> {
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
@@ -650,7 +650,7 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     Ok(commits)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn current_repo(state: State<AppState>) -> Option<String> {
     state
         .db
@@ -697,7 +697,7 @@ struct Project {
     active: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_projects(state: State<AppState>) -> Vec<Project> {
     let mut list = read_project_list();
     let active = active_repo_of(&state);
@@ -815,7 +815,7 @@ fn artifact_kind(name: &str) -> &'static str {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifact>, String> {
     let repo = repo_of(&state)?;
     let dir = repo.join(".cardume").join("artifacts").join(&task_id);
@@ -849,7 +849,7 @@ struct ArtifactContent {
     data_url: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err("nome de artefato inválido".to_string());
@@ -908,7 +908,7 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let path = match path {
@@ -966,10 +966,10 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .map_err(|e| e.to_string())?;
 
     // Limita o payload: só os eventos mais recentes (evita serializar todo o
-    // histórico a cada poll). 5000 é folgado para o uso real e bloqueia o
+    // histórico a cada poll). 1200 cobre o uso real (com textos agora longos) e limita o
     // crescimento ilimitado do snapshot.
     let events = conn
-        .prepare("SELECT id,task_id,agent,ts,\"type\",text,ok FROM (SELECT id,task_id,agent,ts,\"type\",text,ok FROM event ORDER BY id DESC LIMIT 5000) ORDER BY id")
+        .prepare("SELECT id,task_id,agent,ts,\"type\",text,ok FROM (SELECT id,task_id,agent,ts,\"type\",text,ok FROM event ORDER BY id DESC LIMIT 1200) ORDER BY id")
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
             Ok(Event {
@@ -1078,7 +1078,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
 }
 
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
-#[tauri::command]
+#[tauri::command(async)]
 fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
@@ -1211,7 +1211,7 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
 
 /// Enfileira uma instrução do humano no meio da execução — o orquestrador a
 /// aplica (via --resume) ao fim do turno atual do agente.
-#[tauri::command]
+#[tauri::command(async)]
 fn add_instruction(state: State<AppState>, task_id: String, text: String) -> Result<(), String> {
     let t = text.trim();
     if t.is_empty() {
@@ -1242,7 +1242,7 @@ fn add_instruction(state: State<AppState>, task_id: String, text: String) -> Res
 }
 
 /// Catálogo de agentes/workflows (cardume.config.json) para o modal de nova tarefa.
-#[tauri::command]
+#[tauri::command(async)]
 fn config(state: State<AppState>) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;
     let repo_cfg = match std::fs::read_to_string(repo.join("cardume.config.json")) {
@@ -1403,7 +1403,7 @@ fn new_task(
 }
 
 /// Reordena as tarefas no Fluxo: grava sort_order = posição na lista recebida.
-#[tauri::command]
+#[tauri::command(async)]
 fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
@@ -1468,7 +1468,7 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
 
 /// Marca a tarefa como 'blocked' | 'closed' (ou limpa com "" / null). Estado do
 /// usuário, ortogonal ao status do agente — usado pra filtrar/arquivar no Fluxo.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
@@ -1482,7 +1482,7 @@ fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) 
 // ---------- rascunho do Planner (persistência no banco) ----------
 /// Salva/atualiza o rascunho do Planner (1 linha). Chamado a cada rodada da
 /// conversa, pra sobreviver a fechar/crashar o app.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_draft(state: State<AppState>, json: String) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
@@ -1495,7 +1495,7 @@ fn save_draft(state: State<AppState>, json: String) -> Result<(), String> {
     Ok(())
 }
 /// Lê o rascunho salvo (ou None).
-#[tauri::command]
+#[tauri::command(async)]
 fn load_draft(state: State<AppState>) -> Result<Option<String>, String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = open(&path)?;
@@ -1503,7 +1503,7 @@ fn load_draft(state: State<AppState>) -> Result<Option<String>, String> {
     match r { Ok(s) => Ok(Some(s)), Err(_) => Ok(None) }
 }
 /// Descarta o rascunho (após criar a tarefa ou o usuário começar do zero).
-#[tauri::command]
+#[tauri::command(async)]
 fn clear_draft(state: State<AppState>) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
@@ -1684,7 +1684,7 @@ struct TaskFile {
 }
 
 /// Arquivos alterados pela tarefa (git diff base...HEAD na worktree).
-#[tauri::command]
+#[tauri::command(async)]
 fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, String> {
     let (wt, base) = task_wt_base(&state, &task_id)?;
     // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
@@ -1714,7 +1714,7 @@ struct FileContent {
 
 /// Conteúdo atual do arquivo na worktree + as linhas ADICIONADAS pela tarefa
 /// (pra destacar no revisor).
-#[tauri::command]
+#[tauri::command(async)]
 fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<FileContent, String> {
     safe_rel(&path)?;
     let (wt, base) = task_wt_base(&state, &task_id)?;
@@ -1766,7 +1766,7 @@ fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Resul
 }
 
 /// Salva o arquivo editado na worktree.
-#[tauri::command]
+#[tauri::command(async)]
 fn write_file(state: State<AppState>, task_id: String, path: String, content: String) -> Result<(), String> {
     safe_rel(&path)?;
     let (wt, _base) = task_wt_base(&state, &task_id)?;
@@ -1780,7 +1780,7 @@ fn write_file(state: State<AppState>, task_id: String, path: String, content: St
 
 /// Abre um documento de referência (.cardume/refs/) — imagem/PDF como dataURL,
 /// md/txt como texto.
-#[tauri::command]
+#[tauri::command(async)]
 fn read_ref(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err("nome inválido".to_string());
