@@ -1355,7 +1355,8 @@ fn new_task(
     {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(path) = db {
-            if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            // READ_WRITE: com WAL, abrir read-only falha (não pode criar o -shm)
+            if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
                 let base = id.clone();
                 let mut n = 1;
@@ -1436,13 +1437,44 @@ fn new_task(
 
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);
+    // saída do CLI vai pra um log — criação nunca mais falha em SILÊNCIO
+    let log_dir = repo.join(".cardume").join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let log_path = log_dir.join(format!("new-{id}.log"));
+    if let (Ok(o), Ok(e)) = (std::fs::File::create(&log_path), std::fs::File::create(log_dir.join(format!("new-{id}.err.log")))) {
+        cmd.stdout(Stdio::from(o)).stderr(Stdio::from(e));
+    }
     // rastreia só quando a tarefa realmente vai rodar (rascunho não tem processo)
     if start == Some(false) {
-        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        cmd.stdin(Stdio::null())
             .spawn()
             .map_err(|e| format!("falha ao criar rascunho: {e}"))?;
     } else {
         spawn_tracked(&state, &id, cmd)?;
+    }
+    // confere que a tarefa NASCEU (o CLI é destacado): sem linha no banco em
+    // ~6s, devolve o erro real do log em vez de fingir sucesso.
+    {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db {
+            let mut born = false;
+            for _ in 0..12 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+                    let _ = conn.busy_timeout(std::time::Duration::from_millis(2000));
+                    if conn.query_row("SELECT 1 FROM task WHERE id=?1", params![id], |_| Ok(())).is_ok() {
+                        born = true;
+                        break;
+                    }
+                }
+            }
+            if !born {
+                let err = std::fs::read_to_string(log_dir.join(format!("new-{id}.err.log"))).unwrap_or_default();
+                let out = std::fs::read_to_string(&log_path).unwrap_or_default();
+                let tail: String = format!("{out}\n{err}").lines().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                return Err(format!("a tarefa não foi criada — saída do CLI:\n{}", if tail.trim().is_empty() { "(log vazio — veja .cardume/logs)".to_string() } else { tail }));
+            }
+        }
     }
     Ok(id)
 }
