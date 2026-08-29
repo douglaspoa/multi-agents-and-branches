@@ -1184,7 +1184,7 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
 /// Conversa com o agente numa tarefa pronta: retoma a sessão (--resume) por um
 /// turno pra corrigir/entregar o que faltou (ex.: "teste na UI real e me dê os prints").
 #[tauri::command]
-fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: Option<bool>) -> Result<(), String> {
+fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: Option<bool>, agent: Option<String>) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let m = message.trim().to_string();
     if m.is_empty() {
@@ -1203,6 +1203,12 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
     ]);
     if as_req.unwrap_or(false) {
         cmd.arg("--as-req");
+    }
+    if let Some(a) = agent {
+        if !a.is_empty() {
+            cmd.arg("--agent");
+            cmd.arg(&a);
+        }
     }
     cmd.current_dir(&repo);
     spawn_tracked(&state, &task_id, cmd)?;

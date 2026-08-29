@@ -390,7 +390,7 @@ async function cmdDeliver(repo: string, taskId: string, kind?: string) {
   orch.close();
 }
 
-async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false) {
+async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false, agent?: string) {
   if (!msg || !msg.trim()) {
     console.error(c.red('✖ use --msg "sua mensagem"'));
     process.exit(1);
@@ -402,7 +402,7 @@ async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false
     process.exit(1);
   }
   console.log(c.dim(`→ conversando com o agente …`));
-  await orch.talkToAgent(taskId, msg.trim(), asReq);
+  await orch.talkToAgent(taskId, msg.trim(), asReq, agent);
   console.log(c.green("✔") + " o agente respondeu");
   orch.close();
 }
@@ -606,7 +606,7 @@ async function main() {
       await cmdDeliver(repo, a._[1], a.flags.kind);
       break;
     case "talk":
-      await cmdTalk(repo, a._[1], a.flags.msg, !!a.flags["as-req"]);
+      await cmdTalk(repo, a._[1], a.flags.msg, !!a.flags["as-req"], a.flags.agent);
       break;
     case "demo":
       await cmdDemo();

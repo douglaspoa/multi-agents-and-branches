@@ -538,7 +538,7 @@ export class Orchestrator {
    * corrige/entrega o que faltou. Leve (um agente, um turno) — diferente do
    * rework, que re-roda o time inteiro. Coleta artefatos ao fim.
    */
-  async talkToAgent(taskId: string, message: string, asReq = false): Promise<void> {
+  async talkToAgent(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida");
@@ -551,13 +551,19 @@ export class Orchestrator {
       this.store.addEvent(taskId, "Você", "note", `requisito adicionado: ${message.trim().slice(0, 100)}`, true);
     }
     const roles = spec.roles || [];
+    // interlocutor: o agente escolhido no chat (/) ou o padrão (1º claude)
+    const deflt = roles.find((r) => r.engine === "claude");
+    const picked = agentName ? roles.find((r) => r.name === agentName && r.engine === "claude") : undefined;
     const role =
-      roles.find((r) => r.engine === "claude") ||
+      picked || deflt ||
       ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
+    // sessão pertence ao último agente que falou — trocar de agente = turno
+    // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
+    const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
     const prev = task.status;
-    const sid = task.session_id || "";
+    const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
     this.store.setStatus(taskId, "thinking");
     let failed = false;
@@ -567,7 +573,7 @@ export class Orchestrator {
       const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20 };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
-        : { ...base, promptOverride: `Esta tarefa JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };
+        : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };
       for await (const ev of engine.run(input)) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
         if (ev.type === "claim") continue;
