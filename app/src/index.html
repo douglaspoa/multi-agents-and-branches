@@ -1502,6 +1502,7 @@ document.getElementById('fvOverlay').addEventListener('click', e=>{ if(e.target.
 
 // ---------- workspace 3 colunas (arquivos · código · chat do agente) ----------
 let fwTask=null, fwPath=null, fwContent='', fwAdded=[], fwSelA=0, fwSelB=0, fwFiles=[], fwEditing=false, fwDrag=false;
+let fwEvents=[], fwEvLast=0, fwFetching=false; // conversa com texto COMPLETO (incremental)
 const fwChat={}; // taskId -> [{who:'you'|'sys', text}]
 const fwCollapsed=new Set(); // pastas recolhidas na árvore
 // pinta a seleção de linhas durante o arraste sem re-render completo (leve)
@@ -1559,12 +1560,22 @@ function fwTreeHtml(node, depth){
 }
 async function openWorkspace(taskId, path){
   fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false;
+  fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig='';
   document.getElementById('fwOverlay').style.display='flex';
-  try{ fwFiles = await invoke('task_files',{ taskId }); }catch(e){ fwFiles=[]; }
-  // arquivo pedido (ex.: .cardume/PLAN.md) que não é um diff → injeta na árvore
+  renderWorkspace(); // abre NA HORA (skeleton); os dados chegam em paralelo
+  const pFiles = invoke('task_files',{ taskId }).then(f=>{ fwFiles=f||[]; }).catch(()=>{ fwFiles=[]; });
+  const pEvs = fwFetchEvents();
+  await pFiles;
   if(fwPath && !fwFiles.some(f=>f.path===fwPath)) fwFiles.unshift({ path:fwPath, add:0, del:0, doc:true });
   if(!fwPath && fwFiles.length) fwPath=fwFiles[0].path;
-  await fwLoadFile();
+  await Promise.all([fwLoadFile(), pEvs]);
+  renderWorkspace();
+}
+// busca só o que é NOVO (id > último) — payload minúsculo por tick
+async function fwFetchEvents(){
+  if(!fwTask) return;
+  try{ const rows=await invoke('task_events',{ taskId:fwTask, sinceId:fwEvLast });
+    if(rows&&rows.length){ fwEvents.push(...rows); fwEvLast=rows[rows.length-1].id; } }catch(_){ }
 }
 async function fwLoadFile(){
   if(!fwPath){ fwContent=''; fwAdded=[]; renderWorkspace(); return; }
@@ -1597,9 +1608,14 @@ function fwCtxBarHtml(t){
   let reqPart='';
   if(reqs.length){
     const c=reqProofCache[t.id];
-    const done=(c&&Array.isArray(c.list))?c.list.filter(x=>x.status==='done').length:0;
-    const pct=reqs.length?Math.round(done/reqs.length*100):0;
-    reqPart=`<span class="fwctxreq">requisitos <b>${done}/${reqs.length}</b><span class="minibar"><i style="width:${pct}%"></i></span></span>`;
+    if(c&&Array.isArray(c.list)){
+      const matched=matchReqProofs(reqs, c.list);
+      const done=matched.filter(m=>m&&m.status==='done').length;
+      const pct=reqs.length?Math.round(done/reqs.length*100):0;
+      reqPart=`<span class="fwctxreq">requisitos <b>${done}/${reqs.length}</b><span class="minibar"><i style="width:${pct}%"></i></span></span>`;
+    } else {
+      reqPart=`<span class="fwctxreq">requisitos <b>${reqs.length}</b> · <span style="color:var(--warn)">sem provas — verificar ›</span></span>`;
+    }
   }
   return `${st}${reqPart}<span class="fwchev">${fwCtxOpen?'▾':'▸'}</span>`;
 }
@@ -1612,9 +1628,10 @@ function fwNowHtml(t){
   return fwPlan(t);
 }
 let fwLiveSig='';
-function fwLiveUpdate(){
+async function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
-  const evs0=eventsOf(t.id);
+  if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
+  const evs0=fwEvents.length?fwEvents:eventsOf(t.id);
   const rp=reqProofCache[t.id];
   const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
@@ -1729,7 +1746,7 @@ function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(
 function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
 function fwThreadHtml(t){
-  const evs=eventsOf(t.id);
+  const evs=fwEvents.length?fwEvents:eventsOf(t.id); // completos (fallback: snapshot)
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !asking.length;
   return evs.map(e=>{
@@ -1750,8 +1767,8 @@ function fwReqsHtml(t){
   const reqs=Array.isArray(t.requirements)?t.requirements:[]; if(!reqs.length) return '';
   const c=reqProofCache[t.id];
   if(c===undefined){ loadReqProofs(t.id).then(()=>{ const el=document.getElementById('fwReqs'); if(el&&fwTask===t.id) el.innerHTML=fwReqsHtml(t); }); }
-  const map={}; if(c&&Array.isArray(c.list)) for(const r of c.list){ map[String(r.req||'').trim().toLowerCase()]=r; }
-  const rows=reqs.map(r=>{ const m=map[String(r||'').trim().toLowerCase()]; const st=m?(m.status==='done'?'ok':'blk'):'na';
+  const matched=matchReqProofs(reqs, c&&c.list);
+  const rows=reqs.map((r,ri)=>{ const m=matched[ri]; const st=m?(m.status==='done'?'ok':'blk'):'na';
     const icon= st==='ok'?`<span class="reqst ok">${IC.check}</span>`:st==='blk'?'<span class="reqst blk">!</span>':'<span class="reqst na">·</span>';
     const ev=(m&&Array.isArray(m.evidence)&&m.evidence.length)?`<span class="reqev">${m.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</span>`:'';
     return `<div class="critrow2 ${st}">${icon}<div class="crt"><div>${esc(r)} ${ev}</div></div></div>`; }).join('');
@@ -2155,20 +2172,34 @@ async function loadReqProofs(taskId){
   try{ const c=await invoke('read_artifact',{ taskId, name:'requirements.json' }); const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
   catch(_){ reqProofCache[taskId]={list:null}; }
 }
+function reqNorm(x){ return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
+// casa cada requirement do spec com o item do requirements.json:
+// exato normalizado → mesmo tamanho? por índice → contains (nas duas direções)
+function matchReqProofs(reqs, list){
+  if(!Array.isArray(list)) return reqs.map(()=>null);
+  const byNorm={}; list.forEach(r=>{ byNorm[reqNorm(r.req)]=r; });
+  return reqs.map((r,i)=>{
+    const n=reqNorm(r);
+    if(byNorm[n]) return byNorm[n];
+    if(list.length===reqs.length && list[i]) return list[i];
+    return list.find(x=>{ const m=reqNorm(x.req); return m&&(m.includes(n)||n.includes(m)); })||null;
+  });
+}
 function reqsBlock(t){
   const reqs=Array.isArray(t.requirements)?t.requirements:[]; if(!reqs.length) return '';
   const c=reqProofCache[t.id];
   if(c===undefined){ loadReqProofs(t.id).then(()=>{ if(selected===t.id) renderSide(); }); }
-  const map={}; if(c&&Array.isArray(c.list)) for(const r of c.list){ map[String(r.req||'').trim().toLowerCase()]=r; }
-  const rows=reqs.map(r=>{
-    const m=map[String(r||'').trim().toLowerCase()];
+  const matched=matchReqProofs(reqs, c&&c.list);
+  const rows=reqs.map((r,ri)=>{
+    const m=matched[ri];
     const st=m?(m.status==='done'?'ok':'blk'):'na';
     const icon= st==='ok'?`<span class="reqst ok">${IC.check}</span>` : st==='blk'?'<span class="reqst blk">!</span>' : '<span class="reqst na">·</span>';
     const ev=(m&&Array.isArray(m.evidence)&&m.evidence.length)?`<span class="reqev">${m.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</span>`:'';
     const note=(m&&m.note&&st==='blk')?`<div class="reqnote">${esc(m.note)}</div>`:'';
     return `<div class="critrow2 ${st}">${icon}<div class="crt"><div>${esc(r)} ${ev}</div>${note}</div></div>`;
   }).join('');
-  const hint=(c&&c.list===null)?'<div class="dim" style="font-size:10.5px;margin-top:4px">provas por requisito aparecem aqui quando o agente gera o requirements.json</div>':'';
+  const canCheck=(!c||c.list===null)&&['review','error','aborted'].includes(t.status)&&(t.roles||[]).some(r=>r.engine==='claude');
+  const hint=(c&&c.list===null)?(canCheck?'<button class="btn sm" id="brReqCheck" style="margin-top:6px">verificar requisitos agora (gera as provas)</button>':'<div class="dim" style="font-size:10.5px;margin-top:4px">provas por requisito aparecem quando o agente gera o requirements.json</div>'):'';
   return `<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${rows}${hint}`;
 }
 function artCategory(name){
@@ -2856,6 +2887,7 @@ function renderSide(){
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>setFlag(t.id, b.dataset.flag));
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
+  { const b=el.querySelector('#brReqCheck'); if(b) b.onclick=()=>{ b.disabled=true; b.textContent='verificando…'; talkTask(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json (o campo req deve ser o TEXTO EXATO do requisito). Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); }; }
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   el.querySelectorAll('[data-file]').forEach(b=>b.onclick=()=>openWorkspace(t.id, b.dataset.file));

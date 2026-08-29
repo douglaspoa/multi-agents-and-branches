@@ -969,7 +969,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
     // histórico a cada poll). 1200 cobre o uso real (com textos agora longos) e limita o
     // crescimento ilimitado do snapshot.
     let events = conn
-        .prepare("SELECT id,task_id,agent,ts,\"type\",text,ok FROM (SELECT id,task_id,agent,ts,\"type\",text,ok FROM event ORDER BY id DESC LIMIT 1200) ORDER BY id")
+        .prepare("SELECT id,task_id,agent,ts,\"type\",substr(text,1,500) AS text,ok FROM (SELECT id,task_id,agent,ts,\"type\",text,ok FROM event ORDER BY id DESC LIMIT 1200) ORDER BY id")
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
             Ok(Event {
@@ -1510,6 +1510,24 @@ fn clear_draft(state: State<AppState>) -> Result<(), String> {
         let _ = conn.execute("DELETE FROM planner_draft WHERE id=1", []);
     }
     Ok(())
+}
+
+/// Eventos COMPLETOS de uma tarefa (texto inteiro), incremental via since_id —
+/// alimenta a conversa do workspace sem inflar o snapshot de 1s.
+#[tauri::command(async)]
+fn task_events(state: State<AppState>, task_id: String, since_id: Option<i64>) -> Result<Vec<Event>, String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let since = since_id.unwrap_or(0);
+    let rows = conn
+        .prepare("SELECT id,task_id,agent,ts,\"type\",text,ok FROM event WHERE task_id=?1 AND id>?2 ORDER BY id LIMIT 2000")
+        .map_err(|e| e.to_string())?
+        .query_map(params![task_id, since], |r| {
+            Ok(Event { id: r.get(0)?, task_id: r.get(1)?, agent: r.get(2)?, ts: r.get(3)?, kind: r.get(4)?, text: r.get(5)?, ok: r.get(6)? })
+        })
+        .and_then(|it| it.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
 }
 
 // ---------- controles por execução (pausar / retomar / abortar) ----------
@@ -2184,6 +2202,7 @@ pub fn run() {
             switch_project,
             remove_project,
             snapshot,
+            task_events,
             graph,
             resolve_pending,
             add_instruction,

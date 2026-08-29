@@ -93,7 +93,7 @@ export class ClaudeEngine implements AgentEngine {
     const reqs = input.spec.requirements ?? [];
     const reqProofRule =
       reqs.length && input.role !== "planner"
-        ? ` Ao FINAL do seu trabalho, escreva/atualize ".cardume/artifacts/requirements.json": um array JSON onde CADA requirement do TASK.yaml vira {"req": "<texto do requisito>", "status": "done"|"blocked", "evidence": ["<arquivos em .cardume/artifacts/ que COMPROVAM — print e/ou teste>"], "note": "<explicação curta>"}. Requirement sem evidência real não é "done". Se algum ficar "blocked", pergunte ao humano ANTES de finalizar.`
+        ? ` Ao FINAL do seu trabalho, escreva/atualize ".cardume/artifacts/requirements.json": um array JSON onde CADA requirement do TASK.yaml vira {"req": "<TEXTO EXATO do requisito, copiado do TASK.yaml>", "status": "done"|"blocked", "evidence": ["<arquivos em .cardume/artifacts/ que COMPROVAM — print e/ou teste>"], "note": "<explicação curta>"}. Requirement sem evidência real não é "done". Se algum ficar "blocked", pergunte ao humano ANTES de finalizar.`
         : "";
     // Regras INEGOCIÁVEIS (valem pra todos os papéis, em qualquer modo de autonomia):
     // o pior desfecho possível é entregar sem os requisitos ou "decidir não fazer".
