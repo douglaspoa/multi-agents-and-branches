@@ -21,7 +21,9 @@
     --ring:0 0 0 3.5px color-mix(in srgb, var(--accent) 30%, transparent);
   }
   /* dark-only: o design é escuro em qualquer tema do SO */
-  @media (prefers-color-scheme:light){:root{ color-scheme:dark; }}
+  /* app é dark-only: color-scheme SEMPRE dark (sem isso, com o macOS em dark o
+     UA não aplicava nada e <button> sem color ficava com texto PRETO no WKWebView) */
+  :root{ color-scheme:dark; }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{
@@ -112,7 +114,15 @@
   .cact .ct{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .chatstop{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
   .chatstop:hover{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}
-  .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border)}
+  .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border);position:relative}
+  .cbub.asknow{border-color:color-mix(in srgb,var(--warn) 50%,var(--border));background:color-mix(in srgb,var(--warn) 8%,var(--surface))}
+  .asknote{font-size:10.5px;color:var(--warn);margin-top:7px;font-family:var(--mono)}
+  .atmenu{position:absolute;bottom:calc(100% + 6px);left:14px;right:14px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:6px;z-index:10}
+  .ath{font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-family:var(--mono);padding:4px 8px}
+  .atit{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;color:var(--text);font:inherit;font-size:12px;padding:6px 8px;border-radius:7px;cursor:pointer}
+  .atit:hover{background:var(--surface-2)}
+  .atit .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .atit .atk{font-size:9.5px;color:var(--muted);font-family:var(--mono)}
   .chatinput textarea{flex:1;resize:none;min-height:42px;line-height:1.45}
   /* modal de resposta ao agente */
   .askmodal{width:min(680px,100%)}
@@ -803,7 +813,12 @@
   .refchip .refrm{border:none;background:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 4px;border-radius:5px}
   .refchip .refrm:hover{color:var(--crit);background:var(--surface-3)}
   .artlist{display:flex;flex-direction:column;gap:5px;margin:3px 0 2px}
-  .artitem{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:8px 11px;cursor:pointer;font:inherit}
+  /* color explícito: <button> sem color herda o preto do UA no WKWebView */
+  .artitem{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:8px 11px;cursor:pointer;font:inherit;color:var(--text)}
+  .artdate{font-size:10px;color:var(--muted);font-family:var(--mono);white-space:nowrap}
+  .artver{font-size:9px;font-weight:700;font-family:var(--mono);color:var(--info);background:color-mix(in srgb,var(--info) 15%,transparent);border-radius:4px;padding:1px 5px;margin-left:6px}
+  .artcat{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-family:var(--mono);margin:10px 0 6px}
+  .artcat:first-child{margin-top:2px}
   .artitem:hover{background:var(--surface-2);border-color:var(--border-strong)}
   .artic{display:grid;place-items:center;color:var(--accent)}
   .artic svg{width:16px;height:16px}
@@ -1055,7 +1070,7 @@
   <div class="modal chatmodal">
     <div class="mhead"><span class="chatav" id="chatAv"></span><div class="chatid"><b id="chatWho">Agente</b><div class="dim chatsub" id="chatSub"></div></div><span style="flex:1"></span><button class="x" id="chatClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="chatthread" id="chatThread"></div>
-    <div class="chatinput"><textarea class="in" id="chatInput" rows="2" placeholder="peça um ajuste… (ex.: teste na UI real e me dê os prints)"></textarea><button class="btn primary sm" id="chatSend">enviar</button></div>
+    <div class="chatinput"><div class="atmenu" id="atMenu" style="display:none"></div><button class="btn sm" id="chatAttach" title="anexar arquivo (print, PDF, doc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="chatInput" rows="2" placeholder="peça um ajuste… (Enter envia · @ referencia arquivos/artefatos)"></textarea><button class="btn primary sm" id="chatSend">enviar</button></div>
   </div>
 </div>
 
@@ -1904,11 +1919,27 @@ async function loadArtifacts(taskId, status){
   catch(e){ artifactsCache[taskId] = { status, list: [] }; }
   return artifactsCache[taskId].list;
 }
+function artCategory(name){
+  const n=name.toLowerCase();
+  if(n.startsWith('proof')||n.includes('screenshot')||n.includes('print')) return 'Provas';
+  if(n.startsWith('test')||n.includes('spec')) return 'Testes';
+  if(n.endsWith('.md')||n.endsWith('.txt')||n.startsWith('architecture')) return 'Docs';
+  return 'Outros';
+}
+function artDate(ms){ if(!ms) return ''; const d=new Date(ms); const today=new Date(); const same=d.toDateString()===today.toDateString(); return (same?'hoje ':d.getDate().toString().padStart(2,'0')+'/'+(d.getMonth()+1).toString().padStart(2,'0')+' ')+d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0'); }
+function artItemHtml(x){
+  const vm=(x.name||'').match(/-v(\d+)(\.[a-z0-9]+)?$/i);
+  const ver=vm?`<span class="artver">v${vm[1]}</span>`:'';
+  return `<button class="artitem" data-art="${escA(x.name)}"><span class="artic">${x.kind==='image'?IC.image:IC.doc}</span><span class="artnm">${esc(x.name)}${ver}</span><span class="artdate">${artDate(x.created)}</span><span class="artkb">${x.size<1024?x.size+' B':(x.size/1024).toFixed(x.size<10240?1:0)+' KB'}</span></button>`;
+}
 function artListHtml(a){
   if(!a.length) return '';
-  return `<div class="seclbl">Artefatos <span class="n">${a.length}</span></div><div class="artlist">`+
-    a.map(x=>`<button class="artitem" data-art="${escA(x.name)}"><span class="artic">${x.kind==='image'?IC.image:IC.doc}</span><span class="artnm">${esc(x.name)}</span><span class="artkb">${x.size<1024?x.size+' B':(x.size/1024).toFixed(x.size<10240?1:0)+' KB'}</span></button>`).join('')+
-    `</div>`;
+  // agrupa por categoria (Docs/Testes/Provas/Outros); dentro, mais recentes primeiro
+  const cats=['Provas','Testes','Docs','Outros'];
+  const by={}; for(const x of a){ const c=artCategory(x.name); (by[c]||(by[c]=[])).push(x); }
+  let html=`<div class="seclbl">Artefatos <span class="n">${a.length}</span></div><div class="artlist">`;
+  for(const c of cats){ if(!by[c]||!by[c].length) continue; html+=`<div class="artcat">${c} · ${by[c].length}</div>`+by[c].map(artItemHtml).join(''); }
+  return html+`</div>`;
 }
 function artifactsBlock(t){
   const c = artifactsCache[t.id];
@@ -2069,24 +2100,30 @@ function renderChat(){
   const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t){ closeChat(); return; }
   const av=document.getElementById('chatAv'); av.style.background=agentColor(t.agent); av.textContent=(t.agent||'?').slice(0,2).toUpperCase();
   document.getElementById('chatWho').textContent=t.agent;
-  const working=ACTIVE_ST.has(t.status)||t.status==='thinking';
-  const sub=document.getElementById('chatSub'); sub.textContent=working?'trabalhando…':(t.status==='review'?'pronto — mande um ajuste':esc(t.status));
+  const asking=pendingOf(t.id);
+  const working=(ACTIVE_ST.has(t.status)||t.status==='thinking') && !asking.length;
+  const sub=document.getElementById('chatSub'); sub.textContent=asking.length?'esperando sua resposta — o turno continua':working?'trabalhando…':(t.status==='review'?'pronto — mande um ajuste':esc(t.status));
   // botão parar no header enquanto o agente trabalha (pra você intervir)
   { let stopBtn=document.getElementById('chatStop');
     if(working && !stopBtn){ stopBtn=document.createElement('button'); stopBtn.id='chatStop'; stopBtn.className='btn sm chatstop'; stopBtn.innerHTML=IC.pause+' parar'; document.querySelector('#chatOverlay .mhead').insertBefore(stopBtn, document.getElementById('chatClose')); }
     if(stopBtn){ stopBtn.style.display=working?'':'none'; stopBtn.onclick=()=>stopTask(t.id); }
   }
-  const sendBtn=document.getElementById('chatSend'); if(sendBtn) sendBtn.textContent=working?'parar e enviar':'enviar';
+  const sendBtn=document.getElementById('chatSend'); if(sendBtn) sendBtn.textContent=asking.length?'responder':working?'parar e enviar':'enviar';
+  { const i=document.getElementById('chatInput'); if(i) i.placeholder=asking.length?'responda a pergunta do agente — a conversa continua no mesmo turno':'peça um ajuste… (ex.: teste na UI real e me dê os prints)'; }
   // preserva o que está sendo digitado entre re-renders do poll
   const inEl=document.getElementById('chatInput'), keep=document.activeElement===inEl, iv=inEl?inEl.value:null, ic=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
   const evs=eventsOf(t.id);
   const th=document.getElementById('chatThread');
   th.innerHTML=evs.map(e=>{
     if(e.agent==='Você' && (e.text||'').startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^💬\s*/,''))}</div></div>`;
+    // resposta do humano ao ask_human → balão SEU (é você falando, não o agente)
+    if((e.text||'').startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^humano respondeu:\s*/,''))}</div></div>`;
     if(['think','note','done'].includes(e.type) && (e.text||'').trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${esc(e.text)}</div></div>`;
     if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(e.text)}</div></div>`;
     return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(e.text||'')}</span></div>`;
-  }).join('') + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
+  }).join('')
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub asknow">${esc(asking[0].prompt||'aguardando sua resposta')}<div class="asknote">↳ responda abaixo — o turno continua de onde parou</div></div></div>`:'')
+  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
   th.scrollTop=th.scrollHeight;
   const send=document.getElementById('chatSend'); if(send) send.onclick=chatSend;
   if(inEl){ if(iv!=null) inEl.value=iv; if(keep){ inEl.focus(); if(ic!=null){ try{ inEl.setSelectionRange(ic,ic); }catch(_){} } } }
@@ -2094,14 +2131,60 @@ function renderChat(){
 async function chatSend(){
   const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t) return;
   const inp=document.getElementById('chatInput'); const v=inp.value.trim(); if(!v) return;
-  // se o agente estiver trabalhando, PARA o turno atual antes de mandar o novo
+  // CHAT CONTÍNUO: se o agente está ESPERANDO RESPOSTA (ask_human), a mensagem
+  // RESPONDE a pergunta e o MESMO turno continua — nada de matar/reiniciar.
+  const pend=pendingOf(t.id);
+  if(pend.length){
+    inp.value=''; inp.disabled=true;
+    try{ await resolvePending(pend[0].id, v); }
+    finally{ inp.disabled=false; renderChat(); const i=document.getElementById('chatInput'); if(i) i.focus(); }
+    return;
+  }
+  // trabalhando sem pergunta aberta → interrompe o turno e manda o novo pedido
   if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){} }
   inp.value=''; inp.disabled=true;
   try{ await talkTask(t.id, v); } finally{ inp.disabled=false; renderChat(); const i=document.getElementById('chatInput'); if(i) i.focus(); }
 }
 document.getElementById('chatClose').onclick=closeChat;
 document.getElementById('chatOverlay').addEventListener('click',e=>{ if(e.target.id==='chatOverlay') closeChat(); });
-document.getElementById('chatInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) chatSend(); });
+// Enter ENVIA (Shift+Enter quebra linha); Esc fecha o menu de @
+document.getElementById('chatInput').addEventListener('keydown',e=>{
+  if(e.key==='Escape' && document.getElementById('atMenu').style.display!=='none'){ e.stopPropagation(); hideAtMenu(); return; }
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); hideAtMenu(); chatSend(); }
+});
+// 📎 anexo: picker nativo → insere os caminhos na mensagem (o agente lê os arquivos)
+document.getElementById('chatAttach').onclick=async()=>{
+  try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){
+    const i=document.getElementById('chatInput');
+    i.value=(i.value?i.value+'\n':'')+paths.map(p=>'Anexo: '+p).join('\n'); i.focus();
+  } }catch(e){ console.error('pick_ref_files', e); }
+};
+// @ ou / no início de palavra → menu com arquivos da task e artefatos
+function hideAtMenu(){ const m=document.getElementById('atMenu'); m.style.display='none'; m.innerHTML=''; }
+async function showAtMenu(){
+  const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t) return;
+  let files=[]; let arts=[];
+  try{ files=await invoke('task_files',{ taskId:t.id }); }catch(_){ }
+  try{ arts=await invoke('list_artifacts',{ taskId:t.id }); }catch(_){ }
+  const items=[
+    ...files.slice(0,12).map(f=>({label:f.path, ins:f.path, kind:'arquivo'})),
+    ...arts.slice(0,8).map(a=>({label:a.name, ins:'.cardume/artifacts/'+a.name, kind:'artefato'})),
+  ];
+  const m=document.getElementById('atMenu');
+  if(!items.length){ hideAtMenu(); return; }
+  m.innerHTML='<div class="ath">referenciar</div>'+items.map((it,i)=>`<button class="atit" data-ai="${i}"><span class="mono">${esc(it.label)}</span><span class="atk">${it.kind}</span></button>`).join('');
+  m.style.display='block';
+  m.querySelectorAll('.atit').forEach(b=>b.onclick=()=>{
+    const it=items[+b.dataset.ai]; const i=document.getElementById('chatInput');
+    // substitui o @/ que abriu o menu pelo caminho escolhido
+    i.value=i.value.replace(/[@/]$/,'')+'`'+it.ins+'` '; hideAtMenu(); i.focus();
+  });
+}
+document.getElementById('chatInput').addEventListener('input',e=>{
+  const v=e.target.value; const last=v.slice(-1);
+  if((last==='@'||last==='/') && (v.length===1 || /\s/.test(v.slice(-2,-1)))) showAtMenu();
+  else if(document.getElementById('atMenu').style.display!=='none' && last!==' ') hideAtMenu();
+});
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&chatIsOpen()) closeChat(); });
 async function deliverArtifact(taskId, kind){
   const lbl={doc:'documento de arquitetura',tests:'testes',proof:'prova (prints)',all:'todos os entregáveis'}[kind]||kind;

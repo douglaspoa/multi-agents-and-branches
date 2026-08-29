@@ -799,6 +799,8 @@ struct Artifact {
     name: String,
     kind: String, // "doc" | "image" | "file"
     size: u64,
+    /// mtime em ms — pra ordenar por data de criação na UI.
+    created: i64,
 }
 
 fn artifact_kind(name: &str) -> &'static str {
@@ -822,12 +824,19 @@ fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifac
             let p = e.path();
             if p.is_file() {
                 let name = e.file_name().to_string_lossy().to_string();
-                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                out.push(Artifact { kind: artifact_kind(&name).to_string(), name, size });
+                let meta = e.metadata().ok();
+                let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                let created = meta
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                out.push(Artifact { kind: artifact_kind(&name).to_string(), name, size, created });
             }
         }
     }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
+    // mais recentes primeiro (data de criação/modificação)
+    out.sort_by(|a, b| b.created.cmp(&a.created).then(a.name.cmp(&b.name)));
     Ok(out)
 }
 
