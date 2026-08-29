@@ -189,10 +189,10 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
             Ok(())
         });
     }
+    // stdout/stderr ficam como o CHAMADOR configurou (ex.: new_task redireciona
+    // pra .cardume/logs); quem não configura herda… nada: os callers setam null.
     let child = cmd
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("falha ao iniciar processo: {e}"))?;
     let pid = child.id() as i32;
@@ -1131,6 +1131,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
         &repo.display().to_string(),
     ])
     .current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &task_id, cmd)?;
     Ok(())
 }
@@ -1172,6 +1173,7 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         &repo.display().to_string(),
     ])
     .current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &task_id, cmd)?;
     Ok(())
 }
@@ -1195,6 +1197,7 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
         &repo.display().to_string(),
     ])
     .current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &task_id, cmd)?;
     Ok(())
 }
@@ -1229,6 +1232,7 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
         }
     }
     cmd.current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &task_id, cmd)?;
     Ok(())
 }
@@ -1319,7 +1323,7 @@ fn save_config(state: State<AppState>, config: serde_json::Value) -> Result<(), 
 
 /// Cria e dispara uma tarefa (detached) — roda o núcleo em background; o SQLite
 /// é atualizado ao vivo. Tarefas paralelas se coordenam pelo mesmo state.sqlite.
-#[tauri::command]
+#[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 fn new_task(
     state: State<AppState>,
@@ -1365,7 +1369,15 @@ fn new_task(
                     .is_ok()
                 {
                     n += 1;
-                    id = format!("{}-{}", base, n);
+                    // o CLI re-slugifica o id e TRUNCA em 32 — o sufixo precisa
+                    // caber, senão é cortado e o id volta a ser o duplicado.
+                    let sfx = format!("-{n}");
+                    let keep = 32usize.saturating_sub(sfx.len());
+                    let mut b = base[..base.len().min(keep)].to_string();
+                    while b.ends_with('-') {
+                        b.pop();
+                    }
+                    id = format!("{b}{sfx}");
                 }
             }
         }
@@ -1533,6 +1545,7 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         &repo.display().to_string(),
     ])
     .current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &task_id, cmd)?;
     Ok(())
 }
@@ -1565,6 +1578,7 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
     push_opt(&mut args, "--agents", &agents);
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &id, cmd)?;
     Ok(())
 }
