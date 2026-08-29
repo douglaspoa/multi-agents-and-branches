@@ -420,6 +420,13 @@
   .fmeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:11px;font-size:11.5px;color:var(--text-2)}
   .fmeta .frev{color:var(--good);font-weight:600}
   .fcommits{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+  .stwrap{position:relative;display:inline-block}
+  .stpill{cursor:pointer;border:0;font:inherit;font-size:11px;font-weight:600;padding:4px 9px;margin-top:9px;border-radius:6px;display:inline-flex;align-items:center;gap:5px}
+  .stchev{font-size:8px;opacity:.7}
+  .stmenu{position:absolute;top:calc(100% + 5px);left:0;min-width:230px;background:var(--surface);border:1px solid var(--border-strong);border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px;z-index:30;display:flex;flex-direction:column;gap:1px}
+  .stitem{text-align:left;border:0;background:transparent;color:var(--text);font:inherit;font-size:12px;padding:7px 10px;border-radius:6px;cursor:pointer}
+  .stitem:hover{background:var(--surface-2)}
+  .stitem.danger{color:var(--crit)}
   .fctog{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;border-top:.5px dashed var(--border);padding-top:8px;margin-top:9px}
   .fctog:hover{color:var(--text)}
   .fcchev{font-size:9px;color:var(--muted);width:10px}
@@ -2412,6 +2419,28 @@ async function removeTask(taskId){
   try{ await invoke("remove_task",{taskId}); if(selected===taskId) selected=null; await refresh(); }
   catch(e){ console.error("remove_task", e); }
 }
+let stMenuOpen=false;
+async function markStatus(taskId, status){
+  try{ await invoke("mark_task_status",{ taskId, status }); lastSig=""; await refresh(); }
+  catch(e){ alert("Falha:\n"+e); }
+}
+// ações de ESTADO disponíveis pro pill, conforme a situação atual
+function statusMenuItems(t){
+  const it=[];
+  if(t.status==='review'){
+    it.push({l:'Mergear na '+t.base+' (merge local)', a:()=>mergeTask(t.id)});
+    it.push({l:'Marcar como mergeada (PR já mergeado)', a:()=>markStatus(t.id,'merged')});
+  }
+  if(['error','aborted','conflict'].includes(t.status)) it.push({l:'Voltar pra review', a:()=>markStatus(t.id,'review')});
+  if(t.status==='draft') it.push({l:'Iniciar agora', a:()=>startTask(t.id)});
+  if(ACTIVE_ST.has(t.status)){ it.push({l:'Pausar', a:()=>pauseTask(t.id)}); it.push({l:'Abortar', a:()=>abortTask(t.id), danger:true}); }
+  if(t.status==='paused'){ it.push({l:'Retomar', a:()=>resumeTask(t.id)}); }
+  if(t.flag==='blocked') it.push({l:'Desbloquear', a:()=>setFlag(t.id,'')});
+  else it.push({l:'Bloquear', a:()=>setFlag(t.id,'blocked')});
+  if(t.flag==='closed') it.push({l:'Reabrir', a:()=>setFlag(t.id,'')});
+  else if(t.status!=='draft') it.push({l:'Encerrar (finalizada)', a:()=>setFlag(t.id,'closed')});
+  return it;
+}
 async function setFlag(taskId, flag){
   try{ await invoke("set_task_flag",{ taskId, flag: flag||null }); lastSig=""; await refresh(); }
   catch(e){ alert("Falha:\n"+e); }
@@ -2830,6 +2859,7 @@ function stageStepper(t){
 // e pode ficar "mock" quando a tarefa foi criada por workflow sem --engine).
 function effEngine(t){ const rs=t.roles||[]; const cur=rs.find(r=>r.role===t.stage); return (cur&&cur.engine)||(rs[0]&&rs[0].engine)||t.engine||'mock'; }
 let sideTab='etapas';
+document.addEventListener('click', e=>{ if(stMenuOpen && !e.target.closest('.stwrap')){ stMenuOpen=false; try{ renderSide(); }catch(_){} } });
 function fmtDur(ms){ ms=Math.max(0,ms); const s=Math.floor(ms/1000); if(s<60) return s+'s'; const m=Math.floor(s/60); if(m<60) return m+' min'; const h=Math.floor(m/60); return h+'h'+String(m%60).padStart(2,'0'); }
 function renderSide(){
   const el = document.getElementById("side");
@@ -2918,7 +2948,7 @@ function renderSide(){
     <div class="sidehead">
       <h2>${esc(t.agent)}</h2>
       <div class="sub"><span id="brnText">${esc(t.branch)}</span>${t.status!=='merged'?` <button class="brnedit" data-act="renbranch" title="renomear branch">${IC.pencil}</button>`:''} · ${esc(effEngine(t))}${t.model?(" · "+esc(t.model)):""}</div>
-      <span class="pill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}</span>
+      <span class="stwrap"><button class="pill stpill" id="stPill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}${t.flag?' · '+(t.flag==='blocked'?'bloqueada':'encerrada'):''} <span class="stchev">▾</span></button>${stMenuOpen?`<div class="stmenu">${statusMenuItems(t).map((it,i)=>`<button class="stitem${it.danger?' danger':''}" data-sti="${i}">${it.l}</button>`).join('')}</div>`:''}</span>
     </div>
     <div class="sidestats"><div class="ss"><span class="ssv">${dur}</span><span class="ssl">tempo</span></div><div class="ss"><span class="ssv">${tc.usd?fmtUsd(tc.usd):'—'}</span><span class="ssl">custo</span></div><div class="ss"><span class="ssv">${files.length||(d?d.files:0)||0}</span><span class="ssl">arquivos</span></div></div>
     <div class="sidetabs">${TABS.map(([k,l])=>`<button class="sidetab${sideTab===k?' on':''}" data-tab="${k}">${l}</button>`).join("")}</div>
@@ -2935,6 +2965,8 @@ function renderSide(){
   el.querySelectorAll('[data-act="abort"]').forEach(b=>b.onclick=()=>abortTask(t.id));
   el.querySelectorAll('[data-act="rm"]').forEach(b=>b.onclick=()=>removeTask(t.id));
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>setFlag(t.id, b.dataset.flag));
+  { const p=el.querySelector('#stPill'); if(p) p.onclick=(e)=>{ e.stopPropagation(); stMenuOpen=!stMenuOpen; renderSide(); }; }
+  el.querySelectorAll('.stitem').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const it=statusMenuItems(t)[+b.dataset.sti]; stMenuOpen=false; renderSide(); if(it) it.a(); });
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   { const b=el.querySelector('#brReqCheck'); if(b) b.onclick=()=>{ b.disabled=true; b.textContent='verificando…'; talkTask(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json (o campo req deve ser o TEXTO EXATO do requisito). Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); }; }

@@ -1514,6 +1514,27 @@ fn build_info() -> String {
         .unwrap_or_default()
 }
 
+/// Marca o STATUS da tarefa manualmente (ex.: PR mergeado direto no GitHub →
+/// "marcar como mergeada"; erro resolvido à mão → "voltar pra review").
+/// Whitelist de estados seguros; merged também libera claims/pendências.
+#[tauri::command]
+fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> Result<(), String> {
+    if !["review", "merged", "draft"].contains(&status.as_str()) {
+        return Err(format!("status inválido: {status}"));
+    }
+    set_task_status(&state, &task_id, &status)?;
+    if status == "merged" {
+        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+                let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
+                let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
+            }
+        }
+    }
+    Ok(())
+}
+
 // ---------- rascunho do Planner (persistência no banco) ----------
 /// Salva/atualiza o rascunho do Planner (1 linha). Chamado a cada rodada da
 /// conversa, pra sobreviver a fechar/crashar o app.
@@ -2299,6 +2320,7 @@ pub fn run() {
             load_draft,
             clear_draft,
             set_task_flag,
+            mark_task_status,
             pause_task,
             resume_task,
             abort_task,
