@@ -1112,8 +1112,7 @@
       <label>Objetivo</label>
       <textarea class="in ta" id="ntObj" placeholder="o que precisa ser feito e por quê"></textarea>
 
-      <div class="seclbl2" style="margin-top:15px">Entregáveis <span style="flex:1"></span><button class="btn sm" id="ntDelAdd">+ item</button></div>
-      <div id="ntDeliverables" class="listed"></div>
+      <div id="ntDeliverables" class="listed" style="display:none"></div>
 
       <div class="seclbl2" style="margin-top:14px">Requisitos / critérios de aceite <span style="flex:1"></span><button class="btn sm" id="ntReqAdd">+ item</button></div>
       <div id="ntRequirements" class="listed"></div>
@@ -3042,10 +3041,10 @@ function renderSide(){
       :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
     const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm ghost" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
     const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm ghost" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} correção</button>`:'';
-    const linkdz=((t.branch||'').startsWith('design/')&&['review','merged'].includes(t.status))?`<button class="btn primary sm ghost" data-act="linkdz" title="design aprovado? cria a tarefa de Entrega linkada, com o mockup e o DESIGN.md anexados como referência">${IC.cright} criar entrega deste design</button>`:'';
+    const linkdz=((t.branch||'').startsWith('design/')&&['review','merged','error','aborted'].includes(t.status))?`<button class="btn primary sm wide" data-act="linkdz" title="design aprovado? cria a tarefa de Entrega linkada, com o mockup e o DESIGN.md anexados como referência">${IC.cright} criar entrega deste design</button>`:'';
     const merged=t.status==='merged'?`<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`:'';
     const primary=merge||start;
-    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${primary}<div class="acts foot1">${linkdz}${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
+    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${linkdz}${primary}<div class="acts foot1">${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
   })();
 
   el.innerHTML = `<div class="det">
@@ -3200,16 +3199,18 @@ let ntLinkedTo=null; // id da tarefa de origem quando esta é uma correção lin
 // design aprovado → cria a tarefa de ENTREGA linkada, com os artefatos do
 // design (mockup/DESIGN.md) anexados como referência obrigatória.
 async function openFromDesign(t){
-  const arts = await loadArtifacts(t.id, t.status).catch(()=>[]) || [];
-  await openNewTask();
-  setNtMode('build');
-  ntLinkedTo=t.id; renderNtLink();
-  document.getElementById('ntTitle').value = t.title.replace(/^design[:\s—-]*/i,'').trim() || t.title;
-  document.getElementById('ntObj').value = `Implementar o design aprovado na tarefa "${t.title}". Os anexos em .cardume/refs/ (mockup.html e DESIGN.md) são a REFERÊNCIA OBRIGATÓRIA: siga fielmente as telas, os estados (vazio/carregando/erro) e as decisões documentadas. Divergiu do mockup? Pergunte antes.`;
-  ntRefs = (arts||[]).filter(a=>/\.(html|md|png|jpe?g|webp)$/i.test(a.name)).map(a=>state.repo+'/.cardume/artifacts/'+t.id+'/'+a.name);
-  renderNtRefs();
-  document.getElementById('ntArtProof').checked=true;
-  document.getElementById('ntArtTests').checked=true;
+  try{
+    let arts=[]; try{ arts = await loadArtifacts(t.id, t.status) || []; }catch(_){ arts=[]; }
+    await openNewTask();
+    setNtMode('build');
+    ntLinkedTo=t.id; renderNtLink();
+    document.getElementById('ntTitle').value = t.title.replace(/^design[:\s—-]*/i,'').trim() || t.title;
+    document.getElementById('ntObj').value = `Implementar o design aprovado na tarefa "${t.title}". Os anexos em .cardume/refs/ (mockup.html e DESIGN.md) são a REFERÊNCIA OBRIGATÓRIA: siga fielmente as telas, os estados (vazio/carregando/erro) e as decisões documentadas. Divergiu do mockup? Pergunte antes.`;
+    ntRefs = (arts||[]).filter(a=>/\.(html|md|png|jpe?g|webp)$/i.test(a.name)).map(a=>state.repo+'/.cardume/artifacts/'+t.id+'/'+a.name);
+    renderNtRefs();
+    document.getElementById('ntArtProof').checked=true;
+    document.getElementById('ntArtTests').checked=true;
+  }catch(e){ alert('Não consegui montar a entrega a partir do design:\n'+(e&&e.message||e)); console.error('openFromDesign:', e); }
 }
 async function openLinkedFix(t){
   await openNewTask();
@@ -3287,8 +3288,11 @@ async function sendAiMsg(){
 function fillFromSpec(spec){
   document.getElementById('ntTitle').value=spec.title||'';
   document.getElementById('ntObj').value=spec.objective||'';
-  ntDel=(spec.deliverables||[]).filter(Boolean); ntReq=(spec.requirements||[]).filter(Boolean);
-  renderNtList('ntDeliverables',ntDel); renderNtList('ntRequirements',ntReq);
+  // entregáveis eram redundantes com requisitos — tudo vira REQUISITO (cobrado com prova)
+  ntDel=[];
+  const reqSet=new Set([...(spec.requirements||[]), ...(spec.deliverables||[])].map(x=>String(x).trim()).filter(Boolean));
+  ntReq=[...reqSet];
+  renderNtList('ntRequirements',ntReq);
   document.getElementById('ntOwns').value=(spec.owns||[]).join(', ');
   document.getElementById('ntOff').value=(spec.off||[]).join(', ');
   document.getElementById('aiAssist').style.display='none';
@@ -3428,8 +3432,9 @@ async function plCreate(){
   const payload={ start:true, title:plFields.title, workflow:null, agents:null,
     engine:(plFields.engine||'claude'), approval:'auto',
     owns:(plFields.owns||[]).join(', ')||null, off:(plFields.off||[]).join(', ')||null,
-    objective:plFields.objective||null, deliverables:(plFields.deliverables||[]).filter(Boolean),
-    requirements:(plFields.requirements||[]).filter(Boolean), doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof, tests:!!arts.tests, autoPr:'ask', prBase:null,
+    objective:plFields.objective||null, deliverables:[],
+    // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova
+    requirements:[...new Set([...(plFields.requirements||[]), ...(plFields.deliverables||[])].map(x=>String(x).trim()).filter(Boolean))], doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof, tests:!!arts.tests, autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null };
   try{ await invoke('new_task', payload); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
@@ -3637,7 +3642,6 @@ document.getElementById("ntImport").onclick = importTaskMd;
 document.getElementById("ntRefAdd").onclick = pickRefs;
 document.getElementById("ntDzRefAdd").onclick = ()=>pickRefsInto(ntDzRefs, renderDzRefs);
 document.getElementById("ntFixRefAdd").onclick = ()=>pickRefsInto(ntFixRefs, renderFixRefs);
-document.getElementById("ntDelAdd").onclick = ()=>{ ntDel.push(""); renderNtList("ntDeliverables",ntDel); };
 document.getElementById("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
 document.getElementById("ntOverlay").addEventListener("click", e=>{ if(e.target.id==="ntOverlay") closeNewTask(); });
 document.getElementById("artClose").onclick = closeArtifact;

@@ -1349,7 +1349,26 @@ fn new_task(
     let repo = repo_of(&state)?;
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
     // o processo desta tarefa e permitir pausar/abortar.
-    let id = slug_id(&title);
+    // Se o id já existe (ex.: entrega criada a partir de um design com o MESMO
+    // título), sufixa -2, -3… — senão o INSERT do CLI falha silenciosamente.
+    let mut id = slug_id(&title);
+    {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db {
+            if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
+                let base = id.clone();
+                let mut n = 1;
+                while conn
+                    .query_row("SELECT 1 FROM task WHERE id=?1", params![id], |_| Ok(()))
+                    .is_ok()
+                {
+                    n += 1;
+                    id = format!("{}-{}", base, n);
+                }
+            }
+        }
+    }
     let mut args = vec![
         "--disable-warning=ExperimentalWarning".to_string(),
         cli_path(&repo),
