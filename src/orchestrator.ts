@@ -96,8 +96,94 @@ export class Orchestrator {
     return this.store.getTask(spec.id)!;
   }
 
+  // ---------------------------------------------------------------------------
+  // FILA DE TRABALHO: uma tarefa roda UM turno por vez. Pedidos feitos enquanto
+  // o agente está ocupado (falar, revisar PR, entregáveis) NÃO se perdem nem
+  // atropelam o turno atual — entram na fila (com aviso no chat) e rodam
+  // automaticamente quando o turno terminar. O "lock" é o busy_pid no banco,
+  // validado com kill(pid, 0) — processo morto não segura fila.
+  // ---------------------------------------------------------------------------
+
+  /** true se OUTRO processo vivo está rodando um turno desta tarefa. */
+  private taskBusy(taskId: string): boolean {
+    const pid = this.store.busyPid(taskId);
+    if (!pid || pid === process.pid) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false; // PID morto — lock obsoleto
+    }
+  }
+
+  private queueLabel(kind: string, payload: Record<string, unknown>): string {
+    if (kind === "talk") return `mensagem — "${String(payload.message ?? "").slice(0, 80)}"`;
+    if (kind === "deliver") return `gerar ${payload.kind === "all" ? "todos os entregáveis" : `entregável (${payload.kind})`}`;
+    if (kind === "rework") return "revisar/endereçar comentários do PR (rework)";
+    return kind;
+  }
+
+  /**
+   * Executa `fn` segurando o lock da tarefa; se o agente já está ocupado,
+   * ENFILEIRA o pedido (evento visível no chat) em vez de rodar por cima.
+   */
+  private async withTaskLock(taskId: string, kind: string, payload: Record<string, unknown>, fn: () => Promise<void>): Promise<void> {
+    if (this.taskBusy(taskId)) {
+      this.store.queueAdd(taskId, kind, payload);
+      const pos = this.store.queueCount(taskId);
+      this.store.addEvent(
+        taskId,
+        "Sistema",
+        "note",
+        `⏳ pedido NA FILA (${pos}º): ${this.queueLabel(kind, payload)} — o agente está no meio de um turno; executo automaticamente assim que ele terminar.`,
+        true,
+      );
+      return;
+    }
+    this.store.setBusyPid(taskId, process.pid);
+    try {
+      await fn();
+    } finally {
+      this.store.setBusyPid(taskId, null);
+      await this.drainQueue(taskId);
+    }
+  }
+
+  /** Roda os pedidos enfileirados, em ordem, até esvaziar (ou outro processo assumir). */
+  private async drainQueue(taskId: string): Promise<void> {
+    for (;;) {
+      if (this.taskBusy(taskId)) return; // outro processo pegou o lock — ele drena
+      const item = this.store.queueNext(taskId);
+      if (!item) return;
+      this.store.queueDone(item.id);
+      let p: Record<string, unknown> = {};
+      try { p = JSON.parse(item.payload || "{}"); } catch { /* payload corrompido — segue vazio */ }
+      this.store.addEvent(taskId, "Sistema", "note", `▶ executando pedido da fila: ${this.queueLabel(item.kind, p)}`, true);
+      this.store.setBusyPid(taskId, process.pid);
+      try {
+        if (item.kind === "talk") await this.talkToAgentInner(taskId, String(p.message ?? ""), !!p.asReq, p.agent ? String(p.agent) : undefined);
+        else if (item.kind === "deliver") await this.deliverArtifactInner(taskId, (p.kind as "doc" | "tests" | "proof" | "all") ?? "all");
+        else if (item.kind === "rework") await this.reworkTaskInner(taskId);
+      } catch (err) {
+        this.store.addEvent(taskId, "Sistema", "error", `pedido da fila falhou: ${(err as Error).message}`, false);
+      } finally {
+        this.store.setBusyPid(taskId, null);
+      }
+    }
+  }
+
   /** Roda a equipe da tarefa: cada papel em sequência, na mesma worktree. */
   async runTask(taskId: string): Promise<void> {
+    this.store.setBusyPid(taskId, process.pid);
+    try {
+      await this.runTaskInner(taskId);
+    } finally {
+      this.store.setBusyPid(taskId, null);
+      await this.drainQueue(taskId);
+    }
+  }
+
+  private async runTaskInner(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -475,6 +561,10 @@ export class Orchestrator {
    * produz o arquivo em .cardume/artifacts/ — sem reimplementar nada.
    */
   async deliverArtifact(taskId: string, kind: "doc" | "tests" | "proof" | "all"): Promise<void> {
+    await this.withTaskLock(taskId, "deliver", { kind }, () => this.deliverArtifactInner(taskId, kind));
+  }
+
+  private async deliverArtifactInner(taskId: string, kind: "doc" | "tests" | "proof" | "all"): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida; não dá pra gerar entregável");
@@ -539,6 +629,10 @@ export class Orchestrator {
    * rework, que re-roda o time inteiro. Coleta artefatos ao fim.
    */
   async talkToAgent(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
+    await this.withTaskLock(taskId, "talk", { message, asReq, agent: agentName }, () => this.talkToAgentInner(taskId, message, asReq, agentName));
+  }
+
+  private async talkToAgentInner(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida");
@@ -599,6 +693,10 @@ export class Orchestrator {
    * --resume na worktree existente, recommitando e refazendo o review.
    */
   async reworkTask(taskId: string): Promise<void> {
+    await this.withTaskLock(taskId, "rework", {}, () => this.reworkTaskInner(taskId));
+  }
+
+  private async reworkTaskInner(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa já mergeada — a worktree foi removida, não dá pra refazer");
@@ -624,7 +722,7 @@ export class Orchestrator {
     // reviewer re-revisa, docs re-atualiza. O stepper anda por todas as etapas.
     this.store.setDoneRoles(taskId, 0);
     this.store.setStatus(taskId, "running");
-    await this.runTask(taskId);
+    await this.runTaskInner(taskId); // Inner: o lock/fila já é do chamador
     notify("Constellation", "Ajuste aplicado (time inteiro) — pronto para review", task.title);
   }
 

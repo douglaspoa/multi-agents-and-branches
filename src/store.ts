@@ -105,6 +105,15 @@ export class Store {
         created_at INTEGER NOT NULL,
         applied_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS work_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        kind TEXT NOT NULL,                   -- talk | deliver | rework
+        payload TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'queued', -- queued | done
+        created_at INTEGER NOT NULL,
+        done_at INTEGER
+      );
       CREATE TABLE IF NOT EXISTS cost (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT NOT NULL,
@@ -124,6 +133,7 @@ export class Store {
       "ALTER TABLE task ADD COLUMN sort_order INTEGER",
       "ALTER TABLE task ADD COLUMN done_roles INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE event ADD COLUMN role TEXT",
+      "ALTER TABLE task ADD COLUMN busy_pid INTEGER",
     ]) {
       try {
         this.db.exec(stmt);
@@ -322,6 +332,40 @@ export class Store {
   }
 
   // ---------- instruções do humano no meio da execução ----------
+  // ---- FILA DE TRABALHO: pedidos feitos enquanto o agente está ocupado ----
+  // O processo que roda um turno grava seu PID em task.busy_pid; pedidos novos
+  // checam a vida do PID (kill 0) — se vivo, entram na fila e rodam ao final.
+  setBusyPid(taskId: string, pid: number | null): void {
+    this.db.prepare(`UPDATE task SET busy_pid = ? WHERE id = ?`).run(pid, taskId);
+  }
+
+  busyPid(taskId: string): number | null {
+    const row = this.db.prepare(`SELECT busy_pid FROM task WHERE id = ?`).get(taskId) as { busy_pid: number | null } | undefined;
+    return row?.busy_pid ?? null;
+  }
+
+  queueAdd(taskId: string, kind: string, payload: unknown): number {
+    const res = this.db
+      .prepare(`INSERT INTO work_queue (task_id, kind, payload, status, created_at) VALUES (?, ?, ?, 'queued', ?)`)
+      .run(taskId, kind, JSON.stringify(payload ?? {}), Date.now());
+    return Number(res.lastInsertRowid);
+  }
+
+  queueNext(taskId: string): { id: number; kind: string; payload: string } | undefined {
+    return this.db
+      .prepare(`SELECT id, kind, payload FROM work_queue WHERE task_id = ? AND status = 'queued' ORDER BY id LIMIT 1`)
+      .get(taskId) as { id: number; kind: string; payload: string } | undefined;
+  }
+
+  queueDone(id: number): void {
+    this.db.prepare(`UPDATE work_queue SET status = 'done', done_at = ? WHERE id = ?`).run(Date.now(), id);
+  }
+
+  queueCount(taskId: string): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM work_queue WHERE task_id = ? AND status = 'queued'`).get(taskId) as { n: number };
+    return row.n;
+  }
+
   addInstruction(taskId: string, text: string): number {
     const res = this.db
       .prepare(`INSERT INTO instruction (task_id, text, status, created_at) VALUES (?, ?, 'open', ?)`)
