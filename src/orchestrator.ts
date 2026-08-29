@@ -563,8 +563,8 @@ export class Orchestrator {
     let failed = false;
     try {
       const chatRule =
-        "\n\n[CONVERSA CONTÍNUA] Se você precisar de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (inclua options com alternativas quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno. NÃO finalize o turno com uma pergunta em texto. Só finalize quando o pedido estiver concluído (ou após eu responder).";
-      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile };
+        "\n\n[CONVERSA CONTÍNUA — NÃO FINALIZE SOZINHO] (1) Precisando de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (com options quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno; NUNCA finalize com pergunta em texto. (2) Ao CONCLUIR o pedido, também NÃO finalize: chame ask_human dizendo o que fez e perguntando se quero mais algum ajuste (ex.: options ['Está ótimo, pode finalizar','Quero ajustar algo']) e AGUARDE. (3) Só finalize de verdade quando eu mandar (ex.: 'pode finalizar') ou quando o sistema avisar que estou inativo — aí encerre com um resumo educado.";
+      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20 };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
         : { ...base, promptOverride: `Esta tarefa JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };

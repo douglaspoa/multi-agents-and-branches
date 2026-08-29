@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -11,6 +12,21 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
  * o app é lançado via LaunchServices (LSEnvironment). Ordem: CARDUME_CLAUDE →
  * ao lado do node em uso (mesma pasta bin do nvm/homebrew) → "claude" no PATH.
  */
+/** Há pergunta (ask_human) aberta pra esta tarefa? Esperar o humano NÃO é inatividade. */
+function hasOpenAsk(dbFile: string, taskId: string): boolean {
+  try {
+    const db = new DatabaseSync(dbFile);
+    try {
+      const row = db.prepare("SELECT COUNT(*) AS n FROM pending WHERE task_id = ? AND status = 'open'").get(taskId) as { n?: number } | undefined;
+      return !!row && Number(row.n) > 0;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
   try {
@@ -121,6 +137,7 @@ export class ClaudeEngine implements AgentEngine {
               CARDUME_DB: input.dbFile,
               CARDUME_TASK: input.spec.id,
               CARDUME_AGENT: input.agentName,
+              CARDUME_ASK_TIMEOUT_MIN: String(input.askTimeoutMin ?? 0),
             },
           },
         },
@@ -172,6 +189,8 @@ export class ClaudeEngine implements AgentEngine {
     const resetIdle = () => {
       clearTimeout(killTimer);
       killTimer = setTimeout(() => {
+        // bloqueado numa pergunta ao humano → não é inatividade do agente
+        if (hasOpenAsk(input.dbFile, input.spec.id)) { resetIdle(); return; }
         queue.push({ type: "error", text: `inatividade de ${idleMin}min — agente encerrado`, status: "error" });
         try {
           child.kill("SIGTERM");

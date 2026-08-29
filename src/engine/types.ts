@@ -37,6 +37,8 @@ export interface RunInput {
   resume?: { sessionId: string; instruction: string };
   /** Prompt customizado pra um turno fresco (ex.: gerar um entregável sob demanda). */
   promptOverride?: string;
+  /** Minutos de INATIVIDADE do humano pra o ask_human encerrar educadamente (0 = espera pra sempre). */
+  askTimeoutMin?: number;
 }
 
 /**

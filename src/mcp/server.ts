@@ -60,9 +60,12 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     const id = store.addPending(TASK, AGENT, "question", question, options);
     store.addEvent(TASK, AGENT, "note", `perguntou ao humano: ${question}`, undefined);
     notify("Cardume", question, `${AGENT} precisa de você`);
-    // bloqueia até a UI responder (poll no SQLite). O teto fica abaixo do
-    // timeout do engine (20min) para não seguir esperando um agente já morto.
-    const deadline = Date.now() + 18 * 60 * 1000;
+    // Bloqueia até a UI responder (poll no SQLite).
+    // CARDUME_ASK_TIMEOUT_MIN > 0 → janela de INATIVIDADE (usada no chat): sem
+    // resposta em N min, encerra EDUCADAMENTE (não é erro). 0/ausente → espera
+    // PRA SEMPRE (perguntas do pipeline aguardam o humano o tempo que for).
+    const idleMin = Number(process.env.CARDUME_ASK_TIMEOUT_MIN || "0");
+    const deadline = idleMin > 0 ? Date.now() + idleMin * 60 * 1000 : Number.POSITIVE_INFINITY;
     while (Date.now() < deadline) {
       const p = store.getPending(id);
       if (p && p.status === "answered") {
@@ -71,7 +74,12 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
       }
       await sleep(400);
     }
-    return { text: "(sem resposta do humano — timeout)", isError: true };
+    // inatividade: limpa a pergunta na UI e manda o agente fechar com resumo
+    store.answerPending(id, "(sem resposta — inatividade)");
+    store.addEvent(TASK, AGENT, "note", `sem resposta do humano há ${idleMin}min — encerrando o turno com resumo`, true);
+    return {
+      text: `(O humano está inativo há ${idleMin} minutos. ENCERRE o turno AGORA de forma educada: resuma em poucas linhas o que foi feito e o que ficou pendente. NÃO invente uma resposta para a pergunta e NÃO tome a decisão que dependia dele.)`,
+    };
   }
 
   if (name === "claim") {
