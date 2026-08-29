@@ -5,7 +5,7 @@ import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
-import { run } from "./util/run.ts";
+import { ghBin, run } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
@@ -258,7 +258,7 @@ export class Orchestrator {
         `## O quê\n${spec.objective || spec.title}\n\n` +
         ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
         `_Aberto automaticamente pelo Constellation (sem pendências nos requisitos)._`;
-      const { stdout } = await run("gh", ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree });
+      const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree });
       const url = stdout.trim().split("\n").pop() ?? "";
       this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
       notify("Constellation", "PR aberto ✓", task.title);
@@ -277,14 +277,14 @@ export class Orchestrator {
     const repo = this.git.repo;
     let meta: { number?: number; title?: string; url?: string; baseRefName?: string } = {};
     try {
-      const { stdout } = await run("gh", ["pr", "view", pr, "--json", "number,title,url,baseRefName"], { cwd: repo });
+      const { stdout } = await run(ghBin(), ["pr", "view", pr, "--json", "number,title,url,baseRefName"], { cwd: repo });
       meta = JSON.parse(stdout);
     } catch (e) {
       throw new Error(`não consegui ler o PR (${pr}). Confirme o link/número e o gh autenticado.\n${(e as Error).message}`);
     }
     let diff = "";
     try {
-      diff = (await run("gh", ["pr", "diff", pr], { cwd: repo })).stdout;
+      diff = (await run(ghBin(), ["pr", "diff", pr], { cwd: repo })).stdout;
     } catch (e) {
       throw new Error(`gh pr diff falhou: ${(e as Error).message}`);
     }

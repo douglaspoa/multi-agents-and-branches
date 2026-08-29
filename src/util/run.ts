@@ -31,3 +31,13 @@ export function run(
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+import { existsSync } from "node:fs";
+/** Acha o `gh` sem depender do PATH (o app pode ser lançado com PATH mínimo). */
+export function ghBin(): string {
+  if (process.env.CARDUME_GH) return process.env.CARDUME_GH;
+  for (const cand of ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]) {
+    if (existsSync(cand)) return cand;
+  }
+  return "gh";
+}

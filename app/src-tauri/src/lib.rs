@@ -24,6 +24,21 @@ fn node_bin() -> String {
 
 /// Acha o binário do `claude` sem depender do PATH (que pode estar stale via
 /// LSEnvironment): CARDUME_CLAUDE → ao lado do node → "claude" no PATH.
+/// Acha o `gh` sem depender do PATH (LaunchServices pode lançar com PATH mínimo).
+fn gh_bin() -> String {
+    if let Ok(g) = std::env::var("CARDUME_GH") {
+        if !g.is_empty() {
+            return g;
+        }
+    }
+    for cand in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"] {
+        if std::path::Path::new(cand).exists() {
+            return cand.to_string();
+        }
+    }
+    "gh".to_string()
+}
+
 fn claude_bin() -> String {
     if let Ok(c) = std::env::var("CARDUME_CLAUDE") {
         if !c.is_empty() {
@@ -623,12 +638,13 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     let (branch, base): (String, String) = conn
         .query_row("SELECT branch, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .map_err(|e| e.to_string())?;
+    let mb = merge_base_ref(&repo, &base, &branch);
     let out = Command::new("git")
         .arg("-C")
         .arg(&repo)
         .args([
             "log",
-            &format!("{base}..{branch}"),
+            &format!("{mb}..{branch}"),
             "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad",
             "--date=short",
         ])
@@ -1677,10 +1693,10 @@ fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, Stri
 /// worktree, preferindo origin/<base>. Sem isso, se o agente mergear
 /// origin/main na branch (ou a main local estiver defasada), o diff contra a
 /// base local mostra TODOS os arquivos do merge como se fossem da tarefa.
-fn task_diff_base(wt: &PathBuf, base: &str) -> String {
+fn merge_base_ref(dir: &PathBuf, base: &str, tip: &str) -> String {
     let clean = base.trim_start_matches("origin/");
     for cand in [format!("origin/{clean}"), clean.to_string()] {
-        if let Ok(o) = Command::new("git").arg("-C").arg(wt).args(["merge-base", &cand, "HEAD"]).output() {
+        if let Ok(o) = Command::new("git").arg("-C").arg(dir).args(["merge-base", &cand, tip]).output() {
             if o.status.success() {
                 let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 if !s.is_empty() {
@@ -1690,6 +1706,9 @@ fn task_diff_base(wt: &PathBuf, base: &str) -> String {
         }
     }
     base.to_string()
+}
+fn task_diff_base(wt: &PathBuf, base: &str) -> String {
+    merge_base_ref(wt, base, "HEAD")
 }
 
 fn safe_rel(path: &str) -> Result<(), String> {
@@ -1852,7 +1871,7 @@ fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String>
         .map_err(|e| e.to_string())
 }
 fn repo_slug(repo: &PathBuf) -> Result<String, String> {
-    let mut cmd = Command::new("gh");
+    let mut cmd = Command::new(gh_bin());
     cmd.args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).current_dir(repo);
     let out = output_timeout(cmd, 10)?;
     if !out.status.success() {
@@ -1914,7 +1933,7 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     if !push.status.success() {
         return Err(format!("git push falhou: {}", String::from_utf8_lossy(&push.stderr)));
     }
-    let out = Command::new("gh")
+    let out = Command::new(gh_bin())
         .args(["pr", "create", "--head", &branch, "--base", &base, "--title", &title, "--body", &body])
         .current_dir(&repo)
         .output()
@@ -1922,7 +1941,7 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if err.contains("already exists") {
-            let u = Command::new("gh").args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).current_dir(&repo).output().map_err(|e| e.to_string())?;
+            let u = Command::new(gh_bin()).args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).current_dir(&repo).output().map_err(|e| e.to_string())?;
             if u.status.success() {
                 return Ok(String::from_utf8_lossy(&u.stdout).trim().to_string());
             }
@@ -1960,7 +1979,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
     let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), comments: vec![] };
-    let mut vcmd = Command::new("gh");
+    let mut vcmd = Command::new(gh_bin());
     vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,comments"]).current_dir(&repo);
     // rede caída / gh pendurado → devolve "sem PR" em vez de travar/errar a UI
     let view = match output_timeout(vcmd, 12) {
@@ -1987,7 +2006,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     }
     if number > 0 {
         if let Ok(slug) = repo_slug(&repo) {
-            let mut acmd = Command::new("gh");
+            let mut acmd = Command::new(gh_bin());
             acmd.args(["api", &format!("repos/{}/pulls/{}/comments", slug, number), "--paginate"]).current_dir(&repo);
             if let Ok(o) = output_timeout(acmd, 15) {
                 if o.status.success() {
@@ -2027,7 +2046,7 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
     let m = match method.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
-    let out = Command::new("gh")
+    let out = Command::new(gh_bin())
         .args(["pr", "merge", &branch, m, "--delete-branch"])
         .current_dir(&repo)
         .output()
