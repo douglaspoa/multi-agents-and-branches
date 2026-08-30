@@ -1777,6 +1777,33 @@ struct AiChat {
     session_id: String,
 }
 
+/// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
+#[tauri::command(async)]
+fn ai_title(text: String) -> Result<String, String> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err("escreva a descrição primeiro".to_string());
+    }
+    let desc: String = t.chars().take(1500).collect();
+    let prompt = format!(
+        "Gere um TÍTULO curto (máximo 60 caracteres) em português para uma tarefa de desenvolvimento, no estilo de issue: verbo no infinitivo + objeto específico (ex.: \"Adicionar autocomplete nos filtros da home\"). Responda SOMENTE o título — sem aspas, sem ponto final, sem explicação.\n\nDescrição da tarefa:\n{desc}"
+    );
+    let out = Command::new(claude_bin())
+        .args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    let title = s.trim().trim_matches('"').trim().chars().take(80).collect::<String>();
+    if title.is_empty() {
+        return Err("não veio título — tente de novo".to_string());
+    }
+    Ok(title)
+}
+
 #[tauri::command(async)]
 fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
@@ -2472,6 +2499,7 @@ pub fn run() {
             reorder_tasks,
             repo_remote,
             ai_chat,
+            ai_title,
             open_url,
             open_artifact,
             task_files,
