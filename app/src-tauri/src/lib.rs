@@ -1898,6 +1898,15 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
     if art_dir.is_dir() {
         walk_artifacts(&art_dir, &art_dir, &mut files);
     }
+    // Anexos/referências da tarefa (mockup do design, specs) — também editáveis.
+    let refs_dir = wt.join(".cardume").join("refs");
+    if refs_dir.is_dir() {
+        let before = files.len();
+        walk_artifacts(&refs_dir, &refs_dir, &mut files);
+        for f in files.iter_mut().skip(before) {
+            f.path = f.path.replace(".cardume/artifacts/", ".cardume/refs/");
+        }
+    }
     Ok(files)
 }
 

@@ -980,6 +980,7 @@
 
   /* bus */
   .bus{display:flex;align-items:center;gap:12px;padding:7px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:12px}
+  #busSummary{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
   .bus .live{background:var(--accent);color:var(--on-accent);padding:3px 9px;font-weight:700}
   .bus .warn{color:var(--warn)}
   .sep{width:1px;height:14px;background:var(--border)}
@@ -1770,7 +1771,17 @@ async function fwLiveUpdate(){
   const asking=pendingOf(t.id); const working=(ACTIVE_ST.has(t.status)||t.status==='thinking')&&!asking.length;
   if(sub) sub.textContent=asking.length?'esperando sua resposta':working?'trabalhando…':'mesma sessão — ele lembra o que fez';
   const send=document.getElementById('fwSend'); if(send) send.textContent=asking.length?'responder':working?'parar e enviar':'enviar';
+  // árvore de arquivos AO VIVO: o agente cria/edita → aparece sem fechar o editor
+  if(!fwFilesAt || Date.now()-fwFilesAt>4000){
+    fwFilesAt=Date.now();
+    invoke('task_files',{ taskId:t.id }).then(f=>{
+      f=f||[];
+      const s=f.map(x=>x.path+':'+x.add+':'+x.del).join('|');
+      if(s!==fwFilesSig){ fwFilesSig=s; fwFiles=f; renderWorkspace(); }
+    }).catch(()=>{});
+  }
 }
+let fwFilesAt=0, fwFilesSig='';
 let fwChatWide=(lsGet('fwChatWide')==='1');
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
@@ -1785,7 +1796,7 @@ function renderWorkspace(){
   const canDeliv=dels.length>0;
   const body = fwFiles.length
     ? (fwGroupMode==='deliverable'&&canDeliv ? fwDelivHtml(fwFiles, dels) : `<div class="fwtreebody">${fwTreeHtml(fwBuildTree(fwFiles),0)}</div>`)
-    : '<div class="dim" style="padding:8px;font-size:11.5px">nenhum arquivo alterado</div>';
+    : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos (.cardume/refs) e os artefatos aparecem aqui ao vivo</div>';
   tree.innerHTML=`<div class="fwtreeh">Arquivos desta tarefa</div>`+
     (canDeliv?`<div class="fwgtoggle"><button class="fwgbtn${fwGroupMode==='folder'?' on':''}" data-fwg="folder">Pastas</button><button class="fwgbtn${fwGroupMode==='deliverable'?' on':''}" data-fwg="deliverable">Entregáveis</button></div>`:'')+
     body+
@@ -3120,7 +3131,11 @@ function renderBus(){
   const totUsd=(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0);
   const totTok=(state.costs||[]).reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0);
   if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">Σ ${fmtUsd(totUsd)} · ${fmtTok(totTok)} tok</span>`);
-  for(const c of yields) parts.push(`<span class="warn">⚠ ${esc(c.agent)} cedeu ${esc(c.path)} → ${esc(c.yieldedTo)}</span>`);
+  // cessões: dedup (o mesmo arquivo pode ceder N vezes) + só o basename + cap
+  const seen=new Set(); const uniq=[];
+  for(const c of yields){ const k=c.agent+'|'+c.path+'|'+c.yieldedTo; if(!seen.has(k)){ seen.add(k); uniq.push(c); } }
+  for(const c of uniq.slice(0,2)) parts.push(`<span class="warn">⚠ ${esc(c.agent)} cedeu ${esc((c.path||'').split('/').pop())} → ${esc(c.yieldedTo)}</span>`);
+  if(uniq.length>2) parts.push(`<span class="warn">+${uniq.length-2} cessões</span>`);
   el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
 }
 
