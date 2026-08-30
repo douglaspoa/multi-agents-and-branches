@@ -2100,6 +2100,29 @@ fn repo_slug(repo: &PathBuf) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Commita o que estiver solto na worktree e faz push da branch (atualiza o PR).
+#[tauri::command(async)]
+fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> {
+    let (wt, _base) = task_wt_base(&state, &task_id)?;
+    let _ = Command::new("git").arg("-C").arg(&wt).args(["add", "-A"]).output();
+    let st = Command::new("git").arg("-C").arg(&wt).args(["status", "--porcelain"]).output().map_err(|e| e.to_string())?;
+    let mut committed = false;
+    if !String::from_utf8_lossy(&st.stdout).trim().is_empty() {
+        let c = Command::new("git").arg("-C").arg(&wt).args(["commit", "-m", "ajustes via Constellation"]).output().map_err(|e| e.to_string())?;
+        if !c.status.success() {
+            return Err(format!("commit falhou: {}", String::from_utf8_lossy(&c.stderr)));
+        }
+        committed = true;
+    }
+    let br = Command::new("git").arg("-C").arg(&wt).args(["rev-parse", "--abbrev-ref", "HEAD"]).output().map_err(|e| e.to_string())?;
+    let branch = String::from_utf8_lossy(&br.stdout).trim().to_string();
+    let p = Command::new("git").arg("-C").arg(&wt).args(["push", "-u", "origin", &branch]).output().map_err(|e| e.to_string())?;
+    if !p.status.success() {
+        return Err(format!("push falhou: {}", String::from_utf8_lossy(&p.stderr)));
+    }
+    Ok(format!("{}push da {} feito ✓", if committed { "commit + " } else { "" }, branch))
+}
+
 /// Abre um artefato da tarefa no app padrão do sistema (ex.: mockup.html no navegador).
 #[tauri::command(async)]
 fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Result<(), String> {
@@ -2208,6 +2231,12 @@ struct PrComment {
     author: String,
     body: String,
     is_bot: bool,
+    /// id do review comment (inline) — permite responder via gh api …/replies
+    id: Option<i64>,
+    /// este comentário é uma RESPOSTA a outro (thread)
+    in_reply_to: Option<i64>,
+    /// já tem resposta na thread (endereçado)
+    answered: bool,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2249,7 +2278,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
                 continue;
             }
             let bot = is_bot(&author);
-            comments.push(PrComment { path: None, line: None, author, body, is_bot: bot });
+            comments.push(PrComment { path: None, line: None, author, body, is_bot: bot, id: None, in_reply_to: None, answered: false });
         }
     }
     if number > 0 {
@@ -2269,11 +2298,20 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
                                 let path = c["path"].as_str().map(|s| s.to_string());
                                 let line = c["line"].as_i64().or_else(|| c["original_line"].as_i64());
                                 let bot = is_bot(&author);
-                                comments.push(PrComment { path, line, author, body, is_bot: bot });
+                                comments.push(PrComment { path, line, author, body, is_bot: bot, id: c["id"].as_i64(), in_reply_to: c["in_reply_to_id"].as_i64(), answered: false });
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+    // marca como RESPONDIDO todo comentário cuja thread tem resposta
+    let replied: std::collections::HashSet<i64> = comments.iter().filter_map(|c| c.in_reply_to).collect();
+    for c in comments.iter_mut() {
+        if let Some(cid) = c.id {
+            if replied.contains(&cid) {
+                c.answered = true;
             }
         }
     }
@@ -2321,17 +2359,37 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
     if !info.exists || info.comments.is_empty() {
         return Err("nenhum comentário de review pra endereçar".to_string());
     }
-    let mut text = String::from("Endereça os comentários de review do PR (aplique as correções pedidas):\n");
-    for c in &info.comments {
+    let repo = repo_of(&state)?;
+    let slug = repo_slug(&repo).unwrap_or_default();
+    // só o que ainda NÃO foi endereçado (nem é resposta de thread)
+    let open: Vec<&PrComment> = info.comments.iter().filter(|c| !c.answered && c.in_reply_to.is_none()).collect();
+    if open.is_empty() {
+        return Err("todos os comentários já têm resposta — nada a endereçar".to_string());
+    }
+    let mut text = format!("Endereça os comentários de review do PR #{} (aplique as correções pedidas):\n", info.number);
+    for c in &open {
         let loc = match (&c.path, c.line) {
             (Some(p), Some(l)) => format!("{p}:{l}"),
             (Some(p), None) => p.clone(),
             _ => "(conversa)".to_string(),
         };
         let snippet: String = c.body.replace('\n', " ").chars().take(300).collect();
-        text.push_str(&format!("- [{}] {}: {}\n", c.author, loc, snippet));
+        match c.id {
+            Some(id) => text.push_str(&format!("- [comment_id={id}] [{}] {loc}: {snippet}\n", c.author)),
+            None => text.push_str(&format!("- [conversa] [{}]: {snippet}\n", c.author)),
+        }
     }
-    let repo = repo_of(&state)?;
+    text.push_str(&format!(
+        "\nDEPOIS de aplicar TODAS as correções, FECHE O CICLO (obrigatório):\n\
+         1. Commit: git add -A && git commit -m \"fix: endereça comentários do PR #{num}\"\n\
+         2. Push: git push (o PR atualiza sozinho)\n\
+         3. RESPONDA cada comentário inline no GitHub, um a um, dizendo O QUE mudou (ou por que não mudou):\n\
+            gh api repos/{slug}/pulls/{num}/comments/<comment_id>/replies -f body=\"✔ <o que foi feito>\"\n\
+         4. Pros itens de (conversa), responda com: gh pr comment {num} --body \"...\"\n\
+         Sem commit + push + respostas o rework NÃO está completo.\n",
+        num = info.number,
+        slug = slug,
+    ));
     // enfileira como instrução e dispara o rework
     add_instruction(state, task_id.clone(), text)?;
     Command::new(node_bin())
@@ -2502,6 +2560,7 @@ pub fn run() {
             ai_title,
             open_url,
             open_artifact,
+            push_task,
             task_files,
             read_file,
             write_file,

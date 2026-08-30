@@ -1195,6 +1195,7 @@
       <b class="mono" id="fwTaskName">Arquivos & chat</b>
       <span class="fwsub" id="fwTaskBranch"></span>
       <span style="flex:1"></span>
+      <button class="btn primary sm" id="fwPush" title="commita o que estiver solto e faz push da branch — o PR atualiza na hora"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px"><path d="M8 12.5v-8M4.5 8L8 4.5 11.5 8" stroke-linecap="round" stroke-linejoin="round"/></svg> commit &amp; push</button>
       <button class="btn sm" id="fwClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
     </div>
     <div class="fwcols">
@@ -1369,6 +1370,8 @@ function detectNotifs(snap){
     for(const t of tasks){
       const prev=prevStatus[t.id];
       if(prev!==undefined && prev!==t.status){
+        // status mudou → commits/PR podem ter mudado (fim de turno commita)
+        commitsCache[t.id]=undefined; prCache[t.id]=undefined;
         if(t.status==='review') pushNotif('Pronta para review ✓', t.title);
         else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title);
         else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title);
@@ -1382,7 +1385,12 @@ function detectNotifs(snap){
   prevStatus={}; tasks.forEach(t=>prevStatus[t.id]=t.status);
   prevPending=new Set(pend.map(p=>p.id));
   notifReady=true;
+  // eventos novos numa tarefa → a lista de commits pode estar defasada
+  const top={};
+  for(const e of (snap.events||[])){ const k=e.taskId||e.task_id; if(k && e.id>(top[k]||0)) top[k]=e.id; }
+  for(const k in top){ if(prevEvTop[k]!==undefined && prevEvTop[k]!==top[k]) commitsCache[k]=undefined; prevEvTop[k]=top[k]; }
 }
+const prevEvTop={};
 async function refresh(){
   let snap;
   try{ snap = await invoke("snapshot"); }
@@ -1957,7 +1965,7 @@ async function fwSendText(taskId, text){
   try{
     const pend=pendingOf(t.id);
     if(pend.length){ await resolvePending(pend[0].id, text); }
-    else { if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){ } } await invoke('talk_task',{ taskId:t.id, message:text, asReq:false, agent: fwAgentSel }); }
+    else { if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){ } } await invoke('talk_task',{ taskId:t.id, message:text, asReq:false, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined; }
     artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; await refresh(); renderWorkspace();
   }catch(e){ alert('Falha ao enviar:\n'+e); }
 }
@@ -1978,9 +1986,9 @@ async function fwSendMsg(){
     } else if(ACTIVE_ST.has(t.status)||t.status==='thinking'){
       // trabalhando → para o turno atual e manda o novo pedido
       try{ await stopTask(t.id); }catch(_){ }
-      await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel });
+      await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     } else {
-      await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel });
+      await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     }
     artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined;
     lastSig=''; await refresh();
@@ -1988,6 +1996,16 @@ async function fwSendMsg(){
   finally{ inp.disabled=false; renderWorkspace(); const i=document.getElementById('fwInput'); if(i) i.focus(); }
 }
 document.getElementById('fwClose').onclick=closeWorkspace;
+document.getElementById('fwPush').onclick=async function(){
+  const b=this, t=fwTaskObj(); if(!t) return;
+  b.disabled=true; const o=b.innerHTML; b.textContent='enviando…';
+  try{
+    const msg=await invoke('push_task',{ taskId:t.id });
+    b.textContent='✓ '+msg;
+    prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig='';
+    setTimeout(()=>{ b.disabled=false; b.innerHTML=o; }, 4000);
+  }catch(e){ alert('Commit & push falhou:\n'+e); b.disabled=false; b.innerHTML=o; }
+};
 document.getElementById('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('fwOverlay').style.display!=='none'){ if(fwEditing){ fwEditing=false; renderWorkspace(); } else closeWorkspace(); } });
 // atualiza SÓ o "O que estou fazendo agora" ao vivo (não mexe no código/input)
@@ -2029,12 +2047,15 @@ function prBlock(t, full){
   }
   const dec=info.decision||'';
   const decBadge = dec==='APPROVED'?'<span class="prbadge ok">✓ aprovado</span>' : dec==='CHANGES_REQUESTED'?'<span class="prbadge chg">mudanças pedidas</span>' : dec==='REVIEW_REQUIRED'?'<span class="prbadge">aguardando review</span>' : '<span class="prbadge">sem review</span>';
-  const cmts=info.comments||[];
-  const cmHtml = cmts.length ? cmts.map(c=>`<div class="prcmt${c.isBot?' bot':''}"><div class="prcmt-h"><span class="prau">${esc(c.author)}${c.isBot?' <span class="botag">bot</span>':''}</span>${c.path?`<span class="prloc mono">${esc(c.path)}${c.line?':'+c.line:''}</span>`:'<span class="prloc">conversa</span>'}</div><div class="prcmt-b">${esc((c.body||'').slice(0,500))}</div></div>`).join('') : '<div class="dim" style="font-size:12px;padding:4px 2px">sem comentários ainda</div>';
+  const all=info.comments||[];
+  // threads: respostas não viram card próprio; o comentário-raiz respondido ganha ✔
+  const cmts=all.filter(c=>!c.inReplyTo);
+  const openCmts=cmts.filter(c=>!c.answered);
+  const cmHtml = cmts.length ? cmts.map(c=>`<div class="prcmt${c.isBot?' bot':''}${c.answered?' ok':''}"><div class="prcmt-h"><span class="prau">${esc(c.author)}${c.isBot?' <span class="botag">bot</span>':''}</span>${c.path?`<span class="prloc mono">${esc(c.path)}${c.line?':'+c.line:''}</span>`:'<span class="prloc">conversa</span>'}${c.answered?'<span class="prbadge ok">✔ respondido</span>':''}</div><div class="prcmt-b"${c.answered?' style="opacity:.55"':''}>${esc((c.body||'').slice(0,500))}</div></div>`).join('') : '<div class="dim" style="font-size:12px;padding:4px 2px">sem comentários ainda</div>';
   return `<div class="seclbl">Pull Request <span class="n">#${info.number}</span></div><div class="prbox">
     <div class="prrow"><button class="prlink mono" id="prLink" title="${escA(info.url)}">${IC.extlink} #${info.number} · ${esc((info.state||'').toLowerCase())}</button>${decBadge}<span class="grow"></span><button class="btn sm" id="prCopy" title="copiar link">copiar</button><button class="btn sm" id="prRefresh">atualizar</button></div>
     <div class="prcmts">${cmHtml}</div>
-    <div class="prrow" style="margin-top:10px">${cmts.length?`<button class="btn primary sm" id="prRework">${IC.ai} mandar o agente revisar</button>`:''}<span class="grow"></span><button class="btn sm" id="prMerge">${IC.merge} merge PR</button></div>
+    <div class="prrow" style="margin-top:10px">${openCmts.length?`<button class="btn primary sm" id="prRework">${IC.ai} corrigir ${openCmts.length} comentário${openCmts.length===1?'':'s'} em aberto</button>`:cmts.length?`<span class="dim" style="font-size:11.5px">✔ todos os comentários respondidos</span>`:''}<span class="grow"></span><button class="btn sm" id="prMerge">${IC.merge} merge PR</button></div>
   </div>`;
 }
 async function openPr(t){
@@ -2557,7 +2578,7 @@ async function setFlag(taskId, flag){
 }
 async function talkTask(taskId, message){
   const m=(message||'').trim(); if(!m) return;
-  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; lastSig=""; await refresh(); }
+  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; commitsCache[taskId]=undefined; prCache[taskId]=undefined; lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao conversar:\n"+e); }
 }
 async function stopTask(taskId){
@@ -3050,12 +3071,13 @@ function renderSide(){
     const start=t.status==='draft'?`<button class="btn primary sm wide" data-act="start">${IC.cright} iniciar</button>`:'';
     const rmlbl=(t.kind==='review'&&t.status==='review')?'concluir'
       :(t.status==='review'||t.status==='draft'||t.status==='aborted'||t.status==='error')?'descartar':'cancelar';
+    const wsPush=(t.kind!=='review'&&t.status==='review')?`<button class="btn sm ghost" data-act="wspush" title="abre o editor (arquivos · código · chat) com o botão de commit & push">⇡ revisar &amp; push</button>`:'';
     const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm ghost" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
     const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm ghost" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} correção</button>`:'';
     const linkdz=((t.branch||'').startsWith('design/')&&['review','merged','error','aborted'].includes(t.status))?`<button class="btn primary sm wide" data-act="linkdz" title="design aprovado? cria a tarefa de Entrega linkada, com o mockup e o DESIGN.md anexados como referência">${IC.cright} criar entrega deste design</button>`:'';
     const merged=t.status==='merged'?`<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`:'';
     const primary=merge||start;
-    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${linkdz}${primary}<div class="acts foot1">${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
+    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${linkdz}${primary}<div class="acts foot1">${wsPush}${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
   })();
 
   el.innerHTML = `<div class="det">
@@ -3085,6 +3107,7 @@ function renderSide(){
   el.querySelectorAll('[data-act="rerun"]').forEach(b=>b.onclick=()=>rerunTask(t.id));
   el.querySelectorAll('[data-act="linkfix"]').forEach(b=>b.onclick=()=>openLinkedFix(t));
   el.querySelectorAll('[data-act="linkdz"]').forEach(b=>b.onclick=()=>openFromDesign(t));
+  el.querySelectorAll('[data-act="wspush"]').forEach(b=>b.onclick=()=>openWorkspace(t.id));
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });

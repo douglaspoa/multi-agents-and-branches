@@ -681,7 +681,20 @@ export class Orchestrator {
       failed = true;
       this.store.addEvent(taskId, role.name, "error", (err as Error).message, false, role.role);
     }
-    if (!failed) await this.collectArtifacts(taskId, task.worktree, role.name);
+    if (!failed) {
+      await this.collectArtifacts(taskId, task.worktree, role.name);
+      // AJUSTE VIRA COMMIT: sem isso o chat termina e a branch/commits ficam
+      // defasados (mudança solta na worktree, invisível no Fluxo e no PR).
+      if (spec.kind !== "review") {
+        try {
+          if (await this.git.commitAll(task.worktree, `ajuste: ${message.slice(0, 60)}`)) {
+            const d = await this.git.diffStat(task.worktree, task.base);
+            this.store.setDiff(taskId, d.files, d.add, d.del);
+            this.store.addEvent(taskId, role.name, "note", "ajustes commitados na branch ✓ (use commit & push no editor pra atualizar o PR)", true, role.role);
+          }
+        } catch { /* worktree sem git ou nada a commitar */ }
+      }
+    }
     this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
     else notify("Constellation", `${role.name} respondeu`, task.title);
