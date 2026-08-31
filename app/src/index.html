@@ -2336,7 +2336,7 @@ function flowTaskCard(t){
   return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}<span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta"><span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;
@@ -2346,6 +2346,7 @@ const flowCommitsOpen=new Set(); // cards com a lista de commits expandida
 let flowStatus = 'all';   // all | active | review | merged | error
 let flowPeriod = 'all';   // all | today | week
 let flowAgent  = 'all';   // 'all' | nome do agente
+let flowType   = 'all';   // all | build | design | invest | fix | review
 let flowQuery  = '';      // busca por nome da tarefa
 let flowGroupBy= 'none';  // none | day
 let flowShowBlocked=false, flowShowClosed=false; // por padrão, escondidas do Fluxo
@@ -2368,11 +2369,22 @@ function inPeriod(t){
 // agentes de uma tarefa = líder + toda a equipe (papéis) — assim o filtro cobre "agente" e "equipe"
 function taskAgents(t){ const s=new Set((t.roles||[]).map(r=>r.name)); if(t.agent) s.add(t.agent); return [...s]; }
 function notHidden(t){ return (t.flag!=='blocked'||flowShowBlocked) && (t.flag!=='closed'||flowShowClosed); }
+// tipo da tarefa, derivado do kind/prefixo da branch
+function taskType(t){
+  if(t.kind==='review') return 'review';
+  const b=t.branch||'';
+  if(b.startsWith('design/')) return 'design';
+  if(b.startsWith('invest/')) return 'invest';
+  if(b.startsWith('fix/')) return 'fix';
+  return 'build';
+}
+const TYPE_PT={ build:'Entrega', design:'Design', invest:'Investigação', fix:'Fix', review:'Review' };
 function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
   return tasks.filter(t=>
     notHidden(t) &&
     (flowStatus==='all'||taskGroup(t)===flowStatus) &&
+    (flowType==='all'||taskType(t)===flowType) &&
     inPeriod(t) &&
     (flowAgent==='all'||taskAgents(t).includes(flowAgent)) &&
     (!q || (t.title||'').toLowerCase().includes(q))
@@ -2395,8 +2407,12 @@ function renderFlowFilters(){
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
   if(flowAgent!=='all' && !agents.includes(flowAgent)) flowAgent='all';
   const agOpts=['all',...agents].map(a=>`<option value="${escA(a)}"${flowAgent===a?' selected':''}>${a==='all'?'Todos os agentes':esc(a)}</option>`).join('');
+  const tyCount=k=>byPeriod.filter(t=>taskType(t)===k).length;
+  const tyOpts=[['all','Todos os tipos']].concat(['build','design','invest','fix','review'].filter(k=>tyCount(k)>0).map(k=>[k, TYPE_PT[k]+' ('+tyCount(k)+')']))
+    .map(([k,l])=>`<option value="${k}"${flowType===k?' selected':''}>${l}</option>`).join('');
   el.innerHTML =
     `<div class="ffchips">${stChips}</div>`+
+    `<select class="sel" id="ffType">${tyOpts}</select>`+
     `<select class="sel" id="ffPeriod">${peOpts}</select>`+
     `<select class="sel" id="ffAgent">${agOpts}</select>`+
     `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select>`+
@@ -2405,6 +2421,7 @@ function renderFlowFilters(){
     `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div>`;
   el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
+  document.getElementById('ffType').onchange=(e)=>{ flowType=e.target.value; lastSig=''; renderFlow(); };
   document.getElementById('ffPeriod').onchange=(e)=>{ flowPeriod=e.target.value; lastSig=''; renderFlow(); };
   document.getElementById('ffAgent').onchange=(e)=>{ flowAgent=e.target.value; lastSig=''; renderFlow(); };
   document.getElementById('ffGroup').onchange=(e)=>{ flowGroupBy=e.target.value; lastSig=''; renderFlow(); };
@@ -4511,6 +4528,9 @@ function renderTeamBoard(){
   if(epSel && teamTasks.some(t=>t.epic_id===epSel)===false && !teamEpics.some(e=>e.id===epSel)) lsSet('tmEpic','');
   const allTasks=teamTasks;
   if(epSel) teamTasks=teamTasks.filter(t=>t.epic_id===epSel);
+  // filtro por DEV (responsável ou criador)
+  const devSel=lsGet('tmDev')||'';
+  if(devSel) teamTasks=teamTasks.filter(t=>(t.assignee||t.created_by)===devSel);
   let html='';
   // faixa de ÉPICOS com progresso (entregues/total)
   {
@@ -4577,7 +4597,10 @@ function renderTeamBoard(){
   }
   if(!html) html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog vazio</div><div>Crie uma tarefa e escolha <b>“Compartilhar com o time”</b> — qualquer membro pode assumir &amp; iniciar.</div></div>`;
   const perNow=lsGet('tmPeriod')||'30';
-  html=`<div style="display:flex;align-items:center;gap:8px;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span><select class="sel" id="tbPeriod" style="width:130px">${[['7','últimos 7 dias'],['30','últimos 30 dias'],['90','último trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
+  const devNow=lsGet('tmDev')||'';
+  const devIds=[...new Set(allTasks.flatMap(t=>[t.assignee,t.created_by]).filter(Boolean))];
+  const devOpts=`<option value="">todos os devs</option>`+devIds.map(u=>`<option value="${escA(u)}"${u===devNow?' selected':''}>${esc(tmName(u))}</option>`).join('');
+  html=`<div style="display:flex;align-items:center;gap:8px;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span><select class="sel" id="tbDev" style="width:150px">${devOpts}</select><select class="sel" id="tbPeriod" style="width:130px">${[['7','últimos 7 dias'],['30','últimos 30 dias'],['90','último trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
   teamTasks=allTasks; // restaura (o filtro é só de exibição)
   if(teamPaintSig===html) return;
   teamPaintSig=html; el.innerHTML=html;
@@ -4585,6 +4608,7 @@ function renderTeamBoard(){
   el.querySelectorAll('[data-epic]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epic?'':b.dataset.epic); teamPaintSig=''; renderTeamBoard(); }; });
   { const b=document.getElementById('tbEpicAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do épico:'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
   { const s=document.getElementById('tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
+  { const s=document.getElementById('tbDev'); if(s) s.onchange=e=>{ lsSet('tmDev', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   el.querySelectorAll('.tmcard [data-act]').forEach(b=>{
     b.onclick=()=>{
       const id=b.closest('.tmcard').dataset.ct; const ct=teamTasks.find(x=>x.id===id); if(!ct) return;
