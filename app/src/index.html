@@ -969,6 +969,8 @@
   #ntOverlay .mhead{gap:10px;padding:14px 20px}
   #ntOverlay .mhead .btn{margin:0}
   #ntOverlay .mhead .x{margin-left:6px;flex:none}
+  /* descrição da issue merece espaço: textareas grandes nos 4 modos */
+  #ntOverlay .ta{min-height:170px}
   #ntOverlay .mbody{padding:20px 24px 26px;gap:0}
   #ntOverlay .ntmode{margin-bottom:14px;padding:5px;gap:8px}
   #ntOverlay .ntmodebtn{padding:9px 10px}
@@ -1089,7 +1091,7 @@
         <label style="display:flex;align-items:center">O que projetar<span style="flex:1"></span><button class="btn sm" data-aititle="ntDzTitle:ntDzObj" title="gera o título a partir do contexto/fluxo" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar do contexto</button></label>
         <input class="in" id="ntDzTitle" placeholder="ex.: tela de dashboard de times">
         <label style="margin-top:12px">Contexto e fluxo <span class="dim" style="text-transform:none;letter-spacing:0">(o problema, quem usa, o que precisa aparecer)</span></label>
-        <textarea class="in ta" id="ntDzObj" rows="6" style="min-height:120px" placeholder="ex.: o gestor precisa ver as entregas do time por membro; hoje isso não existe. Fluxo: abre o app → aba Time → vê os números e clica pra detalhar…"></textarea>
+        <textarea class="in ta" id="ntDzObj" rows="7" placeholder="ex.: o gestor precisa ver as entregas do time por membro; hoje isso não existe. Fluxo: abre o app → aba Time → vê os números e clica pra detalhar…"></textarea>
         <label style="margin-top:12px">Telas / estados a cobrir <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntDzScreens" placeholder="ex.: lista, detalhe, estado vazio, carregando, erro">
         <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· mostre EXATAMENTE de que tela/lugar você fala</span><span style="flex:1"></span><button class="btn sm" id="ntDzRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
@@ -1105,7 +1107,7 @@
         <label style="display:flex;align-items:center">O que corrigir<span style="flex:1"></span><button class="btn sm" data-aititle="ntFixTitle:ntFixObj" title="gera o título a partir dos detalhes" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar dos detalhes</button></label>
         <input class="in" id="ntFixTitle" placeholder="ex.: corrigir cálculo de custo na telemetria">
         <label style="margin-top:12px">Detalhes <span class="dim" style="text-transform:none;letter-spacing:0">(opcional — onde, sintoma, como reproduzir)</span></label>
-        <textarea class="in ta" id="ntFixObj" rows="6" style="min-height:120px" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
+        <textarea class="in ta" id="ntFixObj" rows="7" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
         <label style="margin-top:12px">Arquivos/escopo <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntFixOwns" placeholder="src/telemetry/cost.ts">
         <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· print do bug, log, tela onde acontece</span><span style="flex:1"></span><button class="btn sm" id="ntFixRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
@@ -1131,7 +1133,7 @@
       <label style="display:flex;align-items:center">Título<span style="flex:1"></span><button class="btn sm" data-aititle="ntTitle:ntObj" title="gera o título a partir do objetivo/descrição" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/><path d="M12 9.5l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z" stroke-linejoin="round"/></svg> gerar da descrição</button></label>
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
       <label>Objetivo</label>
-      <textarea class="in ta" id="ntObj" placeholder="o que precisa ser feito e por quê"></textarea>
+      <textarea class="in ta" id="ntObj" rows="7" placeholder="o que precisa ser feito e por quê — cole contexto à vontade: sintomas, telas, critérios, links…"></textarea>
 
       <div id="ntDeliverables" class="listed" style="display:none"></div>
 
