@@ -5,3 +5,6 @@ node_modules/
 *.log
 .DS_Store
 dist/
+dist/Constellation-portable.app
+dist/Constellation-portable.zip
+app/src-tauri/resources/

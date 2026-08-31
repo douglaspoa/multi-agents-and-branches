@@ -124,7 +124,16 @@ export class ClaudeEngine implements AgentEngine {
     const prompt = input.resume ? input.resume.instruction : (input.promptOverride ?? baseline);
 
     // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
-    const serverPath = fileURLToPath(new URL("../mcp/server.ts", import.meta.url));
+    // Dev: src/mcp/server.ts ao lado do fonte. App empacotado: o bundle vira
+    // Resources/engine/cli.mjs e o server mora em Resources/mcp/server.mjs.
+    const serverPath = (() => {
+      if (process.env.CARDUME_MCP && existsSync(process.env.CARDUME_MCP)) return process.env.CARDUME_MCP;
+      for (const rel of ["../mcp/server.ts", "../mcp/server.mjs"]) {
+        const p = fileURLToPath(new URL(rel, import.meta.url));
+        if (existsSync(p)) return p;
+      }
+      return fileURLToPath(new URL("../mcp/server.ts", import.meta.url));
+    })();
     const mcpConfigPath = join(input.cwd, ".cardume", "mcp.json");
     writeFileSync(
       mcpConfigPath,

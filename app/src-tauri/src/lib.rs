@@ -14,12 +14,52 @@ fn repo_of(state: &State<AppState>) -> Result<PathBuf, String> {
         .ok_or_else(|| "repo não definido".to_string())
 }
 
+/// Motor: CARDUME_CLI (dev — TS ao vivo) → bundle dentro do app
+/// (Resources/engine/cli.mjs) → src/cli.ts do repo aberto (último recurso).
 fn cli_path(repo: &PathBuf) -> String {
-    std::env::var("CARDUME_CLI").unwrap_or_else(|_| repo.join("src").join("cli.ts").display().to_string())
+    if let Ok(p) = std::env::var("CARDUME_CLI") {
+        if !p.is_empty() && std::path::Path::new(&p).is_file() {
+            return p;
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        // Contents/MacOS/Constellation → Contents/Resources/engine/cli.mjs
+        if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
+            let bundled = contents.join("Resources").join("engine").join("cli.mjs");
+            if bundled.is_file() {
+                return bundled.display().to_string();
+            }
+        }
+    }
+    repo.join("src").join("cli.ts").display().to_string()
 }
 
+/// Node: CARDUME_NODE → homebrew/local → a versão mais nova do nvm → PATH.
 fn node_bin() -> String {
-    std::env::var("CARDUME_NODE").unwrap_or_else(|_| "node".to_string())
+    if let Ok(n) = std::env::var("CARDUME_NODE") {
+        if !n.is_empty() && std::path::Path::new(&n).is_file() {
+            return n;
+        }
+    }
+    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+        if std::path::Path::new(p).is_file() {
+            return p.to_string();
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let nvm = std::path::PathBuf::from(home).join(".nvm").join("versions").join("node");
+        if let Ok(rd) = std::fs::read_dir(&nvm) {
+            let mut vers: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+            vers.sort(); // lexicográfico basta pra escolher determinístico; preflight valida >=22.6
+            if let Some(latest) = vers.last() {
+                let n = latest.join("bin").join("node");
+                if n.is_file() {
+                    return n.display().to_string();
+                }
+            }
+        }
+    }
+    "node".to_string()
 }
 
 /// Acha o binário do `claude` sem depender do PATH (que pode estar stale via
@@ -2100,6 +2140,68 @@ fn repo_slug(repo: &PathBuf) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EnvCheck {
+    name: String,
+    ok: bool,
+    detail: String,
+    fix: String,
+}
+
+/// Preflight do ambiente: tudo que o app precisa pra rodar tarefas, com o
+/// comando de correção pronto — mata a classe "cliquei e nada" pra novatos.
+#[tauri::command(async)]
+fn env_check() -> Vec<EnvCheck> {
+    let mut out = Vec::new();
+    let ver = |bin: &str, args: &[&str]| -> Option<String> {
+        let mut c = Command::new(bin);
+        c.args(args);
+        output_timeout(c, 8).ok().filter(|o| o.status.success()).map(|o| {
+            let s = String::from_utf8_lossy(&o.stdout);
+            s.lines().next().unwrap_or("").trim().to_string()
+        })
+    };
+    // node >= 22.6
+    let nb = node_bin();
+    match ver(&nb, &["--version"]) {
+        Some(v) => {
+            let okv = v.trim_start_matches('v').split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 22).unwrap_or(false);
+            out.push(EnvCheck { name: "Node.js (≥22.6)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { "brew install node".into() } });
+        }
+        None => out.push(EnvCheck { name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install node".into() }),
+    }
+    // motor
+    let cli = cli_path(&std::env::var("HOME").map(PathBuf::from).unwrap_or_default());
+    let cli_ok = std::path::Path::new(&cli).is_file();
+    out.push(EnvCheck { name: "Motor do Constellation".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
+    // git
+    match ver("git", &["--version"]) {
+        Some(v) => out.push(EnvCheck { name: "Git".into(), ok: true, detail: v, fix: String::new() }),
+        None => out.push(EnvCheck { name: "Git".into(), ok: false, detail: "não encontrado".into(), fix: "xcode-select --install".into() }),
+    }
+    // claude CLI
+    let cb = claude_bin();
+    match ver(&cb, &["--version"]) {
+        Some(v) => out.push(EnvCheck { name: "Claude Code".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() }),
+        None => out.push(EnvCheck { name: "Claude Code".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() }),
+    }
+    // gh autenticado
+    let gb = gh_bin();
+    let mut ghc = Command::new(&gb);
+    ghc.args(["auth", "status"]);
+    match output_timeout(ghc, 8) {
+        Ok(o) if o.status.success() => {
+            let s = String::from_utf8_lossy(&o.stderr).to_string() + &String::from_utf8_lossy(&o.stdout);
+            let acct = s.lines().find(|l| l.contains("account")).unwrap_or("autenticado").trim().to_string();
+            out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: true, detail: acct, fix: String::new() });
+        }
+        Ok(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "instalado mas SEM login".into(), fix: "gh auth login".into() }),
+        Err(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install gh && gh auth login".into() }),
+    }
+    out
+}
+
 /// Commita o que estiver solto na worktree e faz push da branch (atualiza o PR).
 #[tauri::command(async)]
 fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> {
@@ -2561,6 +2663,7 @@ pub fn run() {
             open_url,
             open_artifact,
             push_task,
+            env_check,
             task_files,
             read_file,
             write_file,
