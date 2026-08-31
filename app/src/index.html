@@ -3111,6 +3111,7 @@ function renderSide(){
     ${reqsBlock(t)}
     ${dels.length?`<div class="seclbl">Entregáveis <span class="n">${dels.length}</span></div>${dels.map(d=>`<div class="critrow2 na"><span class="reqst na">·</span><div class="crt">${esc(d)}</div></div>`).join('')}`:''}
     ${artifactsBlock(t)}
+    ${cloudProofsBlock(t)}
     ${deliverBlock(t)}`;
   } else if(sideTab==='pr'){
     content = prBlock(t, true);
@@ -3195,6 +3196,7 @@ function renderSide(){
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
+  { const b=el.querySelector('#pubProofs'); if(b){ const cid=(typeof tmap==='function')?tmap()[t.id]:null; if(cid && typeof cloudPubList==='function') cloudPubList(cid).then(()=>{ if(selected===t.id && sideTab==='entregas'){ lastSig=''; } }); b.onclick=()=>cloudPublishProofs(t, b); } }
   { const b=el.querySelector('#brReqCheck'); if(b) b.onclick=()=>{ b.disabled=true; b.textContent='verificando…'; talkTask(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json (o campo req deve ser o TEXTO EXATO do requisito). Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); }; }
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>openCommit(b.dataset.hash));
   el.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
@@ -4431,8 +4433,32 @@ function openCloudTask(ct){
     <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
     <label style="margin-top:12px">Requisitos <span class="dim" style="text-transform:none;letter-spacing:0">(um por linha — o agente é cobrado por cada um)</span></label>
     <textarea class="in ta" id="ctReqs" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
+    <div id="ctReqProof"></div>
+    <div id="ctProofs"></div>
     <div id="ctAct" class="dim" style="font-size:11px;margin-top:12px">carregando atividade…</div>
     <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${canEdit?'<button class="btn primary" id="ctSave">salvar alterações</button>':''}</div>`;
+  // requisitos com prova (sincronizados do requirements.json do dev)
+  { const rp=ct.requirements_proof; const el=document.getElementById('ctReqProof');
+    if(el && rp && Array.isArray(rp.list||rp) ){
+      const list=Array.isArray(rp.list)?rp.list:rp;
+      if(list.length) el.innerHTML=`<div class="seclbl2" style="margin-top:14px">Requisitos provados <span class="n">${list.filter(x=>x.status==='done').length}/${list.length}</span></div>`+
+        list.map(x=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:5px 2px;border-bottom:1px dashed var(--border)"><span style="color:${x.status==='done'?'var(--good)':'var(--warn)'}">${x.status==='done'?'✓':'○'}</span><span style="flex:1">${esc(x.req||'')}</span></div>`).join('');
+    }
+  }
+  // galeria de provas publicadas (o que o dev ESCOLHEU subir)
+  sbGet('artifacts_meta?select=name,kind,size,storage_path&task_id=eq.'+ct.id+'&order=created_at.desc').then(async arts=>{
+    const el=document.getElementById('ctProofs'); if(!el || !arts.length) return;
+    const imgs=arts.filter(a=>a.kind==='image').slice(0,8), docs=arts.filter(a=>a.kind!=='image');
+    let html=`<div class="seclbl2" style="margin-top:14px">Provas publicadas <span class="n">${arts.length}</span></div>`;
+    if(imgs.length){
+      const urls=await Promise.all(imgs.map(a=>cloudSignedUrl(a.storage_path).catch(()=>null)));
+      html+=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px">`+
+        imgs.map((a,i)=>urls[i]?`<img src="${escA(urls[i])}" title="${escA(a.name)}" data-proof="${escA(a.storage_path)}" style="width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid var(--border);border-radius:6px;cursor:zoom-in">`:'').join('')+`</div>`;
+    }
+    if(docs.length) html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">`+docs.map(a=>`<button class="btn sm mono" data-proof="${escA(a.storage_path)}">${esc(a.name)}</button>`).join('')+`</div>`;
+    el.innerHTML=html;
+    el.querySelectorAll('[data-proof]').forEach(b=>{ b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.proof)); }catch(e){ alert('Falha ao abrir: '+(e.message||e)); } }; });
+  }).catch(()=>{});
   sbGet('task_activity?select=user_id,kind,body,at&task_id=eq.'+ct.id+'&order=id.desc&limit=8').then(rows=>{
     const K={created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'entregou',comment:'comentou',status:'status'};
     const d=document.getElementById('ctAct'); if(d) d.innerHTML = rows.length? rows.map(a=>`${esc(tmName(a.user_id))} <b>${K[a.kind]||a.kind}</b> · ${agoTx(a.at)}`).join('<br>') : 'sem atividade ainda';
@@ -4473,6 +4499,53 @@ async function teamNotifTick(){
 }
 setInterval(()=>{ teamNotifTick().catch(()=>{}); }, 30000);
 setTimeout(()=>{ teamNotifTick().catch(()=>{}); }, 4000);
+
+/* ---- provas pro time: o DEV escolhe publicar (decisão Q2) ---- */
+const cloudPubCache={}; // cloudTaskId -> [{name,size}]
+function cloudProofsBlock(t){
+  if(!SB.sess() || !cloudTeamId()) return '';
+  const cid=tmap()[t.id]; if(!cid) return '';
+  const pub=cloudPubCache[cid];
+  const n=pub===undefined?'…':pub.length;
+  return `<div class="seclbl">Provas no time <span class="n">${n}</span></div>
+    <div class="prbox"><div class="ihint">O time vê o cartão desta tarefa, mas os artefatos só sobem quando VOCÊ publicar. Publicados ficam na galeria do cartão (aba Time).</div>
+    <div class="prrow" style="margin-top:8px"><button class="btn primary sm" id="pubProofs">☁ publicar provas pro time</button><span class="grow"></span>${pub&&pub.length?`<span class="dim" style="font-size:11px">${pub.length} publicado(s)</span>`:''}</div></div>`;
+}
+async function cloudPubList(cid, force){
+  if(cloudPubCache[cid]!==undefined && !force) return cloudPubCache[cid];
+  try{ cloudPubCache[cid]=await sbGet('artifacts_meta?select=id,name,kind,size,storage_path&task_id=eq.'+cid+'&order=created_at.desc'); }
+  catch(_){ cloudPubCache[cid]=[]; }
+  return cloudPubCache[cid];
+}
+async function cloudPublishProofs(t, btn){
+  const cid=tmap()[t.id]; if(!cid){ alert('Esta tarefa não está sincronizada com o time.'); return; }
+  const arts=await loadArtifacts(t.id, t.status)||[];
+  if(!arts.length){ alert('Sem artefatos ainda — peça as provas/entregáveis primeiro.'); return; }
+  if(btn){ btn.disabled=true; }
+  let sent=0;
+  try{
+    for(const a of arts){
+      if(btn) btn.textContent=`enviando ${sent+1}/${arts.length}…`;
+      const raw=await invoke('read_artifact_raw',{ taskId:t.id, name:a.name });
+      const bin=Uint8Array.from(atob(raw.b64), c=>c.charCodeAt(0));
+      const path=cid+'/'+a.name;
+      const s=SB.sess();
+      const r=await fetch(SB.url()+'/storage/v1/object/artifacts/'+path, { method:'POST', headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+s.access_token, 'Content-Type':raw.mime, 'x-upsert':'true' }, body: bin });
+      if(!r.ok){ const tx=await r.text(); throw new Error(a.name+': '+tx.slice(0,160)); }
+      await sbFetch('/rest/v1/artifacts_meta?task_id=eq.'+cid+'&name=eq.'+encodeURIComponent(a.name), { method:'DELETE' }).catch(()=>{});
+      await sbPost('artifacts_meta',{ task_id:cid, uploaded_by:cloudUserId(), name:a.name, kind:/\.(png|jpe?g|webp|gif)$/i.test(a.name)?'image':/\.(md|html?)$/i.test(a.name)?'doc':'file', size:raw.size||0, storage_path:path });
+      sent++;
+    }
+    sbPost('task_activity',{ task_id:cid, user_id:cloudUserId(), kind:'delivered', body:sent+' artefato(s) publicados' }).catch(()=>{});
+    await cloudPubList(cid, true);
+    if(btn){ btn.textContent='✓ '+sent+' publicados'; setTimeout(()=>{ btn.disabled=false; btn.textContent='☁ publicar provas pro time'; }, 3500); }
+    lastSig=''; renderSide();
+  }catch(e){ alert('Falha ao publicar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.textContent='☁ publicar provas pro time'; } }
+}
+async function cloudSignedUrl(path){
+  const j=await sbFetch('/storage/v1/object/sign/artifacts/'+path, { method:'POST', body: JSON.stringify({ expiresIn: 3600 }) });
+  return SB.url()+'/storage/v1'+(j.signedURL||j.signedUrl||'');
+}
 
 /* ---- catálogo da org: agentes/workflows compartilhados entre os devs ---- */
 async function cloudCatalog(orgId, isAdmin){

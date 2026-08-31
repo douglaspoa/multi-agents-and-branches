@@ -2202,6 +2202,38 @@ fn env_check() -> Vec<EnvCheck> {
     out
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtifactRaw {
+    b64: String,
+    mime: String,
+    size: u64,
+}
+
+/// Bytes de um artefato (base64) — pro upload de provas pro time (Storage).
+#[tauri::command(async)]
+fn read_artifact_raw(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactRaw, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("nome de artefato inválido".to_string());
+    }
+    let repo = repo_of(&state)?;
+    let path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let l = name.to_lowercase();
+    let mime = if l.ends_with(".png") { "image/png" }
+        else if l.ends_with(".jpg") || l.ends_with(".jpeg") { "image/jpeg" }
+        else if l.ends_with(".webp") { "image/webp" }
+        else if l.ends_with(".gif") { "image/gif" }
+        else if l.ends_with(".html") || l.ends_with(".htm") { "text/html" }
+        else if l.ends_with(".md") { "text/markdown" }
+        else if l.ends_with(".json") { "application/json" }
+        else if l.ends_with(".pdf") { "application/pdf" }
+        else if l.ends_with(".txt") || l.ends_with(".log") { "text/plain" }
+        else { "application/octet-stream" };
+    let b64 = base64_encode(&bytes);
+    Ok(ArtifactRaw { b64, mime: mime.to_string(), size: bytes.len() as u64 })
+}
+
 /// Commita o que estiver solto na worktree e faz push da branch (atualiza o PR).
 #[tauri::command(async)]
 fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> {
@@ -2664,6 +2696,7 @@ pub fn run() {
             open_artifact,
             push_task,
             env_check,
+            read_artifact_raw,
             task_files,
             read_file,
             write_file,
