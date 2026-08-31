@@ -964,6 +964,23 @@
   .rev .test{margin-top:11px;font-size:11.5px;color:var(--text-2);border-left:2px solid var(--accent);padding-left:9px}
   .rev .fl2{font-size:11px;color:var(--muted);margin-top:9px;display:flex;flex-wrap:wrap;gap:4px 12px}
 
+  /* Nova tarefa — respiro e ritmo (campos estavam grudados) */
+  #ntOverlay .modal{width:min(660px,100%)}
+  #ntOverlay .mbody{padding:20px 24px 26px;gap:0}
+  #ntOverlay .ntmode{margin-bottom:14px;padding:5px;gap:8px}
+  #ntOverlay .ntmodebtn{padding:9px 10px}
+  #ntOverlay .mbody label{margin-top:18px;margin-bottom:7px}
+  #ntOverlay .mbody label:first-child{margin-top:2px}
+  #ntOverlay .in{padding:10px 12px;border-radius:7px}
+  #ntOverlay .sel{padding:9px 30px 9px 12px;border-radius:7px}
+  #ntOverlay .two{gap:16px}
+  #ntOverlay .seclbl2{margin-top:26px;padding-top:18px;border-top:1px dashed var(--border)}
+  #ntOverlay .ckrow{padding:9px 12px;border:1px solid var(--border);border-radius:7px;margin-top:7px;background:var(--surface-2)}
+  #ntOverlay .ckrow:hover{border-color:var(--border-strong)}
+  #ntOverlay .aihint{margin-top:12px;line-height:1.5}
+  #ntOverlay .reflist,#ntOverlay .listed{margin-top:4px}
+  #ntOverlay .mfoot{padding:14px 20px}
+
   /* backlog do time (aba Time) */
   .tmcard{border:1px solid var(--border);background:var(--surface);padding:10px 12px;margin:0 2px 8px;border-radius:6px}
   .tmcard:hover{border-color:var(--accent)}
@@ -1432,11 +1449,18 @@ async function refresh(){
     return;
   }
   const sig = snapSig();
-  const hasActive = (state.tasks||[]).some(t=>ACTIVE_ST.has(t.status));
-  if(sig===lastSig && !hasActive) return;   // nada mudou → não re-renderiza (mas mantém vivo se há tarefa ativa)
+  // só re-renderiza quando o estado MUDOU — re-render por segundo com tarefa
+  // ativa destruía os botões entre mousedown e mouseup (clique "não pegava").
+  if(sig===lastSig) return;
+  // usuário com o mouse pressionado/interagindo → segura o render pro próximo
+  // tick (lastSig não avança, nada se perde)
+  if(Date.now()<uiHoldUntil) return;
   lastSig = sig;
   render();
 }
+// clique protegido: qualquer pointerdown segura re-renders por 600ms
+let uiHoldUntil=0;
+document.addEventListener('pointerdown', ()=>{ uiHoldUntil=Date.now()+600; }, true);
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
 function claimsOf(taskId){ return state.claims.filter(c=>c.taskId===taskId); }
@@ -3198,6 +3222,11 @@ function renderNtList(id, arr){
   el.querySelectorAll("[data-lrm]").forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.lrm,1); renderNtList(id,arr); });
 }
 async function openNewTask(){
+  // modal na hora — o catálogo (config) chega logo atrás e preenche os selects
+  setNtMode(ntMode);
+  renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
+  document.getElementById("ntOverlay").style.display = "flex";
+  (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):document.getElementById("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
   const wfSel = document.getElementById("ntWorkflow");
   const wfs = (state.config && state.config.workflows) || [];
@@ -3226,11 +3255,7 @@ async function openNewTask(){
   document.getElementById("ntDzAgent").innerHTML =
     dzFirst.map(a=>`<option value="${esc(a.id)}"${dzDefault&&a.id===dzDefault.id?' selected':''}>${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("")
     + `<option value=""${dzDefault?'':' selected'}>Designer padrão (Claude)</option>`;
-  setNtMode(ntMode);
-  renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   { const b=document.getElementById("ntFixReqAdd"); if(b) b.onclick=()=>{ ntFixReq.push(""); renderNtList("ntFixReqs", ntFixReq); }; }
-  document.getElementById("ntOverlay").style.display = "flex";
-  (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):document.getElementById("ntTitle")).focus();
 }
 let ntMode='build';
 let ntLinkedTo=null; // id da tarefa de origem quando esta é uma correção linkada
