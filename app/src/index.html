@@ -1431,12 +1431,18 @@ function detectNotifs(snap){
   prevStatus={}; tasks.forEach(t=>prevStatus[t.id]=t.status);
   prevPending=new Set(pend.map(p=>p.id));
   notifReady=true;
+  // guarda-custos: avisa UMA vez quando a tarefa cruza o limite (padrão $25)
+  try{
+    const lim=parseFloat(lsGet('costWarn')||'25');
+    if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id); pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); } } } }
+  }catch(_){ }
   // eventos novos numa tarefa → a lista de commits pode estar defasada
   const top={};
   for(const e of (snap.events||[])){ const k=e.taskId||e.task_id; if(k && e.id>(top[k]||0)) top[k]=e.id; }
   for(const k in top){ if(prevEvTop[k]!==undefined && prevEvTop[k]!==top[k]) commitsCache[k]=undefined; prevEvTop[k]=top[k]; }
 }
 const prevEvTop={};
+const costWarned=new Set();
 async function refresh(){
   let snap;
   try{ snap = await invoke("snapshot"); }
@@ -4160,8 +4166,11 @@ async function renderCloud(){
   }).join('');
   const invTeams = isAdmin ? d.teams : myLeadTeams;
   const invListHtml=(d.invites||[]).map(iv=>{ const tn=(d.teams.find(x=>x.id===iv.team_id)||{}).name||'?'; return `<div class="costrow"><span class="cnm">${esc(iv.email)}</span><span class="dim" style="font-size:11px">${esc(tn)} · ${iv.role==='lead'?'lead':'membro'} · expira em ${Math.max(0,Math.round((new Date(iv.expires_at)-Date.now())/86400e3))}d</span><span style="flex:1"></span><button class="btn sm" data-iact="copy" data-iv="${escA(iv.id)}">copiar mensagem</button><button class="btn sm" data-iact="rev" data-iv="${escA(iv.id)}" title="revogar convite">✕</button></div>`; }).join('');
+  const seatsUsed=(d.orgMembers||[]).length, seatsFull=seatsUsed>=d.org.seats;
   body.innerHTML = cloudMsgHtml()+`
-    <div class="imhint">Plano <b>${esc(d.org.plan)}</b> · ${(d.orgMembers||[]).length}/${d.org.seats} assentos · seu papel na org: <b>${esc(d.meRole)}</b>${isAdmin?' — você vê e administra todos os times':''}</div>
+    ${!d.org.license_key?`<div class="imhint" style="border-left:2px solid var(--warn)">⚠ Organização <b>sem licença</b> — modo avaliação. ${d.meRole==='owner'?'Defina a chave na seção Licença abaixo.':'Peça ao owner pra ativar a licença.'}</div>`:''}
+    ${seatsFull?`<div class="imhint" style="border-left:2px solid var(--warn)">⚠ Todos os <b>${d.org.seats} assentos</b> em uso — convites novos serão recusados até liberar assento ou ampliar o plano.</div>`:''}
+    <div class="imhint">Plano <b>${esc(d.org.plan)}</b> · ${seatsUsed}/${d.org.seats} assentos · seu papel na org: <b>${esc(d.meRole)}</b>${isAdmin?' — você vê e administra todos os times':''}</div>
     <div class="seclbl2" style="margin-top:16px">Times da organização <span class="n">${d.teams.length}</span><span style="flex:1"></span>${isAdmin?'<button class="btn sm" id="sbTeamAdd">+ novo time</button>':''}</div>
     ${teamsHtml||'<div class="dim" style="font-size:12px">nenhum time ainda</div>'}
     ${(isAdmin||meLead)?`
@@ -4169,6 +4178,8 @@ async function renderCloud(){
     <div style="display:flex;gap:8px;margin-top:6px"><input class="in" id="sbInvEmail" placeholder="email@empresa.com" style="flex:1"><select class="sel" id="sbInvTeam" style="width:150px">${invTeams.map(t=>`<option value="${escA(t.id)}"${t.id===teamId?' selected':''}>${esc(t.name)}</option>`).join('')}</select><select class="sel" id="sbInvRole" style="width:100px"><option value="member">membro</option><option value="lead">lead</option></select><button class="btn primary sm" id="sbInvite">gerar convite</button></div>
     <div id="sbInvOut"></div>
     ${invListHtml?`<div class="seclbl2" style="margin-top:14px">Convites pendentes <span class="n">${d.invites.length}</span></div><div class="costlist">${invListHtml}</div>`:''}`:''}
+    ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Membros da organização <span class="n">${seatsUsed}</span></div>
+    <div class="costlist">${(d.orgMembers||[]).map(om=>`<div class="costrow"><span class="cav" style="background:${agentColor(pName(om.user_id))}">${esc(pName(om.user_id).slice(0,2).toUpperCase())}</span><span class="cnm">${esc(pName(om.user_id))}${om.user_id===cloudUserId()?' <span class="dim">(você)</span>':''}</span><span class="dim" style="font-size:11px">${esc(om.role)}</span>${(om.role!=='owner'&&om.user_id!==cloudUserId())?`<button class="btn sm" data-orgrm="${escA(om.user_id)}" title="remove da organização e de todos os times — libera o assento">remover da org</button>`:''}</div>`).join('')}</div>`:''}
     <div class="seclbl2" style="margin-top:18px">Agentes &amp; equipes da organização</div>
     <div id="sbCat" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>
     <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="grava os agentes/workflows da org no cardume.config.json do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
@@ -4187,6 +4198,18 @@ async function renderCloud(){
       if(act==='lead'){ const cur=(d.teamMembers[tid]||[]).find(m=>m.user_id===uid); await sbFetch('/rest/v1/team_members?team_id=eq.'+tid+'&user_id=eq.'+uid, { method:'PATCH', body: JSON.stringify({ role: cur&&cur.role==='lead'?'member':'lead' }) }); cloudMsg='✓ papel atualizado'; }
       cloudData=null; renderCloud();
     }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
+  }; });
+  // remover membro da ORG (admin): sai de todos os times + libera o assento
+  body.querySelectorAll('[data-orgrm]').forEach(b=>{ b.onclick=async()=>{
+    const uid=b.dataset.orgrm, nm=pName(uid);
+    if(!confirm('Remover '+nm+' da ORGANIZAÇÃO?\n\nSai de todos os times e libera o assento. As tarefas que a pessoa criou/assumiu continuam no histórico.')) return;
+    cloudMsg='';
+    try{
+      for(const t of d.teams){ await sbFetch('/rest/v1/team_members?team_id=eq.'+t.id+'&user_id=eq.'+uid, { method:'DELETE' }).catch(()=>{}); }
+      await sbFetch('/rest/v1/org_members?org_id=eq.'+d.org.id+'&user_id=eq.'+uid, { method:'DELETE' });
+      cloudData=null; cloudMsg='✓ '+nm+' removido da organização';
+    }catch(e){ cloudMsg='Falhou: '+e.message; }
+    renderCloud();
   }; });
   // convites pendentes: copiar mensagem / revogar
   const invMsg=(iv)=>{ const tn=(d.teams.find(x=>x.id===iv.team_id)||{}).name||''; return `Você foi convidado(a) pro time ${tn} da ${d.org.name} no Constellation.\n1. Abra o Constellation e clique em Entrar\n2. Crie sua conta com o e-mail ${iv.email}\n3. Em "aceitar convite", cole o token:\n${iv.token}`; };
@@ -4334,19 +4357,22 @@ function renderTeamBoard(){
   const isAdmin=cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin');
   const groups=[['Backlog — livre pra assumir', t=>t.status==='backlog'], ['Em andamento', t=>!['backlog','review','delivered','done','merged','aborted'].includes(t.status)], ['Entregues', t=>['review','delivered','done','merged'].includes(t.status)]];
   let html='';
-  // dashboard do time: números que importam, no topo
+  // dashboard do time: números que importam, no topo (com filtro de período)
   {
-    const n=teamTasks.length;
-    const andamento=teamTasks.filter(groups[1][1]).length, entregues=teamTasks.filter(groups[2][1]).length, backlog=teamTasks.filter(groups[0][1]).length;
-    const custo=teamTasks.reduce((s,t)=>s+(+t.cost_usd||0),0);
+    const per=lsGet('tmPeriod')||'30';
+    const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3;
+    const inPer=teamTasks.filter(t=>!cut || new Date(t.updated_at).getTime()>=cut);
+    const n=inPer.length;
+    const andamento=inPer.filter(groups[1][1]).length, entregues=inPer.filter(groups[2][1]).length, backlog=inPer.filter(groups[0][1]).length;
+    const custo=inPer.reduce((s,t)=>s+(+t.cost_usd||0),0);
     const prs=teamTasks.filter(t=>t.pr_url && t.status!=='merged');
     const chip=(lbl,val,color)=>`<div class="tmstat"><div class="v" style="${color?'color:'+color:''}">${val}</div><div class="l">${lbl}</div></div>`;
     html+=`<div class="tmstats">${chip('tarefas',n)}${chip('backlog',backlog,'var(--muted)')}${chip('em andamento',andamento,'var(--warn)')}${chip('entregues',entregues,'var(--good)')}${chip('PRs abertos',prs.length,'var(--accent)')}${chip('custo',fmtUsd(custo))}</div>`;
-    // entregas por membro — quem entregou o quê (demandas entregues do time)
+    // entregas por membro — quem entregou o quê (no período escolhido)
     {
-      const per={};
-      for(const t of teamTasks){ const who=t.assignee||t.created_by; const b=per[who]||(per[who]={done:0,run:0,usd:0}); if(groups[2][1](t)) b.done++; else if(groups[1][1](t)) b.run++; b.usd+=(+t.cost_usd||0); }
-      const rows=Object.entries(per).sort((a,b)=>b[1].done-a[1].done);
+      const byM={};
+      for(const t of inPer){ const who=t.assignee||t.created_by; const b=byM[who]||(byM[who]={done:0,run:0,usd:0}); if(groups[2][1](t)) b.done++; else if(groups[1][1](t)) b.run++; b.usd+=(+t.cost_usd||0); }
+      const rows=Object.entries(byM).sort((a,b)=>b[1].done-a[1].done);
       if(rows.length) html+=`<div class="seclbl2" style="margin:12px 2px 6px">Entregas por membro</div><div class="costlist" style="margin:0 2px">${rows.map(([uid,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(tmName(uid))}">${esc(tmName(uid).slice(0,2).toUpperCase())}</span><span class="cnm">${esc(tmName(uid))}</span><span class="dim" style="font-size:11px">${v.done} entregue${v.done===1?'':'s'} · ${v.run} em andamento</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')}</div>`;
     }
     // inbox: PRs do time pra revisar (decisão: notificado + 1 clique pra revisar)
@@ -4383,10 +4409,12 @@ function renderTeamBoard(){
     }).join('');
   }
   if(!html) html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog vazio</div><div>Crie uma tarefa e escolha <b>“Compartilhar com o time”</b> — qualquer membro pode assumir &amp; iniciar.</div></div>`;
-  html=`<div style="display:flex;align-items:center;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
+  const perNow=lsGet('tmPeriod')||'30';
+  html=`<div style="display:flex;align-items:center;gap:8px;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span><select class="sel" id="tbPeriod" style="width:130px">${[['7','últimos 7 dias'],['30','últimos 30 dias'],['90','último trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
   if(teamPaintSig===html) return;
   teamPaintSig=html; el.innerHTML=html;
   document.getElementById('tbRefresh').onclick=()=>{ teamTasks=null; renderTeamBoard(); };
+  { const s=document.getElementById('tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   el.querySelectorAll('.tmcard [data-act]').forEach(b=>{
     b.onclick=()=>{
       const id=b.closest('.tmcard').dataset.ct; const ct=teamTasks.find(x=>x.id===id); if(!ct) return;
