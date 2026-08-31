@@ -32,6 +32,27 @@ cp -R app/src-tauri/resources/mcp "$PORT/Contents/Resources/mcp"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment:PATH string /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" "$PORT/Contents/Info.plist"
 codesign --force --deep --sign - "$PORT"
 
-echo "→ 4/4 zip"
-( cd dist && rm -f Constellation-portable.zip && ditto -c -k --keepParent Constellation-portable.app Constellation-portable.zip )
+echo "→ 4/4 zip (com LEIA-ME de instalação)"
+cat > dist/LEIA-ME.txt <<'TXT'
+CONSTELLATION — instalação (macOS, Apple Silicon)
+
+1. Arraste Constellation-portable.app para /Applications.
+2. Ao abrir, o macOS vai BLOQUEAR ("A Apple não pôde verificar…").
+   Isso é o Gatekeeper com apps fora da App Store — o app está íntegro.
+   Destrave por UM dos caminhos:
+
+   A) Sem terminal: clique OK (NÃO "Mover para o Lixo") →
+      Ajustes do Sistema → Privacidade e Segurança → role até
+      "Constellation-portable foi bloqueado…" → Abrir Mesmo Assim.
+
+   B) Terminal (1 linha):
+      xattr -dr com.apple.quarantine /Applications/Constellation-portable.app
+
+3. Abra o app: tour de 1 minuto + verificação do ambiente
+   (precisa de node, git, claude logado e gh autenticado — a tela
+   de Ambiente mostra o comando de correção de cada um).
+4. Entrar → criar conta com o E-MAIL DO CONVITE → confirmar pelo
+   link do e-mail → entrar → colar o token do convite.
+TXT
+( cd dist && rm -f Constellation-portable.zip && ditto -c -k --keepParent Constellation-portable.app /tmp/_capp.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Constellation-portable.app _pkg/ && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Constellation-portable.zip && rm -rf _pkg /tmp/_capp.zip )
 echo "✔ dist/Constellation-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
