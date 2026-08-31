@@ -53,6 +53,20 @@ CONSTELLATION — instalação (macOS, Apple Silicon)
    de Ambiente mostra o comando de correção de cada um).
 4. Entrar → criar conta com o E-MAIL DO CONVITE → confirmar pelo
    link do e-mail → entrar → colar o token do convite.
+
+COMO ATUALIZAR (quando receber um zip novo)
+1. Feche o Constellation (⌘Q).
+2. Descompacte o zip novo e arraste para /Applications,
+   SUBSTITUINDO o app antigo.
+3. Destrave o Gatekeeper de novo (todo download re-quarentena):
+   Ajustes → Privacidade e Segurança → Abrir Mesmo Assim
+   — ou no terminal:
+   xattr -dr com.apple.quarantine /Applications/Constellation-portable.app
+4. Abra. Nada se perde: login, projetos e tarefas continuam
+   (ficam fora do .app).
+
+Qual versão estou rodando? Olhe o rodapé do app, canto direito:
+"· build dd/mm hh:mm". Ao reportar um problema, informe esse carimbo.
 TXT
 ( cd dist && rm -f Constellation-portable.zip && ditto -c -k --keepParent Constellation-portable.app /tmp/_capp.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Constellation-portable.app _pkg/ && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Constellation-portable.zip && rm -rf _pkg /tmp/_capp.zip )
 echo "✔ dist/Constellation-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
