@@ -4341,6 +4341,9 @@ async function renderCloud(){
     const email=()=>document.getElementById('sbEmail').value.trim(), pass=()=>document.getElementById('sbPass').value;
     const go=async(kind)=>{
       cloudMsg='';
+      // validação clara ANTES do servidor (o erro cru do GoTrue confunde)
+      if(!email() || !email().includes('@')){ cloudMsg='Informe o e-mail — se você foi convidado, use o MESMO e-mail do convite.'; renderCloud(); document.getElementById('sbEmail').focus(); return; }
+      if((pass()||'').length<6){ cloudMsg='A senha precisa de pelo menos 6 caracteres.'; renderCloud(); document.getElementById('sbPass').focus(); return; }
       try{
         lsSet('sb:email', email());
         if(kind==='up'){
@@ -4351,7 +4354,14 @@ async function renderCloud(){
           const j=await sbAuth('token?grant_type=password',{ email:email(), password:pass() });
           SB.setSess(j); await cloudLoad();
         }
-      }catch(e){ cloudMsg='Falhou: '+e.message; }
+      }catch(e){
+        let m=e.message||String(e);
+        if(/anonymous/i.test(m)) m='informe e-mail e senha.';
+        else if(/already registered|user_already/i.test(m)) m='este e-mail já tem conta — use "entrar".';
+        else if(/invalid login credentials/i.test(m)) m='e-mail ou senha incorretos (a conta existe? confirmou o e-mail?).';
+        else if(/email not confirmed/i.test(m)) m='confirme o e-mail primeiro — procure o link na sua caixa de entrada.';
+        cloudMsg='Falhou: '+m;
+      }
       cloudBtnSync(); renderCloud();
     };
     document.getElementById('sbLogin').onclick=()=>go('in');
