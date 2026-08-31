@@ -1817,6 +1817,98 @@ struct AiChat {
     session_id: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DailyTask {
+    id: String,
+    title: String,
+    status: String,
+    branch: String,
+    edits: i64,
+    cmds: i64,
+    asks: i64,
+    usd: f64,
+    tok: i64,
+    notes: Vec<String>,
+}
+
+/// Digest do DIA: o que cada tarefa produziu na janela [from_ms, to_ms) —
+/// base da visão de daily do dev.
+#[tauri::command(async)]
+fn daily_digest(state: State<AppState>, from_ms: i64, to_ms: i64) -> Result<Vec<DailyTask>, String> {
+    let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&dbpath)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.title, t.status, t.branch,
+               SUM(CASE WHEN e.type IN ('edit','write') THEN 1 ELSE 0 END),
+               SUM(CASE WHEN e.type='bash' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN e.text LIKE 'perguntou ao humano%' OR e.text LIKE '❓%' THEN 1 ELSE 0 END)
+             FROM event e JOIN task t ON t.id=e.task_id
+             WHERE e.ts>=?1 AND e.ts<?2
+             GROUP BY t.id ORDER BY MAX(e.ts) DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![from_ms, to_ms], |r| {
+            Ok(DailyTask {
+                id: r.get(0)?, title: r.get(1)?, status: r.get(2)?, branch: r.get(3)?,
+                edits: r.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                cmds: r.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                asks: r.get::<_, Option<i64>>(6)?.unwrap_or(0),
+                usd: 0.0, tok: 0, notes: vec![],
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .collect::<Vec<_>>();
+    let mut out = Vec::new();
+    for mut t in rows {
+        if let Ok((u, k)) = conn.query_row(
+            "SELECT COALESCE(SUM(usd),0), COALESCE(SUM(in_tok+out_tok),0) FROM cost WHERE task_id=?1 AND created_at>=?2 AND created_at<?3",
+            params![t.id, from_ms, to_ms],
+            |r| Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?)),
+        ) {
+            t.usd = u;
+            t.tok = k;
+        }
+        // marcos do dia: status/notes relevantes (curtos, sem stream)
+        if let Ok(mut ns) = conn.prepare(
+            "SELECT text FROM event WHERE task_id=?1 AND ts>=?2 AND ts<?3 AND type IN ('status','note') AND text NOT LIKE '⏳%' AND text NOT LIKE '▶%' ORDER BY id",
+        ) {
+            if let Ok(it) = ns.query_map(params![t.id, from_ms, to_ms], |r| r.get::<_, String>(0)) {
+                let mut v: Vec<String> = it.flatten().map(|s| s.chars().take(160).collect()).collect();
+                if v.len() > 6 {
+                    let tail = v.split_off(v.len() - 3);
+                    v.truncate(3);
+                    v.extend(tail);
+                }
+                t.notes = v;
+            }
+        }
+        out.push(t);
+    }
+    Ok(out)
+}
+
+/// Resumo do dia em bullets, pronto pra colar na daily (Haiku).
+#[tauri::command(async)]
+fn ai_daily(text: String) -> Result<String, String> {
+    let ctx: String = text.chars().take(6000).collect();
+    let prompt = format!(
+        "Você escreve o update de DAILY de um dev, em português, a partir do log abaixo (tarefas tocadas, commits, marcos, custo). Formato: bullets curtos '- ' agrupados em 'Feito:' e 'Em andamento:' (e 'Bloqueios:' só se houver pergunta pendente). Direto, específico, sem enfeite, sem custo/token. Máx 8 bullets.\n\n{ctx}"
+    );
+    let out = Command::new(claude_bin())
+        .args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 /// Desdobra um trabalho grande em sub-tarefas (JSON) — pro fluxo de épico.
 #[tauri::command(async)]
 fn ai_decompose(text: String) -> Result<String, String> {
@@ -2720,6 +2812,8 @@ pub fn run() {
             env_check,
             read_artifact_raw,
             ai_decompose,
+            daily_digest,
+            ai_daily,
             task_files,
             read_file,
             write_file,

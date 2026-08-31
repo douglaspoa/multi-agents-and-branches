@@ -1033,6 +1033,7 @@
     <button class="btn" id="connectBtn" style="display:none">abrir</button>
     <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow"></span>
+    <button class="btn" id="dailyBtn" title="Daily — resumo do que você fez no dia"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke-linecap="round"/><path d="M5 9.5l1.6 1.6L11 7.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg></button>
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <button class="btn" id="cloudBtn" title="Time na nuvem — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
@@ -1334,6 +1335,14 @@
   </div>
 </div>
 
+<!-- daily do dev: o que fiz no dia selecionado -->
+<div class="overlay" id="dailyOverlay" style="display:none">
+  <div class="modal" style="width:min(700px,100%)">
+    <div class="mhead"><b>Daily</b><input class="in" type="date" id="dailyDate" style="width:150px;margin-left:12px"><span style="flex:1"></span><button class="btn primary sm" id="dailyAI">✨ resumo pra daily</button><button class="x" id="dailyClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="dailyBody"></div>
+  </div>
+</div>
+
 <!-- configurações (⌘,) -->
 <div class="overlay" id="cfgOverlay" style="display:none">
   <div class="modal" style="width:min(560px,100%)">
@@ -1512,7 +1521,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -1565,6 +1574,64 @@ document.getElementById('envRecheck').onclick=async()=>{ envChecks=null; renderE
 document.getElementById('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') document.getElementById('envOverlay').style.display='none'; });
 // boot: valida em background; problema → abre a tela sozinho (1x por sessão)
 setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')) openEnv(); }, 2500);
+
+// ---------- daily do dev ----------
+let dailyData=null, dailyCommits={};
+function dayBounds(iso){ const [y,m,d]=iso.split('-').map(Number); const a=new Date(y,m-1,d).getTime(); return [a, a+86400e3]; }
+async function loadDaily(){
+  const iso=document.getElementById('dailyDate').value; if(!iso) return;
+  const body=document.getElementById('dailyBody');
+  body.innerHTML='<div class="dim" style="padding:8px 2px">montando o dia…</div>';
+  const [a,b]=dayBounds(iso);
+  try{ dailyData=await invoke('daily_digest',{ fromMs:a, toMs:b }); }catch(e){ body.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">Falhou: '+esc(String(e))+'</div>'; return; }
+  // commits do dia por tarefa (branch pode já ter ido embora — ok)
+  dailyCommits={};
+  await Promise.all(dailyData.map(async t=>{ try{ const cs=await invoke('task_commits',{ taskId:t.id }); dailyCommits[t.id]=(cs||[]).filter(c=>(c.date||'')===iso); }catch(_){ dailyCommits[t.id]=[]; } }));
+  renderDaily();
+}
+function renderDaily(){
+  const body=document.getElementById('dailyBody'); if(!body||!dailyData) return;
+  if(!dailyData.length){ body.innerHTML='<div class="emptyrepo" style="display:flex"><div class="big">Dia sem atividade</div><div>nenhuma tarefa teve eventos nesse dia neste projeto.</div></div>'; return; }
+  const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
+  const totCommits=Object.values(dailyCommits).reduce((s,c)=>s+c.length,0);
+  const merged=dailyData.filter(t=>t.status==='merged').length, rev=dailyData.filter(t=>t.status==='review').length;
+  body.innerHTML=
+    `<div class="tmstats" style="margin-bottom:6px"><div class="tmstat"><div class="v">${dailyData.length}</div><div class="l">tarefas tocadas</div></div><div class="tmstat"><div class="v">${totCommits}</div><div class="l">commits</div></div><div class="tmstat"><div class="v" style="color:var(--good)">${rev+merged}</div><div class="l">prontas/merged</div></div><div class="tmstat"><div class="v">${fmtUsd(totUsd)}</div><div class="l">custo do dia</div></div></div>`+
+    `<div id="dailyAIOut"></div>`+
+    dailyData.map(t=>{
+      const cs=dailyCommits[t.id]||[];
+      return `<div class="tmcard"><div class="tmrow1"><b class="tmtitle">${esc(t.title)}</b><span style="flex:1"></span><span class="tmst" style="color:${ctStColor(t.status)}">● ${esc(CT_ST_PT[t.status]||t.status)}</span></div>
+        <div class="tmrow2"><span class="dim" style="font-size:11px"><span class="mono">${esc(t.branch)}</span> · ${t.edits} edições · ${t.cmds} comandos${t.asks?` · ${t.asks} pergunta(s)`:''}${t.usd?` · ${fmtUsd(t.usd)}`:''}</span></div>
+        ${cs.length?`<div style="margin-top:7px;display:flex;flex-direction:column;gap:3px">${cs.slice(0,6).map(c=>`<div class="dim" style="font-size:11.5px"><span class="mono" style="color:var(--accent)">${esc((c.hash||'').slice(0,7))}</span> ${esc(c.subject||'')}</div>`).join('')}${cs.length>6?`<div class="dim" style="font-size:11px">+${cs.length-6} commits</div>`:''}</div>`:''}
+        ${t.notes.length?`<div style="margin-top:7px;border-top:1px dashed var(--border);padding-top:6px">${t.notes.map(n=>`<div class="dim" style="font-size:11px">· ${esc(n)}</div>`).join('')}</div>`:''}
+      </div>`;
+    }).join('');
+}
+async function dailyAISummary(){
+  if(!dailyData||!dailyData.length) return;
+  const btn=document.getElementById('dailyAI'); btn.disabled=true; const o=btn.textContent; btn.textContent='escrevendo…';
+  const facts=dailyData.map(t=>{
+    const cs=(dailyCommits[t.id]||[]).map(c=>c.subject).join('; ');
+    return `TAREFA: ${t.title} [status atual: ${t.status}]${t.asks?' [tem pergunta pendente pro dev]':''}\ncommits do dia: ${cs||'nenhum'}\nmarcos: ${t.notes.join(' | ')||'-'}`;
+  }).join('\n\n');
+  try{
+    const md=await invoke('ai_daily',{ text: facts });
+    document.getElementById('dailyAIOut').innerHTML=`<div class="prbox" style="margin:6px 0 12px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="dailyCopy">copiar pra daily</button></div></div>`;
+    document.getElementById('dailyCopy').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
+  }catch(e){ alert('Falhou: '+e); }
+  btn.disabled=false; btn.textContent=o;
+}
+function openDaily(){
+  const d=new Date(); const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const inp=document.getElementById('dailyDate'); if(!inp.value) inp.value=iso;
+  document.getElementById('dailyOverlay').style.display='flex';
+  loadDaily();
+}
+document.getElementById('dailyBtn').onclick=openDaily;
+document.getElementById('dailyClose').onclick=()=>{ document.getElementById('dailyOverlay').style.display='none'; };
+document.getElementById('dailyDate').onchange=loadDaily;
+document.getElementById('dailyAI').onclick=dailyAISummary;
+document.getElementById('dailyOverlay').addEventListener('click',e=>{ if(e.target.id==='dailyOverlay') document.getElementById('dailyOverlay').style.display='none'; });
 
 // ---------- configurações (⌘,) ----------
 function openCfg(){
