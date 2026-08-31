@@ -4550,6 +4550,28 @@ async function cloudPublishSelf(localId, payload){
   teamTasks=null;
 }
 
+// backfill: publica no time as tarefas locais criadas ANTES do modo time
+// (ou com "não compartilhar") — como SUAS (reservadas), com o status real.
+async function cloudBackfill(btn){
+  const list=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft');
+  if(!list.length) return;
+  if(!confirm('Publicar '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas — ninguém assume), com o status real. O time passa a ver título, status e custo; o stream continua só na sua máquina.')) return;
+  if(btn){ btn.disabled=true; }
+  let n=0;
+  try{
+    const proj=await cloudEnsureProject();
+    for(const t of list){
+      if(btn) btn.textContent=`publicando ${++n}/${list.length}…`;
+      try{
+        const cost=taskCost(t.id);
+        const rows=await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[] } }) });
+        tmapSet(t.id, rows[0].id);
+      }catch(e){ console.error('backfill', t.id, e.message); }
+    }
+    teamTasks=null; teamPaintSig=''; renderTeamBoard();
+  }finally{ if(btn){ btn.disabled=false; } }
+}
+
 // ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
 const cloudSyncSigs={};
 async function cloudSyncTick(){
@@ -4724,9 +4746,10 @@ function renderTeamBoard(){
   if(!html) html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog vazio</div><div>Crie uma tarefa e escolha <b>“Compartilhar com o time”</b> — qualquer membro pode assumir &amp; iniciar.</div></div>`;
   const perNow=lsGet('tmPeriod')||'30';
   const devNow=lsGet('tmDev')||'';
+  const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft').length;
   const devIds=[...new Set(allTasks.flatMap(t=>[t.assignee,t.created_by]).filter(Boolean))];
   const devOpts=`<option value="">todos os devs</option>`+devIds.map(u=>`<option value="${escA(u)}"${u===devNow?' selected':''}>${esc(tmName(u))}</option>`).join('');
-  html=`<div style="display:flex;align-items:center;gap:8px;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span><select class="sel" id="tbDev" style="width:150px">${devOpts}</select><select class="sel" id="tbPeriod" style="width:130px">${[['7','últimos 7 dias'],['30','últimos 30 dias'],['90','último trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
+  html=`<div style="display:flex;align-items:center;gap:8px;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span>${unsynced?`<button class="btn sm" id="tbBackfill" title="publica no time as tarefas locais que ainda não têm cartão (como suas — reservadas)">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<select class="sel" id="tbDev" style="width:150px">${devOpts}</select><select class="sel" id="tbPeriod" style="width:130px">${[['7','últimos 7 dias'],['30','últimos 30 dias'],['90','último trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
   teamTasks=allTasks; // restaura (o filtro é só de exibição)
   if(teamPaintSig===html) return;
   teamPaintSig=html; el.innerHTML=html;
@@ -4735,6 +4758,7 @@ function renderTeamBoard(){
   { const b=document.getElementById('tbEpicAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do épico:'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
   { const s=document.getElementById('tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   { const s=document.getElementById('tbDev'); if(s) s.onchange=e=>{ lsSet('tmDev', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
+  { const b=document.getElementById('tbBackfill'); if(b) b.onclick=()=>cloudBackfill(b); }
   el.querySelectorAll('.tmcard [data-act]').forEach(b=>{
     b.onclick=()=>{
       const id=b.closest('.tmcard').dataset.ct; const ct=teamTasks.find(x=>x.id===id); if(!ct) return;
