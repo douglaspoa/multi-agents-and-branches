@@ -1,4 +1,5 @@
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { GitService } from "./git.ts";
@@ -96,6 +97,58 @@ export class Orchestrator {
     }
 
     return this.store.getTask(spec.id)!;
+  }
+
+  // ---------------------------------------------------------------------------
+  // MEMÓRIA DO PROJETO: decisões e correções do humano que valem pra SEMPRE
+  // (.cardume/MEMORY.md na raiz do repo). Entra no contexto de TODO turno de
+  // TODO agente — e cresce sozinha: cada mensagem de chat do humano passa por
+  // um destilador (Haiku) que extrai regras duradouras e as anexa (com dedup).
+  // ---------------------------------------------------------------------------
+  private memoryFile(): string {
+    return join(this.ws.dir, "MEMORY.md");
+  }
+
+  projectMemory(): string {
+    try {
+      const txt = readFileSync(this.memoryFile(), "utf8").trim();
+      if (!txt) return "";
+      return `## MEMÓRIA DO PROJETO — decisões do humano que você DEVE obedecer (aprendidas em tarefas anteriores)\n${txt.slice(0, 6000)}\n\n`;
+    } catch {
+      return "";
+    }
+  }
+
+  /** Destila uma mensagem do humano em regra duradoura e anexa à memória. */
+  private async learnFromMessage(message: string): Promise<void> {
+    const msg = message.trim();
+    if (msg.length < 12) return;
+    try {
+      const prompt =
+        `Mensagem de um dev pro agente de IA durante uma tarefa:\n"""${msg.slice(0, 800)}"""\n\n` +
+        `Se ela contém uma REGRA/PREFERÊNCIA DURADOURA de trabalho (vale pra tarefas futuras — ex.: como testar, onde ficam credenciais, convenção de git/PR, decisão de produto), responda SÓ a regra em UMA linha imperativa e geral, EM PORTUGUÊS (sem mencionar a tarefa específica). Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
+      const claude = process.env.CARDUME_CLAUDE || "claude";
+      const { stdout } = await run(claude, ["-p", prompt, "--model", "claude-haiku-4-5-20251001"]);
+      const rule = stdout.trim().split("\n").pop()?.trim() ?? "";
+      if (!rule || /^skip\b/i.test(rule) || rule.length < 10 || rule.length > 300) return;
+      // dedup ingênuo: não anexa se já existe linha muito parecida
+      let cur = "";
+      try { cur = readFileSync(this.memoryFile(), "utf8"); } catch { /* primeira regra */ }
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-zà-ú0-9]+/g, " ").trim();
+      const nrule = norm(rule);
+      const words = new Set(nrule.split(" "));
+      for (const line of cur.split("\n")) {
+        const nl = norm(line.replace(/^[-*]\s*/, ""));
+        if (!nl) continue;
+        const lw = nl.split(" ");
+        const overlap = lw.filter((w) => words.has(w)).length;
+        if (overlap >= Math.min(words.size, lw.length) * 0.75) return; // já sabemos disso
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      appendFileSync(this.memoryFile(), `${cur && !cur.endsWith("\n") ? "\n" : ""}- ${rule} _(aprendido ${stamp})_\n`);
+    } catch {
+      /* aprender é melhor-esforço — nunca quebra o turno */
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -198,7 +251,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.bus.buildContext(spec);
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -405,7 +458,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.bus.buildContext(spec);
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec);
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -594,7 +647,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -657,7 +710,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.bus.buildContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec);
     const prev = task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
@@ -700,6 +753,8 @@ export class Orchestrator {
     this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
     else notify("Constellation", `${role.name} respondeu`, task.title);
+    // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
+    if (!asReq) void this.learnFromMessage(message);
   }
 
   /**
