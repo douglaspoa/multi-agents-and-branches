@@ -1025,6 +1025,7 @@
     <button class="btn" id="connectBtn" style="display:none">abrir</button>
     <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow"></span>
+    <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg></button>
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <button class="btn" id="cloudBtn" title="Time na nuvem — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
@@ -1311,6 +1312,21 @@
   </div>
 </div>
 
+<!-- configurações (⌘,) -->
+<div class="overlay" id="cfgOverlay" style="display:none">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="mhead"><b>Configurações</b><span style="flex:1"></span><button class="x" id="cfgClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="cfgBody"></div>
+  </div>
+</div>
+
+<!-- onboarding do primeiro boot -->
+<div class="overlay" id="obOverlay" style="display:none">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="mbody" id="obBody" style="padding:28px 30px"></div>
+  </div>
+</div>
+
 <!-- preflight: o ambiente que o app precisa, com correção copiável -->
 <div class="overlay" id="envOverlay" style="display:none">
   <div class="modal" style="width:min(620px,100%)">
@@ -1474,7 +1490,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -1526,7 +1542,64 @@ document.getElementById('envClose').onclick=()=>{ document.getElementById('envOv
 document.getElementById('envRecheck').onclick=async()=>{ envChecks=null; renderEnv(); await runEnvCheck(); renderEnv(); };
 document.getElementById('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') document.getElementById('envOverlay').style.display='none'; });
 // boot: valida em background; problema → abre a tela sozinho (1x por sessão)
-setTimeout(async()=>{ if(await runEnvCheck()) openEnv(); }, 2500);
+setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')) openEnv(); }, 2500);
+
+// ---------- configurações (⌘,) ----------
+function openCfg(){
+  const body=document.getElementById('cfgBody');
+  body.innerHTML=`
+    <label>Limite de custo por tarefa <span class="dim" style="text-transform:none;letter-spacing:0">(notifica ao cruzar — 0 desliga)</span></label>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}" style="width:110px"></div>
+    <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
+    <input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}" style="width:110px;margin-top:6px">
+    <div class="seclbl2" style="margin-top:20px">Sistema</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn sm" id="cfgEnv">🩺 verificar ambiente</button>
+      <button class="btn sm" id="cfgBackend">backend do time…</button>
+      <button class="btn sm" id="cfgTour">rever o tour</button>
+    </div>
+    <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
+  document.getElementById('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat(document.getElementById('cfgCost').value)||0))); setSlotMax(parseInt(document.getElementById('cfgSlots').value,10)||4); document.getElementById('cfgOverlay').style.display='none'; };
+  document.getElementById('cfgEnv').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; openEnv(); };
+  document.getElementById('cfgBackend').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; cloudCfgOpen=true; openCloud(); };
+  document.getElementById('cfgTour').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; openOnboarding(); };
+  document.getElementById('cfgOverlay').style.display='flex';
+}
+document.getElementById('cfgBtn').onclick=openCfg;
+document.getElementById('cfgClose').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; };
+document.getElementById('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') document.getElementById('cfgOverlay').style.display='none'; });
+
+// ---------- onboarding de 60 segundos (primeiro boot) ----------
+const OB_STEPS=[
+  { t:'Bem-vindo ao Constellation', b:'Aqui, cada <b>tarefa</b> vira uma <b>branch isolada</b> do seu repo, tocada por agentes de IA — com plano, código, testes e <b>provas reais</b> (prints e saídas de verdade, nunca mock). Você acompanha tudo ao vivo e conversa com o agente como num chat.' },
+  { t:'Seu time vê o essencial', b:'Entrando no time (botão no topo), suas tarefas podem virar <b>cartões compartilhados</b>: status, custo e requisitos provados sincronizam — o <b>stream do agente fica só na sua máquina</b>. Você escolhe o que publicar; o backlog do time fica na aba <b>Time</b>.' },
+  { t:'Antes de começar', b:'O app depende de 4 coisas: <b>node</b>, <b>git</b>, <b>claude</b> (logado) e <b>gh</b> (autenticado). Vamos verificar agora — o que faltar vem com o comando de correção pronto pra copiar.' },
+];
+let obStep=0;
+function openOnboarding(){ obStep=0; renderOb(); document.getElementById('obOverlay').style.display='flex'; }
+function renderOb(){
+  const s=OB_STEPS[obStep];
+  document.getElementById('obBody').innerHTML=`
+    <div style="display:flex;gap:6px;margin-bottom:18px">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}</div>
+    <h2 style="font-size:20px;margin:0 0 10px">${s.t}</h2>
+    <p style="color:var(--text-2);font-size:14px;line-height:1.65;margin:0">${s.b}</p>
+    <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
+      <button class="btn sm" id="obSkip">pular</button><span style="flex:1"></span>
+      <button class="btn primary" id="obNext">${obStep<OB_STEPS.length-1?'continuar':'verificar meu ambiente'}</button>
+    </div>`;
+  document.getElementById('obSkip').onclick=finishOb;
+  document.getElementById('obNext').onclick=()=>{ if(obStep<OB_STEPS.length-1){ obStep++; renderOb(); } else { finishOb(); openEnv(); } };
+}
+function finishOb(){ lsSet('onboarded','1'); document.getElementById('obOverlay').style.display='none'; }
+if(!lsGet('onboarded')) setTimeout(openOnboarding, 900);
+
+// ---------- atalhos ----------
+document.addEventListener('keydown', e=>{
+  if(!(e.metaKey||e.ctrlKey)) return;
+  const inField=/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'');
+  if(e.key==='n' && !inField){ e.preventDefault(); openNewTask(); }
+  else if(e.key===','){ e.preventDefault(); openCfg(); }
+});
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
 function claimsOf(taskId){ return state.claims.filter(c=>c.taskId===taskId); }
@@ -4319,16 +4392,18 @@ async function cloudSyncTick(){
 setInterval(()=>{ cloudSyncTick().catch(()=>{}); }, 6000);
 
 // ---- backlog do time (aba Time) ----
-let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='';
+let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[];
 async function teamFetch(force){
   if(teamFetching) return; if(!force && teamTasks && Date.now()-teamFetchedAt<10000) return;
   teamFetching=true;
   try{
     const teamId=cloudTeamId(); if(!teamId) return;
-    const [tasks, projs]=await Promise.all([
+    const [tasks, projs, eps]=await Promise.all([
       sbGet('tasks?select=*&team_id=eq.'+teamId+'&order=updated_at.desc&limit=200'),
       sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId),
+      sbGet('epics?select=id,name,status&team_id=eq.'+teamId+'&status=neq.archived&order=created_at').catch(()=>[]),
     ]);
+    teamEpics=eps||[];
     teamProj={}; projs.forEach(p=>teamProj[p.id]=p);
     const uids=new Set(); tasks.forEach(t=>{ uids.add(t.created_by); if(t.assignee) uids.add(t.assignee); });
     if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
@@ -4356,7 +4431,22 @@ function renderTeamBoard(){
   const me=cloudUserId();
   const isAdmin=cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin');
   const groups=[['Backlog — livre pra assumir', t=>t.status==='backlog'], ['Em andamento', t=>!['backlog','review','delivered','done','merged','aborted'].includes(t.status)], ['Entregues', t=>['review','delivered','done','merged'].includes(t.status)]];
+  // filtro por épico (clica no chip pra focar; clica de novo pra soltar)
+  const epSel=lsGet('tmEpic')||'';
+  if(epSel && teamTasks.some(t=>t.epic_id===epSel)===false && !teamEpics.some(e=>e.id===epSel)) lsSet('tmEpic','');
+  const allTasks=teamTasks;
+  if(epSel) teamTasks=teamTasks.filter(t=>t.epic_id===epSel);
   let html='';
+  // faixa de ÉPICOS com progresso (entregues/total)
+  {
+    const chips=teamEpics.map(e=>{
+      const ts=allTasks.filter(t=>t.epic_id===e.id);
+      const done=ts.filter(groups[2][1]).length;
+      const on=epSel===e.id;
+      return `<button class="btn sm${on?' primary':''}" data-epic="${escA(e.id)}" title="${on?'clique pra mostrar tudo de novo':'filtrar por este épico'}">${esc(e.name)} <span class="dim" style="font-size:10px">${done}/${ts.length}</span></button>`;
+    }).join('');
+    html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 2px 8px"><span class="dim" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.07em">Épicos</span>${chips||'<span class="dim" style="font-size:11.5px">nenhum</span>'}<button class="btn sm" id="tbEpicAdd">+ épico</button></div>`;
+  }
   // dashboard do time: números que importam, no topo (com filtro de período)
   {
     const per=lsGet('tmPeriod')||'30';
@@ -4395,10 +4485,12 @@ function renderTeamBoard(){
       const canClaim=t.status==='backlog' && (t.claim_mode==='open' || t.created_by===me);
       const reserved=t.claim_mode==='reserved';
       const cost=(t.cost_usd>0)?` · ${fmtUsd(+t.cost_usd)}`:'';
+      const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
+      const epTag=ep?` · <span style="color:var(--accent)">◆ ${esc(ep)}</span>`:'';
       const who=t.assignee?`${tmAv(t.assignee)} <span class="dim" style="font-size:11px">${esc(tmName(t.assignee))}</span>`:`<span class="dim" style="font-size:11px">ninguém assumiu</span>`;
       return `<div class="tmcard" data-ct="${escA(t.id)}">
         <div class="tmrow1"><b class="tmtitle">${esc(t.title)}</b>${reserved?'<span class="tmbadge" title="o criador reservou esta tarefa pra si">pra si</span>':''}<span style="flex:1"></span><span class="tmst" style="color:${ctStColor(t.status)}">● ${esc(CT_ST_PT[t.status]||t.status)}</span></div>
-        <div class="tmrow2"><span class="dim" style="font-size:11px">${esc(proj.name||'?')}${t.branch?' · <span class=mono>'+esc(t.branch)+'</span>':''}${cost} · ${agoTx(t.updated_at)}</span><span style="flex:1"></span>${who}</div>
+        <div class="tmrow2"><span class="dim" style="font-size:11px">${esc(proj.name||'?')}${t.branch?' · <span class=mono>'+esc(t.branch)+'</span>':''}${cost}${epTag} · ${agoTx(t.updated_at)}</span><span style="flex:1"></span>${who}</div>
         <div class="tmrow3"><span class="dim" style="font-size:11px">por ${esc(tmName(t.created_by))}</span><span style="flex:1"></span>
           ${t.pr_url?`<button class="btn sm" data-act="pr">PR ↗</button>`:''}
           <button class="btn sm" data-act="ver">ver</button>
@@ -4411,9 +4503,12 @@ function renderTeamBoard(){
   if(!html) html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog vazio</div><div>Crie uma tarefa e escolha <b>“Compartilhar com o time”</b> — qualquer membro pode assumir &amp; iniciar.</div></div>`;
   const perNow=lsGet('tmPeriod')||'30';
   html=`<div style="display:flex;align-items:center;gap:8px;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span><select class="sel" id="tbPeriod" style="width:130px">${[['7','últimos 7 dias'],['30','últimos 30 dias'],['90','último trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
+  teamTasks=allTasks; // restaura (o filtro é só de exibição)
   if(teamPaintSig===html) return;
   teamPaintSig=html; el.innerHTML=html;
   document.getElementById('tbRefresh').onclick=()=>{ teamTasks=null; renderTeamBoard(); };
+  el.querySelectorAll('[data-epic]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epic?'':b.dataset.epic); teamPaintSig=''; renderTeamBoard(); }; });
+  { const b=document.getElementById('tbEpicAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do épico:'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
   { const s=document.getElementById('tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   el.querySelectorAll('.tmcard [data-act]').forEach(b=>{
     b.onclick=()=>{
@@ -4461,6 +4556,8 @@ function openCloudTask(ct){
     <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
     <label style="margin-top:12px">Requisitos <span class="dim" style="text-transform:none;letter-spacing:0">(um por linha — o agente é cobrado por cada um)</span></label>
     <textarea class="in ta" id="ctReqs" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
+    <label style="margin-top:12px">Épico</label>
+    <select class="sel" id="ctEpic" style="width:100%"><option value="">— sem épico —</option>${teamEpics.map(e=>`<option value="${escA(e.id)}"${ct.epic_id===e.id?' selected':''}>${esc(e.name)}</option>`).join('')}</select>
     <div id="ctReqProof"></div>
     <div id="ctProofs"></div>
     <div id="ctAct" class="dim" style="font-size:11px;margin-top:12px">carregando atividade…</div>
@@ -4500,6 +4597,10 @@ function openCloudTask(ct){
         sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'edited', body:'' }).catch(()=>{});
         teamTasks=null; document.getElementById('ctOverlay').style.display='none'; renderTeamBoard();
       }catch(e){ alert('Falhou: '+e.message); b.disabled=false; b.textContent='salvar alterações'; }
+    }; }
+  { const s=document.getElementById('ctEpic'); if(s) s.onchange=async()=>{
+      try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ epic_id: s.value||null }) }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }
+      catch(e){ alert('Falhou: '+e.message); }
     }; }
 }
 document.getElementById('ctClose').onclick=()=>{ document.getElementById('ctOverlay').style.display='none'; };
