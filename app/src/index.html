@@ -4558,6 +4558,47 @@ async function cloudSyncTick(){
 }
 setInterval(()=>{ cloudSyncTick().catch(()=>{}); }, 6000);
 
+// ---- PONTE DE PERGUNTAS (mobile): pergunta aberta sobe, resposta desce ----
+// O agente pergunta (ask_human) → o Mac publica no cartão; o dev responde do
+// celular (PWA) → o Mac entrega a resposta ao agente (resolve_pending).
+const qPushed=new Set();
+async function cloudQuestionsTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
+  for(const lid of ids){
+    const cid=m[lid];
+    const pend=(state.pending||[]).filter(p=>p.taskId===lid);
+    // 1) publica perguntas abertas (upsert por task+pending_id)
+    for(const p of pend){
+      const key=cid+'|'+p.id;
+      if(qPushed.has(key)) continue;
+      try{
+        await sbFetch('/rest/v1/questions?on_conflict=task_id,local_pending_id', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ task_id:cid, local_pending_id:p.id, agent:p.agent||'', prompt:(p.prompt||'').slice(0,2000), options:Array.isArray(p.options)?p.options:[], status:'open' }) });
+        qPushed.add(key);
+      }catch(_){ }
+    }
+    try{
+      // 2) respostas vindas do celular → entrega ao agente e fecha
+      const answered=await sbGet('questions?select=id,local_pending_id,answer&task_id=eq.'+cid+'&status=eq.answered');
+      for(const q of answered){
+        if(pend.some(p=>p.id===q.local_pending_id)){
+          try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; }
+        }
+        await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
+        lastSig='';
+      }
+      // 3) pergunta respondida NO DESKTOP (sumiu do pending local) → fecha na nuvem
+      const open=await sbGet('questions?select=id,local_pending_id&task_id=eq.'+cid+'&status=eq.open');
+      for(const q of open){
+        if(!pend.some(p=>p.id===q.local_pending_id)){
+          await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
+        }
+      }
+    }catch(_){ }
+  }
+}
+setInterval(()=>{ cloudQuestionsTick().catch(()=>{}); }, 7000);
+
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[];
 async function teamFetch(force){
