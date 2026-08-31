@@ -1817,6 +1817,28 @@ struct AiChat {
     session_id: String,
 }
 
+/// Desdobra um trabalho grande em sub-tarefas (JSON) — pro fluxo de épico.
+#[tauri::command(async)]
+fn ai_decompose(text: String) -> Result<String, String> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err("sem contexto pra desdobrar".to_string());
+    }
+    let ctx: String = t.chars().take(6000).collect();
+    let prompt = format!(
+        "Você é um tech lead quebrando um trabalho grande em tarefas EXECUTÁVEIS e independentes (cada uma vira uma branch própria tocada por um agente). Com base no contexto abaixo, proponha de 3 a 7 tarefas, em ordem de dependência. Responda SOMENTE um JSON array válido, sem markdown: [{{\"title\":\"verbo + objeto (máx 60 chars)\",\"objective\":\"2-4 frases: o que fazer, onde, critério de pronto\"}}]\n\nCONTEXTO:\n{ctx}"
+    );
+    let out = Command::new(claude_bin())
+        .args(["-p", &prompt])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 /// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
 #[tauri::command(async)]
 fn ai_title(text: String) -> Result<String, String> {
@@ -2697,6 +2719,7 @@ pub fn run() {
             push_task,
             env_check,
             read_artifact_raw,
+            ai_decompose,
             task_files,
             read_file,
             write_file,

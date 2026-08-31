@@ -964,6 +964,7 @@
   .rev .test{margin-top:11px;font-size:11.5px;color:var(--text-2);border-left:2px solid var(--accent);padding-left:9px}
   .rev .fl2{font-size:11px;color:var(--muted);margin-top:9px;display:flex;flex-wrap:wrap;gap:4px 12px}
 
+  #bdOverlay .ckrow{text-transform:none;letter-spacing:normal;padding:9px 12px;border:1px solid var(--border);border-radius:7px;margin-top:7px;background:var(--surface-2)}
   /* Nova tarefa — respiro e ritmo (campos estavam grudados) */
   #ntOverlay .modal{width:min(660px,100%)}
   #ntOverlay .mhead{gap:10px;padding:14px 20px}
@@ -1312,6 +1313,20 @@
   </div>
 </div>
 
+<!-- desdobrar tarefa em épico (IA propõe as sub-tarefas) -->
+<div class="overlay" id="bdOverlay" style="display:none">
+  <div class="modal" style="width:min(640px,100%)">
+    <div class="mhead"><b>◆ Desdobrar em épico</b><span style="flex:1"></span><button class="x" id="bdClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody">
+      <label>Nome do épico</label>
+      <input class="in" id="bdName" placeholder="ex.: Filtros avançados em todos os domínios">
+      <div class="seclbl2" style="margin-top:14px">Sub-tarefas propostas <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· desmarque o que não quiser — cada uma vira um cartão livre no backlog do time</span></div>
+      <div id="bdList"></div>
+    </div>
+    <div class="mfoot"><span class="dim">os cartões nascem com o épico atribuído — qualquer membro assume &amp; inicia</span><span style="flex:1"></span><button class="btn" id="bdCancel">cancelar</button><button class="btn primary" id="bdCreate">criar épico</button></div>
+  </div>
+</div>
+
 <!-- configurações (⌘,) -->
 <div class="overlay" id="cfgOverlay" style="display:none">
   <div class="modal" style="width:min(560px,100%)">
@@ -1490,7 +1505,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -1566,6 +1581,10 @@ function openCfg(){
   document.getElementById('cfgOverlay').style.display='flex';
 }
 document.getElementById('cfgBtn').onclick=openCfg;
+document.getElementById('bdClose').onclick=()=>{ document.getElementById('bdOverlay').style.display='none'; };
+document.getElementById('bdCancel').onclick=()=>{ document.getElementById('bdOverlay').style.display='none'; };
+document.getElementById('bdCreate').onclick=()=>bdCreate();
+document.getElementById('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') document.getElementById('bdOverlay').style.display='none'; });
 document.getElementById('cfgClose').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; };
 document.getElementById('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') document.getElementById('cfgOverlay').style.display='none'; });
 
@@ -3238,10 +3257,12 @@ function renderSide(){
     const wsPush=(t.kind!=='review'&&t.status==='review')?`<button class="btn sm ghost" data-act="wspush" title="abre o editor (arquivos · código · chat) com o botão de commit & push">⇡ revisar &amp; push</button>`:'';
     const rerun=(t.kind!=='review'&&['review','error','aborted','conflict','merged'].includes(t.status))?`<button class="btn sm ghost" data-act="rerun">${IC.refresh} re-rodar</button>`:'';
     const linkfix=(t.kind!=='review'&&['review','merged','error','aborted','conflict'].includes(t.status))?`<button class="btn sm ghost" data-act="linkfix" title="algo quebrou em produção? abre uma correção linkada a esta tarefa">${IC.clip} correção</button>`:'';
-    const linkdz=((t.branch||'').startsWith('design/')&&['review','merged','error','aborted'].includes(t.status))?`<button class="btn primary sm wide" data-act="linkdz" title="design aprovado? cria a tarefa de Entrega linkada, com o mockup e o DESIGN.md anexados como referência">${IC.cright} criar entrega deste design</button>`:'';
+    const isDz=(t.branch||'').startsWith('design/'), isInv=(t.branch||'').startsWith('invest/');
+    const linkdz=((isDz||isInv)&&['review','merged','error','aborted'].includes(t.status))?`<button class="btn primary sm wide" data-act="linkdz" title="cria a tarefa de Entrega linkada, com os artefatos (${isDz?'mockup + DESIGN.md':'INVESTIGATION.md + evidências'}) anexados como referência obrigatória">${IC.cright} ${isDz?'criar entrega deste design':'criar entrega desta investigação'}</button>`:'';
+    const breakdown=(t.kind!=='review'&&['review','merged'].includes(t.status))?`<button class="btn sm ghost" data-act="breakdown" title="a IA lê esta tarefa e os artefatos e propõe sub-tarefas — vira um ÉPICO com cartões no backlog do time">◆ desdobrar em épico</button>`:'';
     const merged=t.status==='merged'?`<span class="mergedtag">${IC.check} merged na ${esc(t.base)}</span>`:'';
     const primary=merge||start;
-    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${linkdz}${primary}<div class="acts foot1">${wsPush}${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
+    return `<div class="footcol">${merged?`<div class="acts">${merged}</div>`:''}${linkdz}${primary}<div class="acts foot1">${wsPush}${breakdown}${rerun}${linkfix}${flagBtns}<span class="grow"></span>${t.status!=='merged'?`<button class="btn danger sm ghost" data-act="rm">${rmlbl}</button>`:''}</div></div>`;
   })();
 
   el.innerHTML = `<div class="det">
@@ -3272,6 +3293,7 @@ function renderSide(){
   el.querySelectorAll('[data-act="linkfix"]').forEach(b=>b.onclick=()=>openLinkedFix(t));
   el.querySelectorAll('[data-act="linkdz"]').forEach(b=>b.onclick=()=>openFromDesign(t));
   el.querySelectorAll('[data-act="wspush"]').forEach(b=>b.onclick=()=>openWorkspace(t.id));
+  el.querySelectorAll('[data-act="breakdown"]').forEach(b=>b.onclick=()=>openBreakdown(t));
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
@@ -3409,18 +3431,71 @@ let ntLinkedTo=null; // id da tarefa de origem quando esta é uma correção lin
 // design aprovado → cria a tarefa de ENTREGA linkada, com os artefatos do
 // design (mockup/DESIGN.md) anexados como referência obrigatória.
 async function openFromDesign(t){
+  const isInv=(t.branch||'').startsWith('invest/');
   try{
     let arts=[]; try{ arts = await loadArtifacts(t.id, t.status) || []; }catch(_){ arts=[]; }
     await openNewTask();
     setNtMode('build');
     ntLinkedTo=t.id; renderNtLink();
-    document.getElementById('ntTitle').value = t.title.replace(/^design[:\s—-]*/i,'').trim() || t.title;
-    document.getElementById('ntObj').value = `Implementar o design aprovado na tarefa "${t.title}". Os anexos em .cardume/refs/ (mockup.html e DESIGN.md) são a REFERÊNCIA OBRIGATÓRIA: siga fielmente as telas, os estados (vazio/carregando/erro) e as decisões documentadas. Divergiu do mockup? Pergunte antes.`;
-    ntRefs = (arts||[]).filter(a=>/\.(html|md|png|jpe?g|webp)$/i.test(a.name)).map(a=>state.repo+'/.cardume/artifacts/'+t.id+'/'+a.name);
+    document.getElementById('ntTitle').value = t.title.replace(/^(design|por que|investigar)[:\s—-]*/i,'').trim() || t.title;
+    document.getElementById('ntObj').value = isInv
+      ? `Implementar a solução apontada pela investigação "${t.title}". O anexo INVESTIGATION.md (.cardume/refs/) é a REFERÊNCIA OBRIGATÓRIA: siga a CAUSA RAIZ e a RECOMENDAÇÃO documentadas; as evidências anexas mostram o comportamento atual. Divergiu da recomendação? Pergunte antes.`
+      : `Implementar o design aprovado na tarefa "${t.title}". Os anexos em .cardume/refs/ (mockup.html e DESIGN.md) são a REFERÊNCIA OBRIGATÓRIA: siga fielmente as telas, os estados (vazio/carregando/erro) e as decisões documentadas. Divergiu do mockup? Pergunte antes.`;
+    ntRefs = (arts||[]).filter(a=>/\.(html|md|png|jpe?g|webp|txt|log)$/i.test(a.name)).map(a=>state.repo+'/.cardume/artifacts/'+t.id+'/'+a.name);
     renderNtRefs();
     document.getElementById('ntArtProof').checked=true;
     document.getElementById('ntArtTests').checked=true;
-  }catch(e){ alert('Não consegui montar a entrega a partir do design:\n'+(e&&e.message||e)); console.error('openFromDesign:', e); }
+  }catch(e){ alert('Não consegui montar a entrega:\n'+(e&&e.message||e)); console.error('openFromDesign:', e); }
+}
+
+// ---------- desdobrar tarefa em ÉPICO (a IA propõe as sub-tarefas) ----------
+let bdTask=null, bdItems=null;
+async function openBreakdown(t){
+  if(!SB.sess() || !cloudTeamId()){ alert('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro (botão no topo).'); return; }
+  bdTask=t; bdItems=null;
+  document.getElementById('bdOverlay').style.display='flex';
+  document.getElementById('bdName').value=t.title.replace(/^(design|por que|investigar|corrigir)[:\s—-]*/i,'').trim()||t.title;
+  renderBd();
+  // contexto: objetivo + docs da tarefa (INVESTIGATION/DESIGN/ARCHITECTURE)
+  let ctx = 'TAREFA DE ORIGEM: '+t.title+'\nOBJETIVO: '+(t.objective||'')+'\n';
+  try{
+    const arts=await loadArtifacts(t.id, t.status)||[];
+    for(const a of arts.filter(x=>/\.md$/i.test(x.name)).slice(0,3)){
+      try{ const c=await invoke('read_artifact',{ taskId:t.id, name:a.name }); ctx+='\n=== '+a.name+' ===\n'+(c.text||'').slice(0,2500)+'\n'; }catch(_){ }
+    }
+  }catch(_){ }
+  try{
+    const raw=await invoke('ai_decompose',{ text: ctx });
+    const m=raw.match(/\[[\s\S]*\]/);
+    const arr=JSON.parse(m?m[0]:raw);
+    bdItems=(Array.isArray(arr)?arr:[]).filter(x=>x&&x.title).map(x=>({ title:String(x.title).slice(0,90), objective:String(x.objective||''), on:true }));
+  }catch(e){ bdItems=[]; console.error('ai_decompose:', e); }
+  renderBd();
+}
+function renderBd(){
+  const el=document.getElementById('bdList'); if(!el) return;
+  if(bdItems===null){ el.innerHTML='<div class="dim" style="padding:10px 2px">a IA está lendo a tarefa e os artefatos e propondo as sub-tarefas…</div>'; return; }
+  if(!bdItems.length){ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">não veio proposta — tente de novo ou crie as tarefas manualmente no backlog</div>'; return; }
+  el.innerHTML=bdItems.map((x,i)=>`
+    <label class="ckrow" style="align-items:flex-start"><input type="checkbox" data-bd="${i}" ${x.on?'checked':''}><span style="flex:1;min-width:0"><b style="font-size:13px">${esc(x.title)}</b><div class="dim" style="font-size:12px;margin-top:2px">${esc(x.objective)}</div></span></label>`).join('');
+  el.querySelectorAll('[data-bd]').forEach(c=>{ c.onchange=()=>{ bdItems[+c.dataset.bd].on=c.checked; }; });
+  const n=bdItems.filter(x=>x.on).length;
+  const btn=document.getElementById('bdCreate'); if(btn) btn.textContent=`criar épico + ${n} tarefa${n===1?'':'s'} no backlog`;
+}
+async function bdCreate(){
+  const name=document.getElementById('bdName').value.trim(); if(!name) return;
+  const picked=(bdItems||[]).filter(x=>x.on);
+  if(!picked.length){ alert('Marque pelo menos uma sub-tarefa.'); return; }
+  const btn=document.getElementById('bdCreate'); btn.disabled=true; btn.textContent='criando…';
+  try{
+    const proj=await cloudEnsureProject();
+    const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId() });
+    for(const x of picked){
+      await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id, spec:{ title:x.title, objective:x.objective+`\n\n(Derivada do épico "${name}" — origem: tarefa "${bdTask.title}"${bdTask?'; os artefatos dela têm o contexto completo':''}.)`, requirements:[] } });
+    }
+    document.getElementById('bdOverlay').style.display='none';
+    teamTasks=null; teamPaintSig=''; lsSet('tmEpic', ep[0].id); setView('team');
+  }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); btn.disabled=false; renderBd(); }
 }
 async function openLinkedFix(t){
   const fromInvest=(t.branch||'').startsWith('invest/');
@@ -4527,7 +4602,8 @@ async function teamClaimStart(ct, btn){
   try{
     const j=await sbRpc('claim_task',{ p_task: ct.id });
     if(!j.ok) throw new Error(j.error||'não deu pra assumir');
-    const payload={ ...(ct.spec||{}), title: ct.spec?.title||ct.title, start:true };
+    // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
+    const payload={ workflow:null, agents:null, engine:'claude', approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), title: ct.spec?.title||ct.title, start:true };
     const localId=await invoke('new_task', payload);
     tmapSet(localId, ct.id);
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
