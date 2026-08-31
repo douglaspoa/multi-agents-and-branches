@@ -408,6 +408,13 @@
   .ffsearch::placeholder{color:var(--muted)}
   .ffbar .grow{flex:1}
   .fcard{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);cursor:pointer;transition:border-color .12s}
+  /* agente esperando resposta: borda âmbar pulsando + badge */
+  .fcard.asking{border-color:var(--warn);animation:askpulse 1.6s ease-in-out infinite}
+  @keyframes askpulse{0%,100%{box-shadow:0 0 0 0 rgba(224,179,77,.0)}50%{box-shadow:0 0 0 4px rgba(224,179,77,.22);border-color:var(--warn)}}
+  .askingbadge{font-size:10px;font-weight:700;color:#0b0e0d;background:var(--warn);padding:2px 8px;border-radius:99px;white-space:nowrap;animation:askblink 1.6s ease-in-out infinite}
+  @keyframes askblink{0%,100%{opacity:1}50%{opacity:.55}}
+  @media (prefers-reduced-motion: reduce){ .fcard.asking,.askingbadge,.kcard.asking{animation:none} .fcard.asking,.kcard.asking{box-shadow:0 0 0 3px rgba(224,179,77,.2)} }
+  .kcard.asking{border-color:var(--warn);animation:askpulse 1.6s ease-in-out infinite}
   .fcard:hover{border-color:var(--border-strong)}
   .fcard.sel{border-color:var(--accent);box-shadow:var(--ring)}
   .fcard.dragging{opacity:.4;cursor:grabbing}
@@ -2333,8 +2340,9 @@ function flowTaskCard(t){
     : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';
   const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:t.flag==='closed'?`<span class="flagbadge cls">${IC.checkc} encerrada</span>`:'';
-  return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}" data-id="${t.id}">
-    <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}<span class="fstatus" style="color:${col}">${esc(t.status)}</span></div>
+  const asking = pendingOf(t.id).length>0;
+  return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}${asking?' asking':''}" data-id="${t.id}">
+    <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus" style="color:${asking?'var(--warn)':col}">${asking?'esperando você':esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
@@ -2484,7 +2492,7 @@ function kCard(t){
     : t.status==='aborted'?'abortada — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
     : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
-  return `<div class="kcard${t.id===selected?' sel':''}" draggable="true" data-id="${t.id}">
+  return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" data-id="${t.id}">
     <div class="kctop">${t.status==='draft'?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:''}<b class="ktitle">${esc(t.title)}</b></div>
     <div class="kcrew">${crew}</div>
     ${note?`<div class="knote${amber?' amber':''}">${esc(note.length>64?note.slice(0,63)+'…':note)}</div>`:''}
