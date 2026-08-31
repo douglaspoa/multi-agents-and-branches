@@ -65,7 +65,9 @@ export class Orchestrator {
 
     // A pasta do Constellation nunca deve entrar no repo do usuário.
     await this.git.ensureExcluded([".cardume/", ".constellation/"]);
-    await this.git.worktreeAdd(worktree, branch, base);
+    // base ATUALIZADA: fetch + origin/<base> quando existir (main fresca sempre)
+    const baseRef = await this.git.freshBaseRef(base);
+    await this.git.worktreeAdd(worktree, branch, baseRef);
 
     const taskDir = join(worktree, ".cardume");
     await mkdir(taskDir, { recursive: true });

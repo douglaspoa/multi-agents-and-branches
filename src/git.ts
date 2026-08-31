@@ -103,6 +103,25 @@ export class GitService {
     return this.currentBranch();
   }
 
+  /**
+   * Base ATUALIZADA: faz fetch do remoto e devolve origin/<base> quando existir
+   * — toda tarefa nova nasce da main (ou da base pedida) FRESCA, não da cópia
+   * local possivelmente velha. Sem rede/remoto, cai na ref local sem falhar.
+   */
+  async freshBaseRef(base: string): Promise<string> {
+    const short = base.replace(/^origin\//, "");
+    try {
+      await run("git", ["-C", this.repo, "fetch", "origin", short, "--no-tags"]);
+    } catch { /* offline ou sem remoto — segue com o que há */ }
+    for (const c of [`origin/${short}`, base]) {
+      try {
+        await run("git", ["-C", this.repo, "rev-parse", "--verify", "--quiet", c]);
+        return c;
+      } catch { /* tenta a próxima */ }
+    }
+    return base;
+  }
+
   async worktreeAdd(path: string, branch: string, base: string): Promise<void> {
     await run("git", ["-C", this.repo, "worktree", "add", "-b", branch, path, base]);
   }
