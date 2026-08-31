@@ -1083,9 +1083,24 @@
       </div>
       <div class="ntmode" id="ntMode">
         <button class="ntmodebtn on" data-mode="build"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg> Entrega</button>
-        <button class="ntmodebtn" data-mode="review"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg> Code review</button>
+        <button class="ntmodebtn" data-mode="review"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg> Review</button>
         <button class="ntmodebtn" data-mode="fix"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8.7 2L4 9h3l-.6 5L12 6.8H8.9z" stroke-linejoin="round"/></svg> Fix rápido</button>
         <button class="ntmodebtn" data-mode="design"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2.6a5.4 5.4 0 1 0 0 10.8c.9 0 1.3-.55 1.3-1.15 0-.55-.4-.95-.4-1.5 0-.6.5-1.05 1.15-1.05h1.3A2.05 2.05 0 0 0 13.4 7.6 5.1 5.1 0 0 0 8 2.6z" stroke-linejoin="round"/><circle cx="5.6" cy="6.4" r=".7" fill="currentColor" stroke="none"/><circle cx="8.2" cy="5" r=".7" fill="currentColor" stroke="none"/><circle cx="10.7" cy="6.3" r=".7" fill="currentColor" stroke="none"/></svg> Design</button>
+        <button class="ntmodebtn" data-mode="invest"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v2M8 11.8v2M2.2 8h2M11.8 8h2" stroke-linecap="round"/><circle cx="8" cy="8" r="5.3" stroke-dasharray="2.4 2.2"/></svg> Investigar</button>
+      </div>
+      <div id="ntInvFields" style="display:none">
+        <label style="display:flex;align-items:center">O que investigar<span style="flex:1"></span><button class="btn sm" data-aititle="ntInvTitle:ntInvObj" title="gera o título a partir do sintoma" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar do sintoma</button></label>
+        <input class="in" id="ntInvTitle" placeholder="ex.: por que o custo da telemetria soma em dobro no filtro 'hoje'">
+        <label style="margin-top:12px">Sintoma / pergunta <span class="dim" style="text-transform:none;letter-spacing:0">(o que acontece, onde, como reproduzir, desde quando)</span></label>
+        <textarea class="in ta" id="ntInvObj" rows="7" placeholder="ex.: usuários reportam que a exportação falha só em contas com +10k linhas; começou depois do deploy de terça. Reproduz em staging com a conta X…"></textarea>
+        <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· print do erro, log, gráfico — onde o problema aparece</span><span style="flex:1"></span><button class="btn sm" id="ntInvRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
+        <div id="ntInvRefs" class="reflist"></div>
+        <label style="margin-top:12px">Quem investiga</label>
+        <select class="sel" id="ntInvAgent" style="width:100%"></select>
+        <div class="seclbl2" style="margin-top:14px">Entregáveis da investigação</div>
+        <label class="ckrow"><input type="checkbox" id="ntInvDoc" checked disabled><span><b>INVESTIGATION.md</b> <span class="dim">— reprodução, causa raiz (arquivo:linha), evidências e recomendação de correção</span></span></label>
+        <label class="ckrow"><input type="checkbox" id="ntInvRepro" checked><span><b>Reprodução comprovada</b> <span class="dim">— o problema reproduzido no ambiente real, com a saída/print anexada</span></span></label>
+        <div class="aihint dim" style="margin-top:9px">Só investiga — <b>não corrige</b>. Nasce numa branch <span class="mono">invest/…</span> sem tocar no código do produto. Causa achada? O botão <b>correção</b> abre o fix linkado com o diagnóstico anexado.</div>
       </div>
       <div id="ntDesignFields" style="display:none">
         <label style="display:flex;align-items:center">O que projetar<span style="flex:1"></span><button class="btn sm" data-aititle="ntDzTitle:ntDzObj" title="gera o título a partir do contexto/fluxo" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar do contexto</button></label>
@@ -3207,7 +3222,7 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
   lastSig = snapSig();   // marca o estado já renderizado (evita render duplicado no próximo tick)
 });
 
-let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[], ntDzRefs=[], ntFixRefs=[];
+let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[], ntDzRefs=[], ntFixRefs=[], ntInvRefs=[];
 function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?IC.image:IC.doc; }
 // lista de anexos genérica: prints/PDFs/docs em qualquer modo da Nova tarefa
 function renderRefsInto(elId, arr, emptyMsg){
@@ -3218,6 +3233,7 @@ function renderRefsInto(elId, arr, emptyMsg){
 function renderNtRefs(){ renderRefsInto('ntRefs', ntRefs, 'nenhum — anexe specs, PDFs ou um print do bug'); }
 function renderDzRefs(){ renderRefsInto('ntDzRefs', ntDzRefs, 'nenhum — anexe prints da tela atual, rascunhos, referências visuais'); }
 function renderFixRefs(){ renderRefsInto('ntFixRefs', ntFixRefs, 'nenhum — anexe o print do bug pra mostrar exatamente onde acontece'); }
+function renderInvRefs(){ renderRefsInto('ntInvRefs', ntInvRefs, 'nenhum — anexe o print do erro, log ou gráfico onde o problema aparece'); }
 async function pickRefsInto(arr, render){ try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){ arr.push(...paths); render(); } }catch(e){ console.error('pick_ref_files',e); } }
 async function pickRefs(){ await pickRefsInto(ntRefs, renderNtRefs); }
 function renderNtList(id, arr){
@@ -3231,7 +3247,7 @@ async function openNewTask(){
   setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   document.getElementById("ntOverlay").style.display = "flex";
-  (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):document.getElementById("ntTitle")).focus();
+  (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):ntMode==='invest'?document.getElementById("ntInvTitle"):document.getElementById("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
   const wfSel = document.getElementById("ntWorkflow");
   const wfs = (state.config && state.config.workflows) || [];
@@ -3257,6 +3273,11 @@ async function openNewTask(){
   // designer: agentes com papel designer primeiro (ex.: Aria)
   const dzFirst=[...ags].sort((a,b)=>((b.role==='designer')?1:0)-((a.role==='designer')?1:0));
   const dzDefault=ags.find(a=>a.role==='designer');
+  // investigador: reviewer/tester primeiro (perfil de caçar causa raiz)
+  const invFirst=[...ags].sort((a,b)=>((b.role==='reviewer'||b.role==='tester')?1:0)-((a.role==='reviewer'||a.role==='tester')?1:0));
+  document.getElementById("ntInvAgent").innerHTML =
+    `<option value="" selected>Investigador padrão (Claude)</option>`+
+    invFirst.map(a=>`<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("");
   document.getElementById("ntDzAgent").innerHTML =
     dzFirst.map(a=>`<option value="${esc(a.id)}"${dzDefault&&a.id===dzDefault.id?' selected':''}>${esc(a.name)} · ${esc(a.role||'agente')}</option>`).join("")
     + `<option value=""${dzDefault?'':' selected'}>Designer padrão (Claude)</option>`;
@@ -3281,11 +3302,18 @@ async function openFromDesign(t){
   }catch(e){ alert('Não consegui montar a entrega a partir do design:\n'+(e&&e.message||e)); console.error('openFromDesign:', e); }
 }
 async function openLinkedFix(t){
+  const fromInvest=(t.branch||'').startsWith('invest/');
   await openNewTask();
   setNtMode('fix');
   ntLinkedTo=t.id;
-  document.getElementById('ntFixTitle').value='Corrigir: '+t.title;
-  document.getElementById('ntFixObj').value='Correção LINKADA à tarefa "'+t.title+'" (id '+t.id+', branch '+t.branch+'). Ela foi entregue mas algo não está funcionando em produção.\n\nO que está acontecendo: ';
+  document.getElementById('ntFixTitle').value='Corrigir: '+t.title.replace(/^por que\s*/i,'');
+  document.getElementById('ntFixObj').value = fromInvest
+    ? 'Correção a partir da INVESTIGAÇÃO "'+t.title+'" (id '+t.id+'). O diagnóstico completo está no anexo INVESTIGATION.md (.cardume/refs/) — siga a CAUSA RAIZ e a RECOMENDAÇÃO de lá; aplique o menor diff que resolve.'
+    : 'Correção LINKADA à tarefa "'+t.title+'" (id '+t.id+', branch '+t.branch+'). Ela foi entregue mas algo não está funcionando em produção.\n\nO que está acontecendo: ';
+  if(fromInvest){
+    // anexa o diagnóstico (INVESTIGATION.md e evidências) como referência do fix
+    try{ const arts=await loadArtifacts(t.id, t.status)||[]; ntFixRefs=arts.filter(a=>/\.(md|png|jpe?g|txt|log)$/i.test(a.name)).map(a=>state.repo+'/.cardume/artifacts/'+t.id+'/'+a.name); renderFixRefs(); }catch(_){ }
+  }
   ntFixReq=[
     'O problema relatado não acontece mais (reproduzir o cenário original e validar)',
     'Prova real na UI/ambiente (print) + teste cobrindo a regressão',
@@ -3308,16 +3336,17 @@ function setNtMode(m){
   document.getElementById("ntReviewFields").style.display = m==='review'?'':'none';
   document.getElementById("ntFixFields").style.display = m==='fix'?'':'none';
   document.getElementById("ntDesignFields").style.display = m==='design'?'':'none';
+  document.getElementById("ntInvFields").style.display = m==='invest'?'':'none';
   document.getElementById("ntDraft").style.display = m==='build'?'':'none';
   document.getElementById("ntAI").style.display = m==='build'?'':'none';
   document.getElementById("ntImport").style.display = m==='build'?'':'none';
-  document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':'cada tarefa vira uma branch + worktree isolada';
+  document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';
   const create=document.getElementById("ntCreate");
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
-  if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':m==='design'?' gerar design':' criar e iniciar';
+  if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':m==='design'?' gerar design':m==='invest'?' investigar':' criar e iniciar';
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; renderDzRefs(); renderFixRefs(); renderNtList('ntFixReqs',ntFixReq); ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=document.getElementById('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
@@ -3570,6 +3599,30 @@ async function submitNewTask(start=true){
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
   }
+  if(ntMode==='invest'){
+    const it=document.getElementById("ntInvTitle").value.trim();
+    if(!it){ document.getElementById("ntInvTitle").focus(); return; }
+    const what=document.getElementById("ntInvObj").value.trim();
+    const repro=document.getElementById("ntInvRepro").checked;
+    const objective =
+      `TAREFA DE INVESTIGAÇÃO — descobrir a CAUSA RAIZ, não corrigir. PROIBIDO alterar arquivos do produto; você só escreve em .cardume/artifacts/ (scripts de reprodução são bem-vindos ALI).\n\n`+
+      `${what||it}\n\n`+
+      (ntInvRefs.length?`ANEXOS em .cardume/refs/ (${ntInvRefs.map(p=>p.split('/').pop()).join(', ')}): mostram ONDE o problema aparece — ABRA e analise cada um antes de começar.\n\n`:'')+
+      `MÉTODO: 1) ${repro?'REPRODUZA o problema de verdade no ambiente real (as envs existem — sem mock); ':''}2) rastreie a causa pelo código/logs/telemetria com EVIDÊNCIAS (trechos, saídas, queries); 3) descarte hipóteses com fatos, não com achismo. Travou em algo (env, acesso, dado)? PERGUNTE via ask_human — não conclua sem evidência.\n\n`+
+      `Entregue em .cardume/artifacts/:\n`+
+      `1) INVESTIGATION.md — sintoma; ${repro?'reprodução passo a passo com a SAÍDA REAL; ':''}CAUSA RAIZ apontando arquivo:linha; evidências; hipóteses descartadas e por quê; RECOMENDAÇÃO de correção (o menor diff que resolve).\n`+
+      (repro?`2) as provas da reprodução (saídas/prints) referenciadas no doc.\n`:'');
+    const requirements=[
+      ...(repro?['problema reproduzido no ambiente real com evidência anexada (saída/print) — sem mock']:[]),
+      'INVESTIGATION.md com causa raiz (arquivo:linha), evidências, hipóteses descartadas e recomendação de correção',
+    ];
+    const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="investigando…";
+    const payload={ start:true, title:it, workflow:null, agents:document.getElementById('ntInvAgent').value||null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, base:null, linkedTo: ntLinkedTo };
+    try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    catch(e){ alert("Falha ao criar a investigação:\n"+e); }
+    finally{ btn.innerHTML=orig; btn.disabled=false; }
+    return;
+  }
   const title = document.getElementById("ntTitle").value.trim();
   if(!title){ document.getElementById("ntTitle").focus(); return; }
   const payload = {
@@ -3710,6 +3763,7 @@ document.getElementById("ntImport").onclick = importTaskMd;
 document.getElementById("ntRefAdd").onclick = pickRefs;
 document.getElementById("ntDzRefAdd").onclick = ()=>pickRefsInto(ntDzRefs, renderDzRefs);
 document.getElementById("ntFixRefAdd").onclick = ()=>pickRefsInto(ntFixRefs, renderFixRefs);
+document.getElementById("ntInvRefAdd").onclick = ()=>pickRefsInto(ntInvRefs, renderInvRefs);
 document.getElementById("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
 // ✨ título por IA a partir da descrição (data-aititle="inputDoTitulo:inputDaDescricao")
 document.querySelectorAll('[data-aititle]').forEach(b=>{
