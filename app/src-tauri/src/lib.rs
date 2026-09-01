@@ -1990,6 +1990,43 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     })
 }
 
+/// Chat do PROJETO: conversa livre sobre o repo (arquitetura, dúvidas, ideias)
+/// com leitura REAL do código — sem tarefa e sem editar nada. A conversa pode
+/// virar tarefa depois (a UI pede a spec pro mesmo session).
+#[tauri::command(async)]
+fn project_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+    let repo = repo_of(&state)?;
+    let sys = "Você é o copiloto do PROJETO aberto no Constellation, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
+    let claude = claude_bin();
+    let mut args: Vec<String> = vec![
+        "-p".to_string(),
+        prompt,
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--append-system-prompt".to_string(),
+        sys.to_string(),
+        "--allowedTools".to_string(),
+        "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*)".to_string(),
+    ];
+    if let Some(sid) = &session_id {
+        if !sid.is_empty() {
+            args.push("--resume".to_string());
+            args.push(sid.clone());
+        }
+    }
+    let mut cmd = Command::new(&claude);
+    cmd.args(&args).current_dir(&repo);
+    let out = output_timeout(cmd, 240)?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    Ok(AiChat {
+        text: v["result"].as_str().unwrap_or("").to_string(),
+        session_id: v["session_id"].as_str().unwrap_or("").to_string(),
+    })
+}
+
 // ---------- revisão de arquivos da tarefa (abrir/editar/salvar) ----------
 fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
@@ -2825,6 +2862,7 @@ pub fn run() {
             repo_remote,
             ai_chat,
             ai_title,
+            project_chat,
             open_url,
             open_artifact,
             push_task,

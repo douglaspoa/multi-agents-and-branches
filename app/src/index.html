@@ -1129,6 +1129,7 @@
     <button class="btn" id="connectBtn" style="display:none">abrir</button>
     <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow"></span>
+    <button class="btn" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg></button>
     <button class="btn" id="dailyBtn" title="Daily — resumo do que você fez no dia"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke-linecap="round"/><path d="M5 9.5l1.6 1.6L11 7.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg></button>
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
@@ -1432,6 +1433,15 @@
   </div>
 </div>
 
+<!-- chat do PROJETO: conversa livre sobre o repo, que pode virar tarefa -->
+<div class="overlay" id="pcOverlay" style="display:none">
+  <div class="modal chatmodal" style="width:min(760px,100%)">
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:10.5px" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa">🧭 virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="chatthread" id="pcThread" style="min-height:340px;max-height:56vh"></div>
+    <div class="chatinput"><textarea class="in" id="pcInput" rows="2" placeholder="pergunte sobre o projeto… (Enter envia · ex.: 'como o autocomplete resolve o ranking hoje?')"></textarea><button class="btn primary sm" id="pcSend">enviar</button></div>
+  </div>
+</div>
+
 <!-- input de texto genérico (prompt() não existe no WebView do Tauri) -->
 <div class="overlay" id="txOverlay" style="display:none;z-index:80">
   <div class="modal" style="width:min(440px,100%)">
@@ -1627,7 +1637,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -1697,6 +1707,61 @@ document.getElementById('txOk').onclick=()=>txDone(document.getElementById('txIn
 document.getElementById('txCancel').onclick=()=>txDone(null);
 document.getElementById('txClose').onclick=()=>txDone(null);
 document.getElementById('txInput').addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.target.value.trim()||null); if(e.key==='Escape') txDone(null); });
+
+// ---------- chat do projeto ----------
+let pcBusy=false;
+function pcKey(){ return 'pchat:'+(state.repo||''); }
+function pcMsgs(){ try{ return JSON.parse(lsGet(pcKey())||'[]'); }catch(_){ return []; } }
+function pcSave(ms){ lsSet(pcKey(), JSON.stringify(ms.slice(-60))); }
+function pcRender(){
+  const th=document.getElementById('pcThread'); if(!th) return;
+  const ms=pcMsgs();
+  th.innerHTML = ms.length
+    ? ms.map(m=>m.role==='user'
+        ? `<div class="cmsg you"><div class="cbub">${esc(m.text)}</div></div>`
+        : `<div class="cmsg"><div class="cbub">${mdToHtml(m.text)}</div></div>`).join('')
+      + (pcBusy?'<div class="cmsg"><div class="cbub dim">lendo o projeto…</div></div>':'')
+    : `<div class="dim" style="padding:22px 16px;font-size:13px;line-height:1.7">Conversa livre sobre <b>${esc((state.repo||'o projeto').split('/').pop())}</b> — arquitetura, "onde fica X", "por que Y é assim", ideias.<br>Ele lê o código antes de responder e <b>não altera nada</b>.<br>Gostou de uma ideia? <b>🧭 virar tarefa</b> transforma a conversa numa spec pronta.</div>`;
+  th.scrollTop=th.scrollHeight;
+}
+async function pcSend(){
+  if(pcBusy) return;
+  const inp=document.getElementById('pcInput'); const text=inp.value.trim(); if(!text) return;
+  const ms=pcMsgs(); ms.push({role:'user',text}); pcSave(ms); inp.value=''; pcBusy=true; pcRender();
+  try{
+    const r=await invoke('project_chat',{ prompt:text, sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
+    if(r.sessionId) lsSet('pcsid:'+(state.repo||''), r.sessionId);
+    const ms2=pcMsgs(); ms2.push({role:'assistant',text:r.text||'(sem resposta)'}); pcSave(ms2);
+  }catch(e){ const ms2=pcMsgs(); ms2.push({role:'assistant',text:'⚠ Falhou: '+(e.message||e)}); pcSave(ms2); }
+  pcBusy=false; pcRender();
+}
+async function pcToTask(){
+  const btn=document.getElementById('pcTask');
+  if(!pcMsgs().length){ alert('Converse primeiro — a spec nasce do papo.'); return; }
+  btn.disabled=true; btn.textContent='montando spec…';
+  try{
+    const r=await invoke('project_chat',{ prompt:'Com base APENAS na nossa conversa até aqui, monte a especificação de UMA tarefa executável. Responda SOMENTE um bloco ```json com {"title":"verbo + objeto (máx 60 chars)","objective":"o que fazer, onde e por quê (3-6 frases)","requirements":["critérios de aceite objetivos"]} — nada fora do bloco.', sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
+    const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i) || (r.text||'').match(/\{[\s\S]*"objective"[\s\S]*\}/);
+    const spec=JSON.parse(m?(m[1]||m[0]):r.text);
+    document.getElementById('pcOverlay').style.display='none';
+    await openNewTask();
+    setNtMode('build');
+    document.getElementById('ntTitle').value=(spec.title||'').slice(0,90);
+    document.getElementById('ntObj').value=spec.objective||'';
+    ntReq=[...new Set((spec.requirements||[]).map(x=>String(x).trim()).filter(Boolean))];
+    renderNtList('ntRequirements',ntReq);
+    document.getElementById('ntArtProof').checked=true;
+  }catch(e){ alert('Não consegui montar a spec:\n'+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='🧭 virar tarefa'; }
+}
+function openPc(){ document.getElementById('pcOverlay').style.display='flex'; pcRender(); setTimeout(()=>document.getElementById('pcInput').focus(),80); }
+document.getElementById('pcBtn').onclick=openPc;
+document.getElementById('pcClose').onclick=()=>{ document.getElementById('pcOverlay').style.display='none'; };
+document.getElementById('pcSend').onclick=pcSend;
+document.getElementById('pcTask').onclick=pcToTask;
+document.getElementById('pcClear').onclick=()=>{ if(confirm('Começar uma conversa nova? (a atual some)')){ lsSet(pcKey(),''); lsSet('pcsid:'+(state.repo||''),''); pcRender(); } };
+document.getElementById('pcInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); pcSend(); } });
+document.getElementById('pcOverlay').addEventListener('click',e=>{ if(e.target.id==='pcOverlay') document.getElementById('pcOverlay').style.display='none'; });
 
 // ---------- daily do dev ----------
 let dailyData=null, dailyCommits={};
@@ -1816,6 +1881,7 @@ document.addEventListener('keydown', e=>{
   if(!(e.metaKey||e.ctrlKey)) return;
   const inField=/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'');
   if(e.key==='n' && !inField){ e.preventDefault(); openNewTask(); }
+  else if(e.key==='j'){ e.preventDefault(); openPc(); }
   else if(e.key===','){ e.preventDefault(); openCfg(); }
 });
 
