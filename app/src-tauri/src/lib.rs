@@ -222,6 +222,10 @@ fn signal_group(pid: i32, sig: i32) {
 /// pra podermos pausar/abortar a árvore inteira. Uma thread limpa o registro
 /// quando o processo termina naturalmente (evita PID reciclado no mapa).
 fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Result<(), String> {
+    // O APP é quem notifica (plugin Tauri, atribuído ao Constellation — clicar
+    // abre o app). As do motor via osascript saem como "Editor de Script" e o
+    // clique abre ele; caladas aqui. No CLI puro (sem app) elas continuam.
+    cmd.env("CARDUME_NOTIFY", "0");
     unsafe {
         cmd.pre_exec(|| {
             // novo grupo/sessão: o node vira líder e o claude herda o grupo

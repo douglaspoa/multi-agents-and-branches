@@ -1566,7 +1566,7 @@ function snapSig(){
 }
 let lastSig = "";
 // ---------- notificações nativas (via plugin do Tauri → atribuídas ao app) ----------
-let notifReady=false, notifOn=false, prevStatus={}, prevPending=new Set();
+let notifReady=false, notifOn=false, prevStatus={}, prevPr={}, prevPending=new Set();
 function notifApi(){ return (window.__TAURI__ && (window.__TAURI__.notification)) || null; }
 async function initNotifs(){
   const n=notifApi(); if(!n){ return; }
@@ -1589,10 +1589,11 @@ function detectNotifs(snap){
       } else if(prev===undefined && (t.status==='running'||t.status==='queued'||t.status==='thinking')){
         pushNotif('Nova tarefa iniciada', t.title);
       }
+      if(t.prUrl && prevPr[t.id]===null){ pushNotif('PR aberto ✓', t.title); }
     }
     for(const p of pend){ if(!prevPending.has(p.id)){ pushNotif('Precisa de você — '+(p.agent||'agente'), p.prompt||'aguardando sua resposta'); } }
   }
-  prevStatus={}; tasks.forEach(t=>prevStatus[t.id]=t.status);
+  prevStatus={}; tasks.forEach(t=>{ prevStatus[t.id]=t.status; prevPr[t.id]=t.prUrl||null; });
   prevPending=new Set(pend.map(p=>p.id));
   notifReady=true;
   // guarda-custos: avisa UMA vez quando a tarefa cruza o limite (padrão $25)
