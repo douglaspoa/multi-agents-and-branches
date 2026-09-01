@@ -997,6 +997,22 @@
   #ntOverlay .reflist,#ntOverlay .listed{margin-top:4px}
   #ntOverlay .mfoot{padding:14px 20px}
 
+  /* ===== Grafo v2: trilhos por tarefa ===== */
+  #graphPane{padding:14px 16px;overflow:auto}
+  .gtlwrap{max-width:980px}
+  .grmain{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);margin-bottom:12px}
+  .grmc{display:flex;gap:7px}
+  .gmdot{width:9px;height:9px;border-radius:99px;background:var(--surface-3);border:1.5px solid var(--text-2);cursor:pointer}
+  .gmdot:hover{border-color:var(--accent)}
+  .grow2{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin-bottom:9px;cursor:pointer;transition:border-color .12s}
+  .grow2:hover{border-color:var(--border-strong)}
+  .grow2.sel{border-color:var(--accent)}
+  .grh{display:flex;align-items:center;gap:8px;padding:9px 14px 0;flex-wrap:wrap}
+  .grt{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:360px}
+  .grrail{overflow-x:auto}
+  .gtipping{animation:tsblip 1.6s infinite}
+  @media (prefers-reduced-motion:reduce){.gtipping{animation:none}}
+
   /* ===== espaço TIMES (redesign aprovado) ===== */
   #teamPane{padding:0!important;height:100%;overflow:hidden}
   .tspace{display:grid;grid-template-columns:210px minmax(0,1fr);height:100%;min-height:0}
@@ -3136,58 +3152,58 @@ function laneByAgent(commits, tasks){
   const pos={}; placed.forEach(c=>pos[c.hash]={lane:c.lane,row:c.row});
   return {placed,pos,lanes};
 }
+// ============================================================================
+// GRAFO v2 — trilhos por tarefa: cada branch é uma linha horizontal legível
+// (fork na base → commits clicáveis → ponta com o agente e a cor do status →
+// seta de merge quando voltou pra main). A main vira a régua de cima.
+// ============================================================================
 function renderGraph(){
-  const svg = document.getElementById("graphSvg");
-  const commits = state.graph||[];
-  if(commits.length===0){ svg.innerHTML=""; svg.setAttribute("height","0"); return; }
-  const tasks=state.tasks||[];
-  const {placed,pos,lanes} = laneByAgent(commits, tasks);
-  const laneW=30, rowH=32, padL=26, padT=40;
-  const height = padT + 12 + (placed.length-1)*rowH;
-  const width = 820;
-  svg.setAttribute("width", width); svg.setAttribute("height", height);
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  const X = l => padL + l*laneW;
-  const Y = r => padT + r*rowH;
-  const labelX = padL + lanes.length*laneW + 14;
-  const subX = labelX + 150;
-  const taskByBranch = {}; tasks.forEach(t=>taskByBranch[t.branch]=t);
-  // cabeçalho das lanes (agente por coluna) + linha-guia vertical
-  let heads="";
-  lanes.forEach((ln,i)=>{
-    const x=X(i);
-    heads+=`<line x1="${x}" y1="${padT-14}" x2="${x}" y2="${height-8}" style="stroke:${ln.color};stroke-width:1;opacity:.14"/>`;
-    const nm = ln.task ? (ln.task.agent||'?') : 'main';
-    heads+=`<text x="${x}" y="${padT-22}" text-anchor="middle" font-size="9" font-weight="700" style="fill:${ln.color}">${esc(nm.length>7?nm.slice(0,6)+'…':nm)}</text>`;
-  });
-  let edges="", nodes="", labels="";
-  placed.forEach(c=>{
-    const x=X(c.lane), y=Y(c.row), col=c.color;
-    (c.parents||[]).forEach(ph=>{
-      const p=pos[ph]; if(!p) return;
-      const x2=X(p.lane), y2=Y(p.row);
-      const d = x===x2 ? `M${x} ${y} L${x2} ${y2}` : `M${x} ${y} C${x} ${(y+y2)/2} ${x2} ${(y+y2)/2} ${x2} ${y2}`;
-      edges+=`<path d="${d}" style="fill:none;stroke:${col};stroke-width:2" stroke-linecap="round"/>`;
-    });
-  });
-  placed.forEach(c=>{
-    const x=X(c.lane), y=Y(c.row), col=c.color;
-    const refs=parseRefs(c.refs);
-    const agentBranch = refs.find(r=>taskByBranch[r]);
-    if(agentBranch){
-      const t=taskByBranch[agentBranch], scol=STATUS_COLOR[t.status]||col;
-      nodes+=`<g style="cursor:pointer" data-task="${t.id}"><circle cx="${x}" cy="${y}" r="9" style="fill:var(--surface);stroke:${scol};stroke-width:2"/><text x="${x}" y="${y+3}" text-anchor="middle" font-size="8" font-weight="600" style="fill:${scol}">${esc((t.agent||"?").slice(0,2).toUpperCase())}</text></g>`;
-      labels+=`<text class="glabel" x="${labelX}" y="${y+3}" style="fill:${scol}">${esc(agentBranch)}</text><text class="gsub" x="${subX}" y="${y+3}" style="fill:var(--muted)">${esc(c.subject.slice(0,50))}</text>`;
-    } else {
-      nodes+=`<circle cx="${x}" cy="${y}" r="4.5" style="fill:var(--surface);stroke:${col};stroke-width:2"/>`;
-      const mainRef = refs.find(r=>r==="main"||r==="master");
-      if(mainRef) labels+=`<text class="glabel" x="${labelX}" y="${y+3}" style="fill:var(--text-2)">${esc(mainRef)}</text>`;
-      labels+=`<text class="gsub" x="${mainRef?subX:labelX}" y="${y+3}" style="fill:var(--muted)">${esc(c.subject.slice(0,56))}</text>`;
-    }
-  });
-  const rects = placed.map(c=>`<rect class="cnode" data-hash="${escA(c.hash)}" x="0" y="${Y(c.row)-rowH/2}" width="${width}" height="${rowH}" fill="transparent" style="cursor:pointer"/>`).join("");
-  svg.innerHTML = heads+edges+nodes+labels+rects;
-  svg.querySelectorAll(".cnode").forEach(g=>g.onclick=()=>openCommit(g.dataset.hash));
+  const pane=document.getElementById("graphPane");
+  const svg=document.getElementById("graphSvg"); if(svg) svg.style.display='none';
+  let host=document.getElementById('gtl');
+  if(!host){ host=document.createElement('div'); host.id='gtl'; pane.appendChild(host); }
+  const commits=state.graph||[];
+  const mainCommits=commits.filter(c=>{ const r=parseRefs(c.refs); return r.includes('main')||r.includes('master')||!(c.parents||[]).length||true; }).slice(0,14);
+  const tasks=(state.tasks||[]).filter(t=>t.kind!=='review' && t.status!=='draft' && notHidden(t));
+  const ORDER={running:0,thinking:0,queued:1,'plan-review':1,paused:1,error:2,conflict:2,review:3,aborted:4,merged:5};
+  tasks.sort((a,b)=>(ORDER[a.status]??3)-(ORDER[b.status]??3) || b.created_at-a.created_at);
+  // garante os commits de cada tarefa (lazy — re-renderiza quando chegar)
+  tasks.forEach(t=>{ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('graph')) renderGraph(); }); });
+  const railW=520;
+  const rail=(t)=>{
+    const cs=(commitsCache[t.id]||[]).slice().reverse(); // antigo → novo
+    const col=STATUS_COLOR[t.status]||'var(--muted)';
+    const n=cs.length, shown=cs.slice(-24);
+    const x0=16, xTip=railW-30;
+    const step=shown.length>1?Math.min(34,(xTip-40-x0)/(shown.length-1)):0;
+    let g=`<line x1="${x0}" y1="20" x2="${xTip}" y2="20" stroke="${col}" stroke-width="2" opacity=".45"/>`;
+    g+=`<circle cx="${x0}" cy="20" r="3.5" fill="var(--surface-3)" stroke="${col}" stroke-width="1.5"/>`; // fork
+    shown.forEach((c,i)=>{ const x=x0+18+i*step;
+      g+=`<circle class="gdot" data-hash="${escA(c.hash)}" cx="${x}" cy="20" r="5" fill="var(--surface)" stroke="${col}" stroke-width="2" style="cursor:pointer"><title>${escA((c.subject||'').slice(0,90))}</title></circle>`; });
+    const tip=`<g style="cursor:pointer" data-tsel="${escA(t.id)}"><circle cx="${xTip}" cy="20" r="11" fill="var(--surface)" stroke="${col}" stroke-width="2"${ACTIVE_ST.has(t.status)?' class="gtipping"':''}/><text x="${xTip}" y="23" text-anchor="middle" font-size="8" font-weight="700" fill="${col}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</text></g>`;
+    const merge=t.status==='merged'?`<path d="M${xTip+11} 20 C ${xTip+24} 20 ${xTip+24} 6 ${xTip+34} 6" fill="none" stroke="${col}" stroke-width="2" opacity=".7"/><text x="${xTip+38}" y="9" font-size="8" fill="${col}">main</text>`:'';
+    return `<svg width="${railW+70}" height="40" viewBox="0 0 ${railW+70} 40">${g}${tip}${merge}</svg>`+(n>24?`<span class="dim" style="font-size:10px">+${n-24}</span>`:'');
+  };
+  const rows=tasks.map(t=>{
+    const col=STATUS_COLOR[t.status]||'var(--muted)';
+    const cs=commitsCache[t.id];
+    return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}">
+      <div class="grh">
+        <span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
+        <b class="grt">${esc(t.title)}</b>
+        ${linkChips(t)}
+        <span style="flex:1"></span>
+        <span class="mono dim" style="font-size:10px">${esc(t.base||'main')} → ${esc(t.branch)}</span>
+        <span class="fstatus" style="color:${col};font-size:10.5px">● ${esc(t.status)}${t.flag?' · '+(t.flag==='blocked'?'bloqueada':'encerrada'):''}</span>
+      </div>
+      <div class="grrail">${cs===undefined?'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">carregando commits…</span>':(cs.length?rail(t):'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
+    </div>`;
+  }).join('');
+  const mainRow=mainCommits.length?`<div class="grmain"><span class="mono" style="color:var(--text-2);font-size:11px;font-weight:700">main</span><div class="grmc">${mainCommits.slice(0,12).map(c=>`<span class="gmdot" data-hash="${escA(c.hash)}" title="${escA((c.subject||'').slice(0,90))}"></span>`).join('')}</div><span class="dim" style="font-size:10.5px">últimos ${Math.min(12,mainCommits.length)} commits · clique num ponto pra ver o diff</span></div>`:'';
+  host.innerHTML=`<div class="gtlwrap">${mainRow}${rows||'<div class="empty">nenhuma tarefa com branch ainda</div>'}</div>`;
+  host.querySelectorAll('.gdot,.gmdot').forEach(d=>{ d.onclick=(e)=>{ e.stopPropagation(); openCommit(d.dataset.hash); }; });
+  host.querySelectorAll('[data-tsel]').forEach(r=>{ r.addEventListener('click',(e)=>{ if(e.target.closest('.gdot,.gmdot,[data-lk],[data-lkcfg]')) return; selected=r.dataset.tsel; lastSig=''; render(); }); });
+  wireLinkChips(host);
 }
 const DEFPAT=[/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_,\s]*)\s*=>/,/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/,/^\s*def\s+([A-Za-z0-9_]+)/,/^\s*#\[tauri::command\]/];
 function camelIdJS(s){ const w=String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim().split(/\s+/).slice(0,4); return w.map((x,i)=>i?x.charAt(0).toUpperCase()+x.slice(1):x).join(""); }
