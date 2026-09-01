@@ -1746,6 +1746,8 @@ function openCfg(){
   body.innerHTML=`
     <label>Limite de custo por tarefa <span class="dim" style="text-transform:none;letter-spacing:0">(notifica ao cruzar — 0 desliga)</span></label>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}" style="width:110px"></div>
+    <label style="margin-top:16px">URL base das issues <span class="dim" style="text-transform:none;letter-spacing:0">(o código FND-853 vira link: base/FND-853)</span></label>
+    <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/logcomex/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
     <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
     <input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}" style="width:110px;margin-top:6px">
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
@@ -1755,7 +1757,7 @@ function openCfg(){
       <button class="btn sm" id="cfgTour">rever o tour</button>
     </div>
     <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
-  document.getElementById('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat(document.getElementById('cfgCost').value)||0))); setSlotMax(parseInt(document.getElementById('cfgSlots').value,10)||4); document.getElementById('cfgOverlay').style.display='none'; };
+  document.getElementById('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat(document.getElementById('cfgCost').value)||0))); lsSet('issueBase', document.getElementById('cfgIssueBase').value.trim()); setSlotMax(parseInt(document.getElementById('cfgSlots').value,10)||4); lastSig=''; document.getElementById('cfgOverlay').style.display='none'; };
   document.getElementById('cfgEnv').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; openEnv(); };
   document.getElementById('cfgBackend').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; cloudCfgOpen=true; openCloud(); };
   document.getElementById('cfgTour').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; openOnboarding(); };
@@ -2519,7 +2521,7 @@ function flowTaskCard(t){
   return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}${asking?' asking':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus" style="color:${asking?'var(--warn)':col}">${asking?'esperando você':esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}${linkChips(t)}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;
@@ -2562,6 +2564,22 @@ function taskType(t){
   return 'build';
 }
 const TYPE_PT={ build:'Entrega', design:'Design', invest:'Investigação', fix:'Fix', review:'Review' };
+// código da issue (FND-853) direto da branch; link usa a base configurada em ⚙
+function issueCodeOf(t){ const m=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/); return m?m[1]:null; }
+function issueUrlOf(t){ const c=issueCodeOf(t); const b=(lsGet('issueBase')||'').trim(); return (c&&b)?(b.replace(/\/+$/,'')+'/'+c):null; }
+function linkChips(t, small){
+  const cls=small?'btn sm':'btn sm';
+  let h='';
+  if(t.prUrl) h+=`<button class="${cls}" data-lk="${escA(t.prUrl)}" title="abrir o Pull Request" style="padding:3px 9px;font-size:10.5px;color:var(--accent)">PR ↗</button>`;
+  const iu=issueUrlOf(t), ic=issueCodeOf(t);
+  if(iu) h+=`<button class="${cls} mono" data-lk="${escA(iu)}" title="abrir a issue" style="padding:3px 9px;font-size:10.5px">${esc(ic)} ↗</button>`;
+  else if(ic) h+=`<button class="${cls} mono" data-lkcfg="1" title="configure a URL base das issues em ⚙ pra este código virar link" style="padding:3px 9px;font-size:10.5px;color:var(--muted)">${esc(ic)}</button>`;
+  return h;
+}
+function wireLinkChips(root){
+  root.querySelectorAll('[data-lk]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openExternal(b.dataset.lk); }; });
+  root.querySelectorAll('[data-lkcfg]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openCfg(); }; });
+}
 function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
   return tasks.filter(t=>
@@ -2633,6 +2651,7 @@ function renderFlow(){
   } else {
     el.innerHTML = tasks.map(flowTaskCard).join("");
   }
+  wireLinkChips(el);
   el.querySelectorAll('.fcard').forEach(card=>{
     card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); };
     if(grouped) return;   // arrastar só faz sentido na lista plana
@@ -2647,8 +2666,9 @@ function renderFlow(){
   for(const t of tasks){ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('flow')) renderFlow(); }); }
 }
 // ---------- Kanban ----------
-const KCOLS=[['rascunho','Rascunho'],['rodando','Rodando'],['precisa','Precisa de você'],['review','Em review'],['mergeada','Mergeada']];
+const KCOLS=[['rascunho','Rascunho'],['rodando','Rodando'],['precisa','Precisa de você'],['review','Em review'],['mergeada','Mergeada'],['encerrada','Encerradas']];
 function kanbanCol(t){
+  if(t.flag==='closed') return 'encerrada';
   if(t.status==='draft') return 'rascunho';
   if(t.status==='merged') return 'mergeada';
   if(t.status==='plan-review' || pendingOf(t.id).length || t.status==='error' || t.status==='aborted') return 'precisa';
@@ -2677,7 +2697,7 @@ let kDragId=null;
 function renderKanban(){
   const el=document.getElementById('kanban');
   const byCol={}; KCOLS.forEach(([k])=>byCol[k]=[]);
-  for(const t of (state.tasks||[]).filter(notHidden)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
+  for(const t of (state.tasks||[]).filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
   el.innerHTML = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
   el.querySelectorAll('.kcard').forEach(card=>{
     card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); };
@@ -2696,6 +2716,7 @@ function kanbanDrop(id, col){
   if(kanbanCol(t)===col) return;
   if(col==='rodando' && t.status==='draft') startTask(id);
   else if(col==='mergeada' && t.status==='review') mergeTask(id);
+  else if(col==='encerrada'){ invoke('set_task_flag',{ taskId:id, flag:'closed' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>renderKanban()); }
   else renderKanban(); // transição não suportada → volta o card
 }
 async function reorderFlow(dragId, targetId){
@@ -3470,6 +3491,7 @@ function renderSide(){
     <div class="sidehead">
       <h2>${esc(t.agent)}</h2>
       <div class="sub"><span id="brnText">${esc(t.branch)}</span>${t.status!=='merged'?` <button class="brnedit" data-act="renbranch" title="renomear branch">${IC.pencil}</button>`:''} · ${esc(effEngine(t))}${t.model?(" · "+esc(t.model)):""}</div>
+      ${(t.prUrl||issueCodeOf(t))?`<div style="display:flex;gap:6px;margin-top:7px">${linkChips(t)}</div>`:''}
       <span class="stwrap"><button class="pill stpill" id="stPill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}${t.flag?' · '+(t.flag==='blocked'?'bloqueada':'encerrada'):''} <span class="stchev">▾</span></button>${stMenuOpen?`<div class="stmenu">${statusMenuItems(t).map((it,i)=>`<button class="stitem${it.danger?' danger':''}" data-sti="${i}">${it.l}</button>`).join('')}</div>`:''}</span>
     </div>
     <div class="sidestats"><div class="ss"><span class="ssv">${dur}</span><span class="ssl">tempo</span></div><div class="ss"><span class="ssv">${tc.usd?fmtUsd(tc.usd):'—'}</span><span class="ssl">custo</span></div><div class="ss"><span class="ssv">${files.length||(d?d.files:0)||0}</span><span class="ssl">arquivos</span></div></div>
@@ -3493,6 +3515,7 @@ function renderSide(){
   el.querySelectorAll('[data-act="linkfix"]').forEach(b=>b.onclick=()=>openLinkedFix(t));
   el.querySelectorAll('[data-act="linkdz"]').forEach(b=>b.onclick=()=>openFromDesign(t));
   el.querySelectorAll('[data-act="wspush"]').forEach(b=>b.onclick=()=>openWorkspace(t.id));
+  wireLinkChips(el);
   el.querySelectorAll('[data-act="breakdown"]').forEach(b=>b.onclick=()=>openBreakdown(t));
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
@@ -4695,7 +4718,7 @@ async function cloudSyncTick(){
   for(const lid of ids){
     const t=(state.tasks||[]).find(x=>x.id===lid); if(!t) continue;
     const cost=taskCost(lid);
-    const body={ status:t.status, stage:t.stage||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0 };
+    const body={ status:t.status, stage:t.stage||null, branch:t.branch||null, pr_url:t.prUrl||null, flag:t.flag||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0 };
     const proofs=reqProofCache[lid]; if(proofs) body.requirements_proof=proofs;
     const sig=JSON.stringify(body);
     if(cloudSyncSigs[lid]===sig) continue;
@@ -4781,10 +4804,10 @@ function tmAv(uid){ const n=tmName(uid); return `<span class="cav" style="backgr
 // ============================================================================
 const TS_DOING=['running','thinking','queued','plan-review'];
 function tsBuckets(){ return {
-  backlog: t=>t.status==='backlog',
-  doing:   t=>TS_DOING.includes(t.status)||t.status==='error'||t.status==='conflict',
-  review:  t=>t.status==='review'||t.status==='delivered',
-  done:    t=>['merged','done'].includes(t.status),
+  backlog: t=>t.flag!=='closed'&&t.status==='backlog',
+  doing:   t=>t.flag!=='closed'&&(TS_DOING.includes(t.status)||t.status==='error'||t.status==='conflict'),
+  review:  t=>t.flag!=='closed'&&(t.status==='review'||t.status==='delivered'),
+  done:    t=>t.flag==='closed'||['merged','done'].includes(t.status),
 }; }
 function tsOnline(uid){ const p=teamProfiles[uid]; return p&&p.last_seen_at && (Date.now()-new Date(p.last_seen_at).getTime()<180000); }
 function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>t.assignee===uid && TS_DOING.includes(t.status)); }
@@ -4802,7 +4825,7 @@ function tsCardHtml(t, me, isAdmin){
   const isErr=t.status==='error'||t.status==='conflict';
   return `<div class="tscard" data-ct="${escA(t.id)}">
     <div class="tt">${esc(t.title)}</div>
-    <div class="meta">${ep?`<span class="tsepc">◆ ${esc(ep)}</span>`:''}${t.pr_url?`<span class="mono" style="color:var(--accent)">PR</span>`:''}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
+    <div class="meta">${ep?`<span class="tsepc">◆ ${esc(ep)}</span>`:''}${t.pr_url?`<button class="mono" data-lk="${escA(t.pr_url)}" style="color:var(--accent);background:none;border:0;cursor:pointer;font-size:10px;padding:0">PR ↗</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" style="color:var(--text-2);background:none;border:0;cursor:pointer;font-size:10px;padding:0">${esc(c[1])} ↗</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:var(--crit,#e5645c);border:1px solid currentColor">${esc(t.status)}</span>`:running?`<span class="tstag run">${esc(CT_ST_PT[t.status]||t.status)}</span>`:''}
       ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" style="padding:3px 9px;font-size:10.5px">assumir ▸</button>`:`<button class="btn sm" disabled title="abra ${escA(proj.repo_remote||'o projeto certo')}" style="padding:3px 9px;font-size:10.5px">outro repo</button>`):''}
@@ -4924,6 +4947,7 @@ function renderTeamBoard(){
   { const b=el.querySelector('#tbRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamPaintSig=''; renderTeamBoard(); }; }
   { const b=el.querySelector('#tbBackfill'); if(b) b.onclick=()=>cloudBackfill(b); }
   el.querySelectorAll('[data-pr]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openExternal(b.dataset.pr); }; });
+  wireLinkChips(el);
   el.querySelectorAll('[data-rev]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const ct=all.find(x=>x.id===b.dataset.rev); if(!ct) return; b.disabled=true; b.textContent='criando review…'; invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ alert('Falha: '+err); b.disabled=false; b.textContent='revisar com agente'; }); }; });
   el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTask(ct); }; });
   el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;
@@ -4960,6 +4984,7 @@ function openCloudTask(ct){
   const reqs=(sp.requirements||[]);
   const body=document.getElementById('ctBody');
   body.innerHTML=`
+    ${(ct.pr_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${ct.pr_url?`<button class="btn sm" data-lk="${escA(ct.pr_url)}" style="color:var(--accent)">abrir PR ↗</button>`:''}${(()=>{const m=(ct.branch||'').match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return (m&&b)?`<button class="btn sm mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+m[1])}">${esc(m[1])} ↗</button>`:'';})()}</div>`:''}
     <div class="imhint">criada por <b>${esc(tmName(ct.created_by))}</b> · ${esc(CT_ST_PT[ct.status]||ct.status)}${ct.assignee?' · com <b>'+esc(tmName(ct.assignee))+'</b>':''}${ct.claim_mode==='reserved'?' · <b>reservada pra si</b>':''}</div>
     <label style="margin-top:10px">Título</label><input class="in" id="ctTitle" value="${escA(ct.title)}" ${canEdit?'':'disabled'}>
     <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
@@ -5007,6 +5032,7 @@ function openCloudTask(ct){
         teamTasks=null; document.getElementById('ctOverlay').style.display='none'; renderTeamBoard();
       }catch(e){ alert('Falhou: '+e.message); b.disabled=false; b.textContent='salvar alterações'; }
     }; }
+  wireLinkChips(body);
   { const s=document.getElementById('ctEpic'); if(s) s.onchange=async()=>{
       try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ epic_id: s.value||null }) }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }
       catch(e){ alert('Falhou: '+e.message); }
