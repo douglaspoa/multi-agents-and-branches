@@ -311,6 +311,9 @@ struct Task {
     flag: Option<String>,
     auto_pr: Option<String>,
     linked_to: Option<String>,
+    /// Um turno do MOTOR está rodando agora (lock busy_pid vivo) — pode ser um
+    /// turno de fundo (verificar provas, rework) mesmo com status 'review'.
+    busy: bool,
 }
 
 #[derive(Serialize)]
@@ -1006,11 +1009,17 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
     };
     let conn = open(&path)?;
 
+    // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only)
+    let has_busy: bool = conn
+        .query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name='busy_pid'", [], |r| r.get::<_, i64>(0))
+        .map(|n| n > 0)
+        .unwrap_or(false);
     let tasks = conn
-        .prepare(
-            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag \
+        .prepare(&format!(
+            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{} \
              FROM task ORDER BY created_at",
-        )
+            if has_busy { "busy_pid" } else { "NULL" }
+        ))
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
             let roles_json: String = r.get(6)?;
@@ -1039,6 +1048,11 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 flag: r.get::<_, Option<String>>(15).unwrap_or(None),
                 auto_pr: spec.get("autoPr").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 linked_to: spec.get("linkedTo").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                busy: r
+                    .get::<_, Option<i64>>(16)
+                    .unwrap_or(None)
+                    .map(|pid| unsafe { libc::kill(pid as i32, 0) } == 0)
+                    .unwrap_or(false),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
