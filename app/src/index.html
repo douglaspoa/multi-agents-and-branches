@@ -4497,8 +4497,21 @@ const SB = {
   setSess(s){ if(s) lsSet('sb:sess', JSON.stringify(s)); else lsSet('sb:sess',''); },
   configured(){ return !!(this.url() && this.key()); },
 };
+// "Load failed"/"Failed to fetch" é o WebView dizendo que a REDE falhou — sem
+// dizer pra onde. Traduzimos nomeando o host, porque a causa nº1 é um sb:url
+// antigo (stack local) preso no localStorage de instalações velhas.
+function sbNetErr(){
+  let host=''; try{ host=new URL(SB.url()).host; }catch(_){ host=SB.url(); }
+  const custom=!!lsGet('sb:url') && SB.url()!==SB_DEFAULT.url;
+  const isLocal=/localhost|127\.0\.0\.1/.test(SB.url());
+  let m='sem conexão com '+host;
+  if(custom&&isLocal) m+=' — este app está apontando pra um backend LOCAL que não está rodando. Clique em "backend…" → "usar nuvem (padrão)".';
+  else if(custom) m+=' — backend personalizado configurado. Confira em "backend…" ou clique em "usar nuvem (padrão)".';
+  else m+=' — verifique sua internet/VPN (a rede pode estar bloqueando o Supabase).';
+  return new Error(m);
+}
 async function sbAuth(path, body){
-  const r = await fetch(SB.url()+'/auth/v1/'+path, { method:'POST', headers:{ 'apikey':SB.key(), 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(SB.url()+'/auth/v1/'+path, { method:'POST', headers:{ 'apikey':SB.key(), 'Content-Type':'application/json' }, body: JSON.stringify(body) }).catch(()=>{ throw sbNetErr(); });
   const j = await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error_description || j.msg || j.message || ('auth falhou ('+r.status+')'));
   return j;
@@ -4510,7 +4523,7 @@ async function sbRefresh(){
 }
 async function sbFetch(path, opts, retried){
   const s = SB.sess(); if(!s) throw new Error('não autenticado');
-  const r = await fetch(SB.url()+path, { ...(opts||{}), headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+s.access_token, 'Content-Type':'application/json', ...((opts||{}).headers||{}) } });
+  const r = await fetch(SB.url()+path, { ...(opts||{}), headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+s.access_token, 'Content-Type':'application/json', ...((opts||{}).headers||{}) } }).catch(()=>{ throw sbNetErr(); });
   if(r.status===401 && !retried){ const n=await sbRefresh(); if(n) return sbFetch(path, opts, true); throw new Error('sessão expirou — entre de novo'); }
   const tx = await r.text();
   let j=null; try{ j=tx?JSON.parse(tx):null; }catch(_){ }
@@ -4902,8 +4915,14 @@ let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemot
 let tmView=lsGet('tmView')||'overview';
 // presença: marca "estou online" a cada 60s (profiles.last_seen_at)
 setInterval(()=>{ if(SB.sess()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
-async function teamFetch(force){
-  if(teamFetching) return; if(!force && teamTasks && Date.now()-teamFetchedAt<10000) return;
+let teamFetchP=null; // promise compartilhada: chamadas concorrentes esperam o MESMO fetch
+function teamFetch(force){
+  if(teamFetchP) return teamFetchP;
+  if(!force && teamTasks && Date.now()-teamFetchedAt<10000) return Promise.resolve();
+  teamFetchP=teamFetchRun().finally(()=>{ teamFetchP=null; });
+  return teamFetchP;
+}
+async function teamFetchRun(){
   teamFetching=true;
   try{
     const teamId=cloudTeamId(); if(!teamId) return;
@@ -4971,7 +4990,11 @@ function renderTeamBoard(){
   }
   if(!teamTasks){
     el.innerHTML='<div class="dim" style="padding:14px">carregando o espaço do time…</div>'; teamPaintSig='';
-    teamFetch(true).then(()=>renderTeamBoard()).catch(e=>{ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn);margin:12px">Falhou: '+esc(e.message)+'</div>'; });
+    teamFetch(true).then(()=>{
+      if(teamTasks){ renderTeamBoard(); return; }
+      el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn);margin:12px">Não consegui carregar o time. <button class="btn sm" id="tbRetry">tentar de novo</button></div>';
+      const b=document.getElementById('tbRetry'); if(b) b.onclick=()=>{ teamPaintSig=''; renderTeamBoard(); };
+    }).catch(e=>{ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn);margin:12px">Falhou: '+esc(e.message)+'</div>'; });
     return;
   }
   if(Date.now()-teamFetchedAt>10000){ teamFetch().then(()=>renderTeamBoard()).catch(()=>{}); }
