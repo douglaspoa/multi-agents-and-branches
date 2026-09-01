@@ -1,0 +1,26 @@
+name: Constellation
+options:
+  bundleIdPrefix: dev.constellation
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  Constellation:
+    type: application
+    platform: iOS
+    sources: [Constellation]
+    info:
+      path: Constellation/Info.plist
+      properties:
+        CFBundleDisplayName: Constellation
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: "NO"
