@@ -228,6 +228,11 @@ export class Orchestrator {
     }
   }
 
+  /** O erro indica sessão que ESTOUROU o limite de tokens/contexto? */
+  private static tokenDeath(text: string): boolean {
+    return /context (low|limit|window)|prompt is too long|too long for.*context|exceeds.*context|conversation (is )?too long|out of (context|tokens)|maximum context|token limit|low on context/i.test(text || "");
+  }
+
   private queueLabel(kind: string, payload: Record<string, unknown>): string {
     if (kind === "talk") return `mensagem — "${String(payload.message ?? "").slice(0, 80)}"`;
     if (kind === "deliver") return `gerar ${payload.kind === "all" ? "todos os entregáveis" : `entregável (${payload.kind})`}`;
@@ -312,36 +317,63 @@ export class Orchestrator {
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
-      try {
-        for await (const ev of engine.run({
+      // Sessão que ESTOURA os tokens não mata a tarefa: recomeça sozinha uma
+      // sessão NOVA continuando do que já está na worktree (1 re-tentativa).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        roleFailed = false;
+        let deathText = "";
+        const input = {
           cwd: task.worktree,
           spec,
           systemContext: ctx,
           role: r.role,
           agentName: r.name,
           dbFile: this.ws.dbFile,
-        })) {
-          if (ev.type === "session") {
-            sessionId = ev.text;
-            this.store.setSession(taskId, sessionId);
-            continue;
+          ...(attempt > 0
+            ? {
+                promptOverride:
+                  "A sessão anterior desta tarefa ESTOUROU O LIMITE DE TOKENS e foi encerrada. O trabalho já feito está NESTA worktree: confira git status, git diff, .cardume/PLAN.md e .cardume/artifacts. Leia .cardume/TASK.yaml e CONTINUE de onde parou até finalizar TODOS os requisitos — não recomece do zero.",
+              }
+            : {}),
+        };
+        try {
+          for await (const ev of engine.run(input)) {
+            if (ev.type === "session") {
+              sessionId = ev.text;
+              this.store.setSession(taskId, sessionId);
+              continue;
+            }
+            if (ev.type === "claim" && ev.path) {
+              this.bus.claim(taskId, r.name, ev.path, ev.mode ?? "write");
+              continue;
+            }
+            if (ev.type === "error") { roleFailed = true; deathText = ev.text; }
+            if (ev.type === "done" && ev.ok === false) deathText = ev.text;
+            this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role);
+            if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
+              this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+            }
+            if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
           }
-          if (ev.type === "claim" && ev.path) {
-            this.bus.claim(taskId, r.name, ev.path, ev.mode ?? "write");
-            continue;
+        } catch (err) {
+          const msg = (err as Error).message;
+          if (attempt === 0 && Orchestrator.tokenDeath(msg)) {
+            deathText = msg;
+            roleFailed = true;
+          } else {
+            this.store.addEvent(taskId, r.name, "error", msg, false, r.role);
+            this.store.setStatus(taskId, "error");
+            notify("Cardume", "Tarefa falhou — veja o log", task.title);
+            return;
           }
-          if (ev.type === "error") roleFailed = true;
-          this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role);
-          if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-            this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
-          }
-          if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
         }
-      } catch (err) {
-        this.store.addEvent(taskId, r.name, "error", (err as Error).message, false, r.role);
-        this.store.setStatus(taskId, "error");
-        notify("Cardume", "Tarefa falhou — veja o log", task.title);
-        return;
+        if (attempt === 0 && deathText && Orchestrator.tokenDeath(deathText)) {
+          this.store.addEvent(taskId, "Sistema", "note", "🔄 a sessão estourou o limite de tokens — recomeçando AUTOMATICAMENTE uma sessão nova, continuando do que já está na worktree.", true);
+          this.store.setStatus(taskId, this.statusFor(r.role));
+          sessionId = "";
+          continue;
+        }
+        break;
       }
 
       // Se o papel FALHOU (timeout/erro), PARA aqui — não avança pro próximo
@@ -780,18 +812,35 @@ export class Orchestrator {
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
         : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };
+      let deathText = "";
       for await (const ev of engine.run(input)) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
         if (ev.type === "claim") continue;
-        if (ev.type === "error") failed = true;
+        if (ev.type === "error") { failed = true; deathText = ev.text; }
+        if (ev.type === "done" && ev.ok === false) deathText = ev.text;
         this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
           this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
         }
       }
+      // sessão do chat estourou os tokens → recomeça SOZINHO com sessão nova
+      // (sid vazio na re-entrada → caminho fresco; sem risco de loop)
+      if (sid && deathText && Orchestrator.tokenDeath(deathText)) {
+        this.store.setSession(taskId, "");
+        this.store.addEvent(taskId, "Sistema", "note", "🔄 a sessão do chat estourou o limite de tokens — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).", true);
+        this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+        return this.talkToAgentInner(taskId, message, false, agentName);
+      }
     } catch (err) {
+      const msg = (err as Error).message;
+      if (sid && Orchestrator.tokenDeath(msg)) {
+        this.store.setSession(taskId, "");
+        this.store.addEvent(taskId, "Sistema", "note", "🔄 a sessão do chat estourou o limite de tokens — recomeçando AUTOMATICAMENTE com uma sessão nova.", true);
+        this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+        return this.talkToAgentInner(taskId, message, false, agentName);
+      }
       failed = true;
-      this.store.addEvent(taskId, role.name, "error", (err as Error).message, false, role.role);
+      this.store.addEvent(taskId, role.name, "error", msg, false, role.role);
     }
     if (!failed) {
       await this.collectArtifacts(taskId, task.worktree, role.name);
