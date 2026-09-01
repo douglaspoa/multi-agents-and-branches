@@ -994,6 +994,79 @@
   #ntOverlay .reflist,#ntOverlay .listed{margin-top:4px}
   #ntOverlay .mfoot{padding:14px 20px}
 
+  /* ===== espaço TIMES (redesign aprovado) ===== */
+  #teamPane{padding:0!important;height:100%;overflow:hidden}
+  .tspace{display:grid;grid-template-columns:210px 1fr;height:100%;min-height:0}
+  .tside{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;overflow:auto}
+  .tslbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 8px 6px}
+  .tslbl:first-child{margin-top:2px}
+  .tsnav{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;background:none;color:var(--text-2);font:inherit;font-size:13px;border-radius:8px;cursor:pointer;text-align:left}
+  .tsnav:hover{background:var(--surface-2);color:var(--text)}
+  .tsnav.on{background:var(--surface-3);color:var(--text);font-weight:600}
+  .tsnav .n{margin-left:auto;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tsnav .n.hot{color:#0b0e0d;background:var(--warn);border-radius:99px;padding:0 6px;font-weight:700}
+  .tsep{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:8px;cursor:pointer}
+  .tsep:hover{background:var(--surface-2)}
+  .tsep .nm{font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;gap:6px}
+  .tsep .nm b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tsep.on{background:var(--surface-3)}
+  .tsbar{height:4px;border-radius:99px;background:var(--border);overflow:hidden}
+  .tsbar i{display:block;height:100%;background:var(--accent)}
+  .tsmem{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;color:var(--text-2)}
+  .tsmem .r{margin-left:auto;font-size:10px;color:var(--muted)}
+  .tsav{width:22px;height:22px;border-radius:99px;display:grid;place-items:center;font-size:9.5px;font-weight:800;color:#0b0e0d;flex:none;position:relative}
+  .tsav.on::after{content:"";position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:99px;background:var(--accent);border:2px solid var(--surface);animation:tsblip 1.6s infinite}
+  @keyframes tsblip{50%{opacity:.4}}
+  .tmain{padding:16px 20px;overflow:auto;min-height:0}
+  .tmain h1{font-size:16px;margin-bottom:2px}
+  .tssub{color:var(--muted);font-size:11.5px;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tskpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}
+  .tskpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px}
+  .tskpi .v{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+  .tskpi .l{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
+  .tskpi .d{font-size:10px;margin-top:3px;color:var(--muted)}
+  .tscols{display:grid;grid-template-columns:1.4fr 1fr;gap:12px}
+  .tspanel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:12px}
+  .tsph{display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .tslive{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12px}
+  .tslive:last-child{border:0}
+  .tslive .who{width:140px;display:flex;align-items:center;gap:8px;flex:none}
+  .tslive .what{flex:1;min-width:0;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tslive .what b{color:var(--text)}
+  .tstag{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:99px;white-space:nowrap}
+  .tstag.run{color:#0b0e0d;background:var(--accent)}
+  .tstag.ask{color:#0b0e0d;background:var(--warn);animation:tsblip 1.4s infinite}
+  .tsspark{display:flex;align-items:flex-end;gap:5px;height:66px;padding-top:4px}
+  .tsspark .c{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+  .tsspark .b{width:100%;border-radius:4px 4px 0 0;background:linear-gradient(180deg,var(--accent),rgba(57,212,106,.22));min-height:2px}
+  .tsspark .dl{font-size:9px;color:var(--muted)}
+  .tsboard{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;align-items:start}
+  .tscol{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px}
+  .tskh{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);padding:2px 4px 9px}
+  .tskh .dot{width:7px;height:7px;border-radius:99px}
+  .tskh .n{margin-left:auto;color:var(--muted);font-weight:600}
+  .tscard{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 11px;margin-bottom:8px;cursor:pointer;transition:border-color .12s}
+  .tscard:hover{border-color:var(--border-strong)}
+  .tscard.asking{border-color:var(--warn);animation:askpulse 1.8s infinite}
+  .tscard .tt{font-size:12px;font-weight:600;line-height:1.35;margin-bottom:6px}
+  .tscard .meta{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);flex-wrap:wrap}
+  .tscard .foot{display:flex;align-items:center;gap:6px;margin-top:8px}
+  .tsepc{color:#c678dd;font-weight:600}
+  .tspv{display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text-2)}
+  .tspv b{color:var(--good)}
+  .tsfeed .fi{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12.5px;align-items:flex-start}
+  .tsfeed .fi .tm{margin-left:auto;color:var(--muted);font-size:10.5px;white-space:nowrap}
+  .tsfeed .fi .tx{color:var(--text-2)} .tsfeed .fi .tx b{color:var(--text)}
+  .tsppl{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .tspc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px}
+  .tspc .hh{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .tspc .hh .tsav{width:30px;height:30px;font-size:11px}
+  .tspc .nums{display:flex;gap:14px;margin:8px 0}
+  .tspc .nums div b{display:block;font-size:15px;font-variant-numeric:tabular-nums}
+  .tspc .nums div span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .tspc .now{font-size:11px;color:var(--text-2);border-top:1px dashed var(--border);padding-top:8px}
+  @media(max-width:1000px){.tsboard{grid-template-columns:1fr 1fr}.tskpis{grid-template-columns:repeat(3,1fr)}.tscols{grid-template-columns:1fr}.tsppl{grid-template-columns:1fr 1fr}}
+
   /* backlog do time (aba Time) */
   .tmcard{border:1px solid var(--border);background:var(--surface);padding:10px 12px;margin:0 2px 8px;border-radius:6px}
   .tmcard:hover{border-color:var(--accent)}
@@ -4632,21 +4705,27 @@ async function cloudQuestionsTick(){
 setInterval(()=>{ cloudQuestionsTick().catch(()=>{}); }, 7000);
 
 // ---- backlog do time (aba Time) ----
-let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[];
+let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
+let tmView=lsGet('tmView')||'overview';
+// presença: marca "estou online" a cada 60s (profiles.last_seen_at)
+setInterval(()=>{ if(SB.sess()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
 async function teamFetch(force){
   if(teamFetching) return; if(!force && teamTasks && Date.now()-teamFetchedAt<10000) return;
   teamFetching=true;
   try{
     const teamId=cloudTeamId(); if(!teamId) return;
-    const [tasks, projs, eps]=await Promise.all([
+    const [tasks, projs, eps, acts]=await Promise.all([
       sbGet('tasks?select=*&team_id=eq.'+teamId+'&order=updated_at.desc&limit=200'),
       sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId),
       sbGet('epics?select=id,name,status&team_id=eq.'+teamId+'&status=neq.archived&order=created_at').catch(()=>[]),
+      sbGet('task_activity?select=id,task_id,user_id,kind,body,at&order=id.desc&limit=60').catch(()=>[]),
     ]);
-    teamEpics=eps||[];
+    teamEpics=eps||[]; teamActivity=acts||[];
     teamProj={}; projs.forEach(p=>teamProj[p.id]=p);
     const uids=new Set(); tasks.forEach(t=>{ uids.add(t.created_by); if(t.assignee) uids.add(t.assignee); });
-    if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
+    (teamActivity||[]).forEach(a=>uids.add(a.user_id));
+    ((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[teamId])||[]).forEach(m=>uids.add(m.user_id));
+    if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
     try{ teamRepoRemote=await invoke('repo_remote'); }catch(_){ teamRepoRemote=''; }
     teamTasks=tasks; teamFetchedAt=Date.now();
   } finally { teamFetching=false; }
@@ -4654,121 +4733,159 @@ async function teamFetch(force){
 function tmName(uid){ const p=teamProfiles[uid]; return p?(p.name||p.email):((uid||'').slice(0,8)); }
 function tmAv(uid){ const n=tmName(uid); return `<span class="cav" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
 
+// ============================================================================
+// ESPAÇO TIMES (redesign aprovado): sidebar do time + Visão geral · Quadro ·
+// PRs · Pessoas · Atividade. Tudo com os dados que o backend já entrega.
+// ============================================================================
+const TS_DOING=['running','thinking','queued','plan-review'];
+function tsBuckets(){ return {
+  backlog: t=>t.status==='backlog',
+  doing:   t=>TS_DOING.includes(t.status)||t.status==='error'||t.status==='conflict',
+  review:  t=>t.status==='review'||t.status==='delivered',
+  done:    t=>['merged','done'].includes(t.status),
+}; }
+function tsOnline(uid){ const p=teamProfiles[uid]; return p&&p.last_seen_at && (Date.now()-new Date(p.last_seen_at).getTime()<180000); }
+function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>t.assignee===uid && TS_DOING.includes(t.status)); }
+function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
+function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'7'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
+function tsCardHtml(t, me, isAdmin){
+  const proj=teamProj[t.project_id]||{};
+  const sameRepo=!proj.repo_remote||proj.repo_remote===teamRepoRemote;
+  const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me);
+  const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
+  const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
+  const prov=list&&list.length?`<span class="tspv"><b>✓</b>${list.filter(x=>x.status==='done').length}/${list.length} provados</span>`:'';
+  const who=t.assignee||t.created_by;
+  const running=TS_DOING.includes(t.status);
+  const isErr=t.status==='error'||t.status==='conflict';
+  return `<div class="tscard" data-ct="${escA(t.id)}">
+    <div class="tt">${esc(t.title)}</div>
+    <div class="meta">${ep?`<span class="tsepc">◆ ${esc(ep)}</span>`:''}${t.pr_url?`<span class="mono" style="color:var(--accent)">PR</span>`:''}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
+    <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
+      ${isErr?`<span class="tstag" style="color:var(--crit,#e5645c);border:1px solid currentColor">${esc(t.status)}</span>`:running?`<span class="tstag run">${esc(CT_ST_PT[t.status]||t.status)}</span>`:''}
+      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" style="padding:3px 9px;font-size:10.5px">assumir ▸</button>`:`<button class="btn sm" disabled title="abra ${escA(proj.repo_remote||'o projeto certo')}" style="padding:3px 9px;font-size:10.5px">outro repo</button>`):''}
+      ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:10.5px">✕</button>`:''}
+    </div></div>`;
+}
+function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
 function renderTeamBoard(){
   const el=document.getElementById('teamBoard'); if(!el) return;
   if(!SB.sess() || !cloudTeamId()){
-    const need=!SB.sess()?'Entre na sua conta pra ver o backlog do time.':'Escolha um time no botão do topo.';
-    const html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog do time</div><div>${need}</div><button class="btn primary" id="tbGo">abrir Time na nuvem</button></div>`;
+    const need=!SB.sess()?'Entre na sua conta pra ver o espaço do time.':'Escolha um time no botão do topo.';
+    const html=`<div class="emptyrepo" style="display:flex"><div class="big">Espaço do time</div><div>${need}</div><button class="btn primary" id="tbGo">abrir Time na nuvem</button></div>`;
     if(teamPaintSig!==html){ teamPaintSig=html; el.innerHTML=html; document.getElementById('tbGo').onclick=openCloud; }
     return;
   }
   if(!teamTasks){
-    el.innerHTML='<div class="dim" style="padding:10px 4px">carregando backlog do time…</div>'; teamPaintSig='';
-    teamFetch(true).then(()=>renderTeamBoard()).catch(e=>{ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">Falhou: '+esc(e.message)+'</div>'; });
+    el.innerHTML='<div class="dim" style="padding:14px">carregando o espaço do time…</div>'; teamPaintSig='';
+    teamFetch(true).then(()=>renderTeamBoard()).catch(e=>{ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn);margin:12px">Falhou: '+esc(e.message)+'</div>'; });
     return;
   }
   if(Date.now()-teamFetchedAt>10000){ teamFetch().then(()=>renderTeamBoard()).catch(()=>{}); }
   const me=cloudUserId();
   const isAdmin=cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin');
-  const groups=[['Backlog — livre pra assumir', t=>t.status==='backlog'], ['Em andamento', t=>!['backlog','review','delivered','done','merged','aborted'].includes(t.status)], ['Entregues', t=>['review','delivered','done','merged'].includes(t.status)]];
-  // filtro por épico (clica no chip pra focar; clica de novo pra soltar)
+  const B=tsBuckets();
   const epSel=lsGet('tmEpic')||'';
-  if(epSel && teamTasks.some(t=>t.epic_id===epSel)===false && !teamEpics.some(e=>e.id===epSel)) lsSet('tmEpic','');
-  const allTasks=teamTasks;
-  if(epSel) teamTasks=teamTasks.filter(t=>t.epic_id===epSel);
-  // filtro por DEV (responsável ou criador)
   const devSel=lsGet('tmDev')||'';
-  if(devSel) teamTasks=teamTasks.filter(t=>(t.assignee||t.created_by)===devSel);
-  let html='';
-  // faixa de ÉPICOS com progresso (entregues/total)
-  {
-    const chips=teamEpics.map(e=>{
-      const ts=allTasks.filter(t=>t.epic_id===e.id);
-      const done=ts.filter(groups[2][1]).length;
-      const on=epSel===e.id;
-      return `<button class="btn sm${on?' primary':''}" data-epic="${escA(e.id)}" title="${on?'clique pra mostrar tudo de novo':'filtrar por este épico'}">${esc(e.name)} <span class="dim" style="font-size:10px">${done}/${ts.length}</span></button>`;
-    }).join('');
-    html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 2px 8px"><span class="dim" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.07em">Épicos</span>${chips||'<span class="dim" style="font-size:11.5px">nenhum</span>'}<button class="btn sm" id="tbEpicAdd">+ épico</button></div>`;
-  }
-  // dashboard do time: números que importam, no topo (com filtro de período)
-  {
-    const per=lsGet('tmPeriod')||'30';
-    const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3;
-    const inPer=teamTasks.filter(t=>!cut || new Date(t.updated_at).getTime()>=cut);
-    const n=inPer.length;
-    const andamento=inPer.filter(groups[1][1]).length, entregues=inPer.filter(groups[2][1]).length, backlog=inPer.filter(groups[0][1]).length;
-    const custo=inPer.reduce((s,t)=>s+(+t.cost_usd||0),0);
-    const prs=teamTasks.filter(t=>t.pr_url && t.status!=='merged');
-    const chip=(lbl,val,color)=>`<div class="tmstat"><div class="v" style="${color?'color:'+color:''}">${val}</div><div class="l">${lbl}</div></div>`;
-    html+=`<div class="tmstats">${chip('tarefas',n)}${chip('backlog',backlog,'var(--muted)')}${chip('em andamento',andamento,'var(--warn)')}${chip('entregues',entregues,'var(--good)')}${chip('PRs abertos',prs.length,'var(--accent)')}${chip('custo',fmtUsd(custo))}</div>`;
-    // entregas por membro — quem entregou o quê (no período escolhido)
-    {
-      const byM={};
-      for(const t of inPer){ const who=t.assignee||t.created_by; const b=byM[who]||(byM[who]={done:0,run:0,usd:0}); if(groups[2][1](t)) b.done++; else if(groups[1][1](t)) b.run++; b.usd+=(+t.cost_usd||0); }
-      const rows=Object.entries(byM).sort((a,b)=>b[1].done-a[1].done);
-      if(rows.length) html+=`<div class="seclbl2" style="margin:12px 2px 6px">Entregas por membro</div><div class="costlist" style="margin:0 2px">${rows.map(([uid,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(tmName(uid))}">${esc(tmName(uid).slice(0,2).toUpperCase())}</span><span class="cnm">${esc(tmName(uid))}</span><span class="dim" style="font-size:11px">${v.done} entregue${v.done===1?'':'s'} · ${v.run} em andamento</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')}</div>`;
-    }
-    // inbox: PRs do time pra revisar (decisão: notificado + 1 clique pra revisar)
-    if(prs.length){
-      html+=`<div class="seclbl2" style="margin:14px 2px 8px">PRs do time — pra revisar <span class="n">${prs.length}</span></div>`;
-      html+=prs.map(t=>{
-        const proj=teamProj[t.project_id]||{};
-        const sameRepo=!proj.repo_remote || proj.repo_remote===teamRepoRemote;
-        return `<div class="tmcard" data-ct="${escA(t.id)}"><div class="tmrow1"><b class="tmtitle">${esc(t.title)}</b><span style="flex:1"></span><span class="tmst" style="color:${ctStColor(t.status)}">● ${esc(CT_ST_PT[t.status]||t.status)}</span></div>
-        <div class="tmrow3"><span class="dim" style="font-size:11px">${esc(proj.name||'?')} · de ${esc(tmName(t.assignee||t.created_by))} · ${agoTx(t.updated_at)}</span><span style="flex:1"></span><button class="btn sm" data-act="pr">abrir PR ↗</button>${sameRepo?`<button class="btn primary sm" data-act="revisar" title="cria uma tarefa de code review deste PR com um agente">revisar com agente</button>`:''}</div></div>`;
-      }).join('');
-    }
-  }
-  for(const [label, fil] of groups){
-    const list=teamTasks.filter(fil); if(!list.length) continue;
-    html+=`<div class="seclbl2" style="margin:14px 2px 8px">${label} <span class="n">${list.length}</span></div>`;
-    html+=list.map(t=>{
-      const proj=teamProj[t.project_id]||{};
-      const sameRepo=!proj.repo_remote || proj.repo_remote===teamRepoRemote;
-      const canClaim=t.status==='backlog' && (t.claim_mode==='open' || t.created_by===me);
-      const reserved=t.claim_mode==='reserved';
-      const cost=(t.cost_usd>0)?` · ${fmtUsd(+t.cost_usd)}`:'';
-      const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
-      const epTag=ep?` · <span style="color:var(--accent)">◆ ${esc(ep)}</span>`:'';
-      const who=t.assignee?`${tmAv(t.assignee)} <span class="dim" style="font-size:11px">${esc(tmName(t.assignee))}</span>`:`<span class="dim" style="font-size:11px">ninguém assumiu</span>`;
-      return `<div class="tmcard" data-ct="${escA(t.id)}">
-        <div class="tmrow1"><b class="tmtitle">${esc(t.title)}</b>${reserved?'<span class="tmbadge" title="o criador reservou esta tarefa pra si">pra si</span>':''}<span style="flex:1"></span><span class="tmst" style="color:${ctStColor(t.status)}">● ${esc(CT_ST_PT[t.status]||t.status)}</span></div>
-        <div class="tmrow2"><span class="dim" style="font-size:11px">${esc(proj.name||'?')}${t.branch?' · <span class=mono>'+esc(t.branch)+'</span>':''}${cost}${epTag} · ${agoTx(t.updated_at)}</span><span style="flex:1"></span>${who}</div>
-        <div class="tmrow3"><span class="dim" style="font-size:11px">por ${esc(tmName(t.created_by))}</span><span style="flex:1"></span>
-          ${t.pr_url?`<button class="btn sm" data-act="pr">PR ↗</button>`:''}
-          <button class="btn sm" data-act="ver">ver</button>
-          ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim">${IC.play||'▶'} assumir &amp; iniciar</button>`:`<button class="btn sm" disabled title="abra o projeto ${escA(proj.repo_remote||'')} pra assumir">outro repositório</button>`):''}
-          ${(t.status==='backlog' && (t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" title="remover do backlog">✕</button>`:''}
-        </div>
-      </div>`;
-    }).join('');
-  }
-  if(!html) html=`<div class="emptyrepo" style="display:flex"><div class="big">Backlog vazio</div><div>Crie uma tarefa e escolha <b>“Compartilhar com o time”</b> — qualquer membro pode assumir &amp; iniciar.</div></div>`;
-  const perNow=lsGet('tmPeriod')||'30';
-  const devNow=lsGet('tmDev')||'';
+  const all=teamTasks;
+  let vis=all;
+  if(epSel && teamEpics.some(e=>e.id===epSel)) vis=vis.filter(t=>t.epic_id===epSel);
+  if(devSel) vis=vis.filter(t=>(t.assignee||t.created_by)===devSel);
+  const teamName=esc((((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())||{}).name||'Time');
+  const members=[...new Set([ ...(((cloudData&&cloudData.teamMembers)||{})[cloudTeamId()]||[]).map(m=>m.user_id), ...all.flatMap(t=>[t.assignee,t.created_by]).filter(Boolean) ])];
+  const prs=all.filter(t=>t.pr_url && t.status!=='merged');
   const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft').length;
-  const devIds=[...new Set(allTasks.flatMap(t=>[t.assignee,t.created_by]).filter(Boolean))];
-  const devOpts=`<option value="">todos os devs</option>`+devIds.map(u=>`<option value="${escA(u)}"${u===devNow?' selected':''}>${esc(tmName(u))}</option>`).join('');
-  html=`<div style="display:flex;align-items:center;gap:8px;margin:2px 2px 4px"><span class="dim" style="font-size:12px">time <b>${esc(((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())?.name||'')}</b></span><span style="flex:1"></span>${unsynced?`<button class="btn sm" id="tbBackfill" title="publica no time as tarefas locais que ainda não têm cartão (como suas — reservadas)">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<select class="sel" id="tbDev" style="width:150px">${devOpts}</select><select class="sel" id="tbPeriod" style="width:130px">${[['7','últimos 7 dias'],['30','últimos 30 dias'],['90','último trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select><button class="btn sm" id="tbRefresh">atualizar</button></div>`+html;
-  teamTasks=allTasks; // restaura (o filtro é só de exibição)
+  // ---------- sidebar ----------
+  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['prs','PRs pra revisar',prs.length?String(prs.length):''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
+  let side=`<div class="tslbl">Time ${teamName}</div>`+NAV.map(([k,l,n])=>`<button class="tsnav${tmView===k?' on':''}" data-tsv="${k}">${l}${n?`<span class="n${k==='prs'&&prs.length?' hot':''}">${n}</span>`:''}</button>`).join('');
+  side+=`<div class="tslbl">Épicos</div>`+teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(B.done).length+ts.filter(B.review).length; const pct=ts.length?Math.round(done/ts.length*100):0;
+    return `<div class="tsep${epSel===e.id?' on':''}" data-epsel="${escA(e.id)}"><div class="nm"><b>${esc(e.name)}</b><span>${done}/${ts.length}</span></div><div class="tsbar"><i style="width:${pct}%"></i></div></div>`; }).join('')
+    +`<div class="tsep" id="tbEpicAdd"><div class="nm" style="color:var(--muted)">+ novo épico</div></div>`;
+  side+=`<div class="tslbl">Membros</div>`+members.slice(0,8).map(uid=>{ const on=tsOnline(uid); const run=tsRunningOf(uid).length;
+    const p=teamProfiles[uid]||{}; const seen=p.last_seen_at?agoTx(p.last_seen_at):'';
+    return `<div class="tsmem">${tsAv(uid,on)}${esc(tmName(uid)).slice(0,14)}<span class="r">${run?`<span style="color:var(--accent)">${run} agente${run>1?'s':''}</span>`:(on?'online':seen)}</span></div>`; }).join('');
+  // ---------- main por vista ----------
+  let main='';
+  const perNow=lsGet('tmPeriod')||'7';
+  const perSel=`<select class="sel" id="tbPeriod" style="width:120px">${[['7','últimos 7 dias'],['30','30 dias'],['90','trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select>`;
+  const devOpts=`<select class="sel" id="tbDev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
+  if(tmView==='overview'){
+    const inP=tsPeriodTasks();
+    const done=inP.filter(B.done).length+inP.filter(B.review).length;
+    const doing=all.filter(t=>TS_DOING.includes(t.status));
+    const asking=all.filter(t=>t.assignee===me&&false); // ✋ real vem do desktop de cada dev
+    const custo=inP.reduce((s,t)=>s+(+t.cost_usd||0),0);
+    const eps=teamEpics.length;
+    // entregas por dia (últimos 7)
+    const days=[...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); d.setHours(0,0,0,0); return d; });
+    const perDay=days.map(d=>all.filter(t=>(B.done(t)||B.review(t)) && new Date(t.updated_at)>=d && new Date(t.updated_at)<new Date(+d+86400e3)).length);
+    const mx=Math.max(1,...perDay);
+    const DL=['dom','seg','ter','qua','qui','sex','sáb'];
+    main=`<h1>Visão geral</h1><div class="tssub">time ${teamName} · ${perSel}</div>
+    <div class="tskpis">
+      <div class="tskpi"><div class="v">${done}</div><div class="l">entregas</div><div class="d">${inP.length} tarefas no período</div></div>
+      <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">rodando agora</div><div class="d">${members.filter(u=>tsRunningOf(u).length).length} devs ativos</div></div>
+      <div class="tskpi"><div class="v" style="color:#c678dd">${eps}</div><div class="l">épicos ativos</div><div class="d">${teamEpics.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(x=>B.done(x)||B.review(x)).length;return esc(e.name.split(' ')[0])+' '+(ts.length?Math.round(dn/ts.length*100):0)+'%';}).join(' · ')||'—'}</div></div>
+      <div class="tskpi"><div class="v" style="color:${prs.length?'var(--warn)':'var(--text)'}">${prs.length}</div><div class="l">PRs pra revisar</div><div class="d">${prs.length?'mais antigo '+agoTx(prs[prs.length-1].updated_at):'em dia ✓'}</div></div>
+      <div class="tskpi"><div class="v">${fmtUsd(custo)}</div><div class="l">custo no período</div><div class="d">${inP.length?fmtUsd(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
+    </div>
+    <div class="tscols"><div>
+      <div class="tspanel"><div class="tsph">Agora no time <span style="flex:1"></span><span style="color:var(--accent);font-size:10px">● ao vivo</span></div>
+        ${doing.length?doing.slice(0,6).map(t=>{ const who=t.assignee||t.created_by; return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(CT_ST_PT[t.status]||t.status)}</span></div>`; }).join(''):'<div class="dim" style="font-size:12px">nenhum agente rodando agora</div>'}
+      </div>
+      <div class="tspanel"><div class="tsph">PRs esperando gente</div>
+        ${prs.length?prs.slice(0,5).map(t=>`<div class="tslive"><span class="mono" style="color:var(--accent);font-size:11px">${esc((t.pr_url.match(/\/pull\/(\d+)/)||[])[1]?'#'+(t.pr_url.match(/\/pull\/(\d+)/)||[])[1]:'PR')}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer">${esc(t.title)}</span>${tsAv(t.assignee||t.created_by,false)}<button class="btn sm" data-pr="${escA(t.pr_url)}" style="padding:3px 8px;font-size:10.5px">abrir ↗</button><button class="btn primary sm" data-rev="${escA(t.id)}" style="padding:3px 8px;font-size:10.5px">revisar com agente</button></div>`).join(''):'<div class="dim" style="font-size:12px">nenhum PR aberto — em dia ✓</div>'}
+      </div>
+    </div><div>
+      <div class="tspanel"><div class="tsph">Entregas por dia</div><div class="tsspark">${perDay.map((n,i)=>`<div class="c"><div class="b" style="height:${Math.round(n/mx*100)}%"></div><span class="dl">${DL[days[i].getDay()]}</span></div>`).join('')}</div></div>
+      <div class="tspanel"><div class="tsph">Entregas por membro</div>
+        ${(()=>{ const per={}; for(const t of inP){ const w=t.assignee||t.created_by; const b=per[w]||(per[w]={d:0,r:0,u:0}); if(B.done(t)||B.review(t)) b.d++; else if(TS_DOING.includes(t.status)) b.r++; b.u+=(+t.cost_usd||0); }
+          const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who">${tsAv(u,tsOnline(u))}${esc(tmName(u)).slice(0,14)}</span><span class="what">${v.d} entrega${v.d===1?'':'s'} · ${v.r} rodando</span><span class="dim" style="font-size:11px">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:12px">sem atividade no período</div>'; })()}
+      </div>
+    </div></div>`;
+  } else if(tmView==='board'){
+    const cols=[['Backlog','var(--muted)',vis.filter(B.backlog)],['Em andamento','var(--accent)',vis.filter(B.doing)],['Review','var(--info,#5b9dff)',vis.filter(B.review)],['Entregue','#c678dd',vis.filter(B.done).slice(0,8)]];
+    main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epSel?`<button class="btn sm" data-epsel="${escA(epSel)}">◆ ${esc((teamEpics.find(e=>e.id===epSel)||{}).name||'')} ✕</button>`:''}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>
+    <div class="tsboard">${cols.map(([l,c,ts])=>`<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${ts.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:11px;padding:6px">vazio</div>'}</div>`).join('')}</div>`;
+  } else if(tmView==='prs'){
+    main=`<h1>PRs pra revisar</h1><div class="tssub">todo cartão do time com PR aberto</div>`+
+      (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
+        return `<div class="tspanel" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--accent)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:13px">${esc(t.title)}</b><div class="dim" style="font-size:11px">de ${esc(tmName(t.assignee||t.created_by))} · ${esc(CT_ST_PT[t.status]||t.status)} · ${agoTx(t.updated_at)}</div></div><button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button><button class="btn primary sm" data-rev="${escA(t.id)}">revisar com agente</button></div>`; }).join('')
+      :'<div class="emptyrepo" style="display:flex"><div class="big">Em dia ✓</div><div>nenhum PR do time esperando review.</div></div>');
+  } else if(tmView==='people'){
+    const inP=tsPeriodTasks();
+    main=`<h1>Pessoas</h1><div class="tssub">${members.length} membros · ${perSel}</div><div class="tsppl">`+
+      members.map(uid=>{ const p=teamProfiles[uid]||{}; const on=tsOnline(uid); const run=tsRunningOf(uid);
+        const mine=inP.filter(t=>(t.assignee||t.created_by)===uid);
+        const d=mine.filter(t=>B.done(t)||B.review(t)).length, u=mine.reduce((s,t)=>s+(+t.cost_usd||0),0);
+        const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
+        const role=(((cloudData&&cloudData.teamMembers)||{})[cloudTeamId()]||[]).find(m=>m.user_id===uid);
+        return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:13.5px">${esc(tmName(uid))}</b><div class="dim" style="font-size:10.5px">${role&&role.role==='lead'?'lead':'membro'} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}</div></div></div>
+          <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>rodando</span></div><div><b>${fmtUsd(u)}</b><span>custo</span></div></div>
+          <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div></div>`; }).join('')+`</div>`;
+  } else if(tmView==='feed'){
+    main=`<h1>Atividade do time</h1><div class="tssub">mais recente primeiro</div><div class="tspanel tsfeed">`+
+      ((teamActivity||[]).length?(teamActivity||[]).slice(0,40).map(a=>{ const t=all.find(x=>x.id===a.task_id);
+        return `<div class="fi">${tsAv(a.user_id,false)}<span class="tx"><b>${esc(tmName(a.user_id))}</b> ${tsK(a.kind)} <b data-ct="${escA(a.task_id)}" style="cursor:pointer">${esc((t||{}).title||'tarefa')}</b>${a.body?` — ${esc(a.body.slice(0,80))}`:''}</span><span class="tm">${agoTx(a.at)}</span></div>`; }).join('')
+      :'<div class="dim" style="font-size:12px">sem atividade ainda</div>')+`</div>`;
+  }
+  const html=`<div class="tspace"><div class="tside">${side}</div><div class="tmain">${main}</div></div>`;
   if(teamPaintSig===html) return;
   teamPaintSig=html; el.innerHTML=html;
-  document.getElementById('tbRefresh').onclick=()=>{ teamTasks=null; renderTeamBoard(); };
-  el.querySelectorAll('[data-epic]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epic?'':b.dataset.epic); teamPaintSig=''; renderTeamBoard(); }; });
-  { const b=document.getElementById('tbEpicAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do épico:'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
-  { const s=document.getElementById('tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
-  { const s=document.getElementById('tbDev'); if(s) s.onchange=e=>{ lsSet('tmDev', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
-  { const b=document.getElementById('tbBackfill'); if(b) b.onclick=()=>cloudBackfill(b); }
-  el.querySelectorAll('.tmcard [data-act]').forEach(b=>{
-    b.onclick=()=>{
-      const id=b.closest('.tmcard').dataset.ct; const ct=teamTasks.find(x=>x.id===id); if(!ct) return;
-      if(b.dataset.act==='ver') openCloudTask(ct);
-      else if(b.dataset.act==='pr') openExternal(ct.pr_url);
-      else if(b.dataset.act==='claim') teamClaimStart(ct, b);
-      else if(b.dataset.act==='del') teamDeleteCard(ct);
-      else if(b.dataset.act==='revisar'){ b.disabled=true; b.textContent='criando review…'; invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(e=>{ alert('Falha ao iniciar o review:\n'+e); b.disabled=false; b.textContent='revisar com agente'; }); }
-    };
-  });
+  // ---------- wiring ----------
+  el.querySelectorAll('[data-tsv]').forEach(b=>{ b.onclick=()=>{ tmView=b.dataset.tsv; lsSet('tmView',tmView); teamPaintSig=''; renderTeamBoard(); }; });
+  el.querySelectorAll('[data-epsel]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epsel?'':b.dataset.epsel); if(tmView!=='board'){ tmView='board'; lsSet('tmView','board'); } teamPaintSig=''; renderTeamBoard(); }; });
+  { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do épico:'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
+  { const s=el.querySelector('#tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
+  { const s=el.querySelector('#tbDev'); if(s) s.onchange=e=>{ lsSet('tmDev', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
+  { const b=el.querySelector('#tbRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamPaintSig=''; renderTeamBoard(); }; }
+  { const b=el.querySelector('#tbBackfill'); if(b) b.onclick=()=>cloudBackfill(b); }
+  el.querySelectorAll('[data-pr]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openExternal(b.dataset.pr); }; });
+  el.querySelectorAll('[data-rev]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const ct=all.find(x=>x.id===b.dataset.rev); if(!ct) return; b.disabled=true; b.textContent='criando review…'; invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ alert('Falha: '+err); b.disabled=false; b.textContent='revisar com agente'; }); }; });
+  el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTask(ct); }; });
+  el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;
+    if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
 }
 
 async function teamClaimStart(ct, btn){
