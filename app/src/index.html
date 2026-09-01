@@ -999,7 +999,8 @@
 
   /* ===== espaço TIMES (redesign aprovado) ===== */
   #teamPane{padding:0!important;height:100%;overflow:hidden}
-  .tspace{display:grid;grid-template-columns:210px 1fr;height:100%;min-height:0}
+  .tspace{display:grid;grid-template-columns:210px minmax(0,1fr);height:100%;min-height:0}
+  .tspace>*{min-width:0}
   .tside{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;overflow:auto}
   .tslbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 8px 6px}
   .tslbl:first-child{margin-top:2px}
@@ -1020,17 +1021,19 @@
   .tsav{width:22px;height:22px;border-radius:99px;display:grid;place-items:center;font-size:9.5px;font-weight:800;color:#0b0e0d;flex:none;position:relative}
   .tsav.on::after{content:"";position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:99px;background:var(--accent);border:2px solid var(--surface);animation:tsblip 1.6s infinite}
   @keyframes tsblip{50%{opacity:.4}}
-  .tmain{padding:18px 26px;overflow:auto;min-height:0}
+  .tmain{padding:18px 26px;overflow-y:auto;overflow-x:hidden;min-height:0}
   .tmain>*{max-width:1240px}
   .tmain h1{font-size:16px;margin-bottom:2px}
   .tssub{color:var(--muted);font-size:11.5px;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .tskpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}
+  .tskpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:12px}
+  .tskpis>*{min-width:0}
   .tskpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px}
   .tskpi .v{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
   .tskpi .l{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
   .tskpi .d{font-size:10px;margin-top:3px;color:var(--muted)}
-  .tscols{display:grid;grid-template-columns:1.4fr 1fr;gap:12px}
-  .tspanel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:12px}
+  .tscols{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:12px}
+  .tscols>div{min-width:0}
+  .tspanel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:12px;min-width:0;overflow:hidden}
   .tsph{display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
   .tslive{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12px}
   .tslive:last-child{border:0}
@@ -1044,7 +1047,7 @@
   .tsspark .c{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
   .tsspark .b{width:100%;border-radius:4px 4px 0 0;background:linear-gradient(180deg,var(--accent),rgba(57,212,106,.22));min-height:2px}
   .tsspark .dl{font-size:9px;color:var(--muted)}
-  .tsboard{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;align-items:start}
+  .tsboard{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;align-items:start}
   .tscol{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px}
   .tskh{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);padding:2px 4px 9px}
   .tskh .dot{width:7px;height:7px;border-radius:99px}
@@ -1061,7 +1064,7 @@
   .tsfeed .fi{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12.5px;align-items:flex-start}
   .tsfeed .fi .tm{margin-left:auto;color:var(--muted);font-size:10.5px;white-space:nowrap}
   .tsfeed .fi .tx{color:var(--text-2)} .tsfeed .fi .tx b{color:var(--text)}
-  .tsppl{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .tsppl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   .tspc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px}
   .tspc .hh{display:flex;align-items:center;gap:10px;margin-bottom:8px}
   .tspc .hh .tsav{width:30px;height:30px;font-size:11px}
