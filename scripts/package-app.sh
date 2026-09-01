@@ -7,6 +7,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Xcode completo instalado sem licença aceita quebra o linker (cc exige
+# 'sudo xcodebuild -license'). O desktop compila 100% com as CLT — fixamos.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"
+
 echo "→ 1/4 bundle do motor (esbuild)"
 rm -rf app/src-tauri/resources
 mkdir -p app/src-tauri/resources/engine app/src-tauri/resources/mcp
