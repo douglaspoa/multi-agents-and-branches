@@ -119,17 +119,19 @@ export class ClaudeEngine implements AgentEngine {
       " REGRAS INEGOCIÁVEIS: (1) Se você não entendeu algo, ou NÃO CONSEGUIR cumprir QUALQUER requisito/entregável do TASK.yaml, PERGUNTE ao humano via mcp__cardume__ask_human e AGUARDE — mesmo que a autonomia diga pra não perguntar; quebrar a regra de autonomia pra perguntar é MELHOR do que entregar sem um requisito, entregar errado ou decidir não fazer. NUNCA finalize silenciosamente com requisito de fora: ou cumpre, ou pergunta. (2) Antes de finalizar, CONFIRA a lista de requirements/deliverables um a um e diga no resumo final o status de cada um (cumprido / não cumprido + por quê). (3) NUNCA abra um Pull Request por conta própria; se o humano pedir pra abrir, só abra se NÃO houver pendências nem ressalvas — existindo qualquer ressalva, pergunte primeiro via ask_human.";
     const groundRule =
       " REGRA DE OURO — EXECUTE ANTES DE AFIRMAR: NUNCA conclua, diagnostique ou entregue com base só em LEITURA de código. Rode o projeto/fluxo LOCAL de verdade (as envs reais existem — .env, docker, suíte de testes, CLI) e OBSERVE o comportamento real antes de qualquer afirmação; 'provavelmente'/'deve ser'/'pelo código parece' sem ter executado NÃO VALE como verificação. Vale pra investigar, corrigir, revisar e entregar. Não conseguiu subir/rodar algo? Diga EXATAMENTE o que travou (comando + erro literal) e pergunte via mcp__cardume__ask_human — adivinhar é proibido.";
+    const parallelRule =
+      " RITMO E PARALELISMO — FECHE RÁPIDO: seu objetivo é CONVERGIR pra solução no menor tempo, não explorar sem fim. Divida o trabalho restante em frentes INDEPENDENTES e dispare subagentes (tool Task) EM PARALELO — várias chamadas Task na MESMA mensagem — ex.: reproduzir o bug ∥ escrever o teste ∥ varrer o código por ocorrências ∥ validar na UI. Cada subagente recebe instrução autocontida (arquivos, objetivo, critério de pronto) e a regra de ouro vale pra ele também. Só serialize o que realmente depende de resultado anterior. Passou de ~15 minutos sem avanço CONCRETO (edição, teste passando, causa provada)? PARE de insistir na mesma linha: paralelize hipóteses com subagentes ou pergunte via mcp__cardume__ask_human. Trabalho longo sem fechar pendência é falha, não diligência.";
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${parallelRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
-    // groundRule vale pra TODO turno (pipeline, chat/resume e entregáveis sob
-    // demanda) — sem ela os agentes "adivinham" lendo código em vez de rodar.
+    // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e
+    // entregáveis sob demanda) — sem elas os agentes adivinham e serializam.
     const prompt = input.resume
-      ? input.resume.instruction + groundRule
-      : (input.promptOverride ? input.promptOverride + groundRule : baseline);
+      ? input.resume.instruction + groundRule + parallelRule
+      : (input.promptOverride ? input.promptOverride + groundRule + parallelRule : baseline);
 
     // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
     // Dev: src/mcp/server.ts ao lado do fonte. App empacotado: o bundle vira
