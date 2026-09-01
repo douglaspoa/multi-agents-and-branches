@@ -2884,8 +2884,35 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Notificação NATIVA com clique útil. O plugin (notify-rust) cai no bundle do
+/// Editor de Script quando não registra o app — clicar abria o editor. Aqui:
+/// mac-notification-sys com o bundle do Constellation + resposta do clique →
+/// evento "notif-open" pro front abrir a tarefa certa.
+#[tauri::command(async)]
+fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) {
+    std::thread::spawn(move || {
+        use mac_notification_sys::{Notification, NotificationResponse};
+        let sent = Notification::default()
+            .title(&title)
+            .message(&body)
+            .sound("Ping")
+            .send();
+        if let Ok(NotificationResponse::Click | NotificationResponse::ActionButton(_)) = sent {
+            use tauri::{Emitter, Manager};
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            let _ = app.emit("notif-open", task_id.unwrap_or_default());
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // registra o bundle nas notificações UMA vez (senão a lib cai no Editor de Script)
+    let _ = mac_notification_sys::set_application("dev.constellation.app");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -2927,6 +2954,7 @@ pub fn run() {
             project_chat,
             is_dev_install,
             apply_update,
+            notify_native,
             open_url,
             open_artifact,
             push_task,

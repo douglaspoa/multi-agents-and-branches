@@ -394,6 +394,7 @@ name = "cardume-app"
 version = "0.0.1"
 dependencies = [
  "libc",
+ "mac-notification-sys",
  "rusqlite",
  "serde",
  "serde_json",

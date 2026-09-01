@@ -1573,7 +1573,29 @@ async function initNotifs(){
   try{ let ok = await n.isPermissionGranted(); if(!ok){ const p=await n.requestPermission(); ok = p==='granted'; } notifOn=!!ok; }
   catch(_){ notifOn=false; }
 }
-function pushNotif(title, body){ if(!notifOn) return; const n=notifApi(); if(!n) return; try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} }
+let lastNotif=null; // {id, ts} — última notificação disparada (pro roteamento do clique)
+function pushNotif(title, body, taskId){
+  if(!notifOn) return;
+  if(taskId && !document.hasFocus()) lastNotif={ id:taskId, ts:Date.now() };
+  // caminho nativo: atribuição correta (Constellation) — clicar abre o APP
+  invoke('notify_native', { title, body: String(body||'').slice(0,180), taskId: taskId||null })
+    .catch(()=>{ const n=notifApi(); if(n) try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} });
+}
+function notifRoute(id){
+  if(id==='view:team'){ const b=document.querySelector('#viewSeg button[data-v="team"]'); if(b) b.click(); return; }
+  if(id && (state.tasks||[]).some(t=>t.id===id)){
+    selected=id;
+    const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
+    render();
+  }
+}
+// clique na notificação → o macOS ativa o app (atribuição) e nós roteamos:
+// pelo evento nativo quando a lib entrega o clique, ou pelo GANHO DE FOCO logo
+// após uma notificação (banner clicado ativa o app em segundos).
+try{ window.__TAURI__.event.listen('notif-open', (ev)=>{ lastNotif=null; notifRoute(ev.payload||''); }); }catch(_){ }
+window.addEventListener('focus', ()=>{
+  if(lastNotif && Date.now()-lastNotif.ts<180000){ const id=lastNotif.id; lastNotif=null; notifRoute(id); }
+});
 function detectNotifs(snap){
   const tasks=snap.tasks||[]; const pend=snap.pending||[];
   if(notifReady){
@@ -1582,16 +1604,16 @@ function detectNotifs(snap){
       if(prev!==undefined && prev!==t.status){
         // status mudou → commits/PR podem ter mudado (fim de turno commita)
         commitsCache[t.id]=undefined; prCache[t.id]=undefined;
-        if(t.status==='review') pushNotif('Pronta para review ✓', t.title);
-        else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title);
-        else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title);
-        else if(t.status==='merged') pushNotif('Mergeada na base ✓', t.title);
+        if(t.status==='review') pushNotif('Pronta para review ✓', t.title, t.id);
+        else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title, t.id);
+        else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title, t.id);
+        else if(t.status==='merged') pushNotif('Mergeada na base ✓', t.title, t.id);
       } else if(prev===undefined && (t.status==='running'||t.status==='queued'||t.status==='thinking')){
-        pushNotif('Nova tarefa iniciada', t.title);
+        pushNotif('Nova tarefa iniciada', t.title, t.id);
       }
-      if(t.prUrl && prevPr[t.id]===null){ pushNotif('PR aberto ✓', t.title); }
+      if(t.prUrl && prevPr[t.id]===null){ pushNotif('PR aberto ✓', t.title, t.id); }
     }
-    for(const p of pend){ if(!prevPending.has(p.id)){ pushNotif('Precisa de você — '+(p.agent||'agente'), p.prompt||'aguardando sua resposta'); } }
+    for(const p of pend){ if(!prevPending.has(p.id)){ pushNotif('Precisa de você — '+(p.agent||'agente'), p.prompt||'aguardando sua resposta', p.taskId); } }
   }
   prevStatus={}; tasks.forEach(t=>{ prevStatus[t.id]=t.status; prevPr[t.id]=t.prUrl||null; });
   prevPending=new Set(pend.map(p=>p.id));
@@ -5246,8 +5268,8 @@ async function teamNotifTick(){
   await teamFetch(); if(!teamTasks) return;
   const me=cloudUserId(), prs=seenSet('sb:seenpr'), cards=seenSet('sb:seencard');
   for(const t of teamTasks){
-    if(t.pr_url && !prs.has(t.id)){ seenAdd('sb:seenpr', t.id); if(teamNotifReady && (t.assignee||t.created_by)!==me) pushNotif('PR do time pra revisar ↗', tmName(t.assignee||t.created_by)+': '+t.title); }
-    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(teamNotifReady && t.created_by!==me) pushNotif('Nova tarefa no backlog do time', tmName(t.created_by)+': '+t.title); }
+    if(t.pr_url && !prs.has(t.id)){ seenAdd('sb:seenpr', t.id); if(teamNotifReady && (t.assignee||t.created_by)!==me) pushNotif('PR do time pra revisar ↗', tmName(t.assignee||t.created_by)+': '+t.title, 'view:team'); }
+    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(teamNotifReady && t.created_by!==me) pushNotif('Nova tarefa no backlog do time', tmName(t.created_by)+': '+t.title, 'view:team'); }
   }
   teamNotifReady=true;
   if(activeIs('team')) renderTeamBoard();
