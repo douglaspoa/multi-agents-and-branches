@@ -1790,7 +1790,27 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
 #[tauri::command]
 fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
+    let mut pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
+    // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
+    // vivo (setsid) — fallback: o lock busy_pid do banco diz quem matar.
+    if pid.is_none() {
+        if let Ok(db) = state.db.lock() {
+            if let Some(path) = db.clone() {
+                if let Ok(conn) = open(&path) {
+                    if let Ok(Some(bp)) = conn
+                        .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| {
+                            r.get::<_, Option<i64>>(0)
+                        })
+                    {
+                        let bp = bp as i32;
+                        if unsafe { libc::kill(bp, 0) } == 0 {
+                            pid = Some(bp);
+                        }
+                    }
+                }
+            }
+        }
+    }
     if let Some(p) = pid {
         signal_group(p, libc::SIGCONT);
         signal_group(p, libc::SIGTERM);
