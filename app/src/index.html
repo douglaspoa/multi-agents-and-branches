@@ -5034,7 +5034,7 @@ function tsBuckets(){ return {
 function tsOnline(uid){ const p=teamProfiles[uid]; return p&&p.last_seen_at && (Date.now()-new Date(p.last_seen_at).getTime()<180000); }
 function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>t.assignee===uid && TS_DOING.includes(t.status)); }
 function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
-function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'7'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
+function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'all'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
 function tsCardHtml(t, me, isAdmin){
   const proj=teamProj[t.project_id]||{};
   const sameRepo=!proj.repo_remote||proj.repo_remote===teamRepoRemote;
@@ -5101,7 +5101,7 @@ function renderTeamBoard(){
     return `<div class="tsmem">${tsAv(uid,on)}${esc(tmName(uid)).slice(0,14)}<span class="r">${run?`<span style="color:var(--accent)">${run} agente${run>1?'s':''}</span>`:(on?'online':seen)}</span></div>`; }).join('');
   // ---------- main por vista ----------
   let main='';
-  const perNow=lsGet('tmPeriod')||'7';
+  const perNow=lsGet('tmPeriod')||'all';
   const perSel=`<select class="sel" id="tbPeriod" style="width:120px">${[['7','últimos 7 dias'],['30','30 dias'],['90','trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select>`;
   const devOpts=`<select class="sel" id="tbDev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
   if(tmView==='overview'){
