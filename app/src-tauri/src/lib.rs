@@ -2563,10 +2563,29 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
             }
         }
     }
+    let url = v["url"].as_str().unwrap_or("").to_string();
+    // PERSISTE o PR na tarefa (spec.prUrl): sem isso o link só existia "ao
+    // vivo" via gh — snapshot/sync do time ficavam com pr_url nulo pra sempre.
+    if !url.is_empty() {
+        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
+                if let Ok(spec_str) = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+                    if let Ok(mut spec) = serde_json::from_str::<serde_json::Value>(&spec_str) {
+                        if spec["prUrl"].as_str() != Some(url.as_str()) {
+                            spec["prUrl"] = serde_json::json!(url);
+                            spec["prNumber"] = serde_json::json!(number);
+                            let _ = conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]);
+                        }
+                    }
+                }
+            }
+        }
+    }
     Ok(PrInfo {
         exists: true,
         number,
-        url: v["url"].as_str().unwrap_or("").to_string(),
+        url,
         state: v["state"].as_str().unwrap_or("").to_string(),
         decision: v["reviewDecision"].as_str().unwrap_or("").to_string(),
         mergeable: v["mergeable"].as_str().unwrap_or("").to_string(),

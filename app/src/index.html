@@ -4727,10 +4727,13 @@ async function cloudBackfill(btn){
 }
 
 // ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
-const cloudSyncSigs={};
+const cloudSyncSigs={}, prProbed=new Set();
 async function cloudSyncTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
+  // descobre o PR de UMA tarefa por tick (gh) — persiste no spec e o sync leva pro cartão
+  const probe=ids.find(lid=>{ const t=(state.tasks||[]).find(x=>x.id===lid); return t && !t.prUrl && ['review','merged','error'].includes(t.status) && !prProbed.has(lid); });
+  if(probe){ prProbed.add(probe); invoke('pr_status',{ taskId: probe }).catch(()=>{}); }
   for(const lid of ids){
     const t=(state.tasks||[]).find(x=>x.id===lid); if(!t) continue;
     const cost=taskCost(lid);
@@ -5000,7 +5003,7 @@ function openCloudTask(ct){
   const reqs=(sp.requirements||[]);
   const body=document.getElementById('ctBody');
   body.innerHTML=`
-    ${(ct.pr_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${ct.pr_url?`<button class="btn sm" data-lk="${escA(ct.pr_url)}" style="color:var(--accent)">abrir PR ↗</button>`:''}${(()=>{const m=(ct.branch||'').match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return (m&&b)?`<button class="btn sm mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+m[1])}">${esc(m[1])} ↗</button>`:'';})()}</div>`:''}
+    ${(ct.pr_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${linkChips({prUrl:ct.pr_url, branch:ct.branch, title:ct.title})}</div>`:''}
     <div class="imhint">criada por <b>${esc(tmName(ct.created_by))}</b> · ${esc(CT_ST_PT[ct.status]||ct.status)}${ct.assignee?' · com <b>'+esc(tmName(ct.assignee))+'</b>':''}${ct.claim_mode==='reserved'?' · <b>reservada pra si</b>':''}</div>
     <label style="margin-top:10px">Título</label><input class="in" id="ctTitle" value="${escA(ct.title)}" ${canEdit?'':'disabled'}>
     <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
