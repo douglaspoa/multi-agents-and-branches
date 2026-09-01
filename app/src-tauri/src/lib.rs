@@ -85,6 +85,23 @@ fn claude_bin() -> String {
             return c;
         }
     }
+    // Apps abertos pelo Finder têm PATH mínimo — sondamos os locais reais de
+    // instalação (mesmo padrão do node_bin): instalador nativo → homebrew →
+    // npm global → instalação local antiga.
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        for rel in [".local/bin/claude", ".claude/local/claude"] {
+            let cand = home.join(rel);
+            if cand.is_file() {
+                return cand.display().to_string();
+            }
+        }
+    }
+    for p in ["/opt/homebrew/bin/claude", "/usr/local/bin/claude"] {
+        if std::path::Path::new(p).is_file() {
+            return p.to_string();
+        }
+    }
     if let Ok(node) = std::env::var("CARDUME_NODE") {
         if let Some(dir) = std::path::Path::new(&node).parent() {
             let cand = dir.join("claude");

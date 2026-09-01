@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,21 @@ function hasOpenAsk(dbFile: string, taskId: string): boolean {
 
 function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
+  // PATH mínimo em apps GUI: sonda os locais reais de instalação, como o
+  // node_bin do app faz (instalador nativo → local antiga → homebrew → npm).
+  try {
+    const home = homedir();
+    for (const p of [
+      join(home, ".local", "bin", "claude"),
+      join(home, ".claude", "local", "claude"),
+      "/opt/homebrew/bin/claude",
+      "/usr/local/bin/claude",
+    ]) {
+      if (existsSync(p)) return p;
+    }
+  } catch {
+    /* ignora */
+  }
   try {
     const near = join(dirname(process.execPath), "claude");
     if (existsSync(near)) return near;
