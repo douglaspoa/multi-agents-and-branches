@@ -4873,7 +4873,11 @@ async function cloudAutoPublish(){
     const cost=taskCost(t.id);
     await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[] } }) });
     const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
-    if(rows[0]){ tmapSet(t.id, rows[0].id); teamTasks=null; }
+    if(rows[0]){
+      tmapSet(t.id, rows[0].id); teamTasks=null;
+      sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:t.title }).catch(()=>{});
+      if(ACTIVE_ST.has(t.status)) sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
+    }
   }catch(e){ autoPubFails[t.id]=(autoPubFails[t.id]||0)+1; console.error('autopub', t.id, e.message); }
 }
 
@@ -4903,7 +4907,14 @@ async function cloudSyncTick(){
       const same=card.status===t.status && (card.flag||null)===(t.flag||null) && (card.pr_url||null)===(t.prUrl||null);
       if(same) continue;
     }
-    try{ await sbFetch('/rest/v1/tasks?id=eq.'+m[lid], { method:'PATCH', body: JSON.stringify(body) }); cloudSyncSigs[lid]=sig; }
+    try{
+      await sbFetch('/rest/v1/tasks?id=eq.'+m[lid], { method:'PATCH', body: JSON.stringify(body) });
+      // AÇÕES vão pra nuvem sozinhas: mudança de status/PR vira atividade no feed
+      const before=prev?JSON.parse(prev):null;
+      if(before && before.status!==t.status) sbPost('task_activity',{ task_id:m[lid], user_id:cloudUserId(), kind:'status', body:CT_ST_PT[t.status]||t.status }).catch(()=>{});
+      if(before && !before.pr_url && t.prUrl) sbPost('task_activity',{ task_id:m[lid], user_id:cloudUserId(), kind:'delivered', body:'PR aberto' }).catch(()=>{});
+      cloudSyncSigs[lid]=sig;
+    }
     catch(e){ console.error('sync '+lid+':', e.message); }
   }
 }
