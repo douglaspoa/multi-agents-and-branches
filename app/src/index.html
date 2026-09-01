@@ -4775,7 +4775,7 @@ async function cloudPublishSelf(localId, payload){
 async function cloudBackfill(btn){
   const list=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft');
   if(!list.length) return;
-  if(!confirm('Publicar '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas — ninguém assume), com o status real. O time passa a ver título, status e custo; o stream continua só na sua máquina.')) return;
+  if(!confirm('Publicar/vincular '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas), com status, flag e datas reais. Cartão que já existe só é vinculado — nada é sobrescrito.')) return;
   if(btn){ btn.disabled=true; }
   let n=0;
   try{
@@ -4784,8 +4784,9 @@ async function cloudBackfill(btn){
       if(btn) btn.textContent=`publicando ${++n}/${list.length}…`;
       try{
         const cost=taskCost(t.id);
-        const rows=await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[] } }) });
-        tmapSet(t.id, rows[0].id);
+        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[] } }) });
+        const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
+        if(rows[0]) tmapSet(t.id, rows[0].id);
       }catch(e){ console.error('backfill', t.id, e.message); }
     }
     teamTasks=null; teamPaintSig=''; renderTeamBoard();
@@ -4806,7 +4807,17 @@ async function cloudSyncTick(){
     const body={ status:t.status, stage:t.stage||null, branch:t.branch||null, pr_url:t.prUrl||null, flag:t.flag||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0 };
     const proofs=reqProofCache[lid]; if(proofs) body.requirements_proof=proofs;
     const sig=JSON.stringify(body);
-    if(cloudSyncSigs[lid]===sig) continue;
+    const prev=cloudSyncSigs[lid];
+    if(prev===sig) continue;
+    if(prev===undefined){
+      // boot da sessão: não "toca" o cartão à toa (preserva updated_at real) —
+      // só PATCHa se o cartão carregado divergir do estado local
+      cloudSyncSigs[lid]=sig;
+      const card=(teamTasks||[]).find(c=>c.id===m[lid]);
+      if(!card) continue;
+      const same=card.status===t.status && (card.flag||null)===(t.flag||null) && (card.pr_url||null)===(t.prUrl||null);
+      if(same) continue;
+    }
     try{ await sbFetch('/rest/v1/tasks?id=eq.'+m[lid], { method:'PATCH', body: JSON.stringify(body) }); cloudSyncSigs[lid]=sig; }
     catch(e){ console.error('sync '+lid+':', e.message); }
   }
