@@ -1278,7 +1278,7 @@
       <div id="ntRefs" class="reflist"></div>
 
       <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
-
+      </div>
       <div id="ntShareRow" style="display:none">
         <div class="seclbl2" style="margin-top:15px">Time</div>
         <select class="sel" id="ntShare" style="width:100%">
@@ -1286,8 +1286,9 @@
           <option value="team">Compartilhar tarefa com o time — vai pro backlog; qualquer membro assume &amp; inicia</option>
           <option value="local">Não compartilhar — só nesta máquina</option>
         </select>
+        <label style="margin-top:12px">Épico <span class="dim" style="text-transform:none;letter-spacing:0">(agrupa a tarefa no time)</span></label>
+        <select class="sel" id="ntEpic" style="width:100%"><option value="">— sem épico —</option></select>
         <div class="aihint dim" style="margin-top:7px">O time vê só o cartão (spec, status, custo, provas) — o stream do agente fica na sua máquina.</div>
-      </div>
       </div>
     </div>
     <div class="mfoot">
@@ -1412,6 +1413,15 @@
       <div id="bdList"></div>
     </div>
     <div class="mfoot"><span class="dim">os cartões nascem com o épico atribuído — qualquer membro assume &amp; inicia</span><span style="flex:1"></span><button class="btn" id="bdCancel">cancelar</button><button class="btn primary" id="bdCreate">criar épico</button></div>
+  </div>
+</div>
+
+<!-- input de texto genérico (prompt() não existe no WebView do Tauri) -->
+<div class="overlay" id="txOverlay" style="display:none;z-index:80">
+  <div class="modal" style="width:min(440px,100%)">
+    <div class="mhead"><b id="txTitle">Nome</b><span style="flex:1"></span><button class="x" id="txClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody"><input class="in" id="txInput" placeholder=""></div>
+    <div class="mfoot"><span style="flex:1"></span><button class="btn" id="txCancel">cancelar</button><button class="btn primary" id="txOk">ok</button></div>
   </div>
 </div>
 
@@ -1654,6 +1664,23 @@ document.getElementById('envRecheck').onclick=async()=>{ envChecks=null; renderE
 document.getElementById('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') document.getElementById('envOverlay').style.display='none'; });
 // boot: valida em background; problema → abre a tela sozinho (1x por sessão)
 setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')) openEnv(); }, 2500);
+
+// prompt() do WebView do Tauri é mudo — modal próprio, promise-based
+let txResolve=null;
+function askText(title, placeholder, initial){
+  return new Promise(res=>{
+    txResolve=res;
+    document.getElementById('txTitle').textContent=title;
+    const i=document.getElementById('txInput'); i.placeholder=placeholder||''; i.value=initial||'';
+    document.getElementById('txOverlay').style.display='flex';
+    setTimeout(()=>i.focus(),50);
+  });
+}
+function txDone(v){ document.getElementById('txOverlay').style.display='none'; if(txResolve){ txResolve(v); txResolve=null; } }
+document.getElementById('txOk').onclick=()=>txDone(document.getElementById('txInput').value.trim()||null);
+document.getElementById('txCancel').onclick=()=>txDone(null);
+document.getElementById('txClose').onclick=()=>txDone(null);
+document.getElementById('txInput').addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.target.value.trim()||null); if(e.key==='Escape') txDone(null); });
 
 // ---------- daily do dev ----------
 let dailyData=null, dailyCommits={};
@@ -3919,6 +3946,15 @@ function toggleAiAssist(){
   a.style.display=show?'block':'none';
   if(show){ if(!document.getElementById('aiChat').children.length) aiAppend('assistant','Oi! Me conta em uma ou duas frases o que você quer fazer — eu pergunto o resto e monto a tarefa.'); document.getElementById('aiInput').focus(); }
 }
+// aplica o destino Time (local/self/team) a QUALQUER modo de criação;
+// devolve true quando virou cartão do time (não roda nesta máquina)
+async function ntApplyShare(payload){
+  const share=(document.getElementById("ntShareRow").style.display!=='none')?document.getElementById("ntShare").value:'local';
+  if(share==='team'){ await cloudShareTask(payload); return true; }
+  const localId=await invoke("new_task", payload);
+  if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
+  return false;
+}
 async function submitNewTask(start=true){
   if(ntMode==='review'){
     const pr = document.getElementById("ntPr").value.trim();
@@ -3937,7 +3973,7 @@ async function submitNewTask(start=true){
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
     const team=document.getElementById('ntFixTeam').value;
     const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, linkedTo: ntLinkedTo };
-    try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -3963,7 +3999,7 @@ async function submitNewTask(start=true){
     ];
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
     const payload={ start:true, title:dt, workflow:null, agents:document.getElementById('ntDzAgent').value||null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, base:null, linkedTo: ntLinkedTo };
-    try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ alert("Falha ao criar o design:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -3987,7 +4023,7 @@ async function submitNewTask(start=true){
     ];
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="investigando…";
     const payload={ start:true, title:it, workflow:null, agents:document.getElementById('ntInvAgent').value||null, engine:document.getElementById("ntEngine").value||'claude', approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, base:null, linkedTo: ntLinkedTo };
-    try{ await invoke("new_task", payload); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ alert("Falha ao criar a investigação:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -4018,17 +4054,15 @@ async function submitNewTask(start=true){
     base: document.getElementById("ntBase").value.trim() || null,
     linkedTo: ntLinkedTo,
   };
-  const share = (document.getElementById("ntShareRow").style.display!=='none') ? document.getElementById("ntShare").value : 'local';
   const btn = document.getElementById(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   document.getElementById("ntCreate").disabled=true; document.getElementById("ntDraft").disabled=true;
   try{
-    if(share==='team' && start){
-      // compartilhar com o time: NÃO roda aqui — vira cartão no backlog do time
-      await cloudShareTask(payload);
-      closeNewTask(); resetNewTask(); setView('team');
+    if(start){
+      const t=await ntApplyShare(payload);
+      closeNewTask(); resetNewTask(); lastSig="";
+      if(t) setView('team'); else await refresh();
     } else {
-      const localId = await invoke("new_task", payload);
-      if(share==='self' && start){ cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e)); }
+      await invoke("new_task", payload);
       closeNewTask(); resetNewTask(); lastSig=""; await refresh();
     }
   }
@@ -4518,7 +4552,7 @@ async function renderCloud(){
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbLogout">sair</button></div>
     <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;
-  { const b=document.getElementById('sbTeamAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do novo time:'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg='Falhou: '+e.message; } renderCloud(); }; }
+  { const b=document.getElementById('sbTeamAdd'); if(b) b.onclick=async()=>{ const n=await askText('Novo time','ex.: Data'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg='Falhou: '+e.message; } renderCloud(); }; }
   // ações nos times: usar / promover-rebaixar / remover / adicionar membro
   body.querySelectorAll('[data-mact]').forEach(b=>{ b.onclick=async()=>{
     const act=b.dataset.mact, tid=b.dataset.team, uid=b.dataset.uid; cloudMsg='';
@@ -4575,7 +4609,7 @@ async function renderCloud(){
     }).catch(e=>{ const el=document.getElementById('sbOrgView'); if(el) el.textContent='falhou: '+e.message; });
   }
   { const b=document.getElementById('sbLicSet'); if(b) b.onclick=async()=>{
-      const k=prompt('Chave de licença da organização:', d.org.license_key||''); if(k===null) return;
+      const k=await askText('Chave de licença da organização','LOGCOMEX-…', d.org.license_key||''); if(k===null) return;
       cloudMsg='';
       try{ await sbFetch('/rest/v1/orgs?id=eq.'+d.org.id, { method:'PATCH', body: JSON.stringify({ license_key: k.trim()||null }) }); cloudData=null; cloudMsg='✓ licença atualizada'; }
       catch(e){ cloudMsg='Falhou: '+e.message; }
@@ -4616,7 +4650,7 @@ async function cloudEnsureProject(){
 async function cloudShareTask(payload){
   if(!SB.sess()) throw new Error('entre na sua conta (botão no topo)');
   const proj=await cloudEnsureProject();
-  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', spec:payload });
+  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
   teamTasks=null;
   return rows[0];
@@ -4625,7 +4659,7 @@ async function cloudShareTask(payload){
 async function cloudPublishSelf(localId, payload){
   if(!SB.sess() || !cloudTeamId()) return;
   const proj=await cloudEnsureProject();
-  const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', spec:payload });
+  const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
   tmapSet(localId, rows[0].id);
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
   teamTasks=null;
@@ -4884,7 +4918,7 @@ function renderTeamBoard(){
   // ---------- wiring ----------
   el.querySelectorAll('[data-tsv]').forEach(b=>{ b.onclick=()=>{ tmView=b.dataset.tsv; lsSet('tmView',tmView); teamPaintSig=''; renderTeamBoard(); }; });
   el.querySelectorAll('[data-epsel]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epsel?'':b.dataset.epsel); if(tmView!=='board'){ tmView='board'; lsSet('tmView','board'); } teamPaintSig=''; renderTeamBoard(); }; });
-  { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=prompt('Nome do épico:'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
+  { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=await askText('Novo épico','ex.: Filtros avançados'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
   { const s=el.querySelector('#tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   { const s=el.querySelector('#tbDev'); if(s) s.onchange=e=>{ lsSet('tmDev', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   { const b=el.querySelector('#tbRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamPaintSig=''; renderTeamBoard(); }; }
@@ -4982,8 +5016,30 @@ document.getElementById('ctClose').onclick=()=>{ document.getElementById('ctOver
 document.getElementById('ctOverlay').addEventListener('click',e=>{ if(e.target.id==='ctOverlay') document.getElementById('ctOverlay').style.display='none'; });
 
 // mostra o seletor "Time" na criação de tarefa só quando logado + time escolhido
-function ntShareSync(){ const r=document.getElementById('ntShareRow'); if(r) r.style.display=(SB.sess()&&cloudTeamId())?'block':'none'; }
-document.getElementById('newTaskBtn').addEventListener('click', ntShareSync);
+// e preenche o seletor de ÉPICO (com a opção de criar um novo na hora)
+async function ntShareSync(){
+  const r=document.getElementById('ntShareRow'); if(!r) return;
+  const on=!!(SB.sess()&&cloudTeamId());
+  r.style.display=on?'block':'none';
+  if(!on) return;
+  try{ if(!teamEpics.length) teamEpics=await sbGet('epics?select=id,name,status&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at'); }catch(_){ }
+  const sel=document.getElementById('ntEpic'); if(!sel) return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">— sem épico —</option>'
+    + teamEpics.map(e=>`<option value="${escA(e.id)}">◆ ${esc(e.name)}</option>`).join('')
+    + '<option value="__new__">＋ criar novo épico…</option>';
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+  sel.onchange=async()=>{
+    if(sel.value!=='__new__') return;
+    sel.value='';
+    const n=await askText('Novo épico','ex.: Filtros avançados');
+    if(!n) return;
+    try{ const rows=await sbPost('epics',{ team_id:cloudTeamId(), name:n, created_by:cloudUserId() }); teamEpics.push(rows[0]); await ntShareSync(); sel.value=rows[0].id; }
+    catch(e){ alert('Falhou: '+e.message); }
+  };
+}
+function ntEpicVal(){ const s=document.getElementById('ntEpic'); const v=s?s.value:''; return (v&&v!=='__new__')?v:null; }
+document.getElementById('newTaskBtn').addEventListener('click', ()=>{ ntShareSync(); });
 
 /* ---- F3: notificações do time (novo PR de um colega / nova tarefa no backlog) ----
    Poll leve a cada 30s; "já visto" persiste em localStorage pra não re-notificar. */
