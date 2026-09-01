@@ -164,10 +164,9 @@ impl AppState {
     }
 }
 
-/// Slug ascii idempotente sob o slugify() do TS (types.ts): minúsculas, acentos
-/// PT→ascii, runs não-alfanuméricos viram '-', apara pontas, corta em 32.
-/// Gerado no Rust pra podermos RASTREAR o processo da tarefa pelo id desde já.
-fn slug_id(input: &str) -> String {
+/// Slug ascii SEM limite (idempotente sob o slugify() do TS): minúsculas,
+/// acentos PT→ascii, runs não-alfanuméricos viram '-', apara pontas.
+fn slug_raw(input: &str) -> String {
     let mut out = String::new();
     let mut prev_dash = false;
     for ch in input.trim().chars() {
@@ -195,12 +194,65 @@ fn slug_id(input: &str) -> String {
                 }
             }
         }
-        if out.len() >= 32 {
-            break;
-        }
     }
-    let s = out.trim_matches('-').to_string();
+    out.trim_matches('-').to_string()
+}
+
+/// Slug limitado pra id/branch. Se o título não couber, quem chama deve
+/// preferir REFAZER o nome via IA (ai_branch_name) — este corte em fronteira
+/// de palavra é o fallback offline.
+fn slug_id(input: &str) -> String {
+    let full = slug_raw(input);
+    let mut s = if full.len() > 48 {
+        let mut cut = full[..48].to_string();
+        if let Some(i) = cut.rfind('-') {
+            if i > 0 {
+                cut.truncate(i);
+            }
+        }
+        cut
+    } else {
+        full
+    };
+    while s.ends_with('-') {
+        s.pop();
+    }
     if s.is_empty() { "tarefa".to_string() } else { s }
+}
+
+/// Nome de branch REFEITO pela IA quando o título não cabe no slug (48).
+/// Haiku resume o título num kebab-case curto; timeout curto e best-effort —
+/// falhou/offline → None e o chamador usa o corte em fronteira de palavra.
+fn ai_branch_name(title: &str) -> Option<String> {
+    let prompt = format!(
+        "Resuma este título de tarefa num NOME DE BRANCH curto: kebab-case, só ascii minúsculo e hifens, 3 a 5 palavras, máximo 40 caracteres, capturando a essência. Responda SOMENTE o nome, sem aspas.\n\nTítulo: {title}"
+    );
+    let mut cmd = Command::new(claude_bin());
+    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]);
+    let out = output_timeout(cmd, 20).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    let name = slug_id(s.trim().trim_matches('"'));
+    // sanidade: nome curto real, não eco do título nem vazio
+    if name.len() >= 8 && name.len() <= 48 && name != "tarefa" { Some(name) } else { None }
+}
+
+#[cfg(test)]
+mod slug_tests {
+    use super::slug_id;
+    #[test]
+    fn corta_em_fronteira_de_palavra() {
+        assert_eq!(slug_id("Campos bloqueados seguem aparecendo na conversa"), "campos-bloqueados-seguem-aparecendo-na-conversa");
+        assert_eq!(slug_id("Erro na tela de admin de cadastro de usuários"), "erro-na-tela-de-admin-de-cadastro-de-usuarios");
+        assert_eq!(slug_id("Refatoração do cockpit — do atual à visão por papel"), "refatoracao-do-cockpit-do-atual-a-visao-por");
+        // palavra única maior que o limite: corta duro em 48
+        assert_eq!(slug_id("supercalifragilisticexpialidocioussupercalifragilistic").len(), 48);
+        // idempotente: slug do slug é ele mesmo
+        let s = slug_id("Corrigir quebra de layout nos chips de filtros");
+        assert_eq!(slug_id(&s), s);
+    }
 }
 
 /// Roda um comando com TETO de tempo; mata o processo se estourar. Evita que a
@@ -1424,13 +1476,20 @@ fn new_task(
     auto_pr: Option<String>,
     pr_base: Option<String>,
     linked_to: Option<String>,
+    model: Option<String>,
 ) -> Result<String, String> {
     let repo = repo_of(&state)?;
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
     // o processo desta tarefa e permitir pausar/abortar.
     // Se o id já existe (ex.: entrega criada a partir de um design com o MESMO
     // título), sufixa -2, -3… — senão o INSERT do CLI falha silenciosamente.
-    let mut id = slug_id(&title);
+    // Título que NÃO CABE no slug → a IA REFAZ o nome (decisão do Douglas:
+    // nada de nome truncado); sem IA/offline, cai no corte em fronteira.
+    let mut id = if slug_raw(&title).len() > 48 {
+        ai_branch_name(&title).unwrap_or_else(|| slug_id(&title))
+    } else {
+        slug_id(&title)
+    };
     {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(path) = db {
@@ -1444,10 +1503,10 @@ fn new_task(
                     .is_ok()
                 {
                     n += 1;
-                    // o CLI re-slugifica o id e TRUNCA em 32 — o sufixo precisa
+                    // o CLI re-slugifica o id e TRUNCA em 48 — o sufixo precisa
                     // caber, senão é cortado e o id volta a ser o duplicado.
                     let sfx = format!("-{n}");
-                    let keep = 32usize.saturating_sub(sfx.len());
+                    let keep = 48usize.saturating_sub(sfx.len());
                     let mut b = base[..base.len().min(keep)].to_string();
                     while b.ends_with('-') {
                         b.pop();
@@ -1515,6 +1574,7 @@ fn new_task(
     push_opt(&mut args, "--branch-type", &branch_type);
     push_opt(&mut args, "--issue", &issue);
     push_opt(&mut args, "--base", &base);
+    push_opt(&mut args, "--model", &model);
     if tests.unwrap_or(false) {
         args.push("--artifact-tests".to_string());
     }

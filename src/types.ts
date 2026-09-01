@@ -196,8 +196,14 @@ export function slugify(input: string): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32)
-    .replace(/-+$/g, "");
-  return s || "tarefa";
+    .replace(/^-+|-+$/g, "");
+  // corta em FRONTEIRA DE PALAVRA (nunca "…-apare", "…-cadastr"): 48 chars e,
+  // se o corte caiu no meio de uma palavra, recua até o último '-'
+  let cut = s.slice(0, 48);
+  if (s.length > 48) {
+    const i = cut.lastIndexOf("-");
+    if (i > 0) cut = cut.slice(0, i);
+  }
+  cut = cut.replace(/-+$/g, "");
+  return cut || "tarefa";
 }
