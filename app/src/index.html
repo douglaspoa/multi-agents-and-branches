@@ -1129,6 +1129,7 @@
     <button class="btn" id="connectBtn" style="display:none">abrir</button>
     <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow" data-tauri-drag-region></span>
+    <button class="btn" id="updBtn" style="display:none;background:color-mix(in srgb,var(--accent) 18%,var(--surface));border-color:var(--accent);color:var(--accent);font-weight:700" title="versão nova disponível — clique pra atualizar e reabrir">⬆ atualizar</button>
     <button class="btn" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg></button>
     <button class="btn" id="dailyBtn" title="Daily — resumo do que você fez no dia"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke-linecap="round"/><path d="M5 9.5l1.6 1.6L11 7.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg></button>
@@ -1707,6 +1708,37 @@ document.getElementById('txOk').onclick=()=>txDone(document.getElementById('txIn
 document.getElementById('txCancel').onclick=()=>txDone(null);
 document.getElementById('txClose').onclick=()=>txDone(null);
 document.getElementById('txInput').addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.target.value.trim()||null); if(e.key==='Escape') txDone(null); });
+
+// ---------- updater "tipo Claude": checa o canal de releases, badge, aplica ----------
+let updInfo=null;
+async function checkUpdate(){
+  try{
+    if(!SB.sess()) return;                       // canal é autenticado
+    if(await invoke('is_dev_install')) return;   // instalação dev não se auto-atualiza
+    const r=await fetch(SB.url()+'/storage/v1/object/releases/latest.json', { headers:{ apikey:SB.key(), Authorization:'Bearer '+SB.sess().access_token }, cache:'no-store' });
+    if(!r.ok) return;
+    const j=await r.json();
+    const mine=Number(await invoke('build_info'))||0;
+    if(j.buildMs && mine && j.buildMs > mine + 60000){
+      updInfo=j;
+      const b=document.getElementById('updBtn');
+      b.style.display=''; b.textContent='⬆ atualizar'+(j.version?(' · '+j.version):'');
+    }
+  }catch(_){ }
+}
+document.getElementById('updBtn').onclick=async function(){
+  if(!updInfo) return;
+  if(!confirm('Atualizar o Constellation agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
+  this.disabled=true; this.textContent='baixando…';
+  try{
+    const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Constellation-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
+    this.textContent='instalando…';
+    await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });
+    this.textContent='reabrindo…';
+  }catch(e){ alert('Atualização falhou:\n'+(e.message||e)+'\n\nBaixe o zip novo manualmente.'); this.disabled=false; this.textContent='⬆ atualizar'; }
+};
+setTimeout(checkUpdate, 5000);
+setInterval(checkUpdate, 6*3600e3);
 
 // ---------- chat do projeto ----------
 let pcBusy=false;

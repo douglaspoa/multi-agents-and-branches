@@ -1990,6 +1990,64 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     })
 }
 
+/// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
+/// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
+#[tauri::command]
+fn is_dev_install() -> bool {
+    std::env::var("CARDUME_CLI").map(|v| !v.is_empty()).unwrap_or(false)
+}
+
+/// Auto-update estilo Claude: baixa o zip (URL assinada), troca o .app em
+/// disco e relança. curl/ditto não aplicam quarantine → abre sem Gatekeeper.
+#[tauri::command(async)]
+fn apply_update(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("url inválida".to_string());
+    }
+    let tmp = std::env::temp_dir().join("constellation-update");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    let zip = tmp.join("update.zip");
+    let dl = Command::new("curl").args(["-fsSL", "-o"]).arg(&zip).arg(&url).output().map_err(|e| e.to_string())?;
+    if !dl.status.success() {
+        return Err(format!("download falhou: {}", String::from_utf8_lossy(&dl.stderr)));
+    }
+    let ux = Command::new("ditto").args(["-xk"]).arg(&zip).arg(&tmp).output().map_err(|e| e.to_string())?;
+    if !ux.status.success() {
+        return Err(format!("descompactação falhou: {}", String::from_utf8_lossy(&ux.stderr)));
+    }
+    // acha o .app extraído
+    let new_app = std::fs::read_dir(&tmp).map_err(|e| e.to_string())?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().map(|x| x == "app").unwrap_or(false))
+        .ok_or("zip sem .app dentro")?;
+    // bundle atual: Contents/MacOS/exe → sobe 3
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let cur_app = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent())
+        .ok_or("não achei o bundle atual")?.to_path_buf();
+    if cur_app.extension().map(|x| x != "app").unwrap_or(true) {
+        return Err("instalação não-bundle — atualize manualmente".to_string());
+    }
+    let backup = cur_app.with_extension("app.old");
+    let _ = std::fs::remove_dir_all(&backup);
+    std::fs::rename(&cur_app, &backup).map_err(|e| format!("não consegui mover o app atual: {e}"))?;
+    let cp = Command::new("cp").arg("-R").arg(&new_app).arg(&cur_app).output().map_err(|e| e.to_string())?;
+    if !cp.status.success() {
+        let _ = std::fs::rename(&backup, &cur_app); // rollback
+        return Err(format!("cópia falhou: {}", String::from_utf8_lossy(&cp.stderr)));
+    }
+    let _ = std::fs::remove_dir_all(&backup);
+    let _ = std::fs::remove_dir_all(&tmp);
+    // relança a versão nova e sai
+    let _ = Command::new("open").arg("-n").arg(&cur_app).spawn();
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        std::process::exit(0);
+    });
+    Ok(())
+}
+
 /// Chat do PROJETO: conversa livre sobre o repo (arquitetura, dúvidas, ideias)
 /// com leitura REAL do código — sem tarefa e sem editar nada. A conversa pode
 /// virar tarefa depois (a UI pede a spec pro mesmo session).
@@ -2863,6 +2921,8 @@ pub fn run() {
             ai_chat,
             ai_title,
             project_chat,
+            is_dev_install,
+            apply_update,
             open_url,
             open_artifact,
             push_task,

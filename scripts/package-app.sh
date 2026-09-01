@@ -70,3 +70,11 @@ Qual versão estou rodando? Olhe o rodapé do app, canto direito:
 TXT
 ( cd dist && rm -f Constellation-portable.zip && ditto -c -k --keepParent Constellation-portable.app /tmp/_capp.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Constellation-portable.app _pkg/ && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Constellation-portable.zip && rm -rf _pkg /tmp/_capp.zip )
 echo "✔ dist/Constellation-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
+
+# publica no canal de releases quando as credenciais do owner estão no ambiente
+if [ -n "${CONSTELLATION_EMAIL:-}" ] && [ -n "${CONSTELLATION_PASSWORD:-}" ]; then
+  echo "→ 5/5 publicando release"
+  node scripts/publish-release.mjs "${RELEASE_NOTES:-}" || echo "⚠ publicação falhou (o zip local continua válido)"
+else
+  echo "ℹ release NÃO publicada (defina CONSTELLATION_EMAIL/CONSTELLATION_PASSWORD pra publicar o ⬆ atualizar)"
+fi
