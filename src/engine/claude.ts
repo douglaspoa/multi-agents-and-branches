@@ -93,6 +93,8 @@ export class ClaudeEngine implements AgentEngine {
     const refRule = refs.length
       ? ` Há documentos de REFERÊNCIA anexados em .cardume/refs/ (${refs.join(", ")}) — LEIA-OS primeiro como ponto de partida (podem ser specs, prints de bug, PDFs, imagens).`
       : "";
+    const envRule =
+      " O ambiente desta worktree foi SEMEADO do repo principal (.env copiados, node_modules/.venv linkados) — veja .cardume/AMBIENTE.md. Antes de concluir que 'falta configuração', confira esse arquivo: o necessário pra RODAR o projeto provavelmente já está aqui.";
     const planRule =
       input.role === "builder" || input.role === "tester"
         ? " Se existir .cardume/PLAN.md, leia e SIGA o plano (o humano pode tê-lo revisado/ajustado)."
@@ -118,7 +120,7 @@ export class ClaudeEngine implements AgentEngine {
     const groundRule =
       " REGRA DE OURO — EXECUTE ANTES DE AFIRMAR: NUNCA conclua, diagnostique ou entregue com base só em LEITURA de código. Rode o projeto/fluxo LOCAL de verdade (as envs reais existem — .env, docker, suíte de testes, CLI) e OBSERVE o comportamento real antes de qualquer afirmação; 'provavelmente'/'deve ser'/'pelo código parece' sem ter executado NÃO VALE como verificação. Vale pra investigar, corrigir, revisar e entregar. Não conseguiu subir/rodar algo? Diga EXATAMENTE o que travou (comando + erro literal) e pergunte via mcp__cardume__ask_human — adivinhar é proibido.";
     const baseline =
-      `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${planRule}${prRule}` +
+      `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
       ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.

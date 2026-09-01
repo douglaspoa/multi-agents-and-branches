@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
@@ -73,6 +73,22 @@ export class Orchestrator {
     const taskDir = join(worktree, ".cardume");
     await mkdir(taskDir, { recursive: true });
 
+    // Semeia o ambiente: o `git worktree add` NÃO traz o que o git ignora
+    // (.env, node_modules, .venv) — e sem isso o agente não consegue RODAR o
+    // projeto e queima a sessão redescobrindo o óbvio a cada tarefa.
+    const seeded = await this.seedWorktreeEnv(worktree);
+    if (seeded.length) {
+      await writeFile(
+        join(taskDir, "AMBIENTE.md"),
+        `# Ambiente desta worktree (semeado do repo principal)\n\n` +
+          seeded.map((s) => `- ${s}`).join("\n") +
+          `\n\nOs itens "(link)" apontam pro repo principal: NÃO rode instalações destrutivas` +
+          ` (npm ci, rm -rf node_modules, pip sync) neles — se precisar de dependência nova,` +
+          ` instale de forma aditiva (npm install pkg / pip install pkg).\n`,
+        "utf8",
+      );
+    }
+
     // Copia os documentos de referência anexados para .cardume/refs/.
     if (refSources.length) {
       const refDir = join(taskDir, "refs");
@@ -97,6 +113,47 @@ export class Orchestrator {
     }
 
     return this.store.getTask(spec.id)!;
+  }
+
+  /**
+   * Copia os `.env*` do repo principal (até 3 níveis, fora de dirs de build),
+   * linka os diretórios de dependências (node_modules/.venv — venv Python tem
+   * caminhos absolutos, copiar não funciona; node_modules é pesado demais) e
+   * roda `.cardume/setup.sh` do repo se o projeto tiver necessidades próprias.
+   * Retorna a lista do que foi semeado. Nunca derruba a criação da tarefa.
+   */
+  private async seedWorktreeEnv(worktree: string): Promise<string[]> {
+    const seeded: string[] = [];
+    const skip = new Set(["node_modules", ".git", ".venv", "venv", ".cardume", ".constellation", "dist", "build", "__pycache__", ".next", "target"]);
+    const scan = async (rel: string, depth: number): Promise<void> => {
+      let entries;
+      try { entries = await readdir(join(this.ws.repo, rel || "."), { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) { if (depth < 3 && !skip.has(e.name)) await scan(r, depth + 1); continue; }
+        if (!/^\.env(\..+)?$/.test(e.name) || e.name === ".env.example") continue;
+        try {
+          await stat(join(worktree, r));           // já veio pelo git (rastreado)? não mexe
+        } catch {
+          try { await cp(join(this.ws.repo, r), join(worktree, r)); seeded.push(r); } catch { /* dir não existe na worktree */ }
+        }
+      }
+    };
+    await scan("", 0);
+    for (const d of ["node_modules", ".venv", "venv", "frontend/node_modules", "backend/node_modules", "backend/.venv", "backend/venv"]) {
+      try {
+        if (!(await stat(join(this.ws.repo, d))).isDirectory()) continue;
+        await symlink(join(this.ws.repo, d), join(worktree, d));
+        seeded.push(`${d} (link → repo principal)`);
+      } catch { /* não existe no repo, ou a worktree já tem */ }
+    }
+    try {
+      const hook = join(this.ws.dir, "setup.sh");
+      await stat(hook);
+      await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
+      seeded.push(".cardume/setup.sh executado");
+    } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
+    return seeded;
   }
 
   // ---------------------------------------------------------------------------
