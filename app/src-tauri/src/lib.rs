@@ -3070,7 +3070,8 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
     let scheme = if url.starts_with("https://") { "https" } else { "http" };
     let origin = format!("{scheme}://{host_header}");
     let mut cmd = Command::new(&bin);
-    cmd.args(["tunnel", "--no-autoupdate", "--http-host-header", &host_header, "--url", &origin]);
+    // http2: o transporte QUIC dá 530 intermitente em algumas redes
+    cmd.args(["tunnel", "--no-autoupdate", "--protocol", "http2", "--http-host-header", &host_header, "--url", &origin]);
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -3091,21 +3092,43 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
             if let Some(m) = line.split_whitespace().find(|w| w.contains(".trycloudflare.com")) {
                 let _ = tx.send(m.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != ':' && c != '/' && c != '.' && c != '-').to_string());
             }
+            if line.contains("ERR") {
+                web_log(format!("[tunnel] {}", line.chars().take(200).collect::<String>()));
+            }
         }
     });
-    match rx.recv_timeout(std::time::Duration::from_secs(25)) {
-        Ok(public) => {
-            if let Ok(mut m) = state.procs.lock() {
-                m.insert(format!("tunnel:{task_id}"), pid);
-            }
-            std::thread::spawn(move || { let _ = child.wait(); });
-            Ok(public)
-        }
+    let public = match rx.recv_timeout(std::time::Duration::from_secs(25)) {
+        Ok(p) => p,
         Err(_) => {
             signal_group(pid, libc::SIGKILL);
-            Err("o túnel não respondeu em 25s (rede?) — tente de novo".to_string())
+            return Err("o túnel não respondeu em 25s (rede?) — tente de novo".to_string());
         }
+    };
+    // HEALTH-CHECK: só entrega túnel que RESPONDE (DNS + conector prontos).
+    // 530/000 são estados transitórios — insiste até ~90s; persiste = mata.
+    let mut healthy = false;
+    for _ in 0..18 {
+        if let Ok(o) = Command::new("curl")
+            .args(["-s", "-o", "/dev/null", "--max-time", "8", "-w", "%{http_code}", &public])
+            .output()
+        {
+            let code = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if code != "000" && code != "530" && code != "502" {
+                healthy = true;
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
+    if !healthy {
+        signal_group(pid, libc::SIGKILL);
+        return Err("túnel criado mas não ficou acessível (530) — tente de novo".to_string());
+    }
+    if let Ok(mut m) = state.procs.lock() {
+        m.insert(format!("tunnel:{task_id}"), pid);
+    }
+    std::thread::spawn(move || { let _ = child.wait(); });
+    Ok(public)
 }
 
 /// Derruba o túnel da tarefa (se houver).

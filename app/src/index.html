@@ -3598,6 +3598,7 @@ function taskPreviewUrl(taskId){
 // túnel criptografado → publica no cartão da nuvem → o app do celular mostra o botão
 async function mobilePreview(taskId, url, silent){
   try{
+    // tunnel_start já faz o health-check (DNS + conector) e só retorna URL viva
     let pub=await invoke('tunnel_start',{ taskId, url });
     // o túnel é da ORIGEM — devolve o caminho/subpágina anunciados na URL pública
     try{ const u=new URL(url); pub=pub.replace(/\/$/,'')+u.pathname+u.search; }catch(_){ }
@@ -5043,7 +5044,15 @@ async function cloudAutoTunnelTick(){
         continue;
       }
       if(sp.tunnelWanted){
-        const pv=taskPreviewUrl(lid); if(!pv) continue;
+        let pv=taskPreviewUrl(lid);
+        if(!pv){
+          // anúncio saiu da janela local de eventos → busca no feed da nuvem
+          try{
+            const notes=await sbGet('task_feed?select=text&task_id=eq.'+r.id+'&kind=eq.note&order=id.desc&limit=60');
+            for(const n of notes){ const mm=(n.text||'').match(/🌐 preview:\s*(https?:\/\/[^\s'"”)]+)/); if(mm){ pv=mm[1]; break; } }
+          }catch(_){ }
+        }
+        if(!pv){ invoke('web_log',{line:'[tunnel] pedido sem preview anunciado: '+lid}).catch(()=>{}); continue; }
         const key=pv+'|'+String(sp.tunnelWanted);
         if(autoTunneled[lid]===key) continue;
         autoTunneled[lid]=key;
