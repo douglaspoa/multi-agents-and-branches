@@ -408,6 +408,22 @@
   .ffsearch::placeholder{color:var(--muted)}
   .ffbar .grow{flex:1}
   .fcard{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);cursor:pointer;transition:border-color .12s}
+  /* Central de execuções (redesign): acentos por estado + seções */
+  .fcard.acc-warn{border-top:2px solid var(--warn)}
+  .fcard.acc-good{border-top:2px solid var(--good)}
+  .fcard.acc-info{border-top:2px solid var(--info)}
+  .fcard.ghost{border:1px dashed var(--border);background:transparent;box-shadow:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:22px;color:var(--text-2)}
+  .fcard.ghost:hover{border-color:var(--accent);color:var(--text)}
+  .fcard.ghost .gplus{color:var(--accent);font-size:18px;font-weight:700}
+  .flowhead{padding:4px 2px 2px}
+  .flowhead h1{font-size:21px;margin:0 0 2px;letter-spacing:-.01em}
+  .flowhead .sub{font-family:var(--mono,ui-monospace,monospace);font-size:11.5px;color:var(--text-2)}
+  .flowhead .sub b{color:var(--warn);font-weight:600}
+  .sech{font-family:var(--mono,ui-monospace,monospace);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2);display:flex;align-items:center;gap:8px;padding:16px 2px 8px}
+  .sech .n{color:var(--good)}
+  .sech.warn .n{color:var(--warn)}
+  .sech::after{content:"";flex:1;height:1px;background:var(--border);opacity:.6}
+  .sech .dim2{color:var(--text-2);opacity:.7;text-transform:none;letter-spacing:0;font-weight:400}
   /* agente esperando resposta: borda âmbar pulsando + badge */
   .fcard.asking{border-color:var(--warn);animation:askpulse 1.6s ease-in-out infinite}
   @keyframes askpulse{0%,100%{box-shadow:0 0 0 0 rgba(224,179,77,.0)}50%{box-shadow:0 0 0 4px rgba(224,179,77,.22);border-color:var(--warn)}}
@@ -1136,7 +1152,7 @@
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <button class="btn" id="cloudBtn" title="Time na nuvem — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
-    <button class="btn primary" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova tarefa</button>
+    <button class="btn primary" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova demanda</button>
   </div>
 
   <div id="askBar" class="askbar" style="display:none"></div>
@@ -1157,7 +1173,7 @@
         </div>
         <span class="chint" id="chint">quem fez o quê · commits por tarefa</span>
       </div>
-      <div id="flowPane" class="pane"><div id="flowFilters" class="ffbar"></div><div id="flow"></div></div>
+      <div id="flowPane" class="pane"><div id="flowHead" class="flowhead"></div><div id="flowFilters" class="ffbar"></div><div id="flow"></div></div>
       <div id="kanbanPane" class="pane" style="display:none"><div id="kanban" class="kanban"></div></div>
       <div id="graphPane" class="pane" style="display:none"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
@@ -1183,7 +1199,7 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead"><b>Nova tarefa</b><span style="flex:1"></span><button class="btn sm" id="ntAI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg>gerar com IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><b>Nova demanda</b><span style="flex:1"></span><button class="btn sm" id="ntAI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg>gerar com IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div id="aiAssist" style="display:none">
         <div class="aichat" id="aiChat"></div>
@@ -2665,8 +2681,9 @@ function commitChip(x, agent){
 }
 const FLOW_PAL=["#3fd68a","#5b9df9","#b47ce0","#f0b449","#f2685c","#4fc4c9","#e07ab4","#7c8792"];
 function agentColor(name){ let h=0; const s=String(name||""); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return FLOW_PAL[h%FLOW_PAL.length]; }
-function flowTaskCard(t){
+function flowTaskCard(t, acc){
   const col=STATUS_COLOR[t.status]||"var(--muted)";
+  const accCls=acc?(' '+acc):'';
   const roles=t.roles||[];
   const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${esc((r.name||'?').slice(0,2).toUpperCase())}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
   const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
@@ -2676,7 +2693,7 @@ function flowTaskCard(t){
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';
   const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:t.flag==='closed'?`<span class="flagbadge cls">${IC.checkc} encerrada</span>`:'';
   const asking = pendingOf(t.id).length>0;
-  return `<div class="fcard${t.id===selected?' sel':''}${t.flag?' flagged':''}${asking?' asking':''}" data-id="${t.id}">
+  return `<div class="fcard${accCls}${t.id===selected?' sel':''}${t.flag?' flagged':''}${asking?' asking':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus" style="color:${asking?'var(--warn)':col}">${asking?'esperando você':esc(t.status)}</span></div>
     <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}${linkChips(t)}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
@@ -2789,25 +2806,64 @@ function renderFlowFilters(){
   if(wasSearch){ s.focus(); try{ s.setSelectionRange(caret,caret); }catch(e){} }
 }
 let flowDragId=null;
+// Central de execuções: bucket de cada tarefa (ordem = urgência pro humano)
+function flowBucket(t){
+  if(t.status==='draft') return 'rascunho';
+  if((t.flag==='closed'||['merged','done'].includes(t.status))) {
+    const d=new Date(t.createdAt||t.created_at); const today=new Date();
+    return (d.toDateString()===today.toDateString())?'hoje':'anteriores';
+  }
+  if(pendingOf(t.id).length || ['plan-review','error','conflict','aborted'].includes(t.status)) return 'aguardando';
+  if(t.prUrl && t.status!=='merged') return 'praberto';
+  if(['review','delivered'].includes(t.status)) return 'prontas';
+  return 'andamento'; // running/thinking/queued/paused
+}
+const FLOW_SECS=[
+  ['aguardando','Aguardando você','warn','acc-warn'],
+  ['andamento','Em andamento','','acc-good'],
+  ['prontas','Prontas pra revisar','',''],
+  ['praberto','PR aberto','','acc-info'],
+  ['rascunho','Rascunhos','',''],
+  ['hoje','Concluídas hoje','',''],
+  ['anteriores','Anteriores','',''],
+];
+function renderFlowHead(){
+  const el=document.getElementById('flowHead'); if(!el) return;
+  const vis=(state.tasks||[]).filter(t=>notHidden(t));
+  const andamento=vis.filter(t=>['andamento','prontas','praberto'].includes(flowBucket(t))).length;
+  const aguardando=vis.filter(t=>flowBucket(t)==='aguardando').length;
+  el.innerHTML=`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>`;
+}
 function renderFlow(){
   if(flowDragId) return;   // não re-renderiza no meio de um arrasto
+  renderFlowHead();
   renderFlowFilters();
   const el=document.getElementById("flow");
-  if(!(state.tasks||[]).length){ el.innerHTML='<div class="empty">nenhuma tarefa ainda — clique em “+ Nova tarefa”.</div>'; return; }
+  const ghost='<div class="fcard ghost" id="ghostNew"><span class="gplus">＋</span><b>Nova demanda</b><span style="font-size:12px">descreva o que precisa ser feito — o time de agentes cuida do resto</span></div>';
+  if(!(state.tasks||[]).length){ el.innerHTML=ghost; const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask; return; }
   const vis=flowVisible(state.tasks).slice();
   const hasManual=vis.some(t=>t.sortOrder!=null);
   const tasks = hasManual
     ? vis.sort((a,b)=> (a.sortOrder??1e15)-(b.sortOrder??1e15) || b.created_at-a.created_at)
-    : vis.sort((a,b)=> (taskGroup(a)==='active'?0:1)-(taskGroup(b)==='active'?0:1) || b.created_at-a.created_at);
+    : vis.sort((a,b)=> b.created_at-a.created_at);
   if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa neste filtro.</div>'; return; }
   const grouped = flowGroupBy==='day';
   if(grouped){
     const g=new Map();
     for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
     const keys=[...g.keys()].sort((a,b)=>b-a);
-    el.innerHTML = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(flowTaskCard).join("")}</div>`).join("");
+    el.innerHTML = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(t=>flowTaskCard(t)).join("")}</div>`).join("");
+  } else if(hasManual){
+    el.innerHTML = tasks.map(t=>flowTaskCard(t)).join("");
   } else {
-    el.innerHTML = tasks.map(flowTaskCard).join("");
+    // AGRUPADO POR ESTADO (redesign "Central de execuções")
+    const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
+    el.innerHTML = FLOW_SECS.map(([k,label,tone,acc])=>{
+      const list=by[k]||[]; if(!list.length) return '';
+      const cards=list.map(t=>flowTaskCard(t, acc)).join("");
+      return `<div class="secgrp"><div class="sech ${tone}">${esc(label)} <span class="n">${list.length}</span></div>${cards}${k==='andamento'?'':''}</div>`;
+    }).join("") + ghost;
+    const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask;
   }
   wireLinkChips(el);
   el.querySelectorAll('.fcard').forEach(card=>{
