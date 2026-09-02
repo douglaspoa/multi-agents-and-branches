@@ -161,8 +161,34 @@ struct TaskDetailView: View {
         .background(T.warn.opacity(0.07))
     }
 
+    static let designPrompt = """
+    MODO DESIGN — refine o VISUAL desta entrega comigo, agindo como um designer sênior de produto:
+    1) Suba o ambiente (siga o .cardume/RUNBOOK.md) e ANUNCIE "🌐 preview: <url da tela em questão>" pra eu acompanhar ao vivo (também vejo do celular).
+    2) Faça um DIAGNÓSTICO visual objetivo da tela atual (hierarquia, espaçamento, tipografia, cores, estados vazios, consistência com o design system JÁ EXISTENTE no projeto) e liste os 3 piores problemas.
+    3) ANTES de mexer, pergunte via mcp__cardume__ask_human o que priorizar — sempre com OPÇÕES CONCRETAS (nunca "o que você quer mudar?"). Se referência visual ajudar, peça.
+    4) Aplique em ITERAÇÕES CURTAS: um ajuste por vez, re-anuncie o preview e pergunte "melhorou? sigo?" com opções.
+    5) Só finalize quando eu aprovar explicitamente; ao final, screenshot antes/depois nos artefatos.
+    """
+
+    @State private var showDesignConfirm = false
+
     private var inputBar: some View {
         HStack(spacing: 8) {
+            Button {
+                showDesignConfirm = true
+            } label: {
+                Image(systemName: "paintbrush.fill").foregroundStyle(T.warn).font(.body)
+            }
+            .confirmationDialog("Modo design", isPresented: $showDesignConfirm) {
+                Button("Entrar no modo design") {
+                    Task {
+                        _ = try? await supa.rest("task_messages", method: "POST", json: ["task_id": taskId, "author": supa.session?.userId ?? "", "body": Self.designPrompt])
+                    }
+                }
+                Button("Cancelar", role: .cancel) {}
+            } message: {
+                Text("O agente sobe o preview, diagnostica o visual e te pergunta (com opções) o que priorizar — iterando até você aprovar.")
+            }
             TextField(question != nil ? "responda a pergunta…" : "fale com o agente…", text: $msg, axis: .vertical)
                 .font(.footnote)
                 .padding(10)

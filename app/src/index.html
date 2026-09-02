@@ -1511,6 +1511,7 @@ setTimeout(()=>{ try{ invoke('web_log',{ line:'[boot] webview vivo · sess='+(!!
 }
 const IC = {
   globe:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="8" cy="8" r="5.6"/><path d="M2.4 8h11.2M8 2.4c1.7 1.5 2.6 3.4 2.6 5.6S9.7 12.1 8 13.6C6.3 12.1 5.4 10.2 5.4 8S6.3 3.9 8 2.4z" stroke-linejoin="round"/></svg>',
+  brush:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M13.2 2.8c.6.6.6 1.5 0 2.1L8 10.1 5.9 8 11.1 2.8c.6-.6 1.5-.6 2.1 0z" stroke-linejoin="round"/><path d="M5.6 8.4c-1.2.3-2 1-2.3 2.3-.2 1-.1 1.9-1 2.5 1.3.6 3.4.5 4.4-.5.8-.8 1-1.7.9-2.5" stroke-linejoin="round"/></svg>',
   phone:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="4.6" y="1.8" width="6.8" height="12.4" rx="1.4"/><path d="M7 12.4h2" stroke-linecap="round"/></svg>',
   q:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M2.6 7.4c0-2.4 2.15-4.2 4.9-4.2s4.9 1.8 4.9 4.2-2.15 4.2-4.9 4.2c-.5 0-1-.05-1.45-.16L3.4 12.7l.6-2.05C3.15 9.9 2.6 8.7 2.6 7.4z" stroke-linejoin="round"/><path d="M6.5 6.5c.05-.65.7-1.05 1.4-1.05.8 0 1.4.5 1.4 1.2 0 .95-1.25.9-1.35 1.95" stroke-linecap="round"/><circle cx="7.95" cy="10.1" r=".55" fill="currentColor" stroke="none"/></svg>',
   trash:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3 4.4h10M6.4 4.4V3.2c0-.4.3-.7.7-.7h1.8c.4 0 .7.3.7.7v1.2M4.3 4.4l.5 8.1c0 .5.4.9.9.9h4.6c.5 0 .9-.4.9-.9l.5-8.1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -2374,7 +2375,7 @@ function renderWorkspace(){
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
-      <div class="fwinrow"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… (Enter envia)'}"></textarea>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
+      <div class="fwinrow"><button class="btn sm" id="fwDesign" title="modo design: o agente diagnostica o visual, te pergunta o que priorizar (com opções) e ajusta em iterações com preview ao vivo">${IC.brush}</button><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… (Enter envia)'}"></textarea>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
       <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
@@ -2383,6 +2384,7 @@ function renderWorkspace(){
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=()=>fwSendMsg(false); }
   { const b=document.getElementById('fwQueue'); if(b) b.onclick=()=>fwSendMsg(true); }
+  { const b=document.getElementById('fwDesign'); if(b) b.onclick=()=>{ const t=fwTaskObj(); if(t && confirm('Entrar no MODO DESIGN?\n\nO agente vai subir o preview, diagnosticar o visual e te perguntar (com opções concretas) o que priorizar — ajustando em iterações curtas até você aprovar.')) fwSendText(t.id, DESIGN_PROMPT); }; }
   { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ try{ const ps=await invoke('pick_ref_files'); if(ps&&ps.length){ const i=document.getElementById('fwInput'); i.value=(i.value?i.value+'\n':'')+ps.map(p=>'Anexo: '+p).join('\n'); i.focus(); } }catch(_){} }; }
   chat.onclick=(e)=>{
     const cp=e.target.closest('.ccopy');
@@ -3551,6 +3553,15 @@ function effEngine(t){ const rs=t.roles||[]; const cur=rs.find(r=>r.role===t.sta
 let sideTab='etapas';
 document.addEventListener('click', e=>{ if(stMenuOpen && !e.target.closest('.stwrap')){ stMenuOpen=false; try{ renderSide(); }catch(_){} } });
 function fmtDur(ms){ ms=Math.max(0,ms); const s=Math.floor(ms/1000); if(s<60) return s+'s'; const m=Math.floor(s/60); if(m<60) return m+' min'; const h=Math.floor(m/60); return h+'h'+String(m%60).padStart(2,'0'); }
+// MODO DESIGN (estilo Claude Design): diagnóstico → perguntas com opções
+// concretas → iterações curtas com preview ao vivo → aprovação do humano.
+const DESIGN_PROMPT = 'MODO DESIGN — refine o VISUAL desta entrega comigo, agindo como um designer sênior de produto:\n'
+  +'1) Suba o ambiente (siga o .cardume/RUNBOOK.md) e ANUNCIE "🌐 preview: <url da tela em questão>" pra eu acompanhar ao vivo (também vejo do celular).\n'
+  +'2) Faça um DIAGNÓSTICO visual objetivo da tela atual: hierarquia, espaçamento, tipografia, cores, estados vazios, consistência com o design system JÁ EXISTENTE no projeto (procure tokens/tema/componentes antes de inventar). Liste os 3 piores problemas em ordem.\n'
+  +'3) ANTES de mexer, pergunte via mcp__cardume__ask_human O QUE PRIORIZAR — sempre com OPÇÕES CONCRETAS e mutuamente exclusivas (ex.: "mais denso ou mais respiro?", "seguir a paleta da tela X ou propor nova?", "manter esse layout e polir, ou redesenhar o bloco?"). NUNCA pergunta genérica tipo "o que você quer mudar?". Se referência visual ajudar, peça um print/link.\n'
+  +'4) Aplique em ITERAÇÕES CURTAS: UM ajuste por vez, re-anuncie o preview depois de cada um e pergunte via ask_human "melhorou? sigo pro próximo?" com opções (aprovar / ajustar isso / voltar atrás).\n'
+  +'5) Só finalize quando eu disser explicitamente que o design está bom. Ao final, resuma o que mudou e atualize os artefatos de prova (screenshot antes/depois).';
+
 // URL de preview mais recente que o agente anunciou ('🌐 preview: http://…')
 function taskPreviewUrl(taskId){
   const evs=state.events||[];
