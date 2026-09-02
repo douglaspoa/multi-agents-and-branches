@@ -1,5 +1,5 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { GitService } from "./git.ts";
@@ -140,6 +140,14 @@ export class Orchestrator {
       }
     };
     await scan("", 0);
+    // conhecimento acumulado: RUNBOOK (como subir o ambiente — editável, volta
+    // pro repo no fim do turno) e HISTORY (índice de tarefas passadas — grep).
+    for (const doc of ["RUNBOOK.md", "HISTORY.md"]) {
+      try {
+        await cp(join(this.ws.dir, doc), join(worktree, ".cardume", doc));
+        seeded.push(`.cardume/${doc}`);
+      } catch { /* ainda não existe no projeto */ }
+    }
     for (const d of ["node_modules", ".venv", "venv", "frontend/node_modules", "backend/node_modules", "backend/.venv", "backend/venv"]) {
       try {
         if (!(await stat(join(this.ws.repo, d))).isDirectory()) continue;
@@ -167,13 +175,42 @@ export class Orchestrator {
   }
 
   projectMemory(): string {
+    let out = "";
     try {
       const txt = readFileSync(this.memoryFile(), "utf8").trim();
-      if (!txt) return "";
-      return `## MEMÓRIA DO PROJETO — decisões do humano que você DEVE obedecer (aprendidas em tarefas anteriores)\n${txt.slice(0, 6000)}\n\n`;
-    } catch {
-      return "";
-    }
+      if (txt) out += `## MEMÓRIA DO PROJETO — decisões do humano que você DEVE obedecer (aprendidas em tarefas anteriores)\n${txt.slice(0, 6000)}\n\n`;
+    } catch { /* sem memória ainda */ }
+    try {
+      const rb = readFileSync(join(this.ws.dir, "RUNBOOK.md"), "utf8").trim();
+      if (rb) out += `## RUNBOOK — como SUBIR O AMBIENTE deste projeto (validado em tarefas anteriores; siga ANTES de redescobrir qualquer coisa)\n${rb.slice(0, 4000)}\n\n`;
+    } catch { /* sem runbook ainda */ }
+    return out;
+  }
+
+  /**
+   * HISTÓRICO DE TAREFAS: índice pesquisável do que já foi feito no projeto
+   * (.cardume/HISTORY.md). Agentes fazem grep nele antes de investigar do zero
+   * — issue parecida pode já ter sido resolvida, com branch e arquivos citados.
+   */
+  private appendHistory(taskId: string): void {
+    try {
+      const t = this.store.getTask(taskId);
+      if (!t) return;
+      const spec = JSON.parse(t.spec_json) as TaskSpec;
+      const done = this.store
+        .eventsForTask(taskId)
+        .filter((e) => e.type === "done" || (e.type === "note" && /concluí|pronta|finaliz/i.test(e.text)))
+        .pop();
+      const resumo = (done?.text || spec.objective || "").replace(/\s+/g, " ").slice(0, 220);
+      const d = new Date();
+      const line = `- ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()} · **${spec.title}** (${t.branch}) — ${resumo}\n`;
+      const file = join(this.ws.dir, "HISTORY.md");
+      let cur = "";
+      try { cur = readFileSync(file, "utf8"); } catch { /* primeiro registro */ }
+      if (cur.includes(`(${t.branch})`)) return; // já registrada
+      if (!cur) cur = "# Histórico de tarefas — grep aqui antes de investigar do zero\n\n";
+      writeFileSync(file, cur + line, "utf8");
+    } catch { /* histórico é best-effort */ }
   }
 
   /** Destila uma mensagem do humano em regra duradoura e anexa à memória. */
@@ -448,6 +485,8 @@ export class Orchestrator {
     this.store.setStatus(taskId, "review");
     const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
     if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
+    this.appendHistory(taskId);      // memória de issues: entra no índice pesquisável
+    this.harvestRunbook(task.worktree); // aprendizado de ambiente volta pro repo
     await this.maybeOpenPr(taskId, task, spec);
   }
 
@@ -644,6 +683,22 @@ export class Orchestrator {
    * JÁ existe com conteúdo diferente, salva como VERSÃO nova (nome-v2.ext,
    * -v3…) em vez de sobrescrever — o histórico fica visível na UI.
    */
+  /**
+   * O agente pode ATUALIZAR o .cardume/RUNBOOK.md na worktree quando validar
+   * passos novos de boot do ambiente — aqui o aprendizado volta pro repo
+   * principal (vale pra TODAS as tarefas futuras). Só copia se cresceu.
+   */
+  private harvestRunbook(worktree: string): void {
+    try {
+      const wt = readFileSync(join(worktree, ".cardume", "RUNBOOK.md"), "utf8");
+      let main = "";
+      try { main = readFileSync(join(this.ws.dir, "RUNBOOK.md"), "utf8"); } catch { /* ainda não existe */ }
+      if (wt.trim() && wt.trim() !== main.trim() && wt.length >= main.length * 0.8) {
+        writeFileSync(join(this.ws.dir, "RUNBOOK.md"), wt, "utf8");
+      }
+    } catch { /* worktree sem runbook — nada a colher */ }
+  }
+
   private async collectArtifacts(taskId: string, worktree: string, agent: string): Promise<void> {
     const src = join(worktree, ".cardume", "artifacts");
     try {
