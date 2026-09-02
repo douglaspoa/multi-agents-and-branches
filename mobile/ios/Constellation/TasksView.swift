@@ -3,6 +3,8 @@ import SwiftUI
 /// Quadro do time (leitura): rodando · pra review · finalizadas — com PR link.
 struct TasksView: View {
     @EnvironmentObject var supa: Supa
+    /// true = aba "Minhas" (só o que é meu — espelho do Fluxo pessoal do Mac)
+    var mine = false
     @State private var tasks: [CloudTask] = []
     @State private var profiles: [String: Profile] = [:]
     @State private var loaded = false
@@ -77,6 +79,12 @@ struct TasksView: View {
             HStack(spacing: 8) {
                 Circle().fill(st.1).frame(width: 7, height: 7)
                 Text(st.0).font(.system(.caption2, design: .monospaced)).foregroundStyle(st.1)
+                if let b = t.branch, let m = b.range(of: #"[A-Z]{2,10}-\d+"#, options: .regularExpression) {
+                    Text(String(b[m])).font(.system(.caption2, design: .monospaced))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(T.info.opacity(0.15)).foregroundStyle(T.info)
+                        .clipShape(Capsule())
+                }
                 if let who = t.assignee ?? t.createdBy, let p = profiles[who] {
                     Text(p.name ?? p.email ?? "").font(.caption2).foregroundStyle(T.dim).lineLimit(1)
                 }
@@ -97,7 +105,9 @@ struct TasksView: View {
 
     private func load() async {
         do {
-            let data = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at&order=updated_at.desc&limit=150")
+            let me = supa.session?.userId ?? ""
+            let filter = mine ? "&or=(assignee.eq.\(me),created_by.eq.\(me))" : ""
+            let data = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at\(filter)&order=updated_at.desc&limit=150")
             let ts = try JSONDecoder().decode([CloudTask].self, from: data)
             var profs = profiles
             let missing = Set(ts.compactMap { $0.assignee ?? $0.createdBy }).subtracting(profs.keys)

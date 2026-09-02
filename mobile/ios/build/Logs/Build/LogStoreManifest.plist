@@ -6,48 +6,6 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>656CFCF0-B13E-4F16-A7B2-621A4D2EE366</key>
-		<dict>
-			<key>className</key>
-			<string>IDECommandLineBuildLog</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
-			<key>fileName</key>
-			<string>656CFCF0-B13E-4F16-A7B2-621A4D2EE366.xcactivitylog</string>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>W</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>1</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>Constellation project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>Constellation</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Building project Constellation with scheme Constellation</string>
-			<key>timeStartedRecording</key>
-			<real>810000537.98579001</real>
-			<key>timeStoppedRecording</key>
-			<real>810000547.70865905</real>
-			<key>title</key>
-			<string>Building project Constellation with scheme Constellation</string>
-			<key>uniqueIdentifier</key>
-			<string>656CFCF0-B13E-4F16-A7B2-621A4D2EE366</string>
-		</dict>
 		<key>EC0B18D9-E691-4233-BD4F-65DEC5342D47</key>
 		<dict>
 			<key>className</key>
@@ -89,6 +47,48 @@
 			<string>Building project Constellation with scheme Constellation</string>
 			<key>uniqueIdentifier</key>
 			<string>EC0B18D9-E691-4233-BD4F-65DEC5342D47</string>
+		</dict>
+		<key>F3E48C94-747A-47A0-8E17-9460E2987703</key>
+		<dict>
+			<key>className</key>
+			<string>IDECommandLineBuildLog</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
+			<key>fileName</key>
+			<string>F3E48C94-747A-47A0-8E17-9460E2987703.xcactivitylog</string>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>W</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>1</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>Constellation project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>Constellation</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Building project Constellation with scheme Constellation</string>
+			<key>timeStartedRecording</key>
+			<real>810002908.23526394</real>
+			<key>timeStoppedRecording</key>
+			<real>810002913.05773199</real>
+			<key>title</key>
+			<string>Building project Constellation with scheme Constellation</string>
+			<key>uniqueIdentifier</key>
+			<string>F3E48C94-747A-47A0-8E17-9460E2987703</string>
 		</dict>
 	</dict>
 </dict>

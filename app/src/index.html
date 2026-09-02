@@ -5004,7 +5004,8 @@ async function cloudRemoteStartTick(){
       const sp=ct.spec||{};
       const payload={ workflow:null, agents:null, engine:sp.engine||'claude', model:sp.model||null, approval:'auto', owns:null, off:null,
         objective:sp.objective||ct.title, deliverables:[], requirements:Array.isArray(sp.requirements)?sp.requirements:[],
-        doc:null, proof:!!sp.proof, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:sp.branchType||'feat', issue:null, base:null, linkedTo:null,
+        doc:sp.doc||null, proof:!!sp.proof, tests:!!sp.tests, autoPr:sp.autoPr||'ask', prBase:null, planApproval:'auto', refs:[],
+        branchType:sp.branchType||'feat', issue:(sp.issueCode||'').trim()||null, base:null, linkedTo:null,
         title: ct.title, start:true };
       const localId=await invoke('new_task', payload);
       tmapSet(localId, ct.id);

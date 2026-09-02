@@ -6,8 +6,9 @@ struct RootView: View {
     @State private var tab: Int = {
         #if DEBUG
         switch ProcessInfo.processInfo.environment["DEMO_TAB"] {
-        case "time": return 1
+        case "minhas": return 1
         case "conta": return 2
+        case "time": return 3
         default: return 0
         }
         #else
@@ -26,11 +27,18 @@ struct RootView: View {
             .badge(openCount)
 
             NavigationStack {
+                TasksView(mine: true)
+                    .navigationTitle("Minhas")
+                    .toolbarBackground(T.bg, for: .navigationBar)
+            }
+            .tabItem { Label("Minhas", systemImage: "person.crop.rectangle.stack") }.tag(1)
+
+            NavigationStack {
                 TasksView()
                     .navigationTitle("Time")
                     .toolbarBackground(T.bg, for: .navigationBar)
             }
-            .tabItem { Label("Time", systemImage: "person.3") }.tag(1)
+            .tabItem { Label("Time", systemImage: "person.3") }.tag(3)
 
             NavigationStack {
                 SettingsView()
