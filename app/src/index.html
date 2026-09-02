@@ -426,10 +426,10 @@
   .sech .dim2{color:var(--text-2);opacity:.7;text-transform:none;letter-spacing:0;font-weight:400}
   /* Nova demanda spec-first: chat à esquerda, spec à direita */
   #ntOverlay .modal{max-width:1120px;width:min(95vw,1120px)}
-  #ntOverlay .mbody{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(430px,1.1fr);gap:0 22px;align-items:start}
-  #ntOverlay .mbody>*{grid-column:2;min-width:0}
-  #ntOverlay #aiAssist{grid-column:1;grid-row:1/span 60;display:flex!important;flex-direction:column;position:sticky;top:0;height:62vh;border-right:1px solid var(--border);padding-right:18px}
+  #ntOverlay .mbody{display:flex;gap:22px;align-items:stretch}
+  #ntOverlay #aiAssist{flex:0 0 330px;display:flex;flex-direction:column;border-right:1px solid var(--border);padding-right:18px;position:sticky;top:0;align-self:flex-start;max-height:62vh}
   #ntOverlay #aiChat{flex:1;overflow:auto;min-height:200px}
+  #ntOverlay #ntRight{flex:1;min-width:0}
   #ntMissing{font-family:var(--mono,ui-monospace,monospace);font-size:11px;color:var(--warn)}
   #ntMissing.ok{color:var(--good)}
   /* stepper de fases (Descoberta→Despacho→Execução→Revisão→PR) */
@@ -1018,13 +1018,13 @@
 
   #bdOverlay .ckrow{text-transform:none;letter-spacing:normal;padding:9px 12px;border:1px solid var(--border);border-radius:7px;margin-top:7px;background:var(--surface-2)}
   /* Nova tarefa — respiro e ritmo (campos estavam grudados) */
-  #ntOverlay .modal{width:min(660px,100%)}
+  #ntOverlay .modal{width:min(1120px,95vw)}   /* spec-first em 2 colunas */
   #ntOverlay .mhead{gap:10px;padding:14px 20px}
   #ntOverlay .mhead .btn{margin:0}
   #ntOverlay .mhead .x{margin-left:6px;flex:none}
   /* descrição da issue merece espaço: textareas grandes nos 4 modos */
   #ntOverlay .ta{min-height:170px}
-  #ntOverlay .mbody{padding:20px 24px 26px;gap:0}
+  #ntOverlay .mbody{padding:20px 24px 26px;gap:22px;flex-direction:row;align-items:stretch}
   #ntOverlay .ntmode{margin-bottom:14px;padding:5px;gap:8px}
   #ntOverlay .ntmodebtn{padding:9px 10px}
   #ntOverlay .mbody label{margin-top:18px;margin-bottom:7px}
@@ -1232,6 +1232,7 @@
         <div class="airow"><input class="in aiinput" id="aiInput" placeholder="descreva o que precisa… (ex.: rate limiting no gateway)"><button class="btn primary sm" id="aiSend">enviar</button></div>
         <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
       </div>
+      <div id="ntRight">
       <div class="ntmode" id="ntMode">
         <button class="ntmodebtn on" data-mode="build"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg> Entrega</button>
         <button class="ntmodebtn" data-mode="review"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg> Review</button>
@@ -1350,6 +1351,7 @@
         <label style="margin-top:12px">Épico <span class="dim" style="text-transform:none;letter-spacing:0">(agrupa a tarefa no time)</span></label>
         <select class="sel" id="ntEpic" style="width:100%"><option value="">— sem épico —</option></select>
         <div class="aihint dim" style="margin-top:7px">O time vê só o cartão (spec, status, custo, provas) — o stream do agente fica na sua máquina.</div>
+      </div>
       </div>
     </div>
     <div class="mfoot">
@@ -4005,13 +4007,10 @@ function ntGate(){
 // ---- Como executar? — fluxo/modelo/limites antes de iniciar (build & fix) ----
 function openHow(){
   const src=document.getElementById(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
-  const opts=[...(src?src.options:[])].map(o=>({v:o.value,l:o.textContent}));
-  const wf=opts.filter(o=>o.v.startsWith('wf:')), ag=opts.filter(o=>o.v.startsWith('ag:'));
+  const opts=[...(src?src.options:[])].map(o=>({v:o.value,l:o.textContent})).filter(o=>o.v);
   const items=[
-    { v:(ag[0]||{}).v||'', t:'Entrega simples', d:'só o builder, direto ao ponto — sem revisão adicional', rec:false },
-    ...(wf.length?[{ v:wf[0].v, t:wf[0].l.replace(/^..?\s*/,''), d:'planeja, implementa, testa e revisa antes de te trazer pra review', rec:true }]:[]),
-    ...wf.slice(1).map(o=>({ v:o.v, t:o.l, d:'fluxo do time', rec:false })),
-    ...ag.slice(1).map(o=>({ v:o.v, t:o.l, d:'um agente específico', rec:false })),
+    { v:'', t:'Entrega simples', d:'só o builder, direto ao ponto — sem revisão adicional', rec:false },
+    ...opts.map((o,i)=>({ v:o.v, t:o.l, d:i===0?'planeja, implementa, testa e revisa antes de te trazer pra review':'fluxo/agente do time', rec:i===0 })),
   ];
   const cur=src?src.value:'';
   const box=document.getElementById('howOpts');
