@@ -1501,6 +1501,14 @@
 
 <script>
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+// console.error e erros não tratados vão pro /tmp/constellation-web.log —
+// bug silencioso em tick não existe mais.
+setTimeout(()=>{ try{ invoke('web_log',{ line:'[boot] webview vivo · sess='+(!!localStorage.getItem('sb:sess'))+' · team='+(localStorage.getItem('sb:team')||'—') }); }catch(_){ } }, 3000);
+{ const _err=console.error.bind(console);
+  console.error=(...a)=>{ _err(...a); try{ invoke('web_log',{ line:'[err] '+a.map(x=>String(x&&x.message||x)).join(' ') }); }catch(_){ } };
+  window.addEventListener('error', e=>{ try{ invoke('web_log',{ line:'[onerror] '+e.message+' @'+(e.filename||'')+':'+e.lineno }); }catch(_){ } });
+  window.addEventListener('unhandledrejection', e=>{ try{ invoke('web_log',{ line:'[reject] '+String(e.reason&&e.reason.message||e.reason) }); }catch(_){ } });
+}
 const IC = {
   globe:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="8" cy="8" r="5.6"/><path d="M2.4 8h11.2M8 2.4c1.7 1.5 2.6 3.4 2.6 5.6S9.7 12.1 8 13.6C6.3 12.1 5.4 10.2 5.4 8S6.3 3.9 8 2.4z" stroke-linejoin="round"/></svg>',
   phone:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="4.6" y="1.8" width="6.8" height="12.4" rx="1.4"/><path d="M7 12.4h2" stroke-linecap="round"/></svg>',
@@ -2787,7 +2795,7 @@ function renderFlow(){
   const grouped = flowGroupBy==='day';
   if(grouped){
     const g=new Map();
-    for(const t of tasks){ const d=new Date(t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
+    for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
     const keys=[...g.keys()].sort((a,b)=>b-a);
     el.innerHTML = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(flowTaskCard).join("")}</div>`).join("");
   } else {
@@ -4909,7 +4917,7 @@ async function cloudBackfill(btn){
       if(btn) btn.textContent=`publicando ${++n}/${list.length}…`;
       try{
         const cost=taskCost(t.id);
-        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], kind:t.kind||'build' } }) });
+        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], kind:t.kind||'build' } }) });
         const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
         if(rows[0]) tmapSet(t.id, rows[0].id);
       }catch(e){ console.error('backfill', t.id, e.message); }
@@ -4930,7 +4938,7 @@ async function cloudAutoPublish(){
   try{
     const proj=await cloudEnsureProject();
     const cost=taskCost(t.id);
-    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], kind:t.kind||'build' } }) });
+    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], kind:t.kind||'build' } }) });
     const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
     if(rows[0]){
       tmapSet(t.id, rows[0].id); teamTasks=null;
@@ -4946,16 +4954,17 @@ async function cloudAutoPublish(){
 let feedRepaired=false;
 async function cloudFeedRepair(){
   if(feedRepaired || !SB.sess() || !cloudTeamId()) return;
+  if(!(state.events||[]).length || !(state.tasks||[]).length) return; // snapshot ainda não chegou — NÃO marca reparado
   feedRepaired=true;
   const m=tmap(); const pos=feedPos();
   for(const lid of Object.keys(m)){
     if(!(pos[lid]>0)) continue;
     const t=(state.tasks||[]).find(x=>x.id===lid);
-    if(!t || !(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review')) continue;
+    if(!t || !(ACTIVE_ST.has(t.status)||['thinking','plan-review','review','delivered'].includes(t.status))) continue;
     try{
       const rows=await sbGet('task_feed?select=id&task_id=eq.'+m[lid]+'&limit=3');
       const evn=(state.events||[]).filter(e=>(e.taskId||e.task_id)===lid && FEED_KINDS.has(e.type||e.kind)).length;
-      if(rows.length<3 && evn>=3){ const p=feedPos(); delete p[lid]; lsSet('sb:feedpos', JSON.stringify(p)); }
+      if(rows.length<3 && evn>=3){ const p=feedPos(); delete p[lid]; lsSet('sb:feedpos', JSON.stringify(p)); invoke('web_log',{line:'[feed] cursor reparado: '+lid+' ('+evn+' eventos locais, '+rows.length+' na nuvem)'}).catch(()=>{}); }
     }catch(_){ }
   }
 }
@@ -5107,11 +5116,12 @@ async function cloudFeedTick(){
         await sbPost('task_feed',{ task_id:m[lid], agent:e.agent||'', kind:(e.type||e.kind), text:String(e.text||'').slice(0,300) });
       }
       feedPosSet(lid, evs[evs.length-1].id);
+      invoke('web_log',{line:'[feed] +'+evs.length+' → '+lid}).catch(()=>{});
     }catch(err){
       // cartão apagado na nuvem (FK) ou RLS: avança o cursor pra não travar a
       // fila — um lid quebrado NUNCA pode segurar o feed dos outros.
       feedPosSet(lid, evs[evs.length-1].id);
-      console.error('feed', lid, err.message);
+      console.error('feed '+lid+': '+(err.message||err));
     }
   }
 }

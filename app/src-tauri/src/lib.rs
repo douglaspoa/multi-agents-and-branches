@@ -3006,6 +3006,17 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Espelha o console do webview em /tmp/constellation-web.log — sem isso,
+/// erro de JS nos ticks é invisível e vira caça às cegas.
+#[tauri::command]
+fn web_log(line: String) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/constellation-web.log") {
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = writeln!(f, "{ts} {}", line.chars().take(600).collect::<String>());
+    }
+}
+
 /// Notificação NATIVA com clique útil. O plugin (notify-rust) cai no bundle do
 /// Editor de Script quando não registra o app — clicar abria o editor. Aqui:
 /// mac-notification-sys com o bundle do Constellation + resposta do clique →
@@ -3104,6 +3115,7 @@ fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
 pub fn run() {
     // registra o bundle nas notificações UMA vez (senão a lib cai no Editor de Script)
     let _ = mac_notification_sys::set_application("dev.constellation.app");
+    web_log("[rust] app iniciou".to_string());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -3146,6 +3158,7 @@ pub fn run() {
             is_dev_install,
             apply_update,
             notify_native,
+            web_log,
             tunnel_start,
             tunnel_stop,
             open_url,
