@@ -3670,7 +3670,10 @@ function renderSide(){
   } else {
     content = `
     ${t.kind!=='review'?`<button class="btn sm wide wsopen" id="openWs"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M2.5 3.5h11c.3 0 .5.2.5.5v8c0 .3-.2.5-.5.5h-11c-.3 0-.5-.2-.5-.5V4c0-.3.2-.5.5-.5z"/><path d="M6 3.5v9M9.2 6.8l1.6 1.2-1.6 1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Abrir no editor — arquivos · código · chat</button>`:''}
-    ${(()=>{const pv=taskPreviewUrl(t.id); return pv?`<div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm" id="pvOpen" data-url="${escA(pv)}" title="${escA(pv)}" style="flex:1;color:var(--accent)">${IC.globe} abrir preview — ${esc(pv.replace(/^https?:\/\//,'').slice(0,34))}</button><button class="btn sm" id="pvMobile" data-url="${escA(pv)}" title="cria um túnel criptografado (URL https aleatória) pra abrir este preview no seu celular">${IC.phone} celular</button></div>`:'';})()}
+    ${(()=>{const pv=taskPreviewUrl(t.id); if(!pv) return ''; const up=tunnelUp[t.id];
+      return `<div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm" id="pvOpen" data-url="${escA(pv)}" title="${escA(pv)}" style="flex:1;color:var(--accent)">${IC.globe} abrir preview — ${esc(pv.replace(/^https?:\/\//,'').slice(0,34))}</button>`+
+        (up?`<button class="btn sm" id="pvMobileOff" title="fecha o túnel agora (${escA(up)})" style="color:var(--warn)">${IC.phone} fechar acesso</button>`
+           :`<button class="btn sm" id="pvMobile" data-url="${escA(pv)}" title="cria um túnel criptografado (URL https aleatória) pra abrir este preview no seu celular">${IC.phone} celular</button>`)+`</div>`;})()}
     ${activityBlock(t)}
     ${stageStepper(t)}
     ${questionBlock(t.id)}
@@ -3737,10 +3740,15 @@ function renderSide(){
   el.querySelectorAll('[data-act="breakdown"]').forEach(b=>b.onclick=()=>openBreakdown(t));
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   { const b=el.querySelector('#pvOpen'); if(b) b.onclick=()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}); }
-  { const b=el.querySelector('#pvMobile'); if(b) b.onclick=async()=>{ b.disabled=true; const o=b.innerHTML; b.textContent='criando túnel…';
+  { const b=el.querySelector('#pvMobile'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='criando túnel…';
       const pub=await mobilePreview(t.id, b.dataset.url);
-      if(pub){ b.innerHTML=IC.phone+' no app do celular ✓'; setTimeout(()=>{ b.innerHTML=o; b.disabled=false; }, 5000); }
-      else { b.innerHTML=o; b.disabled=false; } }; }
+      if(pub){ tunnelUp[t.id]=pub; }
+      renderSide(); }; }
+  { const b=el.querySelector('#pvMobileOff'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='fechando…';
+      try{ await invoke('tunnel_stop',{ taskId: t.id }); }catch(_){ }
+      delete tunnelUp[t.id]; delete autoTunneled[t.id];
+      try{ const cid=tmap()[t.id]; if(cid){ const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{}; await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null,tunnelClose:null}})}); } }catch(_){ }
+      renderSide(); }; }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
   { const b=el.querySelector('#pubProofs'); if(b){ const cid=(typeof tmap==='function')?tmap()[t.id]:null; if(cid && typeof cloudPubList==='function') cloudPubList(cid).then(()=>{ if(selected===t.id && sideTab==='entregas'){ lastSig=''; } }); b.onclick=()=>cloudPublishProofs(t, b); } }
@@ -5007,30 +5015,43 @@ async function cloudFeedRepair(){
 
 // ---- túnel AUTOMÁTICO: agente anunciou '🌐 preview:' numa tarefa ativa →
 // cria o túnel sozinho e publica no cartão (nada manual; celular já abre).
-const autoTunneled={};
+const autoTunneled={};       // último pedido atendido por tarefa
+const tunnelUp={};           // túneis vivos DESTA sessão: lid → url pública
+let tunnelSweepDone=false;
 async function cloudAutoTunnelTick(){
   if(!SB.sess() || !cloudTeamId()) return;
-  const m=tmap();
-  // pedidos vindos do CELULAR (spec.tunnelWanted): o telefone escreve a
-  // intenção, ESTE Mac cria o túnel — mesmo padrão do resto do mobile.
-  const wanted={};
+  const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
+  // boot: túneis morreram com o app anterior — limpa previewUrl órfão dos cartões
+  if(!tunnelSweepDone){
+    tunnelSweepDone=true;
+    try{
+      const stale=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3EpreviewUrl=not.is.null&limit=10');
+      for(const r of stale){ await sbFetch('/rest/v1/tasks?id=eq.'+r.id,{method:'PATCH',body:JSON.stringify({spec:{...(r.spec||{}),previewUrl:null}})}).catch(()=>{}); }
+    }catch(_){ }
+  }
+  // ABERTURA E FECHO SÃO DECISÃO DO HUMANO: só atende pedidos explícitos
+  // (tunnelWanted/tunnelClose vindos do celular; no Mac o chip chama direto).
   try{
-    const ids=Object.values(m);
-    if(ids.length){
-      const rows=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3EtunnelWanted=not.is.null&limit=10');
-      for(const r of rows){ const lid=Object.keys(m).find(k=>m[k]===r.id); if(lid) wanted[lid]=String((r.spec||{}).tunnelWanted); }
+    const rows=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&or=(spec-%3E%3EtunnelWanted.not.is.null,spec-%3E%3EtunnelClose.not.is.null)&limit=10');
+    for(const r of rows){
+      const lid=Object.keys(m).find(k=>m[k]===r.id); if(!lid) continue;
+      const sp=r.spec||{};
+      if(sp.tunnelClose){
+        invoke('tunnel_stop',{ taskId: lid }).catch(()=>{});
+        delete tunnelUp[lid]; delete autoTunneled[lid];
+        await sbFetch('/rest/v1/tasks?id=eq.'+r.id,{method:'PATCH',body:JSON.stringify({spec:{...sp,previewUrl:null,tunnelClose:null,tunnelWanted:null}})}).catch(()=>{});
+        continue;
+      }
+      if(sp.tunnelWanted){
+        const pv=taskPreviewUrl(lid); if(!pv) continue;
+        const key=pv+'|'+String(sp.tunnelWanted);
+        if(autoTunneled[lid]===key) continue;
+        autoTunneled[lid]=key;
+        const pub=await mobilePreview(lid, pv, true);
+        if(pub) tunnelUp[lid]=pub;
+      }
     }
   }catch(_){ }
-  for(const t of (state.tasks||[])){
-    const active=ACTIVE_ST.has(t.status)||['thinking','plan-review','review','delivered'].includes(t.status);
-    if(!active) continue;
-    const pv=taskPreviewUrl(t.id);
-    if(!pv || !m[t.id]) continue;
-    const key=pv+'|'+(wanted[t.id]||'');
-    if(autoTunneled[t.id]===key) continue;
-    autoTunneled[t.id]=key; // marca antes: falha não vira tempestade de túneis
-    await mobilePreview(t.id, pv, true);
-  }
 }
 setInterval(()=>{ cloudAutoTunnelTick().catch(()=>{}); }, 9000);
 

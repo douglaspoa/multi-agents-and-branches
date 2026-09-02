@@ -97,17 +97,27 @@ struct TaskDetailView: View {
     @ViewBuilder
     private var previewBar: some View {
         if let pv = previewUrl, let url = URL(string: pv) {
-            Link(destination: url) {
-                HStack {
-                    Image(systemName: "play.rectangle.fill")
-                    Text("abrir preview ao vivo").bold()
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
+            HStack(spacing: 0) {
+                Link(destination: url) {
+                    HStack {
+                        Image(systemName: "play.rectangle.fill")
+                        Text("abrir preview ao vivo").bold()
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .font(.system(.subheadline, design: .monospaced))
+                    .padding(.horizontal, 14).padding(.vertical, 11)
                 }
-                .font(.system(.subheadline, design: .monospaced))
-                .padding(.horizontal, 14).padding(.vertical, 11)
-                .background(T.accent).foregroundStyle(.black)
+                Button {
+                    Task { await requestTunnelClose() }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 14).padding(.vertical, 13)
+                        .background(Color.black.opacity(0.18))
+                }
             }
+            .background(T.accent).foregroundStyle(.black)
         } else if requestingTunnel {
             HStack {
                 ProgressView().tint(T.accent).scaleEffect(0.8)
@@ -129,6 +139,18 @@ struct TaskDetailView: View {
                 .background(T.accent.opacity(0.12)).foregroundStyle(T.accent)
             }
         }
+    }
+
+    /// Fechar DO celular: escreve tunnelClose; o Mac mata o túnel e limpa a URL.
+    private func requestTunnelClose() async {
+        if let d = try? await supa.rest("tasks?select=spec&id=eq.\(taskId)"),
+           let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]],
+           var spec = arr.first?["spec"] as? [String: Any] {
+            spec["tunnelClose"] = ISO8601DateFormatter().string(from: Date())
+            spec["previewUrl"] = nil
+            _ = try? await supa.rest("tasks?id=eq.\(taskId)", method: "PATCH", json: ["spec": spec])
+        }
+        await MainActor.run { previewUrl = nil }
     }
 
     /// Escreve a intenção na nuvem; o Mac cria o túnel e publica previewUrl.
