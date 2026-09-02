@@ -2523,6 +2523,17 @@ fn env_check() -> Vec<EnvCheck> {
         Ok(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "instalado mas SEM login".into(), fix: "gh auth login".into() }),
         Err(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install gh && gh auth login".into() }),
     }
+    // opcional: túnel do preview pro celular (📱). Sem ele o app funciona 100% —
+    // só o botão de abrir o preview no celular fica indisponível.
+    let cf = ["/opt/homebrew/bin/cloudflared", "/opt/homebrew/opt/cloudflared/bin/cloudflared", "/usr/local/bin/cloudflared"]
+        .iter()
+        .any(|p| std::path::Path::new(p).is_file());
+    out.push(EnvCheck {
+        name: "Túnel do preview (opcional)".into(),
+        ok: cf,
+        detail: if cf { "cloudflared instalado — botão 📱 celular disponível".into() } else { "sem cloudflared — o botão '📱 celular' do preview fica desativado (resto funciona normal)".into() },
+        fix: if cf { String::new() } else { "brew install cloudflared".into() },
+    });
     out
 }
 
