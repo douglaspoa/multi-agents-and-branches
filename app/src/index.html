@@ -1502,6 +1502,8 @@
 <script>
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 const IC = {
+  globe:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="8" cy="8" r="5.6"/><path d="M2.4 8h11.2M8 2.4c1.7 1.5 2.6 3.4 2.6 5.6S9.7 12.1 8 13.6C6.3 12.1 5.4 10.2 5.4 8S6.3 3.9 8 2.4z" stroke-linejoin="round"/></svg>',
+  phone:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="4.6" y="1.8" width="6.8" height="12.4" rx="1.4"/><path d="M7 12.4h2" stroke-linecap="round"/></svg>',
   q:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M2.6 7.4c0-2.4 2.15-4.2 4.9-4.2s4.9 1.8 4.9 4.2-2.15 4.2-4.9 4.2c-.5 0-1-.05-1.45-.16L3.4 12.7l.6-2.05C3.15 9.9 2.6 8.7 2.6 7.4z" stroke-linejoin="round"/><path d="M6.5 6.5c.05-.65.7-1.05 1.4-1.05.8 0 1.4.5 1.4 1.2 0 .95-1.25.9-1.35 1.95" stroke-linecap="round"/><circle cx="7.95" cy="10.1" r=".55" fill="currentColor" stroke="none"/></svg>',
   trash:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3 4.4h10M6.4 4.4V3.2c0-.4.3-.7.7-.7h1.8c.4 0 .7.3.7.7v1.2M4.3 4.4l.5 8.1c0 .5.4.9.9.9h4.6c.5 0 .9-.4.9-.9l.5-8.1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   cleft:'<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7.5 2.5l-3.5 3.5 3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -3552,7 +3554,7 @@ function taskPreviewUrl(taskId){
   return null;
 }
 // túnel criptografado → publica no cartão da nuvem → o app do celular mostra o botão
-async function mobilePreview(taskId, url){
+async function mobilePreview(taskId, url, silent){
   try{
     const pub=await invoke('tunnel_start',{ taskId, url });
     const cid=tmap()[taskId];
@@ -3564,7 +3566,7 @@ async function mobilePreview(taskId, url){
       }catch(_){ }
     }
     return pub;
-  }catch(e){ alert('Túnel falhou:\n'+(e.message||e)); return null; }
+  }catch(e){ if(!silent) alert('Túnel falhou:\n'+(e.message||e)); return null; }
 }
 function renderSide(){
   const el = document.getElementById("side");
@@ -3624,7 +3626,7 @@ function renderSide(){
   } else {
     content = `
     ${t.kind!=='review'?`<button class="btn sm wide wsopen" id="openWs"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M2.5 3.5h11c.3 0 .5.2.5.5v8c0 .3-.2.5-.5.5h-11c-.3 0-.5-.2-.5-.5V4c0-.3.2-.5.5-.5z"/><path d="M6 3.5v9M9.2 6.8l1.6 1.2-1.6 1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Abrir no editor — arquivos · código · chat</button>`:''}
-    ${(()=>{const pv=taskPreviewUrl(t.id); return pv?`<div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm" id="pvOpen" data-url="${escA(pv)}" title="${escA(pv)}" style="flex:1;color:var(--accent)">🌐 abrir preview — ${esc(pv.replace(/^https?:\/\//,'').slice(0,34))}</button><button class="btn sm" id="pvMobile" data-url="${escA(pv)}" title="cria um túnel criptografado (URL https aleatória) pra abrir este preview no seu celular">📱 celular</button></div>`:'';})()}
+    ${(()=>{const pv=taskPreviewUrl(t.id); return pv?`<div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm" id="pvOpen" data-url="${escA(pv)}" title="${escA(pv)}" style="flex:1;color:var(--accent)">${IC.globe} abrir preview — ${esc(pv.replace(/^https?:\/\//,'').slice(0,34))}</button><button class="btn sm" id="pvMobile" data-url="${escA(pv)}" title="cria um túnel criptografado (URL https aleatória) pra abrir este preview no seu celular">${IC.phone} celular</button></div>`:'';})()}
     ${activityBlock(t)}
     ${stageStepper(t)}
     ${questionBlock(t.id)}
@@ -3691,10 +3693,10 @@ function renderSide(){
   el.querySelectorAll('[data-act="breakdown"]').forEach(b=>b.onclick=()=>openBreakdown(t));
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
   { const b=el.querySelector('#pvOpen'); if(b) b.onclick=()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}); }
-  { const b=el.querySelector('#pvMobile'); if(b) b.onclick=async()=>{ b.disabled=true; const o=b.textContent; b.textContent='criando túnel…';
+  { const b=el.querySelector('#pvMobile'); if(b) b.onclick=async()=>{ b.disabled=true; const o=b.innerHTML; b.textContent='criando túnel…';
       const pub=await mobilePreview(t.id, b.dataset.url);
-      if(pub){ b.textContent='📱 no app do celular ✓'; setTimeout(()=>{ b.textContent=o; b.disabled=false; }, 5000); }
-      else { b.textContent=o; b.disabled=false; } }; }
+      if(pub){ b.innerHTML=IC.phone+' no app do celular ✓'; setTimeout(()=>{ b.innerHTML=o; b.disabled=false; }, 5000); }
+      else { b.innerHTML=o; b.disabled=false; } }; }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
   { const b=el.querySelector('#pubProofs'); if(b){ const cid=(typeof tmap==='function')?tmap()[t.id]:null; if(cid && typeof cloudPubList==='function') cloudPubList(cid).then(()=>{ if(selected===t.id && sideTab==='entregas'){ lastSig=''; } }); b.onclick=()=>cloudPublishProofs(t, b); } }
@@ -4938,6 +4940,41 @@ async function cloudAutoPublish(){
   }catch(e){ autoPubFails[t.id]=(autoPubFails[t.id]||0)+1; console.error('autopub', t.id, e.message); }
 }
 
+// ---- reparo único do cursor do feed: se a nuvem está vazia pra uma tarefa
+// ATIVA mas há eventos locais, o cursor foi envenenado (falhas antigas
+// avançaram sem publicar) → zera pra republicar o histórico. 1x por sessão.
+let feedRepaired=false;
+async function cloudFeedRepair(){
+  if(feedRepaired || !SB.sess() || !cloudTeamId()) return;
+  feedRepaired=true;
+  const m=tmap(); const pos=feedPos();
+  for(const lid of Object.keys(m)){
+    if(!(pos[lid]>0)) continue;
+    const t=(state.tasks||[]).find(x=>x.id===lid);
+    if(!t || !(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review')) continue;
+    try{
+      const rows=await sbGet('task_feed?select=id&task_id=eq.'+m[lid]+'&limit=3');
+      const evn=(state.events||[]).filter(e=>(e.taskId||e.task_id)===lid && FEED_KINDS.has(e.type||e.kind)).length;
+      if(rows.length<3 && evn>=3){ const p=feedPos(); delete p[lid]; lsSet('sb:feedpos', JSON.stringify(p)); }
+    }catch(_){ }
+  }
+}
+
+// ---- túnel AUTOMÁTICO: agente anunciou '🌐 preview:' numa tarefa ativa →
+// cria o túnel sozinho e publica no cartão (nada manual; celular já abre).
+const autoTunneled={};
+async function cloudAutoTunnelTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  for(const t of (state.tasks||[])){
+    if(!(ACTIVE_ST.has(t.status)||t.status==='thinking')) continue;
+    const pv=taskPreviewUrl(t.id);
+    if(!pv || autoTunneled[t.id]===pv || !tmap()[t.id]) continue;
+    autoTunneled[t.id]=pv; // marca antes: falha não vira tempestade de túneis
+    await mobilePreview(t.id, pv, true);
+  }
+}
+setInterval(()=>{ cloudAutoTunnelTick().catch(()=>{}); }, 9000);
+
 // ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
 const cloudSyncSigs={}, prProbed=new Set();
 async function cloudSyncTick(){
@@ -5060,6 +5097,7 @@ function feedPosSet(lid, id){ const m=feedPos(); m[lid]=id; lsSet('sb:feedpos', 
 const FEED_KINDS=new Set(['think','note','bash','error','done','edit','write']);
 async function cloudFeedTick(){
   if(!SB.sess() || !cloudTeamId()) return;
+  await cloudFeedRepair();
   const m=tmap(); const pos=feedPos();
   for(const lid of Object.keys(m)){
     const evs=(state.events||[]).filter(e=>(e.taskId||e.task_id)===lid && e.id>(pos[lid]||0) && FEED_KINDS.has(e.type||e.kind)).slice(0,8);

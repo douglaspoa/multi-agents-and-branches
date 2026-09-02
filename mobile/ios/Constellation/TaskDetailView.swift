@@ -73,7 +73,8 @@ struct TaskDetailView: View {
             Spacer()
             if let pv = previewUrl, let url = URL(string: pv) {
                 Link(destination: url) {
-                    Text("🌐 preview").font(.system(.caption, design: .monospaced).bold())
+                    Label("preview", systemImage: "globe")
+                        .font(.system(.caption, design: .monospaced).bold())
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(T.accent.opacity(0.15)).foregroundStyle(T.accent)
                         .clipShape(Capsule())
