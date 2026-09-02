@@ -79,6 +79,16 @@ struct LoginView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(T.bg)
+        .task {
+            #if DEBUG
+            // conveniência de dev: login automático via env do simulador
+            let env = ProcessInfo.processInfo.environment
+            if let e = env["DEMO_EMAIL"], let p = env["DEMO_PASS"], !busy {
+                email = e; pass = p
+                await doLogin()
+            }
+            #endif
+        }
     }
 
     private func doLogin() async {

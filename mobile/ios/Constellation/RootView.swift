@@ -3,15 +3,26 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var supa: Supa
     @State private var openCount = 0
+    @State private var tab: Int = {
+        #if DEBUG
+        switch ProcessInfo.processInfo.environment["DEMO_TAB"] {
+        case "time": return 1
+        case "conta": return 2
+        default: return 0
+        }
+        #else
+        return 0
+        #endif
+    }()
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             NavigationStack {
                 QuestionsView()
                     .navigationTitle("Precisa de você")
                     .toolbarBackground(T.bg, for: .navigationBar)
             }
-            .tabItem { Label("Perguntas", systemImage: "bubble.left.and.exclamationmark.bubble.right") }
+            .tabItem { Label("Perguntas", systemImage: "bubble.left.and.exclamationmark.bubble.right") }.tag(0)
             .badge(openCount)
 
             NavigationStack {
@@ -19,14 +30,14 @@ struct RootView: View {
                     .navigationTitle("Time")
                     .toolbarBackground(T.bg, for: .navigationBar)
             }
-            .tabItem { Label("Time", systemImage: "person.3") }
+            .tabItem { Label("Time", systemImage: "person.3") }.tag(1)
 
             NavigationStack {
                 SettingsView()
                     .navigationTitle("Conta")
                     .toolbarBackground(T.bg, for: .navigationBar)
             }
-            .tabItem { Label("Conta", systemImage: "gearshape") }
+            .tabItem { Label("Conta", systemImage: "gearshape") }.tag(2)
         }
         .tint(T.accent)
         .task {
