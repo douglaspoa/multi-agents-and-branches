@@ -6,7 +6,7 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>9467C791-6036-474A-826C-CB248A50CF96</key>
+		<key>0631E0C4-1B44-4140-96B0-F1ED0B35C2E3</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -15,7 +15,7 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>9467C791-6036-474A-826C-CB248A50CF96.xcactivitylog</string>
+			<string>0631E0C4-1B44-4140-96B0-F1ED0B35C2E3.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
@@ -40,13 +40,13 @@
 			<key>signature</key>
 			<string>Building project Constellation with scheme Constellation</string>
 			<key>timeStartedRecording</key>
-			<real>810004806.62976801</real>
+			<real>810049391.88911998</real>
 			<key>timeStoppedRecording</key>
-			<real>810004808.59044898</real>
+			<real>810049395.30787694</real>
 			<key>title</key>
 			<string>Building project Constellation with scheme Constellation</string>
 			<key>uniqueIdentifier</key>
-			<string>9467C791-6036-474A-826C-CB248A50CF96</string>
+			<string>0631E0C4-1B44-4140-96B0-F1ED0B35C2E3</string>
 		</dict>
 		<key>AA64932B-0F90-4EBE-AEAC-B503498F447A</key>
 		<dict>

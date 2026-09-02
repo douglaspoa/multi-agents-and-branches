@@ -3,6 +3,10 @@
 <plist version="1.0">
 <dict>
 	<key>application-identifier</key>
-	<string>FAKETEAMID.dev.constellation.mobile</string>
+	<string>SUB6889LA9.dev.constellation.mobile</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>SUB6889LA9</string>
+	<key>get-task-allow</key>
+	<true/>
 </dict>
 </plist>

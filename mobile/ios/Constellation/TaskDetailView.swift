@@ -18,6 +18,7 @@ struct TaskDetailView: View {
     @State private var status = ""
     @State private var flag: String? = nil
     @State private var prUrl: String? = nil
+    @State private var previewUrl: String? = nil
     @State private var feed: [FeedItem] = []
     @State private var lastId = 0
     @State private var msg = ""
@@ -70,6 +71,14 @@ struct TaskDetailView: View {
                 Text("· esperando seu Mac assumir").font(.caption2).foregroundStyle(T.dim)
             }
             Spacer()
+            if let pv = previewUrl, let url = URL(string: pv) {
+                Link(destination: url) {
+                    Text("🌐 preview").font(.system(.caption, design: .monospaced).bold())
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(T.accent.opacity(0.15)).foregroundStyle(T.accent)
+                        .clipShape(Capsule())
+                }
+            }
             if let pr = prUrl, let url = URL(string: pr) {
                 Link("PR ↗", destination: url)
                     .font(.system(.caption, design: .monospaced).bold()).foregroundStyle(T.accent)
@@ -84,10 +93,22 @@ struct TaskDetailView: View {
         HStack(alignment: .top, spacing: 8) {
             Text(icon(f.kind)).font(.caption)
             VStack(alignment: .leading, spacing: 2) {
-                Text(f.text)
-                    .font(f.kind == "bash" ? .system(.caption, design: .monospaced) : .footnote)
-                    .foregroundStyle(color(f.kind))
-                    .textSelection(.enabled)
+                // linha com URL (ex.: '🌐 preview: http://…' ou '📱 preview no celular: https://…') vira link
+                if let r = f.text.range(of: #"https?://[^\s]+"#, options: .regularExpression),
+                   let url = URL(string: String(f.text[r])) {
+                    Link(destination: url) {
+                        Text(f.text)
+                            .font(.footnote)
+                            .foregroundStyle(T.accent)
+                            .underline()
+                            .multilineTextAlignment(.leading)
+                    }
+                } else {
+                    Text(f.text)
+                        .font(f.kind == "bash" ? .system(.caption, design: .monospaced) : .footnote)
+                        .foregroundStyle(color(f.kind))
+                        .textSelection(.enabled)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -161,12 +182,13 @@ struct TaskDetailView: View {
 
     private func tick() async {
         // status + PR
-        if let d = try? await supa.rest("tasks?select=status,flag,pr_url&id=eq.\(taskId)"),
+        if let d = try? await supa.rest("tasks?select=status,flag,pr_url,spec&id=eq.\(taskId)"),
            let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]], let t = arr.first {
             await MainActor.run {
                 status = t["status"] as? String ?? status
                 flag = t["flag"] as? String
                 prUrl = t["pr_url"] as? String
+                previewUrl = (t["spec"] as? [String: Any])?["previewUrl"] as? String
             }
         }
         // feed incremental

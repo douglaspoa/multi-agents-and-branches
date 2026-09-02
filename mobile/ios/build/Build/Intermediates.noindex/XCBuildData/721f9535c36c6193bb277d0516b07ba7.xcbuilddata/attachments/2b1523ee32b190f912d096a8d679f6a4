@@ -46,6 +46,16 @@
     "swift-dependencies" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/NewTaskView.swiftdeps",
     "swiftmodule" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/NewTaskView~partial.swiftmodule"
   },
+  "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/Constellation/PushManager.swift" : {
+    "const-values" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager.swiftconstvalues",
+    "dependencies" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager.d",
+    "diagnostics" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager.dia",
+    "index-unit-output-path" : "/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager.o",
+    "llvm-bc" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager.bc",
+    "object" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager.o",
+    "swift-dependencies" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager.swiftdeps",
+    "swiftmodule" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/PushManager~partial.swiftmodule"
+  },
   "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/Constellation/QuestionsView.swift" : {
     "const-values" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/QuestionsView.swiftconstvalues",
     "dependencies" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/QuestionsView.d",
@@ -65,6 +75,16 @@
     "object" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/RootView.o",
     "swift-dependencies" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/RootView.swiftdeps",
     "swiftmodule" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/RootView~partial.swiftmodule"
+  },
+  "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/Constellation/Skeleton.swift" : {
+    "const-values" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton.swiftconstvalues",
+    "dependencies" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton.d",
+    "diagnostics" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton.dia",
+    "index-unit-output-path" : "/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton.o",
+    "llvm-bc" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton.bc",
+    "object" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton.o",
+    "swift-dependencies" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton.swiftdeps",
+    "swiftmodule" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Skeleton~partial.swiftmodule"
   },
   "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/Constellation/Supa.swift" : {
     "const-values" : "/Users/douglassobreira/Documents/Git branches with agents/multi-agents-and-branches/mobile/ios/build/Build/Intermediates.noindex/Constellation.build/Debug-iphonesimulator/Constellation.build/Objects-normal/arm64/Supa.swiftconstvalues",

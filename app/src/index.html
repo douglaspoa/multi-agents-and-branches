@@ -3541,6 +3541,31 @@ function effEngine(t){ const rs=t.roles||[]; const cur=rs.find(r=>r.role===t.sta
 let sideTab='etapas';
 document.addEventListener('click', e=>{ if(stMenuOpen && !e.target.closest('.stwrap')){ stMenuOpen=false; try{ renderSide(); }catch(_){} } });
 function fmtDur(ms){ ms=Math.max(0,ms); const s=Math.floor(ms/1000); if(s<60) return s+'s'; const m=Math.floor(s/60); if(m<60) return m+' min'; const h=Math.floor(m/60); return h+'h'+String(m%60).padStart(2,'0'); }
+// URL de preview mais recente que o agente anunciou ('🌐 preview: http://…')
+function taskPreviewUrl(taskId){
+  const evs=state.events||[];
+  for(let i=evs.length-1;i>=0;i--){
+    const e=evs[i]; if((e.taskId||e.task_id)!==taskId) continue;
+    const m=(e.text||'').match(/🌐 preview:\s*(https?:\/\/[^\s'"”)]+)/);
+    if(m) return m[1];
+  }
+  return null;
+}
+// túnel criptografado → publica no cartão da nuvem → o app do celular mostra o botão
+async function mobilePreview(taskId, url){
+  try{
+    const pub=await invoke('tunnel_start',{ taskId, url });
+    const cid=tmap()[taskId];
+    if(cid && SB.sess()){
+      try{
+        const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{};
+        await sbFetch('/rest/v1/tasks?id=eq.'+cid, { method:'PATCH', body: JSON.stringify({ spec: { ...(cur.spec||{}), previewUrl: pub } }) });
+        sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'note', text:'📱 preview no celular: '+pub }).catch(()=>{});
+      }catch(_){ }
+    }
+    return pub;
+  }catch(e){ alert('Túnel falhou:\n'+(e.message||e)); return null; }
+}
 function renderSide(){
   const el = document.getElementById("side");
   const t = state.tasks.find(x=>x.id===selected);
@@ -3599,6 +3624,7 @@ function renderSide(){
   } else {
     content = `
     ${t.kind!=='review'?`<button class="btn sm wide wsopen" id="openWs"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M2.5 3.5h11c.3 0 .5.2.5.5v8c0 .3-.2.5-.5.5h-11c-.3 0-.5-.2-.5-.5V4c0-.3.2-.5.5-.5z"/><path d="M6 3.5v9M9.2 6.8l1.6 1.2-1.6 1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Abrir no editor — arquivos · código · chat</button>`:''}
+    ${(()=>{const pv=taskPreviewUrl(t.id); return pv?`<div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm" id="pvOpen" data-url="${escA(pv)}" title="${escA(pv)}" style="flex:1;color:var(--accent)">🌐 abrir preview — ${esc(pv.replace(/^https?:\/\//,'').slice(0,34))}</button><button class="btn sm" id="pvMobile" data-url="${escA(pv)}" title="cria um túnel criptografado (URL https aleatória) pra abrir este preview no seu celular">📱 celular</button></div>`:'';})()}
     ${activityBlock(t)}
     ${stageStepper(t)}
     ${questionBlock(t.id)}
@@ -3664,6 +3690,11 @@ function renderSide(){
   wireLinkChips(el);
   el.querySelectorAll('[data-act="breakdown"]').forEach(b=>b.onclick=()=>openBreakdown(t));
   { const b=el.querySelector('#openWs'); if(b) b.onclick=()=>openWorkspace(t.id); }
+  { const b=el.querySelector('#pvOpen'); if(b) b.onclick=()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}); }
+  { const b=el.querySelector('#pvMobile'); if(b) b.onclick=async()=>{ b.disabled=true; const o=b.textContent; b.textContent='criando túnel…';
+      const pub=await mobilePreview(t.id, b.dataset.url);
+      if(pub){ b.textContent='📱 no app do celular ✓'; setTimeout(()=>{ b.textContent=o; b.disabled=false; }, 5000); }
+      else { b.textContent=o; b.disabled=false; } }; }
   el.querySelectorAll('[data-deliver]').forEach(b=>b.onclick=()=>deliverArtifact(t.id, b.dataset.deliver));
   el.querySelectorAll('[data-linksel]').forEach(b=>b.onclick=()=>{ selected=b.dataset.linksel; lastSig=''; render(); });
   { const b=el.querySelector('#pubProofs'); if(b){ const cid=(typeof tmap==='function')?tmap()[t.id]:null; if(cid && typeof cloudPubList==='function') cloudPubList(cid).then(()=>{ if(selected===t.id && sideTab==='entregas'){ lastSig=''; } }); b.onclick=()=>cloudPublishProofs(t, b); } }

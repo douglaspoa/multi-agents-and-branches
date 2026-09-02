@@ -3020,6 +3020,75 @@ fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Op
     });
 }
 
+/// Túnel TLS do preview local pro CELULAR (cloudflared quick tunnel): URL
+/// https aleatória e impossível de adivinhar, criptografia fim a fim da
+/// Cloudflare. O processo fica rastreado como "tunnel:<task>" (parar mata).
+#[tauri::command(async)]
+fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<String, String> {
+    let bin = ["/opt/homebrew/bin/cloudflared", "/opt/homebrew/opt/cloudflared/bin/cloudflared", "/usr/local/bin/cloudflared"]
+        .iter()
+        .find(|p| std::path::Path::new(p).is_file())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "cloudflared".to_string());
+    // um túnel por tarefa: derruba o anterior se existir
+    {
+        let key = format!("tunnel:{task_id}");
+        if let Ok(mut m) = state.procs.lock() {
+            if let Some(old) = m.remove(&key) {
+                signal_group(old, libc::SIGTERM);
+            }
+        }
+    }
+    let mut cmd = Command::new(&bin);
+    cmd.args(["tunnel", "--no-autoupdate", "--url", &url]);
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("cloudflared não encontrado ({e}). Instale com: brew install cloudflared"))?;
+    let pid = child.id() as i32;
+    // cloudflared loga a URL pública no stderr — lê até achar (teto ~25s)
+    let stderr = child.stderr.take().ok_or("sem stderr do cloudflared")?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if let Some(m) = line.split_whitespace().find(|w| w.contains(".trycloudflare.com")) {
+                let _ = tx.send(m.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != ':' && c != '/' && c != '.' && c != '-').to_string());
+            }
+        }
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(25)) {
+        Ok(public) => {
+            if let Ok(mut m) = state.procs.lock() {
+                m.insert(format!("tunnel:{task_id}"), pid);
+            }
+            std::thread::spawn(move || { let _ = child.wait(); });
+            Ok(public)
+        }
+        Err(_) => {
+            signal_group(pid, libc::SIGKILL);
+            Err("o túnel não respondeu em 25s (rede?) — tente de novo".to_string())
+        }
+    }
+}
+
+/// Derruba o túnel da tarefa (se houver).
+#[tauri::command]
+fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
+    if let Ok(mut m) = state.procs.lock() {
+        if let Some(pid) = m.remove(&format!("tunnel:{task_id}")) {
+            signal_group(pid, libc::SIGTERM);
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // registra o bundle nas notificações UMA vez (senão a lib cai no Editor de Script)
@@ -3066,6 +3135,8 @@ pub fn run() {
             is_dev_install,
             apply_update,
             notify_native,
+            tunnel_start,
+            tunnel_stop,
             open_url,
             open_artifact,
             push_task,
