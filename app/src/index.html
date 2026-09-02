@@ -424,6 +424,32 @@
   .sech.warn .n{color:var(--warn)}
   .sech::after{content:"";flex:1;height:1px;background:var(--border);opacity:.6}
   .sech .dim2{color:var(--text-2);opacity:.7;text-transform:none;letter-spacing:0;font-weight:400}
+  /* Nova demanda spec-first: chat à esquerda, spec à direita */
+  #ntOverlay .modal{max-width:1120px;width:min(95vw,1120px)}
+  #ntOverlay .mbody{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(430px,1.1fr);gap:0 22px;align-items:start}
+  #ntOverlay .mbody>*{grid-column:2;min-width:0}
+  #ntOverlay #aiAssist{grid-column:1;grid-row:1/span 60;display:flex!important;flex-direction:column;position:sticky;top:0;height:62vh;border-right:1px solid var(--border);padding-right:18px}
+  #ntOverlay #aiChat{flex:1;overflow:auto;min-height:200px}
+  #ntMissing{font-family:var(--mono,ui-monospace,monospace);font-size:11px;color:var(--warn)}
+  #ntMissing.ok{color:var(--good)}
+  /* stepper de fases (Descoberta→Despacho→Execução→Revisão→PR) */
+  .phst{display:flex;align-items:center;gap:5px;font-family:var(--mono,ui-monospace,monospace);font-size:10.5px;color:var(--text-2)}
+  .phst .pd{width:8px;height:8px;border-radius:50%;background:var(--border)}
+  .phst .pd.done{background:var(--good)}
+  .phst .pd.cur{background:transparent;border:1.5px solid var(--good)}
+  .phst .plabel{margin-left:3px;color:var(--text)}
+  /* abas de sessão no workspace */
+  .fwtabs{display:flex;gap:6px;align-items:center;padding:6px 14px 0;overflow-x:auto}
+  .fwtab{display:flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:11.5px;color:var(--text-2);white-space:nowrap}
+  .fwtab.on{border-color:var(--accent);color:var(--text)}
+  .fwtab .td{width:7px;height:7px;border-radius:50%}
+  /* modal Como executar? */
+  .howopt{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:8px}
+  .howopt.on{border-color:var(--accent)}
+  .howopt input{margin-top:3px}
+  .howopt .ht{font-weight:600}
+  .howopt .hd{font-size:12px;color:var(--text-2);margin-top:2px}
+  .howopt .rec{font-family:var(--mono,ui-monospace,monospace);font-size:10px;color:var(--good);letter-spacing:.08em;margin-left:auto}
   /* agente esperando resposta: borda âmbar pulsando + badge */
   .fcard.asking{border-color:var(--warn);animation:askpulse 1.6s ease-in-out infinite}
   @keyframes askpulse{0%,100%{box-shadow:0 0 0 0 rgba(224,179,77,.0)}50%{box-shadow:0 0 0 4px rgba(224,179,77,.22);border-color:var(--warn)}}
@@ -1327,11 +1353,35 @@
       </div>
     </div>
     <div class="mfoot">
-      <span class="dim" id="ntHint">cada tarefa vira uma branch + worktree isolada</span>
+      <span class="dim" id="ntHint">cada demanda vira uma branch + worktree isolada</span>
       <span style="flex:1"></span>
+      <span id="ntMissing"></span>
       <button class="btn" id="ntCancel">cancelar</button>
       <button class="btn" id="ntDraft"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 3.5h6.5L12.5 6v6.5c0 .3-.2.5-.5.5H3.5c-.3 0-.5-.2-.5-.5v-9c0-.3.2-.5.5-.5z" stroke-linejoin="round"/></svg>salvar rascunho</button>
-      <button class="btn primary" id="ntCreate"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>criar e iniciar</button>
+      <button class="btn primary" id="ntCreate"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8l3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>Iniciar execução</button>
+    </div>
+  </div>
+</div>
+
+<!-- Como executar? (redesign): fluxo, modelo e limites antes de iniciar -->
+<div class="overlay" id="howOverlay" style="display:none">
+  <div class="modal" style="max-width:560px">
+    <div class="mhead"><b>Como executar?</b><span style="flex:1"></span><button class="x" id="howClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody">
+      <div class="dim" style="font-size:12px;margin-bottom:12px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div>
+      <div id="howOpts"></div>
+      <details style="margin-top:8px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo e limites</summary>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+          <div><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
+          <div><label>Limite de custo (aviso)</label><input class="in" id="howCost" type="number" min="0" step="1" style="width:100%"></div>
+          <div><label>Tarefas em paralelo</label><input class="in" id="howSlots" type="number" min="1" max="12" style="width:100%"></div>
+        </div>
+      </details>
+    </div>
+    <div class="mfoot">
+      <span style="flex:1"></span>
+      <button class="btn" id="howCancel">cancelar</button>
+      <button class="btn primary" id="howGo">Iniciar execução</button>
     </div>
   </div>
 </div>
@@ -1355,9 +1405,11 @@
 <!-- workspace 3 colunas estilo Cursor: arquivos · código+linhas · chat do agente -->
 <div class="overlay fwoverlay" id="fwOverlay" style="display:none">
   <div class="fw">
+    <div class="fwtabs" id="fwTabs"></div>
     <div class="fwhead">
       <b class="mono" id="fwTaskName">Arquivos & chat</b>
       <span class="fwsub" id="fwTaskBranch"></span>
+      <span class="phst" id="fwPhases" style="margin-left:12px"></span>
       <span style="flex:1"></span>
       <button class="btn primary sm" id="fwPush" title="commita o que estiver solto e faz push da branch — o PR atualiza na hora"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px"><path d="M8 12.5v-8M4.5 8L8 4.5 11.5 8" stroke-linecap="round" stroke-linejoin="round"/></svg> commit &amp; push</button>
       <button class="btn sm" id="fwClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
@@ -1623,6 +1675,14 @@ function notifRoute(id){
 try{ window.__TAURI__.event.listen('notif-open', (ev)=>{ lastNotif=null; notifRoute(ev.payload||''); }); }catch(_){ }
 window.addEventListener('focus', ()=>{
   if(lastNotif && Date.now()-lastNotif.ts<180000){ const id=lastNotif.id; lastNotif=null; notifRoute(id); }
+});
+// ⌘K — busca global (redesign): vai pra Central de execuções e foca a busca
+window.addEventListener('keydown', e=>{
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){
+    e.preventDefault();
+    const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
+    setTimeout(()=>{ const s=document.getElementById('ffSearch'); if(s){ s.focus(); s.select(); } }, 60);
+  }
 });
 function detectNotifs(snap){
   const tasks=snap.tasks||[]; const pend=snap.pending||[];
@@ -2321,7 +2381,35 @@ async function fwLiveUpdate(){
 }
 let fwFilesAt=0, fwFilesSig='';
 let fwChatWide=(lsGet('fwChatWide')==='1');
+// fase da tarefa no funil do redesign: Descoberta→Despacho→Execução→Revisão→PR
+const PHASES=['Descoberta','Despacho','Execução','Revisão','PR'];
+function taskPhase(t){
+  if(t.prUrl) return 5;
+  if(['review','delivered','merged','done'].includes(t.status)) return 4;
+  if(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='paused') return 3;
+  if(t.status==='queued') return 2;
+  return 1;
+}
+function phasesHtml(t){
+  const ph=taskPhase(t);
+  return PHASES.map((p,i)=>`<span class="pd${i+1<ph?' done':i+1===ph?' cur':''}" title="${escA(p)}"></span>`).join('')+`<span class="plabel">${esc(PHASES[ph-1])}</span>`;
+}
+// abas de sessão: alterna entre as tarefas vivas sem sair do workspace
+function renderFwTabs(){
+  const el=document.getElementById('fwTabs'); if(!el) return;
+  const open=(state.tasks||[]).filter(t=>ACTIVE_ST.has(t.status)||['thinking','review','delivered','plan-review','error'].includes(t.status))
+    .sort((a,b)=>b.created_at-a.created_at).slice(0,6);
+  if(open.length<2){ el.innerHTML=''; el.style.display='none'; return; }
+  el.style.display='flex';
+  el.innerHTML=open.map(t=>{
+    const col=pendingOf(t.id).length?'var(--warn)':(ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)':'var(--muted)';
+    return `<span class="fwtab${t.id===fwTask?' on':''}" data-tab="${escA(t.id)}"><span class="td" style="background:${col}"></span>${esc(t.title.slice(0,26))}</span>`;
+  }).join('');
+  el.querySelectorAll('.fwtab').forEach(b=>b.onclick=()=>{ if(b.dataset.tab!==fwTask) openWorkspace(b.dataset.tab); });
+}
 function renderWorkspace(){
+  renderFwTabs();
+  { const t=fwTaskObj(); const p=document.getElementById('fwPhases'); if(p&&t) p.innerHTML=phasesHtml(t); }
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
   { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.toggle('chatwide', fwChatWide); }
   // preserva o que está sendo digitado no chat entre re-renders
@@ -3896,11 +3984,68 @@ function renderNtList(id, arr){
   el.querySelectorAll("[data-li]").forEach(inp=>inp.addEventListener("input",()=>{ arr[+inp.dataset.li]=inp.value; }));
   el.querySelectorAll("[data-lrm]").forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.lrm,1); renderNtList(id,arr); });
 }
+// ---- spec-first: campos obrigatórios por tipo + gate do Iniciar execução ----
+const NT_REQUIRED={
+  build:[['ntTitle','título'],['ntObj','objetivo']],
+  fix:[['ntFixTitle','o que corrigir']],
+  design:[['ntDzTitle','o que projetar'],['ntDzObj','contexto']],
+  invest:[['ntInvTitle','o que investigar'],['ntInvObj','sintoma']],
+  review:[['ntPr','link/nº do PR']],
+};
+function ntGate(){
+  const req=NT_REQUIRED[ntMode]||[];
+  const missing=req.filter(([id])=>{ const e=document.getElementById(id); return !e || !e.value.trim(); });
+  const btn=document.getElementById('ntCreate'); const ms=document.getElementById('ntMissing');
+  if(btn) btn.disabled=missing.length>0;
+  if(ms){
+    ms.className=missing.length?'':'ok';
+    ms.textContent=missing.length?`${missing.length} campo${missing.length>1?'s':''} obrigatório${missing.length>1?'s':''} faltando: ${missing.map(([,l])=>l).join(', ')}`:'spec pronta ✓';
+  }
+}
+// ---- Como executar? — fluxo/modelo/limites antes de iniciar (build & fix) ----
+function openHow(){
+  const src=document.getElementById(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
+  const opts=[...(src?src.options:[])].map(o=>({v:o.value,l:o.textContent}));
+  const wf=opts.filter(o=>o.v.startsWith('wf:')), ag=opts.filter(o=>o.v.startsWith('ag:'));
+  const items=[
+    { v:(ag[0]||{}).v||'', t:'Entrega simples', d:'só o builder, direto ao ponto — sem revisão adicional', rec:false },
+    ...(wf.length?[{ v:wf[0].v, t:wf[0].l.replace(/^..?\s*/,''), d:'planeja, implementa, testa e revisa antes de te trazer pra review', rec:true }]:[]),
+    ...wf.slice(1).map(o=>({ v:o.v, t:o.l, d:'fluxo do time', rec:false })),
+    ...ag.slice(1).map(o=>({ v:o.v, t:o.l, d:'um agente específico', rec:false })),
+  ];
+  const cur=src?src.value:'';
+  const box=document.getElementById('howOpts');
+  box.innerHTML=items.map((it,i)=>`<label class="howopt${(cur?it.v===cur:it.rec)?' on':''}"><input type="radio" name="howflow" value="${escA(it.v)}" ${(cur?it.v===cur:it.rec)?'checked':''}><span><span class="ht">${esc(it.t)}</span><div class="hd">${esc(it.d)}</div></span>${it.rec?'<span class="rec">RECOMENDADO</span>':''}</label>`).join('');
+  box.querySelectorAll('.howopt').forEach(l=>l.onclick=()=>{ box.querySelectorAll('.howopt').forEach(x=>x.classList.remove('on')); l.classList.add('on'); l.querySelector('input').checked=true; });
+  document.getElementById('howModel').value=(document.getElementById('ntModel')||{}).value||'';
+  document.getElementById('howCost').value=parseFloat(lsGet('costWarn')||'25');
+  document.getElementById('howSlots').value=slotMax;
+  document.getElementById('howOverlay').style.display='flex';
+}
+function closeHow(){ document.getElementById('howOverlay').style.display='none'; }
+document.getElementById('howClose').onclick=closeHow;
+document.getElementById('howCancel').onclick=closeHow;
+document.getElementById('howOverlay').addEventListener('click',e=>{ if(e.target.id==='howOverlay') closeHow(); });
+document.getElementById('howGo').onclick=()=>{
+  const pick=document.querySelector('input[name="howflow"]:checked');
+  const src=document.getElementById(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
+  if(pick && src) src.value=pick.value;
+  const nm=document.getElementById('ntModel'); if(nm) nm.value=document.getElementById('howModel').value;
+  lsSet('costWarn', String(Math.max(0, parseFloat(document.getElementById('howCost').value)||0)));
+  setSlotMax(parseInt(document.getElementById('howSlots').value,10)||slotMax);
+  closeHow();
+  submitNewTask(true);
+};
+
 async function openNewTask(){
   // modal na hora — o catálogo (config) chega logo atrás e preenche os selects
   setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   document.getElementById("ntOverlay").style.display = "flex";
+  // spec-first: o chat com o assistente já abre conversando (redesign)
+  { const a=document.getElementById('aiAssist'); if(a){ a.style.display='flex';
+      if(!document.getElementById('aiChat').children.length) aiAppend('assistant','O que você precisa fazer? Me conta em 1–2 frases — eu pergunto o essencial e preencho a spec ao lado. (Ou preencha direto o formulário.)'); } }
+  ntGate();
   (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):ntMode==='invest'?document.getElementById("ntInvTitle"):document.getElementById("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
   const wfSel = document.getElementById("ntWorkflow");
@@ -4050,7 +4195,8 @@ function setNtMode(m){
   document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';
   const create=document.getElementById("ntCreate");
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
-  if(tn) tn.textContent = m==='review'?' revisar PR':m==='fix'?' corrigir agora':m==='design'?' gerar design':m==='invest'?' investigar':' criar e iniciar';
+  if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';
+  ntGate();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
 function resetNewTask(){ ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=document.getElementById('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
@@ -4479,7 +4625,12 @@ async function pickFolder(){
 document.getElementById("newTaskBtn").onclick = openNewTask;
 document.getElementById("ntClose").onclick = closeNewTask;
 document.getElementById("ntCancel").onclick = closeNewTask;
-document.getElementById("ntCreate").onclick = ()=>submitNewTask(true);
+document.getElementById("ntCreate").onclick = ()=>{
+  ntGate(); if(document.getElementById('ntCreate').disabled) return;
+  // build & fix passam pelo "Como executar?" (fluxo/modelo/limites); os demais têm fluxo fixo
+  if(ntMode==='build'||ntMode==='fix') openHow(); else submitNewTask(true);
+};
+document.getElementById('ntOverlay').addEventListener('input', ntGate);
 document.getElementById("ntDraft").onclick = ()=>submitNewTask(false);
 document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMode(b.dataset.mode));
 document.getElementById("ntAI").onclick = openPlanner;
