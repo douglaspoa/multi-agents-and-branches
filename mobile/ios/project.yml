@@ -27,3 +27,4 @@ targets:
         # assinatura automática: simulador não exige; iPhone físico usa o time
         # pessoal do Apple ID logado no Xcode (grátis, perfil de 7 dias)
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SUB6889LA9   # Personal Team do Douglas (grátis, perfil 7 dias)
