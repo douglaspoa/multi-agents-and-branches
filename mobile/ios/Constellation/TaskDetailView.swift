@@ -26,10 +26,13 @@ struct TaskDetailView: View {
     @State private var question: Question? = nil
     @State private var error = ""
     @State private var ticked = false   // 1º ciclo de dados completo → sai o esqueleto
+    @State private var localPreview: String? = nil   // agente anunciou 🌐 no Mac (URL local)
+    @State private var requestingTunnel = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            previewBar
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
@@ -87,6 +90,58 @@ struct TaskDetailView: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .background(T.panel)
+    }
+
+    /// Barra do preview — impossível não ver: abrir quando o túnel existe,
+    /// pedir o túnel DAQUI quando só há a URL local do Mac, e o estado criando.
+    @ViewBuilder
+    private var previewBar: some View {
+        if let pv = previewUrl, let url = URL(string: pv) {
+            Link(destination: url) {
+                HStack {
+                    Image(systemName: "play.rectangle.fill")
+                    Text("abrir preview ao vivo").bold()
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                }
+                .font(.system(.subheadline, design: .monospaced))
+                .padding(.horizontal, 14).padding(.vertical, 11)
+                .background(T.accent).foregroundStyle(.black)
+            }
+        } else if requestingTunnel {
+            HStack {
+                ProgressView().tint(T.accent).scaleEffect(0.8)
+                Text("criando acesso do celular… (~10s)").font(.footnote)
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(T.accent.opacity(0.10)).foregroundStyle(T.accent)
+        } else if localPreview != nil {
+            Button {
+                Task { await requestTunnel() }
+            } label: {
+                HStack {
+                    Image(systemName: "iphone.radiowaves.left.and.right")
+                    Text("o agente subiu um preview no Mac — tocar pra abrir aqui").font(.footnote).bold()
+                    Spacer()
+                }
+                .padding(.horizontal, 14).padding(.vertical, 11)
+                .background(T.accent.opacity(0.12)).foregroundStyle(T.accent)
+            }
+        }
+    }
+
+    /// Escreve a intenção na nuvem; o Mac cria o túnel e publica previewUrl.
+    private func requestTunnel() async {
+        requestingTunnel = true
+        if let d = try? await supa.rest("tasks?select=spec&id=eq.\(taskId)"),
+           let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]],
+           var spec = arr.first?["spec"] as? [String: Any] {
+            spec["tunnelWanted"] = ISO8601DateFormatter().string(from: Date())
+            _ = try? await supa.rest("tasks?id=eq.\(taskId)", method: "PATCH", json: ["spec": spec])
+        }
+        // o poll (tick) troca requestingTunnel quando previewUrl chegar; teto de 45s
+        Task { try? await Task.sleep(for: .seconds(45)); await MainActor.run { requestingTunnel = false } }
     }
 
     @ViewBuilder
@@ -216,12 +271,21 @@ struct TaskDetailView: View {
                 flag = t["flag"] as? String
                 prUrl = t["pr_url"] as? String
                 previewUrl = (t["spec"] as? [String: Any])?["previewUrl"] as? String
+                if previewUrl != nil { requestingTunnel = false }
             }
         }
         // feed incremental
         if let d = try? await supa.rest("task_feed?select=id,agent,kind,text,at&task_id=eq.\(taskId)&id=gt.\(lastId)&order=id&limit=120"),
            let items = try? JSONDecoder().decode([FeedItem].self, from: d), !items.isEmpty {
-            await MainActor.run { feed.append(contentsOf: items); if feed.count > 400 { feed.removeFirst(feed.count - 400) }; lastId = items.last!.id }
+            await MainActor.run {
+                feed.append(contentsOf: items); if feed.count > 400 { feed.removeFirst(feed.count - 400) }; lastId = items.last!.id
+                // agente anunciou preview local no Mac → oferece criar o acesso daqui
+                for it in items {
+                    if let r = it.text.range(of: #"🌐 preview:\s*(https?://[^\s]+)"#, options: .regularExpression) {
+                        localPreview = String(it.text[r]).replacingOccurrences(of: "🌐 preview:", with: "").trimmingCharacters(in: .whitespaces)
+                    }
+                }
+            }
         }
         // pergunta aberta desta tarefa
         if let d = try? await supa.rest("questions?select=id,agent,prompt,options,created_at&task_id=eq.\(taskId)&status=eq.open&order=id.desc&limit=1"),

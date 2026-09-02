@@ -9,3 +9,4 @@ dist/Constellation-portable.app
 dist/Constellation-portable.zip
 app/src-tauri/resources/
 mobile/ios/build*/
+mobile/ios/**/xcuserdata/

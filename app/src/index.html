@@ -3580,7 +3580,7 @@ async function mobilePreview(taskId, url, silent){
     if(cid && SB.sess()){
       try{
         const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{};
-        await sbFetch('/rest/v1/tasks?id=eq.'+cid, { method:'PATCH', body: JSON.stringify({ spec: { ...(cur.spec||{}), previewUrl: pub } }) });
+        await sbFetch('/rest/v1/tasks?id=eq.'+cid, { method:'PATCH', body: JSON.stringify({ spec: { ...(cur.spec||{}), previewUrl: pub, tunnelWanted: null } }) });
         sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'note', text:'📱 preview no celular: '+pub }).catch(()=>{});
       }catch(_){ }
     }
@@ -4985,11 +4985,25 @@ async function cloudFeedRepair(){
 const autoTunneled={};
 async function cloudAutoTunnelTick(){
   if(!SB.sess() || !cloudTeamId()) return;
+  const m=tmap();
+  // pedidos vindos do CELULAR (spec.tunnelWanted): o telefone escreve a
+  // intenção, ESTE Mac cria o túnel — mesmo padrão do resto do mobile.
+  const wanted={};
+  try{
+    const ids=Object.values(m);
+    if(ids.length){
+      const rows=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3EtunnelWanted=not.is.null&limit=10');
+      for(const r of rows){ const lid=Object.keys(m).find(k=>m[k]===r.id); if(lid) wanted[lid]=String((r.spec||{}).tunnelWanted); }
+    }
+  }catch(_){ }
   for(const t of (state.tasks||[])){
-    if(!(ACTIVE_ST.has(t.status)||t.status==='thinking')) continue;
+    const active=ACTIVE_ST.has(t.status)||['thinking','plan-review','review','delivered'].includes(t.status);
+    if(!active) continue;
     const pv=taskPreviewUrl(t.id);
-    if(!pv || autoTunneled[t.id]===pv || !tmap()[t.id]) continue;
-    autoTunneled[t.id]=pv; // marca antes: falha não vira tempestade de túneis
+    if(!pv || !m[t.id]) continue;
+    const key=pv+'|'+(wanted[t.id]||'');
+    if(autoTunneled[t.id]===key) continue;
+    autoTunneled[t.id]=key; // marca antes: falha não vira tempestade de túneis
     await mobilePreview(t.id, pv, true);
   }
 }
