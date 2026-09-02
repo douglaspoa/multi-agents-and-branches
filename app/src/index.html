@@ -4924,9 +4924,11 @@ async function cloudSyncTick(){
     if(prev===sig) continue;
     if(prev===undefined){
       // boot da sessão: não "toca" o cartão à toa (preserva updated_at real) —
-      // só PATCHa se o cartão carregado divergir do estado local
+      // compara com o cartão real ANTES de cachear a assinatura (sem o quadro
+      // carregado, busca só este cartão; senão tarefa rápida ficava presa).
       cloudSyncSigs[lid]=sig;
-      const card=(teamTasks||[]).find(c=>c.id===m[lid]);
+      let card=(teamTasks||[]).find(c=>c.id===m[lid]);
+      if(!card){ try{ card=(await sbGet('tasks?select=status,flag,pr_url&id=eq.'+m[lid]))[0]; }catch(_){ } }
       if(!card) continue;
       const same=card.status===t.status && (card.flag||null)===(t.flag||null) && (card.pr_url||null)===(t.prUrl||null);
       if(same) continue;
@@ -4984,6 +4986,79 @@ async function cloudQuestionsTick(){
   }
 }
 setInterval(()=>{ cloudQuestionsTick().catch(()=>{}); }, 7000);
+
+// ---- MOBILE AO VIVO: o celular escreve intenções, ESTE Mac executa ----
+// 1) tarefa pedida do celular (status='requested', minha) → cria e RODA aqui
+const remoteStartFails={};
+async function cloudRemoteStartTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const me=cloudUserId();
+  const rows=await sbGet('tasks?select=*,projects(repo_remote)&status=eq.requested&assignee=eq.'+me+'&limit=3').catch(()=>[]);
+  if(!rows.length) return;
+  let remote=''; try{ remote=await invoke('repo_remote'); }catch(_){ }
+  for(const ct of rows){
+    if((remoteStartFails[ct.id]||0)>=3) continue;
+    const rr=(ct.projects||{}).repo_remote;
+    if(rr && rr!==remote) continue; // é de outro projeto — outro Mac atende
+    try{
+      const sp=ct.spec||{};
+      const payload={ workflow:null, agents:null, engine:sp.engine||'claude', model:sp.model||null, approval:'auto', owns:null, off:null,
+        objective:sp.objective||ct.title, deliverables:[], requirements:Array.isArray(sp.requirements)?sp.requirements:[],
+        doc:null, proof:!!sp.proof, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:sp.branchType||'feat', issue:null, base:null, linkedTo:null,
+        title: ct.title, start:true };
+      const localId=await invoke('new_task', payload);
+      tmapSet(localId, ct.id);
+      await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
+      sbPost('task_activity',{ task_id:ct.id, user_id:me, kind:'started', body:'iniciada do celular' }).catch(()=>{});
+      sbPost('task_feed',{ task_id:ct.id, agent:'Sistema', kind:'note', text:'▶ o Mac assumiu: criando worktree e iniciando o agente…' }).catch(()=>{});
+      teamTasks=null; lastSig='';
+    }catch(e){ remoteStartFails[ct.id]=(remoteStartFails[ct.id]||0)+1; console.error('remoteStart', e.message); }
+  }
+}
+setInterval(()=>{ cloudRemoteStartTick().catch(()=>{}); }, 6000);
+
+// 2) feed condensado ao vivo: eventos novos das MINHAS tarefas mapeadas → task_feed
+function feedPos(){ try{ return JSON.parse(lsGet('sb:feedpos')||'{}'); }catch(_){ return {}; } }
+function feedPosSet(lid, id){ const m=feedPos(); m[lid]=id; lsSet('sb:feedpos', JSON.stringify(m)); }
+const FEED_KINDS=new Set(['think','note','bash','error','done','edit','write']);
+async function cloudFeedTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const m=tmap(); const pos=feedPos();
+  for(const lid of Object.keys(m)){
+    const evs=(state.events||[]).filter(e=>(e.taskId||e.task_id)===lid && e.id>(pos[lid]||0) && FEED_KINDS.has(e.type||e.kind)).slice(0,8);
+    if(!evs.length) continue;
+    try{
+      for(const e of evs){
+        await sbPost('task_feed',{ task_id:m[lid], agent:e.agent||'', kind:(e.type||e.kind), text:String(e.text||'').slice(0,300) });
+      }
+      feedPosSet(lid, evs[evs.length-1].id);
+    }catch(err){
+      // cartão apagado na nuvem (FK) ou RLS: avança o cursor pra não travar a
+      // fila — um lid quebrado NUNCA pode segurar o feed dos outros.
+      feedPosSet(lid, evs[evs.length-1].id);
+      console.error('feed', lid, err.message);
+    }
+  }
+}
+setInterval(()=>{ cloudFeedTick().catch(()=>{}); }, 4000);
+
+// 3) chat do celular → entrega ao agente (fila do motor cuida do turno ocupado)
+const msgDelivering=new Set();
+async function cloudMsgTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
+  const rows=await sbGet('task_messages?select=id,task_id,body,author&delivered_at=is.null&task_id=in.('+ids.map(x=>'"'+x+'"').join(',')+')&order=id&limit=5').catch(()=>[]);
+  for(const msg of rows){
+    if(msgDelivering.has(msg.id)) continue; msgDelivering.add(msg.id);
+    const lid=Object.keys(m).find(k=>m[k]===msg.task_id); if(!lid) continue;
+    try{
+      await sbFetch('/rest/v1/task_messages?id=eq.'+msg.id, { method:'PATCH', body: JSON.stringify({ delivered_at:new Date().toISOString() }) });
+      await invoke('talk_task',{ taskId: lid, message: msg.body, asReq:false, agent:null });
+      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 '+String(msg.body).slice(0,280) }).catch(()=>{});
+    }catch(e){ console.error('msg', e.message); }
+  }
+}
+setInterval(()=>{ cloudMsgTick().catch(()=>{}); }, 5000);
 
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];

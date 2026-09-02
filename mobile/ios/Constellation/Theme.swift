@@ -21,6 +21,7 @@ enum T {
         case "merged", "done": return ("mergeada", info)
         case "error", "conflict": return (s == "error" ? "erro" : "conflito", bad)
         case "backlog": return ("backlog", dim)
+        case "requested": return ("esperando o Mac", warn)
         default: return (s, dim)
         }
     }

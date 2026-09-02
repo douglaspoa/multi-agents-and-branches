@@ -6,48 +6,6 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>2DE4C5F4-309A-4145-AB9A-A1BA9DD8A1DD</key>
-		<dict>
-			<key>className</key>
-			<string>IDECommandLineBuildLog</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
-			<key>fileName</key>
-			<string>2DE4C5F4-309A-4145-AB9A-A1BA9DD8A1DD.xcactivitylog</string>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>W</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>1</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>Constellation project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>Constellation</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Building project Constellation with scheme Constellation</string>
-			<key>timeStartedRecording</key>
-			<real>810000292.86129606</real>
-			<key>timeStoppedRecording</key>
-			<real>810000322.34486306</real>
-			<key>title</key>
-			<string>Building project Constellation with scheme Constellation</string>
-			<key>uniqueIdentifier</key>
-			<string>2DE4C5F4-309A-4145-AB9A-A1BA9DD8A1DD</string>
-		</dict>
 		<key>656CFCF0-B13E-4F16-A7B2-621A4D2EE366</key>
 		<dict>
 			<key>className</key>
@@ -90,7 +48,7 @@
 			<key>uniqueIdentifier</key>
 			<string>656CFCF0-B13E-4F16-A7B2-621A4D2EE366</string>
 		</dict>
-		<key>DBF1F33A-D9C9-4FB7-BA86-F6ADFCE5C872</key>
+		<key>EC0B18D9-E691-4233-BD4F-65DEC5342D47</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -99,17 +57,17 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>DBF1F33A-D9C9-4FB7-BA86-F6ADFCE5C872.xcactivitylog</string>
+			<string>EC0B18D9-E691-4233-BD4F-65DEC5342D47.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
-				<string>W</string>
+				<string>E</string>
 				<key>totalNumberOfAnalyzerIssues</key>
 				<integer>0</integer>
 				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
+				<integer>2</integer>
 				<key>totalNumberOfTestFailures</key>
 				<integer>0</integer>
 				<key>totalNumberOfWarnings</key>
@@ -124,13 +82,13 @@
 			<key>signature</key>
 			<string>Building project Constellation with scheme Constellation</string>
 			<key>timeStartedRecording</key>
-			<real>810000444.36966205</real>
+			<real>810001036.45064104</real>
 			<key>timeStoppedRecording</key>
-			<real>810000452.33542001</real>
+			<real>810001039.78880596</real>
 			<key>title</key>
 			<string>Building project Constellation with scheme Constellation</string>
 			<key>uniqueIdentifier</key>
-			<string>DBF1F33A-D9C9-4FB7-BA86-F6ADFCE5C872</string>
+			<string>EC0B18D9-E691-4233-BD4F-65DEC5342D47</string>
 		</dict>
 	</dict>
 </dict>

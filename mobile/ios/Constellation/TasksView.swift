@@ -7,6 +7,8 @@ struct TasksView: View {
     @State private var profiles: [String: Profile] = [:]
     @State private var loaded = false
     @State private var error = ""
+    @State private var showNew = false
+    @State private var openTaskId: String? = nil
 
     private var doing: [CloudTask] { tasks.filter { $0.flag != "closed" && ["running", "thinking", "queued", "plan-review", "error", "conflict"].contains($0.status) } }
     private var review: [CloudTask] { tasks.filter { $0.flag != "closed" && ["review", "delivered"].contains($0.status) } }
@@ -26,6 +28,19 @@ struct TasksView: View {
         }
         .background(T.bg)
         .refreshable { await load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showNew = true } label: {
+                    Image(systemName: "plus.circle.fill").foregroundStyle(T.accent)
+                }
+            }
+        }
+        .sheet(isPresented: $showNew) {
+            NewTaskView { createdId in if !createdId.isEmpty { openTaskId = createdId } }
+        }
+        .navigationDestination(item: $openTaskId) { id in
+            TaskDetailView(taskId: id, title: tasks.first(where: { $0.id == id })?.title ?? "Tarefa")
+        }
         .task {
             await load()
             while !Task.isCancelled {
@@ -51,6 +66,12 @@ struct TasksView: View {
     @ViewBuilder
     private func row(_ t: CloudTask) -> some View {
         let st = T.status(t.status, flag: t.flag)
+        Button { openTaskId = t.id } label: { rowBody(t, st) }
+            .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func rowBody(_ t: CloudTask, _ st: (String, Color)) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(t.title).font(.subheadline).foregroundStyle(T.text).lineLimit(2)
             HStack(spacing: 8) {

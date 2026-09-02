@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2A162FBF5119DEE9ED6A94A8 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */; };
 		2EF14D8005488AB7157C4276 /* ConstellationApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA0728D17FC058100F378C6 /* ConstellationApp.swift */; };
 		5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */; };
+		5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */; };
 		77EEFAFACA1D5D5A187E6E3A /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F19BEBDCD6A770493FE488 /* LoginView.swift */; };
 		82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */; };
 		C179EC5E709344409D7B782F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 387991461E9C1C80C2CB9F32 /* Theme.swift */; };
@@ -19,10 +21,12 @@
 
 /* Begin PBXFileReference section */
 		192B4419693C35BD2702929E /* Supa.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supa.swift; sourceTree = "<group>"; };
+		33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewTaskView.swift; sourceTree = "<group>"; };
 		342ABDAB30C51C6523955582 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		35F8F6081FFC033EA789D55E /* QuestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionsView.swift; sourceTree = "<group>"; };
 		387991461E9C1C80C2CB9F32 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		4394FB044411B6D91726BA1E /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
+		4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		7F06584523C9DFF7B3567892 /* Constellation.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Constellation.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -46,9 +50,11 @@
 				342ABDAB30C51C6523955582 /* Info.plist */,
 				95F19BEBDCD6A770493FE488 /* LoginView.swift */,
 				5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */,
+				33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */,
 				35F8F6081FFC033EA789D55E /* QuestionsView.swift */,
 				7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */,
 				192B4419693C35BD2702929E /* Supa.swift */,
+				4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */,
 				4394FB044411B6D91726BA1E /* TasksView.swift */,
 				387991461E9C1C80C2CB9F32 /* Theme.swift */,
 			);
@@ -121,9 +127,11 @@
 				2EF14D8005488AB7157C4276 /* ConstellationApp.swift in Sources */,
 				77EEFAFACA1D5D5A187E6E3A /* LoginView.swift in Sources */,
 				82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */,
+				5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */,
 				E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */,
 				5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */,
 				D3C533444B71C46AA35E4976 /* Supa.swift in Sources */,
+				2A162FBF5119DEE9ED6A94A8 /* TaskDetailView.swift in Sources */,
 				FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */,
 				C179EC5E709344409D7B782F /* Theme.swift in Sources */,
 			);

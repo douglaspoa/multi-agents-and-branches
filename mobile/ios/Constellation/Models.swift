@@ -38,6 +38,8 @@ struct Question: Identifiable, Decodable {
     }
 }
 
+extension String: @retroactive Identifiable { public var id: String { self } }
+
 struct Profile: Decodable {
     let userId: String
     let name: String?

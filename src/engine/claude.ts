@@ -30,8 +30,14 @@ function hasOpenAsk(dbFile: string, taskId: string): boolean {
 
 function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
-  // PATH mínimo em apps GUI: sonda os locais reais de instalação, como o
-  // node_bin do app faz (instalador nativo → local antiga → homebrew → npm).
+  // Ao lado do node em uso PRIMEIRO (nvm/dev — o claude que o dono atualiza);
+  // depois os locais padrão pra PATH mínimo de app GUI (instalador nativo etc.).
+  try {
+    const near = join(dirname(process.execPath), "claude");
+    if (existsSync(near)) return near;
+  } catch {
+    /* ignora */
+  }
   try {
     const home = homedir();
     for (const p of [
@@ -42,12 +48,6 @@ function resolveClaude(): string {
     ]) {
       if (existsSync(p)) return p;
     }
-  } catch {
-    /* ignora */
-  }
-  try {
-    const near = join(dirname(process.execPath), "claude");
-    if (existsSync(near)) return near;
   } catch {
     /* ignora */
   }
@@ -204,7 +204,13 @@ export class ClaudeEngine implements AgentEngine {
     }
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
-    const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    // Limpa marcadores de "sessão Claude Code" herdados (ex.: app aberto a
+    // partir de um terminal com claude rodando) — senão o CLI recusa "nested".
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
+    delete env.CLAUDE_CODE_ENTRYPOINT;
+    delete env.CLAUDE_CODE_SSE_PORT;
+    const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];

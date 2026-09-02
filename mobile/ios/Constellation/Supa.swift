@@ -80,6 +80,7 @@ final class Supa: ObservableObject {
         req.setValue(Self.anon, forHTTPHeaderField: "apikey")
         req.setValue("Bearer " + s.accessToken, forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if method == "POST" { req.setValue("return=representation", forHTTPHeaderField: "Prefer") }
         if let json { req.httpBody = try JSONSerialization.data(withJSONObject: json) }
         let (data, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 500
