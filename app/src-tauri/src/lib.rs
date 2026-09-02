@@ -3202,6 +3202,12 @@ pub fn run() {
             list_artifacts,
             read_artifact
         ])
-        .run(tauri::generate_context!())
-        .expect("erro ao iniciar o Cardume");
+        .build(tauri::generate_context!())
+        .expect("erro ao iniciar o Cardume")
+        .run(|_app, event| {
+            // app fechando → nenhum túnel fica exposto pra trás
+            if let tauri::RunEvent::Exit = event {
+                let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
+            }
+        });
 }

@@ -5067,6 +5067,12 @@ async function cloudSyncTick(){
       // AÇÕES vão pra nuvem sozinhas: mudança de status/PR vira atividade no feed
       const before=prev?JSON.parse(prev):null;
       if(before && before.status!==t.status) sbPost('task_activity',{ task_id:m[lid], user_id:cloudUserId(), kind:'status', body:CT_ST_PT[t.status]||t.status }).catch(()=>{});
+      // tarefa TERMINOU → túnel do preview fecha e a URL sai do cartão
+      if(before && (['merged','done','aborted'].includes(t.status)||t.flag==='closed') && !(['merged','done','aborted'].includes(before.status)||before.flag==='closed')){
+        invoke('tunnel_stop',{ taskId: lid }).catch(()=>{});
+        delete autoTunneled[lid];
+        (async()=>{ try{ const cur=(await sbGet('tasks?select=spec&id=eq.'+m[lid]))[0]||{}; if((cur.spec||{}).previewUrl){ await sbFetch('/rest/v1/tasks?id=eq.'+m[lid],{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null}})}); } }catch(_){ } })();
+      }
       if(before && !before.pr_url && t.prUrl) sbPost('task_activity',{ task_id:m[lid], user_id:cloudUserId(), kind:'delivered', body:'PR aberto' }).catch(()=>{});
       cloudSyncSigs[lid]=sig;
     }
