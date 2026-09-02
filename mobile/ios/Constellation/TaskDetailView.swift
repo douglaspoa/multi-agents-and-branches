@@ -225,26 +225,48 @@ struct TaskDetailView: View {
     5) Só finalize quando eu aprovar explicitamente; ao final, screenshot antes/depois nos artefatos.
     """
 
-    @State private var showDesignConfirm = false
+    /// paleta "/" — mesmas skills do desktop
+    static let skills: [(String, String, String)] = [
+        ("design", "refinar o visual comigo — diagnóstico, opções e iterações com preview", designPrompt),
+        ("preview", "subir o ambiente e me dar o link ao vivo", "Suba o ambiente local desta branch AGORA (siga o .cardume/RUNBOOK.md) e ANUNCIE \"🌐 preview: <url da tela desta tarefa>\". Mantenha rodando e re-anuncie se trocar de página."),
+        ("requisitos", "verificar cada requisito e gerar as provas", "Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json. Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar."),
+        ("testes", "rodar a suíte real e anexar a saída", "Rode os testes REAIS na suíte do projeto pra esta branch (comandos do .cardume/RUNBOOK.md). Salve .cardume/artifacts/tests.md com os comandos e a SAÍDA literal. Falhou algo? Investigue e corrija antes de me responder."),
+        ("provas", "provar na UI real com screenshots", "Prove que a entrega funciona NA UI REAL: suba o ambiente (RUNBOOK), execute o fluxo desta tarefa de ponta a ponta e capture screenshots reais em .cardume/artifacts/. Anuncie o 🌐 preview enquanto estiver de pé."),
+        ("resumo", "estado atual em 1 minuto de leitura", "Me dê um resumo executivo do estado ATUAL desta tarefa: o que já foi feito (com os arquivos), o que falta, riscos/decisões em aberto. NÃO execute nada novo."),
+        ("segurança", "auditar riscos no diff da branch", "Audite o diff desta branch com olhar de segurança: injeção, authz/escopo de tenant, segredos, dados sensíveis em log. Achados por severidade com arquivo:linha e correção proposta — me apresente via ask_human antes de corrigir."),
+    ]
 
     private var inputBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                showDesignConfirm = true
-            } label: {
-                Image(systemName: "paintbrush.fill").foregroundStyle(T.warn).font(.body)
-            }
-            .confirmationDialog("Modo design", isPresented: $showDesignConfirm) {
-                Button("Entrar no modo design") {
-                    Task {
-                        _ = try? await supa.rest("task_messages", method: "POST", json: ["task_id": taskId, "author": supa.session?.userId ?? "", "body": Self.designPrompt])
+        VStack(spacing: 0) {
+            if msg == "/" {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Self.skills, id: \.0) { s in
+                        Button {
+                            msg = ""
+                            Task { _ = try? await supa.rest("task_messages", method: "POST", json: ["task_id": taskId, "author": supa.session?.userId ?? "", "body": s.2]) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("/" + s.0).font(.system(.footnote, design: .monospaced).bold()).foregroundStyle(T.accent)
+                                Text(s.1).font(.caption2).foregroundStyle(T.dim)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                        }
+                        Divider().overlay(T.line)
                     }
                 }
-                Button("Cancelar", role: .cancel) {}
-            } message: {
-                Text("O agente sobe o preview, diagnostica o visual e te pergunta (com opções) o que priorizar — iterando até você aprovar.")
+                .background(T.panel)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
+                .padding(.horizontal, 10).padding(.bottom, 6)
             }
-            TextField(question != nil ? "responda a pergunta…" : "fale com o agente…", text: $msg, axis: .vertical)
+            inputRow
+        }
+    }
+
+    private var inputRow: some View {
+        HStack(spacing: 8) {
+            TextField(question != nil ? "responda a pergunta…" : "fale com o agente… ( / skills )", text: $msg, axis: .vertical)
                 .font(.footnote)
                 .padding(10)
                 .background(T.panel)

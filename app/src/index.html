@@ -1380,7 +1380,7 @@
   <div class="modal chatmodal">
     <div class="mhead"><span class="chatav" id="chatAv"></span><div class="chatid"><b id="chatWho">Agente</b><div class="dim chatsub" id="chatSub"></div></div><span style="flex:1"></span><button class="x" id="chatClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="chatthread" id="chatThread"></div>
-    <div class="chatinput"><div class="atmenu" id="atMenu" style="display:none"></div><button class="btn sm" id="chatAttach" title="anexar arquivo (print, PDF, doc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="chatInput" rows="2" placeholder="peça um ajuste… (Enter envia · @ referencia arquivos/artefatos)"></textarea><button class="btn primary sm" id="chatSend">enviar</button></div>
+    <div class="chatinput"><div class="atmenu" id="atMenu" style="display:none"></div><button class="btn sm" id="chatAttach" title="anexar arquivo (print, PDF, doc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="chatInput" rows="2" placeholder="peça um ajuste… ( / skills · @ arquivos · Enter envia)"></textarea><button class="btn primary sm" id="chatSend">enviar</button></div>
   </div>
 </div>
 
@@ -2375,7 +2375,7 @@ function renderWorkspace(){
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
-      <div class="fwinrow"><button class="btn sm" id="fwDesign" title="modo design: o agente diagnostica o visual, te pergunta o que priorizar (com opções) e ajusta em iterações com preview ao vivo">${IC.brush}</button><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… (Enter envia)'}"></textarea>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
+      <div class="fwinrow"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… ( / skills · Enter envia)'}"></textarea>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
       <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
@@ -2384,7 +2384,6 @@ function renderWorkspace(){
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=()=>fwSendMsg(false); }
   { const b=document.getElementById('fwQueue'); if(b) b.onclick=()=>fwSendMsg(true); }
-  { const b=document.getElementById('fwDesign'); if(b) b.onclick=()=>{ const t=fwTaskObj(); if(t && confirm('Entrar no MODO DESIGN?\n\nO agente vai subir o preview, diagnosticar o visual e te perguntar (com opções concretas) o que priorizar — ajustando em iterações curtas até você aprovar.')) fwSendText(t.id, DESIGN_PROMPT); }; }
   { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ try{ const ps=await invoke('pick_ref_files'); if(ps&&ps.length){ const i=document.getElementById('fwInput'); i.value=(i.value?i.value+'\n':'')+ps.map(p=>'Anexo: '+p).join('\n'); i.focus(); } }catch(_){} }; }
   chat.onclick=(e)=>{
     const cp=e.target.closest('.ccopy');
@@ -2441,6 +2440,7 @@ async function fwShowMenu(t, kind){
   const m=document.getElementById('fwMenu'); if(!m) return;
   let items=[];
   if(kind==='req'){
+    for(const s of CHAT_SKILLS) items.push({label:'/'+s.label+' — '+s.desc, kind:'skill', skill:s});
     const ags=(t.roles||[]).filter(r=>r.engine==='claude');
     if(ags.length>1) for(const r of ags) items.push({label:r.name+' · '+(ROLE_PT[r.role]||r.role), kind:'falar com', agent:r.name});
     const reqs=Array.isArray(t.requirements)?t.requirements:[];
@@ -2454,10 +2454,16 @@ async function fwShowMenu(t, kind){
            ...arts.filter(a=>a.name!=='requirements.json').slice(0,8).map(a=>({label:a.name, ins:'.cardume/artifacts/'+a.name, kind:'artefato'}))];
   }
   if(!items.length){ fwHideMenu(); return; }
-  m.innerHTML=`<div class="ath">${kind==='req'?'revisar requisito':'referenciar'}</div>`+items.map((it,i)=>`<button class="atit" data-mi="${i}"><span class="${kind==='req'?'':'mono'}">${esc(it.label)}</span><span class="atk">${it.kind}</span></button>`).join('');
+  m.innerHTML=`<div class="ath">${kind==='req'?'skills · agentes · requisitos':'referenciar'}</div>`+items.map((it,i)=>`<button class="atit" data-mi="${i}"><span class="${kind==='req'?'':'mono'}"${it.kind==='skill'?' style="color:var(--accent)"':''}>${esc(it.label)}</span><span class="atk">${it.kind}</span></button>`).join('');
   m.style.display='block';
   m.querySelectorAll('.atit').forEach(b=>b.onclick=()=>{
     const it=items[+b.dataset.mi]; const i=document.getElementById('fwInput');
+    if(it.skill){
+      i.value='';
+      fwHideMenu();
+      fwSendText(t.id, it.skill.prompt());
+      return;
+    }
     if(it.agent){
       const t2=fwTaskObj();
       const deflt=((t2&&t2.roles)||[]).find(r=>r.engine==='claude');
@@ -3216,28 +3222,34 @@ document.getElementById('chatAttach').onclick=async()=>{
 };
 // @ ou / no início de palavra → menu com arquivos da task e artefatos
 function hideAtMenu(){ const m=document.getElementById('atMenu'); m.style.display='none'; m.innerHTML=''; }
-async function showAtMenu(){
+async function showAtMenu(trigger){
   const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t) return;
-  let files=[]; let arts=[];
-  try{ files=await invoke('task_files',{ taskId:t.id }); }catch(_){ }
-  try{ arts=await invoke('list_artifacts',{ taskId:t.id }); }catch(_){ }
-  const items=[
-    ...files.slice(0,12).map(f=>({label:f.path, ins:f.path, kind:'arquivo'})),
-    ...arts.slice(0,8).map(a=>({label:a.name, ins:'.cardume/artifacts/'+a.name, kind:'artefato'})),
-  ];
+  let items=[];
+  if(trigger==='/'){
+    items=CHAT_SKILLS.map(s=>({label:'/'+s.label+' — '+s.desc, kind:'skill', skill:s}));
+  } else {
+    let files=[]; let arts=[];
+    try{ files=await invoke('task_files',{ taskId:t.id }); }catch(_){ }
+    try{ arts=await invoke('list_artifacts',{ taskId:t.id }); }catch(_){ }
+    items=[
+      ...files.slice(0,12).map(f=>({label:f.path, ins:f.path, kind:'arquivo'})),
+      ...arts.slice(0,8).map(a=>({label:a.name, ins:'.cardume/artifacts/'+a.name, kind:'artefato'})),
+    ];
+  }
   const m=document.getElementById('atMenu');
   if(!items.length){ hideAtMenu(); return; }
-  m.innerHTML='<div class="ath">referenciar</div>'+items.map((it,i)=>`<button class="atit" data-ai="${i}"><span class="mono">${esc(it.label)}</span><span class="atk">${it.kind}</span></button>`).join('');
+  m.innerHTML='<div class="ath">'+(trigger==='/'?'skills':'referenciar')+'</div>'+items.map((it,i)=>`<button class="atit" data-ai="${i}"><span class="${it.skill?'':'mono'}"${it.skill?' style="color:var(--accent)"':''}>${esc(it.label)}</span><span class="atk">${it.kind}</span></button>`).join('');
   m.style.display='block';
   m.querySelectorAll('.atit').forEach(b=>b.onclick=()=>{
     const it=items[+b.dataset.ai]; const i=document.getElementById('chatInput');
+    if(it.skill){ i.value=''; hideAtMenu(); talkTask(t.id, it.skill.prompt()); return; }
     // substitui o @/ que abriu o menu pelo caminho escolhido
     i.value=i.value.replace(/[@/]$/,'')+'`'+it.ins+'` '; hideAtMenu(); i.focus();
   });
 }
 document.getElementById('chatInput').addEventListener('input',e=>{
   const v=e.target.value; const last=v.slice(-1);
-  if((last==='@'||last==='/') && (v.length===1 || /\s/.test(v.slice(-2,-1)))) showAtMenu();
+  if((last==='@'||last==='/') && (v.length===1 || /\s/.test(v.slice(-2,-1)))) showAtMenu(last);
   else if(document.getElementById('atMenu').style.display!=='none' && last!==' ') hideAtMenu();
 });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&chatIsOpen()) closeChat(); });
@@ -3561,6 +3573,17 @@ const DESIGN_PROMPT = 'MODO DESIGN — refine o VISUAL desta entrega comigo, agi
   +'3) ANTES de mexer, pergunte via mcp__cardume__ask_human O QUE PRIORIZAR — sempre com OPÇÕES CONCRETAS e mutuamente exclusivas (ex.: "mais denso ou mais respiro?", "seguir a paleta da tela X ou propor nova?", "manter esse layout e polir, ou redesenhar o bloco?"). NUNCA pergunta genérica tipo "o que você quer mudar?". Se referência visual ajudar, peça um print/link.\n'
   +'4) Aplique em ITERAÇÕES CURTAS: UM ajuste por vez, re-anuncie o preview depois de cada um e pergunte via ask_human "melhorou? sigo pro próximo?" com opções (aprovar / ajustar isso / voltar atrás).\n'
   +'5) Só finalize quando eu disser explicitamente que o design está bom. Ao final, resuma o que mudou e atualize os artefatos de prova (screenshot antes/depois).';
+
+// SKILLS DO CHAT: digite "/" e escolha — cada uma é um prompt lapidado.
+const CHAT_SKILLS=[
+  { id:'design',     label:'design', desc:'refinar o visual comigo — diagnóstico, opções e iterações com preview', prompt:()=>DESIGN_PROMPT },
+  { id:'preview',    label:'preview', desc:'subir o ambiente e me dar o link ao vivo', prompt:()=>'Suba o ambiente local desta branch AGORA (siga o .cardume/RUNBOOK.md) e ANUNCIE "🌐 preview: <url da tela desta tarefa>". Mantenha rodando e re-anuncie se trocar de página.' },
+  { id:'requisitos', label:'requisitos', desc:'verificar cada requisito e gerar as provas', prompt:()=>'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json. Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.' },
+  { id:'testes',     label:'testes', desc:'rodar a suíte real e anexar a saída', prompt:()=>'Rode os testes REAIS na suíte do projeto pra esta branch (comandos do .cardume/RUNBOOK.md). Salve .cardume/artifacts/tests.md com os comandos e a SAÍDA literal. Falhou algo? Investigue a causa e corrija antes de me responder.' },
+  { id:'provas',     label:'provas', desc:'provar na UI real com screenshots', prompt:()=>'Prove que a entrega funciona NA UI REAL: suba o ambiente (RUNBOOK), execute o fluxo desta tarefa de ponta a ponta e capture screenshots reais em .cardume/artifacts/ (antes/depois quando fizer sentido). Anuncie o 🌐 preview enquanto estiver de pé.' },
+  { id:'resumo',     label:'resumo', desc:'estado atual em 1 minuto de leitura', prompt:()=>'Me dê um resumo executivo do estado ATUAL desta tarefa: o que já foi feito (com os arquivos), o que falta, riscos/decisões em aberto. NÃO execute nada novo — só leia e resuma.' },
+  { id:'seguranca',  label:'segurança', desc:'auditar riscos no diff da branch', prompt:()=>'Audite o diff desta branch (contra a base) com olhar de segurança: injeção, authz/escopo de tenant, segredos expostos, dados sensíveis em log. Liste os achados por severidade com arquivo:linha e a correção proposta. NÃO corrija ainda — me apresente primeiro via ask_human.' },
+];
 
 // URL de preview mais recente que o agente anunciou ('🌐 preview: http://…')
 function taskPreviewUrl(taskId){
