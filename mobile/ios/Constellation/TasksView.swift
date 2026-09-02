@@ -11,9 +11,12 @@ struct TasksView: View {
     @State private var error = ""
     @State private var showNew = false
     @State private var openTaskId: String? = nil
+    @State private var openQ: Set<String> = []
     @EnvironmentObject var router: PushRouter
 
-    private var doing: [CloudTask] { tasks.filter { $0.flag != "closed" && ["running", "thinking", "queued", "plan-review", "error", "conflict"].contains($0.status) } }
+    /// tarefas com pergunta ABERTA de agente — o mais urgente do quadro
+    private var waiting: [CloudTask] { tasks.filter { openQ.contains($0.id) && $0.flag != "closed" } }
+    private var doing: [CloudTask] { tasks.filter { !openQ.contains($0.id) && $0.flag != "closed" && ["running", "thinking", "queued", "plan-review", "requested", "error", "conflict"].contains($0.status) } }
     private var review: [CloudTask] { tasks.filter { $0.flag != "closed" && ["review", "delivered"].contains($0.status) } }
     private var done: [CloudTask] { tasks.filter { $0.flag == "closed" || ["merged", "done"].contains($0.status) } }
     private var backlog: [CloudTask] { tasks.filter { $0.flag != "closed" && $0.status == "backlog" } }
@@ -25,6 +28,14 @@ struct TasksView: View {
                     BoardSkeleton()
                 } else {
                     if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(T.warn) }
+                    if !waiting.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("⏳ ESPERANDO VOCÊ")
+                                .font(.system(.caption, design: .monospaced).bold())
+                                .foregroundStyle(T.warn).kerning(1)
+                            ForEach(waiting) { t in row(t) }
+                        }
+                    }
                     section("● RODANDO AGORA", doing, empty: "nenhum agente rodando")
                     section("◆ PRONTAS PRA REVIEW", review, empty: "nada esperando review")
                     section("○ BACKLOG", backlog, empty: "backlog vazio")
@@ -85,7 +96,13 @@ struct TasksView: View {
 
     @ViewBuilder
     private func rowBody(_ t: CloudTask, _ st: (String, Color)) -> some View {
+        let isWaiting = openQ.contains(t.id)
         VStack(alignment: .leading, spacing: 7) {
+            if isWaiting {
+                Text("⏳ o agente fez uma pergunta — toque pra responder")
+                    .font(.system(.caption2, design: .monospaced).bold())
+                    .foregroundStyle(T.warn)
+            }
             Text(t.title).font(.subheadline).foregroundStyle(T.text).lineLimit(2)
             HStack(spacing: 8) {
                 Circle().fill(st.1).frame(width: 7, height: 7)
@@ -112,12 +129,19 @@ struct TasksView: View {
             }
         }
         .card()
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isWaiting ? T.warn.opacity(0.55) : .clear, lineWidth: 1.5))
     }
 
     private func load() async {
         do {
             let me = supa.session?.userId ?? ""
             let filter = mine ? "&or=(assignee.eq.\(me),created_by.eq.\(me))" : ""
+            // perguntas abertas → seção "esperando você" (o mais urgente primeiro)
+            if let qd = try? await supa.rest("questions?select=task_id&status=eq.open&limit=50"),
+               let qs = try? JSONSerialization.jsonObject(with: qd) as? [[String: Any]] {
+                let ids = Set(qs.compactMap { $0["task_id"] as? String })
+                await MainActor.run { openQ = ids }
+            }
             let data = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at\(filter)&order=updated_at.desc&limit=150")
             let ts = try JSONDecoder().decode([CloudTask].self, from: data)
             var profs = profiles
