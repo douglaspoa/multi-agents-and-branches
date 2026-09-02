@@ -146,8 +146,26 @@ struct TaskDetailView: View {
 
     @ViewBuilder
     private func feedRow(_ f: FeedItem) -> some View {
+        if f.kind == "bash" {
+            // comando em bloco de código, como no terminal
+            HStack(alignment: .top, spacing: 6) {
+                Text("$").font(.system(.caption, design: .monospaced).bold()).foregroundStyle(T.accent.opacity(0.7))
+                Text(f.text).font(.system(.caption, design: .monospaced)).foregroundStyle(T.text.opacity(0.75))
+                    .textSelection(.enabled)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Color.black.opacity(0.35))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        } else {
+            feedTextRow(f)
+        }
+    }
+
+    @ViewBuilder
+    private func feedTextRow(_ f: FeedItem) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Text(icon(f.kind)).font(.caption)
+            Text(icon(f.kind)).font(.caption).foregroundStyle(color(f.kind).opacity(0.8))
             VStack(alignment: .leading, spacing: 2) {
                 // linha com URL (ex.: '🌐 preview: http://…' ou '📱 preview no celular: https://…') vira link
                 if let r = f.text.range(of: #"https?://[^\s]+"#, options: .regularExpression),
@@ -161,14 +179,14 @@ struct TaskDetailView: View {
                     }
                 } else {
                     Text(f.text)
-                        .font(f.kind == "bash" ? .system(.caption, design: .monospaced) : .footnote)
+                        .font(.footnote)
                         .foregroundStyle(color(f.kind))
                         .textSelection(.enabled)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
     }
 
     private func icon(_ k: String) -> String {
@@ -236,11 +254,18 @@ struct TaskDetailView: View {
         ("segurança", "auditar riscos no diff da branch", "Audite o diff desta branch com olhar de segurança: injeção, authz/escopo de tenant, segredos, dados sensíveis em log. Achados por severidade com arquivo:linha e correção proposta — me apresente via ask_human antes de corrigir."),
     ]
 
+    /// skills filtradas pelo que foi digitado depois da barra ("/de" → design)
+    private var skillMatches: [(String, String, String)] {
+        guard msg.hasPrefix("/"), !msg.contains(" ") else { return [] }
+        let q = msg.dropFirst().folding(options: .diacriticInsensitive, locale: .init(identifier: "pt")).lowercased()
+        return Self.skills.filter { q.isEmpty || $0.0.folding(options: .diacriticInsensitive, locale: .init(identifier: "pt")).lowercased().hasPrefix(q) }
+    }
+
     private var inputBar: some View {
         VStack(spacing: 0) {
-            if msg == "/" {
+            if !skillMatches.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Self.skills, id: \.0) { s in
+                    ForEach(skillMatches, id: \.0) { s in
                         Button {
                             msg = ""
                             Task { _ = try? await supa.rest("task_messages", method: "POST", json: ["task_id": taskId, "author": supa.session?.userId ?? "", "body": s.2]) }
@@ -266,6 +291,17 @@ struct TaskDetailView: View {
 
     private var inputRow: some View {
         HStack(spacing: 8) {
+            Button {
+                msg = msg.hasPrefix("/") ? "" : "/"
+            } label: {
+                Text("/")
+                    .font(.system(.body, design: .monospaced).bold())
+                    .frame(width: 36, height: 36)
+                    .background(msg.hasPrefix("/") ? T.accent : T.panel)
+                    .foregroundStyle(msg.hasPrefix("/") ? .black : T.accent)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
             TextField(question != nil ? "responda a pergunta…" : "fale com o agente… ( / skills )", text: $msg, axis: .vertical)
                 .font(.footnote)
                 .padding(10)
@@ -275,10 +311,16 @@ struct TaskDetailView: View {
             Button {
                 Task { await send() }
             } label: {
-                if sending { ProgressView().tint(T.accent) }
-                else { Image(systemName: "paperplane.fill").foregroundStyle(T.accent).font(.title3) }
+                Group {
+                    if sending { ProgressView().tint(.black) }
+                    else { Image(systemName: "paperplane.fill").font(.body) }
+                }
+                .frame(width: 40, height: 36)
+                .background(msg.trimmingCharacters(in: .whitespaces).isEmpty ? T.panel : T.accent)
+                .foregroundStyle(msg.trimmingCharacters(in: .whitespaces).isEmpty ? T.dim : .black)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .disabled(sending || msg.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(sending || msg.trimmingCharacters(in: .whitespaces).isEmpty || msg.hasPrefix("/"))
         }
         .padding(10)
         .background(T.bg)

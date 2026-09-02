@@ -77,9 +77,18 @@ struct TasksView: View {
     @ViewBuilder
     private func section(_ title: String, _ list: [CloudTask], empty: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(.caption, design: .monospaced).bold())
-                .foregroundStyle(T.dim).kerning(1)
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(.caption, design: .monospaced).bold())
+                    .foregroundStyle(T.dim).kerning(1)
+                if !list.isEmpty {
+                    Text("\(list.count)")
+                        .font(.system(.caption2, design: .monospaced).bold())
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(T.line).foregroundStyle(T.text.opacity(0.8))
+                        .clipShape(Capsule())
+                }
+            }
             if list.isEmpty {
                 Text(empty).font(.caption).foregroundStyle(T.dim.opacity(0.6))
             }
@@ -129,6 +138,11 @@ struct TasksView: View {
             }
         }
         .card()
+        .overlay(alignment: .leading) {
+            // faixa de status à esquerda — leitura de relance, como no desktop
+            UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10)
+                .fill(st.1.opacity(0.75)).frame(width: 3)
+        }
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isWaiting ? T.warn.opacity(0.55) : .clear, lineWidth: 1.5))
     }
 
