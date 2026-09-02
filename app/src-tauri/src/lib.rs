@@ -3061,8 +3061,16 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
             }
         }
     }
+    // O --url do cloudflared precisa ser a ORIGEM (scheme://host:porta) — com
+    // caminho ele registra mas não roteia (530). O caminho/subpágina volta na
+    // URL pública pelo chamador. E o Host reescrito pro host local faz o Vite
+    // (e afins) aceitarem a requisição sem nenhuma config no projeto.
+    let rest = url.trim_start_matches("http://").trim_start_matches("https://");
+    let host_header = rest.split('/').next().unwrap_or("127.0.0.1").to_string();
+    let scheme = if url.starts_with("https://") { "https" } else { "http" };
+    let origin = format!("{scheme}://{host_header}");
     let mut cmd = Command::new(&bin);
-    cmd.args(["tunnel", "--no-autoupdate", "--url", &url]);
+    cmd.args(["tunnel", "--no-autoupdate", "--http-host-header", &host_header, "--url", &origin]);
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -3116,6 +3124,8 @@ pub fn run() {
     // registra o bundle nas notificações UMA vez (senão a lib cai no Editor de Script)
     let _ = mac_notification_sys::set_application("dev.constellation.app");
     web_log("[rust] app iniciou".to_string());
+    // túneis órfãos de instâncias anteriores (setsid sobrevive ao app): limpa
+    let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())

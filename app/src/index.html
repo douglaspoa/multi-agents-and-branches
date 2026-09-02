@@ -3598,7 +3598,9 @@ function taskPreviewUrl(taskId){
 // túnel criptografado → publica no cartão da nuvem → o app do celular mostra o botão
 async function mobilePreview(taskId, url, silent){
   try{
-    const pub=await invoke('tunnel_start',{ taskId, url });
+    let pub=await invoke('tunnel_start',{ taskId, url });
+    // o túnel é da ORIGEM — devolve o caminho/subpágina anunciados na URL pública
+    try{ const u=new URL(url); pub=pub.replace(/\/$/,'')+u.pathname+u.search; }catch(_){ }
     const cid=tmap()[taskId];
     if(cid && SB.sess()){
       try{
