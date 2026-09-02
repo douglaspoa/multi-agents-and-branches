@@ -21,13 +21,18 @@ struct TasksView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(T.warn) }
-                section("● RODANDO AGORA", doing, empty: "nenhum agente rodando")
-                section("◆ PRONTAS PRA REVIEW", review, empty: "nada esperando review")
-                section("○ BACKLOG", backlog, empty: "backlog vazio")
-                section("✓ FINALIZADAS", Array(done.prefix(20)), empty: "—")
+                if !loaded {
+                    BoardSkeleton()
+                } else {
+                    if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(T.warn) }
+                    section("● RODANDO AGORA", doing, empty: "nenhum agente rodando")
+                    section("◆ PRONTAS PRA REVIEW", review, empty: "nada esperando review")
+                    section("○ BACKLOG", backlog, empty: "backlog vazio")
+                    section("✓ FINALIZADAS", Array(done.prefix(20)), empty: "—")
+                }
             }
             .padding(14)
+            .animation(.easeOut(duration: 0.25), value: loaded)
         }
         .background(T.bg)
         .refreshable { await load() }

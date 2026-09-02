@@ -24,6 +24,7 @@ struct TaskDetailView: View {
     @State private var sending = false
     @State private var question: Question? = nil
     @State private var error = ""
+    @State private var ticked = false   // 1º ciclo de dados completo → sai o esqueleto
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +32,9 @@ struct TaskDetailView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        if feed.isEmpty {
+                        if feed.isEmpty && !ticked {
+                            FeedSkeleton().padding(.top, 12)
+                        } else if feed.isEmpty {
                             Text("esperando o agente… os passos aparecem aqui ao vivo")
                                 .font(.footnote).foregroundStyle(T.dim).padding(.top, 30)
                                 .frame(maxWidth: .infinity)
@@ -176,6 +179,7 @@ struct TaskDetailView: View {
            let qs = try? JSONDecoder().decode([Question].self, from: d) {
             await MainActor.run { question = qs.first }
         }
+        await MainActor.run { if !ticked { withAnimation(.easeOut(duration: 0.25)) { ticked = true } } }
     }
 
     private func send() async {

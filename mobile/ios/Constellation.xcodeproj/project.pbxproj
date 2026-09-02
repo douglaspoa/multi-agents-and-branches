@@ -17,6 +17,7 @@
 		CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15609A2FE9DB55DA327F7617 /* PushManager.swift */; };
 		D3C533444B71C46AA35E4976 /* Supa.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192B4419693C35BD2702929E /* Supa.swift */; };
 		E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F8F6081FFC033EA789D55E /* QuestionsView.swift */; };
+		F56813BE6263E24BE93B4D69 /* Skeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */; };
 		FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4394FB044411B6D91726BA1E /* TasksView.swift */; };
 /* End PBXBuildFile section */
 
@@ -33,6 +34,7 @@
 		7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		7F06584523C9DFF7B3567892 /* Constellation.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Constellation.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		95F19BEBDCD6A770493FE488 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skeleton.swift; sourceTree = "<group>"; };
 		BDA0728D17FC058100F378C6 /* ConstellationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstellationApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -56,6 +58,7 @@
 				15609A2FE9DB55DA327F7617 /* PushManager.swift */,
 				35F8F6081FFC033EA789D55E /* QuestionsView.swift */,
 				7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */,
+				A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */,
 				192B4419693C35BD2702929E /* Supa.swift */,
 				4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */,
 				4394FB044411B6D91726BA1E /* TasksView.swift */,
@@ -101,6 +104,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					0FF7E273784683E0EAE68CFA = {
+						DevelopmentTeam = SUB6889LA9;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 1DFAF64A913C1485604D4AEA /* Build configuration list for PBXProject "Constellation" */;
@@ -134,6 +141,7 @@
 				CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */,
 				E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */,
 				5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */,
+				F56813BE6263E24BE93B4D69 /* Skeleton.swift in Sources */,
 				D3C533444B71C46AA35E4976 /* Supa.swift in Sources */,
 				2A162FBF5119DEE9ED6A94A8 /* TaskDetailView.swift in Sources */,
 				FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */,
@@ -148,9 +156,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -231,9 +240,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

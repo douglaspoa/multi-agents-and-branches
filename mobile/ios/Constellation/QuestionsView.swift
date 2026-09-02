@@ -13,6 +13,10 @@ struct QuestionsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
+                if !loaded {
+                    QuestionCardSkeleton()
+                    QuestionCardSkeleton()
+                }
                 if !error.isEmpty {
                     Text(error).font(.footnote).foregroundStyle(T.warn)
                 }
@@ -33,6 +37,7 @@ struct QuestionsView: View {
                 }
             }
             .padding(14)
+            .animation(.easeOut(duration: 0.25), value: loaded)
         }
         .background(T.bg)
         .refreshable { await load() }
