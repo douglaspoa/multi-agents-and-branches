@@ -11,6 +11,7 @@ struct TasksView: View {
     @State private var error = ""
     @State private var showNew = false
     @State private var openTaskId: String? = nil
+    @EnvironmentObject var router: PushRouter
 
     private var doing: [CloudTask] { tasks.filter { $0.flag != "closed" && ["running", "thinking", "queued", "plan-review", "error", "conflict"].contains($0.status) } }
     private var review: [CloudTask] { tasks.filter { $0.flag != "closed" && ["review", "delivered"].contains($0.status) } }
@@ -43,8 +44,13 @@ struct TasksView: View {
         .navigationDestination(item: $openTaskId) { id in
             TaskDetailView(taskId: id, title: tasks.first(where: { $0.id == id })?.title ?? "Tarefa")
         }
+        .onChange(of: router.openTaskId) { _, id in
+            // toque numa notificação → abre o detalhe da tarefa (aba Minhas)
+            if mine, let id { openTaskId = id; router.openTaskId = nil }
+        }
         .task {
             await load()
+            if mine, let id = router.openTaskId { openTaskId = id; router.openTaskId = nil }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(6))
                 await load()

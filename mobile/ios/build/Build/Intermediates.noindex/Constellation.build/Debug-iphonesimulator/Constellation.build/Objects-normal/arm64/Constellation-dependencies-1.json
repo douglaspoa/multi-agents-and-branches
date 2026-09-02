@@ -197,6 +197,13 @@
     "moduleName" : "Accessibility"
   },
   {
+    "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/iPhoneSimulator.platform\/Developer\/SDKs\/iPhoneSimulator.sdk\/System\/Library\/Frameworks\/BackgroundTasks.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/douglassobreira\/Documents\/Git branches with agents\/multi-agents-and-branches\/mobile\/ios\/build\/ModuleCache.noindex\/BackgroundTasks-2PHSCU5Z0LCFYCXZ3FX42KDQT.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "BackgroundTasks"
+  },
+  {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/iPhoneSimulator.platform\/Developer\/SDKs\/iPhoneSimulator.sdk\/System\/Library\/Frameworks\/CFNetwork.framework\/Modules\/module.modulemap",
     "clangModulePath" : "\/Users\/douglassobreira\/Documents\/Git branches with agents\/multi-agents-and-branches\/mobile\/ios\/build\/ModuleCache.noindex\/CFNetwork-C3ZMPYJWRUY9JYGM1C30AHHUX.pcm",
     "isBridgingHeaderDependency" : false,

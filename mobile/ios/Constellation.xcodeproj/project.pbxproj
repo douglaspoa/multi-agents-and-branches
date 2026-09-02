@@ -14,12 +14,14 @@
 		77EEFAFACA1D5D5A187E6E3A /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F19BEBDCD6A770493FE488 /* LoginView.swift */; };
 		82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */; };
 		C179EC5E709344409D7B782F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 387991461E9C1C80C2CB9F32 /* Theme.swift */; };
+		CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15609A2FE9DB55DA327F7617 /* PushManager.swift */; };
 		D3C533444B71C46AA35E4976 /* Supa.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192B4419693C35BD2702929E /* Supa.swift */; };
 		E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F8F6081FFC033EA789D55E /* QuestionsView.swift */; };
 		FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4394FB044411B6D91726BA1E /* TasksView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		15609A2FE9DB55DA327F7617 /* PushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushManager.swift; sourceTree = "<group>"; };
 		192B4419693C35BD2702929E /* Supa.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supa.swift; sourceTree = "<group>"; };
 		33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewTaskView.swift; sourceTree = "<group>"; };
 		342ABDAB30C51C6523955582 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -51,6 +53,7 @@
 				95F19BEBDCD6A770493FE488 /* LoginView.swift */,
 				5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */,
 				33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */,
+				15609A2FE9DB55DA327F7617 /* PushManager.swift */,
 				35F8F6081FFC033EA789D55E /* QuestionsView.swift */,
 				7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */,
 				192B4419693C35BD2702929E /* Supa.swift */,
@@ -128,6 +131,7 @@
 				77EEFAFACA1D5D5A187E6E3A /* LoginView.swift in Sources */,
 				82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */,
 				5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */,
+				CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */,
 				E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */,
 				5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */,
 				D3C533444B71C46AA35E4976 /* Supa.swift in Sources */,

@@ -15,6 +15,8 @@ targets:
         UILaunchScreen: {}
         UIUserInterfaceStyle: Dark
         ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [dev.constellation.refresh]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile

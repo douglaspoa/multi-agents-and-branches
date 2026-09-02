@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var supa: Supa
+    @EnvironmentObject var router: PushRouter
     @State private var openCount = 0
     @State private var tab: Int = {
         #if DEBUG
@@ -48,12 +49,20 @@ struct RootView: View {
             .tabItem { Label("Conta", systemImage: "gearshape") }.tag(2)
         }
         .tint(T.accent)
+        .onChange(of: router.goToQuestions) { _, go in
+            if go { tab = 0; router.goToQuestions = false }
+        }
+        .onChange(of: router.openTaskId) { _, id in
+            if id != nil { tab = 1 } // aba Minhas abre o detalhe (TasksView consome)
+        }
         .task {
             while !Task.isCancelled {
                 if let d = try? await supa.rest("questions?select=id&status=eq.open&limit=50"),
                    let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] {
                     await MainActor.run { openCount = arr.count }
                 }
+                // pergunta nova → banner local na hora, mesmo com o app aberto
+                await PushManager.checkQuestionsAndNotify()
                 try? await Task.sleep(for: .seconds(7))
             }
         }

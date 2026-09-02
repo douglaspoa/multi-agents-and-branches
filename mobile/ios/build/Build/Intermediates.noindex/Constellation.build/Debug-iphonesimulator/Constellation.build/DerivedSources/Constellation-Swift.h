@@ -346,6 +346,10 @@ extern "C" {
 #if __has_warning("-Watimport-in-framework-header")
 #pragma clang diagnostic ignored "-Watimport-in-framework-header"
 #endif
+@import Foundation;
+@import ObjectiveC;
+@import UIKit;
+@import UserNotifications;
 #endif
 
 #endif // defined(__OBJC__)
@@ -367,6 +371,38 @@ extern "C" {
 #endif
 
 #if defined(__OBJC__)
+
+@class UIApplication;
+@class NSData;
+@class UNUserNotificationCenter;
+@class UNNotification;
+@class UNNotificationResponse;
+/// Push + notificações locais:
+/// <ul>
+///   <li>
+///     pede permissão e registra o token APNs na nuvem (device_tokens) — pronto
+///     pro remetente quando a chave da conta Apple existir;
+///   </li>
+///   <li>
+///     mostra banner mesmo com o app em primeiro plano;
+///   </li>
+///   <li>
+///     toque na notificação → abre a tarefa/pergunta;
+///   </li>
+///   <li>
+///     BGAppRefresh: com o app em background, re-checa perguntas abertas e
+///     dispara notificação LOCAL (funciona hoje, sem conta Apple).
+///   </li>
+/// </ul>
+SWIFT_CLASS("_TtC13Constellation11PushManager")
+@interface PushManager : NSObject <UIApplicationDelegate, UNUserNotificationCenterDelegate>
+- (BOOL)application:(UIApplication * _Nonnull)application didFinishLaunchingWithOptions:(NSDictionary<UIApplicationLaunchOptionsKey, id> * _Nullable)launchOptions SWIFT_WARN_UNUSED_RESULT;
+- (void)application:(UIApplication * _Nonnull)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData * _Nonnull)deviceToken;
+- (void)application:(UIApplication * _Nonnull)application didFailToRegisterForRemoteNotificationsWithError:(NSError * _Nonnull)error;
+- (void)userNotificationCenter:(UNUserNotificationCenter * _Nonnull)center willPresentNotification:(UNNotification * _Nonnull)notification withCompletionHandler:(void (^ _Nonnull)(UNNotificationPresentationOptions))completionHandler;
+- (void)userNotificationCenter:(UNUserNotificationCenter * _Nonnull)center didReceiveNotificationResponse:(UNNotificationResponse * _Nonnull)response withCompletionHandler:(void (^ _Nonnull)(void))completionHandler;
+- (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
+@end
 
 #endif // defined(__OBJC__)
 #if __has_attribute(external_source_symbol)
