@@ -2342,6 +2342,28 @@ fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<Fi
     Ok(FileContent { content, added_lines: added })
 }
 
+/// Diff unificado de UM arquivo da tarefa (tela de Revisão do redesign):
+/// git diff base -- path na worktree, com contexto de 3 linhas.
+#[tauri::command(async)]
+fn file_diff(state: State<AppState>, task_id: String, path: String) -> Result<String, String> {
+    safe_rel(&path)?;
+    let (wt, base) = task_wt_base(&state, &task_id)?;
+    let base = task_diff_base(&wt, &base);
+    let out = Command::new("git")
+        .arg("-C").arg(&wt)
+        .args(["diff", "--unified=3", &base, "--", &path])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+    // arquivo NOVO (untracked) não aparece no diff → mostra o conteúdo como adição
+    if text.trim().is_empty() {
+        if let Ok(content) = std::fs::read_to_string(wt.join(&path)) {
+            text = content.lines().map(|l| format!("+{l}\n")).collect();
+        }
+    }
+    Ok(text.chars().take(200_000).collect())
+}
+
 /// Renomeia a branch de uma tarefa existente (git branch -m) + atualiza o DB.
 #[tauri::command]
 fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
@@ -3262,6 +3284,7 @@ pub fn run() {
             list_projects,
             projects_overview,
             repo_checks,
+            file_diff,
             open_project,
             switch_project,
             remove_project,

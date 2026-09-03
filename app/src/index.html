@@ -195,6 +195,10 @@
   .topsearchwrap:focus-within{border-color:var(--accent)}
   .topsearch{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:12px}
   @media (max-width:1180px){ .topsearchwrap{min-width:150px} }
+  /* menu "mais" do topo — os botões secundários viram linhas de menu */
+  .moremenu{position:absolute;top:calc(100% + 6px);right:0;z-index:70;min-width:230px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:6px;display:flex;flex-direction:column;gap:2px}
+  .moremenu .btn{width:100%;justify-content:flex-start;border:0;background:transparent;padding:8px 10px}
+  .moremenu .btn:hover{background:var(--surface-2)}
   .repoinput:focus{outline:2px solid var(--accent);outline-offset:-1px}
   /* editor de agentes & equipes */
   .modal.wide{width:min(760px,100%)}
@@ -368,7 +372,8 @@
   .errbox{background:color-mix(in srgb,var(--crit) 13%,var(--surface));border:.5px solid var(--crit);color:var(--text);border-radius:var(--r-sm);padding:9px 11px;margin-bottom:12px;font-size:12.5px;line-height:1.45}
   /* aba Fluxo */
   #flowPane{padding:12px 12px 20px}
-  .ffbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px}
+  .ffbar{display:block;margin-bottom:2px}
+  .ffbar .ftabs{margin-bottom:14px}
   .ffchips{display:flex;flex-wrap:wrap;gap:6px}
   .fchip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
   .fchip:hover{background:var(--surface-2)}
@@ -536,6 +541,30 @@
   /* aba Time: o espaço do time toma a largura inteira (sem régua nem painel) */
   .body.teamfull{grid-template-columns:1fr}
   .body.teamfull .rail,.body.teamfull .side{display:none}
+  /* HOME do redesign: no Fluxo o painel lateral some e a topo-navegação antiga também */
+  .body.flowmode{grid-template-columns:250px 1fr}
+  .body.flowmode .side{display:none}
+  .body.flowmode .chead{display:none}
+  .ftabs{display:flex;align-items:center;gap:20px;padding:6px 2px 0;border-bottom:1px solid var(--border);margin-bottom:12px}
+  .ftabs .ft{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:7px 2px 9px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .ftabs .ft:hover{color:var(--text-2)}
+  .ftabs .ft.on{color:var(--text);border-bottom-color:var(--accent)}
+  .ftabs .fvic{border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;border-radius:7px;padding:5px 7px;display:flex;align-items:center}
+  .ftabs .fvic:hover{color:var(--text);background:var(--surface-2)}
+  /* linha de demanda (lista da Central, redesign p2) */
+  .frow{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface);margin-bottom:8px;cursor:pointer;min-width:0}
+  .frow:hover{border-color:var(--border-strong);background:var(--surface-3)}
+  .frow .d{width:8px;height:8px;border-radius:99px;flex:none}
+  .frow .ti{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:1}
+  .frow .prj{font-family:var(--mono,ui-monospace,monospace);font-size:10.5px;color:var(--muted);flex:none}
+  .frow .seg5{display:flex;gap:3px;flex:none}
+  .frow .seg5 i{width:26px;height:3px;border-radius:99px;background:var(--border-strong)}
+  .frow .seg5 i.on{background:var(--good)}
+  .frow .seg5 i.warn{background:var(--warn)}
+  .frow .msg{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:60px}
+  .frow .tm{font-family:var(--mono,ui-monospace,monospace);font-size:10.5px;color:var(--muted);flex:none}
+  .frow .ini2{width:20px;height:20px;border-radius:99px;display:grid;place-items:center;font-size:8.5px;font-weight:800;color:#08110c;flex:none}
+  .frow.done{opacity:.55}
   .rail{border-right:1px solid var(--border);background:var(--surface);overflow:auto;min-height:0}
   .feed{background:var(--surface-2);min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .chead{display:flex;align-items:center;gap:10px;padding:9px 12px;flex:none}
@@ -593,7 +622,17 @@
   .rproj .rph .n{font-family:var(--mono,ui-monospace,monospace);font-size:10.5px;color:var(--muted)}
   .rpt{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2);padding:2px 0 0 2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .rpt .d{width:6px;height:6px;border-radius:99px;flex:none}
-  .rpfoot{font-size:10.5px;color:var(--muted);padding:8px 14px 12px;border-top:1px dashed var(--border);margin-top:8px}
+  .rpfoot{font-size:10.5px;color:var(--muted);padding:10px 14px 12px;border-top:1px dashed var(--border);margin-top:10px}
+  /* linhas de sessão da sidebar por projeto */
+  .rproj .rph b{font-family:var(--mono,ui-monospace,monospace);font-size:12px}
+  .prow2{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 22px;margin:0 6px;border-radius:7px;cursor:pointer;font-size:12.5px}
+  .prow2:hover{background:var(--surface-2)}
+  .prow2.sel{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+  .prow2 .d{width:7px;height:7px;border-radius:99px;flex:none}
+  .prow2 .tt{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .prow2 .tg{font-size:9.5px;letter-spacing:.04em;flex:none;opacity:.9}
+  .prow2.other .tt{color:var(--text-2)}
+  #rail{padding-top:8px}
   .rsub.crit{color:var(--crit)}
   .lrow{display:grid;grid-template-columns:auto auto 1fr auto;gap:9px;align-items:center;padding:8px 12px;border:1px solid transparent;cursor:pointer;min-width:0}
   .lrow:hover{background:var(--surface-2)}
@@ -763,12 +802,56 @@
   /* ===== workspace 3 colunas (arquivos · código · chat) ===== */
   /* deixa o topo livre: não cobrir os controles da janela (semáforo do macOS) */
   .fwoverlay{top:34px;padding:0 12px 12px;align-items:stretch;justify-content:stretch}
-  .fw{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 0 0;display:flex;flex-direction:column;overflow:hidden}
+  .fw{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 0 0;display:flex;flex-direction:column;overflow:hidden;position:relative}
   .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2)}
   .fwhead b{font-size:13.5px}
   .fwhead .fwsub{font-size:11px;color:var(--muted)}
   .fwhead .x{margin-left:auto;border:0;background:transparent;color:var(--muted);cursor:pointer}
   .fwcols{flex:1;display:grid;grid-template-columns:238px 1fr 348px;min-height:0;transition:grid-template-columns .28s ease}
+  /* modos da tela de execução (redesign p6/p11/p12/p14) */
+  .fwcols.m-conversa{grid-template-columns:1fr 330px}
+  .fwcols.m-conversa .fwmain{display:none}
+  .fwcols.m-conversa .fwchat{order:1;border-left:0;border-right:1px solid var(--border)}
+  .fwcols.m-conversa .fwtree{order:2;border-right:0}
+  .fwcols.m-codigo,.fwcols.m-revisao{grid-template-columns:240px 1fr}
+  .fwcols.m-codigo .fwchat,.fwcols.m-revisao .fwchat{display:none}
+  .fwcols.m-pr{grid-template-columns:1fr}
+  .fwcols.m-pr .fwchat,.fwcols.m-pr .fwtree{display:none}
+  /* stepper flutuante (p11) */
+  .fwstep{position:absolute;left:14px;bottom:14px;z-index:5}
+  .fwstep .chip{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border-strong);border-radius:99px;padding:7px 13px;cursor:pointer;box-shadow:0 8px 26px rgba(0,0,0,.4);font-family:var(--mono,ui-monospace,monospace);font-size:11px;color:var(--text-2)}
+  .fwstep .pd2{width:7px;height:7px;border-radius:99px;background:var(--border-strong)}
+  .fwstep .pd2.done{background:var(--good)}
+  .fwstep .pd2.cur{background:transparent;border:1.5px solid var(--good)}
+  .fwstep .pop{position:absolute;left:0;bottom:calc(100% + 8px);min-width:180px;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:8px}
+  .fwstep .pop .pi{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:12.5px;color:var(--muted)}
+  .fwstep .pop .pi:hover{background:var(--surface-2)}
+  .fwstep .pop .pi.done{color:var(--text-2)}
+  .fwstep .pop .pi.cur{color:var(--text);font-weight:700}
+  /* diff da Revisão (p12) */
+  .fwdiff{flex:1;overflow:auto;font-family:var(--mono,ui-monospace,monospace);font-size:11.8px;line-height:1.55;padding:8px 0;-webkit-user-select:text;user-select:text}
+  .fwdiff .dl{display:flex;white-space:pre;padding:0 14px}
+  .fwdiff .dl .dn{width:44px;color:var(--muted);opacity:.6;flex:none;text-align:right;padding-right:12px}
+  .fwdiff .dl.add{background:color-mix(in srgb,var(--good) 9%,transparent)}
+  .fwdiff .dl.add .dtx{color:color-mix(in srgb,var(--good) 70%,var(--text))}
+  .fwdiff .dl.del{background:color-mix(in srgb,var(--crit) 10%,transparent)}
+  .fwdiff .dl.del .dtx{color:color-mix(in srgb,var(--crit) 72%,var(--text))}
+  .fwdiff .dl.hunk{color:var(--muted);opacity:.7;padding-top:8px}
+  .fwrevband{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);padding:9px 14px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+  /* página do PR dentro do workspace (p14) */
+  .prpage{flex:1;overflow:auto;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:0;min-height:0}
+  .prpage .prleft{padding:22px 28px;border-right:1px solid var(--border);overflow:auto}
+  .prpage .prright{padding:22px 24px;overflow:auto}
+  .prpage h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:20px 0 6px;font-family:var(--mono,ui-monospace,monospace)}
+  .prpage .prcmt{margin-bottom:10px}
+  /* rótulo do agente na conversa + opções de pergunta inline */
+  .cwho{font-family:var(--mono,ui-monospace,monospace);font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--muted);margin:2px 0 3px}
+  .askopts{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+  .askopts button{border:1px solid var(--warn);background:transparent;color:var(--warn);font:inherit;font-size:12px;font-weight:600;border-radius:8px;padding:6px 12px;cursor:pointer}
+  .askopts button:hover{background:color-mix(in srgb,var(--warn) 14%,transparent)}
+  .fwtreefoot{margin-top:auto;border-top:1px dashed var(--border);padding:10px 6px 4px;display:flex;flex-direction:column;gap:7px;font-size:11.5px;color:var(--muted)}
+  .fwtreefoot .r{display:flex;justify-content:space-between}
+  .fwtreefoot .r b{font-family:var(--mono,ui-monospace,monospace);color:var(--text-2);font-weight:600}
   .fwtree{border-right:1px solid var(--border);overflow:auto;padding:10px 8px;display:flex;flex-direction:column;background:var(--surface-2)}
   .fwtreeh{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:2px 4px 8px}
   .fwtreebody{display:flex;flex-direction:column;gap:1px}
@@ -1215,15 +1298,20 @@
     <button class="btn" id="connectBtn" style="display:none">abrir</button>
     <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     <span class="grow" data-tauri-drag-region></span>
-    <div class="topsearchwrap"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" style="opacity:.55"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg><input id="topSearch" class="topsearch" placeholder="buscar demanda…" spellcheck="false"><span class="kbd" style="opacity:.5">⌘K</span></div>
+    <div class="topsearchwrap"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" style="opacity:.55"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg><input id="topSearch" class="topsearch" placeholder="Buscar tarefa ou projeto…" spellcheck="false"><span class="kbd" style="opacity:.5">⌘K</span></div>
     <span class="grow" data-tauri-drag-region></span>
     <button class="btn" id="updBtn" style="display:none;background:color-mix(in srgb,var(--accent) 18%,var(--surface));border-color:var(--accent);color:var(--accent);font-weight:700" title="versão nova disponível — clique pra atualizar e reabrir">⬆ atualizar</button>
+    <div style="position:relative" id="moreWrap">
+    <button class="btn" id="moreBtn" title="mais — chat do projeto, daily, configurações, ambiente" style="position:relative"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="8" cy="3.2" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="12.8" r="1.3"/></svg><span id="moreDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
+    <div class="moremenu" id="moreMenu" style="display:none">
     <button class="btn" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg></button>
     <button class="btn" id="dailyBtn" title="Daily — resumo do que você fez no dia"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke-linecap="round"/><path d="M5 9.5l1.6 1.6L11 7.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg></button>
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
-    <button class="btn" id="cloudBtn" title="Time na nuvem — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
+    </div>
+    </div>
+    <button class="btn" id="cloudBtn" title="Time na nuvem — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
     <button class="btn primary" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova demanda</button>
   </div>
 
@@ -1231,9 +1319,8 @@
 
   <div class="body">
     <div class="rail">
-      <div class="lbl">Execução ao vivo</div>
       <div id="rail"></div>
-      <div id="railProj"></div>
+      <div id="railProj" style="display:none"></div>
     </div>
     <div class="feed">
       <div class="chead">
@@ -1429,7 +1516,7 @@
     <div class="mbody">
       <div class="dim" style="font-size:12px;margin-bottom:12px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div>
       <div id="howOpts"></div>
-      <details style="margin-top:8px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo e limites</summary>
+      <details style="margin-top:8px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
           <div><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
           <div><label>Limite de custo (aviso)</label><input class="in" id="howCost" type="number" min="0" step="1" style="width:100%"></div>
@@ -1475,7 +1562,8 @@
       <button class="btn primary sm" id="fwPush" title="commita o que estiver solto e faz push da branch — o PR atualiza na hora"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px"><path d="M8 12.5v-8M4.5 8L8 4.5 11.5 8" stroke-linecap="round" stroke-linejoin="round"/></svg> commit &amp; push</button>
       <button class="btn sm" id="fwClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
     </div>
-    <div class="fwcols">
+    <div class="fwstep" id="fwStepChip"></div>
+    <div class="fwcols" id="fwCols">
       <div class="fwtree" id="fwTree"></div>
       <div class="fwmain" id="fwMain"></div>
       <div class="fwchat" id="fwChatCol"></div>
@@ -2380,9 +2468,15 @@ function fwTreeHtml(node, depth){
   }
   return h;
 }
+let fwMode='conversa';   // conversa | codigo | revisao | pr (modos da tela de execução)
+let fwDiffCache={};      // taskId:path → texto do diff (tela de Revisão)
 async function openWorkspace(taskId, path){
   fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false;
   fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig=''; fwAgentSel=null;
+  // modo inicial pela FASE da tarefa: PR aberto → página do PR; pronta → revisão; senão conversa
+  { const t=(state.tasks||[]).find(x=>x.id===taskId);
+    fwMode = path ? 'codigo' : (t&&t.prUrl&&t.status!=='draft') ? 'pr' : (t&&['review','delivered'].includes(t.status)) ? 'revisao' : 'conversa'; }
+  { const sc=document.getElementById('fwStepChip'); if(sc) sc.innerHTML=''; } // popover não vaza entre tarefas
   document.getElementById('fwOverlay').style.display='flex';
   renderWorkspace(); // abre NA HORA (skeleton); os dados chegam em paralelo
   const pFiles = invoke('task_files',{ taskId }).then(f=>{ fwFiles=f||[]; }).catch(()=>{ fwFiles=[]; });
@@ -2396,8 +2490,8 @@ async function openWorkspace(taskId, path){
 // busca só o que é NOVO (id > último) — payload minúsculo por tick
 async function fwFetchEvents(){
   if(!fwTask) return;
-  try{ const rows=await invoke('task_events',{ taskId:fwTask, sinceId:fwEvLast });
-    if(rows&&rows.length){ fwEvents.push(...rows); fwEvLast=rows[rows.length-1].id; } }catch(_){ }
+  try{ const rows=(await invoke('task_events',{ taskId:fwTask, sinceId:fwEvLast })||[]).filter(e=>e.id>fwEvLast);
+    if(rows.length){ fwEvents.push(...rows); fwEvLast=rows[rows.length-1].id; } }catch(_){ }
 }
 async function fwLoadFile(){
   if(!fwPath){ fwContent=''; fwAdded=[]; renderWorkspace(); return; }
@@ -2514,6 +2608,9 @@ function renderWorkspace(){
   { const t=fwTaskObj(); const p=document.getElementById('fwPhases'); if(p&&t) p.innerHTML=phasesHtml(t); }
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
   { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.toggle('chatwide', fwChatWide); }
+  // modo da tela (conversa · código · revisão · PR) — layout muda junto
+  { const cols=document.getElementById('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr'); cols.classList.add('m-'+fwMode); } }
+  renderFwStep(t);
   // preserva o que está sendo digitado no chat entre re-renders
   const ai=document.activeElement, keepInput=(ai&&ai.id==='fwInput'), inEl=document.getElementById('fwInput'), inVal=inEl?inEl.value:null, inCaret=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
   document.getElementById('fwTaskName').textContent=t.title;
@@ -2538,10 +2635,17 @@ function renderWorkspace(){
   const body = fwFiles.length
     ? (fwGroupMode==='deliverable'&&canDeliv ? fwDelivHtml(fwFiles, dels) : `<div class="fwtreebody">${fwTreeHtml(fwBuildTree(fwFiles),0)}</div>`)
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos (.cardume/refs) e os artefatos aparecem aqui ao vivo</div>';
-  tree.innerHTML=`<div class="fwtreeh">Arquivos desta tarefa</div>`+
+  const tActive=ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy;
+  const cost=taskCost(t.id);
+  const liveAll=(state.tasks||[]).filter(x=>ACTIVE_ST.has(x.status)||x.status==='thinking').length;
+  const treeFoot = fwMode==='conversa'
+    ? `<div class="fwtreefoot"><div class="r"><span>slots em paralelo</span><b>${liveAll}/${slotMax}</b></div><div class="r"><span>custo até agora</span><b>${cost.usd>0?fmtUsd(cost.usd):'—'}</b></div></div>`
+    : '';
+  tree.innerHTML=`<div class="fwtreeh">${fwMode==='revisao'?'Arquivos alterados':tActive?'Arquivos sendo alterados':'Arquivos desta tarefa'}</div>`+
     (canDeliv?`<div class="fwgtoggle"><button class="fwgbtn${fwGroupMode==='folder'?' on':''}" data-fwg="folder">Pastas</button><button class="fwgbtn${fwGroupMode==='deliverable'?' on':''}" data-fwg="deliverable">Entregáveis</button></div>`:'')+
     body+
-    `<div class="fwtreehint">${fwGroupMode==='deliverable'?'Vínculo por palavra-chave — o arquivo aparece sob o entregável que ele parece atender.':'Selecione linhas no código e pergunte ao agente que escreveu.'}</div>`;
+    (fwMode==='conversa'?'':`<div class="fwtreehint">${fwGroupMode==='deliverable'?'Vínculo por palavra-chave — o arquivo aparece sob o entregável que ele parece atender.':'Selecione linhas no código e pergunte ao agente que escreveu.'}</div>`)+
+    treeFoot;
   tree.querySelectorAll('[data-fwg]').forEach(b=>b.onclick=()=>{ fwGroupMode=b.dataset.fwg; renderWorkspace(); });
   // status por arquivo (redesign p6): tocado há <3min = EDITANDO; resto = CONCLUÍDO
   if(fwFiles.length && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy)){
@@ -2558,7 +2662,7 @@ function renderWorkspace(){
       b.insertAdjacentHTML('beforeend', `<span class="fwst ${isHot?'ed':'ok'}">${isHot?'editando':'concluído'}</span>`);
     });
   }
-  tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=()=>{ fwPath=b.dataset.fwf; fwEditing=false; fwLoadFile(); });
+  tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=()=>{ fwPath=b.dataset.fwf; fwEditing=false; if(fwMode==='conversa'||fwMode==='pr') fwMode='codigo'; fwLoadFile(); renderWorkspace(); });
   tree.querySelectorAll('[data-fwdir]').forEach(b=>b.onclick=()=>{ const p=b.dataset.fwdir; if(fwCollapsed.has(p)) fwCollapsed.delete(p); else fwCollapsed.add(p); renderWorkspace(); });
   // ---- coluna 2: código (visualizar + editar inline) ----
   const main=document.getElementById('fwMain');
@@ -2567,7 +2671,9 @@ function renderWorkspace(){
   const lines=fwContent.split('\n');
   const why = reviewOf(t.id)?reviewOf(t.id).summary : t.objective;
   const whyBand = `<div class="fwwhy"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div><span class="fwwhyl">Por que este arquivo</span> <span class="fwwhyt">${esc(why)}</span></div></div>`;
-  if(!fwPath){ main.innerHTML='<div class="empty">selecione um arquivo à esquerda</div>'; }
+  if(fwMode==='pr'){ fwRenderPrPage(t, main); }
+  else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
+  else if(!fwPath){ main.innerHTML='<div class="empty">selecione um arquivo à esquerda</div>'; }
   else {
     const headBtns = fwEditing
       ? `<button class="btn primary sm" id="fwSave">${IC.check} salvar</button><button class="btn sm" id="fwCancel">cancelar</button>`
@@ -2584,7 +2690,8 @@ function renderWorkspace(){
       ${body}
       ${bar}`;
   }
-  if(fwEditing){
+  if(fwMode==='pr'||fwMode==='revisao'){ /* wiring próprio nas funções de página */ }
+  else if(fwEditing){
     const ta=document.getElementById('fwText'), gut=document.getElementById('fwGutter');
     if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); ta.focus(); }
     const sv=document.getElementById('fwSave'); if(sv) sv.onclick=fwSaveFile;
@@ -2620,6 +2727,8 @@ function renderWorkspace(){
   { const b=document.getElementById('fwQueue'); if(b) b.onclick=()=>fwSendMsg(true); }
   { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ try{ const ps=await invoke('pick_ref_files'); if(ps&&ps.length){ const i=document.getElementById('fwInput'); i.value=(i.value?i.value+'\n':'')+ps.map(p=>'Anexo: '+p).join('\n'); i.focus(); } }catch(_){} }; }
   chat.onclick=(e)=>{
+    const ao=e.target.closest('[data-askopt]');
+    if(ao){ const p=pendingOf(t.id)[0]; if(p){ ao.disabled=true; resolvePending(p.id, ao.dataset.askopt); } return; }
     const cp=e.target.closest('.ccopy');
     if(cp){ const bub=cp.parentElement; const cl=bub.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove()); try{ navigator.clipboard.writeText(cl.innerText.trim()); cp.textContent='✓'; setTimeout(()=>{cp.textContent='⧉';},900); }catch(_){} return; }
     const a=e.target.closest('[data-art]'); if(a){ openArtifact(t.id, a.dataset.art); return; }
@@ -2630,6 +2739,92 @@ function renderWorkspace(){
       if(last==='/'&&ws) fwShowMenu(t,'req'); else if(last==='@'&&ws) fwShowMenu(t,'ref'); else fwHideMenu(); }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
   const th=document.getElementById('fwThread'); if(th) th.scrollTop=th.scrollHeight;
 }
+// ---- stepper flutuante da tela de execução (redesign p11) ----
+function renderFwStep(t){
+  const el=document.getElementById('fwStepChip'); if(!el||!t) return;
+  const ph=taskPhase(t);
+  const dots=PHASES.map((_,i)=>`<span class="pd2${i+1<ph?' done':i+1===ph?' cur':''}"></span>`).join('');
+  const wasOpen=(document.getElementById('fwStepPop')||{}).style?.display==='block';
+  el.innerHTML=`<div class="pop" id="fwStepPop" style="display:${wasOpen?'block':'none'}">${PHASES.map((n,i)=>`<div class="pi${i+1<ph?' done':''}${i+1===ph?' cur':''}" data-ph="${i+1}"><span class="pd2${i+1<ph?' done':i+1===ph?' cur':''}"></span>${esc(n)}</div>`).join('')}</div>
+    <div class="chip" id="fwStepBtn">${dots}<span>${esc(PHASES[ph-1])}</span></div>`;
+  const pop=document.getElementById('fwStepPop');
+  document.getElementById('fwStepBtn').onclick=(e)=>{ e.stopPropagation(); pop.style.display=pop.style.display==='none'?'block':'none'; };
+  el.querySelectorAll('.pi').forEach(p=>p.onclick=()=>{
+    const n=+p.dataset.ph; pop.style.display='none';
+    if(n===4) fwMode='revisao';
+    else if(n===5) fwMode=t.prUrl?'pr':'revisao';
+    else fwMode='conversa';
+    renderWorkspace();
+  });
+}
+// ---- Revisão: diff de verdade por arquivo (redesign p12) ----
+function fwRenderDiff(t, main){
+  if(!fwPath && fwFiles.length) fwPath=fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
+  const key=t.id+':'+fwPath;
+  if(fwPath && fwDiffCache[key]===undefined){
+    fwDiffCache[key]=null;
+    invoke('file_diff',{ taskId:t.id, path:fwPath }).then(d=>{ fwDiffCache[key]=d||''; if(fwTask===t.id&&fwMode==='revisao') renderWorkspace(); }).catch(()=>{ fwDiffCache[key]=''; });
+  }
+  const rev=reviewOf(t.id);
+  const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
+  const band=`<div class="fwrevband">${rev?`<b>${esc((rev.summary||'').slice(0,90))}</b>`:'<b>revisão da entrega</b>'}${rev&&rev.howToTest?`<span class="dim" style="margin-left:4px">· como testar: ${esc(rev.howToTest.slice(0,120))}</span>`:''}<span style="flex:1"></span><button class="btn sm" id="fwBackConv">← conversa</button></div>`;
+  let rows='';
+  const diff=fwPath?fwDiffCache[key]:'';
+  if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
+  else if(diff==null) rows='<div class="dim" style="padding:14px">carregando o diff…</div>';
+  else {
+    let oldLn=0, newLn=0;
+    rows=diff.split('\n').map(l=>{
+      if(l.startsWith('diff --git')||l.startsWith('index ')||l.startsWith('--- ')||l.startsWith('+++ ')||l.startsWith('new file')||l.startsWith('deleted file')) return '';
+      if(l.startsWith('@@')){
+        const m=l.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        if(m){ oldLn=+m[1]; newLn=+m[2]; }
+        return `<div class="dl hunk"><span class="dn"></span><span class="dtx">${esc(l)}</span></div>`;
+      }
+      if(l.startsWith('+')) return `<div class="dl add"><span class="dn">${newLn++}</span><span class="dtx">${esc(l)||' '}</span></div>`;
+      if(l.startsWith('-')) return `<div class="dl del"><span class="dn">${oldLn++}</span><span class="dtx">${esc(l)||' '}</span></div>`;
+      const n=newLn++; oldLn++;
+      return `<div class="dl"><span class="dn">${n}</span><span class="dtx">${esc(l)||' '}</span></div>`;
+    }).join('');
+  }
+  main.innerHTML=`<div class="fwmhead"><span class="fwmpath mono">${esc(fwPath||'')}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff">${rows}</div>`;
+  { const b=document.getElementById('fwBackConv'); if(b) b.onclick=()=>{ fwMode='conversa'; renderWorkspace(); }; }
+}
+// ---- página do PR dentro da execução (redesign p14) ----
+function fwRenderPrPage(t, main){
+  const info=prCache[t.id];
+  if(info===undefined){ loadPr(t.id).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); }); main.innerHTML='<div class="empty">carregando o PR…</div>'; return; }
+  if(!info||!info.exists){ main.innerHTML='<div class="empty">nenhum PR aberto ainda — aprove a entrega na Revisão pra abrir um.</div>'; return; }
+  const ign=prIgnSet(t.id);
+  const cKey=c=>String(c.id ?? ((c.author||'')+':'+(c.body||'').slice(0,40)));
+  const cmts=(info.comments||[]).filter(c=>!c.inReplyTo);
+  const openCmts=cmts.filter(c=>!c.answered && !ign.has(cKey(c)));
+  const dec=info.decision||'';
+  const decBadge=dec==='APPROVED'?'<span class="prbadge ok">✓ aprovado</span>':dec==='CHANGES_REQUESTED'?'<span class="prbadge chg">mudanças pedidas</span>':'<span class="prbadge">aguardando review</span>';
+  const cmHtml=cmts.length?cmts.map((c,ci)=>{ const done=c.answered, skip=!done&&ign.has(cKey(c));
+    return `<div class="prcmt${c.isBot?' bot':''}${done?' ok':''}"><div class="prcmt-h"><span class="prau">${esc(c.author)}${c.isBot?' <span class="botag">bot</span>':''}</span>${c.path?`<span class="prloc mono">${esc(c.path)}${c.line?':'+c.line:''}</span>`:'<span class="prloc">conversa</span>'}${done?'<span class="prbadge ok">✔ respondido</span>':skip?'<span class="prbadge">ignorado</span>':''}</div><div class="prcmt-b"${(done||skip)?' style="opacity:.55"':''}>${chatMd((c.body||'').slice(0,700))}</div>${(!done&&!skip)?`<div class="prcmt-acts"><button class="btn primary sm" data-prfix="${ci}" style="padding:4px 10px;font-size:11px">${IC.ai} aplicar correção</button><button class="btn sm" data-prign="${escA(cKey(c))}" style="padding:4px 10px;font-size:11px">ignorar</button></div>`:''}</div>`;
+  }).join(''):'<div class="dim" style="font-size:12px">sem comentários ainda — o link já está com o time.</div>';
+  main.innerHTML=`<div class="prpage">
+    <div class="prleft">
+      <div style="display:flex;align-items:baseline;gap:10px"><span class="mono" style="color:var(--accent);font-size:15px">#${info.number}</span><b style="font-size:17px">${esc(t.title)}</b></div>
+      <div class="mono dim" style="font-size:11px;margin-top:5px">${esc(t.branch)} → ${esc(lsGet('prBase:'+t.id)||'main')} · ${esc((info.state||'').toLowerCase())} ${decBadge}</div>
+      <div style="margin-top:14px;font-size:13px;line-height:1.6" class="prbody">${chatMd(info.body||'_sem descrição_')}</div>
+      <div style="display:flex;gap:8px;margin-top:18px"><button class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button class="btn sm" id="prPgCopy">copiar link</button><button class="btn sm" id="prPgRefresh">atualizar</button></div>
+    </div>
+    <div class="prright">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span class="mono" style="font-size:11px;letter-spacing:.08em;color:var(--muted)">COMENTÁRIOS · ${cmts.length}</span><span style="flex:1"></span><button class="btn primary" id="prPgMerge" style="background:var(--accent);font-weight:700">${IC.merge} Merge PR</button></div>
+      ${cmHtml}
+      ${openCmts.length>1?`<button class="btn primary sm" id="prPgAll" style="margin-top:6px">${IC.ai} corrigir todos os ${openCmts.length} em aberto</button>`:''}
+    </div>
+  </div>`;
+  { const b=document.getElementById('prPgOpen'); if(b) b.onclick=()=>openExternal(info.url); }
+  { const b=document.getElementById('prPgCopy'); if(b) b.onclick=()=>copyLink(info.url,b); }
+  { const b=document.getElementById('prPgRefresh'); if(b) b.onclick=async()=>{ await loadPr(t.id,true); renderWorkspace(); }; }
+  { const b=document.getElementById('prPgMerge'); if(b) b.onclick=()=>mergePr(t.id); }
+  { const b=document.getElementById('prPgAll'); if(b) b.onclick=()=>{ reworkFromPr(t.id); fwMode='conversa'; renderWorkspace(); }; }
+  main.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; try{ await prFixOne(t.id,+b.dataset.prfix); fwMode='conversa'; }finally{ renderWorkspace(); } });
+  main.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id,b.dataset.prign); renderWorkspace(); });
+}
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
 function chatMd(t){ try{ return mdToHtml(String(t||'')); }catch(_){ return esc(String(t||'')); } }
 const mdMemo=new Map(); // evId:len → html (evita re-parsear a thread toda a cada tick)
@@ -2637,21 +2832,34 @@ function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(
 // notas "de sistema" (não são fala do agente) viram linha discreta central
 function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
+// rótulo do modelo do agente na conversa (redesign p6: "VEGA · Opus")
+function agentModelLabel(t, name){
+  const r=(t.roles||[]).find(x=>x.name===name);
+  const m=String((r&&r.model)||t.model||'').toLowerCase();
+  const M={ opus:'Opus', sonnet:'Sonnet', haiku:'Haiku' };
+  const k=Object.keys(M).find(k=>m.includes(k));
+  return k?('Claude '+M[k]):'Claude';
+}
 function fwThreadHtml(t){
   const evs=fwEvents.length?fwEvents:eventsOf(t.id); // completos (fallback: snapshot)
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
+  let lastWho='';
   return evs.map(e=>{
     const tx=e.text||'';
-    if(e.agent==='Você' && tx.startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
-    if(tx.startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`;
+    if(e.agent==='Você' && tx.startsWith('💬')){ lastWho=''; return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`; }
+    if(tx.startsWith('humano respondeu:')){ lastWho=''; return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`; }
     if(isMetaNote(tx)) return `<div class="csys">${esc(tx)}</div>`;
     if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) return ''; // a pergunta já aparece no card destacado
-    if(['think','note','done'].includes(e.type) && tx.trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div>`;
+    if(['think','note','done'].includes(e.type) && tx.trim()){
+      const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';
+      lastWho=e.agent;
+      return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`;
+    }
     if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`;
     return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(tx)}</span></div>`;
   }).join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}<div class="asknote">↳ responda abaixo — o turno continua</div></div></div>`:'')
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${esc(((asking[0].agent||t.agent)||'?').slice(0,2).toUpperCase())}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
   + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
 }
 // requisitos com status ao vivo (o "no que ele está trabalhando")
@@ -2843,10 +3051,12 @@ function prPrepOpen(taskId, base){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
   const ov=document.getElementById('prepOverlay'); ov.style.display='flex';
   document.getElementById('prepBody').innerHTML=`
+    <div class="dim" style="font-size:12.5px;margin-bottom:6px">Rodando as checagens do repo antes de abrir</div>
     <div class="prepstep" id="prep1"><span class="ps run">◌</span><div style="flex:1"><b>Checagens do repo</b><div class="dim psd" id="prep1d" style="font-size:11.5px">rodando lint/testes na worktree…</div></div></div>
     <div class="prepstep" id="prep2"><span class="ps">·</span><div style="flex:1"><b>Commit &amp; push</b><div class="dim psd" id="prep2d" style="font-size:11.5px">aguardando</div></div></div>
     <div class="prepstep" id="prep3"><span class="ps">·</span><div style="flex:1"><b>Abrir o PR</b><div class="dim psd" id="prep3d" style="font-size:11.5px">base <b>${esc(base||'main')}</b></div></div></div>
-    <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn primary" id="prepForce" style="display:none">abrir mesmo assim</button></div>`;
+    <div class="dim" style="font-size:11px;text-align:center;margin-top:12px">isso leva alguns segundos — pode continuar em outra aba</div>
+    <div style="display:flex;gap:8px;margin-top:12px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn primary" id="prepForce" style="display:none">abrir mesmo assim</button></div>`;
   const close=()=>{ ov.style.display='none'; };
   document.getElementById('prepClose').onclick=close;
   document.getElementById('prepCancelB').onclick=close;
@@ -2880,7 +3090,8 @@ async function prPrepFinish(t, base){
   try{
     const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBodyOf(t) });
     prepMark(3,'ok', url?`<button class="btn sm" onclick="openExternal('${escA(url)}')" style="margin-top:4px">${esc(url.replace('https://',''))} ↗</button>`:'PR aberto');
-    prCache[t.id]=undefined; await loadPr(t.id,true); lastSig=''; renderSide(); if(typeof renderWorkspace==='function'&&fwTask===t.id) renderWorkspace();
+    prCache[t.id]=undefined; await loadPr(t.id,true); lastSig=''; renderSide();
+    if(typeof renderWorkspace==='function'&&fwTask===t.id){ fwMode='pr'; renderWorkspace(); }
   }catch(e){ prepMark(3,'fail', esc(String(e))); }
 }
 async function openPr(t){
@@ -2930,6 +3141,9 @@ function render(){
   }
   const v = (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow";
   document.querySelector(".body").classList.toggle("teamfull", v==="team");
+  // HOME do redesign: no Fluxo a navegação antiga some e o painel lateral também
+  document.querySelector(".body").classList.toggle("flowmode", v==="flow");
+  if(chead && !noRepo) chead.style.display = v==="flow" ? "none" : "flex";
   document.getElementById("flowPane").style.display = v==="flow"?"block":"none";
   document.getElementById("kanbanPane").style.display = v==="kanban"?"block":"none";
   document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
@@ -3034,10 +3248,15 @@ function wireLinkChips(root){
   root.querySelectorAll('[data-lk]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openExternal(b.dataset.lk); }; });
   root.querySelectorAll('[data-lkcfg]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openCfg(); }; });
 }
+let flowScope=lsGet('flowScope')||'all';   // all | mine | done (abas da Central)
+let ffAdvOpen=false;                        // filtros avançados recolhidos por padrão
 function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
+  const scopeOk=t=> flowScope==='done'
+    ? (t.flag==='closed'||['merged','done'].includes(t.status))
+    : notHidden(t);
   return tasks.filter(t=>
-    notHidden(t) &&
+    scopeOk(t) &&
     (flowStatus==='all'||taskGroup(t)===flowStatus) &&
     (flowType==='all'||taskType(t)===flowType) &&
     inPeriod(t) &&
@@ -3065,7 +3284,17 @@ function renderFlowFilters(){
   const tyCount=k=>byPeriod.filter(t=>taskType(t)===k).length;
   const tyOpts=[['all','Todos os tipos']].concat(['build','design','invest','fix','review'].filter(k=>tyCount(k)>0).map(k=>[k, TYPE_PT[k]+' ('+tyCount(k)+')']))
     .map(([k,l])=>`<option value="${k}"${flowType===k?' selected':''}>${l}</option>`).join('');
-  el.innerHTML =
+  // abas da Central (redesign p2): Tudo · Minhas · Do time · Concluídas + vistas
+  const TABS=[['all','Tudo'],['mine','Minhas'],['team','Do time'],['done','Concluídas']];
+  const tabsHtml=`<div class="ftabs">`+
+    TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}">${l}</button>`).join('')+
+    `<span class="grow"></span>`+
+    `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic" data-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
+    `<button class="fvic" data-view="graph" title="Grafo de branches"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="8" r="1.6"/><path d="M4 5.6v4.8M5.6 4.6C8 6 10 6.5 10.4 7.4" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic" data-view="feed" title="Atividade"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 8h2.6l1.7-4 2.4 8 1.7-4h2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`+
+    `</div>`;
+  const advHtml=`<div class="ffadv" style="display:${ffAdvOpen?'flex':'none'};flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">`+
     `<div class="ffchips">${stChips}</div>`+
     `<select class="sel" id="ffType">${tyOpts}</select>`+
     `<select class="sel" id="ffPeriod">${peOpts}</select>`+
@@ -3073,7 +3302,15 @@ function renderFlowFilters(){
     `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select>`+
     `<span class="grow"></span>`+
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
-    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div>`;
+    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div></div>`;
+  el.innerHTML = tabsHtml + advHtml;
+  el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.ftab;
+    if(k==='team'){ setView('team'); return; }
+    flowScope=k; lsSet('flowScope',k); lastSig=''; renderFlow();
+  });
+  el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+  { const b=el.querySelector('#ffMore'); if(b) b.onclick=()=>{ ffAdvOpen=!ffAdvOpen; lastSig=''; renderFlow(); }; }
   el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
   document.getElementById('ffType').onchange=(e)=>{ flowType=e.target.value; lastSig=''; renderFlow(); };
@@ -3117,6 +3354,41 @@ function renderFlowHead(){
     <div class="seg2" style="align-self:center"><button data-fv="list" class="${flowView==='list'?'on':''}" title="lista"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke-linecap="round"/></svg></button><button data-fv="grid" class="${flowView==='grid'?'on':''}" title="grade"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button></div>`;
   el.querySelectorAll('[data-fv]').forEach(b=>b.onclick=()=>{ flowView=b.dataset.fv; lsSet('flowView',flowView); lastSig=''; renderFlow(); });
 }
+// linha compacta da Central (redesign p2): dot · título · projeto · progresso · status · avatar · tempo
+function flowTaskRow(t){
+  const asking=pendingOf(t.id);
+  const ph=taskPhase(t);
+  const done=['merged','done'].includes(t.status)||t.flag==='closed';
+  const dot= asking.length||t.status==='plan-review'?'var(--warn)'
+    : ['error','conflict'].includes(t.status)?'var(--crit)'
+    : (ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)'
+    : ['review','delivered'].includes(t.status)?'var(--warn)'
+    : 'var(--muted)';
+  const segs=[1,2,3,4,5].map(i=>`<i class="${i<=ph?((asking.length&&i===ph)?'on warn':'on'):''}"></i>`).join('');
+  const ev=lastEventOf(t.id);
+  const prN=(String(t.prUrl||'').match(/\/pull\/(\d+)/)||[])[1];
+  const msg= asking.length ? `${esc(asking[0].agent||t.agent)} perguntou — ${esc((asking[0].prompt||'').slice(0,70))}`
+    : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
+    : t.status==='draft' ? 'rascunho — inicie quando quiser'
+    : done ? (prN?`PR #${prN} · merged`:'concluída')
+    : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
+    : ['review','delivered'].includes(t.status) ? `${(diffOf(t.id)?.files||[]).length||''} arquivo(s) alterado(s), pronta pra revisar`
+    : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,70))}`
+    : 'iniciando…';
+  const proj=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'';
+  const agoP=(ms)=>{ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; };
+  const tm=agoP(ev?+new Date(ev.ts):(t.createdAt||t.created_at));
+  const play=t.status==='draft'?`<button class="kplay" data-rowplay="${escA(t.id)}" title="iniciar">${IC.cright}</button>`:'';
+  return `<div class="frow${done?' done':''}" data-id="${t.id}">
+    <span class="d" style="background:${dot}"></span>
+    ${play}<span class="ti">${esc(t.title)}</span>
+    <span class="prj">${esc(proj)}</span>
+    <span class="seg5">${segs}</span>
+    <span class="msg">${msg}</span>
+    <span class="ini2" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
+    <span class="tm">${tm}</span>
+  </div>`;
+}
 function renderFlow(){
   if(flowDragId) return;   // não re-renderiza no meio de um arrasto
   renderFlowHead();
@@ -3132,26 +3404,38 @@ function renderFlow(){
     : vis.sort((a,b)=> b.created_at-a.created_at);
   if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa neste filtro.</div>'; return; }
   const grouped = flowGroupBy==='day';
+  // lista = LINHAS compactas (redesign p2); grade = cards
+  const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowTaskRow(t));
   if(grouped){
     const g=new Map();
     for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
     const keys=[...g.keys()].sort((a,b)=>b-a);
-    el.innerHTML = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(t=>flowTaskCard(t)).join("")}</div>`).join("");
+    el.innerHTML = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("");
   } else if(hasManual){
-    el.innerHTML = tasks.map(t=>flowTaskCard(t)).join("");
+    el.innerHTML = tasks.map(t=>item(t)).join("");
   } else {
     // AGRUPADO POR ESTADO (redesign "Central de execuções")
     const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
     el.innerHTML = FLOW_SECS.map(([k,label,tone,acc])=>{
       const list=by[k]||[]; if(!list.length) return '';
-      const cards=list.map(t=>flowTaskCard(t, acc)).join("");
+      const cards=list.map(t=>item(t, acc)).join("");
       return `<div class="secgrp"><div class="sech ${tone}">${esc(label)} <span class="n">${list.length}</span></div>${cards}${k==='andamento'?'':''}</div>`;
     }).join("") + ghost;
     const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask;
   }
   wireLinkChips(el);
+  // linha → abre a tela de execução direto (fluxo do redesign)
+  el.querySelectorAll('.frow').forEach(row=>{
+    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay]')) return;
+      const t=(state.tasks||[]).find(x=>x.id===row.dataset.id); if(!t) return;
+      selected=t.id; render();
+      if(t.status==='draft'){ return; }
+      openWorkspace(t.id);
+    };
+  });
+  el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('.fcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); };
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
     if(grouped) return;   // arrastar só faz sentido na lista plana
     card.setAttribute('draggable','true');
     card.addEventListener('dragstart',e=>{ flowDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
@@ -3813,54 +4097,54 @@ function setSlotMax(n){ slotMax=Math.max(1,Math.min(12,n)); lsSet('slotMax',Stri
 function lastEventOf(taskId){ const es=eventsOf(taskId); return es.length?es[es.length-1]:null; }
 // Rail = monitor de EXECUÇÃO AO VIVO (não duplica o Fluxo): só o que acontece agora.
 function renderRail(){
+  // sidebar por PROJETO (redesign p2/p6): projeto atual com as sessões vivas,
+  // depois os outros repos salvos, e o total no rodapé.
   const el = document.getElementById("rail");
-  if(state.tasks.length===0){ el.innerHTML = '<div class="empty">nenhuma tarefa.<br>clique em <b>+ Nova tarefa</b> e conecte ao repo.</div>'; return; }
-  const asking  = state.tasks.filter(t=>pendingOf(t.id).length || t.status==='plan-review');
-  const running = state.tasks.filter(t=>(ACTIVE_ST.has(t.status)||t.status==='paused') && !pendingOf(t.id).length && t.status!=='plan-review');
-  const liveN = asking.length + running.length;
-  let html = "";
-  // medidor de slots: quantas execuções em paralelo vs. o limite confortável
-  const slotDots = Array.from({length:slotMax},(_,i)=>`<span class="slotdot${i<liveN?' on':''}"></span>`).join('')+(liveN>slotMax?`<span class="slotdot over on"></span>`.repeat(Math.min(liveN-slotMax,3)):'');
-  html += `<div class="slots${liveN>slotMax?' over':''}"><div class="slotinfo"><b>${liveN}</b> em paralelo <span class="slotlim">/ ${slotMax} slots</span></div><div class="slotdots">${slotDots}</div><div class="slotstep"><button class="sbtn" data-slot="-" title="menos slots">−</button><button class="sbtn" data-slot="+" title="mais slots">+</button></div></div>`;
-  if(asking.length){
-    html += '<div class="rsub crit">Precisa de você</div>';
-    html += asking.map(t=>{
-      const p=pendingOf(t.id)[0];
-      const isPlan=!p && t.status==='plan-review';
-      const msg=p ? (p.prompt||'aguardando sua resposta') : 'plano pronto — aprove pra continuar';
-      return `<div class="lrow ask${t.id===selected?' sel':''}" data-id="${t.id}" data-pending="${p?p.id:''}">
-        <span class="pulse" style="--pc:var(--crit)"></span>
-        <span class="ini" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
-        <div class="lrt"><div class="nm">${esc(t.agent)} ${isPlan?'<span class="stg">plano</span>':'<span class="qbadge">'+IC.q+'</span>'}</div>
-        <div class="act">${esc(msg)}</div></div></div>`;
-    }).join("");
+  const curPath=state.repo||'';
+  const curName=curPath.split('/').filter(Boolean).slice(-1)[0]||'projeto';
+  const tagOf=(t)=>{
+    if(pendingOf(t.id).length) return ['⏳','var(--warn)'];
+    if(t.status==='plan-review') return ['plano','var(--warn)'];
+    if(t.prUrl&&t.status!=='merged') return ['PR','var(--info,#5b9df9)'];
+    if(['review','delivered'].includes(t.status)) return ['rev','var(--warn)'];
+    if(t.status==='queued') return ['fila','var(--muted)'];
+    if(t.status==='paused') return ['pausa','var(--muted)'];
+    if(t.status==='draft') return ['rasc','var(--muted)'];
+    if(['error','conflict','aborted'].includes(t.status)) return ['erro','var(--crit)'];
+    const k=taskType(t);
+    return [k==='invest'?'disc':k==='design'?'design':'exec', ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'];
+  };
+  const dotOf=(t)=> pendingOf(t.id).length||t.status==='plan-review' ? 'var(--warn)'
+    : ['error','conflict'].includes(t.status) ? 'var(--crit)'
+    : (ACTIVE_ST.has(t.status)||t.status==='thinking') ? 'var(--good)'
+    : ['review','delivered'].includes(t.status) ? 'var(--warn)' : 'var(--muted)';
+  const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&!['merged','done'].includes(t.status));
+  const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
+  const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| (b.createdAt||b.created_at)-(a.createdAt||a.created_at)).slice(0,12);
+  const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
+  let html=`<div class="rproj on"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length||'—'}</span></div></div>`;
+  html += rows.length ? rows.map(t=>{ const [tg,tc]=tagOf(t);
+    return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
+  }).join('') : '<div class="dim" style="font-size:11.5px;padding:4px 16px 8px">nenhuma sessão — crie uma demanda</div>';
+  // outros projetos (visão multi-repo)
+  const others=(projOv||[]).filter(p=>p.path!==curPath && (p.active+p.review>0));
+  for(const p of others){
+    html+=`<div class="rproj" data-proj="${escA(p.path)}"><div class="rph"><b>${esc(p.name)}</b><span class="n">${p.active+p.review}</span></div></div>`;
+    html+=(p.tasks||[]).slice(0,4).map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
   }
-  if(running.length){
-    html += '<div class="rsub">Rodando agora</div>';
-    html += running.map(t=>{
-      const paused=t.status==='paused';
-      const col=STATUS_COLOR[t.status]||'var(--good)';
-      const ev=lastEventOf(t.id);
-      const act = paused ? 'pausada — retome quando quiser' : (ev ? `${GLYPH[ev.type]||'·'} ${ev.text}` : 'iniciando…');
-      const acts = paused
-        ? `<button class="lract" data-run="resume" data-id="${t.id}" title="retomar">${IC.cright}</button><button class="lract danger" data-run="abort" data-id="${t.id}" title="abortar">${IC.xs}</button>`
-        : `<button class="lract" data-run="pause" data-id="${t.id}" title="pausar">${IC.pause}</button><button class="lract danger" data-run="abort" data-id="${t.id}" title="abortar">${IC.xs}</button>`;
-      return `<div class="lrow run${paused?' paused':''}${t.id===selected?' sel':''}" data-id="${t.id}">
-        <span class="pulse${paused?' off':''}" style="--pc:${col}"></span>
-        <span class="ini" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
-        <div class="lrt"><div class="nm">${esc(t.agent)} <span class="stg">${paused?'pausada':esc(t.stage||'')}</span></div>
-        <div class="act mono">${esc(act)}</div></div>
-        <div class="lracts">${acts}</div></div>`;
-    }).join("");
-  }
-  if(!asking.length && !running.length){
-    html = '<div class="ridle"><span class="zdot"></span>nenhum agente trabalhando agora<div class="dim">as tarefas concluídas ficam no Fluxo →</div></div>';
-  }
+  const totalS=liveN+others.reduce((s,p)=>s+p.active+p.review,0);
+  const nProj=1+others.length;
+  html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
+    <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
   el.innerHTML = html;
-  el.querySelectorAll(".lrow").forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.lract')) return; selected=r.dataset.id; render(); const pid=r.dataset.pending; if(pid) openAsk(+pid); });
-  el.querySelectorAll(".lract").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const id=b.dataset.id, a=b.dataset.run;
-    if(a==='pause') pauseTask(id); else if(a==='resume') resumeTask(id); else if(a==='abort') abortTask(id); });
-  el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=()=>setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)));
+  el.querySelectorAll('.prow2').forEach(r=>r.onclick=()=>{
+    if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
+    const t=(state.tasks||[]).find(x=>x.id===r.dataset.id); if(!t) return;
+    selected=t.id; render();
+    if(t.status!=='draft') openWorkspace(t.id);
+  });
+  el.querySelectorAll('.rproj[data-proj]').forEach(r=>r.onclick=()=>switchProject(r.dataset.proj));
+  el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
 }
 
 // ---- sidebar por PROJETO (redesign p2): sessões de TODOS os repos salvos ----
@@ -3870,22 +4154,7 @@ async function railProjTick(){
   if(projOv && Date.now()-projOvAt<60000) return;
   try{ projOv=await invoke('projects_overview'); projOvAt=Date.now(); renderRailProj(); }catch(_){ }
 }
-function renderRailProj(){
-  const el=document.getElementById('railProj'); if(!el) return;
-  const list=(projOv||[]).filter(p=>p.active+p.review>0 || p.path===(state.repo||''));
-  if((projOv||[]).length<2){ el.innerHTML=''; return; }
-  const cur=state.repo||'';
-  const totalS=(projOv||[]).reduce((s,p)=>s+p.active+p.review,0);
-  const nProj=(projOv||[]).filter(p=>p.active+p.review>0).length;
-  const ST_CO={running:'var(--good)',thinking:'var(--good)',queued:'var(--muted)','plan-review':'var(--warn)',error:'var(--crit)',conflict:'var(--crit)',review:'var(--warn)',delivered:'var(--warn)'};
-  el.innerHTML='<div class="lbl" style="margin-top:14px">Projetos</div>'+
-    list.map(p=>{ const on=p.path===cur;
-      const rows=on?'' : (p.tasks||[]).slice(0,3).map(t=>`<div class="rpt"><span class="d" style="background:${ST_CO[t.status]||'var(--muted)'}"></span><span>${esc(t.title.slice(0,34))}</span></div>`).join('');
-      return `<div class="rproj${on?' on':''}" data-proj="${escA(p.path)}">
-        <div class="rph"><b>${esc(p.name)}</b><span class="n">${p.active?`<span style="color:var(--good)">●${p.active}</span>`:''}${p.review?` <span style="color:var(--warn)">◆${p.review}</span>`:''}${!p.active&&!p.review?'—':''}</span></div>${rows}</div>`; }).join('')+
-    `<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}</div>`;
-  el.querySelectorAll('.rproj').forEach(r=>r.onclick=()=>{ if(r.dataset.proj!==cur) switchProject(r.dataset.proj); });
-}
+function renderRailProj(){ safe(renderRail); } // a visão por projeto agora É a sidebar
 
 function renderFeed(){
   const el = document.getElementById("feed");
@@ -4258,13 +4527,25 @@ function ntMdRender(){
 function openHow(){
   const src=document.getElementById(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
   const opts=[...(src?src.options:[])].map(o=>({v:o.value,l:o.textContent})).filter(o=>o.v);
+  // corrente de avatares do fluxo (redesign p10)
+  const wfs=(state.config&&state.config.workflows)||[];
+  const byId=Object.fromEntries(((state.config&&state.config.agents)||[]).map(a=>[a.id,a]));
+  const chainOf=(wid)=>{
+    const w=wfs.find(x=>x.id===wid); if(!w) return '';
+    const team=(w.steps||[]).map(s=>byId[s]).filter(Boolean);
+    return team.length?`<span class="howchain">${team.map(a=>`<span class="fwav" style="background:${agentColor(a.name)};width:17px;height:17px;font-size:8px" title="${escA(a.name)}">${esc((a.name||'?').slice(0,1).toUpperCase())}</span>`).join('<span style="color:var(--muted);font-size:9px">→</span>')}</span>`:'';
+  };
   const items=[
-    { v:'', t:'Entrega simples', d:'só o builder, direto ao ponto — sem revisão adicional', rec:false },
-    ...opts.map((o,i)=>({ v:o.v, t:o.l, d:i===0?'planeja, implementa, testa e revisa antes de te trazer pra review':'fluxo/agente do time', rec:i===0 })),
+    { v:'', t:'Entrega simples', d:'só o builder, direto ao ponto — sem revisão adicional', rec:false, chain:'' },
+    ...opts.map((o,i)=>({ v:o.v, t:o.l, d:i===0?'planeja, implementa, testa e revisa antes de te trazer pra review':'fluxo do catálogo do time', rec:i===0, chain:chainOf(o.v), team:i>0 })),
   ];
   const cur=src?src.value:'';
   const box=document.getElementById('howOpts');
-  box.innerHTML=items.map((it,i)=>`<label class="howopt${(cur?it.v===cur:it.rec)?' on':''}"><input type="radio" name="howflow" value="${escA(it.v)}" ${(cur?it.v===cur:it.rec)?'checked':''}><span><span class="ht">${esc(it.t)}</span><div class="hd">${esc(it.d)}</div></span>${it.rec?'<span class="rec">RECOMENDADO</span>':''}</label>`).join('');
+  const optHtml=(it)=>`<label class="howopt${(cur?it.v===cur:it.rec)?' on':''}"><input type="radio" name="howflow" value="${escA(it.v)}" ${(cur?it.v===cur:it.rec)?'checked':''}><span><span class="ht">${esc(it.t)}</span>${it.chain?`<div style="margin:4px 0 2px;display:flex;align-items:center;gap:4px">${it.chain}</div>`:''}<div class="hd">${esc(it.d)}</div></span>${it.rec?'<span class="rec">RECOMENDADO</span>':''}</label>`;
+  const main2=items.filter(it=>!it.team), team2=items.filter(it=>it.team);
+  box.innerHTML=main2.map(optHtml).join('')+
+    (team2.length?`<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px"><span class="mono" style="font-size:10px;letter-spacing:.08em;color:var(--muted)">FLUXOS DO TIME</span><span style="flex:1"></span><button class="btn sm" id="howManage" style="padding:2px 8px;font-size:10.5px">gerenciar</button></div>`+team2.map(optHtml).join(''):'');
+  { const b=document.getElementById('howManage'); if(b) b.onclick=()=>{ closeHow(); openAgents(); }; }
   box.querySelectorAll('.howopt').forEach(l=>l.onclick=()=>{ box.querySelectorAll('.howopt').forEach(x=>x.classList.remove('on')); l.classList.add('on'); l.querySelector('input').checked=true; howAgentsRender(); });
   document.getElementById('howModel').value=(document.getElementById('ntModel')||{}).value||'';
   howAgentsRender();
@@ -4288,7 +4569,7 @@ function howAgentsRender(){
   const team=w?(w.steps||[]).map(s=>byId[s]).filter(Boolean):[];
   if(team.length<2){ el.innerHTML=''; return; }
   el.innerHTML=`<label>Modelo por agente <span class="dim" style="text-transform:none;letter-spacing:0">(sobrepõe o modelo geral)</span></label>`+
-    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" style="background:${agentColor(a.name)}">${esc((a.name||'?').slice(0,2).toUpperCase())}</span><span style="flex:1;font-size:12.5px">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:150px"><option value="">geral</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option></select></div>`).join('');
+    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" style="background:${agentColor(a.name)}">${esc((a.name||'?').slice(0,2).toUpperCase())}</span><span style="flex:1;font-size:12.5px">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
 }
 document.getElementById('howGo').onclick=()=>{
   const pick=document.querySelector('input[name="howflow"]:checked');
@@ -4901,6 +5182,15 @@ async function pickFolder(){
   }catch(err){ projErr=String(err); openProjMenu(); }
 }
 document.getElementById("newTaskBtn").onclick = openNewTask;
+// menu "mais" do topo (redesign: topbar enxuta)
+{ const mb=document.getElementById('moreBtn'), mm=document.getElementById('moreMenu');
+  if(mb&&mm){
+    mb.onclick=(e)=>{ e.stopPropagation(); mm.style.display=mm.style.display==='none'?'flex':'none'; };
+    document.addEventListener('click',(e)=>{ if(!e.target.closest('#moreWrap')) mm.style.display='none'; });
+    mm.addEventListener('click',()=>{ setTimeout(()=>{ mm.style.display='none'; },80); });
+    // o aviso de ambiente (envDot) reflete no botão do menu
+    setInterval(()=>{ const d=document.getElementById('envDot'), md=document.getElementById('moreDot'); if(d&&md) md.style.display=d.style.display; }, 3000);
+  } }
 // busca central do topo → filtra a Central de execuções (redesign p2)
 { const ts=document.getElementById('topSearch');
   if(ts){ ts.oninput=()=>{ flowQuery=ts.value; if(!activeIs('flow')) setView('flow'); lastSig=''; renderFlow(); };
