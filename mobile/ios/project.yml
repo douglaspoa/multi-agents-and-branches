@@ -21,6 +21,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [dev.constellation.refresh]
+        NSMicrophoneUsageDescription: "Responder aos agentes por voz — sua fala vira texto no campo de resposta."
+        NSSpeechRecognitionUsageDescription: "Transcrever sua fala em texto pra responder as perguntas dos agentes."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile

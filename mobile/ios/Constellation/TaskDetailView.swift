@@ -534,6 +534,7 @@ struct TaskDetailView: View {
                     .background(T.panel)
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                MicButton(text: $msg)
                 Button { Task { await send() } } label: {
                     Group {
                         if sending { ProgressView().tint(.black) }

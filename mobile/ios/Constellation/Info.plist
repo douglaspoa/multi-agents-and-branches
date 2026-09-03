@@ -26,6 +26,10 @@
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Responder aos agentes por voz — sua fala vira texto no campo de resposta.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcrever sua fala em texto pra responder as perguntas dos agentes.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

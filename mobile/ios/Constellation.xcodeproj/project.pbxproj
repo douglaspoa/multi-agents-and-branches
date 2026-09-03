@@ -16,6 +16,7 @@
 		5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */; };
 		77EEFAFACA1D5D5A187E6E3A /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F19BEBDCD6A770493FE488 /* LoginView.swift */; };
 		82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */; };
+		B6F6997F1728F5A214E436DA /* Speech.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */; };
 		C179EC5E709344409D7B782F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 387991461E9C1C80C2CB9F32 /* Theme.swift */; };
 		CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15609A2FE9DB55DA327F7617 /* PushManager.swift */; };
 		D012A516A9B7287637A747EA /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6D1939927FD6490D5CD700 /* TeamView.swift */; };
@@ -30,6 +31,7 @@
 		15609A2FE9DB55DA327F7617 /* PushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushManager.swift; sourceTree = "<group>"; };
 		192B4419693C35BD2702929E /* Supa.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supa.swift; sourceTree = "<group>"; };
 		24E3911EDDDC2995CFB26A47 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Speech.swift; sourceTree = "<group>"; };
 		33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewTaskView.swift; sourceTree = "<group>"; };
 		342ABDAB30C51C6523955582 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		35F8F6081FFC033EA789D55E /* QuestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionsView.swift; sourceTree = "<group>"; };
@@ -75,6 +77,7 @@
 				7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */,
 				54FEA05F261C25A7749DFF00 /* SettingsView.swift */,
 				A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */,
+				2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */,
 				192B4419693C35BD2702929E /* Supa.swift */,
 				4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */,
 				4394FB044411B6D91726BA1E /* TasksView.swift */,
@@ -174,6 +177,7 @@
 				5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */,
 				0F40468E0017FE99509F558F /* SettingsView.swift in Sources */,
 				F56813BE6263E24BE93B4D69 /* Skeleton.swift in Sources */,
+				B6F6997F1728F5A214E436DA /* Speech.swift in Sources */,
 				D3C533444B71C46AA35E4976 /* Supa.swift in Sources */,
 				2A162FBF5119DEE9ED6A94A8 /* TaskDetailView.swift in Sources */,
 				FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */,

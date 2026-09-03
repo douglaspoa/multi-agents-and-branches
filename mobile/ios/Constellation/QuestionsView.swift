@@ -93,6 +93,7 @@ struct QuestionsView: View {
                     .background(T.bg)
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(T.line))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                MicButton(text: $freeText)
                 Button {
                     let t = freeText.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !t.isEmpty else { return }
@@ -112,6 +113,18 @@ struct QuestionsView: View {
     }
 
     private func load() async {
+        // harness: pergunta fake local pra validar a UI sem tocar na nuvem
+        if ProcessInfo.processInfo.environment["DEMO_QUESTION"] != nil {
+            await MainActor.run {
+                self.questions = [Question(id: "demo-q", taskId: nil, agent: "backend-1",
+                    prompt: "Prefere migração com downtime zero (mais lenta) ou com janela de 5 min?",
+                    options: ["downtime zero", "janela de 5 min"],
+                    createdAt: ISO8601DateFormatter().string(from: Date()),
+                    task: Question.EmbeddedTask(title: "Migrar billing pra tabela nova"))]
+                self.loaded = true
+            }
+            return
+        }
         do {
             let data = try await supa.rest("questions?select=id,agent,prompt,options,created_at,tasks(title)&status=eq.open&order=created_at.desc&limit=30")
             let qs = try JSONDecoder().decode([Question].self, from: data)
