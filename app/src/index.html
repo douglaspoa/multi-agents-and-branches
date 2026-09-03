@@ -4740,8 +4740,9 @@ async function pickRefs(){ await pickRefsInto(ntRefs, renderNtRefs); }
 function renderNtList(id, arr){
   const el=document.getElementById(id);
   el.innerHTML = arr.length ? arr.map((v,i)=>`<div class="listrow"><input class="in" data-li="${i}" value="${escA(v)}" placeholder="descreva…"><button class="iconbtn" data-lrm="${i}" title="remover">${IC.trash}</button></div>`).join("") : '<div class="dim">nenhum item — clique "+ item"</div>';
-  el.querySelectorAll("[data-li]").forEach(inp=>inp.addEventListener("input",()=>{ arr[+inp.dataset.li]=inp.value; }));
-  el.querySelectorAll("[data-lrm]").forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.lrm,1); renderNtList(id,arr); });
+  el.querySelectorAll("[data-li]").forEach(inp=>inp.addEventListener("input",()=>{ arr[+inp.dataset.li]=inp.value; ntGate(); }));
+  el.querySelectorAll("[data-lrm]").forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.lrm,1); renderNtList(id,arr); ntGate(); });
+  if(typeof ntGate==='function') ntGate();
 }
 // ---- spec-first: campos obrigatórios por tipo + gate do Iniciar execução ----
 const NT_REQUIRED={
@@ -4754,6 +4755,10 @@ const NT_REQUIRED={
 function ntGate(){
   const req=NT_REQUIRED[ntMode]||[];
   const missing=req.filter(([id])=>{ const e=document.getElementById(id); return !e || !e.value.trim(); });
+  // requisito de entrega é OBRIGATÓRIO (mín. 1): sem critério verificável o agente
+  // não tem contra o que provar — e a checklist X/Y nasceria vazia
+  if(ntMode==='build' && !ntReq.filter(x=>x&&x.trim()).length) missing.push(['ntRequirements','pelo menos 1 requisito']);
+  if(ntMode==='fix' && !ntFixReq.filter(x=>x&&x.trim()).length) missing.push(['ntFixReqs','pelo menos 1 critério de aceite']);
   // estado por campo (redesign p8): borda verde = preenchido; âmbar = aguardando definição
   req.forEach(([id])=>{ const e=document.getElementById(id); if(!e) return; const ok=!!e.value.trim(); e.classList.toggle('okf',ok); e.classList.toggle('missf',!ok); });
   const btn=document.getElementById('ntCreate'); const ms=document.getElementById('ntMissing');
