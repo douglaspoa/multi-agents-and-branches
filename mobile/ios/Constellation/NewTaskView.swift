@@ -51,7 +51,8 @@ struct NewTaskView: View {
             Form {
                 Section {
                     Picker("Tipo", selection: $mode) {
-                        ForEach(Mode.allCases) { m in Text(m.rawValue).tag(m) }
+                        // rótulo curto — "Investigação" espremia os 4 segmentos
+                        ForEach(Mode.allCases) { m in Text(m == .invest ? "Invest." : m.rawValue).tag(m) }
                     }
                     .pickerStyle(.segmented)
                     Text(mode.hint).font(.caption2).foregroundStyle(T.dim)
@@ -150,7 +151,7 @@ struct NewTaskView: View {
             }
             .scrollContentBackground(.hidden)
             .background(T.bg)
-            .navigationTitle("Nova tarefa")
+            .navigationTitle("Nova demanda")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("fechar") { dismiss() } } }
             .task { await loadProjects() }
         }

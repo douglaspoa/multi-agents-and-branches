@@ -80,6 +80,9 @@ struct TaskDetailView: View {
         }
         .sheet(item: $proofUrl) { url in ProofSheet(url: url) }
         .task {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["DEMO_DETAIL_TAB"] == "1" { tab = 1 }
+            #endif
             while !Task.isCancelled { await tick(); try? await Task.sleep(for: .seconds(3)) }
         }
     }
@@ -232,7 +235,7 @@ struct TaskDetailView: View {
                             Text(s).font(.system(size: 13.5)).foregroundStyle(T.text2)
                         }
                     }
-                    if let st = t.spec?.stat {
+                    if let st = t.spec?.stat, (st.files ?? 0) > 0 || (st.add ?? 0) > 0 || (st.commits ?? 0) > 0 {
                         HStack(spacing: 14) {
                             if let f = st.files { statV("\(f)", "arquivos") }
                             if let a = st.add { statV("+\(a)", "linhas").foregroundStyle(T.accent) }
@@ -555,9 +558,16 @@ struct TaskDetailView: View {
 
     // ---- dados ----
     private func tick() async {
-        if let d = try? await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at,spec,requirements_proof&id=eq.\(taskId)"),
-           let ts = try? JSONDecoder().decode([CloudTask].self, from: d), let t = ts.first {
-            await MainActor.run { task = t; if t.spec?.previewUrl != nil { requestingTunnel = false } }
+        do {
+            let d = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at,spec,requirements_proof&id=eq.\(taskId)")
+            let ts = try JSONDecoder().decode([CloudTask].self, from: d)
+            if let t = ts.first {
+                await MainActor.run { task = t; if t.spec?.previewUrl != nil { requestingTunnel = false } }
+            } else {
+                print("[detail] tarefa \(taskId) não veio no select")
+            }
+        } catch {
+            print("[detail] tick falhou p/ \(taskId): \(error)")
         }
         if let d = try? await supa.rest("task_feed?select=id,agent,kind,text,at&task_id=eq.\(taskId)&id=gt.\(lastId)&order=id&limit=120"),
            let items = try? JSONDecoder().decode([FeedItem].self, from: d), !items.isEmpty {

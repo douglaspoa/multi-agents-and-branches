@@ -970,7 +970,8 @@
   .fwinput{border-top:1px solid var(--border);padding:10px 13px}
   .fwselchip{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-family:var(--mono);color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:6px;padding:3px 7px;margin-bottom:7px}
   .fwselx{border:0;background:transparent;color:var(--accent);cursor:pointer;font-size:10px;padding:0}
-  .fwinrow{display:flex;gap:7px;align-items:flex-end}
+  .fwinrow{display:flex;gap:7px;align-items:center}
+  .fwinrow .btn{white-space:nowrap;flex:none}
   .fwta{flex:1;resize:none;min-height:40px;line-height:1.45}
   /* ===== Planner (chat + TASK.yaml ao vivo) ===== */
   .pmdot{width:8px;height:8px;border-radius:50%;background:var(--warn)}
@@ -2801,8 +2802,8 @@ function renderWorkspace(){
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
-      <div class="fwinrow"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><textarea class="in fwta" id="fwInput" rows="2" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste… ( / skills · Enter envia)'}"></textarea>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div>
-      <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
+      <textarea class="in fwta" id="fwInput" rows="2" style="width:100%" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills )'}"></textarea>
+      <div class="fwinrow" style="margin-top:6px"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq"><span>vira <b>requisito</b></span></label><span style="flex:1"></span>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend" style="white-space:nowrap">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
   // expandir o chat = visão do PDF: conversa em quase toda a tela, SÓ a barra de

@@ -72,8 +72,12 @@ struct CentralView: View {
             await load()
             #if DEBUG
             if let tid = ProcessInfo.processInfo.environment["DEMO_OPEN_TASK"], !tid.isEmpty {
-                openTaskId = tid == "auto" ? (running.first ?? prOpen.first ?? tasks.first)?.id : tid
+                openTaskId = tid == "auto" ? (running.first ?? prOpen.first ?? ready.first ?? tasks.first)?.id
+                    : tid == "ready" ? (ready.first ?? tasks.first)?.id
+                    : tid == "pr" ? (prOpen.first ?? tasks.first)?.id
+                    : tid
             }
+            if ProcessInfo.processInfo.environment["DEMO_NEW"] == "1" { showNew = true }
             #endif
             if let id = router.openTaskId { openTaskId = id; router.openTaskId = nil }
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(6)); await load() }

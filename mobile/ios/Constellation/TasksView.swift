@@ -113,9 +113,11 @@ struct TasksView: View {
                     .foregroundStyle(T.warn)
             }
             Text(t.title).font(.subheadline).foregroundStyle(T.text).lineLimit(2)
+            PhaseBar(phase: T.phase(t))
             HStack(spacing: 8) {
                 Circle().fill(st.1).frame(width: 7, height: 7)
                 Text(st.0).font(.system(.caption2, design: .monospaced)).foregroundStyle(st.1)
+                    .lineLimit(1).fixedSize()
                 if let b = t.branch, let m = b.range(of: #"[A-Z]{2,10}-\d+"#, options: .regularExpression) {
                     Text(String(b[m])).font(.system(.caption2, design: .monospaced))
                         .padding(.horizontal, 5).padding(.vertical, 1)
