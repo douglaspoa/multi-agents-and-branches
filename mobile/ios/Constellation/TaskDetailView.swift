@@ -113,7 +113,17 @@ struct TaskDetailView: View {
         var bucket: [FeedItem] = []
         func flush() { if !bucket.isEmpty { out.append(.tech(bucket)); bucket = [] } }
         for f in feed {
-            let isTalk = ["note", "done", "error"].contains(f.kind) && f.text.count > 40 && !f.text.hasPrefix("$")
+            if f.text.hasPrefix("❓") { continue }   // duplica o "perguntou ao humano:" — o desktop também esconde
+            // resposta do humano vira bolha SUA
+            if f.text.hasPrefix("humano respondeu:") {
+                flush()
+                out.append(.talk(FeedItem(id: f.id, agent: f.agent, kind: f.kind,
+                                          text: "💬 " + f.text.replacingOccurrences(of: "humano respondeu: ", with: ""), at: f.at)))
+                continue
+            }
+            // fala do agente = think/note/done/error com texto de gente (o Mac publica
+            // o pensamento como kind "think" — é ELE a mensagem principal da conversa)
+            let isTalk = ["think", "note", "done", "error"].contains(f.kind) && f.text.count > 40 && !f.text.hasPrefix("$")
             let isYou = f.text.hasPrefix("💬")
             if isTalk || isYou { flush(); out.append(.talk(f)) } else { bucket.append(f) }
         }
@@ -121,9 +131,10 @@ struct TaskDetailView: View {
         return out
     }
 
+    @State private var lastScrolled = 0
     private var conversa: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if feed.isEmpty && !ticked { FeedSkeleton().padding(.top, 12) }
                     else if feed.isEmpty {
@@ -133,9 +144,14 @@ struct TaskDetailView: View {
                     ForEach(rows) { row in rowView(row).id(row.id) }
                 }
                 .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: feed.count) { _, _ in
-                if let last = rows.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                // rola SÓ quando chega linha realmente nova — sem dançar a cada poll
+                guard let last = rows.last, last.id != lastScrolled else { return }
+                lastScrolled = last.id
+                proxy.scrollTo(last.id, anchor: .bottom)
             }
         }
     }
@@ -207,7 +223,7 @@ struct TaskDetailView: View {
 
     // ---- entrega (telas 03–04): requisitos, provas, PR ----
     private var entrega: some View {
-        ScrollView {
+        ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 18) {
                 if let t = task {
                     if let rev = t.spec?.review, let s = rev.summary, !s.isEmpty {
@@ -283,6 +299,7 @@ struct TaskDetailView: View {
                 } else { BoardSkeleton() }
             }
             .padding(16).padding(.bottom, 40)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

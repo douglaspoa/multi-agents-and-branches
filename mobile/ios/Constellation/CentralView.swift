@@ -52,6 +52,7 @@ struct CentralView: View {
                 }
             }
             .padding(16).padding(.bottom, 80)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(T.bg)
         .refreshable { await load() }
@@ -69,6 +70,11 @@ struct CentralView: View {
         .onChange(of: router.openTaskId) { _, id in if let id { openTaskId = id; router.openTaskId = nil } }
         .task {
             await load()
+            #if DEBUG
+            if let tid = ProcessInfo.processInfo.environment["DEMO_OPEN_TASK"], !tid.isEmpty {
+                openTaskId = tid == "auto" ? (running.first ?? prOpen.first ?? tasks.first)?.id : tid
+            }
+            #endif
             if let id = router.openTaskId { openTaskId = id; router.openTaskId = nil }
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(6)); await load() }
         }
