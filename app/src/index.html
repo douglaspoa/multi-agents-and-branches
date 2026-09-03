@@ -843,10 +843,15 @@
   .fwcols{flex:1;display:grid;grid-template-columns:238px 1fr 348px;min-height:0;transition:grid-template-columns .28s ease}
   /* modos da tela de execução (redesign p6/p11/p12/p14) */
   /* m-codigo = visão Cursor clássica (arquivos · código · chat) — é o padrão */
-  .fwcols.m-conversa{grid-template-columns:1fr 330px}
+  .fwcols>*{min-width:0} /* conteúdo largo (código/paths) não pode estourar a grade */
+  /* chat expandido: arquivos ficam à ESQUERDA (posição de sempre) e a conversa
+     ocupa o resto, centralizada numa largura de leitura */
+  .fwcols.m-conversa{grid-template-columns:300px 1fr}
   .fwcols.m-conversa .fwmain{display:none}
-  .fwcols.m-conversa .fwchat{order:1;border-left:0;border-right:1px solid var(--border)}
-  .fwcols.m-conversa .fwtree{order:2;border-right:0}
+  .fwcols.m-conversa .fwchat{border-left:0}
+  .fwcols.m-conversa .fwthread,.fwcols.m-conversa .fwinput,.fwcols.m-conversa .fwctx,.fwcols.m-conversa .fwchath{max-width:960px;margin-left:auto;margin-right:auto;width:100%}
+  .cbub{overflow-wrap:anywhere}
+  .cbub pre{overflow-x:auto;max-width:100%}
   /* o chat NASCE ABERTO em todos os modos — inclusive revisão e PR */
   .fwcols.m-revisao{grid-template-columns:240px 1fr 348px}
   .fwcols.m-revisao.chatwide{grid-template-columns:200px minmax(280px,.6fr) minmax(500px,1fr)}
@@ -2677,12 +2682,19 @@ function renderWorkspace(){
       const pvHtml=pctHtml+(pv?`<button class="btn sm" id="fwPv" data-url="${escA(pv)}" title="${escA(pv)}" style="color:var(--accent)">${IC.globe} ${esc(pv.replace(/^https?:\/\//,'').slice(0,26))}</button>`+
         (tun?`<button class="btn sm" id="fwPvOff" title="fecha o túnel do celular agora (${escA(tun)})" style="color:var(--warn)">${IC.phone} fechar acesso</button>`
             :`<button class="btn sm" id="fwPvMob" data-url="${escA(pv)}" title="túnel criptografado pra abrir este preview no seu celular">${IC.phone}</button>`):'');
+      // PR SEMPRE à mão: existe → página do PR; não existe → preparar e abrir
+      const prN2=(String(t.prUrl||'').match(/\/pull\/(\d+)/)||[])[1];
+      const prBtn = t.status==='draft' ? '' : (t.prUrl
+        ? `<button class="btn sm" id="fwPrGo" title="página do PR — corpo, comentários, merge" style="color:var(--accent)">${IC.merge} PR${prN2?' #'+prN2:''}</button>`
+        : `<button class="btn sm" id="fwPrOpen" title="checagens do repo → commit & push → cria o PR">${IC.merge} abrir PR</button>`);
       if(['review','delivered'].includes(t.status) && !t.prUrl){
         const rev=reviewOf(t.id);
         rb.innerHTML=`${pvHtml}${costChip}<button class="btn sm" id="fwAskFix" title="${rev?escA((rev.summary||'').slice(0,120)):'a entrega está pronta pra revisar'}">pedir ajuste</button><button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`;
         const af=document.getElementById('fwAskFix'); if(af) af.onclick=()=>{ const i=document.getElementById('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } };
         const ap=document.getElementById('fwApprove'); if(ap) ap.onclick=()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
-      } else rb.innerHTML=pvHtml+costChip;
+      } else rb.innerHTML=pvHtml+costChip+prBtn;
+      { const b=document.getElementById('fwPrGo'); if(b) b.onclick=()=>{ fwMode='pr'; renderWorkspace(); }; }
+      { const b=document.getElementById('fwPrOpen'); if(b) b.onclick=()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); }
       { const b=document.getElementById('fwSum'); if(b) b.onclick=()=>openTaskSummary(t.id); }
       { const b=document.getElementById('fwPv'); if(b) b.onclick=()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}); }
       { const b=document.getElementById('fwPvMob'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='criando túnel…';
@@ -2827,7 +2839,7 @@ function renderFwStep(t){
   el.querySelectorAll('.pi').forEach(p=>p.onclick=()=>{
     const n=+p.dataset.ph; pop.style.display='none';
     if(n===4) fwMode='revisao';
-    else if(n===5) fwMode=t.prUrl?'pr':'revisao';
+    else if(n===5) fwMode='pr'; // sem PR ainda? a página oferece "preparar e abrir"
     else fwMode='codigo';
     renderWorkspace();
   });
@@ -2869,7 +2881,11 @@ function fwRenderDiff(t, main){
 function fwRenderPrPage(t, main){
   const info=prCache[t.id];
   if(info===undefined){ loadPr(t.id).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); }); main.innerHTML='<div class="empty">carregando o PR…</div>'; return; }
-  if(!info||!info.exists){ main.innerHTML='<div class="empty">nenhum PR aberto ainda — aprove a entrega na Revisão pra abrir um.</div>'; return; }
+  if(!info||!info.exists){
+    main.innerHTML=`<div class="empty" style="flex-direction:column;gap:14px"><div>nenhum PR aberto ainda pra <b>${esc(t.branch)}</b></div><button class="btn primary" id="prPgCreate">${IC.merge} preparar e abrir o PR</button><div class="dim" style="font-size:11.5px">roda as checagens do repo, faz commit &amp; push e cria o PR</div></div>`;
+    { const b=document.getElementById('prPgCreate'); if(b) b.onclick=()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); }
+    return;
+  }
   const ign=prIgnSet(t.id);
   const cKey=c=>String(c.id ?? ((c.author||'')+':'+(c.body||'').slice(0,40)));
   const cmts=(info.comments||[]).filter(c=>!c.inReplyTo);
