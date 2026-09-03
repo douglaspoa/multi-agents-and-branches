@@ -2134,6 +2134,10 @@ fn read_policy(state: State<AppState>) -> serde_json::Value {
                 }
             }
         }
+        // guia de spec do repo — o wizard mostra pro humano o mesmo texto que a IA segue
+        if let Ok(g) = std::fs::read_to_string(PathBuf::from(&repo).join(".cardume").join("SPEC.md")) {
+            pol["specGuide"] = serde_json::json!(g.chars().take(1800).collect::<String>());
+        }
     }
     pol
 }

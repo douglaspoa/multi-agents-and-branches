@@ -1433,6 +1433,13 @@
       </div>
       <div id="ntRight">
       <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><button class="btn sm" id="ntAiFill" title="escreva o título ou uma descrição do seu jeito — a IA completa objetivo, entregáveis e critérios de aceite bem formados (só preenche o que estiver vazio)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> completar com IA</button><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
+      <!-- wizard por etapas (Entrega/Fix): uma pergunta por vez, sem scroll -->
+      <div id="wizHead" style="display:none">
+        <div id="wizProg" style="display:flex;gap:6px;margin-bottom:14px"></div>
+        <h2 id="wizT" style="font-size:19px;margin:0 0 4px"></h2>
+        <div class="dim" id="wizH" style="font-size:12.5px;margin-bottom:14px"></div>
+        <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:11.5px">📖 guia de demanda deste repo (.cardume/SPEC.md)</summary><div id="wizGuideTx" class="mdview" style="font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
+      </div>
       <div id="ntMdPrev" style="display:none"></div>
       <!-- Como executar? — etapa da MESMA página (sem modal) -->
       <div id="ntHowPane" style="display:none">
@@ -1487,23 +1494,31 @@
         <div class="aihint dim" style="margin-top:9px">Não mexe no código do produto — nasce numa branch <span class="mono">design/…</span> só com os artefatos. Aprovou? Um clique cria a tarefa de <b>Entrega</b> linkada ao design.</div>
       </div>
       <div id="ntFixFields" style="display:none">
+        <div class="wstep" data-w="1">
         <label style="display:flex;align-items:center">O que corrigir<span style="flex:1"></span><button class="btn sm" data-aititle="ntFixTitle:ntFixObj" title="gera o título a partir dos detalhes" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar dos detalhes</button></label>
         <input class="in" id="ntFixTitle" placeholder="ex.: corrigir cálculo de custo na telemetria">
         <label style="margin-top:12px">Detalhes <span class="dim" style="text-transform:none;letter-spacing:0">(opcional — onde, sintoma, como reproduzir)</span></label>
         <textarea class="in ta" id="ntFixObj" rows="7" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
         <label style="margin-top:12px">Arquivos/escopo <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntFixOwns" placeholder="src/telemetry/cost.ts">
+        </div>
+        <div class="wstep" data-w="3">
         <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· print do bug, log, tela onde acontece</span><span style="flex:1"></span><button class="btn sm" id="ntFixRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
         <div id="ntFixRefs" class="reflist"></div>
-        <label style="margin-top:12px">Quem corrige</label>
-        <select class="sel" id="ntFixTeam" style="width:100%"></select>
+        </div>
+        <div class="wstep" data-w="2">
         <div class="seclbl2" style="margin-top:14px">Critérios de aceite <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o agente é COBRADO por cada um (com prova)</span><span style="flex:1"></span><button class="btn sm" id="ntFixReqAdd">+ item</button></div>
         <div id="ntFixReqs" class="listed"></div>
+        </div>
+        <div class="wstep" data-w="4">
+        <label style="margin-top:12px">Quem corrige</label>
+        <select class="sel" id="ntFixTeam" style="width:100%"></select>
         <div class="seclbl2" style="margin-top:14px">Comprovações da correção</div>
         <label class="ckrow"><input type="checkbox" id="ntFixArtProof" checked><span><b>Prova (prints reais)</b> <span class="dim">— a correção funcionando na UI/ambiente</span></span></label>
         <label class="ckrow"><input type="checkbox" id="ntFixArtTests" checked><span><b>Teste cobrindo a regressão</b> <span class="dim">— roda a suíte real e anexa a saída</span></span></label>
         <label class="ckrow"><input type="checkbox" id="ntFixArtDoc" checked><span><b>Doc curta da correção</b> <span class="dim">— causa raiz e o que mudou</span></span></label>
         <div id="ntLinkChip"></div><div class="aihint dim" style="margin-top:9px">Um builder só — sem etapa de plano. Vira uma branch <span class="mono">fix/…</span> e roda direto.</div>
+        </div>
       </div>
       <div id="ntReviewFields" style="display:none">
         <label>Link ou número do PR</label>
@@ -1513,16 +1528,19 @@
         <div class="aihint dim" style="margin-top:9px">Busca o diff do PR (via <b>gh</b>), roda o revisor e monta o parecer — <b>sem criar branch</b>. Aparece na trilha/Kanban como as demais, com custo e pausar/abortar.</div>
       </div>
       <div id="ntBuildFields">
+      <div class="wstep" data-w="1">
       <label style="display:flex;align-items:center">Título<span style="flex:1"></span><button class="btn sm" data-aititle="ntTitle:ntObj" title="gera o título a partir do objetivo/descrição" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/><path d="M12 9.5l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z" stroke-linejoin="round"/></svg> gerar da descrição</button></label>
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
       <label>Objetivo</label>
       <textarea class="in ta" id="ntObj" rows="7" placeholder="o que precisa ser feito e por quê — cole contexto à vontade: sintomas, telas, critérios, links…"></textarea>
-
+      </div>
+      <div class="wstep" data-w="2">
       <div id="ntDeliverables" class="listed" style="display:none"></div>
 
       <div class="seclbl2" style="margin-top:14px">Requisitos / critérios de aceite <span style="flex:1"></span><button class="btn sm" id="ntReqAdd">+ item</button></div>
       <div id="ntRequirements" class="listed"></div>
-
+      </div>
+      <div class="wstep" data-w="4">
       <div class="two" style="margin-top:15px">
         <div><label>Reivindica (owns)</label><input class="in" id="ntOwns" placeholder="src/auth, src/x.ts"></div>
         <div><label>Fora dos limites (off)</label><input class="in" id="ntOff" placeholder="src/checkout"></div>
@@ -1552,10 +1570,12 @@
         <div><label>Base do PR</label><input class="in mono" id="ntPrBase" placeholder="main (padrão)"></div>
       </div>
 
+      <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
+      </div>
+      <div class="wstep" data-w="3">
       <div class="seclbl2" style="margin-top:15px">Documentos de referência <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· PDF, .md, imagem (print de bug)</span><span style="flex:1"></span><button class="btn sm" id="ntRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
       <div id="ntRefs" class="reflist"></div>
-
-      <div class="wfprev" id="ntWfPrev" style="margin-top:13px"></div>
+      </div>
       </div>
       <div id="ntShareRow" style="display:none">
         <div class="seclbl2" style="margin-top:15px">Time</div>
@@ -1568,6 +1588,7 @@
         <select class="sel" id="ntEpic" style="width:100%"><option value="">— sem épico —</option></select>
         <div class="aihint dim" style="margin-top:7px">O time vê só o cartão (spec, status, custo, provas) — o stream do agente fica na sua máquina.</div>
       </div>
+      <div id="wizFoot" style="display:none;gap:8px;align-items:center;margin-top:18px"></div>
       </div>
     </div>
     <div class="mfoot">
@@ -4824,6 +4845,69 @@ async function ntAiComplete(){
   finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }
 }
 { const b=document.getElementById('ntAiFill'); if(b) b.onclick=ntAiComplete; }
+// ---- WIZARD por etapas (Entrega/Fix): uma pergunta por vez, sem scroll ----
+const WIZ_STEPS={
+  build:[
+    { n:1, t:'O que você precisa?', h:'título curto + o objetivo com contexto — ou escreva corrido e toque em ✨ completar com IA', guide:true,
+      ok:()=>!!(document.getElementById('ntTitle').value.trim() && document.getElementById('ntObj').value.trim()), miss:'preencha título e objetivo' },
+    { n:2, t:'Requisitos de entrega', h:()=>`critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+      ok:()=>ntReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os requisitos mínimos' },
+    { n:3, t:'Anexos & referências', h:'prints, PDFs, specs — tudo que dá contexto real (opcional)', opt:true, ok:()=>true },
+    { n:4, t:'Ajustes avançados', h:'equipe, modelo, branch, PR — os padrões servem; pode pular', opt:true, ok:()=>true },
+    { n:5, t:'Confira a spec', h:'é exatamente isto que o agente recebe — provas e testes já vêm exigidos pela política', rev:true, ok:()=>true },
+  ],
+  fix:[
+    { n:1, t:'O que corrigir?', h:'onde acontece, sintoma, como reproduzir — ✨ completar com IA ajuda', guide:true,
+      ok:()=>!!document.getElementById('ntFixTitle').value.trim(), miss:'diga o que corrigir' },
+    { n:2, t:'Critérios de aceite', h:()=>`como saberemos que está corrigido — mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+      ok:()=>ntFixReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os critérios mínimos' },
+    { n:3, t:'Prints & referências', h:'o print do bug vale mais que mil palavras (opcional)', opt:true, ok:()=>true },
+    { n:4, t:'Ajustes avançados', h:'quem corrige e comprovações — pode pular', opt:true, ok:()=>true },
+    { n:5, t:'Confira a spec', h:'é exatamente isto que o agente recebe', rev:true, ok:()=>true },
+  ],
+};
+let wizN=1;
+function wizModeOn(){ return ntMode==='build'||ntMode==='fix'; }
+function wizRender(){
+  const head=document.getElementById('wizHead'), foot=document.getElementById('wizFoot');
+  if(!head||!foot) return;
+  const on=wizModeOn();
+  const seg=document.querySelector('.ntviewbar .seg2'); if(seg) seg.style.display=on?'none':'flex';
+  document.querySelectorAll('#ntBuildFields .wstep,#ntFixFields .wstep').forEach(e=>e.style.display='');
+  const md=document.getElementById('ntMdPrev');
+  const contB=document.getElementById('ntBuildFields'), contF=document.getElementById('ntFixFields');
+  { const c=document.getElementById('ntCreate'); if(c) c.style.display=on?'none':''; } // no wizard, quem inicia é a última etapa
+  if(!on){ head.style.display='none'; foot.style.display='none'; const mo=document.getElementById('ntMode'); if(mo) mo.style.display=''; if(md&&!document.getElementById('ntRight').classList.contains('mdview')) md.style.display='none'; return; }
+  const cont=ntMode==='build'?contB:contF;
+  const steps=WIZ_STEPS[ntMode];
+  const st=steps.find(s=>s.n===wizN)||steps[0];
+  head.style.display='block'; foot.style.display='flex';
+  cont.querySelectorAll('.wstep').forEach(e=>{ e.style.display=(+e.dataset.w===st.n)?'':'none'; });
+  { const mo=document.getElementById('ntMode'); if(mo) mo.style.display=(st.n===1)?'':'none'; } // o TIPO se escolhe na etapa 1
+  if(st.rev){ ntMdRender(); md.style.display='block'; cont.style.display='none'; }
+  else { md.style.display='none'; cont.style.display=''; }
+  document.getElementById('wizProg').innerHTML=steps.map(s=>`<span style="height:4px;flex:1;border-radius:99px;background:${s.n<wizN?'var(--accent)':s.n===wizN?'color-mix(in srgb,var(--accent) 55%,transparent)':'var(--border-strong)'}"></span>`).join('');
+  document.getElementById('wizT').textContent=`${st.n}/${steps.length} · ${st.t}`;
+  document.getElementById('wizH').textContent=typeof st.h==='function'?st.h():st.h;
+  // guia do repo (o MESMO texto que a IA segue) nas etapas de conteúdo
+  { const g=document.getElementById('wizGuide');
+    if(g){ const has=st.guide && ntPolicy.specGuide;
+      g.style.display=has?'block':'none';
+      if(has) document.getElementById('wizGuideTx').innerHTML=mdToHtml(String(ntPolicy.specGuide)); } }
+  const last=wizN===steps[steps.length-1].n;
+  foot.innerHTML=
+    (wizN>1?`<button class="btn" id="wizBack">← voltar</button>`:'')+
+    `<span style="flex:1"></span><span class="dim" id="wizMiss" style="font-size:11.5px;color:var(--warn)"></span>`+
+    (st.opt?`<button class="btn" id="wizSkip">pular</button>`:'')+
+    `<button class="btn primary" id="wizNext">${last?'✓ Iniciar execução':'próximo →'}</button>`;
+  { const b=document.getElementById('wizBack'); if(b) b.onclick=()=>{ wizN=steps[Math.max(0,steps.findIndex(s=>s.n===wizN)-1)].n; wizRender(); }; }
+  { const b=document.getElementById('wizSkip'); if(b) b.onclick=()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); }; }
+  { const b=document.getElementById('wizNext'); if(b) b.onclick=()=>{
+      if(last){ document.getElementById('ntCreate').click(); return; }
+      if(!st.ok()){ const m=document.getElementById('wizMiss'); if(m){ m.textContent='⚠ '+(st.miss||'complete esta etapa'); setTimeout(()=>{ if(m) m.textContent=''; },2600); } return; }
+      wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender();
+    }; }
+}
 { const f=document.getElementById('ntVForm'), m=document.getElementById('ntVMd');
   if(f&&m){
     const set=md=>{ document.getElementById('ntRight').classList.toggle('mdview',md); f.classList.toggle('on',!md); m.classList.toggle('on',md); if(md) ntMdRender(); };
@@ -4906,6 +4990,7 @@ async function openNewTask(){
   const lock=(id,on)=>{ const e=document.getElementById(id); if(!e) return; if(on){ e.checked=true; e.disabled=true; e.closest('label')?.setAttribute('title','obrigatório pela política do repo (.cardume/policy.json)'); } else { e.disabled=false; } };
   lock('ntArtProof', !!ntPolicy.proofRequired); lock('ntArtTests', !!ntPolicy.testsRequired); lock('ntArtDoc', !!ntPolicy.docRequired);
   lock('ntFixArtProof', !!ntPolicy.proofRequired); lock('ntFixArtTests', !!ntPolicy.testsRequired);
+  wizN=1; wizRender();
   ntGate();
   (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):ntMode==='invest'?document.getElementById("ntInvTitle"):document.getElementById("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
@@ -5044,6 +5129,7 @@ function renderNtLink(){
 }
 function setNtMode(m){
   ntMode=m;
+  wizN=1; if(typeof wizRender==='function') setTimeout(wizRender,0); // wizard reinicia ao trocar o tipo
   document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.classList.toggle('on', b.dataset.mode===m));
   document.getElementById("ntBuildFields").style.display = m==='build'?'':'none';
   document.getElementById("ntReviewFields").style.display = m==='review'?'':'none';
