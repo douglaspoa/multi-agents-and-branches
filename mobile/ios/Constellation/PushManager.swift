@@ -30,8 +30,10 @@ final class PushManager: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(identifier: "QUESTION", actions: [reply, open], intentIdentifiers: []),
         ])
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { ok, _ in
-            if ok { DispatchQueue.main.async { application.registerForRemoteNotifications() } }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in
+            // registra SEMPRE — o token existe mesmo com alerta negado; assim, quando a
+            // pessoa ligar a permissão nos Ajustes, o push já funciona sem reinstalar
+            DispatchQueue.main.async { application.registerForRemoteNotifications() }
         }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.refreshId, using: nil) { task in
             Self.handleRefresh(task as! BGAppRefreshTask)

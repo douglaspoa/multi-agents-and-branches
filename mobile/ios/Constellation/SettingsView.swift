@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UserNotifications
 
 /// Tela 10 — Conta: identidade, pushes, device e a regra de ouro da sincronia.
 struct SettingsView: View {
@@ -7,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("push.ready") private var pushReady = true
     @AppStorage("push.pr") private var pushPr = true
     @State private var lastSync: String? = nil
+    @State private var notifDenied = false
 
     var body: some View {
         List {
@@ -21,6 +24,21 @@ struct SettingsView: View {
                 .listRowBackground(T.panel)
             }
             Section("Quais pushes chegam") {
+                if notifDenied {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("⚠ notificações DESLIGADAS nos Ajustes do iPhone")
+                            .font(.caption.bold()).foregroundStyle(T.warn)
+                        Text("sem isso nenhum push chega — nem a pergunta do agente")
+                            .font(.caption2).foregroundStyle(T.dim)
+                        Button("abrir Ajustes e ligar") {
+                            if let u = URL(string: UIApplication.openNotificationSettingsURLString) {
+                                UIApplication.shared.open(u)
+                            }
+                        }
+                        .font(.caption.bold()).foregroundStyle(T.accent)
+                    }
+                    .listRowBackground(T.warn.opacity(0.08))
+                }
                 Toggle("agente precisa de você", isOn: $pushQuestions)
                 Toggle("entrega pronta pra revisar", isOn: $pushReady)
                 Toggle("comentário novo no PR", isOn: $pushPr)
@@ -52,6 +70,8 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(T.bg)
         .task {
+            let st = await UNUserNotificationCenter.current().notificationSettings()
+            await MainActor.run { notifDenied = st.authorizationStatus == .denied }
             if let d = try? await supa.rest("tasks?select=updated_at&order=updated_at.desc&limit=1"),
                let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]],
                let at = arr.first?["updated_at"] as? String {
