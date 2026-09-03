@@ -11,7 +11,7 @@ echo "→ build release"
 
 cp app/src-tauri/target/release/cardume-app dist/Constellation.app/Contents/MacOS/Constellation
 
-DEVID=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+DEVID=$( (security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"') || true )
 if [ -n "$DEVID" ]; then
   echo "→ assinando com: $DEVID"
   codesign --force --deep --options runtime --timestamp --sign "$DEVID" dist/Constellation.app

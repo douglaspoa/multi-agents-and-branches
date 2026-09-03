@@ -37,7 +37,7 @@ cp -R app/src-tauri/resources/mcp "$PORT/Contents/Resources/mcp"
 # Assinatura: usa o Developer ID quando existir (conta Apple paga) — identidade
 # ESTÁVEL: o macOS lembra as permissões (TCC) entre releases e o app pode ser
 # notarizado (fim do "Abrir Mesmo Assim"). Sem o certificado, cai no ad-hoc.
-DEVID=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+DEVID=$( (security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"') || true )
 if [ -n "$DEVID" ]; then
   echo "→ assinando com: $DEVID (hardened runtime)"
   codesign --force --deep --options runtime --timestamp --sign "$DEVID" "$PORT"
