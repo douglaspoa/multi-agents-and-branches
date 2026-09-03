@@ -446,6 +446,15 @@
   #ntOverlay #aiAssist{flex:0 0 330px;display:flex;flex-direction:column;border-right:1px solid var(--border);padding-right:18px;position:sticky;top:0;align-self:flex-start;max-height:62vh}
   #ntOverlay #aiChat{flex:1;overflow:auto;min-height:200px}
   #ntOverlay #ntRight{flex:1;min-width:0}
+  /* Nova demanda é PÁGINA, não modal (pedido: parar de usar modais) */
+  #ntOverlay{padding:0;background:var(--bg);align-items:stretch;justify-content:stretch}
+  #ntOverlay .modal{max-width:none!important;width:100%!important;height:100%;max-height:none;border-radius:0;border:0;display:flex;flex-direction:column}
+  #ntOverlay .mbody{flex:1;min-height:0;overflow:auto;width:100%;max-width:1280px;margin:0 auto}
+  #ntOverlay .mfoot{border-top:1px solid var(--border)}
+  /* etapa "Como executar?" dentro da página */
+  #ntRight.howview>*:not(#ntHowPane){display:none!important}
+  #ntRight.howview #ntHowPane{display:block!important;max-width:640px}
+  #ntOverlay.howmode #ntCreate,#ntOverlay.howmode #ntDraft,#ntOverlay.howmode #ntMissing{display:none}
   /* toggle Formulário|Markdown do spec (redesign p8/p9) */
   .ntviewbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
   #ntRight.mdview>*:not(.ntviewbar):not(#ntMdPrev){display:none!important}
@@ -1395,6 +1404,21 @@
       <div id="ntRight">
       <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
       <div id="ntMdPrev" style="display:none"></div>
+      <!-- Como executar? — etapa da MESMA página (sem modal) -->
+      <div id="ntHowPane" style="display:none">
+        <h2 style="font-size:17px;margin:2px 0 4px">Como executar?</h2>
+        <div class="dim" style="font-size:12px;margin-bottom:14px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div>
+        <div id="howOpts"></div>
+        <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
+            <div><label>Limite de custo (aviso)</label><input class="in" id="howCost" type="number" min="0" step="1" style="width:100%"></div>
+            <div><label>Tarefas em paralelo</label><input class="in" id="howSlots" type="number" min="1" max="12" style="width:100%"></div>
+          </div>
+          <div id="howAgents" style="margin-top:12px"></div>
+        </details>
+        <div style="display:flex;gap:8px;margin-top:18px"><button class="btn" id="howCancel">← voltar à spec</button><span style="flex:1"></span><button class="btn primary" id="howGo">Iniciar execução</button></div>
+      </div>
       <div class="ntmode" id="ntMode">
         <button class="ntmodebtn on" data-mode="build"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg> Entrega</button>
         <button class="ntmodebtn" data-mode="review"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg> Review</button>
@@ -1545,24 +1569,9 @@
 </div>
 
 <div class="overlay" id="howOverlay" style="display:none">
-  <div class="modal" style="max-width:560px">
+  <div class="modal" style="max-width:560px;display:none">
     <div class="mhead"><b>Como executar?</b><span style="flex:1"></span><button class="x" id="howClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody">
-      <div class="dim" style="font-size:12px;margin-bottom:12px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div>
-      <div id="howOpts"></div>
-      <details style="margin-top:8px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-          <div><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
-          <div><label>Limite de custo (aviso)</label><input class="in" id="howCost" type="number" min="0" step="1" style="width:100%"></div>
-          <div><label>Tarefas em paralelo</label><input class="in" id="howSlots" type="number" min="1" max="12" style="width:100%"></div>
-        </div>
-        <div id="howAgents" style="margin-top:12px"></div>
-      </details>
-    </div>
     <div class="mfoot">
-      <span style="flex:1"></span>
-      <button class="btn" id="howCancel">cancelar</button>
-      <button class="btn primary" id="howGo">Iniciar execução</button>
     </div>
   </div>
 </div>
@@ -2627,15 +2636,15 @@ function phasesHtml(t){
 // abas de sessão: alterna entre as tarefas vivas sem sair do workspace
 function renderFwTabs(){
   const el=document.getElementById('fwTabs'); if(!el) return;
-  // só sessões RODANDO viram aba (fechadas/prontas não poluem o topo) + a tarefa aberta
-  let open=(state.tasks||[]).filter(t=>t.flag!=='closed'&&(ACTIVE_ST.has(t.status)||['thinking','plan-review'].includes(t.status)))
-    .sort((a,b)=>b.created_at-a.created_at).slice(0,6);
+  // abas = sessões RODANDO ou ESPERANDO REVIEW (fechadas/mergeadas não poluem o topo)
+  let open=(state.tasks||[]).filter(t=>t.flag!=='closed'&&(ACTIVE_ST.has(t.status)||['thinking','plan-review','review','delivered'].includes(t.status)))
+    .sort((a,b)=>b.created_at-a.created_at).slice(0,7);
   const cur=(state.tasks||[]).find(t=>t.id===fwTask);
   if(cur && !open.some(t=>t.id===cur.id)) open=[cur,...open].slice(0,6);
   if(open.length<2){ el.innerHTML=''; el.style.display='none'; return; }
   el.style.display='flex';
   el.innerHTML=open.map(t=>{
-    const col=pendingOf(t.id).length?'var(--warn)':(ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)':'var(--muted)';
+    const col=pendingOf(t.id).length?'var(--warn)':(ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)':['review','delivered'].includes(t.status)?'var(--warn)':'var(--muted)';
     return `<span class="fwtab${t.id===fwTask?' on':''}" data-tab="${escA(t.id)}"><span class="td" style="background:${col}"></span>${esc(t.title.slice(0,26))}</span>`;
   }).join('');
   el.querySelectorAll('.fwtab').forEach(b=>b.onclick=()=>{ if(b.dataset.tab!==fwTask) openWorkspace(b.dataset.tab); });
@@ -3860,18 +3869,14 @@ function wireQuestion(root){
 }
 // ---------- modal de resposta ao agente (legível, input estável fora do poll) ----------
 let askId=null;
+// pergunta do agente SEM modal: abre a tela de execução — a pergunta está inline
+// na conversa, com os botões de opção e o input no mesmo lugar de sempre
 function openAsk(pendingId){
   const p=(state.pending||[]).find(x=>x.id===pendingId); if(!p) return;
-  askId=pendingId;
-  document.getElementById('askAgent').textContent=p.agent||'Agente';
-  document.getElementById('askQ').textContent=p.prompt||'';
-  const opts=Array.isArray(p.options)?p.options:[];
-  const oe=document.getElementById('askOpts');
-  oe.innerHTML = opts.length ? `<div class="askoptlbl">respostas rápidas</div><div class="askoptgrid">`+opts.map((o,i)=>`<button class="askoptbtn" data-o="${i}">${esc(o)}</button>`).join('')+`</div>` : '';
-  oe.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{ resolvePending(askId, opts[+b.dataset.o]); closeAsk(); });
-  document.getElementById('askTa').value='';
-  document.getElementById('askOverlay').style.display='flex';
-  document.getElementById('askTa').focus();
+  const tid=p.taskId; if(!tid) return;
+  selected=tid; render();
+  openWorkspace(tid);
+  setTimeout(()=>{ const i=document.getElementById('fwInput'); if(i) i.focus(); }, 350);
 }
 function closeAsk(){ document.getElementById('askOverlay').style.display='none'; askId=null; }
 function askDoSend(){ const v=document.getElementById('askTa').value.trim(); if(!v||askId==null) return; resolvePending(askId, v); closeAsk(); }
@@ -4738,9 +4743,11 @@ function openHow(){
   howAgentsRender();
   document.getElementById('howCost').value=parseFloat(lsGet('costWarn')||'25');
   document.getElementById('howSlots').value=slotMax;
-  document.getElementById('howOverlay').style.display='flex';
+  // etapa embutida na página da Nova demanda — nada de modal
+  document.getElementById('ntRight').classList.add('howview');
+  document.getElementById('ntOverlay').classList.add('howmode');
 }
-function closeHow(){ document.getElementById('howOverlay').style.display='none'; }
+function closeHow(){ document.getElementById('ntRight').classList.remove('howview'); document.getElementById('ntOverlay').classList.remove('howmode'); }
 document.getElementById('howClose').onclick=closeHow;
 document.getElementById('howCancel').onclick=closeHow;
 document.getElementById('howOverlay').addEventListener('click',e=>{ if(e.target.id==='howOverlay') closeHow(); });
@@ -4771,7 +4778,8 @@ document.getElementById('howGo').onclick=()=>{
 };
 
 async function openNewTask(){
-  // modal na hora — o catálogo (config) chega logo atrás e preenche os selects
+  // página na hora — o catálogo (config) chega logo atrás e preenche os selects
+  closeHow(); // garante que não reabre na etapa "Como executar?"
   setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   document.getElementById("ntOverlay").style.display = "flex";
@@ -4944,7 +4952,7 @@ function setNtMode(m){
   ntGate();
 }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
-function resetNewTask(){ ntModels=''; ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=document.getElementById('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
+function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=document.getElementById('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){
