@@ -1477,6 +1477,7 @@ fn new_task(
     pr_base: Option<String>,
     linked_to: Option<String>,
     model: Option<String>,
+    models: Option<String>,
 ) -> Result<String, String> {
     let repo = repo_of(&state)?;
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
@@ -1575,6 +1576,7 @@ fn new_task(
     push_opt(&mut args, "--issue", &issue);
     push_opt(&mut args, "--base", &base);
     push_opt(&mut args, "--model", &model);
+    push_opt(&mut args, "--models", &models);
     if tests.unwrap_or(false) {
         args.push("--artifact-tests".to_string());
     }
@@ -2716,6 +2718,7 @@ struct PrInfo {
     state: String,
     decision: String,
     mergeable: String,
+    body: String,
     comments: Vec<PrComment>,
 }
 
@@ -2724,9 +2727,9 @@ struct PrInfo {
 #[tauri::command(async)]
 fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> {
     let (repo, branch) = pr_head(&state, &task_id)?;
-    let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), comments: vec![] };
+    let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(), comments: vec![] };
     let mut vcmd = Command::new(gh_bin());
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,comments"]).current_dir(&repo);
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments"]).current_dir(&repo);
     // rede caída / gh pendurado → devolve "sem PR" em vez de travar/errar a UI
     let view = match output_timeout(vcmd, 12) {
         Ok(o) => o,
@@ -2810,8 +2813,108 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         state: v["state"].as_str().unwrap_or("").to_string(),
         decision: v["reviewDecision"].as_str().unwrap_or("").to_string(),
         mergeable: v["mergeable"].as_str().unwrap_or("").to_string(),
+        body: v["body"].as_str().unwrap_or("").to_string(),
         comments,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepoCheck {
+    name: String,
+    ok: bool,
+    detail: String,
+}
+
+/// Checagens pré-PR na worktree da tarefa (modal "Preparando o PR"):
+/// roda lint/test do package.json quando existem. Sem scripts → lista vazia.
+#[tauri::command(async)]
+fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>, String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("sem projeto aberto")?;
+    let conn = open(&db)?;
+    let wt: String = conn
+        .query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    let mut out: Vec<RepoCheck> = vec![];
+    let pkg = PathBuf::from(&wt).join("package.json");
+    if let Ok(txt) = std::fs::read_to_string(&pkg) {
+        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
+            for (script, label) in [("lint", "Linter"), ("test", "Testes")] {
+                if j["scripts"][script].as_str().is_some() {
+                    let mut c = Command::new("npm");
+                    c.args(["run", script, "--silent"]).current_dir(&wt);
+                    match output_timeout(c, 300) {
+                        Ok(o) => {
+                            let ok = o.status.success();
+                            let tail = |b: &[u8]| -> String {
+                                let s = String::from_utf8_lossy(b);
+                                s.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+                            };
+                            out.push(RepoCheck {
+                                name: label.to_string(),
+                                ok,
+                                detail: if ok { "passou".into() } else { tail(&o.stderr).chars().take(500).collect() },
+                            });
+                        }
+                        Err(e) => out.push(RepoCheck { name: label.to_string(), ok: false, detail: e }),
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjTaskLite {
+    id: String,
+    title: String,
+    status: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjOverview {
+    path: String,
+    name: String,
+    active: i64,
+    review: i64,
+    tasks: Vec<ProjTaskLite>,
+}
+
+/// Visão de TODOS os projetos salvos (sidebar por projeto do redesign):
+/// conta sessões ativas/review lendo o state.sqlite de cada repo. Best-effort.
+#[tauri::command(async)]
+fn projects_overview() -> Vec<ProjOverview> {
+    read_project_list()
+        .iter()
+        .map(|p| {
+            let name = PathBuf::from(p)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| p.clone());
+            let db = PathBuf::from(p).join(".cardume").join("state.sqlite");
+            let mut active = 0i64;
+            let mut review = 0i64;
+            let mut tasks: Vec<ProjTaskLite> = vec![];
+            if let Ok(conn) = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
+                if let Ok(mut st) = conn.prepare(
+                    "SELECT id,title,status FROM task WHERE (flag IS NULL OR flag!='closed') AND status IN ('running','thinking','queued','plan-review','error','conflict','review','delivered') ORDER BY rowid DESC LIMIT 8",
+                ) {
+                    if let Ok(rows) = st.query_map([], |r| {
+                        Ok(ProjTaskLite { id: r.get(0)?, title: r.get(1)?, status: r.get(2)? })
+                    }) {
+                        for t in rows.flatten() {
+                            if t.status == "review" || t.status == "delivered" { review += 1 } else { active += 1 }
+                            tasks.push(t);
+                        }
+                    }
+                }
+            }
+            ProjOverview { path: p.clone(), name, active, review, tasks }
+        })
+        .collect()
 }
 
 /// Mergeia o PR (gh) e marca a tarefa como merged localmente.
@@ -3157,6 +3260,8 @@ pub fn run() {
             set_repo,
             current_repo,
             list_projects,
+            projects_overview,
+            repo_checks,
             open_project,
             switch_project,
             remove_project,

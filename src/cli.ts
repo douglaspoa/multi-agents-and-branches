@@ -91,7 +91,22 @@ function cmdWorkflows(repo: string) {
   console.log(c.dim("\n  use: ") + c.green("cardume new --title \"...\" --workflow <id>") + "\n");
 }
 
+// --models "Vega=opus,Íris=sonnet" → modelo POR AGENTE (sobrepõe o --model global)
+function applyModelOverrides(roles: AgentRole[], flag?: string): AgentRole[] {
+  if (!flag) return roles;
+  const map: Record<string, string> = {};
+  String(flag).split(",").forEach((p) => {
+    const [k, v] = p.split("=");
+    if (k && v && v.trim()) map[k.trim().toLowerCase()] = v.trim();
+  });
+  return roles.map((r) => (map[r.name.toLowerCase()] ? { ...r, model: map[r.name.toLowerCase()] } : r));
+}
+
 function buildRoles(a: Args, repo: string): AgentRole[] {
+  return applyModelOverrides(buildRolesInner(a, repo), a.flags.models);
+}
+
+function buildRolesInner(a: Args, repo: string): AgentRole[] {
   const engine = a.flags.engine; // se omitido, usa o do agente no config
   const model = a.flags.model;
 

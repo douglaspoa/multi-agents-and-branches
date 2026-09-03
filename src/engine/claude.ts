@@ -113,6 +113,9 @@ export class ClaudeEngine implements AgentEngine {
       " O ambiente desta worktree foi SEMEADO do repo principal (.env copiados, node_modules/.venv linkados) — veja .cardume/AMBIENTE.md. Antes de concluir que 'falta configuração', confira esse arquivo: o necessário pra RODAR o projeto provavelmente já está aqui.";
     const knowledgeRule =
       " MEMÓRIA DO PROJETO EM ARQUIVOS — USE ANTES DE REDESCOBRIR: (1) .cardume/RUNBOOK.md tem os passos JÁ VALIDADOS pra subir o ambiente (backend, front, envs, VPN) — siga-os literalmente em vez de deduzir; se você validar um passo novo ou corrigir um obsoleto, ATUALIZE o RUNBOOK.md (comandos exatos, pré-requisitos, portas) — o sistema leva sua edição de volta pro repo e TODAS as tarefas futuras ganham. (2) .cardume/HISTORY.md é o índice das tarefas passadas do projeto — faça grep por termos do seu problema ANTES de investigar do zero: issue parecida pode já ter sido resolvida, com a branch citada pra você ler o diff (git log/show).";
+    const specGapRule = (input.spec.linkedTo || (input.spec.refs ?? []).some((r) => /design|DESIGN\.md|INVESTIGATION\.md/i.test(r)))
+      ? " HANDOFF DE DESIGN/DIAGNÓSTICO: esta entrega NASCE de um design ou investigação anexados — antes de escrever qualquer código, AVALIE se eles cobrem as decisões-chave (estados vazio/erro/carregando, origem dos dados, comportamentos de borda, o que fica fora). Qualquer lacuna ESSENCIAL ambígua → pergunte via mcp__cardume__ask_human ANTES de implementar, com opções concretas de interpretação — implementar em cima de suposição custa um rework inteiro; perguntar custa um minuto. Lacuna cosmética/pequena: decida sozinho e registre a decisão no resumo."
+      : "";
     const scratchRule =
       " HIGIENE DO DIFF: scripts DESCARTÁVEIS de sondagem/verificação (probe, check, explore, harness de uma vez) NÃO fazem parte da entrega — crie-os em .cardume/tmp/ (ignorado pelo commit) ou APAGUE antes de finalizar. O diff final deve conter APENAS o que o revisor precisa mergear; teste reutilizável vai pra suíte do projeto, evidência vai pra .cardume/artifacts/.";
     const previewRule =
@@ -146,7 +149,7 @@ export class ClaudeEngine implements AgentEngine {
     const parallelRule =
       " RITMO E PARALELISMO — FECHE RÁPIDO: seu objetivo é CONVERGIR pra solução no menor tempo, não explorar sem fim. Divida o trabalho restante em frentes INDEPENDENTES e dispare subagentes (tool Task) EM PARALELO — várias chamadas Task na MESMA mensagem — ex.: reproduzir o bug ∥ escrever o teste ∥ varrer o código por ocorrências ∥ validar na UI. Cada subagente recebe instrução autocontida (arquivos, objetivo, critério de pronto) e a regra de ouro vale pra ele também. Só serialize o que realmente depende de resultado anterior. Passou de ~15 minutos sem avanço CONCRETO (edição, teste passando, causa provada)? PARE de insistir na mesma linha: paralelize hipóteses com subagentes ou pergunte via mcp__cardume__ask_human. Trabalho longo sem fechar pendência é falha, não diligência.";
     const baseline =
-      `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${scratchRule}${previewRule}${planRule}${prRule}` +
+      `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
       ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.

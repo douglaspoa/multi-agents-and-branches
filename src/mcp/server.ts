@@ -38,6 +38,18 @@ const TOOLS = [
     },
   },
   {
+    name: "add_deliverable",
+    description:
+      "Registre um ENTREGÁVEL NOVO quando o humano pedir no chat algo que ainda não fazia parte da tarefa (não use para correções/ajustes do que já existe). O item entra na lista de entregáveis e será cobrado na finalização.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        item: { type: "string", description: "O entregável, curto e verificável (ex.: 'Filtro de data no dashboard de vendas')." },
+      },
+      required: ["item"],
+    },
+  },
+  {
     name: "claim",
     description:
       "Reivindique um caminho antes de editá-lo, para não colidir com outros agentes. Retorna se você tem a posse (write) ou se cedeu a vez (read).",
@@ -80,6 +92,29 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     return {
       text: `(O humano está inativo há ${idleMin} minutos. ENCERRE o turno AGORA de forma educada: resuma em poucas linhas o que foi feito e o que ficou pendente. NÃO invente uma resposta para a pergunta e NÃO tome a decisão que dependia dele.)`,
     };
+  }
+
+  if (name === "add_deliverable") {
+    const item = String(args?.item ?? "").trim();
+    if (!item) return { text: "entregável vazio", isError: true };
+    const task = store.getTask(TASK);
+    if (!task) return { text: "tarefa não encontrada", isError: true };
+    try {
+      const spec = JSON.parse(task.spec_json);
+      spec.deliverables = [...(spec.deliverables ?? []), item];
+      store.updateSpec(TASK, JSON.stringify(spec));
+      // TASK.yaml da worktree acompanha (o agente relê dali)
+      try {
+        const { taskToYaml } = await import("../util/yaml.ts");
+        const { writeFile } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      } catch { /* worktree pode não existir */ }
+      store.addEvent(TASK, AGENT, "note", `📦 entregável novo registrado: ${item.slice(0, 120)}`, true);
+      return { text: `entregável registrado: ${item}` };
+    } catch (e) {
+      return { text: `falha registrando entregável: ${(e as Error).message}`, isError: true };
+    }
   }
 
   if (name === "claim") {
