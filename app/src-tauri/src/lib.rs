@@ -2107,6 +2107,49 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     })
 }
 
+/// Completa a SPEC da Nova demanda numa tacada só (sem conversa): pega o que o
+/// humano já digitou e devolve título/objetivo/entregáveis/requisitos BEM
+/// FORMADOS. Substitui o assistente lateral (frágil demais).
+#[tauri::command(async)]
+fn ai_spec(state: State<AppState>, title: String, objective: String, kind: String) -> Result<serde_json::Value, String> {
+    let repo = repo_of(&state)?;
+    let draft = format!("Título (do humano, pode estar vazio): {title}\nDescrição/objetivo (do humano, pode estar vazio): {objective}\nTipo: {kind}");
+    if title.trim().is_empty() && objective.trim().is_empty() {
+        return Err("escreva pelo menos o título ou uma descrição — a IA completa o resto".into());
+    }
+    let prompt = format!(
+        "Você monta a especificação de uma tarefa de engenharia a partir do rascunho do humano. Responda SOMENTE um objeto JSON (sem cerca de código, sem texto fora) com EXATAMENTE estas chaves:\n\
+         {{\"title\": string, \"objective\": string, \"deliverables\": [string], \"requirements\": [string]}}\n\n\
+         REGRAS DE QUALIDADE (obrigatórias):\n\
+         - title: máx 70 caracteres, começa com verbo no infinitivo, específico.\n\
+         - objective: 2 a 4 frases COMPLETAS em pt-BR — o que fazer, onde e por quê. Não copie o rascunho cru; escreva limpo.\n\
+         - deliverables: 2 a 4 itens — COISAS entregues (tela X, endpoint Y, doc Z), substantivos, sem verbos de processo.\n\
+         - requirements: 3 a 6 critérios de aceite VERIFICÁVEIS, cada um uma FRASE COMPLETA e independente (alguém consegue marcar ✓/✗ testando). PROIBIDO: fragmentos soltos, itens duplicando entregáveis, itens vagos tipo 'funcionar bem', itens com mais de uma exigência (quebre em dois).\n\
+         - Tudo em pt-BR. NÃO invente escopo que o humano não pediu — complete e organize o que ele quis dizer.\n\n\
+         Rascunho:\n{draft}"
+    );
+    let mut cmd = Command::new(claude_bin());
+    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]).current_dir(&repo);
+    let out = output_timeout(cmd, 60)?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let raw = String::from_utf8_lossy(&out.stdout);
+    // parse robusto: do primeiro '{' ao último '}' (tolera lixo em volta)
+    let s = raw.find('{').and_then(|a| raw.rfind('}').map(|b| &raw[a..=b])).ok_or("resposta sem JSON")?;
+    let v: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("JSON inválido da IA: {e}"))?;
+    // sanidade: requisitos têm que ser frases (>= 15 chars), senão descarta o item
+    let clean = |arr: &serde_json::Value, min: usize| -> Vec<String> {
+        arr.as_array().map(|a| a.iter().filter_map(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| s.len() >= min && s.len() <= 200).collect()).unwrap_or_default()
+    };
+    Ok(serde_json::json!({
+        "title": v["title"].as_str().unwrap_or("").trim(),
+        "objective": v["objective"].as_str().unwrap_or("").trim(),
+        "deliverables": clean(&v["deliverables"], 6),
+        "requirements": clean(&v["requirements"], 15),
+    }))
+}
+
 /// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
 /// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
 #[tauri::command]
@@ -3341,6 +3384,7 @@ pub fn run() {
             repo_checks,
             file_diff,
             pr_body_ai,
+            ai_spec,
             open_project,
             switch_project,
             remove_project,

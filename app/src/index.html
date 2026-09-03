@@ -449,7 +449,7 @@
   /* Nova demanda é PÁGINA, não modal (pedido: parar de usar modais) */
   #ntOverlay{padding:0;background:var(--bg);align-items:stretch;justify-content:stretch}
   #ntOverlay .modal{max-width:none!important;width:100%!important;height:100%;max-height:none;border-radius:0;border:0;display:flex;flex-direction:column}
-  #ntOverlay .mbody{flex:1;min-height:0;overflow:auto;width:100%;max-width:1280px;margin:0 auto}
+  #ntOverlay .mbody{flex:1;min-height:0;overflow:auto;width:100%;max-width:900px;margin:0 auto}
   #ntOverlay .mfoot{border-top:1px solid var(--border)}
   /* etapa "Como executar?" dentro da página */
   #ntRight.howview>*:not(#ntHowPane){display:none!important}
@@ -1411,7 +1411,7 @@
         <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
       </div>
       <div id="ntRight">
-      <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
+      <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><button class="btn sm" id="ntAiFill" title="escreva o título ou uma descrição do seu jeito — a IA completa objetivo, entregáveis e critérios de aceite bem formados (só preenche o que estiver vazio)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> completar com IA</button><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
       <div id="ntMdPrev" style="display:none"></div>
       <!-- Como executar? — etapa da MESMA página (sem modal) -->
       <div id="ntHowPane" style="display:none">
@@ -4735,6 +4735,37 @@ function ntMdRender(){
   }
   el.innerHTML=h;
 }
+// ---- completar a spec com IA (uma tacada, sem conversa) ----
+async function ntAiComplete(){
+  const b=document.getElementById('ntAiFill');
+  // campos do modo atual (build e fix são os que têm requisitos)
+  const F = ntMode==='fix' ? { t:'ntFixTitle', o:'ntFixObj' }
+    : ntMode==='design' ? { t:'ntDzTitle', o:'ntDzObj' }
+    : ntMode==='invest' ? { t:'ntInvTitle', o:'ntInvObj' }
+    : { t:'ntTitle', o:'ntObj' };
+  const tEl=document.getElementById(F.t), oEl=document.getElementById(F.o);
+  const title=(tEl&&tEl.value.trim())||'', objective=(oEl&&oEl.value.trim())||'';
+  if(!title && !objective){
+    if(oEl){ oEl.placeholder='escreva do seu jeito o que precisa — depois toque em "completar com IA"'; oEl.focus(); }
+    return;
+  }
+  const orig=b?b.innerHTML:''; if(b){ b.disabled=true; b.textContent='completando…'; }
+  try{
+    const r=await invoke('ai_spec',{ title, objective, kind:ntMode });
+    // preenche SÓ o que está vazio — o que você escreveu é seu
+    if(tEl && !tEl.value.trim() && r.title) tEl.value=r.title;
+    if(oEl && !oEl.value.trim() && r.objective) oEl.value=r.objective;
+    if(ntMode==='build'){
+      if(!ntDel.filter(Boolean).length && (r.deliverables||[]).length){ ntDel=r.deliverables.slice(); renderNtList('ntDeliverables',ntDel); }
+      if(!ntReq.filter(Boolean).length && (r.requirements||[]).length){ ntReq=r.requirements.slice(); renderNtList('ntRequirements',ntReq); }
+    } else if(ntMode==='fix'){
+      if(!ntFixReq.filter(Boolean).length && (r.requirements||[]).length){ ntFixReq=r.requirements.slice(); renderNtList('ntFixReqs',ntFixReq); }
+    }
+    ntGate();
+  }catch(e){ alert('Não consegui completar:\n'+e); }
+  finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }
+}
+{ const b=document.getElementById('ntAiFill'); if(b) b.onclick=ntAiComplete; }
 { const f=document.getElementById('ntVForm'), m=document.getElementById('ntVMd');
   if(f&&m){
     const set=md=>{ document.getElementById('ntRight').classList.toggle('mdview',md); f.classList.toggle('on',!md); m.classList.toggle('on',md); if(md) ntMdRender(); };
@@ -4808,21 +4839,9 @@ async function openNewTask(){
   setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   document.getElementById("ntOverlay").style.display = "flex";
-  // spec-first: o chat com o assistente já abre conversando (redesign)
-  { const a=document.getElementById('aiAssist'); if(a){ a.style.display='flex';
-      if(!document.getElementById('aiChat').children.length){
-        aiAppend('assistant','O que você precisa fazer? Me conta em 1–2 frases — eu pergunto o essencial e preencho a spec ao lado. (Ou preencha direto o formulário.)');
-        // sugestões a partir das demandas recentes (redesign p5)
-        const rec=(state.tasks||[]).slice().sort((a,b)=>b.created_at-a.created_at).slice(0,3);
-        if(rec.length){
-          const chat=document.getElementById('aiChat');
-          const row=document.createElement('div');
-          row.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px';
-          row.innerHTML='<span class="dim" style="font-size:10.5px;width:100%">recentes — clique pra usar como base:</span>'+rec.map(t=>`<button class="btn sm" data-aisug="${escA(t.title)}" style="padding:3px 9px;font-size:10.5px;text-transform:none;letter-spacing:0">${esc(t.title.slice(0,38))}</button>`).join('');
-          chat.appendChild(row);
-          row.querySelectorAll('[data-aisug]').forEach(b=>b.onclick=()=>{ const i=document.getElementById('aiInput'); if(i){ i.value='Parecido com a demanda "'+b.dataset.aisug+'", mas: '; i.focus(); } });
-        }
-      } } }
+  // o assistente lateral MORREU (bugado demais) — quem completa a spec agora é
+  // o botão "✨ completar com IA", em cima do que você já digitou
+  { const a=document.getElementById('aiAssist'); if(a) a.style.display='none'; }
   ntGate();
   (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):ntMode==='invest'?document.getElementById("ntInvTitle"):document.getElementById("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
@@ -4968,7 +4987,7 @@ function setNtMode(m){
   document.getElementById("ntDesignFields").style.display = m==='design'?'':'none';
   document.getElementById("ntInvFields").style.display = m==='invest'?'':'none';
   document.getElementById("ntDraft").style.display = m==='build'?'':'none';
-  document.getElementById("ntAI").style.display = m==='build'?'':'none';
+  document.getElementById("ntAI").style.display = 'none'; // planner conversacional aposentado — use "completar com IA"
   document.getElementById("ntImport").style.display = m==='build'?'':'none';
   document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';
   const create=document.getElementById("ntCreate");
