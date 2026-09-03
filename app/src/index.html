@@ -1277,6 +1277,24 @@
   .tsspark .b{width:100%;border-radius:4px 4px 0 0;background:linear-gradient(180deg,var(--accent),rgba(57,212,106,.22));min-height:2px}
   .tsspark .dl{font-size:9px;color:var(--muted)}
   .tsboard{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;align-items:start}
+  /* ---- PADRONIZAÇÃO do Time na linguagem nova da Central ---- */
+  .tmain h1{font-size:26px;letter-spacing:-.015em;margin-bottom:4px}
+  .tssub{font-family:var(--mono,ui-monospace,monospace);font-size:11px}
+  .tsph{font-family:var(--mono,ui-monospace,monospace);font-size:10px;letter-spacing:.11em;color:var(--text-2)}
+  .tsph::after{content:"";flex:1;height:1px;background:var(--border)}
+  .tskh{font-family:var(--mono,ui-monospace,monospace);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-2)}
+  .tslbl{font-family:var(--mono,ui-monospace,monospace);letter-spacing:.11em}
+  .tsnav.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--text)}
+  .tskpi{border-radius:14px}
+  .tskpi .v{font-family:var(--mono,ui-monospace,monospace);font-size:17px;font-weight:700}
+  .tspanel{border-radius:14px}
+  .tscard{border-radius:12px}
+  /* barra de 5 fases + % nos cartões do time (mesma leitura da Central) */
+  .ctph{display:flex;align-items:center;gap:8px;margin:7px 0 2px}
+  .ctph .segs{display:flex;gap:3px;flex:1}
+  .ctph .segs i{height:4px;border-radius:99px;background:rgba(255,255,255,.1);flex:1}
+  .ctph .segs i.on{background:var(--accent)}
+  .ctph .pctx{font-size:9.5px;color:var(--muted)}
   .tscol{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px}
   .tskh{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);padding:2px 4px 9px}
   .tskh .dot{width:7px;height:7px;border-radius:99px}
@@ -6443,6 +6461,29 @@ function tsOnline(uid){ const p=teamProfiles[uid]; return p&&p.last_seen_at && (
 function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>t.assignee===uid && TS_DOING.includes(t.status)); }
 function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
 function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'all'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
+// fase (1–5) e % de um cartão da NUVEM — mesma régua da Central
+function ctPhase(t){
+  if(['merged','done'].includes(t.status)) return 5;
+  if(t.pr_url) return 5;
+  if(['review','delivered'].includes(t.status)) return 4;
+  if(['running','thinking','error','conflict'].includes(t.status)) return 3;
+  if(['queued','requested'].includes(t.status)) return 2;
+  return 1;
+}
+function ctPct(t){
+  if(['merged','done'].includes(t.status)) return 100;
+  if(t.pr_url) return 92;
+  const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
+  const frac=(list&&list.length)?list.filter(x=>x.status==='done').length/list.length:null;
+  if(['review','delivered'].includes(t.status)) return Math.round(80+(frac==null?5:frac*15));
+  if(['queued','requested'].includes(t.status)) return 15;
+  if(t.status==='backlog') return 5;
+  return Math.round(35+(frac==null?10:frac*40));
+}
+function ctPhaseBar(t){
+  const ph=ctPhase(t), p=ctPct(t);
+  return `<div class="ctph"><span class="segs">${[1,2,3,4,5].map(i=>`<i class="${i<=ph?'on':''}"></i>`).join('')}</span><span class="mono pctx">${p}%</span></div>`;
+}
 function tsCardHtml(t, me, isAdmin){
   const proj=teamProj[t.project_id]||{};
   const sameRepo=!proj.repo_remote||proj.repo_remote===teamRepoRemote;
@@ -6455,6 +6496,7 @@ function tsCardHtml(t, me, isAdmin){
   const isErr=t.status==='error'||t.status==='conflict';
   return `<div class="tscard" data-ct="${escA(t.id)}">
     <div class="tt">${esc(t.title)}</div>
+    ${ctPhaseBar(t)}
     <div class="meta">${ep?`<span class="tsepc">◆ ${esc(ep)}</span>`:''}${t.pr_url?`<button class="mono" data-lk="${escA(t.pr_url)}" style="color:var(--accent);background:none;border:0;cursor:pointer;font-size:10px;padding:0">PR ↗</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" style="color:var(--text-2);background:none;border:0;cursor:pointer;font-size:10px;padding:0">${esc(c[1])} ↗</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:var(--crit,#e5645c);border:1px solid currentColor">${esc(t.status)}</span>`:running?`<span class="tstag run">${esc(CT_ST_PT[t.status]||t.status)}</span>`:''}
