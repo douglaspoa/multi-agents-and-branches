@@ -137,8 +137,9 @@
   /* expandir o chat */
   .fwexp{margin-left:auto;width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-3);color:var(--muted);border-radius:7px;cursor:pointer;font-size:13px}
   .fwexp:hover{color:var(--text);border-color:var(--border-strong)}
-  .fwcols.chatwide{grid-template-columns:200px 1fr 560px}
-  @media(max-width:1100px){ .fwcols.chatwide{grid-template-columns:180px 1fr 480px} }
+  /* chat expandido: BEM grande, mas arquivos e código continuam visíveis/clicáveis */
+  .fwcols.chatwide{grid-template-columns:210px minmax(250px,.55fr) minmax(520px,1.1fr)}
+  @media(max-width:1100px){ .fwcols.chatwide{grid-template-columns:180px minmax(220px,.5fr) minmax(440px,1fr)} }
   .chatstop{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
   .chatstop:hover{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}
   .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border);position:relative}
@@ -565,6 +566,14 @@
   .frow .tm{font-family:var(--mono,ui-monospace,monospace);font-size:10.5px;color:var(--muted);flex:none}
   .frow .ini2{width:20px;height:20px;border-radius:99px;display:grid;place-items:center;font-size:8.5px;font-weight:800;color:#08110c;flex:none}
   .frow.done{opacity:.55}
+  /* barra de % de conclusão (linha e card) — clique abre o resumo */
+  .pctwrap{width:88px;height:5px;border-radius:99px;background:var(--border-strong);overflow:hidden;flex:none;cursor:pointer}
+  .pctwrap i{display:block;height:100%;border-radius:99px}
+  .pctn{font-size:10px;color:var(--muted);flex:none;cursor:pointer;min-width:30px}
+  .cardpct{display:flex;align-items:center;gap:8px;margin:7px 0 2px;cursor:pointer}
+  .cardpct .bar{flex:1;height:5px;border-radius:99px;background:var(--border-strong);overflow:hidden}
+  .cardpct .bar i{display:block;height:100%;border-radius:99px}
+  .cardpct>.mono{font-size:10px;color:var(--muted)}
   .rail{border-right:1px solid var(--border);background:var(--surface);overflow:auto;min-height:0}
   .feed{background:var(--surface-2);min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .chead{display:flex;align-items:center;gap:10px;padding:9px 12px;flex:none}
@@ -814,10 +823,12 @@
   .fwcols.m-conversa .fwmain{display:none}
   .fwcols.m-conversa .fwchat{order:1;border-left:0;border-right:1px solid var(--border)}
   .fwcols.m-conversa .fwtree{order:2;border-right:0}
-  .fwcols.m-revisao{grid-template-columns:240px 1fr}
-  .fwcols.m-revisao .fwchat{display:none}
-  .fwcols.m-pr{grid-template-columns:1fr}
-  .fwcols.m-pr .fwchat,.fwcols.m-pr .fwtree{display:none}
+  /* o chat NASCE ABERTO em todos os modos — inclusive revisão e PR */
+  .fwcols.m-revisao{grid-template-columns:240px 1fr 348px}
+  .fwcols.m-revisao.chatwide{grid-template-columns:200px minmax(280px,.6fr) minmax(500px,1fr)}
+  .fwcols.m-pr{grid-template-columns:1fr 348px}
+  .fwcols.m-pr .fwtree{display:none}
+  .fwcols.m-pr.chatwide{grid-template-columns:minmax(320px,.7fr) minmax(500px,1fr)}
   /* stepper flutuante (p11) */
   .fwstep{position:absolute;left:14px;bottom:14px;z-index:5}
   .fwstep .chip{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border-strong);border-radius:99px;padding:7px 13px;cursor:pointer;box-shadow:0 8px 26px rgba(0,0,0,.4);font-family:var(--mono,ui-monospace,monospace);font-size:11px;color:var(--text-2)}
@@ -1505,6 +1516,14 @@
 </div>
 
 <!-- Como executar? (redesign): fluxo, modelo e limites antes de iniciar -->
+<!-- Resumo da tarefa: tudo que já foi feito + o que falta pra finalizar -->
+<div class="overlay" id="sumOverlay" style="display:none;z-index:85">
+  <div class="modal" style="max-width:640px">
+    <div class="mhead"><b id="sumTitle">Resumo da tarefa</b><span style="flex:1"></span><button class="x" id="sumClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="sumBody" style="max-height:72vh;overflow:auto"></div>
+  </div>
+</div>
+
 <!-- Preparando o PR (redesign p13): checagens → push → criar -->
 <div class="overlay" id="prepOverlay" style="display:none;z-index:85">
   <div class="modal" style="max-width:520px">
@@ -2610,7 +2629,7 @@ function renderWorkspace(){
   renderFwTabs();
   { const t=fwTaskObj(); const p=document.getElementById('fwPhases'); if(p&&t) p.innerHTML=phasesHtml(t); }
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
-  { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.remove('chatwide'); }
+  { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.toggle('chatwide', fwChatWide); }
   // modo da tela (conversa · código · revisão · PR) — layout muda junto
   { const cols=document.getElementById('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr'); cols.classList.add('m-'+fwMode); } }
   renderFwStep(t);
@@ -2626,15 +2645,17 @@ function renderWorkspace(){
       // site local que o agente subiu (🌐 preview) — abrir aqui ou no celular (túnel)
       const pv=taskPreviewUrl(t.id);
       const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
-      const pvHtml=pv?`<button class="btn sm" id="fwPv" data-url="${escA(pv)}" title="${escA(pv)}" style="color:var(--accent)">${IC.globe} ${esc(pv.replace(/^https?:\/\//,'').slice(0,26))}</button>`+
+      const pctHtml=`<button class="btn sm" id="fwSum" title="resumo de tudo que já foi feito + o que falta" style="display:flex;gap:7px;align-items:center"><span style="width:52px;height:4px;border-radius:99px;background:var(--border-strong);overflow:hidden;display:inline-block"><i style="display:block;height:100%;width:${taskPct(t)}%;background:var(--good)"></i></span><span class="mono" style="font-size:10.5px">${taskPct(t)}%</span></button>`;
+      const pvHtml=pctHtml+(pv?`<button class="btn sm" id="fwPv" data-url="${escA(pv)}" title="${escA(pv)}" style="color:var(--accent)">${IC.globe} ${esc(pv.replace(/^https?:\/\//,'').slice(0,26))}</button>`+
         (tun?`<button class="btn sm" id="fwPvOff" title="fecha o túnel do celular agora (${escA(tun)})" style="color:var(--warn)">${IC.phone} fechar acesso</button>`
-            :`<button class="btn sm" id="fwPvMob" data-url="${escA(pv)}" title="túnel criptografado pra abrir este preview no seu celular">${IC.phone}</button>`):'';
+            :`<button class="btn sm" id="fwPvMob" data-url="${escA(pv)}" title="túnel criptografado pra abrir este preview no seu celular">${IC.phone}</button>`):'');
       if(['review','delivered'].includes(t.status) && !t.prUrl){
         const rev=reviewOf(t.id);
         rb.innerHTML=`${pvHtml}${costChip}<span class="dim" style="font-size:11.5px">${rev?esc((rev.summary||'').slice(0,60)):'entrega pronta pra revisar'}</span><button class="btn sm" id="fwAskFix">pedir ajuste</button><button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`;
         const af=document.getElementById('fwAskFix'); if(af) af.onclick=()=>{ const i=document.getElementById('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } };
         const ap=document.getElementById('fwApprove'); if(ap) ap.onclick=()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
       } else rb.innerHTML=pvHtml+costChip;
+      { const b=document.getElementById('fwSum'); if(b) b.onclick=()=>openTaskSummary(t.id); }
       { const b=document.getElementById('fwPv'); if(b) b.onclick=()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}); }
       { const b=document.getElementById('fwPvMob'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='criando túnel…';
           const pub=await mobilePreview(t.id, b.dataset.url);
@@ -2736,7 +2757,7 @@ function renderWorkspace(){
   const workingW=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !askingW.length;
   const sel2=fwSelRange();
   chat.innerHTML=`
-    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${esc(((fwAgentSel||t.agent)||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwMode==='conversa'?'recolher — voltar à visão de código':'expandir o chat'}">${fwMode==='conversa'?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
+    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${esc(((fwAgentSel||t.agent)||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwChatWide?'recolher o chat':'expandir o chat — arquivos e código continuam ao lado'}">${fwChatWide?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
@@ -2744,8 +2765,8 @@ function renderWorkspace(){
       <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
-  // expandir o chat = modo conversa em tela cheia; recolher volta pra visão Cursor
-  { const b=document.getElementById('fwExpand'); if(b) b.onclick=()=>{ fwMode = fwMode==='conversa' ? 'codigo' : 'conversa'; renderWorkspace(); }; }
+  // expandir o chat = coluna GRANDE (arquivos e código continuam ali, clicáveis)
+  { const b=document.getElementById('fwExpand'); if(b) b.onclick=()=>{ fwChatWide=!fwChatWide; lsSet('fwChatWide', fwChatWide?'1':'0'); renderWorkspace(); }; }
   { const b=document.getElementById('fwCtxBar'); if(b) b.onclick=()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); }; }
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=()=>fwSendMsg(false); }
@@ -2997,6 +3018,7 @@ document.getElementById('fwPush').onclick=async function(){
   }catch(e){ alert('Commit & push falhou:\n'+e); b.disabled=false; b.innerHTML=o; }
 };
 document.getElementById('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
+document.getElementById('sumOverlay').addEventListener('click', e=>{ if(e.target.id==='sumOverlay') e.target.style.display='none'; });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('fwOverlay').style.display!=='none'){ if(fwEditing){ fwEditing=false; renderWorkspace(); } else closeWorkspace(); } });
 // atualiza SÓ o "O que estou fazendo agora" ao vivo (não mexe no código/input)
 // (o refresh de 1s chama fwLiveUpdate quando o workspace está aberto — sem timer duplicado)
@@ -3213,8 +3235,9 @@ function flowTaskCard(t, acc){
   const asking = pendingOf(t.id).length>0;
   return `<div class="fcard${accCls}${t.id===selected?' sel':''}${t.flag?' flagged':''}${asking?' asking':''}" data-id="${t.id}">
     <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus" style="color:${asking?'var(--warn)':col}">${asking?'esperando você':esc(t.status)}</span></div>
+    ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="mono">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}${linkChips(t)}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}${linkChips(t)}${pvChips(t)}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;
@@ -3379,10 +3402,86 @@ function renderFlowHead(){
     <div class="seg2" style="align-self:center"><button data-fv="list" class="${flowView==='list'?'on':''}" title="lista"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke-linecap="round"/></svg></button><button data-fv="grid" class="${flowView==='grid'?'on':''}" title="grade"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button></div>`;
   el.querySelectorAll('[data-fv]').forEach(b=>b.onclick=()=>{ flowView=b.dataset.fv; lsSet('flowView',flowView); lastSig=''; renderFlow(); });
 }
+// % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
+function taskPct(t){
+  if(t.flag==='closed'||['merged','done'].includes(t.status)) return 100;
+  if(t.prUrl) return 92;
+  const reqs=Array.isArray(t.requirements)?t.requirements:[];
+  const c=reqProofCache[t.id];
+  if(reqs.length && c===undefined){ loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } }); }
+  let reqFrac=null;
+  if(reqs.length && c && c.list){ const m=matchReqProofs(reqs, c.list); const done=m.filter(x=>x&&x.status==='done').length; reqFrac=done/reqs.length; }
+  if(['review','delivered'].includes(t.status)) return Math.round(80+(reqFrac==null?5:reqFrac*15));
+  if(t.status==='draft') return 5;
+  if(t.status==='queued') return 15;
+  if(t.status==='plan-review') return 25;
+  if(['error','conflict','aborted'].includes(t.status)) return 40;
+  return Math.round(35+(reqFrac==null?10:reqFrac*40)); // rodando
+}
+// chips do site local: globo abre aqui · celular cria/fecha o túnel — home e cards
+function pvChips(t, withLabel){
+  if(t.flag==='closed'||['merged','done'].includes(t.status)) return '';
+  const pv=taskPreviewUrl(t.id); if(!pv) return '';
+  const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+  return `<button class="btn sm" data-pvrow="${escA(pv)}" title="abrir o site local que o agente subiu — ${escA(pv)}" style="padding:3px 8px;font-size:10.5px;color:var(--accent);flex:none">${IC.globe}${withLabel?' preview':''}</button>`+
+    `<button class="btn sm" data-pvmob="${escA(t.id)}" data-url="${escA(pv)}" title="${tun?('túnel aberto ('+escA(tun)+') — clique pra FECHAR o acesso do celular'):'abrir este site no seu CELULAR (túnel criptografado)'}" style="padding:3px 8px;font-size:10.5px;color:${tun?'var(--warn)':'var(--muted)'};flex:none">${IC.phone}</button>`;
+}
+// ---- Resumo da tarefa: tudo que já foi feito + o que falta ----
+async function openTaskSummary(taskId){
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  document.getElementById('sumOverlay').style.display='flex';
+  document.getElementById('sumTitle').textContent=t.title;
+  document.getElementById('sumBody').innerHTML='<div class="dim" style="font-size:12px">montando o resumo…</div>';
+  document.getElementById('sumClose').onclick=()=>{ document.getElementById('sumOverlay').style.display='none'; };
+  if(reqProofCache[t.id]===undefined) await loadReqProofs(t.id).catch(()=>{});
+  if(commitsCache[t.id]===undefined) await loadCommits(t.id).catch(()=>{});
+  renderTaskSummary(t);
+}
+function renderTaskSummary(t){
+  const pct=taskPct(t);
+  const reqs=Array.isArray(t.requirements)?t.requirements:[];
+  const m=matchReqProofs(reqs,(reqProofCache[t.id]||{}).list);
+  const doneR=m.filter(x=>x&&x.status==='done').length;
+  const dels=(t.deliverables||[]);
+  const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id]||[];
+  const cost=taskCost(t.id);
+  const ph=taskPhase(t);
+  const prN=(String(t.prUrl||'').match(/\/pull\/(\d+)/)||[])[1];
+  // o que FALTA pra fechar
+  const falta=[];
+  reqs.forEach((r,i)=>{ if(!(m[i]&&m[i].status==='done')) falta.push('provar o requisito: '+r); });
+  if(pendingOf(t.id).length) falta.unshift('responder a pergunta do agente ('+esc(pendingOf(t.id)[0].agent||t.agent)+')');
+  if(!t.prUrl && !['merged','done'].includes(t.status) && t.flag!=='closed') falta.push(ph<4?'concluir a execução e trazer pra revisão':'aprovar a entrega e abrir o PR');
+  if(t.prUrl && t.status!=='merged') falta.push('review do time e merge do PR #'+(prN||''));
+  // últimas falas relevantes (o "diário" do que foi feito)
+  const notas=eventsOf(t.id).filter(e=>['done','note'].includes(e.type)&&(e.text||'').length>30&&!/^(💬|❓|perguntou ao humano|humano respondeu)/.test(e.text||'')).slice(-5);
+  const li=(arr,ic,co)=>arr.map(x=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${co};flex:none">${ic}</span><span>${esc(x)}</span></div>`).join('');
+  document.getElementById('sumBody').innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <div style="flex:1;height:8px;border-radius:99px;background:var(--border-strong);overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--good);border-radius:99px"></i></div>
+      <b class="mono" style="font-size:15px">${pct}%</b>
+    </div>
+    <div class="dim" style="font-size:11.5px;margin-bottom:12px">fase atual: <b>${esc(PHASES[ph-1])}</b> · ${esc(t.branch||'')}${cost.usd>0?' · '+fmtUsd(cost.usd):''}</div>
+    ${t.objective?`<div class="seclbl2">Objetivo</div><div style="font-size:12.5px;margin-bottom:12px">${esc(t.objective)}</div>`:''}
+    <div class="seclbl2">O que já foi feito</div>
+    ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?'✓':'○'}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
+    ${dels.length?`<div style="margin-top:6px">${li(dels,'◆','var(--accent)')}</div>`:''}
+    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${(d.files||[]).length} arquivo(s) alterado(s) · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${c.length} commit(s)${rev?' · review interno ✓':''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
+    ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;color:var(--text-2)"><span class="mono dim" style="flex:none">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
+    ${rev?`<div class="seclbl2" style="margin-top:10px">Como testar</div><div style="font-size:12.5px">${esc(rev.howToTest||'')}</div>`:''}
+    <div class="seclbl2" style="margin-top:14px">O que falta pra finalizar</div>
+    ${falta.length?li(falta,'→','var(--warn)'):'<div style="font-size:12.5px;color:var(--good)">nada — pronta pra fechar ✓</div>'}
+    <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span>
+      ${['review','delivered'].includes(t.status)&&!t.prUrl?`<button class="btn primary sm" id="sumPr">${IC.check} aprovar e abrir PR</button>`:''}
+      <button class="btn sm" id="sumOpen">abrir a tarefa</button></div>`;
+  { const b=document.getElementById('sumOpen'); if(b) b.onclick=()=>{ document.getElementById('sumOverlay').style.display='none'; selected=t.id; render(); openWorkspace(t.id); }; }
+  { const b=document.getElementById('sumPr'); if(b) b.onclick=()=>{ document.getElementById('sumOverlay').style.display='none'; prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); }; }
+}
 // linha compacta da Central (redesign p2): dot · título · projeto · progresso · status · avatar · tempo
 function flowTaskRow(t){
   const asking=pendingOf(t.id);
   const ph=taskPhase(t);
+  const pct=taskPct(t);
   const done=['merged','done'].includes(t.status)||t.flag==='closed';
   const dot= asking.length||t.status==='plan-review'?'var(--warn)'
     : ['error','conflict'].includes(t.status)?'var(--crit)'
@@ -3407,13 +3506,12 @@ function flowTaskRow(t){
   // ações rápidas direto da home: abrir PR quando pronta · link do PR/issue · site local do agente
   const quick=(!done && ['review','delivered'].includes(t.status) && !t.prUrl)
     ? `<button class="btn primary sm" data-rowpr="${escA(t.id)}" style="padding:3px 10px;font-size:10.5px;flex:none">${IC.check} abrir PR</button>` : '';
-  const pv=done?null:taskPreviewUrl(t.id);
-  const pvChip=pv?`<button class="btn sm" data-pvrow="${escA(pv)}" title="abrir o ambiente que o agente subiu — ${escA(pv)}" style="padding:3px 9px;font-size:10.5px;color:var(--accent);flex:none">${IC.globe} preview</button>`:'';
+  const pvChip=pvChips(t, true);
   return `<div class="frow${done?' done':''}" data-id="${t.id}">
     <span class="d" style="background:${dot}"></span>
     ${play}<span class="ti">${esc(t.title)}</span>
     <span class="prj">${esc(proj)}</span>
-    <span class="seg5">${segs}</span>
+    <span class="pctwrap" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><i style="width:${pct}%;background:${asking.length?'var(--warn)':'var(--good)'}"></i></span><span class="pctn mono" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito">${pct}%</span>
     <span class="msg">${msg}</span>
     ${pvChip}${quick}${linkChips(t)}
     <span class="ini2" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
@@ -3457,7 +3555,7 @@ function renderFlow(){
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow').forEach(row=>{
-    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay]')) return;
+    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg]')) return;
       const t=(state.tasks||[]).find(x=>x.id===row.dataset.id); if(!t) return;
       selected=t.id; render();
       if(t.status==='draft'){ return; }
@@ -3467,8 +3565,25 @@ function renderFlow(){
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); prPrepOpen(b.dataset.rowpr, lsGet('prBase:'+b.dataset.rowpr)||'main'); });
   el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
+  // 📱 da home: cria o túnel pro celular (ou fecha, se já estiver aberto)
+  el.querySelectorAll('[data-pvmob]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation();
+    const id=b.dataset.pvmob;
+    const up=(typeof tunnelUp!=='undefined')?tunnelUp[id]:null;
+    b.disabled=true;
+    if(up){ b.textContent='fechando…';
+      try{ await invoke('tunnel_stop',{ taskId:id }); }catch(_){ }
+      if(typeof tunnelUp!=='undefined') delete tunnelUp[id];
+      if(typeof autoTunneled!=='undefined') delete autoTunneled[id];
+      try{ const cid=tmap()[id]; if(cid){ const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{}; await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null,tunnelClose:null}})}); } }catch(_){ }
+    } else { b.textContent='criando túnel…';
+      const pub=await mobilePreview(id, b.dataset.url);
+      if(pub && typeof tunnelUp!=='undefined'){ tunnelUp[id]=pub; }
+    }
+    lastSig=''; renderFlow();
+  });
+  el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskSummary(b.dataset.sum); });
   el.querySelectorAll('.fcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
     if(grouped) return;   // arrastar só faz sentido na lista plana
     card.setAttribute('draggable','true');
     card.addEventListener('dragstart',e=>{ flowDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
