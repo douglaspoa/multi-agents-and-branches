@@ -2623,12 +2623,29 @@ function renderWorkspace(){
     if(rb){
       const cost=taskCost(t.id);
       const costChip=cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'';
+      // site local que o agente subiu (🌐 preview) — abrir aqui ou no celular (túnel)
+      const pv=taskPreviewUrl(t.id);
+      const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+      const pvHtml=pv?`<button class="btn sm" id="fwPv" data-url="${escA(pv)}" title="${escA(pv)}" style="color:var(--accent)">${IC.globe} ${esc(pv.replace(/^https?:\/\//,'').slice(0,26))}</button>`+
+        (tun?`<button class="btn sm" id="fwPvOff" title="fecha o túnel do celular agora (${escA(tun)})" style="color:var(--warn)">${IC.phone} fechar acesso</button>`
+            :`<button class="btn sm" id="fwPvMob" data-url="${escA(pv)}" title="túnel criptografado pra abrir este preview no seu celular">${IC.phone}</button>`):'';
       if(['review','delivered'].includes(t.status) && !t.prUrl){
         const rev=reviewOf(t.id);
-        rb.innerHTML=`${costChip}<span class="dim" style="font-size:11.5px">${rev?esc((rev.summary||'').slice(0,60)):'entrega pronta pra revisar'}</span><button class="btn sm" id="fwAskFix">pedir ajuste</button><button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`;
+        rb.innerHTML=`${pvHtml}${costChip}<span class="dim" style="font-size:11.5px">${rev?esc((rev.summary||'').slice(0,60)):'entrega pronta pra revisar'}</span><button class="btn sm" id="fwAskFix">pedir ajuste</button><button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`;
         const af=document.getElementById('fwAskFix'); if(af) af.onclick=()=>{ const i=document.getElementById('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } };
         const ap=document.getElementById('fwApprove'); if(ap) ap.onclick=()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
-      } else rb.innerHTML=costChip;
+      } else rb.innerHTML=pvHtml+costChip;
+      { const b=document.getElementById('fwPv'); if(b) b.onclick=()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}); }
+      { const b=document.getElementById('fwPvMob'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='criando túnel…';
+          const pub=await mobilePreview(t.id, b.dataset.url);
+          if(pub && typeof tunnelUp!=='undefined'){ tunnelUp[t.id]=pub; }
+          renderWorkspace(); }; }
+      { const b=document.getElementById('fwPvOff'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='fechando…';
+          try{ await invoke('tunnel_stop',{ taskId:t.id }); }catch(_){ }
+          if(typeof tunnelUp!=='undefined') delete tunnelUp[t.id];
+          if(typeof autoTunneled!=='undefined') delete autoTunneled[t.id];
+          try{ const cid=tmap()[t.id]; if(cid){ const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{}; await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null,tunnelClose:null}})}); } }catch(_){ }
+          renderWorkspace(); }; }
     }
   }
   // ---- coluna 1: árvore de arquivos ----
@@ -3387,16 +3404,18 @@ function flowTaskRow(t){
   const agoP=(ms)=>{ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; };
   const tm=agoP(ev?+new Date(ev.ts):(t.createdAt||t.created_at));
   const play=t.status==='draft'?`<button class="kplay" data-rowplay="${escA(t.id)}" title="iniciar">${IC.cright}</button>`:'';
-  // ações rápidas direto da home: abrir PR quando pronta · link do PR/issue quando existem
+  // ações rápidas direto da home: abrir PR quando pronta · link do PR/issue · site local do agente
   const quick=(!done && ['review','delivered'].includes(t.status) && !t.prUrl)
     ? `<button class="btn primary sm" data-rowpr="${escA(t.id)}" style="padding:3px 10px;font-size:10.5px;flex:none">${IC.check} abrir PR</button>` : '';
+  const pv=done?null:taskPreviewUrl(t.id);
+  const pvChip=pv?`<button class="btn sm" data-pvrow="${escA(pv)}" title="abrir o ambiente que o agente subiu — ${escA(pv)}" style="padding:3px 9px;font-size:10.5px;color:var(--accent);flex:none">${IC.globe} preview</button>`:'';
   return `<div class="frow${done?' done':''}" data-id="${t.id}">
     <span class="d" style="background:${dot}"></span>
     ${play}<span class="ti">${esc(t.title)}</span>
     <span class="prj">${esc(proj)}</span>
     <span class="seg5">${segs}</span>
     <span class="msg">${msg}</span>
-    ${quick}${linkChips(t)}
+    ${pvChip}${quick}${linkChips(t)}
     <span class="ini2" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
     <span class="tm">${tm}</span>
   </div>`;
@@ -3447,6 +3466,7 @@ function renderFlow(){
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); prPrepOpen(b.dataset.rowpr, lsGet('prBase:'+b.dataset.rowpr)||'main'); });
+  el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
   el.querySelectorAll('.fcard').forEach(card=>{
     card.onclick=(e)=>{ if(e.target.closest('.fcommit')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
     if(grouped) return;   // arrastar só faz sentido na lista plana
