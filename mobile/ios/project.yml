@@ -8,6 +8,10 @@ targets:
     type: application
     platform: iOS
     sources: [Constellation]
+    entitlements:
+      path: Constellation/Constellation.entitlements
+      properties:
+        aps-environment: development   # push APNs de verdade (sandbox no build de dev)
     info:
       path: Constellation/Info.plist
       properties:

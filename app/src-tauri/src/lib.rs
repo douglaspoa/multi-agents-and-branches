@@ -2150,6 +2150,104 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
     }))
 }
 
+// ---------- APNs: push REAL pro iPhone (app fechado) ----------
+// JWT ES256 assinado com a key .p8 da conta Apple (openssl faz a assinatura;
+// aqui só convertemos DER→JOSE). Token cacheado por ~40min como a Apple pede.
+fn b64url(data: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        if chunk.len() > 1 { out.push(T[(n >> 6) as usize & 63] as char); }
+        if chunk.len() > 2 { out.push(T[n as usize & 63] as char); }
+    }
+    out
+}
+fn der_to_jose(der: &[u8]) -> Option<[u8; 64]> {
+    // SEQUENCE { INTEGER r, INTEGER s } → r||s com 32 bytes cada
+    let mut i = 2usize; // 0x30 len
+    if der.first() != Some(&0x30) { return None; }
+    if der[1] & 0x80 != 0 { i = 2 + (der[1] & 0x7f) as usize; }
+    let mut out = [0u8; 64];
+    for half in 0..2 {
+        if der.get(i) != Some(&0x02) { return None; }
+        let l = *der.get(i + 1)? as usize;
+        let mut v = &der[i + 2..i + 2 + l];
+        while v.len() > 32 && v[0] == 0 { v = &v[1..]; }
+        if v.len() > 32 { return None; }
+        out[half * 32 + (32 - v.len())..half * 32 + 32].copy_from_slice(v);
+        i += 2 + l;
+    }
+    Some(out)
+}
+static APNS_JWT: std::sync::OnceLock<std::sync::Mutex<(String, std::time::Instant)>> = std::sync::OnceLock::new();
+fn apns_jwt() -> Result<String, String> {
+    let cell = APNS_JWT.get_or_init(|| std::sync::Mutex::new((String::new(), std::time::Instant::now() - std::time::Duration::from_secs(3600))));
+    let mut g = cell.lock().unwrap_or_else(|e| e.into_inner());
+    if !g.0.is_empty() && g.1.elapsed().as_secs() < 2400 {
+        return Ok(g.0.clone());
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let key = std::env::var("CONSTELLATION_APNS_KEY").unwrap_or(format!("{home}/.constellation/AuthKey_AC5R9Y7ZYS.p8"));
+    let kid = std::env::var("CONSTELLATION_APNS_KID").unwrap_or("AC5R9Y7ZYS".into());
+    let team = std::env::var("CONSTELLATION_APNS_TEAM").unwrap_or("SUB6889LA9".into());
+    if !PathBuf::from(&key).exists() {
+        return Err(format!("key APNs não encontrada em {key}"));
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let head = b64url(format!("{{\"alg\":\"ES256\",\"kid\":\"{kid}\"}}").as_bytes());
+    let claims = b64url(format!("{{\"iss\":\"{team}\",\"iat\":{now}}}").as_bytes());
+    let input = format!("{head}.{claims}");
+    let tmp = std::env::temp_dir().join("apns-signing-input");
+    std::fs::write(&tmp, &input).map_err(|e| e.to_string())?;
+    let out = Command::new("openssl")
+        .args(["dgst", "-sha256", "-sign", &key])
+        .arg(&tmp)
+        .output()
+        .map_err(|e| format!("openssl: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("assinatura APNs falhou: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let jose = der_to_jose(&out.stdout).ok_or("assinatura DER inesperada")?;
+    let jwt = format!("{input}.{}", b64url(&jose));
+    *g = (jwt.clone(), std::time::Instant::now());
+    Ok(jwt)
+}
+
+/// Manda um push APNs pro device (sandbox por padrão; CONSTELLATION_APNS_PROD=1 → produção).
+#[tauri::command(async)]
+fn apns_push(token: String, title: String, body: String, category: Option<String>, task_id: Option<String>, question_id: Option<String>) -> Result<String, String> {
+    let jwt = apns_jwt()?;
+    let host = if std::env::var("CONSTELLATION_APNS_PROD").ok().as_deref() == Some("1") { "api.push.apple.com" } else { "api.sandbox.push.apple.com" };
+    let payload = serde_json::json!({
+        "aps": {
+            "alert": { "title": title, "body": body },
+            "sound": "default",
+            "category": category.unwrap_or_default(),
+            "thread-id": task_id.clone().unwrap_or_default(),
+        },
+        "taskId": task_id.unwrap_or_default(),
+        "questionId": question_id.unwrap_or_default(),
+    });
+    let mut cmd = Command::new("curl");
+    cmd.args([
+        "-s", "-o", "/dev/null", "-w", "%{http_code}",
+        "--http2", "-X", "POST",
+        "-H", &format!("authorization: bearer {jwt}"),
+        "-H", "apns-topic: dev.constellation.mobile",
+        "-H", "apns-push-type: alert",
+        "-H", "apns-priority: 10",
+        "-d", &payload.to_string(),
+        &format!("https://{host}/3/device/{token}"),
+    ]);
+    let out = output_timeout(cmd, 20)?;
+    let code = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if code == "200" { Ok(code) } else { Err(format!("APNs respondeu {code}")) }
+}
+
 /// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
 /// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
 #[tauri::command]
@@ -3385,6 +3483,7 @@ pub fn run() {
             file_diff,
             pr_body_ai,
             ai_spec,
+            apns_push,
             open_project,
             switch_project,
             remove_project,

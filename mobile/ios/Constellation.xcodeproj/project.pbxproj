@@ -36,6 +36,7 @@
 		4394FB044411B6D91726BA1E /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
 		4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		54FEA05F261C25A7749DFF00 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Constellation.entitlements; sourceTree = "<group>"; };
 		5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		7F06584523C9DFF7B3567892 /* Constellation.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Constellation.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -60,6 +61,7 @@
 			children = (
 				C676F8EF1536EC2AA4735422 /* CentralView.swift */,
 				24E3911EDDDC2995CFB26A47 /* Components.swift */,
+				55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */,
 				BDA0728D17FC058100F378C6 /* ConstellationApp.swift */,
 				342ABDAB30C51C6523955582 /* Info.plist */,
 				95F19BEBDCD6A770493FE488 /* LoginView.swift */,
@@ -172,6 +174,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -256,6 +259,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

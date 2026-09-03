@@ -6240,6 +6240,37 @@ setTimeout(()=>{ railProjTick().catch(()=>{}); }, 2500);
 // O agente pergunta (ask_human) → o Mac publica no cartão; o dev responde do
 // celular (PWA) → o Mac entrega a resposta ao agente (resolve_pending).
 const qPushed=new Set();
+// ---- push APNs REAL pros meus iPhones (app fechado): pergunta nova · entrega pronta ----
+let apnsTokens=null, apnsTokensAt=0;
+async function apnsNotify(title, body, extra){
+  try{
+    if(!SB.sess()) return;
+    if(!apnsTokens || Date.now()-apnsTokensAt>300000){
+      apnsTokens=(await sbGet('device_tokens?select=token&user_id=eq.'+cloudUserId()+'&platform=eq.ios&limit=5')).map(r=>r.token);
+      apnsTokensAt=Date.now();
+    }
+    for(const tk of (apnsTokens||[])){
+      invoke('apns_push',{ token:tk, title, body, category:(extra&&extra.category)||null, taskId:(extra&&extra.taskId)||null, questionId:(extra&&extra.questionId)||null })
+        .then(()=>invoke('web_log',{line:'[apns] ✓ '+title.slice(0,40)}))
+        .catch(e=>invoke('web_log',{line:'[apns] ✖ '+String(e).slice(0,120)}));
+    }
+  }catch(_){ }
+}
+// entrega ficou PRONTA → push (transição de status observada no snapshot local)
+const pushedReady=new Set();
+async function pushReadyTick(){
+  const m=tmap();
+  for(const t of (state.tasks||[])){
+    if(!['review','delivered'].includes(t.status) || t.flag==='closed' || pushedReady.has(t.id)) continue;
+    pushedReady.add(t.id);
+    if(!m[t.id]) continue;
+    // só empurra transições NOVAS (tarefa que já estava pronta no boot não notifica)
+    if(Date.now()-bootAt<20000) continue;
+    apnsNotify('Entrega pronta pra revisar', t.title.slice(0,120), { taskId:m[t.id] });
+  }
+}
+const bootAt=Date.now();
+setInterval(()=>{ pushReadyTick().catch(()=>{}); }, 6000);
 async function cloudQuestionsTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
@@ -6251,8 +6282,11 @@ async function cloudQuestionsTick(){
       const key=cid+'|'+p.id;
       if(qPushed.has(key)) continue;
       try{
-        await sbFetch('/rest/v1/questions?on_conflict=task_id,local_pending_id', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ task_id:cid, local_pending_id:p.id, agent:p.agent||'', prompt:(p.prompt||'').slice(0,2000), options:Array.isArray(p.options)?p.options:[], status:'open' }) });
+        const qrows=await sbFetch('/rest/v1/questions?on_conflict=task_id,local_pending_id', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ task_id:cid, local_pending_id:p.id, agent:p.agent||'', prompt:(p.prompt||'').slice(0,2000), options:Array.isArray(p.options)?p.options:[], status:'open' }) });
         qPushed.add(key);
+        // push REAL: responder direto da notificação, com o app fechado
+        const qid=(Array.isArray(qrows)&&qrows[0]&&qrows[0].id)?String(qrows[0].id):'';
+        apnsNotify('Precisa de você — '+(p.agent||'agente'), String(p.prompt||'').slice(0,160), { taskId:cid, questionId:qid, category:'QUESTION' });
       }catch(err){
         // erro visível: sem isso a ponte falha em silêncio e ninguém fica sabendo
         if(!qPushed.has('err|'+key)){ qPushed.add('err|'+key); sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'error', text:'⚠ pergunta não subiu pro celular: '+String(err.message||err).slice(0,180) }).catch(()=>{}); }

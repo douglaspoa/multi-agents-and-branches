@@ -22,6 +22,14 @@ final class PushManager: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // categoria QUESTION: responder a pergunta DIRETO da notificação (app fechado)
+        let reply = UNTextInputNotificationAction(identifier: "reply", title: "Responder…",
+                                                  options: [], textInputButtonTitle: "Enviar",
+                                                  textInputPlaceholder: "sua resposta pro agente")
+        let open = UNNotificationAction(identifier: "open", title: "Abrir a tarefa", options: [.foreground])
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: "QUESTION", actions: [reply, open], intentIdentifiers: []),
+        ])
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { ok, _ in
             if ok { DispatchQueue.main.async { application.registerForRemoteNotifications() } }
         }
@@ -61,9 +69,27 @@ final class PushManager: NSObject, UIApplicationDelegate, UNUserNotificationCent
         [.banner, .sound, .badge]
     }
 
-    // toque → roteia
+    // toque/resposta → roteia ou responde a pergunta sem abrir o app
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        if let text = (response as? UNTextInputNotificationResponse)?.userText,
+           let qid = info["questionId"] as? String, !qid.isEmpty {
+            // resposta digitada NA notificação → fecha a pergunta na nuvem; o Mac entrega ao agente
+            let supa = Supa()
+            if let s = supa.session {
+                var req = URLRequest(url: URL(string: Supa.url.absoluteString + "/rest/v1/questions?id=eq.\(qid)")!)
+                req.httpMethod = "PATCH"
+                req.setValue(Supa.anon, forHTTPHeaderField: "apikey")
+                req.setValue("Bearer " + s.accessToken, forHTTPHeaderField: "Authorization")
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.httpBody = try? JSONSerialization.data(withJSONObject: [
+                    "status": "answered", "answer": text, "answered_by": s.userId,
+                    "answered_at": ISO8601DateFormatter().string(from: Date()),
+                ])
+                _ = try? await URLSession.shared.data(for: req)
+            }
+            return
+        }
         await MainActor.run {
             if let tid = info["taskId"] as? String, !tid.isEmpty {
                 PushRouter.shared.openTaskId = tid
@@ -108,7 +134,8 @@ final class PushManager: NSObject, UIApplicationDelegate, UNUserNotificationCent
             c.title = "Precisa de você — \(r["agent"] as? String ?? "agente")"
             c.body = String((r["prompt"] as? String ?? "").prefix(140))
             c.sound = .default
-            c.userInfo = ["taskId": r["task_id"] as? String ?? ""]
+            c.categoryIdentifier = "QUESTION"
+            c.userInfo = ["taskId": r["task_id"] as? String ?? "", "questionId": qid]
             try? await UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: "q-" + qid, content: c, trigger: nil))
         }
