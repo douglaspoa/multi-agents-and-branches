@@ -2114,6 +2114,60 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     })
 }
 
+/// Publica a release (zip portátil + latest.json) no canal do time usando a
+/// SESSÃO logada do app — nada de senha em env. Só funciona na instalação dev
+/// (CARDUME_CLI aponta pro fonte, onde vive o dist/).
+#[tauri::command(async)]
+fn publish_release(url: String, anon: String, token: String, notes: Option<String>) -> Result<String, String> {
+    let cli = std::env::var("CARDUME_CLI").map_err(|_| "só a instalação de desenvolvimento publica releases")?;
+    // CARDUME_CLI → .../src/cli.ts → raiz do produto
+    let root = PathBuf::from(&cli).parent().and_then(|p| p.parent()).map(|p| p.to_path_buf()).ok_or("CARDUME_CLI inesperado")?;
+    let zip = root.join("dist").join("Constellation-portable.zip");
+    let bin = root.join("dist").join("Constellation-portable.app").join("Contents").join("MacOS").join("Constellation");
+    if !zip.exists() { return Err(format!("rode scripts/package-app.sh antes — sem {}", zip.display())); }
+    let build_ms = std::fs::metadata(&bin).and_then(|m| m.modified()).ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64).ok_or("binário do portable não encontrado")?;
+    let size = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
+    // 1) zip
+    let mut c1 = Command::new("curl");
+    c1.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
+        "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
+        "-H", "x-upsert: true", "-H", "Content-Type: application/zip",
+        "--data-binary"]).arg(format!("@{}", zip.display()))
+        .arg(format!("{url}/storage/v1/object/releases/Constellation-portable.zip"));
+    let r1 = output_timeout(c1, 300)?;
+    let code1 = String::from_utf8_lossy(&r1.stdout).trim().to_string();
+    if code1 != "200" { return Err(format!("upload do zip falhou (HTTP {code1}) — você é o owner do canal?")); }
+    // 2) latest.json
+    let d = build_ms / 1000;
+    let version = {
+        let out = Command::new("date").args(["-r", &d.to_string(), "+%d/%m %H:%M"]).output().map_err(|e| e.to_string())?;
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let meta = serde_json::json!({
+        "buildMs": build_ms, "version": version, "file": "Constellation-portable.zip",
+        "size": size, "notes": notes.unwrap_or_else(|| "Melhorias e correções.".into()),
+        "publishedAt": chrono_iso_now(),
+    });
+    let tmp = std::env::temp_dir().join("constellation-latest.json");
+    std::fs::write(&tmp, meta.to_string()).map_err(|e| e.to_string())?;
+    let mut c2 = Command::new("curl");
+    c2.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
+        "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
+        "-H", "x-upsert: true", "-H", "Content-Type: application/json",
+        "--data-binary"]).arg(format!("@{}", tmp.display()))
+        .arg(format!("{url}/storage/v1/object/releases/latest.json"));
+    let r2 = output_timeout(c2, 60)?;
+    let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
+    if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
+    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram ⬆ atualizar no próximo boot ou em até 6h", size as f64 / 1048576.0))
+}
+fn chrono_iso_now() -> String {
+    let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+}
+
 /// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
 /// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
@@ -3528,6 +3582,7 @@ pub fn run() {
             ai_spec,
             apns_push,
             read_policy,
+            publish_release,
             open_project,
             switch_project,
             remove_project,
