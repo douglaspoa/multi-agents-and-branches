@@ -4752,13 +4752,15 @@ const NT_REQUIRED={
   invest:[['ntInvTitle','o que investigar'],['ntInvObj','sintoma']],
   review:[['ntPr','link/nº do PR']],
 };
+let ntPolicy={ minRequirements:1, proofRequired:true, testsRequired:true, docRequired:false, costWarn:25 };
 function ntGate(){
   const req=NT_REQUIRED[ntMode]||[];
   const missing=req.filter(([id])=>{ const e=document.getElementById(id); return !e || !e.value.trim(); });
-  // requisito de entrega é OBRIGATÓRIO (mín. 1): sem critério verificável o agente
-  // não tem contra o que provar — e a checklist X/Y nasceria vazia
-  if(ntMode==='build' && !ntReq.filter(x=>x&&x.trim()).length) missing.push(['ntRequirements','pelo menos 1 requisito']);
-  if(ntMode==='fix' && !ntFixReq.filter(x=>x&&x.trim()).length) missing.push(['ntFixReqs','pelo menos 1 critério de aceite']);
+  // requisitos de entrega OBRIGATÓRIOS pela POLÍTICA do repo (.cardume/policy.json):
+  // sem critério verificável o agente não tem contra o que provar
+  const minR=Math.max(1, +ntPolicy.minRequirements||1);
+  const nReq=ntMode==='build'?ntReq.filter(x=>x&&x.trim()).length:ntMode==='fix'?ntFixReq.filter(x=>x&&x.trim()).length:minR;
+  if((ntMode==='build'||ntMode==='fix') && nReq<minR) missing.push(['ntRequirements',`pelo menos ${minR} requisito${minR>1?'s':''} (política do repo)`]);
   // estado por campo (redesign p8): borda verde = preenchido; âmbar = aguardando definição
   req.forEach(([id])=>{ const e=document.getElementById(id); if(!e) return; const ok=!!e.value.trim(); e.classList.toggle('okf',ok); e.classList.toggle('missf',!ok); });
   const btn=document.getElementById('ntCreate'); const ms=document.getElementById('ntMissing');
@@ -4898,6 +4900,12 @@ async function openNewTask(){
   // o assistente lateral MORREU (bugado demais) — quem completa a spec agora é
   // o botão "✨ completar com IA", em cima do que você já digitou
   { const a=document.getElementById('aiAssist'); if(a) a.style.display='none'; }
+  // POLÍTICA do repo: provas/testes obrigatórios ficam LIGADOS e travados — a
+  // entrega tem que sair completa, sem depender da disciplina de cada dev
+  try{ ntPolicy={ ...ntPolicy, ...(await invoke('read_policy')) }; }catch(_){ }
+  const lock=(id,on)=>{ const e=document.getElementById(id); if(!e) return; if(on){ e.checked=true; e.disabled=true; e.closest('label')?.setAttribute('title','obrigatório pela política do repo (.cardume/policy.json)'); } else { e.disabled=false; } };
+  lock('ntArtProof', !!ntPolicy.proofRequired); lock('ntArtTests', !!ntPolicy.testsRequired); lock('ntArtDoc', !!ntPolicy.docRequired);
+  lock('ntFixArtProof', !!ntPolicy.proofRequired); lock('ntFixArtTests', !!ntPolicy.testsRequired);
   ntGate();
   (ntMode==='review'?document.getElementById("ntPr"):ntMode==='design'?document.getElementById("ntDzTitle"):ntMode==='fix'?document.getElementById("ntFixTitle"):ntMode==='invest'?document.getElementById("ntInvTitle"):document.getElementById("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
@@ -5296,7 +5304,7 @@ async function submitNewTask(start=true){
     const btn=document.getElementById("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
     const team=document.getElementById('ntFixTeam').value;
-    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:document.getElementById("ntEngine").value||'claude', model:(document.getElementById("ntModel")||{}).value||null, approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById('ntFixArtProof').checked, tests:document.getElementById('ntFixArtTests').checked, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:document.getElementById("ntEngine").value||'claude', model:(document.getElementById("ntModel")||{}).value||null, approval:'auto', owns:document.getElementById("ntFixOwns").value.trim()||null, off:null, objective:document.getElementById("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:document.getElementById('ntFixArtDoc').checked?'FIX.md':null, proof:document.getElementById("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:document.getElementById("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -5369,8 +5377,8 @@ async function submitNewTask(start=true){
     deliverables: ntDel.map(x=>x.trim()).filter(Boolean),
     requirements: ntReq.map(x=>x.trim()).filter(Boolean),
     doc: document.getElementById("ntArtDoc").checked ? "ARCHITECTURE.md" : null,
-    proof: document.getElementById("ntArtProof").checked,
-    tests: document.getElementById("ntArtTests").checked,
+    proof: document.getElementById("ntArtProof").checked || !!ntPolicy.proofRequired,
+    tests: document.getElementById("ntArtTests").checked || !!ntPolicy.testsRequired,
     autoPr: document.getElementById("ntAutoPr").value,
     prBase: document.getElementById("ntPrBase").value.trim() || null,
     planApproval: document.getElementById("ntPlan").value,

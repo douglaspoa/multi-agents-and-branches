@@ -2114,6 +2114,30 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     })
 }
 
+/// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
+/// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
+/// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
+#[tauri::command]
+fn read_policy(state: State<AppState>) -> serde_json::Value {
+    let mut pol = serde_json::json!({
+        "minRequirements": 1,
+        "proofRequired": true,
+        "testsRequired": true,
+        "docRequired": false,
+        "costWarn": 25
+    });
+    if let Ok(repo) = repo_of(&state) {
+        if let Ok(txt) = std::fs::read_to_string(PathBuf::from(&repo).join(".cardume").join("policy.json")) {
+            if let Ok(user) = serde_json::from_str::<serde_json::Value>(&txt) {
+                if let (Some(base), Some(over)) = (pol.as_object_mut(), user.as_object()) {
+                    for (k, v) in over { base.insert(k.clone(), v.clone()); }
+                }
+            }
+        }
+    }
+    pol
+}
+
 /// Completa a SPEC da Nova demanda numa tacada só (sem conversa): pega o que o
 /// humano já digitou e devolve título/objetivo/entregáveis/requisitos BEM
 /// FORMADOS. Substitui o assistente lateral (frágil demais).
@@ -2124,6 +2148,14 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
     if title.trim().is_empty() && objective.trim().is_empty() {
         return Err("escreva pelo menos o título ou uma descrição — a IA completa o resto".into());
     }
+    // guia de spec DO REPO (.cardume/SPEC.md): vocabulário do domínio, o que toda
+    // demanda deste projeto precisa conter — a IA obedece ao time, não ao genérico
+    let spec_guide = std::fs::read_to_string(PathBuf::from(&repo).join(".cardume").join("SPEC.md"))
+        .map(|s| s.chars().take(3000).collect::<String>())
+        .unwrap_or_default();
+    let guide_block = if spec_guide.trim().is_empty() { String::new() } else {
+        format!("\n\nGUIA DE SPEC DESTE REPO (regras do time — siga à risca; requisitos padrão daqui entram SEMPRE que se aplicarem):\n{spec_guide}\n")
+    };
     let prompt = format!(
         "Você monta a especificação de uma tarefa de engenharia a partir do rascunho do humano. Responda SOMENTE um objeto JSON (sem cerca de código, sem texto fora) com EXATAMENTE estas chaves:\n\
          {{\"title\": string, \"objective\": string, \"deliverables\": [string], \"requirements\": [string]}}\n\n\
@@ -2132,7 +2164,7 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
          - objective: 2 a 4 frases COMPLETAS em pt-BR — o que fazer, onde e por quê. Não copie o rascunho cru; escreva limpo.\n\
          - deliverables: 2 a 4 itens — COISAS entregues (tela X, endpoint Y, doc Z), substantivos, sem verbos de processo.\n\
          - requirements: 3 a 6 critérios de aceite VERIFICÁVEIS, cada um uma FRASE COMPLETA e independente (alguém consegue marcar ✓/✗ testando). PROIBIDO: fragmentos soltos, itens duplicando entregáveis, itens vagos tipo 'funcionar bem', itens com mais de uma exigência (quebre em dois).\n\
-         - Tudo em pt-BR. NÃO invente escopo que o humano não pediu — complete e organize o que ele quis dizer.\n\n\
+         - Tudo em pt-BR. NÃO invente escopo que o humano não pediu — complete e organize o que ele quis dizer.{guide_block}\n\
          Rascunho:\n{draft}"
     );
     let mut cmd = claude_cmd(&claude_bin());
@@ -3491,6 +3523,7 @@ pub fn run() {
             pr_body_ai,
             ai_spec,
             apns_push,
+            read_policy,
             open_project,
             switch_project,
             remove_project,
