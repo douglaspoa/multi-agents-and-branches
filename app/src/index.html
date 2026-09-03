@@ -3290,7 +3290,7 @@ function flowTaskCard(t, acc){
     <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus" style="color:${asking?'var(--warn)':col}">${asking?'esperando você':esc(t.status)}</span></div>
     ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="mono">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}${linkChips(t)}${pvChips(t)}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}${linkChips(t)}${pvChips(t)}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;
@@ -3575,9 +3575,10 @@ function flowTaskRow(t){
   const agoP=(ms)=>{ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; };
   const tm=agoP(ev?+new Date(ev.ts):(t.createdAt||t.created_at));
   const play=t.status==='draft'?`<button class="kplay" data-rowplay="${escA(t.id)}" title="iniciar">${IC.cright}</button>`:'';
-  // ações rápidas direto da home: abrir PR quando pronta · link do PR/issue · site local do agente
-  const quick=(!done && ['review','delivered'].includes(t.status) && !t.prUrl)
-    ? `<button class="btn primary sm" data-rowpr="${escA(t.id)}" style="padding:3px 10px;font-size:10.5px;flex:none">${IC.check} abrir PR</button>` : '';
+  // ações rápidas direto da home: abrir PR (qualquer tarefa viva sem PR) · link do PR/issue · site local
+  const readyPr=['review','delivered'].includes(t.status);
+  const quick=(!done && t.status!=='draft' && !t.prUrl)
+    ? `<button class="btn ${readyPr?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 10px;font-size:10.5px;flex:none">${IC.merge} abrir PR</button>` : '';
   const pvChip=pvChips(t, true);
   return `<div class="frow${done?' done':''}" data-id="${t.id}">
     <span class="d" style="background:${dot}"></span>
@@ -3655,7 +3656,7 @@ function renderFlow(){
   });
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskSummary(b.dataset.sum); });
   el.querySelectorAll('.fcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
     if(grouped) return;   // arrastar só faz sentido na lista plana
     card.setAttribute('draggable','true');
     card.addEventListener('dragstart',e=>{ flowDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
