@@ -812,9 +812,16 @@
   /* deixa o topo livre: não cobrir os controles da janela (semáforo do macOS) */
   .fwoverlay{top:34px;padding:0 12px 12px;align-items:stretch;justify-content:stretch}
   .fw{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 0 0;display:flex;flex-direction:column;overflow:hidden;position:relative}
-  .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+  .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:nowrap;min-width:0}
   .fwhead b{font-size:13.5px}
   .fwhead .fwsub{font-size:11px;color:var(--muted)}
+  /* header do workspace sem aperto: nada quebra linha; título/branch encolhem com … */
+  #fwTaskName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:26vw;flex:none}
+  #fwTaskBranch{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;flex:1 1 auto;min-width:0}
+  .fwhead .btn,.fwhead #fwReviewBar .btn{white-space:nowrap;flex:none}
+  #fwReviewBar{flex:none;min-width:0}
+  @media (max-width:1360px){ #fwTaskBranch{display:none} .fwhead .phst{display:none} }
+  @media (max-width:1180px){ #fwSum span:first-child{display:none} }
   .fwhead .x{margin-left:auto;border:0;background:transparent;color:var(--muted);cursor:pointer}
   .fwcols{flex:1;display:grid;grid-template-columns:238px 1fr 348px;min-height:0;transition:grid-template-columns .28s ease}
   /* modos da tela de execução (redesign p6/p11/p12/p14) */
@@ -2615,8 +2622,11 @@ function phasesHtml(t){
 // abas de sessão: alterna entre as tarefas vivas sem sair do workspace
 function renderFwTabs(){
   const el=document.getElementById('fwTabs'); if(!el) return;
-  const open=(state.tasks||[]).filter(t=>ACTIVE_ST.has(t.status)||['thinking','review','delivered','plan-review','error'].includes(t.status))
+  // só sessões RODANDO viram aba (fechadas/prontas não poluem o topo) + a tarefa aberta
+  let open=(state.tasks||[]).filter(t=>t.flag!=='closed'&&(ACTIVE_ST.has(t.status)||['thinking','plan-review'].includes(t.status)))
     .sort((a,b)=>b.created_at-a.created_at).slice(0,6);
+  const cur=(state.tasks||[]).find(t=>t.id===fwTask);
+  if(cur && !open.some(t=>t.id===cur.id)) open=[cur,...open].slice(0,6);
   if(open.length<2){ el.innerHTML=''; el.style.display='none'; return; }
   el.style.display='flex';
   el.innerHTML=open.map(t=>{
@@ -2651,7 +2661,7 @@ function renderWorkspace(){
             :`<button class="btn sm" id="fwPvMob" data-url="${escA(pv)}" title="túnel criptografado pra abrir este preview no seu celular">${IC.phone}</button>`):'');
       if(['review','delivered'].includes(t.status) && !t.prUrl){
         const rev=reviewOf(t.id);
-        rb.innerHTML=`${pvHtml}${costChip}<span class="dim" style="font-size:11.5px">${rev?esc((rev.summary||'').slice(0,60)):'entrega pronta pra revisar'}</span><button class="btn sm" id="fwAskFix">pedir ajuste</button><button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`;
+        rb.innerHTML=`${pvHtml}${costChip}<button class="btn sm" id="fwAskFix" title="${rev?escA((rev.summary||'').slice(0,120)):'a entrega está pronta pra revisar'}">pedir ajuste</button><button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`;
         const af=document.getElementById('fwAskFix'); if(af) af.onclick=()=>{ const i=document.getElementById('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } };
         const ap=document.getElementById('fwApprove'); if(ap) ap.onclick=()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
       } else rb.innerHTML=pvHtml+costChip;
