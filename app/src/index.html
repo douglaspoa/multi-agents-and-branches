@@ -473,7 +473,9 @@
   .phst .pd.cur{background:transparent;border:1.5px solid var(--good)}
   .phst .plabel{margin-left:3px;color:var(--text)}
   /* abas de sessão no workspace */
-  .fwtabs{display:flex;gap:6px;align-items:center;padding:6px 14px 0;overflow-x:auto}
+  /* recuo dos semáforos do macOS + área de arrasto da janela (páginas em tela cheia) */
+  .fwtabs{display:flex;gap:6px;align-items:center;padding:8px 14px 4px 86px;overflow-x:auto;min-height:34px}
+  #ntOverlay .mhead{padding-left:86px}
   .fwtab{display:flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:11.5px;color:var(--text-2);white-space:nowrap}
   .fwtab.on{border-color:var(--accent);color:var(--text)}
   .fwtab .td{width:7px;height:7px;border-radius:50%}
@@ -1396,7 +1398,7 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead"><b>Nova demanda</b><span style="flex:1"></span><button class="btn sm" id="ntAI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg>gerar com IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead" data-tauri-drag-region><b data-tauri-drag-region>Nova demanda</b><span style="flex:1" data-tauri-drag-region></span><button class="btn sm" id="ntAI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg>gerar com IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div id="aiAssist" style="display:none">
         <div class="aichat" id="aiChat"></div>
@@ -1597,7 +1599,7 @@
 <!-- workspace 3 colunas estilo Cursor: arquivos · código+linhas · chat do agente -->
 <div class="overlay fwoverlay" id="fwOverlay" style="display:none">
   <div class="fw">
-    <div class="fwtabs" id="fwTabs"></div>
+    <div class="fwtabs" id="fwTabs" data-tauri-drag-region></div>
     <div class="fwhead">
       <b class="mono" id="fwTaskName">Arquivos & chat</b>
       <span class="fwsub" id="fwTaskBranch"></span>
@@ -2643,7 +2645,7 @@ function renderFwTabs(){
     .sort((a,b)=>b.created_at-a.created_at).slice(0,7);
   const cur=(state.tasks||[]).find(t=>t.id===fwTask);
   if(cur && !open.some(t=>t.id===cur.id)) open=[cur,...open].slice(0,6);
-  if(open.length<2){ el.innerHTML=''; el.style.display='none'; return; }
+  // a barra fica SEMPRE visível: dá o recuo dos semáforos do macOS e é a área de arrastar a janela
   el.style.display='flex';
   el.innerHTML=open.map(t=>{
     const col=pendingOf(t.id).length?'var(--warn)':(ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)':['review','delivered'].includes(t.status)?'var(--warn)':'var(--muted)';
