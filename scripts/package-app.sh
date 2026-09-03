@@ -34,7 +34,29 @@ cp -R app/src-tauri/resources/mcp "$PORT/Contents/Resources/mcp"
 /usr/libexec/PlistBuddy -c "Delete :LSEnvironment" "$PORT/Contents/Info.plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$PORT/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment:PATH string /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" "$PORT/Contents/Info.plist"
-codesign --force --deep --sign - "$PORT"
+# Assinatura: usa o Developer ID quando existir (conta Apple paga) — identidade
+# ESTÁVEL: o macOS lembra as permissões (TCC) entre releases e o app pode ser
+# notarizado (fim do "Abrir Mesmo Assim"). Sem o certificado, cai no ad-hoc.
+DEVID=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+if [ -n "$DEVID" ]; then
+  echo "→ assinando com: $DEVID (hardened runtime)"
+  codesign --force --deep --options runtime --timestamp --sign "$DEVID" "$PORT"
+  # Notariza se houver um profile 'constellation' salvo no keychain
+  # (crie uma vez com: xcrun notarytool store-credentials constellation \
+  #    --apple-id SEU_APPLE_ID --team-id SEU_TEAM_ID --password SENHA_DE_APP)
+  if xcrun notarytool history --keychain-profile constellation >/dev/null 2>&1; then
+    echo "→ notarizando (pode levar alguns minutos)…"
+    ditto -c -k --keepParent "$PORT" /tmp/constellation-notarize.zip
+    xcrun notarytool submit /tmp/constellation-notarize.zip --keychain-profile constellation --wait
+    xcrun stapler staple "$PORT"
+    echo "→ notarizado e grampeado ✓ (abre sem Gatekeeper em qualquer Mac)"
+  else
+    echo "→ sem profile de notarização 'constellation' — pulando (app assinado, mas 1º open pede Abrir Mesmo Assim)"
+  fi
+else
+  echo "→ sem Developer ID no keychain — assinatura ad-hoc (temporária)"
+  codesign --force --deep --sign - "$PORT"
+fi
 
 echo "→ 4/4 zip (com LEIA-ME de instalação)"
 cat > dist/LEIA-ME.txt <<'TXT'
