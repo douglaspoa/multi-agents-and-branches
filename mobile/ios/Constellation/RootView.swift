@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Abas do escopo: ◉ Central · ▤ Minhas · ⚉ Time · ◍ Conta.
+/// A antiga aba Perguntas virou a 1ª seção da Central — urgência manda.
 struct RootView: View {
     @EnvironmentObject var supa: Supa
     @EnvironmentObject var router: PushRouter
@@ -8,8 +10,8 @@ struct RootView: View {
         #if DEBUG
         switch ProcessInfo.processInfo.environment["DEMO_TAB"] {
         case "minhas": return 1
-        case "conta": return 2
-        case "time": return 3
+        case "conta": return 3
+        case "time": return 2
         default: return 0
         }
         #else
@@ -20,11 +22,11 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack {
-                QuestionsView()
-                    .navigationTitle("Precisa de você")
+                CentralView()
+                    .navigationTitle("Central")
                     .toolbarBackground(T.bg, for: .navigationBar)
             }
-            .tabItem { Label("Perguntas", systemImage: "bubble.left.and.exclamationmark.bubble.right") }.tag(0)
+            .tabItem { Label("Central", systemImage: "circle.grid.2x2.fill") }.tag(0)
             .badge(openCount)
 
             NavigationStack {
@@ -35,25 +37,25 @@ struct RootView: View {
             .tabItem { Label("Minhas", systemImage: "person.crop.rectangle.stack") }.tag(1)
 
             NavigationStack {
-                TasksView()
+                TeamView()
                     .navigationTitle("Time")
                     .toolbarBackground(T.bg, for: .navigationBar)
             }
-            .tabItem { Label("Time", systemImage: "person.3") }.tag(3)
+            .tabItem { Label("Time", systemImage: "person.3") }.tag(2)
 
             NavigationStack {
                 SettingsView()
                     .navigationTitle("Conta")
                     .toolbarBackground(T.bg, for: .navigationBar)
             }
-            .tabItem { Label("Conta", systemImage: "gearshape") }.tag(2)
+            .tabItem { Label("Conta", systemImage: "gearshape") }.tag(3)
         }
         .tint(T.accent)
         .onChange(of: router.goToQuestions) { _, go in
-            if go { tab = 0; router.goToQuestions = false }
+            if go { tab = 0; router.goToQuestions = false }   // pergunta mora na Central
         }
         .onChange(of: router.openTaskId) { _, id in
-            if id != nil { tab = 1 } // aba Minhas abre o detalhe (TasksView consome)
+            if id != nil { tab = 0 } // Central abre o detalhe
         }
         .task {
             while !Task.isCancelled {
@@ -66,37 +68,5 @@ struct RootView: View {
                 try? await Task.sleep(for: .seconds(7))
             }
         }
-    }
-}
-
-struct SettingsView: View {
-    @EnvironmentObject var supa: Supa
-
-    var body: some View {
-        List {
-            Section {
-                HStack {
-                    Circle().fill(T.accent).frame(width: 34, height: 34)
-                        .overlay(Text(String((supa.session?.email ?? "?").prefix(2)).uppercased())
-                            .font(.system(.caption, design: .monospaced).bold()).foregroundStyle(.black))
-                    VStack(alignment: .leading) {
-                        Text(supa.session?.email ?? "").font(.subheadline).foregroundStyle(T.text)
-                        Text("mesma conta do Mac — tudo sincronizado").font(.caption2).foregroundStyle(T.dim)
-                    }
-                }
-                .listRowBackground(T.panel)
-            }
-            Section {
-                Button("Sair da conta", role: .destructive) { supa.signOut() }
-                    .listRowBackground(T.panel)
-            }
-            Section {
-                Text("Constellation Mobile 0.1 — companion do orquestrador de agentes. As perguntas dos agentes chegam aqui; as respostas voltam pro Mac em segundos.")
-                    .font(.caption2).foregroundStyle(T.dim)
-                    .listRowBackground(Color.clear)
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(T.bg)
     }
 }

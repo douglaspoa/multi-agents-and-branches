@@ -6081,6 +6081,94 @@ setInterval(()=>{ cloudAutoTunnelTick().catch(()=>{}); }, 9000);
 
 // ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
 const cloudSyncSigs={}, prProbed=new Set();
+// ---- PONTES DE INTENÇÃO do celular (escopo mobile): o app escreve
+// spec.intent={kind,...} → o Mac executa → publica spec.intentResult e limpa.
+// kinds: openPr · merge · pause · abort · fixComment {commentId}
+const intentBusy={};
+const prPubAt={};
+async function cloudIntentTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
+  let rows=[];
+  try{ rows=await sbGet('tasks?select=id,spec,pr_url&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3Eintent=not.is.null&limit=6'); }catch(_){ return; }
+  for(const r of rows){
+    const lid=Object.keys(m).find(k=>m[k]===r.id); if(!lid || intentBusy[lid]) continue;
+    const sp=r.spec||{}; const it=sp.intent||{}; const kind=it.kind;
+    if(!kind) continue;
+    intentBusy[lid]=true;
+    const t=(state.tasks||[]).find(x=>x.id===lid);
+    const finish=async(ok,msg,extra)=>{
+      const cur=(await sbGet('tasks?select=spec&id=eq.'+r.id).catch(()=>[{}]))[0]||{};
+      await sbFetch('/rest/v1/tasks?id=eq.'+r.id,{method:'PATCH',body:JSON.stringify({ ...(extra||{}), spec:{...(cur.spec||sp),intent:null,intentResult:{kind,ok,msg:String(msg||'').slice(0,300),at:new Date().toISOString()}}})}).catch(()=>{});
+      delete intentBusy[lid];
+      invoke('web_log',{line:'[intent] '+kind+' '+(ok?'ok':'FALHOU')+' · '+lid+(msg?' · '+String(msg).slice(0,80):'')}).catch(()=>{});
+      lastSig=''; refresh().catch(()=>{});
+    };
+    try{
+      if(kind==='openPr'){
+        if(!t) return finish(false,'tarefa não está neste Mac');
+        let checks=[]; try{ checks=await invoke('repo_checks',{taskId:lid}); }catch(_){ }
+        const bad=checks.filter(c=>!c.ok);
+        if(bad.length) return finish(false,'checagem falhou: '+bad.map(c=>c.name).join(', ')+' — abra pelo Mac pra ver o detalhe');
+        try{ await invoke('push_task',{taskId:lid}); }catch(e){ return finish(false,'push falhou: '+e); }
+        let body; try{ body=await invoke('pr_body_ai',{taskId:lid}); }catch(_){ body=prBodyOf(t); }
+        try{
+          const url=await invoke('open_pr',{taskId:lid, base:lsGet('prBase:'+lid)||'main', title:t.title, body});
+          prCache[lid]=undefined;
+          return finish(true,'PR aberto',{pr_url:url});
+        }catch(e){ return finish(false,'criar PR falhou: '+e); }
+      }
+      if(kind==='merge'){
+        try{ const msg=await invoke('merge_pr',{taskId:lid, method:'merge'}); return finish(true,msg); }
+        catch(e){ return finish(false,String(e)); }
+      }
+      if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return finish(false,String(e)); } }
+      if(kind==='abort'){ try{ await invoke('abort_task',{taskId:lid}); return finish(true,'abortada'); }catch(e){ return finish(false,String(e)); } }
+      if(kind==='fixComment'){
+        try{
+          prCache[lid]=undefined; await loadPr(lid,true);
+          const info=prCache[lid];
+          const cmts=((info&&info.comments)||[]).filter(c=>!c.inReplyTo);
+          const ci=cmts.findIndex(c=>String(c.id)===String(it.commentId));
+          if(ci<0) return finish(false,'comentário não encontrado');
+          await prFixOne(lid, ci);
+          return finish(true,'agente acordado pra corrigir o comentário');
+        }catch(e){ return finish(false,String(e)); }
+      }
+      return finish(false,'intenção desconhecida: '+kind);
+    }catch(e){ return finish(false,String(e&&e.message||e)); }
+  }
+}
+// publica na nuvem o que a tela Entrega/PR do celular mostra: stat do diff,
+// commits e o PR (corpo+comentários truncados) — sem isso o mobile ficaria cego
+async function cloudPrStatTick(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  const m=tmap();
+  const live=(state.tasks||[]).filter(t=>m[t.id] && t.flag!=='closed' && !['merged','done','draft'].includes(t.status)).slice(0,8);
+  for(const t of live){
+    const cid=m[t.id];
+    const now=Date.now();
+    if(now-(prPubAt[t.id]||0) < 120000) continue;
+    prPubAt[t.id]=now;
+    try{
+      const d=diffOf(t.id)||{}; const c=commitsCache[t.id];
+      const stat={ files:(d.files||[]).length, add:d.additions||0, del:d.deletions||0, commits:Array.isArray(c)?c.length:null };
+      let prInfo=null;
+      if(t.prUrl){
+        try{ await loadPr(t.id); const i=prCache[t.id];
+          if(i&&i.exists) prInfo={ number:i.number, state:i.state, decision:i.decision, body:(i.body||'').slice(0,3000),
+            comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,answered:x.answered,isBot:x.isBot,body:(x.body||'').slice(0,400)})) };
+        }catch(_){ }
+      }
+      const rev=reviewOf(t.id);
+      const review=rev?{ summary:(rev.summary||'').slice(0,600), howToTest:(rev.howToTest||'').slice(0,800) }:null;
+      const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{};
+      await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),stat,prInfo,review}})});
+    }catch(_){ }
+  }
+}
+setInterval(()=>{ cloudIntentTick().catch(()=>{}); }, 6000);
+setInterval(()=>{ cloudPrStatTick().catch(()=>{}); }, 30000);
 async function cloudSyncTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   await cloudAutoPublish().catch(()=>{});
@@ -6241,8 +6329,11 @@ async function cloudMsgTick(){
     const lid=Object.keys(m).find(k=>m[k]===msg.task_id); if(!lid) continue;
     try{
       await sbFetch('/rest/v1/task_messages?id=eq.'+msg.id, { method:'PATCH', body: JSON.stringify({ delivered_at:new Date().toISOString() }) });
-      await invoke('talk_task',{ taskId: lid, message: msg.body, asReq:false, agent:null });
-      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 '+String(msg.body).slice(0,280) }).catch(()=>{});
+      // "[req] ..." vindo do celular = adicionar como REQUISITO da tarefa (checklist)
+      const asReq=/^\[req\]\s*/i.test(String(msg.body||''));
+      const body=String(msg.body||'').replace(/^\[req\]\s*/i,'');
+      await invoke('talk_task',{ taskId: lid, message: body, asReq, agent:null });
+      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 '+body.slice(0,280) }).catch(()=>{});
     }catch(e){ console.error('msg', e.message); }
   }
 }

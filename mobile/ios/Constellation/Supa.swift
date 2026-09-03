@@ -92,6 +92,35 @@ final class Supa: ObservableObject {
         return data
     }
 
+    /// URL assinada de uma prova no bucket privado `artifacts` (1h)
+    func signedUrl(_ storagePath: String) async throws -> URL {
+        guard let s = session else { throw SupaError.api("não autenticado") }
+        var req = URLRequest(url: URL(string: Self.url.absoluteString + "/storage/v1/object/sign/artifacts/" + storagePath)!)
+        req.httpMethod = "POST"
+        req.setValue(Self.anon, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer " + s.accessToken, forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["expiresIn": 3600])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode ?? 500 < 300,
+              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let p = (j["signedURL"] as? String) ?? (j["signedUrl"] as? String),
+              let u = URL(string: Self.url.absoluteString + "/storage/v1" + p)
+        else { throw SupaError.api("não consegui assinar a prova") }
+        return u
+    }
+
+    /// escreve uma INTENÇÃO no spec da tarefa — o Mac executa e publica o resultado
+    func sendIntent(taskId: String, kind: String, extra: [String: Any] = [:]) async throws {
+        let data = try await rest("tasks?select=spec&id=eq.\(taskId)")
+        var spec = ((try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]])?.first?["spec"] as? [String: Any] ?? [:]
+        var intent: [String: Any] = ["kind": kind, "at": ISO8601DateFormatter().string(from: Date())]
+        for (k, v) in extra { intent[k] = v }
+        spec["intent"] = intent
+        spec["intentResult"] = nil
+        _ = try await rest("tasks?id=eq.\(taskId)", method: "PATCH", json: ["spec": spec])
+    }
+
     static func ptError(_ m: String) -> String {
         if m.localizedCaseInsensitiveContains("invalid login") { return "e-mail ou senha incorretos." }
         if m.localizedCaseInsensitiveContains("email not confirmed") { return "confirme o e-mail primeiro." }
