@@ -21,6 +21,7 @@
 		D012A516A9B7287637A747EA /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6D1939927FD6490D5CD700 /* TeamView.swift */; };
 		D3C533444B71C46AA35E4976 /* Supa.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192B4419693C35BD2702929E /* Supa.swift */; };
 		E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F8F6081FFC033EA789D55E /* QuestionsView.swift */; };
+		EFCA55ED8B91B4462E50EC04 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DEC089E05D5B5941A779A6FC /* Assets.xcassets */; };
 		F56813BE6263E24BE93B4D69 /* Skeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */; };
 		FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4394FB044411B6D91726BA1E /* TasksView.swift */; };
 /* End PBXBuildFile section */
@@ -44,6 +45,7 @@
 		A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skeleton.swift; sourceTree = "<group>"; };
 		BDA0728D17FC058100F378C6 /* ConstellationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstellationApp.swift; sourceTree = "<group>"; };
 		C676F8EF1536EC2AA4735422 /* CentralView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CentralView.swift; sourceTree = "<group>"; };
+		DEC089E05D5B5941A779A6FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FA6D1939927FD6490D5CD700 /* TeamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -59,6 +61,7 @@
 		7874AFC0717C55E1950504D7 /* Constellation */ = {
 			isa = PBXGroup;
 			children = (
+				DEC089E05D5B5941A779A6FC /* Assets.xcassets */,
 				C676F8EF1536EC2AA4735422 /* CentralView.swift */,
 				24E3911EDDDC2995CFB26A47 /* Components.swift */,
 				55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */,
@@ -97,6 +100,7 @@
 			buildConfigurationList = 2B449DB4B30CE74A8F4C64C2 /* Build configuration list for PBXNativeTarget "Constellation" */;
 			buildPhases = (
 				8664A6A685F3FD20BCAEB8D5 /* Sources */,
+				8093789CAD0313E409354215 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -142,6 +146,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8093789CAD0313E409354215 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EFCA55ED8B91B4462E50EC04 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		8664A6A685F3FD20BCAEB8D5 /* Sources */ = {

@@ -11,12 +11,19 @@ echo "→ build release"
 
 cp app/src-tauri/target/release/cardume-app dist/Constellation.app/Contents/MacOS/Constellation
 
+# Identidade ESTÁVEL = o TCC lembra das permissões entre deploys.
+# Preferência: Developer ID (definitivo) → Apple Development (estável no SEU Mac) → ad-hoc.
 DEVID=$( (security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"') || true )
+# pelo HASH: nome pode ser ambíguo quando há dois certificados iguais no keychain
+DEVAPPLE=$( (security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -1 | awk '{print $2}') || true )
 if [ -n "$DEVID" ]; then
   echo "→ assinando com: $DEVID"
   codesign --force --deep --options runtime --timestamp --sign "$DEVID" dist/Constellation.app
+elif [ -n "$DEVAPPLE" ]; then
+  echo "→ assinando com: $DEVAPPLE (estável — o macOS lembra das permissões)"
+  codesign --force --deep --sign "$DEVAPPLE" dist/Constellation.app
 else
-  echo "→ sem Developer ID — assinatura ad-hoc (o macOS pode re-pedir permissões)"
+  echo "→ sem certificado — assinatura ad-hoc (o macOS pode re-pedir permissões)"
   codesign --force --deep --sign - dist/Constellation.app
 fi
 
