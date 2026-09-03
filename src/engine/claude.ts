@@ -219,6 +219,10 @@ export class ClaudeEngine implements AgentEngine {
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SSE_PORT;
+    // API key no ambiente sobrepõe o login claude.ai: agente passa a COBRAR POR
+    // TOKEN na API e perde os connectors. Aqui é sempre a ASSINATURA que paga.
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
     const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
 

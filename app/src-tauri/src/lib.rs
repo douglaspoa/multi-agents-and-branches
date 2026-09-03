@@ -79,6 +79,13 @@ fn gh_bin() -> String {
     "gh".to_string()
 }
 
+/// Command do claude SEM a API key do ambiente: aqui quem paga e SEMPRE a
+/// assinatura (login claude.ai) - key setada cobraria por token e desliga connectors.
+fn claude_cmd(bin: &str) -> Command {
+    let mut c = Command::new(bin);
+    c.env_remove("ANTHROPIC_API_KEY").env_remove("ANTHROPIC_AUTH_TOKEN");
+    c
+}
 fn claude_bin() -> String {
     if let Ok(c) = std::env::var("CARDUME_CLAUDE") {
         if !c.is_empty() {
@@ -227,7 +234,7 @@ fn ai_branch_name(title: &str) -> Option<String> {
     let prompt = format!(
         "Resuma este título de tarefa num NOME DE BRANCH curto: kebab-case, só ascii minúsculo e hifens, 3 a 5 palavras, máximo 40 caracteres, capturando a essência. Responda SOMENTE o nome, sem aspas.\n\nTítulo: {title}"
     );
-    let mut cmd = Command::new(claude_bin());
+    let mut cmd = claude_cmd(&claude_bin());
     cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]);
     let out = output_timeout(cmd, 20).ok()?;
     if !out.status.success() {
@@ -732,7 +739,7 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
         "Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n{ctx}Mensagem do commit: {msg}\n\nDiff:\n{diff}"
     );
     let claude = claude_bin();
-    let mut cmd = Command::new(&claude);
+    let mut cmd = claude_cmd(&claude);
     cmd.args(["-p", &prompt]).current_dir(&repo);
     let out = output_timeout(cmd, 60)?;
     if !out.status.success() {
@@ -2015,7 +2022,7 @@ fn ai_daily(text: String) -> Result<String, String> {
     let prompt = format!(
         "Você escreve o update de DAILY de um dev, em português, a partir do log abaixo (tarefas tocadas, commits, marcos, custo). Formato: bullets curtos '- ' agrupados em 'Feito:' e 'Em andamento:' (e 'Bloqueios:' só se houver pergunta pendente). Direto, específico, sem enfeite, sem custo/token. Máx 8 bullets.\n\n{ctx}"
     );
-    let out = Command::new(claude_bin())
+    let out = claude_cmd(&claude_bin())
         .args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"])
         .stdin(Stdio::null())
         .output()
@@ -2037,7 +2044,7 @@ fn ai_decompose(text: String) -> Result<String, String> {
     let prompt = format!(
         "Você é um tech lead quebrando um trabalho grande em tarefas EXECUTÁVEIS e independentes (cada uma vira uma branch própria tocada por um agente). Com base no contexto abaixo, proponha de 3 a 7 tarefas, em ordem de dependência. Responda SOMENTE um JSON array válido, sem markdown: [{{\"title\":\"verbo + objeto (máx 60 chars)\",\"objective\":\"2-4 frases: o que fazer, onde, critério de pronto\"}}]\n\nCONTEXTO:\n{ctx}"
     );
-    let out = Command::new(claude_bin())
+    let out = claude_cmd(&claude_bin())
         .args(["-p", &prompt])
         .stdin(Stdio::null())
         .output()
@@ -2059,7 +2066,7 @@ fn ai_title(text: String) -> Result<String, String> {
     let prompt = format!(
         "Gere um TÍTULO curto (máximo 60 caracteres) em português para uma tarefa de desenvolvimento, no estilo de issue: verbo no infinitivo + objeto específico (ex.: \"Adicionar autocomplete nos filtros da home\"). Responda SOMENTE o título — sem aspas, sem ponto final, sem explicação.\n\nDescrição da tarefa:\n{desc}"
     );
-    let out = Command::new(claude_bin())
+    let out = claude_cmd(&claude_bin())
         .args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"])
         .stdin(Stdio::null())
         .output()
@@ -2094,7 +2101,7 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
             args.push(sid.clone());
         }
     }
-    let mut cmd = Command::new(&claude);
+    let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     let out = output_timeout(cmd, 90)?;
     if !out.status.success() {
@@ -2128,7 +2135,7 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
          - Tudo em pt-BR. NÃO invente escopo que o humano não pediu — complete e organize o que ele quis dizer.\n\n\
          Rascunho:\n{draft}"
     );
-    let mut cmd = Command::new(claude_bin());
+    let mut cmd = claude_cmd(&claude_bin());
     cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]).current_dir(&repo);
     let out = output_timeout(cmd, 60)?;
     if !out.status.success() {
@@ -2330,7 +2337,7 @@ fn project_chat(state: State<AppState>, prompt: String, session_id: Option<Strin
             args.push(sid.clone());
         }
     }
-    let mut cmd = Command::new(&claude);
+    let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     let out = output_timeout(cmd, 240)?;
     if !out.status.success() {
@@ -2525,7 +2532,7 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
         notes.join("\n---\n").chars().take(4000).collect::<String>(),
         stat.chars().take(1500).collect::<String>(),
     );
-    let mut cmd = Command::new(claude_bin());
+    let mut cmd = claude_cmd(&claude_bin());
     cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]);
     let out = output_timeout(cmd, 75)?;
     if !out.status.success() {
