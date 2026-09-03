@@ -50,6 +50,18 @@ const TOOLS = [
     },
   },
   {
+    name: "add_requirement",
+    description:
+      "Registre um REQUISITO NOVO quando o humano pedir na conversa um critério/condição que ainda não está no TASK.yaml. Ele entra na checklist oficial (contador X/Y da UI) e será cobrado com prova na finalização. Use junto com add_deliverable quando o pedido também for uma entrega.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        item: { type: "string", description: "O requisito, curto e VERIFICÁVEL (ex.: 'Filtro persiste após reload')." },
+      },
+      required: ["item"],
+    },
+  },
+  {
     name: "claim",
     description:
       "Reivindique um caminho antes de editá-lo, para não colidir com outros agentes. Retorna se você tem a posse (write) ou se cedeu a vez (read).",
@@ -114,6 +126,28 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
       return { text: `entregável registrado: ${item}` };
     } catch (e) {
       return { text: `falha registrando entregável: ${(e as Error).message}`, isError: true };
+    }
+  }
+
+  if (name === "add_requirement") {
+    const item = String(args?.item ?? "").trim();
+    if (!item) return { text: "requisito vazio", isError: true };
+    const task = store.getTask(TASK);
+    if (!task) return { text: "tarefa não encontrada", isError: true };
+    try {
+      const spec = JSON.parse(task.spec_json);
+      spec.requirements = [...(spec.requirements ?? []), item];
+      store.updateSpec(TASK, JSON.stringify(spec));
+      try {
+        const { taskToYaml } = await import("../util/yaml.ts");
+        const { writeFile } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      } catch { /* worktree pode não existir */ }
+      store.addEvent(TASK, AGENT, "note", `requisito adicionado: ${item.slice(0, 120)}`, true);
+      return { text: `requisito registrado (${spec.requirements.length} na checklist): ${item}` };
+    } catch (e) {
+      return { text: `falha registrando requisito: ${(e as Error).message}`, isError: true };
     }
   }
 

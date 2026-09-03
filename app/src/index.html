@@ -545,13 +545,17 @@
   /* HOME do redesign: no Fluxo o painel lateral some e a topo-navegação antiga também */
   .body.flowmode{grid-template-columns:250px 1fr}
   .body.flowmode .side{display:none}
-  .body.flowmode .chead{display:none}
+  /* o menu antigo (seg2/chint) morreu — o chead agora só carrega a barra NOVA nas outras vistas */
+  .chead .seg2,.chead .chint{display:none!important}
+  .chead{border-bottom:0;padding:16px 22px 0}
+  .chead .ftabs{flex:1;margin-bottom:0}
   .ftabs{display:flex;align-items:center;gap:20px;padding:6px 2px 0;border-bottom:1px solid var(--border);margin-bottom:12px}
   .ftabs .ft{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:7px 2px 9px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
   .ftabs .ft:hover{color:var(--text-2)}
   .ftabs .ft.on{color:var(--text);border-bottom-color:var(--accent)}
   .ftabs .fvic{border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;border-radius:7px;padding:5px 7px;display:flex;align-items:center}
   .ftabs .fvic:hover{color:var(--text);background:var(--surface-2)}
+  .ftabs .fvic.on{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
   /* linha de demanda (lista da Central, redesign p2) */
   .frow{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface);margin-bottom:8px;cursor:pointer;min-width:0}
   .frow:hover{border-color:var(--border-strong);background:var(--surface-3)}
@@ -1353,6 +1357,7 @@
           <button data-v="team">Time</button>
         </div>
         <span class="chint" id="chint">quem fez o quê · commits por tarefa</span>
+        <div id="navTabs" style="display:contents"></div>
       </div>
       <div id="flowPane" class="pane"><div id="flowHead" class="flowhead"></div><div id="flowFilters" class="ffbar"></div><div id="flow"></div></div>
       <div id="kanbanPane" class="pane" style="display:none"><div id="kanban" class="kanban"></div></div>
@@ -2639,7 +2644,7 @@ function renderWorkspace(){
   renderFwTabs();
   { const t=fwTaskObj(); const p=document.getElementById('fwPhases'); if(p&&t) p.innerHTML=phasesHtml(t); }
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
-  { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.toggle('chatwide', fwChatWide); }
+  { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.remove('chatwide'); }
   // modo da tela (conversa · código · revisão · PR) — layout muda junto
   { const cols=document.getElementById('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr'); cols.classList.add('m-'+fwMode); } }
   renderFwStep(t);
@@ -2767,7 +2772,7 @@ function renderWorkspace(){
   const workingW=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !askingW.length;
   const sel2=fwSelRange();
   chat.innerHTML=`
-    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${esc(((fwAgentSel||t.agent)||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwChatWide?'recolher o chat':'expandir o chat — arquivos e código continuam ao lado'}">${fwChatWide?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
+    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${esc(((fwAgentSel||t.agent)||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwMode==='conversa'?'recolher — voltar à visão de código':'expandir o chat — só a barra de arquivos fica ao lado'}">${fwMode==='conversa'?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
@@ -2775,8 +2780,9 @@ function renderWorkspace(){
       <label class="fwreqtoggle"><input type="checkbox" id="fwAsReq"><span>adicionar como <b>requisito</b> da tarefa</span></label></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   { const b=document.getElementById('fwStop'); if(b) b.onclick=()=>stopTask(t.id); }
-  // expandir o chat = coluna GRANDE (arquivos e código continuam ali, clicáveis)
-  { const b=document.getElementById('fwExpand'); if(b) b.onclick=()=>{ fwChatWide=!fwChatWide; lsSet('fwChatWide', fwChatWide?'1':'0'); renderWorkspace(); }; }
+  // expandir o chat = visão do PDF: conversa em quase toda a tela, SÓ a barra de
+  // arquivos ao lado (clicar num arquivo volta pra visão de código)
+  { const b=document.getElementById('fwExpand'); if(b) b.onclick=()=>{ fwMode = fwMode==='conversa' ? 'codigo' : 'conversa'; renderWorkspace(); }; }
   { const b=document.getElementById('fwCtxBar'); if(b) b.onclick=()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); }; }
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=()=>fwSendMsg(false); }
@@ -3198,9 +3204,13 @@ function render(){
   }
   const v = (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow";
   document.querySelector(".body").classList.toggle("teamfull", v==="team");
-  // HOME do redesign: no Fluxo a navegação antiga some e o painel lateral também
-  document.querySelector(".body").classList.toggle("flowmode", v==="flow");
-  if(chead && !noRepo) chead.style.display = v==="flow" ? "none" : "flex";
+  // padrão NOVO em todas as vistas: sem menu antigo, sem painel lateral; a barra
+  // de abas (Tudo/Minhas/Do time/Concluídas + ícones) é a mesma em toda página
+  document.querySelector(".body").classList.toggle("flowmode", ["flow","kanban","graph","feed"].includes(v));
+  if(chead && !noRepo){
+    chead.style.display = v==="flow" ? "none" : "flex";
+    if(v!=="flow") renderNavTabs(v);
+  }
   document.getElementById("flowPane").style.display = v==="flow"?"block":"none";
   document.getElementById("kanbanPane").style.display = v==="kanban"?"block":"none";
   document.getElementById("graphPane").style.display = v==="graph"?"block":"none";
@@ -3378,6 +3388,25 @@ function renderFlowFilters(){
   const s=document.getElementById('ffSearch');
   s.oninput=(e)=>{ flowQuery=e.target.value; lastSig=''; renderFlow(); };
   if(wasSearch){ s.focus(); try{ s.setSelectionRange(caret,caret); }catch(e){} }
+}
+// barra de navegação NOVA nas demais vistas (Kanban/Grafo/Atividade/Time) —
+// mesma linguagem da home; o seg2 antigo não aparece mais em lugar nenhum
+function renderNavTabs(v){
+  const el=document.getElementById('navTabs'); if(!el) return;
+  if(el.dataset.sig===('nav:'+v)) return; el.dataset.sig='nav:'+v;
+  el.innerHTML=`<div class="ftabs">
+    <button class="ft" data-nv-scope="all">Tudo</button>
+    <button class="ft" data-nv-scope="mine">Minhas</button>
+    <button class="ft${v==='team'?' on':''}" data-nv-team>Do time</button>
+    <button class="ft" data-nv-scope="done">Concluídas</button>
+    <span class="grow"></span>
+    <button class="fvic${v==='kanban'?' on':''}" data-nv-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>
+    <button class="fvic${v==='graph'?' on':''}" data-nv-view="graph" title="Grafo de branches"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="8" r="1.6"/><path d="M4 5.6v4.8M5.6 4.6C8 6 10 6.5 10.4 7.4" stroke-linecap="round"/></svg></button>
+    <button class="fvic${v==='feed'?' on':''}" data-nv-view="feed" title="Atividade"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 8h2.6l1.7-4 2.4 8 1.7-4h2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  </div>`;
+  el.querySelectorAll('[data-nv-scope]').forEach(b=>b.onclick=()=>{ flowScope=b.dataset.nvScope; lsSet('flowScope',flowScope); lastSig=''; setView('flow'); });
+  { const b=el.querySelector('[data-nv-team]'); if(b) b.onclick=()=>{ if(v==='team') return; tmView='people'; lsSet('tmView','people'); teamPaintSig=''; setView('team'); }; }
+  el.querySelectorAll('[data-nv-view]').forEach(b=>b.onclick=()=>{ if(b.dataset.nvView!==v) setView(b.dataset.nvView); });
 }
 let flowDragId=null;
 // Central de execuções: bucket de cada tarefa (ordem = urgência pro humano)
@@ -3640,7 +3669,7 @@ function renderKanban(){
   for(const t of (state.tasks||[]).filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
   el.innerHTML = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
   el.querySelectorAll('.kcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); };
+    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
     card.addEventListener('dragstart',e=>{ kDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
     card.addEventListener('dragend',()=>{ kDragId=null; card.classList.remove('dragging'); el.querySelectorAll('.kcol').forEach(c=>c.classList.remove('over')); });
   });
