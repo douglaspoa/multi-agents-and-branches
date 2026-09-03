@@ -823,7 +823,9 @@
   .fvedit:focus{background:var(--surface)}
   /* ===== workspace 3 colunas (arquivos · código · chat) ===== */
   /* deixa o topo livre: não cobrir os controles da janela (semáforo do macOS) */
-  .fwoverlay{top:34px;padding:0 12px 12px;align-items:stretch;justify-content:stretch}
+  /* execução é PÁGINA, não modal: tela cheia, sem backdrop nem cartão flutuante */
+  .fwoverlay{top:0;padding:0;align-items:stretch;justify-content:stretch;background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}
+  .fwoverlay .fw{border:0;border-radius:0}
   .fw{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 0 0;display:flex;flex-direction:column;overflow:hidden;position:relative}
   .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:nowrap;min-width:0}
   .fwhead b{font-size:13.5px}
