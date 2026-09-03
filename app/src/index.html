@@ -3135,7 +3135,7 @@ function prBodyOf(t){
   const rev=reviewOf(t.id);
   return `## O quê\n${t.objective||t.title}\n\n`+
     ((t.deliverables||[]).length?`## Entregáveis\n${(t.deliverables||[]).map(d=>'- '+d).join('\n')}\n\n`:'')+
-    (rev?`## Resumo\n${rev.summary}\n\n## Como testar\n${rev.howToTest}\n\n`:'')+
+    (rev?`## Resumo\n${(rev.summary||'').slice(0,400)}\n\n## Como testar\n${(rev.howToTest||'').slice(0,600)}\n\n`:'')+
     `_Aberto pelo Constellation._`;
 }
 // ---- "Preparando o PR" (redesign p13): checagens reais → push → criar ----
@@ -3178,9 +3178,13 @@ async function prPrepFinish(t, base){
   prepMark(2,'run','commitando e enviando a branch…');
   try{ const msg=await invoke('push_task',{ taskId:t.id }); prepMark(2,'ok', esc(msg)); }
   catch(e){ prepMark(2,'fail', esc(String(e))); return; }
+  prepMark(3,'run','escrevendo a descrição do PR (o quê · o que foi feito · como testar)…');
+  let prBody;
+  try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
+  catch(_){ prBody=prBodyOf(t); }
   prepMark(3,'run','criando o PR no GitHub…');
   try{
-    const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBodyOf(t) });
+    const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });
     prepMark(3,'ok', url?`<button class="btn sm" onclick="openExternal('${escA(url)}')" style="margin-top:4px">${esc(url.replace('https://',''))} ↗</button>`:'PR aberto');
     prCache[t.id]=undefined; await loadPr(t.id,true); lastSig=''; renderSide();
     if(typeof renderWorkspace==='function'&&fwTask===t.id){ fwMode='pr'; renderWorkspace(); }

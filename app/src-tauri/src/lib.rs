@@ -2342,6 +2342,61 @@ fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<Fi
     Ok(FileContent { content, added_lines: added })
 }
 
+/// Corpo do PR escrito pela IA (Haiku) a partir do que REALMENTE aconteceu na
+/// tarefa: spec + diário do agente + diff real. Best-effort — falhou/offline →
+/// Err e o front usa o corpo padrão.
+#[tauri::command(async)]
+fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("sem projeto aberto")?;
+    let conn = open(&db)?;
+    let spec_str: String = conn
+        .query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    let spec: serde_json::Value = serde_json::from_str(&spec_str).map_err(|e| e.to_string())?;
+    let (wtp, base_branch) = task_wt_base(&state, &task_id)?;
+    let join = |k: &str| spec[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")).unwrap_or_default();
+    // diário: últimas falas RELEVANTES do agente (o que foi feito de verdade)
+    let mut notes: Vec<String> = vec![];
+    if let Ok(mut st) = conn.prepare(
+        "SELECT substr(text,1,400) FROM event WHERE task_id=?1 AND type IN ('note','done') AND length(text)>40 AND text NOT LIKE '💬%' AND text NOT LIKE '❓%' AND text NOT LIKE 'perguntou%' AND text NOT LIKE 'humano%' AND text NOT LIKE 'requisito adicionado%' ORDER BY id DESC LIMIT 12",
+    ) {
+        if let Ok(rows) = st.query_map(params![task_id], |r| r.get::<_, String>(0)) {
+            notes = rows.flatten().collect();
+            notes.reverse();
+        }
+    }
+    // diff real (stat) contra a base da worktree
+    let base = task_diff_base(&wtp, &base_branch);
+    let stat = Command::new("git").arg("-C").arg(&wtp).args(["diff", "--stat", &base])
+        .output().ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().rev().take(25).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default();
+    let prompt = format!(
+        "Escreva o corpo de um Pull Request em MARKDOWN pt-BR, e SÓ o markdown (sem cercas, sem preâmbulo). Seções exatas:\n\
+         ## O quê — 2 a 4 frases sobre o que esta entrega FAZ para o usuário/sistema (NÃO copie o pedido cru; escreva como release note).\n\
+         ## O que foi feito — 3 a 7 bullets concretos do trabalho realizado (baseie no diário e no diff).\n\
+         ## Como testar — 3 a 5 passos PRÁTICOS e específicos (comando de rodar a suíte UMA vez + passos manuais na UI/API com o caminho da tela). NUNCA liste arquivos de teste um a um.\n\n\
+         Título: {}\nPedido original: {}\nEntregáveis:\n{}\nRequisitos:\n{}\n\nDiário do agente (mais antigo → mais novo):\n{}\n\nDiff (git --stat, fim):\n{}",
+        spec["title"].as_str().unwrap_or(""),
+        spec["objective"].as_str().unwrap_or("").chars().take(700).collect::<String>(),
+        join("deliverables"),
+        join("requirements"),
+        notes.join("\n---\n").chars().take(4000).collect::<String>(),
+        stat.chars().take(1500).collect::<String>(),
+    );
+    let mut cmd = Command::new(claude_bin());
+    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]);
+    let out = output_timeout(cmd, 75)?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let body = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if body.len() < 80 || !body.contains("## ") {
+        return Err("corpo gerado inválido".to_string());
+    }
+    Ok(format!("{body}\n\n_Aberto pelo Constellation._"))
+}
+
 /// Diff unificado de UM arquivo da tarefa (tela de Revisão do redesign):
 /// git diff base -- path na worktree, com contexto de 3 linhas.
 #[tauri::command(async)]
@@ -3285,6 +3340,7 @@ pub fn run() {
             projects_overview,
             repo_checks,
             file_diff,
+            pr_body_ai,
             open_project,
             switch_project,
             remove_project,
