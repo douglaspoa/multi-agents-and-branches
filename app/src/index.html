@@ -47,6 +47,8 @@
   .conn .d{width:8px;height:8px;border-radius:50%;background:var(--muted)}
   .conn.live .d{background:var(--good);animation:pulse 1.6s infinite}
   @keyframes pulse{50%{opacity:.35}}
+  .pubspin{width:15px;height:15px;border-radius:99px;border:2px solid var(--border-strong);border-top-color:var(--accent);animation:pubrot .8s linear infinite;flex:none}
+  @keyframes pubrot{to{transform:rotate(360deg)}}
 
   /* switcher de projetos */
   .projsw{position:relative}
@@ -1605,6 +1607,22 @@
   </div>
 </div>
 
+<!-- Publicar release: notas + progresso + sucesso (prompt() não existe no webview) -->
+<div class="overlay" id="pubOverlay" style="display:none;z-index:120">
+  <div class="modal" style="max-width:440px;padding:20px 22px">
+    <div style="display:flex;align-items:center;gap:8px"><b style="font-size:14px">⇡ Publicar release pro time</b><span style="flex:1"></span><button class="x" id="pubClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div id="pubForm" style="margin-top:12px">
+      <label>Notas da versão <span class="dim" style="text-transform:none;letter-spacing:0">(o time vê no aviso de atualização)</span></label>
+      <textarea class="in ta" id="pubNotes" rows="3">Melhorias e correções.</textarea>
+      <div class="dim" style="font-size:11.5px;margin-top:8px">Sobe o zip empacotado (dist/) + o aviso de versão usando a sua sessão — os Macs do time mostram <b>⬆ atualizar</b> no próximo boot ou em até 6h.</div>
+      <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="pubCancel">cancelar</button><button class="btn primary" id="pubGo">Publicar</button></div>
+    </div>
+    <div id="pubProg" style="display:none;margin-top:16px;align-items:center;gap:10px">
+      <span class="pubspin"></span><span id="pubStatus" style="font-size:12.5px">enviando o pacote…</span>
+    </div>
+    <div id="pubDone" style="display:none;margin-top:16px"></div>
+  </div>
+</div>
 <!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
 <div class="overlay" id="goOverlay" style="display:none;z-index:120">
   <div class="modal" style="max-width:380px;padding:22px 24px">
@@ -5661,18 +5679,41 @@ document.getElementById("newTaskBtn").onclick = openNewTask;
     setInterval(()=>{ const d=document.getElementById('envDot'), md=document.getElementById('moreDot'); if(d&&md) md.style.display=d.style.display; }, 3000);
   } }
 // publicar release DE DENTRO do app (sessão logada — sem senha em env)
+// modal próprio: prompt() não existe no webview do Tauri (clique morria calado)
+function pubSetState(s){ // 'form' | 'prog' | done html
+  document.getElementById('pubForm').style.display = s==='form'?'block':'none';
+  document.getElementById('pubProg').style.display = s==='prog'?'flex':'none';
+  document.getElementById('pubDone').style.display = (s!=='form'&&s!=='prog')?'block':'none';
+  if(s!=='form'&&s!=='prog') document.getElementById('pubDone').innerHTML=s;
+}
+function closePub(){ document.getElementById('pubOverlay').style.display='none'; }
 { const b=document.getElementById('pubRelBtn');
-  if(b) b.onclick=async()=>{
+  if(b) b.onclick=()=>{
     if(!SB.sess()){ alert('Entre na sua conta primeiro (botão do topo).'); return; }
-    const notes=prompt('Notas da versão (aparecem no aviso de atualização dos colegas):','Melhorias e correções.');
-    if(notes===null) return;
-    b.disabled=true; const o=b.textContent; b.textContent='publicando…';
-    try{
-      const msg=await invoke('publish_release',{ url:SB.url(), anon:SB.key(), token:SB.sess().access_token, notes });
-      alert('✔ '+msg);
-    }catch(e){ alert('Falhou: '+e); }
-    finally{ b.disabled=false; b.textContent=o; }
+    pubSetState('form');
+    document.getElementById('pubOverlay').style.display='flex';
+    document.getElementById('pubNotes').focus();
   }; }
+document.getElementById('pubClose').onclick=closePub;
+document.getElementById('pubCancel').onclick=closePub;
+document.getElementById('pubOverlay').addEventListener('click',e=>{ if(e.target.id==='pubOverlay') closePub(); });
+document.getElementById('pubGo').onclick=async()=>{
+  const notes=document.getElementById('pubNotes').value.trim()||'Melhorias e correções.';
+  pubSetState('prog');
+  const stats=['enviando o pacote…','publicando o aviso de versão…','quase lá…'];
+  let si=0; const tick=setInterval(()=>{ si=Math.min(si+1,stats.length-1); const e=document.getElementById('pubStatus'); if(e) e.textContent=stats[si]; },4000);
+  document.getElementById('pubStatus').textContent=stats[0];
+  try{
+    const msg=await invoke('publish_release',{ url:SB.url(), anon:SB.key(), token:SB.sess().access_token, notes });
+    clearInterval(tick);
+    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--accent);font-size:20px;line-height:1">✓</span><div><b style="font-size:13px">Release publicada!</b><div class="dim" style="font-size:12px;margin-top:4px">${esc(msg)}</div></div></div><div style="display:flex;margin-top:14px"><span style="flex:1"></span><button class="btn primary" id="pubOk">fechar</button></div>`);
+    { const k=document.getElementById('pubOk'); if(k) k.onclick=closePub; }
+  }catch(e){
+    clearInterval(tick);
+    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:13px">Não deu</b><div class="dim" style="font-size:12px;margin-top:4px">${esc(String(e))}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="pubBack">tentar de novo</button></div>`);
+    { const k=document.getElementById('pubBack'); if(k) k.onclick=()=>pubSetState('form'); }
+  }
+};
 // busca central do topo → filtra a Central de execuções (redesign p2)
 { const ts=document.getElementById('topSearch');
   if(ts){ ts.oninput=()=>{ flowQuery=ts.value; if(!activeIs('flow')) setView('flow'); lastSig=''; renderFlow(); };
