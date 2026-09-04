@@ -141,7 +141,7 @@ struct TaskDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if feed.isEmpty && !ticked { FeedSkeleton().padding(.top, 12) }
                     else if feed.isEmpty {
-                        Text(status == "requested" ? "esperando o Mac assumir · ~6s" : "esperando o agente… os passos aparecem aqui ao vivo")
+                        Text(status == "requested" ? "esperando o Mac assumir (~6s) — ele precisa estar ligado, acordado e com o Constellation aberto" : "esperando o agente… os passos aparecem aqui ao vivo")
                             .font(.footnote).foregroundStyle(T.dim).padding(.top, 30).frame(maxWidth: .infinity)
                     }
                     ForEach(rows) { row in rowView(row).id(row.id) }

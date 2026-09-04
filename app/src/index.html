@@ -1607,6 +1607,26 @@
   </div>
 </div>
 
+<!-- Padrões de demanda da ORGANIZAÇÃO: template de spec + política (admins) -->
+<div class="overlay" id="orgTplOverlay" style="display:none;z-index:95">
+  <div class="modal" style="width:min(680px,100%)">
+    <div class="mhead"><b>Padrões de demanda da organização</b><span style="flex:1"></span><button class="x" id="orgTplClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody">
+      <div class="imhint" style="border-left:2px solid var(--accent)">Vale pra <b>toda a organização</b>: o wizard mostra este guia e a IA o segue ao completar specs e desdobrar épicos. Um repo ainda pode refinar com <span class="mono">.cardume/SPEC.md</span> e <span class="mono">policy.json</span> (o repo vence).</div>
+      <label style="margin-top:12px">Guia de spec <span class="dim" style="text-transform:none;letter-spacing:0">(markdown — apagar tudo volta ao template padrão do produto)</span></label>
+      <textarea class="in ta mono" id="orgTplText" rows="12" style="font-size:11.5px"></textarea>
+      <div class="seclbl2" style="margin-top:14px">Política de obrigatoriedade</div>
+      <div class="two">
+        <div><label>Mínimo de requisitos por demanda</label><input class="in" id="orgPolMin" type="number" min="1" max="10"></div>
+        <div><label>Aviso de custo (US$)</label><input class="in" id="orgPolCost" type="number" min="0" step="1"></div>
+      </div>
+      <label class="ckrow" style="margin-top:9px"><input type="checkbox" id="orgPolProof"><span><b>Prova real (prints)</b> <span class="dim">obrigatória em toda entrega</span></span></label>
+      <label class="ckrow"><input type="checkbox" id="orgPolTests"><span><b>Testes comprovando</b> <span class="dim">obrigatórios em toda entrega</span></span></label>
+      <label class="ckrow"><input type="checkbox" id="orgPolDoc"><span><b>Documento de arquitetura</b> <span class="dim">obrigatório</span></span></label>
+    </div>
+    <div class="mfoot"><span class="dim" id="orgTplMsg"></span><span style="flex:1"></span><button class="btn" id="orgTplCancel">cancelar</button><button class="btn primary" id="orgTplSave">salvar padrões</button></div>
+  </div>
+</div>
 <!-- Planos & assinatura (Stripe Checkout no navegador — cartão nunca toca o app) -->
 <div class="overlay" id="payOverlay" style="display:none;z-index:110">
   <div class="modal" style="width:min(660px,100%);padding:28px 30px">
@@ -4896,7 +4916,7 @@ async function ntAiComplete(){
   }
   const orig=b?b.innerHTML:''; if(b){ b.disabled=true; b.textContent='completando…'; }
   try{
-    const r=await invoke('ai_spec',{ title, objective, kind:ntMode });
+    const r=await invoke('ai_spec',{ title, objective, kind:ntMode, guide:(ntPolicy&&ntPolicy.specGuide)||null });
     // preenche SÓ o que está vazio — o que você escreveu é seu
     if(tEl && !tEl.value.trim() && r.title) tEl.value=r.title;
     if(oEl && !oEl.value.trim() && r.objective) oEl.value=r.objective;
@@ -5103,6 +5123,43 @@ document.getElementById('howGo').onclick=()=>{
   submitNewTask(true);
 };
 
+// ---- cadeia de política/guia: padrão do PRODUTO < organização < repo ----
+const ORG_DEFAULT_POLICY={ minRequirements:1, proofRequired:true, testsRequired:true, docRequired:false, costWarn:25 };
+const DEFAULT_SPEC_TEMPLATE=`# Guia de demanda — template padrão do Constellation
+
+Sua organização pode sobrescrever este guia (Conta → Padrões da organização);
+um repo pode refinar com .cardume/SPEC.md. A IA e o wizard seguem este texto.
+
+## Toda demanda precisa responder
+1. ONDE a mudança aparece (tela/rota/módulo — caminho real).
+2. COMO saberemos que está pronta (critérios que alguém marca ✓/✗ testando).
+3. O que fica FORA do escopo (evita o agente inventar trabalho).
+
+## Requisitos padrão (inclua sempre que se aplicarem)
+- "Estados vazio, carregando e erro tratados nas telas novas."
+- "Suíte de testes do repo passa, com a saída anexada como prova."
+- "Prova real na UI/ambiente (print) — nunca mock."
+
+## Proibições
+- Requisito vago ("funcionar bem", "melhorar a UX") — sempre verificável.
+- Duplicar entregável como requisito.
+- Mais de uma exigência num requisito só (quebre em dois).`;
+let orgDefCache=null, orgDefAt=0;
+async function orgDefaultsGet(){
+  const orgId=cloudData&&cloudData.org&&cloudData.org.id;
+  if(!orgId||!SB.sess()) return {};
+  if(orgDefCache && Date.now()-orgDefAt<10*60*1000) return orgDefCache;
+  try{ const rows=await sbGet('orgs?select=policy,spec_template&id=eq.'+orgId); orgDefCache=rows[0]||{}; orgDefAt=Date.now(); }
+  catch(_){ orgDefCache=orgDefCache||{}; }
+  return orgDefCache;
+}
+async function policyChain(){
+  let r={}; try{ r=await invoke('read_policy'); }catch(_){ }
+  const og=await orgDefaultsGet();
+  const pol={ ...ORG_DEFAULT_POLICY, ...((og&&og.policy)||{}), ...((r&&r.repoPolicy)||{}) };
+  pol.specGuide=(r&&r.repoGuide) || (og&&og.spec_template) || DEFAULT_SPEC_TEMPLATE;
+  return pol;
+}
 async function openNewTask(){
   // página na hora — o catálogo (config) chega logo atrás e preenche os selects
   closeHow(); // garante que não reabre na etapa "Como executar?"
@@ -5114,7 +5171,7 @@ async function openNewTask(){
   { const a=document.getElementById('aiAssist'); if(a) a.style.display='none'; }
   // POLÍTICA do repo: provas/testes obrigatórios ficam LIGADOS e travados — a
   // entrega tem que sair completa, sem depender da disciplina de cada dev
-  try{ ntPolicy={ ...ntPolicy, ...(await invoke('read_policy')) }; }catch(_){ }
+  try{ ntPolicy={ ...ntPolicy, ...(await policyChain()) }; }catch(_){ }
   const lock=(id,on)=>{ const e=document.getElementById(id); if(!e) return; if(on){ e.checked=true; e.disabled=true; e.closest('label')?.setAttribute('title','obrigatório pela política do repo (.cardume/policy.json)'); } else { e.disabled=false; } };
   lock('ntArtProof', !!ntPolicy.proofRequired); lock('ntArtTests', !!ntPolicy.testsRequired); lock('ntArtDoc', !!ntPolicy.docRequired);
   lock('ntFixArtProof', !!ntPolicy.proofRequired); lock('ntFixArtTests', !!ntPolicy.testsRequired);
@@ -5195,7 +5252,7 @@ async function openBreakdown(t){
     }
   }catch(_){ }
   try{
-    const raw=await invoke('ai_decompose',{ text: ctx });
+    const raw=await invoke('ai_decompose',{ text: ctx, guide:(typeof ntPolicy!=='undefined'&&ntPolicy.specGuide)||null });
     const m=raw.match(/\[[\s\S]*\]/);
     const arr=JSON.parse(m?m[0]:raw);
     bdItems=(Array.isArray(arr)?arr:[]).filter(x=>x&&x.title).map(x=>({
@@ -6312,6 +6369,56 @@ async function renderCloud(){
     }; }
   cloudBtnSync();
   if(typeof billingRenderCloud==='function') billingRenderCloud();
+  if(typeof orgDefaultsRenderCloud==='function') orgDefaultsRenderCloud(isAdmin);
+}
+// seção "Padrões da organização" na Conta (admins editam; o resto só vê)
+function orgDefaultsRenderCloud(isAdmin){
+  const body=document.getElementById('cloudBody'); if(!body||!SB.sess()) return;
+  const el=document.createElement('div');
+  el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Padrões de demanda</div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px">
+      <span style="flex:1" class="dim">guia de spec + política valem pra org inteira; repos refinam com <span class="mono">.cardume/</span></span>
+      ${isAdmin?'<button class="btn sm" id="sbOrgTpl">editar padrões</button>':''}
+    </div>`;
+  body.appendChild(el);
+  const b=document.getElementById('sbOrgTpl');
+  if(b) b.onclick=async()=>{
+    const og=await orgDefaultsGet();
+    const p={ ...ORG_DEFAULT_POLICY, ...((og&&og.policy)||{}) };
+    document.getElementById('orgTplText').value=(og&&og.spec_template)||'';
+    document.getElementById('orgTplText').placeholder=DEFAULT_SPEC_TEMPLATE;
+    document.getElementById('orgPolMin').value=p.minRequirements;
+    document.getElementById('orgPolCost').value=p.costWarn;
+    document.getElementById('orgPolProof').checked=!!p.proofRequired;
+    document.getElementById('orgPolTests').checked=!!p.testsRequired;
+    document.getElementById('orgPolDoc').checked=!!p.docRequired;
+    document.getElementById('orgTplMsg').textContent='';
+    document.getElementById('orgTplOverlay').style.display='flex';
+  };
+}
+{ const close=()=>{ document.getElementById('orgTplOverlay').style.display='none'; };
+  document.getElementById('orgTplClose').onclick=close;
+  document.getElementById('orgTplCancel').onclick=close;
+  document.getElementById('orgTplOverlay').addEventListener('click',e=>{ if(e.target.id==='orgTplOverlay') close(); });
+  document.getElementById('orgTplSave').onclick=async()=>{
+    const orgId=cloudData&&cloudData.org&&cloudData.org.id; if(!orgId) return;
+    const b=document.getElementById('orgTplSave'); b.disabled=true;
+    try{
+      await sbFetch('/rest/v1/orgs?id=eq.'+orgId,{ method:'PATCH', body: JSON.stringify({
+        spec_template: document.getElementById('orgTplText').value.trim()||null,
+        policy: {
+          minRequirements: Math.max(1, parseInt(document.getElementById('orgPolMin').value,10)||1),
+          costWarn: Math.max(0, parseFloat(document.getElementById('orgPolCost').value)||25),
+          proofRequired: document.getElementById('orgPolProof').checked,
+          testsRequired: document.getElementById('orgPolTests').checked,
+          docRequired: document.getElementById('orgPolDoc').checked,
+        } }) });
+      orgDefCache=null; orgDefAt=0;
+      document.getElementById('orgTplMsg').textContent='✓ salvo — vale pra org inteira já';
+      setTimeout(close, 900);
+    }catch(e){ document.getElementById('orgTplMsg').textContent='falhou: '+(e.message||e); }
+    finally{ b.disabled=false; }
+  };
 }
 // ========== Assinatura (Stripe) ==========
 // billing_plans vazio = cobrança desligada (app livre). Semeou os planos

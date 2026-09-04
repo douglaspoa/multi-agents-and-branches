@@ -2080,18 +2080,19 @@ fn ai_daily(text: String) -> Result<String, String> {
 
 /// Desdobra um trabalho grande em sub-tarefas (JSON) — pro fluxo de épico.
 #[tauri::command(async)]
-fn ai_decompose(state: State<AppState>, text: String) -> Result<String, String> {
+fn ai_decompose(state: State<AppState>, text: String, guide: Option<String>) -> Result<String, String> {
     let t = text.trim();
     if t.is_empty() {
         return Err("sem contexto pra desdobrar".to_string());
     }
     let ctx: String = t.chars().take(6000).collect();
-    // guia do repo (se existir) — o desdobramento respeita as regras do time
+    // guia: SPEC.md do repo vence; senão o template da org/produto vindo do app
     let guide = repo_of(&state).ok()
         .and_then(|r| std::fs::read_to_string(PathBuf::from(r).join(".cardume").join("SPEC.md")).ok())
         .map(|s| s.chars().take(1500).collect::<String>())
         .filter(|s| !s.trim().is_empty())
-        .map(|s| format!("\n\nGUIA DE SPEC DESTE REPO (siga ao escrever requisitos):\n{s}"))
+        .or_else(|| guide.filter(|s| !s.trim().is_empty()).map(|s| s.chars().take(1500).collect()))
+        .map(|s| format!("\n\nGUIA DE SPEC DESTE TIME (siga ao escrever requisitos):\n{s}"))
         .unwrap_or_default();
     let prompt = format!(
         "Você é um tech lead quebrando um trabalho grande em tarefas que AGENTES DE IA executarão EM PARALELO (cada uma vira branch + worktree própria; tarefas da mesma onda rodam AO MESMO TEMPO). Com base no contexto, proponha de 3 a 7 tarefas organizadas em ONDAS:\n\
@@ -2259,43 +2260,39 @@ fn repo_doc_write(state: State<AppState>, doc: String, content: String) -> Resul
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
 #[tauri::command]
 fn read_policy(state: State<AppState>) -> serde_json::Value {
-    let mut pol = serde_json::json!({
-        "minRequirements": 1,
-        "proofRequired": true,
-        "testsRequired": true,
-        "docRequired": false,
-        "costWarn": 25
-    });
+    // devolve SÓ o que o REPO define — o JS monta a cadeia completa:
+    // padrão do produto < política da ORG (nuvem) < .cardume do repo
+    let mut repo_pol = serde_json::json!({});
+    let mut guide = serde_json::Value::Null;
     if let Ok(repo) = repo_of(&state) {
         if let Ok(txt) = std::fs::read_to_string(PathBuf::from(&repo).join(".cardume").join("policy.json")) {
             if let Ok(user) = serde_json::from_str::<serde_json::Value>(&txt) {
-                if let (Some(base), Some(over)) = (pol.as_object_mut(), user.as_object()) {
-                    for (k, v) in over { base.insert(k.clone(), v.clone()); }
-                }
+                if user.is_object() { repo_pol = user; }
             }
         }
-        // guia de spec do repo — o wizard mostra pro humano o mesmo texto que a IA segue
         if let Ok(g) = std::fs::read_to_string(PathBuf::from(&repo).join(".cardume").join("SPEC.md")) {
-            pol["specGuide"] = serde_json::json!(g.chars().take(1800).collect::<String>());
+            guide = serde_json::json!(g.chars().take(1800).collect::<String>());
         }
     }
-    pol
+    serde_json::json!({ "repoPolicy": repo_pol, "repoGuide": guide })
 }
 
 /// Completa a SPEC da Nova demanda numa tacada só (sem conversa): pega o que o
 /// humano já digitou e devolve título/objetivo/entregáveis/requisitos BEM
 /// FORMADOS. Substitui o assistente lateral (frágil demais).
 #[tauri::command(async)]
-fn ai_spec(state: State<AppState>, title: String, objective: String, kind: String) -> Result<serde_json::Value, String> {
+fn ai_spec(state: State<AppState>, title: String, objective: String, kind: String, guide: Option<String>) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;
     let draft = format!("Título (do humano, pode estar vazio): {title}\nDescrição/objetivo (do humano, pode estar vazio): {objective}\nTipo: {kind}");
     if title.trim().is_empty() && objective.trim().is_empty() {
         return Err("escreva pelo menos o título ou uma descrição — a IA completa o resto".into());
     }
-    // guia de spec DO REPO (.cardume/SPEC.md): vocabulário do domínio, o que toda
-    // demanda deste projeto precisa conter — a IA obedece ao time, não ao genérico
+    // guia de spec: .cardume/SPEC.md do repo vence; sem ele, vale o guia passado
+    // pelo app (template da ORG ou o padrão do produto) — a IA sempre tem um norte
     let spec_guide = std::fs::read_to_string(PathBuf::from(&repo).join(".cardume").join("SPEC.md"))
         .map(|s| s.chars().take(3000).collect::<String>())
+        .ok().filter(|s| !s.trim().is_empty())
+        .or_else(|| guide.filter(|s| !s.trim().is_empty()).map(|s| s.chars().take(3000).collect()))
         .unwrap_or_default();
     let guide_block = if spec_guide.trim().is_empty() { String::new() } else {
         format!("\n\nGUIA DE SPEC DESTE REPO (regras do time — siga à risca; requisitos padrão daqui entram SEMPRE que se aplicarem):\n{spec_guide}\n")
@@ -3662,6 +3659,11 @@ pub fn run() {
     web_log("[rust] app iniciou".to_string());
     // túneis órfãos de instâncias anteriores (setsid sobrevive ao app): limpa
     let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
+    // Mac acordado enquanto o app estiver aberto: este Mac é quem atende os
+    // pedidos do iPhone (task 'requested' ficava em "aguardando mac" com o Mac
+    // em repouso). -i segura só o idle sleep; -w amarra à vida do processo —
+    // fechou o app, o caffeinate morre junto. Tampa fechada dorme mesmo assim.
+    let _ = Command::new("caffeinate").args(["-i", "-w", &std::process::id().to_string()]).spawn();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
