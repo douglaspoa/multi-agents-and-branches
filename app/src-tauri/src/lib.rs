@@ -2035,14 +2035,27 @@ fn ai_daily(text: String) -> Result<String, String> {
 
 /// Desdobra um trabalho grande em sub-tarefas (JSON) — pro fluxo de épico.
 #[tauri::command(async)]
-fn ai_decompose(text: String) -> Result<String, String> {
+fn ai_decompose(state: State<AppState>, text: String) -> Result<String, String> {
     let t = text.trim();
     if t.is_empty() {
         return Err("sem contexto pra desdobrar".to_string());
     }
     let ctx: String = t.chars().take(6000).collect();
+    // guia do repo (se existir) — o desdobramento respeita as regras do time
+    let guide = repo_of(&state).ok()
+        .and_then(|r| std::fs::read_to_string(PathBuf::from(r).join(".cardume").join("SPEC.md")).ok())
+        .map(|s| s.chars().take(1500).collect::<String>())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| format!("\n\nGUIA DE SPEC DESTE REPO (siga ao escrever requisitos):\n{s}"))
+        .unwrap_or_default();
     let prompt = format!(
-        "Você é um tech lead quebrando um trabalho grande em tarefas EXECUTÁVEIS e independentes (cada uma vira uma branch própria tocada por um agente). Com base no contexto abaixo, proponha de 3 a 7 tarefas, em ordem de dependência. Responda SOMENTE um JSON array válido, sem markdown: [{{\"title\":\"verbo + objeto (máx 60 chars)\",\"objective\":\"2-4 frases: o que fazer, onde, critério de pronto\"}}]\n\nCONTEXTO:\n{ctx}"
+        "Você é um tech lead quebrando um trabalho grande em tarefas que AGENTES DE IA executarão EM PARALELO (cada uma vira branch + worktree própria; tarefas da mesma onda rodam AO MESMO TEMPO). Com base no contexto, proponha de 3 a 7 tarefas organizadas em ONDAS:\n\
+         - wave 1 = tarefas SEM dependência entre si, que podem começar juntas AGORA;\n\
+         - wave 2+ = dependem de ondas anteriores;\n\
+         - dentro da MESMA onda, os escopos de arquivos (owns) têm que ser DISJUNTOS — duas tarefas da mesma onda NUNCA tocam a mesma pasta/arquivo (senão dá conflito de merge);\n\
+         - cada tarefa tem o SEU entregável separado e requisitos VERIFICÁVEIS próprios (2 a 4, frases completas que alguém marca ✓/✗ testando).\n\
+         Responda SOMENTE um JSON array válido, sem markdown:\n\
+         [{{\"title\":\"verbo + objeto (máx 60 chars)\",\"objective\":\"2-4 frases: o que fazer, onde, e qual o entregável desta tarefa\",\"requirements\":[\"critério verificável\"],\"owns\":\"pastas/arquivos que ela reivindica, separados por vírgula (deduza do contexto; vazio se não der)\",\"wave\":1}}]{guide}\n\nCONTEXTO:\n{ctx}"
     );
     let out = claude_cmd(&claude_bin())
         .args(["-p", &prompt])

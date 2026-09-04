@@ -1787,10 +1787,10 @@
     <div class="mbody">
       <label>Nome do épico</label>
       <input class="in" id="bdName" placeholder="ex.: Filtros avançados em todos os domínios">
-      <div class="seclbl2" style="margin-top:14px">Sub-tarefas propostas <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· desmarque o que não quiser — cada uma vira um cartão livre no backlog do time</span></div>
+      <div class="seclbl2" style="margin-top:14px">Sub-tarefas propostas <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· em ONDAS: a 1ª roda em paralelo (escopos disjuntos), cada tarefa com seu entregável e requisitos</span></div>
       <div id="bdList"></div>
     </div>
-    <div class="mfoot"><span class="dim">os cartões nascem com o épico atribuído — qualquer membro assume &amp; inicia</span><span style="flex:1"></span><button class="btn" id="bdCancel">cancelar</button><button class="btn primary" id="bdCreate">criar épico</button></div>
+    <div class="mfoot"><span class="dim">onda 1 pode rodar em paralelo já (escopos disjuntos) — as demais esperam no backlog</span><span style="flex:1"></span><button class="btn" id="bdCancel">cancelar</button><button class="btn primary" id="bdCreate">criar épico</button></div>
   </div>
 </div>
 
@@ -5180,7 +5180,14 @@ async function openBreakdown(t){
     const raw=await invoke('ai_decompose',{ text: ctx });
     const m=raw.match(/\[[\s\S]*\]/);
     const arr=JSON.parse(m?m[0]:raw);
-    bdItems=(Array.isArray(arr)?arr:[]).filter(x=>x&&x.title).map(x=>({ title:String(x.title).slice(0,90), objective:String(x.objective||''), on:true }));
+    bdItems=(Array.isArray(arr)?arr:[]).filter(x=>x&&x.title).map(x=>({
+      title:String(x.title).slice(0,90),
+      objective:String(x.objective||''),
+      requirements:(Array.isArray(x.requirements)?x.requirements:[]).map(r=>String(r).trim()).filter(r=>r.length>=10).slice(0,5),
+      owns:String(x.owns||'').trim(),
+      wave:Math.max(1, parseInt(x.wave,10)||1),
+      on:true,
+    })).sort((a,b)=>a.wave-b.wave);
   }catch(e){ bdItems=[]; console.error('ai_decompose:', e); }
   renderBd();
 }
@@ -5188,11 +5195,24 @@ function renderBd(){
   const el=document.getElementById('bdList'); if(!el) return;
   if(bdItems===null){ el.innerHTML='<div class="dim" style="padding:10px 2px">a IA está lendo a tarefa e os artefatos e propondo as sub-tarefas…</div>'; return; }
   if(!bdItems.length){ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">não veio proposta — tente de novo ou crie as tarefas manualmente no backlog</div>'; return; }
-  el.innerHTML=bdItems.map((x,i)=>`
-    <label class="ckrow" style="align-items:flex-start"><input type="checkbox" data-bd="${i}" ${x.on?'checked':''}><span style="flex:1;min-width:0"><b style="font-size:13px">${esc(x.title)}</b><div class="dim" style="font-size:12px;margin-top:2px">${esc(x.objective)}</div></span></label>`).join('');
-  el.querySelectorAll('[data-bd]').forEach(c=>{ c.onchange=()=>{ bdItems[+c.dataset.bd].on=c.checked; }; });
+  let html='', lastWave=0;
+  bdItems.forEach((x,i)=>{
+    if(x.wave!==lastWave){
+      lastWave=x.wave;
+      const n=bdItems.filter(y=>y.wave===x.wave).length;
+      html+=`<div class="mono" style="font-size:10px;letter-spacing:.08em;color:${x.wave===1?'var(--accent)':'var(--muted)'};margin:${x.wave===1?'4px':'14px'} 0 2px">ONDA ${x.wave} ${x.wave===1?`· ${n>1?n+' agentes rodam EM PARALELO':'começa agora'}`:'· depois da onda '+(x.wave-1)}</div>`;
+    }
+    html+=`<label class="ckrow" style="align-items:flex-start"><input type="checkbox" data-bd="${i}" ${x.on?'checked':''}><span style="flex:1;min-width:0">
+      <b style="font-size:13px">${esc(x.title)}</b>
+      <div class="dim" style="font-size:12px;margin-top:2px">${esc(x.objective)}</div>
+      ${x.requirements.length?`<div class="dim" style="font-size:11px;margin-top:4px">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</div>`:''}
+      ${x.owns?`<div class="mono" style="font-size:10px;margin-top:4px;color:var(--accent)" title="escopo reivindicado — disjunto dos demais da onda">⛶ ${esc(x.owns)}</div>`:''}
+    </span></label>`;
+  });
+  el.innerHTML=html;
+  el.querySelectorAll('[data-bd]').forEach(c=>{ c.onchange=()=>{ bdItems[+c.dataset.bd].on=c.checked; renderBd(); }; });
   const n=bdItems.filter(x=>x.on).length;
-  const btn=document.getElementById('bdCreate'); if(btn) btn.textContent=`criar épico + ${n} tarefa${n===1?'':'s'} no backlog`;
+  const btn=document.getElementById('bdCreate'); if(btn) btn.textContent=`criar épico + ${n} tarefa${n===1?'':'s'}`;
 }
 async function bdCreate(){
   const name=document.getElementById('bdName').value.trim(); if(!name) return;
@@ -5202,11 +5222,23 @@ async function bdCreate(){
   try{
     const proj=await cloudEnsureProject();
     const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId() });
+    const created=[];
     for(const x of picked){
-      await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id, spec:{ title:x.title, objective:x.objective+`\n\n(Derivada do épico "${name}" — origem: tarefa "${bdTask.title}"${bdTask?'; os artefatos dela têm o contexto completo':''}.)`, requirements:[] } });
+      const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
+        spec:{ title:x.title,
+          objective:x.objective+`\n\n(Onda ${x.wave} do épico "${name}" — origem: tarefa "${bdTask.title}"; os artefatos dela têm o contexto completo. NÃO toque em arquivos fora do seu escopo: outras tarefas do épico rodam em paralelo.)`,
+          requirements:x.requirements||[], owns:x.owns||null,
+          proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
+          wave:x.wave } });
+      if(rows&&rows[0]) created.push({ row:rows[0], wave:x.wave });
     }
     document.getElementById('bdOverlay').style.display='none';
     teamTasks=null; teamPaintSig=''; lsSet('tmEpic', ep[0].id); setView('team');
+    // onda 1 pode começar JÁ — os escopos são disjuntos, os agentes rodam juntos
+    const w1=created.filter(c=>c.wave===1);
+    if(w1.length && confirm(`Iniciar AGORA as ${w1.length} tarefa${w1.length===1?'':'s'} da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo; as demais ondas ficam no backlog)`)){
+      for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
+    }
   }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); btn.disabled=false; renderBd(); }
 }
 async function openLinkedFix(t){
