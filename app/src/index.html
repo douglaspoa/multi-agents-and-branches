@@ -3655,7 +3655,7 @@ function flowTaskRow(t){
   const prN=(String(t.prUrl||'').match(/\/pull\/(\d+)/)||[])[1];
   const msg= asking.length ? `${esc(asking[0].agent||t.agent)} perguntou — ${esc((asking[0].prompt||'').slice(0,70))}`
     : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
-    : t.status==='draft' ? 'rascunho — inicie quando quiser'
+    : t.status==='draft' ? 'rascunho — clique pra editar · ▶ inicia'
     : done ? (prN?`PR #${prN} · merged`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
     : ['review','delivered'].includes(t.status) ? `${(diffOf(t.id)?.files||[]).length||''} arquivo(s) alterado(s), pronta pra revisar`
@@ -3748,7 +3748,7 @@ function renderFlow(){
     row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg]')) return;
       const t=(state.tasks||[]).find(x=>x.id===row.dataset.id); if(!t) return;
       selected=t.id; render();
-      if(t.status==='draft'){ return; }
+      if(t.status==='draft'){ editDraft(t); return; }
       openWorkspace(t.id);
     };
     row.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(row.dataset.id, e.target); });
@@ -3775,7 +3775,7 @@ function renderFlow(){
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskSummary(b.dataset.sum); });
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('.fcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-tmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-tmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
     card.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(card.dataset.id, e.target); });
     if(grouped) return;   // arrastar só faz sentido na lista plana
     card.setAttribute('draggable','true');
@@ -3823,7 +3823,7 @@ function renderKanban(){
   for(const t of (state.tasks||[]).filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
   el.innerHTML = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
   el.querySelectorAll('.kcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(t&&t.status!=='draft') openWorkspace(t.id); };
+    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
     card.addEventListener('dragstart',e=>{ kDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
     card.addEventListener('dragend',()=>{ kDragId=null; card.classList.remove('dragging'); el.querySelectorAll('.kcol').forEach(c=>c.classList.remove('over')); });
   });
@@ -4034,6 +4034,24 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElemen
 async function mergeTask(taskId){
   try{ await invoke("merge_task",{taskId}); await refresh(); }
   catch(e){ alert("Merge falhou:\n"+e); }
+}
+// rascunho: clicar EDITA — reabre a Nova demanda preenchida; ao salvar/iniciar,
+// o rascunho antigo é substituído (remove_task + criação nova)
+let ntEditingDraft=null;
+async function editDraft(t){
+  await openNewTask();
+  setNtMode('build');
+  ntEditingDraft=t.id;
+  document.getElementById('ntTitle').value=t.title||'';
+  document.getElementById('ntObj').value=t.objective||'';
+  ntDel=Array.isArray(t.deliverables)?t.deliverables.slice():[];
+  ntReq=Array.isArray(t.requirements)?t.requirements.slice():[];
+  ntRefs=Array.isArray(t.refs)?t.refs.slice():[];
+  if(t.base) document.getElementById('ntBase').value=t.base;
+  if(t.model) document.getElementById('ntModel').value=t.model;
+  renderNtList('ntDeliverables',ntDel); renderNtList('ntRequirements',ntReq); renderNtRefs();
+  wizN=1; if(typeof wizRender==='function') wizRender();
+  ntGate();
 }
 async function startTask(taskId){
   // slots: aviso leve quando já há muita coisa em paralelo (não bloqueia).
@@ -5287,7 +5305,7 @@ function setNtMode(m){
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';
   ntGate();
 }
-function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; }
+function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; }
 function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=document.getElementById('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
@@ -5629,10 +5647,12 @@ async function submitNewTask(start=true){
   try{
     if(start){
       const t=await ntApplyShare(payload);
+      if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
       closeNewTask(); resetNewTask(); lastSig="";
       if(t) setView('team'); else await refresh();
     } else {
       await invoke("new_task", payload);
+      if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
       closeNewTask(); resetNewTask(); lastSig=""; await refresh();
     }
   }
