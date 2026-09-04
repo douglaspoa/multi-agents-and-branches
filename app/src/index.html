@@ -1444,8 +1444,8 @@
       <div id="ntMdPrev" style="display:none"></div>
       <!-- Como executar? — etapa da MESMA página (sem modal) -->
       <div id="ntHowPane" style="display:none">
-        <h2 style="font-size:17px;margin:2px 0 4px">Como executar?</h2>
-        <div class="dim" style="font-size:12px;margin-bottom:14px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div>
+        <div id="howHead"><h2 style="font-size:17px;margin:2px 0 4px">Como executar?</h2>
+        <div class="dim" style="font-size:12px;margin-bottom:14px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div></div>
         <div id="howOpts"></div>
         <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
@@ -1455,7 +1455,7 @@
           </div>
           <div id="howAgents" style="margin-top:12px"></div>
         </details>
-        <div style="display:flex;gap:8px;margin-top:18px"><button class="btn" id="howCancel">← voltar à spec</button><span style="flex:1"></span><button class="btn primary" id="howGo">Iniciar execução</button></div>
+        <div id="howFootRow" style="display:flex;gap:8px;margin-top:18px"><button class="btn" id="howCancel">← voltar à spec</button><span style="flex:1"></span><button class="btn primary" id="howGo">Iniciar execução</button></div>
       </div>
       <div class="ntmode" id="ntMode">
         <button class="ntmodebtn on" data-mode="build"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg> Entrega</button>
@@ -1512,8 +1512,10 @@
         <div id="ntFixReqs" class="listed"></div>
         </div>
         <div class="wstep" data-w="4">
+        <div id="ntFixTeamRow">
         <label style="margin-top:12px">Quem corrige</label>
         <select class="sel" id="ntFixTeam" style="width:100%"></select>
+        </div>
         <div class="seclbl2" style="margin-top:14px">Comprovações da correção</div>
         <label class="ckrow"><input type="checkbox" id="ntFixArtProof" checked><span><b>Prova (prints reais)</b> <span class="dim">— a correção funcionando na UI/ambiente</span></span></label>
         <label class="ckrow"><input type="checkbox" id="ntFixArtTests" checked><span><b>Teste cobrindo a regressão</b> <span class="dim">— roda a suíte real e anexa a saída</span></span></label>
@@ -1546,7 +1548,7 @@
         <div><label>Reivindica (owns)</label><input class="in" id="ntOwns" placeholder="src/auth, src/x.ts"></div>
         <div><label>Fora dos limites (off)</label><input class="in" id="ntOff" placeholder="src/checkout"></div>
       </div>
-      <div class="two" style="margin-top:11px">
+      <div class="two" id="ntTeamRow" style="margin-top:11px">
         <div><label>Equipe (workflow)</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
         <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
         <div><label>Versão do modelo</label><select class="sel" id="ntModel" style="width:100%" title="tarefa simples? um modelo mais rápido termina em fração do tempo"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio (rápido)</option><option value="haiku">Haiku — o mais veloz (tarefas simples)</option></select></div>
@@ -1603,6 +1605,13 @@
   </div>
 </div>
 
+<!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
+<div class="overlay" id="goOverlay" style="display:none;z-index:120">
+  <div class="modal" style="max-width:380px;padding:22px 24px">
+    <b style="font-size:14px">Colocando no ar</b>
+    <div id="goSteps" style="margin-top:14px;display:flex;flex-direction:column;gap:9px"></div>
+  </div>
+</div>
 <!-- Como executar? (redesign): fluxo, modelo e limites antes de iniciar -->
 <!-- Resumo da tarefa: tudo que já foi feito + o que falta pra finalizar -->
 <div class="overlay" id="sumOverlay" style="display:none;z-index:85">
@@ -4842,29 +4851,36 @@ async function ntAiComplete(){
       if(!ntFixReq.filter(Boolean).length && (r.requirements||[]).length){ ntFixReq=r.requirements.slice(); renderNtList('ntFixReqs',ntFixReq); }
     }
     ntGate();
+    // no wizard: os requisitos preenchidos moram na etapa 2 — avança pra você VER o resultado
+    if(wizModeOn() && wizN===1){
+      wizN=2; wizRender();
+      const m=document.getElementById('wizMiss');
+      if(m){ m.textContent='✨ preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
+    }
   }catch(e){ alert('Não consegui completar:\n'+e); }
   finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }
 }
 { const b=document.getElementById('ntAiFill'); if(b) b.onclick=ntAiComplete; }
 // ---- WIZARD por etapas (Entrega/Fix): uma pergunta por vez, sem scroll ----
+// cada campo aparece UMA vez: spec → requisitos → quem executa → avançado → confira
 const WIZ_STEPS={
   build:[
-    { n:1, t:'O que você precisa?', h:'título curto + o objetivo com contexto — ou escreva corrido e toque em ✨ completar com IA', guide:true,
+    { n:1, show:[1,3], t:'O que você precisa?', h:'título + objetivo com contexto e anexos — ou "✦ gerar com IA" lá em cima pra montar conversando; ✨ completa o que faltar', guide:true,
       ok:()=>!!(document.getElementById('ntTitle').value.trim() && document.getElementById('ntObj').value.trim()), miss:'preencha título e objetivo' },
-    { n:2, t:'Requisitos de entrega', h:()=>`critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+    { n:2, show:[2], t:'Requisitos de entrega', h:()=>`critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
       ok:()=>ntReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os requisitos mínimos' },
-    { n:3, t:'Anexos & referências', h:'prints, PDFs, specs — tudo que dá contexto real (opcional)', opt:true, ok:()=>true },
-    { n:4, t:'Ajustes avançados', h:'equipe, modelo, branch, PR — os padrões servem; pode pular', opt:true, ok:()=>true },
-    { n:5, t:'Confira a spec', h:'é exatamente isto que o agente recebe — provas e testes já vêm exigidos pela política', rev:true, ok:()=>true },
+    { n:3, how:true, opt:true, t:'Quem executa?', h:'o fluxo recomendado já vem marcado — modelo e limites no "Avançado" logo abaixo', ok:()=>true },
+    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'escopo, branch, PR, time & épico — os padrões servem; pode pular', ok:()=>true },
+    { n:5, rev:true, t:'Confira a spec', h:'é exatamente isto que o agente recebe — provas e testes já vêm exigidos pela política', ok:()=>true },
   ],
   fix:[
-    { n:1, t:'O que corrigir?', h:'onde acontece, sintoma, como reproduzir — ✨ completar com IA ajuda', guide:true,
+    { n:1, show:[1,3], t:'O que corrigir?', h:'onde acontece, sintoma, como reproduzir — o print do bug vale mais que mil palavras', guide:true,
       ok:()=>!!document.getElementById('ntFixTitle').value.trim(), miss:'diga o que corrigir' },
-    { n:2, t:'Critérios de aceite', h:()=>`como saberemos que está corrigido — mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+    { n:2, show:[2], t:'Critérios de aceite', h:()=>`como saberemos que está corrigido — mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
       ok:()=>ntFixReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os critérios mínimos' },
-    { n:3, t:'Prints & referências', h:'o print do bug vale mais que mil palavras (opcional)', opt:true, ok:()=>true },
-    { n:4, t:'Ajustes avançados', h:'quem corrige e comprovações — pode pular', opt:true, ok:()=>true },
-    { n:5, t:'Confira a spec', h:'é exatamente isto que o agente recebe', rev:true, ok:()=>true },
+    { n:3, how:true, opt:true, t:'Quem corrige?', h:'o builder padrão resolve a maioria — modelo e limites no "Avançado" logo abaixo', ok:()=>true },
+    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'comprovações, time & épico — pode pular', ok:()=>true },
+    { n:5, rev:true, t:'Confira a spec', h:'é exatamente isto que o agente recebe', ok:()=>true },
   ],
 };
 let wizN=1;
@@ -4878,15 +4894,27 @@ function wizRender(){
   const md=document.getElementById('ntMdPrev');
   const contB=document.getElementById('ntBuildFields'), contF=document.getElementById('ntFixFields');
   { const c=document.getElementById('ntCreate'); if(c) c.style.display=on?'none':''; } // no wizard, quem inicia é a última etapa
-  if(!on){ head.style.display='none'; foot.style.display='none'; const mo=document.getElementById('ntMode'); if(mo) mo.style.display=''; if(md&&!document.getElementById('ntRight').classList.contains('mdview')) md.style.display='none'; return; }
+  if(!on){ head.style.display='none'; foot.style.display='none'; const mo=document.getElementById('ntMode'); if(mo) mo.style.display='';
+    ['ntTeamRow','ntFixTeamRow'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display=''; });
+    { const hp=document.getElementById('ntHowPane'), hf=document.getElementById('howFootRow'); if(hp) hp.style.display='none'; if(hf) hf.style.display='flex'; }
+    wizShareApply(null);
+    if(md&&!document.getElementById('ntRight').classList.contains('mdview')) md.style.display='none'; return; }
   const cont=ntMode==='build'?contB:contF;
   const steps=WIZ_STEPS[ntMode];
   const st=steps.find(s=>s.n===wizN)||steps[0];
   head.style.display='block'; foot.style.display='flex';
-  cont.querySelectorAll('.wstep').forEach(e=>{ e.style.display=(+e.dataset.w===st.n)?'':'none'; });
+  cont.querySelectorAll('.wstep').forEach(e=>{ e.style.display=(st.show||[]).includes(+e.dataset.w)?'':'none'; });
   { const mo=document.getElementById('ntMode'); if(mo) mo.style.display=(st.n===1)?'':'none'; } // o TIPO se escolhe na etapa 1
+  // equipe/motor/modelo vivem na etapa "Quem executa?" — não repetem no avançado
+  ['ntTeamRow','ntFixTeamRow'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
+  // Time & épico só na etapa marcada (e só se a nuvem liberou — ntShareSync)
+  wizShareApply(st);
+  // etapa "Quem executa?": o painel do Como executar vira o corpo da etapa
+  { const hp=document.getElementById('ntHowPane'), hf=document.getElementById('howFootRow'), hh=document.getElementById('howHead');
+    if(st.how){ howPopulate(); hp.style.display='block'; if(hf) hf.style.display='none'; if(hh) hh.style.display='none'; cont.style.display='none'; md.style.display='none'; }
+    else hp.style.display='none'; }
   if(st.rev){ ntMdRender(); md.style.display='block'; cont.style.display='none'; }
-  else { md.style.display='none'; cont.style.display=''; }
+  else if(!st.how){ md.style.display='none'; cont.style.display=''; }
   document.getElementById('wizProg').innerHTML=steps.map(s=>`<span style="height:4px;flex:1;border-radius:99px;background:${s.n<wizN?'var(--accent)':s.n===wizN?'color-mix(in srgb,var(--accent) 55%,transparent)':'var(--border-strong)'}"></span>`).join('');
   document.getElementById('wizT').textContent=`${st.n}/${steps.length} · ${st.t}`;
   document.getElementById('wizH').textContent=typeof st.h==='function'?st.h():st.h;
@@ -4904,10 +4932,51 @@ function wizRender(){
   { const b=document.getElementById('wizBack'); if(b) b.onclick=()=>{ wizN=steps[Math.max(0,steps.findIndex(s=>s.n===wizN)-1)].n; wizRender(); }; }
   { const b=document.getElementById('wizSkip'); if(b) b.onclick=()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); }; }
   { const b=document.getElementById('wizNext'); if(b) b.onclick=()=>{
-      if(last){ document.getElementById('ntCreate').click(); return; }
+      if(last){ wizLaunch(); return; }
       if(!st.ok()){ const m=document.getElementById('wizMiss'); if(m){ m.textContent='⚠ '+(st.miss||'complete esta etapa'); setTimeout(()=>{ if(m) m.textContent=''; },2600); } return; }
       wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender();
     }; }
+}
+// Time & épico: aparece numa etapa só do wizard (fora dele, quem manda é ntShareSync)
+function wizShareApply(st){
+  const r=document.getElementById('ntShareRow'); if(!r) return;
+  const cloudOk=r.dataset.cloud==='1';
+  if(wizModeOn()&&document.getElementById('ntOverlay').style.display!=='none'){
+    if(!st){ const s=WIZ_STEPS[ntMode]; st=s&&(s.find(x=>x.n===wizN)||s[0]); }
+    r.style.display=(st&&st.share&&cloudOk)?'block':'none';
+  } else r.style.display=cloudOk?'block':'none';
+}
+// ---- modal de progresso da criação (estilo abertura de PR) ----
+const GO_STEPS=[['spec','spec montada'],['req','requisitos verificáveis'],['issue','criando a issue e a branch'],['agent','despachando o agente']];
+let goState={};
+function goRender(nReq){
+  const el=document.getElementById('goSteps'); if(!el) return;
+  el.innerHTML=GO_STEPS.map(([k,l])=>{
+    const s=goState[k]||'wait';
+    const ic=s==='ok'?'✓':s==='run'?'◌':s==='err'?'✕':'·';
+    const col=s==='ok'?'var(--accent)':s==='err'?'var(--warn)':s==='run'?'var(--text)':'var(--muted)';
+    return `<div style="display:flex;gap:9px;align-items:center;font-size:12.5px;color:${col}"><span class="mono" style="width:14px">${ic}</span>${k==='req'?`${l} (${nReq})`:l}${s==='run'?'…':''}</div>`;
+  }).join('');
+}
+function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); document.getElementById('goOverlay').style.display='flex'; }
+function goHide(){ document.getElementById('goOverlay').style.display='none'; }
+// última etapa do wizard: aplica as escolhas do "Quem executa?" e cria mostrando progresso
+async function wizLaunch(){
+  ntGate();
+  const pick=document.querySelector('input[name="howflow"]:checked');
+  const src=document.getElementById(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
+  if(pick&&src) src.value=pick.value;
+  { const hm=document.getElementById('howModel'), nm=document.getElementById('ntModel'); if(hm&&nm&&hm.value) nm.value=hm.value; }
+  ntModels=[...document.querySelectorAll('[data-agmodel]')].filter(s=>s.value).map(s=>`${s.dataset.agmodel}=${s.value}`).join(',');
+  { const hc=document.getElementById('howCost'); if(hc&&hc.value) lsSet('costWarn', String(Math.max(0, parseFloat(hc.value)||0))); }
+  { const hs=document.getElementById('howSlots'); if(hs&&hs.value) setSlotMax(parseInt(hs.value,10)||slotMax); }
+  const nReq=(ntMode==='fix'?ntFixReq:ntReq).filter(x=>x&&x.trim()).length;
+  goShow(nReq);
+  await submitNewTask(true);
+  // sucesso fecha a página da Nova demanda; se continuar aberta, deu erro (o alert já falou)
+  if(document.getElementById('ntOverlay').style.display!=='none'){ goHide(); return; }
+  goState.issue='ok'; goState.agent='ok'; goRender(nReq);
+  setTimeout(goHide, 900);
 }
 { const f=document.getElementById('ntVForm'), m=document.getElementById('ntVMd');
   if(f&&m){
@@ -4915,7 +4984,12 @@ function wizRender(){
     f.onclick=()=>set(false); m.onclick=()=>set(true);
   } }
 // ---- Como executar? — fluxo/modelo/limites antes de iniciar (build & fix) ----
-function openHow(){
+// howPopulate monta as opções; openHow (legado, fora do wizard) também ativa a visão
+function openHow(){ howPopulate();
+  document.getElementById('ntRight').classList.add('howview');
+  document.getElementById('ntOverlay').classList.add('howmode');
+}
+function howPopulate(){
   const src=document.getElementById(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
   const opts=[...(src?src.options:[])].map(o=>({v:o.value,l:o.textContent})).filter(o=>o.v);
   // corrente de avatares do fluxo (redesign p10)
@@ -4942,9 +5016,6 @@ function openHow(){
   howAgentsRender();
   document.getElementById('howCost').value=parseFloat(lsGet('costWarn')||'25');
   document.getElementById('howSlots').value=slotMax;
-  // etapa embutida na página da Nova demanda — nada de modal
-  document.getElementById('ntRight').classList.add('howview');
-  document.getElementById('ntOverlay').classList.add('howmode');
 }
 function closeHow(){ document.getElementById('ntRight').classList.remove('howview'); document.getElementById('ntOverlay').classList.remove('howmode'); }
 document.getElementById('howClose').onclick=closeHow;
@@ -5138,7 +5209,7 @@ function setNtMode(m){
   document.getElementById("ntDesignFields").style.display = m==='design'?'':'none';
   document.getElementById("ntInvFields").style.display = m==='invest'?'':'none';
   document.getElementById("ntDraft").style.display = m==='build'?'':'none';
-  document.getElementById("ntAI").style.display = 'none'; // planner conversacional aposentado — use "completar com IA"
+  document.getElementById("ntAI").style.display = m==='build'?'':'none'; // planner conversacional: monta a issue conversando (Entrega)
   document.getElementById("ntImport").style.display = m==='build'?'':'none';
   document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';
   const create=document.getElementById("ntCreate");
@@ -5327,12 +5398,20 @@ async function plCreate(){
   if(!plReady()) return;
   const b=document.getElementById('plCreate'); if(b){ b.disabled=true; b.textContent='criando…'; }
   const arts=plFields.artifacts||{};
+  const plReqs=[...new Set([...(plFields.requirements||[]), ...(plFields.deliverables||[])].map(x=>String(x).trim()).filter(Boolean))];
+  // política do repo vale também pra quem cria conversando
+  const minR=Math.max(1,+((typeof ntPolicy!=='undefined'&&ntPolicy.minRequirements)||1));
+  if(plReqs.length<minR){
+    plMsgs.push({who:'sys', text:`⚠ A política deste repo exige pelo menos ${minR} requisito(s) verificáveis — feche os requisitos antes de criar.`});
+    renderPlanner(); if(b){ b.disabled=false; b.textContent='criar e rodar'; }
+    return;
+  }
   const payload={ start:true, title:plFields.title, workflow:null, agents:null,
     engine:(plFields.engine||'claude'), approval:'auto',
     owns:(plFields.owns||[]).join(', ')||null, off:(plFields.off||[]).join(', ')||null,
     objective:plFields.objective||null, deliverables:[],
     // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova
-    requirements:[...new Set([...(plFields.requirements||[]), ...(plFields.deliverables||[])].map(x=>String(x).trim()).filter(Boolean))], doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof, tests:!!arts.tests, autoPr:'ask', prBase:null,
+    requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null };
   try{ await invoke('new_task', payload); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
@@ -5602,8 +5681,8 @@ document.getElementById("ntClose").onclick = closeNewTask;
 document.getElementById("ntCancel").onclick = closeNewTask;
 document.getElementById("ntCreate").onclick = ()=>{
   ntGate(); if(document.getElementById('ntCreate').disabled) return;
-  // build & fix passam pelo "Como executar?" (fluxo/modelo/limites); os demais têm fluxo fixo
-  if(ntMode==='build'||ntMode==='fix') openHow(); else submitNewTask(true);
+  // build & fix: o wizard já colheu o "Quem executa?" — cria direto com progresso
+  if(ntMode==='build'||ntMode==='fix') wizLaunch(); else submitNewTask(true);
 };
 document.getElementById('ntOverlay').addEventListener('input', ntGate);
 document.getElementById("ntDraft").onclick = ()=>submitNewTask(false);
@@ -6893,7 +6972,8 @@ document.getElementById('ctOverlay').addEventListener('click',e=>{ if(e.target.i
 async function ntShareSync(){
   const r=document.getElementById('ntShareRow'); if(!r) return;
   const on=!!(SB.sess()&&cloudTeamId());
-  r.style.display=on?'block':'none';
+  r.dataset.cloud=on?'1':'0';
+  if(typeof wizShareApply==='function') wizShareApply(null); else r.style.display=on?'block':'none';
   if(!on) return;
   try{ if(!teamEpics.length) teamEpics=await sbGet('epics?select=id,name,status&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at'); }catch(_){ }
   const sel=document.getElementById('ntEpic'); if(!sel) return;
