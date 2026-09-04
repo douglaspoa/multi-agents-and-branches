@@ -103,12 +103,39 @@ fn claude_bin() -> String {
             }
         }
     }
+    // ao lado do node que o app RESOLVEU (nvm incluso): com nvm, `npm i -g`
+    // instala o claude exatamente nessa pasta — era o furo que deixava o
+    // Ambiente dizendo "não encontrado" com o claude instalado
+    {
+        let nb = node_bin();
+        if nb != "node" {
+            if let Some(dir) = std::path::Path::new(&nb).parent() {
+                let cand = dir.join("claude");
+                if cand.is_file() {
+                    return cand.display().to_string();
+                }
+            }
+        }
+    }
     if let Some(home) = std::env::var_os("HOME") {
         let home = std::path::PathBuf::from(home);
         for rel in [".local/bin/claude", ".claude/local/claude"] {
             let cand = home.join(rel);
             if cand.is_file() {
                 return cand.display().to_string();
+            }
+        }
+        // qualquer versão do nvm (o claude pode estar numa versão mais antiga
+        // de node do que a que o app escolheu) — mais novas primeiro
+        let nvm = home.join(".nvm").join("versions").join("node");
+        if let Ok(rd) = std::fs::read_dir(&nvm) {
+            let mut vs: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+            vs.sort();
+            for v in vs.iter().rev() {
+                let cand = v.join("bin").join("claude");
+                if cand.is_file() {
+                    return cand.display().to_string();
+                }
             }
         }
     }
