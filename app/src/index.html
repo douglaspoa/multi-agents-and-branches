@@ -6013,7 +6013,10 @@ function cloudUserId(){ const s=SB.sess(); return s && s.user ? s.user.id : ''; 
 
 let cloudCfgOpen=false; // força a tela de backend mesmo com o default baked
 function openCloud(){ document.getElementById('cloudOverlay').style.display='flex'; renderCloud(); }
-function closeCloud(){ document.getElementById('cloudOverlay').style.display='none'; cloudMsg=''; }
+function closeCloud(){
+  if(!SB.sess() && document.getElementById('cloudOverlay').dataset.lock==='1') return; // login é obrigatório
+  document.getElementById('cloudOverlay').style.display='none'; cloudMsg='';
+}
 
 async function cloudLoad(){
   const orgs = await sbGet('orgs?select=*');
@@ -6042,10 +6045,29 @@ async function cloudLoad(){
 function cloudBtnSync(){
   const tx=document.getElementById('cloudBtnTx'); if(!tx) return;
   const s=SB.sess();
-  if(!s){ tx.textContent='Entrar'; return; }
-  const team = cloudData && cloudData.teams.find(t=>t.id===cloudTeamId());
-  tx.textContent = team ? team.name : ((s.user&&s.user.email)||'Equipe').split('@')[0];
+  if(!s){ tx.textContent='Entrar'; }
+  else {
+    const team = cloudData && cloudData.teams.find(t=>t.id===cloudTeamId());
+    tx.textContent = team ? team.name : ((s.user&&s.user.email)||'Equipe').split('@')[0];
+  }
+  loginGateSync();
 }
+// LOGIN OBRIGATÓRIO: sem conta não usa — dados (repos, agentes, memória) e
+// assinatura são da conta do usuário. A própria tela da nuvem vira o gate.
+function loginGateSync(){
+  const ov=document.getElementById('cloudOverlay'), x=document.getElementById('cloudClose');
+  if(!ov) return;
+  if(!SB.sess()){
+    ov.dataset.lock='1'; ov.style.zIndex='115'; // acima de tudo — login vem primeiro
+    if(ov.style.display!=='flex'){ ov.style.display='flex'; renderCloud(); }
+    if(x) x.style.display='none';
+  } else {
+    if(ov.dataset.lock==='1'){ ov.dataset.lock=''; ov.style.display='none'; cloudMsg=''; }
+    ov.style.zIndex='';
+    if(x) x.style.display='';
+  }
+}
+setTimeout(loginGateSync, 3000); // depois do refresh de sessão do boot
 
 function cloudMsgHtml(){ return cloudMsg ? `<div class="imhint" style="border-left:2px solid ${cloudMsg.startsWith('✓')?'var(--good)':'var(--warn)'};margin-bottom:12px">${esc(cloudMsg)}</div>` : ''; }
 
