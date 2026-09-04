@@ -1607,6 +1607,26 @@
   </div>
 </div>
 
+<!-- Planos & assinatura (Stripe Checkout no navegador — cartão nunca toca o app) -->
+<div class="overlay" id="payOverlay" style="display:none;z-index:110">
+  <div class="modal" style="width:min(660px,100%);padding:28px 30px">
+    <div style="text-align:center">
+      <div style="font-size:30px;line-height:1;color:var(--accent)">✦</div>
+      <h2 style="margin:10px 0 4px;font-size:19px">Assine o Constellation</h2>
+      <div class="dim" style="font-size:12.5px" id="payHint">7 dias grátis — a cobrança só começa depois do teste, e dá pra cancelar em 2 cliques.</div>
+    </div>
+    <div style="display:flex;justify-content:center;margin:16px 0 14px">
+      <div class="seg2"><button id="payMon" class="on">Mensal</button><button id="payYr">Anual · 2 meses grátis</button></div>
+    </div>
+    <div id="payCards" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
+    <div id="payWait" style="display:none;margin-top:16px;align-items:center;gap:10px;justify-content:center"><span class="pubspin"></span><span class="dim" style="font-size:12.5px">esperando a confirmação do pagamento… (termine no navegador)</span></div>
+    <div style="display:flex;align-items:center;margin-top:18px">
+      <button class="btn sm" id="payLogout">sair da conta</button>
+      <span style="flex:1"></span>
+      <button class="btn sm" id="payRefresh">já assinei — atualizar</button>
+    </div>
+  </div>
+</div>
 <!-- Publicar release: notas + progresso + sucesso (prompt() não existe no webview) -->
 <div class="overlay" id="pubOverlay" style="display:none;z-index:120">
   <div class="modal" style="max-width:440px;padding:20px 22px">
@@ -6217,7 +6237,135 @@ async function renderCloud(){
       renderCloud();
     }; }
   cloudBtnSync();
+  if(typeof billingRenderCloud==='function') billingRenderCloud();
 }
+// ========== Assinatura (Stripe) ==========
+// billing_plans vazio = cobrança desligada (app livre). Semeou os planos
+// (BILLING-SETUP.md) → o gate liga sozinho no próximo sync. Nuvem sem clique.
+let billingPlans=[], myBilling=null, billingOn=false, payYear=false, payPollT=null;
+function fmtBRL(c){ return 'R$ '+(c/100).toFixed(2).replace('.',','); }
+function billingActive(){ return !billingOn || (myBilling && ['trialing','active'].includes(myBilling.status)); }
+async function billingSync(){
+  if(!SB.sess()){ billingOn=false; payHide(); return; }
+  try{
+    billingPlans=await sbGet('billing_plans?select=*&active=eq.true');
+    billingOn=billingPlans.length>0;
+    if(!billingOn){ payHide(); return; }
+    const rows=await sbGet('billing?select=*');
+    const mine=rows.find(r=>r.user_id===cloudUserId());
+    const team=rows.find(r=>r.plan==='team' && ['trialing','active'].includes(r.status) && r.team_id===cloudTeamId());
+    myBilling=(mine && ['trialing','active'].includes(mine.status)) ? mine : (team || mine || null);
+    if(billingActive()){ payHide(); } else payShow();
+  }catch(_){ /* erro de rede NUNCA tranca o app */ payHide(); }
+}
+function payHide(){ const o=document.getElementById('payOverlay'); if(o) o.style.display='none'; if(payPollT){ clearInterval(payPollT); payPollT=null; } }
+function payShow(){
+  const o=document.getElementById('payOverlay'); if(!o) return;
+  o.style.display='flex';
+  const iv=payYear?'year':'month';
+  const card=(plan,titulo,desc)=>{
+    const p=billingPlans.find(x=>x.plan===plan&&x.interval===iv); if(!p) return '';
+    const per=iv==='year'?'/ano':'/mês';
+    return `<div style="border:1px solid var(--border);border-radius:14px;padding:18px 18px 16px;display:flex;flex-direction:column;gap:8px${plan==='team'?';border-color:var(--accent)':''}">
+      <div style="display:flex;align-items:center"><b style="font-size:14px">${titulo}</b><span style="flex:1"></span>${plan==='team'?'<span class="mono" style="font-size:9px;letter-spacing:.08em;color:var(--accent)">PRO TIME</span>':''}</div>
+      <div><span style="font-size:23px;font-weight:700">${fmtBRL(p.amount_cents)}</span><span class="dim" style="font-size:12px"> ${per}</span></div>
+      <div class="dim" style="font-size:11.5px;flex:1">${desc}</div>
+      <div class="mono" style="font-size:10px;color:var(--accent)">✓ ${p.trial_days} dias grátis</div>
+      <button class="btn primary" data-pay="${plan}" style="justify-content:center">Começar o teste</button>
+    </div>`;
+  };
+  document.getElementById('payCards').innerHTML=
+    card('individual','Individual','Agentes ilimitados, seus repos, memória e catálogo amarrados à sua conta — em qualquer Mac.')+
+    card('team','Equipes','Tudo do Individual + board do time, releases pro time e catálogo compartilhado. Até 6 membros.');
+  document.getElementById('payCards').querySelectorAll('[data-pay]').forEach(b=>b.onclick=()=>payCheckout(b.dataset.pay,b));
+  document.getElementById('payMon').classList.toggle('on',!payYear);
+  document.getElementById('payYr').classList.toggle('on',payYear);
+}
+document.getElementById('payMon').onclick=()=>{ payYear=false; payShow(); };
+document.getElementById('payYr').onclick=()=>{ payYear=true; payShow(); };
+document.getElementById('payRefresh').onclick=()=>billingSync();
+document.getElementById('payLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); payHide(); };
+async function payCheckout(plan,btn){
+  const iv=payYear?'year':'month';
+  const p=billingPlans.find(x=>x.plan===plan&&x.interval===iv); if(!p) return;
+  if(plan==='team'&&!cloudTeamId()){ alert('Pra assinar o plano Equipes, entre/crie um time primeiro (botão da nuvem).'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='abrindo…'; }
+  try{
+    const r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SB.key(), 'Authorization':'Bearer '+SB.sess().access_token },
+      body: JSON.stringify({ planId:p.id, teamId: plan==='team'?cloudTeamId():null }) });
+    const j=await r.json();
+    if(!j.url) throw new Error(j.error||('HTTP '+r.status));
+    try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
+    document.getElementById('payWait').style.display='flex';
+    if(payPollT) clearInterval(payPollT);
+    payPollT=setInterval(billingSync, 5000);
+    setTimeout(()=>{ if(payPollT){ clearInterval(payPollT); payPollT=null; } }, 10*60*1000);
+  }catch(e){ alert('Não consegui abrir o checkout:\n'+e); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='Começar o teste'; } }
+}
+async function payPortal(btn){
+  if(btn){ btn.disabled=true; }
+  try{
+    const r=await fetch(SB.url()+'/functions/v1/stripe-portal',{ method:'POST',
+      headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+SB.sess().access_token } });
+    const j=await r.json();
+    if(!j.url) throw new Error(j.error||('HTTP '+r.status));
+    try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
+  }catch(e){ alert('Não consegui abrir o portal:\n'+e); }
+  finally{ if(btn) btn.disabled=false; }
+}
+// seção "Assinatura" dentro da Conta (cloudOverlay)
+function billingRenderCloud(){
+  const body=document.getElementById('cloudBody'); if(!body||!SB.sess()||!billingOn) return;
+  const el=document.createElement('div');
+  const b=myBilling;
+  const dt=(s)=> s? new Date(s).toLocaleDateString('pt-BR') : '';
+  let linha;
+  if(b && ['trialing','active'].includes(b.status)){
+    const nome=b.plan==='team'?'Equipes':'Individual';
+    const quem=b.user_id===cloudUserId()?'':' (paga por outro membro do time)';
+    linha=`<b>${nome}</b> · ${b.interval==='year'?'anual':'mensal'}${quem}`+
+      (b.status==='trialing'?` · <span style="color:var(--accent)">teste grátis até ${dt(b.trial_end)}</span>`:` · renova em ${dt(b.current_period_end)}`)+
+      (b.cancel_at_period_end?' · <span style="color:var(--warn)">cancela no fim do período</span>':'');
+  } else linha='<span style="color:var(--warn)">sem assinatura ativa</span>';
+  el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Assinatura</div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px"><span style="flex:1">${linha}</span>
+    ${(b&&b.user_id===cloudUserId()&&b.stripe_customer_id)?'<button class="btn sm" id="sbBillPortal">gerenciar</button>':''}
+    ${billingActive()?'':'<button class="btn primary sm" id="sbBillGo">assinar</button>'}</div>`;
+  body.appendChild(el);
+  { const x=document.getElementById('sbBillPortal'); if(x) x.onclick=()=>payPortal(x); }
+  { const x=document.getElementById('sbBillGo'); if(x) x.onclick=()=>{ closeCloud(); payShow(); }; }
+}
+// ========== dados do usuário: repo + memória (.cardume) seguem a conta ==========
+let repoSyncBusy=false;
+async function userRepoSync(){
+  if(!SB.sess()||repoSyncBusy) return; repoSyncBusy=true;
+  try{
+    const info=await invoke('repo_docs').catch(()=>null);
+    if(!info||!info.repo) return;
+    await sbFetch('/rest/v1/user_repos?on_conflict=user_id,repo',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
+      body: JSON.stringify({ user_id:cloudUserId(), repo:info.repo, path:info.path, last_opened:new Date().toISOString() }) });
+    const cloud=await sbGet('user_repo_docs?select=doc,content,updated_at&repo=eq.'+encodeURIComponent(info.repo));
+    const byDoc=Object.fromEntries(cloud.map(r=>[r.doc,r]));
+    for(const [doc,loc] of Object.entries(info.docs||{})){
+      const c=byDoc[doc]; const cMs=c?Date.parse(c.updated_at):0;
+      if(!c || loc.mtimeMs>cMs+2000)
+        await sbFetch('/rest/v1/user_repo_docs?on_conflict=user_id,repo,doc',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
+          body: JSON.stringify({ user_id:cloudUserId(), repo:info.repo, doc, content:loc.content, updated_at:new Date(loc.mtimeMs).toISOString() }) });
+    }
+    for(const c of cloud){
+      const loc=(info.docs||{})[c.doc];
+      if(!loc || Date.parse(c.updated_at)>loc.mtimeMs+2000)
+        await invoke('repo_doc_write',{ doc:c.doc, content:c.content }).catch(()=>{});
+    }
+  }catch(_){ }
+  finally{ repoSyncBusy=false; }
+}
+setTimeout(billingSync, 4000);
+setInterval(billingSync, 30*60*1000);
+setTimeout(userRepoSync, 15000);
+setInterval(userRepoSync, 10*60*1000);
 document.getElementById('cloudBtn').onclick=openCloud;
 document.getElementById('cloudClose').onclick=closeCloud;
 document.getElementById('cloudOverlay').addEventListener('click',e=>{ if(e.target.id==='cloudOverlay') closeCloud(); });

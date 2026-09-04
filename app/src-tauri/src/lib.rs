@@ -2168,6 +2168,34 @@ fn chrono_iso_now() -> String {
     out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
+/// Memória do repo (.cardume) que SEGUE a conta do usuário — o JS sincroniza
+/// com user_repo_docs na nuvem (mais novo vence, dos dois lados).
+const REPO_DOCS: [&str; 4] = ["RUNBOOK.md", "HISTORY.md", "SPEC.md", "policy.json"];
+#[tauri::command]
+fn repo_docs(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let repo = repo_of(&state)?;
+    let name = PathBuf::from(&repo).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let mut docs = serde_json::Map::new();
+    for d in REPO_DOCS {
+        let p = PathBuf::from(&repo).join(".cardume").join(d);
+        if let Ok(c) = std::fs::read_to_string(&p) {
+            let mtime = std::fs::metadata(&p).and_then(|m| m.modified()).ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|x| x.as_millis() as i64).unwrap_or(0);
+            docs.insert(d.into(), serde_json::json!({ "content": c, "mtimeMs": mtime }));
+        }
+    }
+    Ok(serde_json::json!({ "repo": name, "path": repo, "docs": docs }))
+}
+#[tauri::command]
+fn repo_doc_write(state: State<AppState>, doc: String, content: String) -> Result<(), String> {
+    if !REPO_DOCS.contains(&doc.as_str()) { return Err("doc desconhecido".into()); }
+    let repo = repo_of(&state)?;
+    let dir = PathBuf::from(&repo).join(".cardume");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(&doc), content).map_err(|e| e.to_string())
+}
+
 /// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
 /// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
@@ -3583,6 +3611,8 @@ pub fn run() {
             apns_push,
             read_policy,
             publish_release,
+            repo_docs,
+            repo_doc_write,
             open_project,
             switch_project,
             remove_project,
