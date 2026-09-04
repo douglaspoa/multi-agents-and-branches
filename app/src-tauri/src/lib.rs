@@ -65,6 +65,24 @@ fn node_bin() -> String {
 /// Acha o binário do `claude` sem depender do PATH (que pode estar stale via
 /// LSEnvironment): CARDUME_CLAUDE → ao lado do node → "claude" no PATH.
 /// Acha o `gh` sem depender do PATH (LaunchServices pode lançar com PATH mínimo).
+/// npm ao lado do node resolvido (nvm incluso) — app aberto pelo Finder tem
+/// PATH mínimo e um `npm` seco dá "No such file or directory" (Mac do Paulo).
+fn npm_cmd() -> Command {
+    let nb = node_bin();
+    let dir = std::path::Path::new(&nb).parent().map(|p| p.to_path_buf());
+    let npm = dir.as_ref().map(|d| d.join("npm")).filter(|p| p.is_file())
+        .map(|p| p.display().to_string())
+        .or_else(|| ["/opt/homebrew/bin/npm", "/usr/local/bin/npm"].iter().find(|p| std::path::Path::new(p).is_file()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "npm".into());
+    let mut c = Command::new(npm);
+    // scripts do npm precisam achar o node no PATH
+    if let Some(d) = dir {
+        let path = std::env::var("PATH").unwrap_or_default();
+        c.env("PATH", format!("{}:{}", d.display(), path));
+    }
+    c
+}
+
 fn gh_bin() -> String {
     if let Ok(g) = std::env::var("CARDUME_GH") {
         if !g.is_empty() {
@@ -3072,6 +3090,11 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
                 return Ok(String::from_utf8_lossy(&u.stdout).trim().to_string());
             }
         }
+        if err.contains("Could not resolve to a Repository") {
+            return Err(format!(
+                "gh pr create: {err}\n\nSua conta do gh NÃO enxerga este repositório (o push funcionou porque o git usa outra credencial). Causas comuns:\n1) você ainda não foi convidado pra organização dona do repo — peça o convite;\n2) o token do gh não tem SSO autorizado pra org — rode `gh auth refresh -h github.com -s repo` e autorize o SSO quando o navegador abrir."
+            ));
+        }
         return Err(format!("gh pr create: {err}"));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -3224,7 +3247,7 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
         if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
             for (script, label) in [("lint", "Linter"), ("test", "Testes")] {
                 if j["scripts"][script].as_str().is_some() {
-                    let mut c = Command::new("npm");
+                    let mut c = npm_cmd();
                     c.args(["run", script, "--silent"]).current_dir(&wt);
                     match output_timeout(c, 300) {
                         Ok(o) => {
@@ -3239,7 +3262,11 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
                                 detail: if ok { "passou".into() } else { tail(&o.stderr).chars().take(500).collect() },
                             });
                         }
-                        Err(e) => out.push(RepoCheck { name: label.to_string(), ok: false, detail: e }),
+                        Err(e) => out.push(RepoCheck {
+                            name: label.to_string(),
+                            ok: false,
+                            detail: if e.contains("os error 2") { "npm não encontrado nesta máquina — instale o Node (brew install node) e verifique o Ambiente".into() } else { e },
+                        }),
                     }
                 }
             }
