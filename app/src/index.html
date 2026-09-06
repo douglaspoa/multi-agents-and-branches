@@ -1552,7 +1552,7 @@
       </div>
       <div class="two" id="ntTeamRow" style="margin-top:11px">
         <div><label>Equipe (workflow)</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
-        <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%"><option value="claude">Claude (real)</option><option value="mock">Mock (sem IA)</option></select></div>
+        <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%" title="Logcomex AI usa a LGCX_API_KEY da sua conta (Conta → Chaves de modelo)"><option value="claude">Claude (assinatura)</option><option value="codex">Codex (OpenAI)</option><option value="logcomex">Logcomex AI (seu servidor)</option><option value="mock">Mock (sem IA)</option></select></div>
         <div><label>Versão do modelo</label><select class="sel" id="ntModel" style="width:100%" title="tarefa simples? um modelo mais rápido termina em fração do tempo"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio (rápido)</option><option value="haiku">Haiku — o mais veloz (tarefas simples)</option></select></div>
       </div>
       <div class="two" style="margin-top:11px">
@@ -6370,6 +6370,7 @@ async function renderCloud(){
   cloudBtnSync();
   if(typeof billingRenderCloud==='function') billingRenderCloud();
   if(typeof orgDefaultsRenderCloud==='function') orgDefaultsRenderCloud(isAdmin);
+  if(typeof secretsRenderCloud==='function') secretsRenderCloud();
 }
 // seção "Padrões da organização" na Conta (admins editam; o resto só vê)
 function orgDefaultsRenderCloud(isAdmin){
@@ -6518,6 +6519,63 @@ function billingRenderCloud(){
   { const x=document.getElementById('sbBillPortal'); if(x) x.onclick=()=>payPortal(x); }
   { const x=document.getElementById('sbBillGo'); if(x) x.onclick=()=>{ closeCloud(); payShow(); }; }
 }
+// ========== chaves de modelo VINCULADAS À CONTA (user_secrets → llm.env) ==========
+let secretsCache=null;
+async function secretsSync(){
+  if(!SB.sess()) return;
+  try{
+    let rows=await sbGet('user_secrets?select=name,value&order=name');
+    if(!rows.length){
+      // primeira vez: adota o llm.env local existente (migração sem clique)
+      const local=await invoke('read_llm_env').catch(()=>'');
+      const pairs=String(local||'').split('\n').map(l=>l.trim()).filter(l=>/^[A-Z][A-Z0-9_]{2,63}=/.test(l));
+      for(const l of pairs){ const i=l.indexOf('=');
+        await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
+          body: JSON.stringify({ user_id:cloudUserId(), name:l.slice(0,i), value:l.slice(i+1) }) });
+      }
+      if(pairs.length) rows=await sbGet('user_secrets?select=name,value&order=name');
+    }
+    secretsCache=rows;
+    // nuvem → arquivo local (600) que os motores leem
+    await invoke('write_llm_env',{ content: rows.map(r=>r.name+'='+r.value).join('\n')+(rows.length?'\n':'') });
+  }catch(_){ }
+}
+async function secretSet(name, value){
+  await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
+    body: JSON.stringify({ user_id:cloudUserId(), name, value }) });
+  await secretsSync();
+}
+async function secretDel(name){
+  await sbFetch('/rest/v1/user_secrets?user_id=eq.'+cloudUserId()+'&name=eq.'+encodeURIComponent(name), { method:'DELETE' });
+  await secretsSync();
+}
+// seção na Conta: listar (mascarado), adicionar, remover
+function secretsRenderCloud(){
+  const body=document.getElementById('cloudBody'); if(!body||!SB.sess()) return;
+  const el=document.createElement('div');
+  const rows=secretsCache||[];
+  el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Chaves de modelo <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· seguem a sua conta (ex.: LGCX_API_KEY do LLM da Logcomex)</span></div>
+    <div id="sbSecrets">${rows.length?rows.map(r=>`<div style="display:flex;align-items:center;gap:9px;font-size:12px;margin-top:6px"><span class="mono">${esc(r.name)}</span><span class="dim mono" style="font-size:10.5px">••••${esc(String(r.value).slice(-4))}</span><span style="flex:1"></span><button class="btn sm" data-sedit="${escA(r.name)}" style="padding:2px 8px;font-size:10.5px">editar</button><button class="btn sm" data-sdel="${escA(r.name)}" style="padding:2px 8px;font-size:10.5px">✕</button></div>`).join(''):'<div class="dim" style="font-size:11.5px;margin-top:4px">nenhuma chave ainda</div>'}</div>
+    <button class="btn sm" id="sbSecretAdd" style="margin-top:8px">+ adicionar chave</button>`;
+  body.appendChild(el);
+  el.querySelectorAll('[data-sedit]').forEach(b=>b.onclick=async()=>{
+    const v=await askText('Novo valor de '+b.dataset.sedit,'cole a chave'); if(v===null||!v.trim()) return;
+    await secretSet(b.dataset.sedit, v.trim()); renderCloud();
+  });
+  el.querySelectorAll('[data-sdel]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Remover '+b.dataset.sdel+' da sua conta (e desta máquina)?')) return;
+    await secretDel(b.dataset.sdel); renderCloud();
+  });
+  { const b=el.querySelector('#sbSecretAdd'); if(b) b.onclick=async()=>{
+      const n=await askText('Nome da variável','LGCX_API_KEY'); if(n===null) return;
+      const name=String(n).trim().toUpperCase().replace(/[^A-Z0-9_]/g,'_');
+      if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ alert('Nome inválido — use MAIÚSCULAS_E_UNDERSCORE.'); return; }
+      const v=await askText('Valor de '+name,'cole a chave'); if(v===null||!v.trim()) return;
+      await secretSet(name, v.trim()); renderCloud();
+    }; }
+}
+setTimeout(secretsSync, 6000);
+setInterval(secretsSync, 30*60*1000);
 // ========== dados do usuário: repo + memória (.cardume) seguem a conta ==========
 let repoSyncBusy=false;
 async function userRepoSync(){

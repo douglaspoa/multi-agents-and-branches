@@ -11,6 +11,7 @@ import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
+import { CodexEngine } from "./engine/codex.ts";
 import type { AgentEngine } from "./engine/types.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
@@ -43,6 +44,12 @@ export class Orchestrator {
 
   private engineFor(name: string, model: string | undefined, approval: TaskSpec["autonomy"]["approval"]): AgentEngine {
     if (name === "claude") return new ClaudeEngine({ model, approval });
+    if (name === "codex") return new CodexEngine({ model });
+    if (name === "logcomex")
+      return new CodexEngine({
+        model: model || "logcomex-v2", // DeepSeek V4 Flash 1M (padrão do servidor); qwen3.8-27b = 3x mais rápido
+        provider: { id: "logcomex", name: "Logcomex AI", baseUrl: "https://llm.logcomex.ai/v1", envKey: "LGCX_API_KEY" },
+      });
     return new MockEngine();
   }
 

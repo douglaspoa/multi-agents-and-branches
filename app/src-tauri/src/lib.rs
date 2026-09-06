@@ -2255,6 +2255,28 @@ fn repo_doc_write(state: State<AppState>, doc: String, content: String) -> Resul
     std::fs::write(dir.join(&doc), content).map_err(|e| e.to_string())
 }
 
+/// Chaves de modelo da CONTA → cache local que os motores leem (env por task).
+/// O arquivo nunca entra em repo; a nuvem (user_secrets, RLS) é a fonte.
+fn llm_env_path() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("llm.env")
+}
+#[tauri::command]
+fn read_llm_env() -> Result<String, String> {
+    Ok(std::fs::read_to_string(llm_env_path()).unwrap_or_default())
+}
+#[tauri::command]
+fn write_llm_env(content: String) -> Result<(), String> {
+    let p = llm_env_path();
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, content).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
 /// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
 /// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
@@ -3682,6 +3704,8 @@ pub fn run() {
             publish_release,
             repo_docs,
             repo_doc_write,
+            read_llm_env,
+            write_llm_env,
             open_project,
             switch_project,
             remove_project,

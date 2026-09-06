@@ -1,0 +1,376 @@
+<title>Constellation na AGES</title>
+<style>
+  :root{
+    --bg:#0b0d0f; --panel:#111417; --panel2:#171b1f; --line:#232a30; --line2:#2f383f;
+    --text:#e6e9ea; --dim:#8b9398; --dim2:#5c666c; --accent:#3fd68a; --accent2:#2ea86c;
+    --warn:#e0b34d; --crit:#e06c5c; --info:#6cb2e0;
+    --mono:"SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .kick{font:600 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  .kick.dim{color:var(--dim2)}
+  /* ---- layout ---- */
+  .wrap{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}
+  aside{border-right:1px solid var(--line);padding:26px 18px;position:sticky;top:0;height:100vh;overflow:auto;background:var(--panel)}
+  .logo{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+  .logo .star{color:var(--accent);font-size:20px}
+  .logo b{font-size:15px;letter-spacing:.01em}
+  .sub{color:var(--dim);font-size:11.5px;margin-bottom:22px}
+  nav button{display:flex;gap:10px;align-items:baseline;width:100%;text-align:left;background:none;border:0;color:var(--dim);font:inherit;font-size:13px;padding:9px 10px;border-radius:8px;cursor:pointer}
+  nav button .n{font:600 10px var(--mono);color:var(--dim2);width:16px}
+  nav button:hover{background:var(--panel2);color:var(--text)}
+  nav button.on{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
+  nav button.on .n{color:var(--accent)}
+  .navhint{margin-top:18px;color:var(--dim2);font-size:10.5px}
+  main{padding:34px 44px 80px;max-width:1060px}
+  .screen{display:none}
+  .screen.on{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+  h1{font-size:25px;margin:6px 0 8px;text-wrap:balance}
+  .lede{color:var(--dim);max-width:64ch;font-size:14.5px;margin-bottom:26px}
+  .lede b{color:var(--text)}
+  /* ---- moldura de app ---- */
+  .appwin{border:1px solid var(--line2);border-radius:14px;background:var(--panel);overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  .appbar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .tl{width:11px;height:11px;border-radius:99px;background:#3a4046}
+  .tl:nth-child(1){background:#e0645c}.tl:nth-child(2){background:#e0b34d}.tl:nth-child(3){background:#57c26b}
+  .appbar b{font-size:12px;margin-left:8px;color:var(--dim)}
+  .appbody{padding:20px 22px}
+  /* ---- cartões explicativos ---- */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:16px 17px}
+  .card h3{margin:8px 0 6px;font-size:14px}
+  .card p{margin:0;color:var(--dim);font-size:12.5px}
+  .badge{display:inline-block;font:600 9.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border-radius:99px;border:1px solid var(--line2);color:var(--dim)}
+  .badge.g{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+  .badge.y{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+  .badge.b{color:var(--info);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+  /* ---- fluxo (setas) ---- */
+  .flow{display:flex;align-items:stretch;gap:0;margin:22px 0;overflow-x:auto;padding-bottom:6px}
+  .fstep{flex:1;min-width:132px;border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:13px 13px 11px;position:relative;cursor:pointer;transition:border-color .15s}
+  .fstep:hover{border-color:var(--accent2)}
+  .fstep+.fstep{margin-left:26px}
+  .fstep+.fstep::before{content:"→";position:absolute;left:-21px;top:50%;transform:translateY(-50%);color:var(--dim2)}
+  .fstep b{display:block;font-size:12.5px;margin-top:7px}
+  .fstep span{display:block;color:var(--dim);font-size:11px;margin-top:3px}
+  /* ---- wizard mock ---- */
+  .prog{display:flex;gap:6px;margin-bottom:16px}
+  .prog i{height:4px;flex:1;border-radius:99px;background:var(--line2)}
+  .prog i.done{background:var(--accent)}
+  .prog i.cur{background:color-mix(in srgb,var(--accent) 55%,transparent)}
+  .wq{font-size:18px;font-weight:700;margin:0 0 3px}
+  .wh{color:var(--dim);font-size:12px;margin-bottom:14px}
+  .fld{margin-bottom:12px}
+  .fld label{display:block;font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
+  .in{width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:9px;color:var(--text);font:inherit;font-size:13px;padding:9px 11px}
+  .req{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-top:7px;font-size:12.5px;background:var(--panel2)}
+  .req .ck{color:var(--accent);font-family:var(--mono)}
+  .guide{border:1px dashed var(--line2);border-radius:9px;padding:11px 13px;margin:12px 0;font-size:12px;color:var(--dim)}
+  .guide b{color:var(--warn)}
+  .btn{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;color:var(--text);font:inherit;font-size:12.5px;padding:8px 15px;cursor:pointer}
+  .btn:hover{border-color:var(--accent2)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#06130c;font-weight:700}
+  .btn.primary:disabled{opacity:.45;cursor:not-allowed}
+  .wfoot{display:flex;gap:8px;align-items:center;margin-top:18px}
+  .miss{color:var(--warn);font-size:11.5px}
+  /* ---- board / professor ---- */
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .tcard{border:1px solid var(--line);border-radius:11px;background:var(--panel2);padding:12px 13px;margin-top:9px;cursor:pointer;transition:border-color .15s}
+  .tcard:hover{border-color:var(--accent2)}
+  .tcard b{font-size:12.5px;display:block}
+  .who{display:flex;align-items:center;gap:7px;margin-top:8px}
+  .av{width:20px;height:20px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;font:700 9px var(--mono);color:#06130c}
+  .phase{display:flex;gap:3px;margin-top:9px}
+  .phase i{height:3.5px;flex:1;border-radius:99px;background:var(--line2)}
+  .phase i.d{background:var(--accent)}
+  .phase i.h{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+  .meta{color:var(--dim2);font:10.5px var(--mono);margin-top:7px}
+  .audit{border:1px solid var(--line2);border-radius:12px;background:var(--panel);padding:18px;margin-top:16px}
+  .prompt{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px 14px;font:11.5px/1.6 var(--mono);color:var(--dim);white-space:pre-wrap}
+  .proof{display:inline-flex;align-items:center;gap:6px;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);color:var(--accent);border-radius:7px;padding:5px 9px;font:600 10.5px var(--mono);margin:6px 6px 0 0}
+  /* ---- iphone ---- */
+  .phones{display:flex;gap:22px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+  .phone{width:238px;border:1px solid var(--line2);border-radius:30px;background:var(--panel);padding:12px 10px 16px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  .notch{width:78px;height:17px;border-radius:99px;background:#000;margin:0 auto 10px}
+  .pscreen{border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:13px 12px;min-height:330px;font-size:11.5px}
+  .pcap{text-align:center;color:var(--dim);font-size:11.5px;margin-top:10px}
+  .qopt{border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);color:var(--accent);border-radius:8px;padding:8px 10px;margin-top:7px;font-size:11px;font-weight:600}
+  /* ---- ondas ---- */
+  .wave{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:12px;background:var(--panel)}
+  .wave .k{font:600 10px var(--mono);letter-spacing:.1em}
+  .wtasks{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+  .wt{border:1px solid var(--line2);border-radius:9px;padding:9px 12px;background:var(--panel2);font-size:12px;min-width:180px}
+  .wt .own{font:10px var(--mono);color:var(--accent);margin-top:4px}
+  .arrows{text-align:center;color:var(--dim2);margin:4px 0;font-size:15px}
+  .cta{margin-top:26px;display:flex;gap:10px;align-items:center}
+  table{border-collapse:collapse;width:100%;margin-top:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;font-size:12.5px}
+  th{font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);background:var(--panel2)}
+  td b{font-size:12.5px}
+  td{color:var(--dim)}
+  .callout{border-left:2px solid var(--accent);padding:2px 0 2px 13px;margin:16px 0;color:var(--dim);font-size:13px}
+  .callout b{color:var(--text)}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr}aside{position:static;height:auto}.grid2,.grid3,.cols{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+<aside>
+  <div class="logo"><span class="star">✦</span><b>Constellation</b></div>
+  <div class="sub">protótipo navegável · AGES / Engenharia de Software</div>
+  <nav id="nav"></nav>
+  <div class="navhint">navegue clicando ou com ← → do teclado</div>
+</aside>
+<main id="main">
+
+<!-- ============ 1. VISÃO GERAL ============ -->
+<section class="screen" data-s="0">
+  <div class="kick">O que é</div>
+  <h1>Agentes de IA que entregam a tarefa completa — com spec antes do código</h1>
+  <p class="lede">O Constellation é um app de Mac (com companheiro de iPhone) que orquestra <b>agentes Claude Code</b> em branches isoladas. A tese central: <b>a qualidade da entrega nasce na especificação</b>. Antes de qualquer código existir, a demanda vira uma spec com requisitos verificáveis — e o agente é <b>cobrado a provar</b> cada um deles com prints e testes reais.</p>
+  <div class="flow">
+    <div class="fstep" onclick="go(2)"><span class="kick dim">1</span><b>Spec primeiro</b><span>wizard + IA escrevem requisitos verificáveis</span></div>
+    <div class="fstep" onclick="go(3)"><span class="kick dim">2</span><b>Política da org</b><span>a instituição define o mínimo obrigatório</span></div>
+    <div class="fstep" onclick="go(4)"><span class="kick dim">3</span><b>Execução isolada</b><span>1 branch + 1 worktree por demanda</span></div>
+    <div class="fstep" onclick="go(6)"><span class="kick dim">4</span><b>Provas</b><span>prints reais + saída dos testes anexadas</span></div>
+    <div class="fstep" onclick="go(5)"><span class="kick dim">5</span><b>Transparência</b><span>professor/TL vê spec, prompt e provas de todos</span></div>
+  </div>
+  <div class="grid3">
+    <div class="card"><span class="badge g">DESKTOP</span><h3>App do Mac</h3><p>Cria demandas, roda os agentes, board do time, PRs e releases. É onde o trabalho acontece.</p></div>
+    <div class="card"><span class="badge b">iOS</span><h3>Companheiro de bolso</h3><p>Acompanha ao vivo, responde perguntas do agente (até por voz ou da notificação) e dispara demandas de longe.</p></div>
+    <div class="card"><span class="badge y">NUVEM</span><h3>Organização</h3><p>Tudo amarrado à conta: specs, provas, custo, catálogo de agentes e a política da instituição.</p></div>
+  </div>
+  <div class="cta"><button class="btn primary" onclick="go(1)">ver o encaixe com a AGES →</button></div>
+</section>
+
+<!-- ============ 2. PAPÉIS AGES ============ -->
+<section class="screen" data-s="1">
+  <div class="kick">AGES · PUCRS</div>
+  <h1>Um papel claro pra cada nível — e o professor enxerga tudo</h1>
+  <p class="lede">A AGES já organiza os alunos em níveis. O Constellation dá a cada nível <b>uma superfície própria do mesmo fluxo</b> — todos trabalham sobre a mesma spec, no mesmo board, com as mesmas regras da instituição.</p>
+  <table>
+    <tr><th>Nível</th><th>Na AGES</th><th>No Constellation</th></tr>
+    <tr><td><b>AGES I</b></td><td>júnior · mockups e requisitos</td><td>Modo <b>Design</b>: descreve a tela, a IA gera mockup navegável + DESIGN.md — sem tocar no código. Aprende a escrever requisito verificável no wizard.</td></tr>
+    <tr><td><b>AGES II</b></td><td>pleno · banco e código</td><td>Modo <b>Entrega/Fix</b>: assume cartões do backlog, supervisiona o agente, valida as provas e abre o PR guiado (checagens → commit → PR).</td></tr>
+    <tr><td><b>AGES III</b></td><td>arquitetura, devops e código</td><td><b>Investigar</b> (causa raiz com evidência), doc de arquitetura obrigatório por política, revisão de PR com agente revisor.</td></tr>
+    <tr><td><b>AGES IV</b></td><td>tech lead</td><td>Quebra épicos em <b>ondas paralelas</b> com escopos disjuntos, define a política do repo, aprova specs e releases.</td></tr>
+    <tr><td><b>Professor</b></td><td>orientador</td><td>Visão de <b>transparência</b>: para cada aluno — o prompt que criou a issue, a spec, as provas de cada requisito e o custo. Avaliação baseada em evidência.</td></tr>
+  </table>
+  <div class="callout"><b>Por que isso ensina engenharia?</b> O aluno não “pede pro chat fazer”: ele escreve uma especificação que passa por um portão de qualidade, acompanha a execução, cobra provas e defende a entrega num PR — o ciclo completo de engenharia de software, com IA como equipe.</div>
+</section>
+
+<!-- ============ 3. CRIAR DEMANDA (WIZARD) ============ -->
+<section class="screen" data-s="2">
+  <div class="kick">Passo 1 · Spec primeiro</div>
+  <h1>A issue nasce de um wizard — com a IA ajudando a escrever</h1>
+  <p class="lede">Uma pergunta por etapa, sem scroll. O aluno escreve do jeito dele; <b>✨ completar com IA</b> transforma em spec bem-formada, e o <b>guia da instituição</b> aparece dentro do próprio formulário. Clique em <b>próximo</b> pra percorrer.</p>
+  <div class="appwin">
+    <div class="appbar"><i class="tl"></i><i class="tl"></i><i class="tl"></i><b>Nova demanda — AGES · projeto BiblioTech</b></div>
+    <div class="appbody" id="wiz"></div>
+  </div>
+  <div class="callout"><b>O portão:</b> a etapa de requisitos <b>não deixa avançar</b> sem o mínimo definido pela instituição — e provas/testes obrigatórios já vêm travados. É impossível “abrir issue vazia”.</div>
+</section>
+
+<!-- ============ 4. POLÍTICA DA ORG ============ -->
+<section class="screen" data-s="3">
+  <div class="kick">Passo 2 · A instituição manda</div>
+  <h1>Entregamos um template padrão testado — a organização tem liberdade de mudar</h1>
+  <p class="lede">O produto vem com um <b>guia de spec + política</b> que funcionam de fábrica. A PUC (ou qualquer empresa) sobrescreve no nível da <b>organização</b>; um projeto específico ainda pode refinar por cima. A cadeia é sempre: <b>produto → organização → repositório</b>.</p>
+  <div class="appwin" style="max-width:640px">
+    <div class="appbar"><i class="tl"></i><i class="tl"></i><i class="tl"></i><b>Conta → Padrões de demanda da organização (admin)</b></div>
+    <div class="appbody">
+      <div class="fld"><label>Guia de spec da PUC / AGES</label>
+        <div class="prompt"># Guia de demanda — AGES
+1. Toda demanda diz QUAL TELA/MÓDULO muda (caminho real).
+2. Requisitos são frases verificáveis — o professor marca ✓/✗.
+3. Prints da UI real são obrigatórios — mock não é prova.
+4. Cite a disciplina/sprint no título (ex.: [S3] …).</div></div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="fld"><label>Mínimo de requisitos</label><input class="in" id="polMin" type="number" value="2" min="1" onchange="polSync()"></div>
+        <div class="fld"><label>Aviso de custo (US$)</label><input class="in" type="number" value="10"></div>
+      </div>
+      <div class="req"><span class="ck">☑</span> Prova real (prints) obrigatória <span class="badge y" style="margin-left:auto">TRAVADO PRA TODOS</span></div>
+      <div class="req"><span class="ck">☑</span> Testes comprovando obrigatórios <span class="badge y" style="margin-left:auto">TRAVADO PRA TODOS</span></div>
+      <div class="wfoot"><span style="flex:1"></span><button class="btn primary" onclick="this.textContent='✓ salvo — vale pra org inteira'">salvar padrões</button></div>
+    </div>
+  </div>
+  <div class="callout" id="polEcho"><b>Efeito imediato:</b> com mínimo = 2, o wizard da tela anterior bloqueia o avanço com 1 requisito só. Mude o número acima e volte à tela <b>Criar demanda</b> — o portão obedece.</div>
+</section>
+
+<!-- ============ 5. EXECUÇÃO ============ -->
+<section class="screen" data-s="4">
+  <div class="kick">Passo 3 · Execução</div>
+  <h1>Cada demanda vira uma branch isolada — e o time vê tudo ao vivo</h1>
+  <p class="lede">O agente trabalha numa <b>worktree própria</b> (nunca na main), publica cada passo no feed, e <b>pergunta ao humano</b> quando trava — a pergunta chega no Mac e no iPhone. O board do time mostra fase e progresso de todos.</p>
+  <div class="appwin">
+    <div class="appbar"><i class="tl"></i><i class="tl"></i><i class="tl"></i><b>Time — BiblioTech · sprint 3</b></div>
+    <div class="appbody">
+      <div class="cols">
+        <div><span class="kick dim">● RODANDO (3)</span>
+          <div class="tcard"><b>[S3] Tela de reserva de salas</b><div class="phase"><i class="d"></i><i class="d"></i><i class="h"></i><i></i><i></i></div><div class="who"><span class="av" style="background:#7cd0b8">MA</span><span class="meta">Marina · AGES II · agente Íris</span></div><div class="meta">» rodando testes de integração…</div></div>
+          <div class="tcard"><b>[S3] API de empréstimos</b><div class="phase"><i class="d"></i><i class="d"></i><i class="d"></i><i class="h"></i><i></i></div><div class="who"><span class="av" style="background:#e0b34d">PE</span><span class="meta">Pedro · AGES III · agente Vega</span></div><div class="meta">» +214 −38 · 4 commits · $1.20</div></div>
+          <div class="tcard" style="border-color:color-mix(in srgb,var(--warn) 50%,transparent)"><b>[S3] Importar catálogo CSV</b><div class="meta" style="color:var(--warn)">⏳ perguntou: "o CSV real tem cabeçalho?" — esperando a aluna</div><div class="who"><span class="av" style="background:#6cb2e0">JU</span><span class="meta">Júlia · AGES I</span></div></div>
+        </div>
+        <div><span class="kick dim">◆ PRONTAS PRA REVISAR (1)</span>
+          <div class="tcard"><b>[S3] Login com e-mail institucional</b><div class="meta" style="color:var(--accent)">✓ 3/3 requisitos provados</div><div class="who"><span class="av" style="background:#c99cdb">LU</span><span class="meta">Lucas · AGES II</span></div><div class="meta">prints + suíte verde anexados</div></div>
+        </div>
+        <div><span class="kick dim">✓ MERGEADAS (2)</span>
+          <div class="tcard"><b>[S2] Cadastro de livros</b><div class="meta">PR #41 · mergeado pelo TL</div></div>
+          <div class="tcard"><b>[S2] Seed do banco</b><div class="meta">PR #39 · mergeado</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout"><b>Escala da sala:</b> 20 alunos = 20 branches isoladas rodando em paralelo, sem ninguém pisar na main — o conflito de merge deixa de ser rito de passagem e vira exceção.</div>
+</section>
+
+<!-- ============ 6. TRANSPARÊNCIA DO PROFESSOR ============ -->
+<section class="screen" data-s="5">
+  <div class="kick">Passo 5 · Avaliação por evidência</div>
+  <h1>A visão do professor: prompt, spec e provas de cada aluno</h1>
+  <p class="lede">Proposta de design nova (nascida desta disciplina): um raio-X por aluno. Clique num aluno pra abrir o dossiê da entrega — <b>o prompt que criou a issue</b>, os requisitos e a <b>prova de cada um</b>, o custo e a linha do tempo. Plágio de prompt e “funciona na minha máquina” morrem aqui.</p>
+  <div class="appwin">
+    <div class="appbar"><i class="tl"></i><i class="tl"></i><i class="tl"></i><b>Time → visão do orientador</b></div>
+    <div class="appbody">
+      <div style="display:flex;gap:8px;flex-wrap:wrap" id="alunos"></div>
+      <div class="audit" id="dossie"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7. iOS ============ -->
+<section class="screen" data-s="6">
+  <div class="kick">Companheiro de bolso</div>
+  <h1>O iPhone destrava o agente — de qualquer lugar</h1>
+  <p class="lede">O maior inimigo do agente é <b>esperar humano</b>. No iOS, a pergunta chega como notificação push e o aluno responde na hora — tocando numa opção, <b>ditando por voz</b>, ou direto da notificação sem abrir o app. Também dá pra criar demandas de longe: o Mac assume em segundos.</p>
+  <div class="phones">
+    <div class="phone"><div class="notch"></div><div class="pscreen">
+      <div class="kick" style="margin-bottom:8px">CENTRAL</div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:8px">8 entregas hoje · 3 rodando</div>
+      <div class="tcard" style="margin-top:6px"><b style="font-size:11px">⏳ ESPERANDO VOCÊ</b><div style="margin-top:5px">Importar catálogo CSV — "o CSV real tem cabeçalho?"</div><div class="qopt">sim, primeira linha</div><div class="qopt">não, dado puro</div></div>
+      <div class="tcard"><b style="font-size:11px">● RODANDO</b><div style="margin-top:4px">API de empréstimos</div><div class="phase"><i class="d"></i><i class="d"></i><i class="h"></i><i></i><i></i></div></div>
+    </div><div class="pcap">Central: pergunta em 1º lugar — urgência manda</div></div>
+    <div class="phone"><div class="notch"></div><div class="pscreen">
+      <div class="kick" style="margin-bottom:8px">RESPONDER POR VOZ</div>
+      <div style="color:var(--dim);margin-bottom:10px">"o CSV real tem cabeçalho?"</div>
+      <div class="in" style="min-height:64px;font-size:11px">tem cabeçalho sim, e a coluna de data vem como dd/mm/aaaa — trata isso no parser</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span style="font-size:20px">🎙</span><span class="badge g">GRAVANDO · fala vira texto</span><span style="color:var(--accent)">➤</span></div>
+    </div><div class="pcap">Ditado pt-BR nativo — revisa e envia</div></div>
+    <div class="phone"><div class="notch"></div><div class="pscreen">
+      <div class="kick" style="margin-bottom:8px">NOVA DEMANDA</div>
+      <div class="fld"><label style="font-size:9px">TÍTULO</label><div class="in" style="font-size:11px">[S3] Multa por atraso</div></div>
+      <div class="fld"><label style="font-size:9px">REQUISITOS (política: mín. 2)</label>
+        <div class="req" style="font-size:10.5px"><span class="ck">✓</span> Multa calculada por dia útil</div>
+        <div class="req" style="font-size:10.5px"><span class="ck">✓</span> Teste cobre virada de mês</div>
+      </div>
+      <div class="btn primary" style="text-align:center;margin-top:10px">iniciar no meu Mac ▸</div>
+      <div style="color:var(--dim2);font-size:10px;margin-top:8px">o Mac assume em ~6s (ligado e acordado)</div>
+    </div><div class="pcap">Criou no ônibus — o Mac de casa executa</div></div>
+  </div>
+</section>
+
+<!-- ============ 8. ÉPICOS EM ONDAS ============ -->
+<section class="screen" data-s="7">
+  <div class="kick">Tech lead · AGES IV</div>
+  <h1>Um épico vira ondas de tarefas paralelas — com escopos que não colidem</h1>
+  <p class="lede">O TL pega um trabalho grande e a IA propõe a quebra em <b>ondas</b>: a onda 1 roda inteira em paralelo porque cada tarefa <b>reivindica arquivos disjuntos</b>; as ondas seguintes dependem das anteriores. Cada tarefa nasce com entregável e requisitos próprios.</p>
+  <div class="wave"><span class="k" style="color:var(--accent)">ONDA 1 · 3 AGENTES EM PARALELO</span>
+    <div class="wtasks">
+      <div class="wt"><b>Migração do banco</b><div class="own">⛶ db/migrations</div></div>
+      <div class="wt"><b>API de reservas</b><div class="own">⛶ src/api/reservas</div></div>
+      <div class="wt"><b>Mockup da agenda</b><div class="own">⛶ .cardume/artifacts</div></div>
+    </div>
+  </div>
+  <div class="arrows">↓</div>
+  <div class="wave"><span class="k" style="color:var(--dim)">ONDA 2 · DEPOIS DA ONDA 1</span>
+    <div class="wtasks">
+      <div class="wt"><b>Tela de reservas</b><div class="own">⛶ src/ui/reservas · usa a API da onda 1</div></div>
+    </div>
+  </div>
+  <div class="arrows">↓</div>
+  <div class="wave"><span class="k" style="color:var(--dim)">ONDA 3</span>
+    <div class="wtasks">
+      <div class="wt"><b>E2E + doc de arquitetura</b><div class="own">⛶ tests/e2e, docs/</div></div>
+    </div>
+  </div>
+  <div class="callout"><b>Pra AGES:</b> é literalmente o planejamento de sprint virando execução — o TL aprende decomposição, gestão de dependências e escopo, com o custo de coordenação assumido pela ferramenta.</div>
+  <div class="cta"><button class="btn" onclick="go(0)">← voltar ao início</button><span class="dim" style="font-size:12px;color:var(--dim2)">fim do tour — obrigado!</span></div>
+</section>
+
+</main>
+</div>
+
+<script>
+const SECS=["Visão geral","Papéis na AGES","Criar demanda","Política da org","Execução ao vivo","Visão do professor","iPhone","Épicos em ondas"];
+const nav=document.getElementById('nav');
+SECS.forEach((t,i)=>{ const b=document.createElement('button'); b.innerHTML=`<span class="n">${i+1}</span>${t}`; b.onclick=()=>go(i); nav.appendChild(b); });
+let cur=0;
+function go(i){
+  cur=Math.max(0,Math.min(SECS.length-1,i));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',+s.dataset.s===cur));
+  nav.querySelectorAll('button').forEach((b,j)=>b.classList.toggle('on',j===cur));
+  window.scrollTo({top:0});
+  if(cur===2) wizRender();
+  if(cur===5) profRender();
+}
+document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight') go(cur+1); if(e.key==='ArrowLeft') go(cur-1); });
+
+/* ---- wizard mock (respeita a política da tela 4) ---- */
+let wn=1; let reqs=["Aluno vê salas livres por prédio e horário."];
+function polMin(){ return Math.max(1,parseInt(document.getElementById('polMin').value,10)||1); }
+function polSync(){ const e=document.getElementById('polEcho'); if(e) e.innerHTML=`<b>Efeito imediato:</b> com mínimo = ${polMin()}, o wizard bloqueia o avanço com menos de ${polMin()} requisito(s). Volte à tela <b>Criar demanda</b> — o portão obedece.`; }
+function wizRender(){
+  const el=document.getElementById('wiz'); if(!el) return;
+  const min=polMin();
+  const prog=`<div class="prog">${[1,2,3,4,5].map(i=>`<i class="${i<wn?'done':i===wn?'cur':''}"></i>`).join('')}</div>`;
+  let body='';
+  if(wn===1) body=`
+    <p class="wq">1/5 · O que você precisa?</p><p class="wh">escreva do seu jeito — ✨ completar com IA transforma em spec</p>
+    <div class="guide">📖 <b>guia de demanda da PUC/AGES</b> — toda demanda diz qual tela muda, requisitos verificáveis, prints reais obrigatórios</div>
+    <div class="fld"><label>Título</label><input class="in" value="[S3] Tela de reserva de salas de estudo"></div>
+    <div class="fld"><label>Objetivo</label><input class="in" value="Aluno logado reserva sala por prédio/horário; bloquear choque de reservas."></div>
+    <button class="btn">✨ completar com IA</button>`;
+  if(wn===2) body=`
+    <p class="wq">2/5 · Requisitos de entrega</p><p class="wh">critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; <b style="color:var(--warn)">mínimo ${min} pela política da PUC</b></p>
+    ${reqs.map((r,i)=>`<div class="req"><span class="ck">✓</span>${r}<button class="btn" style="margin-left:auto;padding:2px 9px;font-size:10.5px" onclick="reqs.splice(${i},1);wizRender()">×</button></div>`).join('')}
+    <button class="btn" style="margin-top:10px" onclick="reqs.push(['Reserva conflitante é recusada com mensagem clara.','Teste cobre choque de horário na virada do dia.','Estados vazio/carregando/erro tratados.'][reqs.length-1]||'Novo requisito verificável.');wizRender()">+ requisito</button>`;
+  if(wn===3) body=`
+    <p class="wq">3/5 · Quem executa?</p><p class="wh">o fluxo recomendado já vem marcado</p>
+    <div class="req" style="border-color:color-mix(in srgb,var(--accent) 45%,transparent)"><span class="ck">◉</span><b>Feature completa</b> — planeja, implementa, testa e revisa <span class="badge g" style="margin-left:auto">RECOMENDADO</span></div>
+    <div class="req"><span class="ck" style="color:var(--dim2)">○</span>Entrega simples — só o builder</div>`;
+  if(wn===4) body=`
+    <p class="wq">4/5 · Ajustes avançados <span class="badge" style="margin-left:6px">OPCIONAL</span></p><p class="wh">escopo, branch, épico — os padrões servem</p>
+    <div class="req"><span class="ck">☑</span> Prova real (prints) <span class="badge y" style="margin-left:auto">POLÍTICA DA PUC</span></div>
+    <div class="req"><span class="ck">☑</span> Testes comprovando <span class="badge y" style="margin-left:auto">POLÍTICA DA PUC</span></div>`;
+  if(wn===5) body=`
+    <p class="wq">5/5 · Confira a spec</p><p class="wh">é exatamente isto que o agente recebe</p>
+    <div class="prompt"># [S3] Tela de reserva de salas de estudo\n\n## Objetivo\nAluno logado reserva sala por prédio/horário; bloquear choque de reservas.\n\n## Requisitos (provados um a um)\n${reqs.map((r,i)=>(i+1)+'. '+r).join('\\n')}\n\n## Obrigatório pela política\n- prints reais da UI · suíte de testes com saída anexada</div>`;
+  const can = wn!==2 || reqs.length>=min;
+  el.innerHTML=prog+body+`
+    <div class="wfoot">${wn>1?'<button class="btn" onclick="wn--;wizRender()">← voltar</button>':''}
+    <span style="flex:1"></span><span class="miss" id="wm">${can?'':'⚠ a política da PUC exige pelo menos '+min+' requisito(s)'}</span>
+    <button class="btn primary" ${can?'':'disabled'} onclick="wn===5?alert('▶ Colocando no ar: spec ✓ → issue e branch ✓ → agente despachado!\\n(no app real, um modal de progresso mostra cada passo)'):(wn++,wizRender())">${wn===5?'✓ Iniciar execução':'próximo →'}</button></div>`;
+}
+
+/* ---- visão do professor ---- */
+const ALUNOS=[
+ {n:'Marina', nv:'AGES II', cor:'#7cd0b8', t:'[S3] Tela de reserva de salas', prompt:'Título: [S3] Tela de reserva de salas\\nObjetivo: aluno logado reserva sala por prédio/horário; bloquear choque.\\nRequisitos: lista salas livres; recusa conflito com mensagem; teste de choque de horário.', reqs:[['Aluno vê salas livres por prédio e horário','print da tela real'],['Reserva conflitante recusada com mensagem','print + log'],['Teste cobre choque na virada do dia','saída da suíte ✓']], custo:'$0.94 · 41 min'},
+ {n:'Pedro', nv:'AGES III', cor:'#e0b34d', t:'[S3] API de empréstimos', prompt:'Título: [S3] API de empréstimos\\nObjetivo: endpoints de empréstimo/devolução com regra de multa.\\nRequisitos: contrato REST documentado; multa por dia útil; migração idempotente.', reqs:[['Contrato REST documentado (OpenAPI)','ARCHITECTURE.md'],['Multa calculada por dia útil','teste unitário ✓'],['Migração roda 2× sem erro','saída do runner ✓']], custo:'$1.20 · 58 min'},
+ {n:'Júlia', nv:'AGES I', cor:'#6cb2e0', t:'[S3] Importar catálogo CSV', prompt:'Título: [S3] Importar catálogo CSV\\nObjetivo: subir o acervo por CSV com validação de colunas.\\nRequisitos: rejeita CSV sem colunas obrigatórias; preview antes de gravar.', reqs:[['Rejeita CSV sem colunas obrigatórias','print do erro amigável'],['Preview de 10 linhas antes de gravar','print da tela']], custo:'$0.37 · em andamento'},
+];
+let alunoSel=0;
+function profRender(){
+  const tabs=document.getElementById('alunos');
+  tabs.innerHTML=ALUNOS.map((a,i)=>`<button class="btn" style="${i===alunoSel?'border-color:var(--accent);color:var(--accent)':''}" onclick="alunoSel=${i};profRender()"><span class="av" style="background:${a.cor};margin-right:7px">${a.n.slice(0,2).toUpperCase()}</span>${a.n} · ${a.nv}</button>`).join('');
+  const a=ALUNOS[alunoSel];
+  document.getElementById('dossie').innerHTML=`
+    <div style="display:flex;align-items:baseline;gap:10px"><b style="font-size:15px">${a.t}</b><span class="meta">${a.custo}</span></div>
+    <div class="kick dim" style="margin:14px 0 6px">PROMPT DE CRIAÇÃO (o que o aluno escreveu)</div>
+    <div class="prompt">${a.prompt.replace(/\\n/g,'\n')}</div>
+    <div class="kick dim" style="margin:14px 0 2px">REQUISITOS × PROVAS</div>
+    ${a.reqs.map(([r,p])=>`<div class="req"><span class="ck">✓</span>${r}<span class="proof" style="margin-left:auto">📎 ${p}</span></div>`).join('')}
+    <div class="callout" style="margin-bottom:0"><b>Avaliação por evidência:</b> o professor não pergunta "quem fez o quê" — clica e vê a spec que o aluno escreveu, o que o agente executou e a prova de cada requisito.</div>`;
+}
+go(0);
+</script>
