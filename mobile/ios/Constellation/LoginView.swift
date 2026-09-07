@@ -52,8 +52,8 @@ struct LoginView: View {
 
                 if useCode {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("CÓDIGO DE 6 DÍGITOS").font(.caption2).foregroundStyle(T.dim).kerning(1)
-                        TextField("000000", text: $code)
+                        Text("CÓDIGO DO MAC").font(.caption2).foregroundStyle(T.dim).kerning(1)
+                        TextField("00000000", text: $code)
                             .keyboardType(.numberPad)
                             .font(.system(.title2, design: .monospaced).bold())
                             .padding(12).background(T.panel)
@@ -86,8 +86,8 @@ struct LoginView: View {
                     .foregroundStyle(.black)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .disabled(busy || email.isEmpty || (useCode ? code.count != 6 : pass.count < 6))
-                .opacity(busy || email.isEmpty || (useCode ? code.count != 6 : pass.count < 6) ? 0.5 : 1)
+                .disabled(busy || email.isEmpty || (useCode ? code.count < 6 : pass.count < 6))
+                .opacity(busy || email.isEmpty || (useCode ? code.count < 6 : pass.count < 6) ? 0.5 : 1)
 
                 Text("Use a MESMA conta do Constellation no Mac. Criar conta e entrar no time é feito por lá.")
                     .font(.caption2)

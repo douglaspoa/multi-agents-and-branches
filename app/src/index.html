@@ -6554,7 +6554,7 @@ async function secretDel(name){
   await sbFetch('/rest/v1/user_secrets?user_id=eq.'+cloudUserId()+'&name=eq.'+encodeURIComponent(name), { method:'DELETE' });
   await secretsSync();
 }
-// pareamento do celular: o Mac mostra um código de 6 dígitos; o iPhone loga com ele
+// pareamento do celular: o Mac mostra um código numérico; o iPhone loga com ele
 function pairRenderCloud(){
   const body=document.getElementById('cloudBody'); if(!body||!SB.sess()) return;
   const el=document.createElement('div');
