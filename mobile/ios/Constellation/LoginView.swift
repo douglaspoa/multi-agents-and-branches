@@ -4,6 +4,8 @@ struct LoginView: View {
     @EnvironmentObject var supa: Supa
     @State private var email = ""
     @State private var pass = ""
+    @State private var code = ""
+    @State private var useCode = true // padrão: pareamento pelo Mac (sem senha no celular)
     @State private var busy = false
     @State private var error = ""
 
@@ -42,12 +44,32 @@ struct LoginView: View {
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(T.line))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("SENHA").font(.caption2).foregroundStyle(T.dim).kerning(1)
-                    SecureField("••••••••", text: $pass)
-                        .padding(12).background(T.panel)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(T.line))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                Picker("", selection: $useCode) {
+                    Text("código do Mac").tag(true)
+                    Text("senha").tag(false)
+                }
+                .pickerStyle(.segmented)
+
+                if useCode {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("CÓDIGO DE 6 DÍGITOS").font(.caption2).foregroundStyle(T.dim).kerning(1)
+                        TextField("000000", text: $code)
+                            .keyboardType(.numberPad)
+                            .font(.system(.title2, design: .monospaced).bold())
+                            .padding(12).background(T.panel)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(T.line))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Text("No Mac: botão da nuvem → Conta → Celular → 📱 gerar código (vale ~5 min).")
+                            .font(.caption2).foregroundStyle(T.dim)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("SENHA").font(.caption2).foregroundStyle(T.dim).kerning(1)
+                        SecureField("••••••••", text: $pass)
+                            .padding(12).background(T.panel)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(T.line))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
                 }
 
                 Button {
@@ -64,8 +86,8 @@ struct LoginView: View {
                     .foregroundStyle(.black)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .disabled(busy || email.isEmpty || pass.count < 6)
-                .opacity(busy || email.isEmpty || pass.count < 6 ? 0.5 : 1)
+                .disabled(busy || email.isEmpty || (useCode ? code.count != 6 : pass.count < 6))
+                .opacity(busy || email.isEmpty || (useCode ? code.count != 6 : pass.count < 6) ? 0.5 : 1)
 
                 Text("Use a MESMA conta do Constellation no Mac. Criar conta e entrar no time é feito por lá.")
                     .font(.caption2)
@@ -84,7 +106,7 @@ struct LoginView: View {
             // conveniência de dev: login automático via env do simulador
             let env = ProcessInfo.processInfo.environment
             if let e = env["DEMO_EMAIL"], let p = env["DEMO_PASS"], !busy {
-                email = e; pass = p
+                email = e; pass = p; useCode = false
                 await doLogin()
             }
             #endif
@@ -93,7 +115,14 @@ struct LoginView: View {
 
     private func doLogin() async {
         busy = true; error = ""
-        do { try await supa.signIn(email: email.trimmingCharacters(in: .whitespaces), password: pass) }
+        do {
+            let mail = email.trimmingCharacters(in: .whitespaces)
+            if useCode {
+                try await supa.signIn(email: mail, code: code.trimmingCharacters(in: .whitespaces))
+            } else {
+                try await supa.signIn(email: mail, password: pass)
+            }
+        }
         catch { self.error = error.localizedDescription }
         busy = false
     }

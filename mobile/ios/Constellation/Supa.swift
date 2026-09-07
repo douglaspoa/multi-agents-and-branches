@@ -47,6 +47,28 @@ final class Supa: ObservableObject {
         await MainActor.run { self.session = s }
     }
 
+    /// Login por CÓDIGO do Mac (Conta → Celular → gerar código): verifyOtp
+    /// troca os 6 dígitos por uma sessão — sem digitar senha no celular.
+    func signIn(email: String, code: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["type": "email", "email": email, "token": code])
+        var req = URLRequest(url: Self.url.appending(path: "/auth/v1/verify"))
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue(Self.anon, forHTTPHeaderField: "apikey")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw SupaError.api("sem resposta") }
+        let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        guard http.statusCode < 300, let at = j["access_token"] as? String, let rt = j["refresh_token"] as? String,
+              let user = j["user"] as? [String: Any], let uid = user["id"] as? String else {
+            let msg = (j["error_description"] ?? j["msg"] ?? j["message"]) as? String ?? "código inválido ou expirado (\(http.statusCode))"
+            throw SupaError.api(Self.ptError(msg))
+        }
+        let s = Session(accessToken: at, refreshToken: rt, userId: uid, email: email)
+        s.save()
+        await MainActor.run { self.session = s }
+    }
+
     func signOut() {
         Session.clear()
         session = nil
