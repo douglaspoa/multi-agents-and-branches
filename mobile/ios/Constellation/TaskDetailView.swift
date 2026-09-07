@@ -22,6 +22,15 @@ struct TaskDetailView: View {
     @State private var sending = false
     @State private var question: Question? = nil
     @State private var error = ""
+
+    /// Demanda MINHA? (dono = assignee, senão quem criou). Enquanto não carrega,
+    /// assume minha só pra não piscar — o corpo re-renderiza quando chega.
+    private var isMine: Bool {
+        guard let t = task else { return true }
+        let me = supa.session?.userId ?? ""
+        let owner = t.assignee ?? t.createdBy
+        return owner == nil || owner == me
+    }
     @State private var ticked = false
     @State private var localPreview: String? = nil
     @State private var requestingTunnel = false
@@ -49,16 +58,29 @@ struct TaskDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16).padding(.vertical, 5)
             }
-            Picker("", selection: $tab) {
-                Text("Conversa").tag(0)
-                Text("Requisitos · Provas").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 14).padding(.vertical, 7)
-            if tab == 0 { conversa } else { entrega }
-            if tab == 0 {
-                if let q = question { questionBar(q) }
-                inputBar
+            if isMine {
+                Picker("", selection: $tab) {
+                    Text("Conversa").tag(0)
+                    Text("Requisitos · Provas").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                if tab == 0 { conversa } else { entrega }
+                if tab == 0 {
+                    if let q = question { questionBar(q) }
+                    inputBar
+                }
+            } else {
+                // demanda de OUTRO membro: acompanhamento — spec, entregáveis e
+                // provas. Chat e comandos são do dono (é o Mac DELE que executa).
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill").font(.system(size: 11)).foregroundStyle(T.dim)
+                    Text("demanda de outra pessoa — você vê spec, entregáveis e provas; o chat e os comandos são do dono")
+                        .font(.system(size: 11.5)).foregroundStyle(T.dim)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                entrega
             }
         }
         .background(T.bg)
@@ -67,12 +89,14 @@ struct TaskDetailView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    if ["running", "thinking", "queued"].contains(status) {
-                        Button("❙❙ pausar no Mac") { sendIntent("pause") }
-                        Button("✖ abortar", role: .destructive) { sendIntent("abort") }
-                    }
-                    if task?.prUrl == nil && status != "draft" {
-                        Button("⇱ abrir PR") { sendIntent("openPr") }
+                    if isMine {
+                        if ["running", "thinking", "queued"].contains(status) {
+                            Button("❙❙ pausar no Mac") { sendIntent("pause") }
+                            Button("✖ abortar", role: .destructive) { sendIntent("abort") }
+                        }
+                        if task?.prUrl == nil && status != "draft" {
+                            Button("⇱ abrir PR") { sendIntent("openPr") }
+                        }
                     }
                     if let pr = task?.prUrl, let u = URL(string: pr) { Link("abrir PR no GitHub ↗", destination: u) }
                 } label: { Image(systemName: "ellipsis.circle").foregroundStyle(T.dim) }
@@ -284,7 +308,7 @@ struct TaskDetailView: View {
                     }
                     if let pr = t.spec?.prInfo, t.prUrl != nil { prSection(t, pr) }
                     // rodapé de decisão (fase 4)
-                    if ["review", "delivered"].contains(t.status), t.prUrl == nil {
+                    if ["review", "delivered"].contains(t.status), t.prUrl == nil, isMine {
                         VStack(spacing: 9) {
                             if intent?.kind == "openPr" { IntentPill(label: "o Mac está executando · abrir PR") }
                             else {
@@ -570,7 +594,8 @@ struct TaskDetailView: View {
         } catch {
             print("[detail] tick falhou p/ \(taskId): \(error)")
         }
-        if let d = try? await supa.rest("task_feed?select=id,agent,kind,text,at&task_id=eq.\(taskId)&id=gt.\(lastId)&order=id&limit=120"),
+        if isMine, // feed (chat do agente) é do DONO — de outro membro nem baixa
+           let d = try? await supa.rest("task_feed?select=id,agent,kind,text,at&task_id=eq.\(taskId)&id=gt.\(lastId)&order=id&limit=120"),
            let items = try? JSONDecoder().decode([FeedItem].self, from: d), !items.isEmpty {
             await MainActor.run {
                 feed.append(contentsOf: items)
