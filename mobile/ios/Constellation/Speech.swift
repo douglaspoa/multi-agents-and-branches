@@ -88,10 +88,15 @@ struct MicButton: View {
             dict.onText = { t in text = t }
             dict.toggle(current: text)
         } label: {
-            Image(systemName: dict.recording ? "waveform.circle.fill" : "mic.fill")
-                .font(.system(size: dict.recording ? 22 : 16))
-                .foregroundStyle(dict.recording ? T.warn : T.dim)
+            // mesma caixa 36×36 dos outros botões da barra (harmonia)
+            Image(systemName: dict.recording ? "waveform" : "mic.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(dict.recording ? T.warn : T.accent)
                 .symbolEffect(.pulse, isActive: dict.recording)
+                .frame(width: 36, height: 36)
+                .background(dict.recording ? T.warn.opacity(0.12) : T.panel)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(dict.recording ? T.warn.opacity(0.5) : T.line))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .alert("Sem acesso ao microfone", isPresented: $dict.denied) {
             Button("Abrir Ajustes") {
