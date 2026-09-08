@@ -6430,13 +6430,19 @@ function orgDefaultsRenderCloud(isAdmin){
 // (BILLING-SETUP.md) → o gate liga sozinho no próximo sync. Nuvem sem clique.
 let billingPlans=[], myBilling=null, billingOn=false, payYear=false, payPollT=null;
 function fmtBRL(c){ return 'R$ '+(c/100).toFixed(2).replace('.',','); }
-function billingActive(){ return !billingOn || (myBilling && ['trialing','active'].includes(myBilling.status)); }
+function billingActive(){ return !billingOn || (myBilling && (myBilling.org || ['trialing','active'].includes(myBilling.status))); }
 async function billingSync(){
   if(!SB.sess()){ billingOn=false; payHide(); return; }
   try{
     billingPlans=await sbGet('billing_plans?select=*&active=eq.true');
     billingOn=billingPlans.length>0;
     if(!billingOn){ payHide(); return; }
+    // licença ENTERPRISE da organização cobre TODOS os membros (inclusive futuros)
+    let orgOk=false;
+    const orgId=cloudData&&cloudData.org&&cloudData.org.id;
+    if(orgId){ try{ const o=await sbGet('orgs?select=plan,paid_until&id=eq.'+orgId);
+      const org=o[0]; orgOk=!!(org && org.plan==='enterprise' && (!org.paid_until || new Date(org.paid_until)>new Date())); }catch(_){ } }
+    if(orgOk){ myBilling={ plan:'enterprise', status:'active', org:true }; payHide(); return; }
     const rows=await sbGet('billing?select=*');
     const mine=rows.find(r=>r.user_id===cloudUserId());
     const team=rows.find(r=>r.plan==='team' && ['trialing','active'].includes(r.status) && r.team_id===cloudTeamId());
