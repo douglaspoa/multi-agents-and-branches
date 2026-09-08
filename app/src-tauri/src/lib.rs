@@ -2277,6 +2277,31 @@ fn write_llm_env(content: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Baixa um anexo do celular (Storage task-refs) pra .cardume/refs da worktree
+/// da tarefa — o agente recebe o caminho e ABRE a imagem.
+#[tauri::command(async)]
+fn fetch_task_ref(state: State<AppState>, task_id: String, url: String, anon: String, token: String, path: String) -> Result<String, String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("sem projeto aberto")?;
+    let conn = open(&db)?;
+    let wt: String = conn
+        .query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    let base = path.rsplit('/').next().unwrap_or("anexo.jpg").to_string();
+    if base.contains("..") { return Err("nome inválido".into()); }
+    let dir = PathBuf::from(&wt).join(".cardume").join("refs");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(&base);
+    let mut c = Command::new("curl");
+    c.args(["-fsS", "-o"]).arg(&dest)
+        .arg(format!("{url}/storage/v1/object/task-refs/{path}"))
+        .args(["-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}")]);
+    let out = output_timeout(c, 60)?;
+    if !out.status.success() {
+        return Err(format!("download falhou: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    Ok(format!(".cardume/refs/{base}"))
+}
+
 /// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
 /// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
@@ -3706,6 +3731,7 @@ pub fn run() {
             repo_doc_write,
             read_llm_env,
             write_llm_env,
+            fetch_task_ref,
             open_project,
             switch_project,
             remove_project,

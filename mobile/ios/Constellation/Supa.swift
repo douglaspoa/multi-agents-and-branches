@@ -81,17 +81,46 @@ final class Supa: ObservableObject {
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": s.refreshToken])
         req.setValue(Self.anon, forHTTPHeaderField: "apikey")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode ?? 500 < 300,
-              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let at = j["access_token"] as? String, let rt = j["refresh_token"] as? String else {
-            await MainActor.run { self.signOut() }
-            return false
+        // FALHA DE REDE NÃO PODE DESLOGAR: abrir o app sem sinal por 1s apagava
+        // a sessão salva (signOut em qualquer erro) e pedia senha de novo.
+        // Só deslogamos quando o SERVIDOR rejeita o refresh token (400–403).
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else {
+            return false // sem rede — mantém a sessão, tenta de novo depois
         }
-        var ns = s; ns.accessToken = at; ns.refreshToken = rt
-        ns.save()
-        await MainActor.run { self.session = ns }
-        return true
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 500
+        let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if code < 300, let at = j["access_token"] as? String, let rt = j["refresh_token"] as? String {
+            var ns = s; ns.accessToken = at; ns.refreshToken = rt
+            ns.save()
+            await MainActor.run { self.session = ns }
+            return true
+        }
+        if (400...403).contains(code) { await MainActor.run { self.signOut() }; return false }
+        return false // 5xx/erro transitório — mantém a sessão
+    }
+
+    /// Sobe uma imagem/arquivo do celular pro Storage (bucket task-refs,
+    /// caminho <taskId>/<arquivo>) — o Mac do dono baixa pra worktree do agente.
+    func uploadTaskRef(taskId: String, data: Data, filename: String, contentType: String = "image/jpeg", retried: Bool = false) async throws -> String {
+        guard let s = session else { throw SupaError.api("não autenticado") }
+        let path = "\(taskId)/\(filename)"
+        var req = URLRequest(url: Self.url.appending(path: "/storage/v1/object/task-refs/\(path)"))
+        req.httpMethod = "POST"
+        req.httpBody = data
+        req.setValue(Self.anon, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer " + s.accessToken, forHTTPHeaderField: "Authorization")
+        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        req.setValue("true", forHTTPHeaderField: "x-upsert")
+        let (d, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 500
+        if code == 401, !retried, await refresh() {
+            return try await uploadTaskRef(taskId: taskId, data: data, filename: filename, contentType: contentType, retried: true)
+        }
+        guard code < 300 else {
+            let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
+            throw SupaError.api((j?["message"] as? String) ?? "upload falhou (\(code))")
+        }
+        return path
     }
 
     /// REST autenticado com um retry após refresh no 401.

@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// Telas 02–04 do escopo: Execução (conversa ao vivo) · Entrega (revisão) · PR.
 struct TaskDetailView: View {
@@ -22,6 +23,10 @@ struct TaskDetailView: View {
     @State private var sending = false
     @State private var question: Question? = nil
     @State private var error = ""
+    @State private var pickedPhoto: PhotosPickerItem? = nil
+    @State private var uploadingImg = false
+    @State private var expandedMsgs: Set<Int> = []
+    @State private var tickN = 0
 
     /// Demanda MINHA? (dono = assignee, senão quem criou). Enquanto não carrega,
     /// assume minha só pra não piscar — o corpo re-renderiza quando chega.
@@ -65,11 +70,9 @@ struct TaskDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 14).padding(.vertical, 7)
+                // a barra de entrada vive DENTRO da conversa (safeAreaInset):
+                // o teclado empurra a barra, nunca a cobre
                 if tab == 0 { conversa } else { entrega }
-                if tab == 0 {
-                    if let q = question { questionBar(q) }
-                    inputBar
-                }
             } else {
                 // demanda de OUTRO membro: acompanhamento — spec, entregáveis e
                 // provas. Chat e comandos são do dono (é o Mac DELE que executa).
@@ -103,11 +106,20 @@ struct TaskDetailView: View {
             }
         }
         .sheet(item: $proofUrl) { url in ProofSheet(url: url) }
+        .onChange(of: pickedPhoto) { _, item in
+            guard let item else { return }
+            Task { await sendImage(item); pickedPhoto = nil }
+        }
         .task {
             #if DEBUG
             if ProcessInfo.processInfo.environment["DEMO_DETAIL_TAB"] == "1" { tab = 1 }
             #endif
-            while !Task.isCancelled { await tick(); try? await Task.sleep(for: .seconds(3)) }
+            // enquanto ativa, atualiza rápido (chat ao vivo); parada, alivia
+            while !Task.isCancelled {
+                await tick()
+                let live = ["running", "thinking", "queued", "requested", "plan-review"].contains(status)
+                try? await Task.sleep(for: .seconds(live ? 1.5 : 4))
+            }
         }
     }
 
@@ -174,6 +186,15 @@ struct TaskDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollDismissesKeyboard(.interactively)
+            // barra SEMPRE visível: safeAreaInset acompanha o teclado — era o bug
+            // de "a caixa some e fica só o teclado por cima de tudo"
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    if let q = question { questionBar(q) }
+                    inputBar
+                }
+                .background(.bar)
+            }
             .onChange(of: feed.count) { _, _ in
                 // rola SÓ quando chega linha realmente nova — sem dançar a cada poll
                 guard let last = rows.last, last.id != lastScrolled else { return }
@@ -196,18 +217,34 @@ struct TaskDetailView: View {
                         .background(T.accent2).clipShape(RoundedRectangle(cornerRadius: 13))
                 }
             } else {
+                // mensagem longa do agente: mostra o começo e "ver mais" — antes
+                // um raciocínio inteiro tomava a tela e escondia a conclusão
+                let long = f.text.count > 260
+                let expanded = expandedMsgs.contains(f.id)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
                         Av(name: f.agent, size: 18)
                         Text(f.agent.uppercased()).font(.system(size: 10, design: .monospaced).bold())
                             .foregroundStyle(f.kind == "error" ? T.bad : T.dim)
                     }
-                    linkableText(f.text)
-                        .padding(.horizontal, 13).padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(T.panel)
-                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(f.kind == "error" ? T.bad.opacity(0.4) : T.line))
-                        .clipShape(RoundedRectangle(cornerRadius: 13))
+                    VStack(alignment: .leading, spacing: 6) {
+                        linkableText(f.text)
+                            .lineLimit(long && !expanded ? 6 : nil)
+                        if long {
+                            Button {
+                                if expanded { expandedMsgs.remove(f.id) } else { expandedMsgs.insert(f.id) }
+                            } label: {
+                                Text(expanded ? "ver menos ▲" : "ver mais ▼")
+                                    .font(.system(size: 11, design: .monospaced).bold())
+                                    .foregroundStyle(T.accent)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 13).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(T.panel)
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(f.kind == "error" ? T.bad.opacity(0.4) : T.line))
+                    .clipShape(RoundedRectangle(cornerRadius: 13))
                 }
             }
         case .tech(let fs):
@@ -406,6 +443,31 @@ struct TaskDetailView: View {
         default: return k
         }
     }
+    /// Foto do celular → Storage → o Mac baixa pra .cardume/refs e avisa o agente.
+    private func sendImage(_ item: PhotosPickerItem) async {
+        uploadingImg = true
+        defer { uploadingImg = false }
+        do {
+            guard let raw = try await item.loadTransferable(type: Data.self),
+                  let ui = UIImage(data: raw) else { throw Supa.SupaError.api("não consegui ler a imagem") }
+            // redimensiona (máx 1600px) e comprime — print de tela não precisa de 12MB
+            let maxDim: CGFloat = 1600
+            let scale = min(1, maxDim / max(ui.size.width, ui.size.height))
+            let size = CGSize(width: ui.size.width * scale, height: ui.size.height * scale)
+            let img = UIGraphicsImageRenderer(size: size).image { _ in ui.draw(in: CGRect(origin: .zero, size: size)) }
+            guard let jpg = img.jpegData(compressionQuality: 0.8) else { throw Supa.SupaError.api("falha ao comprimir") }
+            let name = "img-\(Int(Date().timeIntervalSince1970)).jpg"
+            let path = try await supa.uploadTaskRef(taskId: taskId, data: jpg, filename: name)
+            let caption = msg.trimmingCharacters(in: .whitespacesAndNewlines)
+            _ = try await supa.rest("task_messages", method: "POST", json: [
+                "task_id": taskId, "author": supa.session?.userId ?? "",
+                "body": "[img] \(path)" + (caption.isEmpty ? "" : " | \(caption)"),
+            ])
+            msg = ""
+            await tick()
+        } catch { self.error = error.localizedDescription }
+    }
+
     private func sendIntent(_ kind: String, extra: [String: Any] = [:]) {
         Task { try? await supa.sendIntent(taskId: taskId, kind: kind, extra: extra); await tick() }
     }
@@ -474,15 +536,30 @@ struct TaskDetailView: View {
     }
 
     // ---- pergunta inline + input (mantidos) ----
+    @State private var qExpanded = false
     @ViewBuilder private func questionBar(_ q: Question) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("❓ \(q.agent.isEmpty ? "agente" : q.agent) pergunta:").font(.caption.bold()).foregroundStyle(T.warn)
-            Text(q.prompt).font(.footnote).foregroundStyle(T.text).lineLimit(4)
+            HStack {
+                Text("❓ \(q.agent.isEmpty ? "agente" : q.agent) pergunta").font(.caption.bold()).foregroundStyle(T.warn)
+                Spacer()
+                if q.prompt.count > 160 {
+                    Button { qExpanded.toggle() } label: {
+                        Text(qExpanded ? "recolher ▲" : "ler tudo ▼").font(.system(size: 10.5, design: .monospaced).bold()).foregroundStyle(T.warn)
+                    }
+                }
+            }
+            // prompt cresce até um teto e ROLA — nunca toma a tela inteira
+            ScrollView(.vertical) {
+                Text(q.prompt).font(.footnote).foregroundStyle(T.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: qExpanded ? 320 : 96)
+            .fixedSize(horizontal: false, vertical: !qExpanded && q.prompt.count <= 160)
             if !q.options.isEmpty {
                 ForEach(q.options, id: \.self) { opt in
                     Button { Task { await answerQuestion(q, text: opt) } } label: {
                         Text(opt).font(.system(size: 13, weight: .semibold))
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).frame(height: 44)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).frame(height: 42)
                             .background(T.warn.opacity(0.12)).foregroundStyle(T.warn)
                             .clipShape(RoundedRectangle(cornerRadius: 11))
                     }
@@ -543,7 +620,7 @@ struct TaskDetailView: View {
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
                 .padding(.horizontal, 10).padding(.bottom, 6)
             }
-            HStack(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
                 Button { msg = msg.hasPrefix("/") ? "" : "/" } label: {
                     Text("/").font(.system(.body, design: .monospaced).bold())
                         .frame(width: 36, height: 36)
@@ -552,8 +629,20 @@ struct TaskDetailView: View {
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
+                PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                    Group {
+                        if uploadingImg { ProgressView().tint(T.accent) }
+                        else { Image(systemName: "photo").font(.body).foregroundStyle(T.accent) }
+                    }
+                    .frame(width: 36, height: 36)
+                    .background(T.panel)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .disabled(uploadingImg)
                 TextField(question != nil ? "responda a pergunta…" : "peça um ajuste… ( / skills )", text: $msg, axis: .vertical)
                     .font(.footnote)
+                    .lineLimit(1...4) // cresce até 4 linhas e vira scroll — nunca engole a tela
                     .padding(10)
                     .background(T.panel)
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
@@ -583,20 +672,19 @@ struct TaskDetailView: View {
 
     // ---- dados ----
     private func tick() async {
-        do {
-            let d = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at,spec,requirements_proof&id=eq.\(taskId)")
-            let ts = try JSONDecoder().decode([CloudTask].self, from: d)
-            if let t = ts.first {
-                await MainActor.run { task = t; if t.spec?.previewUrl != nil { requestingTunnel = false } }
-            } else {
-                print("[detail] tarefa \(taskId) não veio no select")
-            }
-        } catch {
-            print("[detail] tick falhou p/ \(taskId): \(error)")
+        // as queries são independentes → dispara em PARALELO (era 4 em série,
+        // por isso o chat 'demorava' a mostrar a última mensagem)
+        async let taskD = try? supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at,spec,requirements_proof&id=eq.\(taskId)")
+        async let feedD: Data? = isMine ? (try? await supa.rest("task_feed?select=id,agent,kind,text,at&task_id=eq.\(taskId)&id=gt.\(lastId)&order=id&limit=120")) : nil
+        async let questD = try? supa.rest("questions?select=id,agent,prompt,options,created_at&task_id=eq.\(taskId)&status=eq.open&order=id.desc&limit=1")
+        // artefatos mudam devagar — só a cada ~5 ticks (ou na aba de provas)
+        let wantArts = tab == 1 || proofs.isEmpty || tickN % 5 == 0
+        async let artsD: Data? = wantArts ? (try? await supa.rest("artifacts_meta?select=name,kind,storage_path&task_id=eq.\(taskId)&order=created_at.desc&limit=16")) : nil
+
+        if let d = await taskD, let t = (try? JSONDecoder().decode([CloudTask].self, from: d))?.first {
+            await MainActor.run { task = t; if t.spec?.previewUrl != nil { requestingTunnel = false } }
         }
-        if isMine, // feed (chat do agente) é do DONO — de outro membro nem baixa
-           let d = try? await supa.rest("task_feed?select=id,agent,kind,text,at&task_id=eq.\(taskId)&id=gt.\(lastId)&order=id&limit=120"),
-           let items = try? JSONDecoder().decode([FeedItem].self, from: d), !items.isEmpty {
+        if let d = await feedD, let items = try? JSONDecoder().decode([FeedItem].self, from: d), !items.isEmpty {
             await MainActor.run {
                 feed.append(contentsOf: items)
                 if feed.count > 400 { feed.removeFirst(feed.count - 400) }
@@ -608,16 +696,13 @@ struct TaskDetailView: View {
                 }
             }
         }
-        if let d = try? await supa.rest("questions?select=id,agent,prompt,options,created_at&task_id=eq.\(taskId)&status=eq.open&order=id.desc&limit=1"),
-           let qs = try? JSONDecoder().decode([Question].self, from: d) {
+        if let d = await questD, let qs = try? JSONDecoder().decode([Question].self, from: d) {
             await MainActor.run { question = qs.first }
         }
-        if proofs.isEmpty || tab == 1,
-           let d = try? await supa.rest("artifacts_meta?select=name,kind,storage_path&task_id=eq.\(taskId)&order=created_at.desc&limit=16"),
-           let arts = try? JSONDecoder().decode([ArtifactMeta].self, from: d) {
+        if let d = await artsD, let arts = try? JSONDecoder().decode([ArtifactMeta].self, from: d) {
             await MainActor.run { proofs = arts }
         }
-        await MainActor.run { if !ticked { withAnimation(.easeOut(duration: 0.25)) { ticked = true } } }
+        await MainActor.run { tickN += 1; if !ticked { withAnimation(.easeOut(duration: 0.25)) { ticked = true } } }
     }
 
     private func send() async {

@@ -6375,7 +6375,6 @@ async function renderCloud(){
   if(typeof billingRenderCloud==='function') billingRenderCloud();
   if(typeof orgDefaultsRenderCloud==='function') orgDefaultsRenderCloud(isAdmin);
   if(typeof secretsRenderCloud==='function') secretsRenderCloud();
-  if(typeof pairRenderCloud==='function') pairRenderCloud();
 }
 // seção "Padrões da organização" na Conta (admins editam; o resto só vê)
 function orgDefaultsRenderCloud(isAdmin){
@@ -6553,30 +6552,6 @@ async function secretSet(name, value){
 async function secretDel(name){
   await sbFetch('/rest/v1/user_secrets?user_id=eq.'+cloudUserId()+'&name=eq.'+encodeURIComponent(name), { method:'DELETE' });
   await secretsSync();
-}
-// pareamento do celular: o Mac mostra um código numérico; o iPhone loga com ele
-function pairRenderCloud(){
-  const body=document.getElementById('cloudBody'); if(!body||!SB.sess()) return;
-  const el=document.createElement('div');
-  el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Celular</div>
-    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px">
-      <span style="flex:1" class="dim">no iPhone: Entrar → <b>código do Mac</b> — sem digitar senha no celular</span>
-      <button class="btn sm" id="sbPairGo">📱 gerar código</button>
-    </div><div id="sbPairOut"></div>`;
-  body.appendChild(el);
-  const b=document.getElementById('sbPairGo');
-  if(b) b.onclick=async()=>{
-    b.disabled=true; b.textContent='gerando…';
-    try{
-      const r=await fetch(SB.url()+'/functions/v1/pair-code',{ method:'POST',
-        headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+SB.sess().access_token } });
-      const j=await r.json();
-      if(!j.code) throw new Error(j.error||('HTTP '+r.status));
-      document.getElementById('sbPairOut').innerHTML=
-        `<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">No iPhone, entre com <b>${esc(j.email)}</b> e este código (vale ~5 min):<div class="mono" style="font-size:30px;letter-spacing:.35em;margin-top:8px;user-select:all">${esc(String(j.code))}</div></div>`;
-    }catch(e){ document.getElementById('sbPairOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--warn)">não deu: ${esc(String(e.message||e))} — a function pair-code precisa estar deployada no Supabase</div>`; }
-    finally{ b.disabled=false; b.textContent='📱 gerar código'; }
-  };
 }
 // seção na Conta: listar (mascarado), adicionar, remover
 function secretsRenderCloud(){
@@ -7086,6 +7061,16 @@ async function cloudMsgTick(){
     const lid=Object.keys(m).find(k=>m[k]===msg.task_id); if(!lid) continue;
     try{
       await sbFetch('/rest/v1/task_messages?id=eq.'+msg.id, { method:'PATCH', body: JSON.stringify({ delivered_at:new Date().toISOString() }) });
+      // "[img] <path> | legenda" = FOTO do celular: baixa pra .cardume/refs e manda o agente ABRIR
+      const img=String(msg.body||'').match(/^\[img\]\s*(\S+)(?:\s*\|\s*([\s\S]*))?$/);
+      if(img){
+        const local=await invoke('fetch_task_ref',{ taskId: lid, url:SB.url(), anon:SB.key(), token:SB.sess().access_token, path: img[1] });
+        const cap=(img[2]||'').trim();
+        const m2=`📎 O humano anexou uma IMAGEM do celular em ${local} — ABRA e analise (tool Read) antes de responder.${cap?`\nLegenda: ${cap}`:''}`;
+        await invoke('talk_task',{ taskId: lid, message: m2, asReq:false, agent:null });
+        sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 📎 imagem anexada'+(cap?': '+cap.slice(0,200):'') }).catch(()=>{});
+        continue;
+      }
       // "[req] ..." vindo do celular = adicionar como REQUISITO da tarefa (checklist)
       const asReq=/^\[req\]\s*/i.test(String(msg.body||''));
       const body=String(msg.body||'').replace(/^\[req\]\s*/i,'');
