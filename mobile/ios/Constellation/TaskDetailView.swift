@@ -354,7 +354,8 @@ struct TaskDetailView: View {
                     if let how = t.spec?.review?.howToTest, !how.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             kicker("COMO TESTAR", T.accent)
-                            Text(how).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(T.text2)
+                            Text(softBreak(how)).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(T.text2)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(T.accent.opacity(0.05))
                                 .overlay(Rectangle().fill(T.accent.opacity(0.5)).frame(width: 2), alignment: .leading)
@@ -369,7 +370,8 @@ struct TaskDetailView: View {
                                         VStack(spacing: 4) {
                                             Text(a.kind == "image" ? "🖼" : "📄").font(.system(size: 22))
                                             Text(a.name).font(.system(size: 9.5, design: .monospaced))
-                                                .foregroundStyle(T.dim).lineLimit(1)
+                                                .foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle)
+                                                .padding(.horizontal, 6)
                                         }
                                         .frame(maxWidth: .infinity).frame(height: 74)
                                         .background(T.panel)
@@ -429,6 +431,7 @@ struct TaskDetailView: View {
             kicker("PR \(pr.number.map { "#\($0)" } ?? "")", T.info)
             if let b = pr.body, !b.isEmpty {
                 Text(b).font(.system(size: 12.5)).foregroundStyle(T.text2).lineLimit(14)
+                    .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(pr.comments ?? []) { c in
                 let done = c.answered ?? false
@@ -437,12 +440,13 @@ struct TaskDetailView: View {
                     HStack(spacing: 7) {
                         Text(c.author ?? "").font(.system(size: 11, design: .monospaced).bold()).foregroundStyle(T.text)
                         if c.isBot == true { Text("bot").font(.system(size: 8.5, design: .monospaced)).padding(.horizontal, 4).background(T.info.opacity(0.2)).foregroundStyle(T.info).clipShape(Capsule()) }
-                        if let p = c.path { Text("\(p)\(c.line.map { ":\($0)" } ?? "")").font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.dim).lineLimit(1) }
+                        if let p = c.path { Text(softBreak("\(p)\(c.line.map { ":\($0)" } ?? "")")).font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle) }
                         Spacer()
                         if done { Text("✔ respondido").font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.accent) }
                         else if skipped { Text("ignorado").font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.dim2) }
                     }
                     Text(c.body ?? "").font(.system(size: 12.5)).foregroundStyle(done || skipped ? T.dim : T.text2)
+                        .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                     if !done && !skipped {
                         if intent?.kind == "fixComment" { IntentPill(label: "o Mac está executando · aplicar correção") }
                         else {

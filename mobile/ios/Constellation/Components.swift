@@ -6,6 +6,16 @@ import SwiftUI
 /// de mostrar os asteriscos e crases crus. Quebra tokens longos (nomes de tool,
 /// arquivos.md) inserindo pontos de quebra — sem isso o texto empurra a tela
 /// pro lado. Preserva quebras de linha.
+/// Insere pontos de quebra invisíveis em tokens longos (paths, nomes de tool)
+/// pra texto MONOSPACE poder quebrar de linha — senão empurra a tela pro lado.
+@inline(__always)
+func softBreak(_ s: String) -> String {
+    s.replacingOccurrences(of: "/", with: "/\u{200B}")
+     .replacingOccurrences(of: "_", with: "_\u{200B}")
+     .replacingOccurrences(of: "-", with: "-\u{200B}")
+     .replacingOccurrences(of: ".", with: ".\u{200B}")
+}
+
 @inline(__always)
 func mdText(_ text: String, size: CGFloat = 13.5, color: Color = T.text) -> Text {
     // títulos markdown (##, ###) viram **negrito** (o parser inline os ignora);
@@ -149,19 +159,21 @@ struct ReqRow: View {
                 .foregroundStyle(ok ? T.accent : T.dim2)
             VStack(alignment: .leading, spacing: 3) {
                 Text(text).font(.system(size: 13.5)).foregroundStyle(ok ? T.text : T.text2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let ev = proof?.evidence?.first, ok {
                     HStack(spacing: 7) {
-                        Text(ev).font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(T.dim).lineLimit(1)
+                        Text(softBreak(ev)).font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle)
                         if let onProof {
                             Button("ver prova") { onProof(ev) }
                                 .font(.system(size: 10, design: .monospaced).bold())
                                 .foregroundStyle(T.accent)
+                                .fixedSize()
                         }
                     }
                 }
             }
-            Spacer(minLength: 0)
         }
         .padding(.vertical, 6)
     }
