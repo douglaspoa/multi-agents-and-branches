@@ -179,7 +179,11 @@ struct CentralView: View {
                 HStack(spacing: 6) {
                     let g = feedGlyph(f.kind)
                     Text(g.0).font(.system(size: 11, design: .monospaced)).foregroundStyle(g.1)
-                    Text(f.text).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(T.dim).lineLimit(1)
+                    // trava a largura + truncamento: sem isso, uma linha longa do
+                    // feed estica o card e a Central escorrega pro lado
+                    Text(f.text).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(T.dim)
+                        .lineLimit(1).truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             HStack(spacing: 10) {
