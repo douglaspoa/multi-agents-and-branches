@@ -2,6 +2,38 @@ import SwiftUI
 
 // Componentes próprios do mobile (DESIGN-SYSTEM.md §5)
 
+/// Renderiza o texto do agente como MARKDOWN (negrito, `código`, links) em vez
+/// de mostrar os asteriscos e crases crus. Quebra tokens longos (nomes de tool,
+/// arquivos.md) inserindo pontos de quebra — sem isso o texto empurra a tela
+/// pro lado. Preserva quebras de linha.
+@inline(__always)
+func mdText(_ text: String, size: CGFloat = 13.5, color: Color = T.text) -> Text {
+    // títulos markdown (##, ###) viram **negrito** (o parser inline os ignora);
+    // marcadores de lista (- , * ) viram bullet legível
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+        var l = String(line)
+        if let r = l.range(of: #"^#{1,6}\s+"#, options: .regularExpression) {
+            l = "**" + l[r.upperBound...] + "**"
+        } else if let r = l.range(of: #"^\s*[-*]\s+"#, options: .regularExpression) {
+            l = "  •  " + l[r.upperBound...]
+        }
+        return l
+    }
+    // insere zero-width-space em tokens longos sem espaço → o layout pode quebrar
+    let softened = lines.joined(separator: "\n")
+        .replacingOccurrences(of: "_", with: "_\u{200B}")
+        .replacingOccurrences(of: "/", with: "/\u{200B}")
+    let opts = AttributedString.MarkdownParsingOptions(
+        allowsExtendedAttributes: false,
+        interpretedSyntax: .inlineOnlyPreservingWhitespace,
+        failurePolicy: .returnPartiallyParsedIfPossible
+    )
+    if let attr = try? AttributedString(markdown: softened, options: opts) {
+        return Text(attr).font(.system(size: size)).foregroundStyle(color)
+    }
+    return Text(softened).font(.system(size: size)).foregroundStyle(color)
+}
+
 /// 5.1 — barra de 5 fases: leitura de relance de "em que fase está"
 struct PhaseBar: View {
     let phase: Int          // 1…5 (atual)

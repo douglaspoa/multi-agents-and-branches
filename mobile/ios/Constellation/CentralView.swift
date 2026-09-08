@@ -139,7 +139,12 @@ struct CentralView: View {
                 Text(agoPt(q.createdAt)).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim)
             }
             Text(t.title).font(.system(size: 12, design: .monospaced)).foregroundStyle(T.dim).lineLimit(1)
-            Text(q.prompt).font(.system(size: 14)).foregroundStyle(T.text)
+            // card é resumo: mostra o começo (toca pra ler tudo no detalhe);
+            // markdown + largura travada pra não escorregar pro lado
+            mdText(q.prompt, size: 14, color: T.text)
+                .lineLimit(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             if answering.contains(q.id) {
                 IntentPill(label: "resposta enviada — o turno continua")
             } else {

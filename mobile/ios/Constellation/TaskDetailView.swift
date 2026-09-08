@@ -150,9 +150,12 @@ struct TaskDetailView: View {
     private var rows: [Row] {
         var out: [Row] = []
         var bucket: [FeedItem] = []
+        var lastTalk = ""
         func flush() { if !bucket.isEmpty { out.append(.tech(bucket)); bucket = [] } }
         for f in feed {
             if f.text.hasPrefix("❓") { continue }   // duplica o "perguntou ao humano:" — o desktop também esconde
+            // a pergunta aberta já aparece na BARRA amarela — não repetir no feed
+            if question != nil, f.text.hasPrefix("perguntou ao humano:") { continue }
             // resposta do humano vira bolha SUA
             if f.text.hasPrefix("humano respondeu:") {
                 flush()
@@ -164,7 +167,15 @@ struct TaskDetailView: View {
             // o pensamento como kind "think" — é ELE a mensagem principal da conversa)
             let isTalk = ["think", "note", "done", "error"].contains(f.kind) && f.text.count > 40 && !f.text.hasPrefix("$")
             let isYou = f.text.hasPrefix("💬")
-            if isTalk || isYou { flush(); out.append(.talk(f)) } else { bucket.append(f) }
+            if isTalk || isYou {
+                // o 'done' costuma repetir o último 'note' — não mostra a bolha 2x
+                if !isYou {
+                    let key = String(f.text.prefix(120))
+                    if key == lastTalk { bucket.append(f); continue }
+                    lastTalk = key
+                }
+                flush(); out.append(.talk(f))
+            } else { bucket.append(f) }
         }
         flush()
         return out
@@ -276,13 +287,10 @@ struct TaskDetailView: View {
     }
 
     @ViewBuilder private func linkableText(_ text: String) -> some View {
-        if let r = text.range(of: #"https?://[^\s]+"#, options: .regularExpression), let url = URL(string: String(text[r])) {
-            Link(destination: url) {
-                Text(text).font(.system(size: 13.5)).foregroundStyle(T.accent).underline().multilineTextAlignment(.leading)
-            }
-        } else {
-            Text(text).font(.system(size: 13.5)).foregroundStyle(T.text2).textSelection(.enabled)
-        }
+        mdText(text, size: 13.5, color: T.text2)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading) // trava a largura — sem isso, token longo empurra a tela pro lado
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // ---- entrega (telas 03–04): requisitos, provas, PR ----
@@ -550,11 +558,11 @@ struct TaskDetailView: View {
             }
             // prompt cresce até um teto e ROLA — nunca toma a tela inteira
             ScrollView(.vertical) {
-                Text(q.prompt).font(.footnote).foregroundStyle(T.text)
+                mdText(q.prompt, size: 13, color: T.text)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxHeight: qExpanded ? 320 : 96)
-            .fixedSize(horizontal: false, vertical: !qExpanded && q.prompt.count <= 160)
             if !q.options.isEmpty {
                 ForEach(q.options, id: \.self) { opt in
                     Button { Task { await answerQuestion(q, text: opt) } } label: {
