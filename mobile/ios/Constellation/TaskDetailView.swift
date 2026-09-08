@@ -27,6 +27,7 @@ struct TaskDetailView: View {
     @State private var uploadingImg = false
     @State private var expandedMsgs: Set<Int> = []
     @State private var tickN = 0
+    @State private var ownerNames: [String: String] = [:]
 
     /// Demanda MINHA? (dono = assignee, senão quem criou). Enquanto não carrega,
     /// assume minha só pra não piscar — o corpo re-renderiza quando chega.
@@ -35,6 +36,10 @@ struct TaskDetailView: View {
         let me = supa.session?.userId ?? ""
         let owner = t.assignee ?? t.createdBy
         return owner == nil || owner == me
+    }
+    private var ownerName: String {
+        guard let t = task, let id = t.assignee ?? t.createdBy else { return "outra pessoa" }
+        return (ownerNames[id] ?? "outra pessoa")
     }
     @State private var ticked = false
     @State private var localPreview: String? = nil
@@ -74,15 +79,9 @@ struct TaskDetailView: View {
                 // o teclado empurra a barra, nunca a cobre
                 if tab == 0 { conversa } else { entrega }
             } else {
-                // demanda de OUTRO membro: acompanhamento — spec, entregáveis e
-                // provas. Chat e comandos são do dono (é o Mac DELE que executa).
-                HStack(spacing: 8) {
-                    Image(systemName: "lock.fill").font(.system(size: 11)).foregroundStyle(T.dim)
-                    Text("demanda de outra pessoa — você vê spec, entregáveis e provas; o chat e os comandos são do dono")
-                        .font(.system(size: 11.5)).foregroundStyle(T.dim)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                // demanda de OUTRO membro: acompanhamento — objetivo, entregáveis,
+                // requisitos e provas (o aviso 'só leitura' vive no topo do entrega).
+                // Chat e comandos são do dono (é o Mac DELE que executa).
                 entrega
             }
         }
@@ -298,10 +297,40 @@ struct TaskDetailView: View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 18) {
                 if let t = task {
+                    if !isMine {
+                        HStack(spacing: 7) {
+                            Image(systemName: "eye").font(.system(size: 11)).foregroundStyle(T.dim)
+                            Text("acompanhando a demanda de \(ownerName) — só leitura")
+                                .font(.system(size: 11.5)).foregroundStyle(T.dim)
+                        }
+                    }
+                    // OBJETIVO — sempre visível (o "sobre o que é" da demanda)
+                    if let obj = t.spec?.objective, !obj.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            kicker("OBJETIVO", T.accent)
+                            mdText(obj, size: 13.5, color: T.text2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if let dels = t.spec?.deliverables, !dels.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            kicker("ENTREGÁVEIS", T.accent, count: dels.count)
+                            ForEach(Array(dels.enumerated()), id: \.offset) { _, d in
+                                HStack(alignment: .top, spacing: 7) {
+                                    Text("◆").font(.system(size: 10)).foregroundStyle(T.accent).padding(.top, 3)
+                                    Text(d).font(.system(size: 13)).foregroundStyle(T.text2)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }
+                    }
                     if let rev = t.spec?.review, let s = rev.summary, !s.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             kicker("O QUE FOI FEITO", T.accent)
-                            Text(s).font(.system(size: 13.5)).foregroundStyle(T.text2)
+                            mdText(s, size: 13.5, color: T.text2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     if let st = t.spec?.stat, (st.files ?? 0) > 0 || (st.add ?? 0) > 0 || (st.commits ?? 0) > 0 {
@@ -367,6 +396,19 @@ struct TaskDetailView: View {
                                 }
                             }
                         }.padding(.top, 4)
+                    }
+                    // nada entregue ainda? não deixa a tela vazia
+                    let nothing = (t.spec?.requirements?.isEmpty ?? true) && proofs.isEmpty && (t.spec?.review?.summary?.isEmpty ?? true)
+                    if nothing {
+                        VStack(spacing: 8) {
+                            Image(systemName: "hourglass").font(.title2).foregroundStyle(T.dim)
+                            Text(["review", "delivered", "merged", "done"].contains(t.status)
+                                 ? "sem provas publicadas ainda"
+                                 : "em execução — requisitos e provas aparecem conforme o agente avança")
+                                .font(.footnote).foregroundStyle(T.dim)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity).padding(.top, 40)
                     }
                 } else { BoardSkeleton() }
             }
@@ -668,14 +710,20 @@ struct TaskDetailView: View {
                 }
                 .disabled(sending || msg.trimmingCharacters(in: .whitespaces).isEmpty || msg.hasPrefix("/"))
             }
-            .padding(.horizontal, 10).padding(.top, 8)
-            Toggle(isOn: $asReq) {
-                Text("adicionar como requisito da tarefa").font(.caption2).foregroundStyle(T.dim)
+            .padding(.horizontal, 12).padding(.top, 10)
+            // toggle só aparece quando você está escrevendo um ajuste (não numa
+            // resposta de pergunta) — antes ficava fixo, amontoando a barra
+            if !msg.trimmingCharacters(in: .whitespaces).isEmpty && question == nil {
+                Toggle(isOn: $asReq) {
+                    Text("virar requisito da tarefa").font(.caption2).foregroundStyle(T.dim)
+                }
+                .toggleStyle(.switch).tint(T.accent).controlSize(.mini)
+                .padding(.horizontal, 14).padding(.top, 6)
             }
-            .toggleStyle(.switch).tint(T.accent).controlSize(.mini)
-            .padding(.horizontal, 12).padding(.bottom, 8).padding(.top, 2)
         }
+        .padding(.bottom, 6)
         .background(T.bg)
+        .overlay(Rectangle().fill(T.line).frame(height: 0.5), alignment: .top)
     }
 
     // ---- dados ----
@@ -691,6 +739,13 @@ struct TaskDetailView: View {
 
         if let d = await taskD, let t = (try? JSONDecoder().decode([CloudTask].self, from: d))?.first {
             await MainActor.run { task = t; if t.spec?.previewUrl != nil { requestingTunnel = false } }
+            // nome do dono (pra 'acompanhando a demanda de X') — uma vez só
+            if let owner = t.assignee ?? t.createdBy, ownerNames[owner] == nil,
+               let pd = try? await supa.rest("profiles?select=user_id,name,email&user_id=eq.\(owner)"),
+               let ps = try? JSONSerialization.jsonObject(with: pd) as? [[String: Any]], let p = ps.first {
+                let nm = (p["name"] as? String) ?? (p["email"] as? String).map { String($0.split(separator: "@").first ?? "") } ?? "outra pessoa"
+                await MainActor.run { ownerNames[owner] = nm }
+            }
         }
         if let d = await feedD, let items = try? JSONDecoder().decode([FeedItem].self, from: d), !items.isEmpty {
             await MainActor.run {
