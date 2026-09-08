@@ -20,8 +20,15 @@ struct CentralView: View {
     private var qByTask: [String: Question] {
         Dictionary(questions.compactMap { q in q.taskId.map { ($0, q) } }, uniquingKeysWith: { a, _ in a })
     }
-    private var waiting: [CloudTask] { visible.filter { qByTask[$0.id] != nil && $0.flag != "closed" } }
-    private var running: [CloudTask] { visible.filter { qByTask[$0.id] == nil && $0.flag != "closed" && ["running", "thinking", "queued", "requested", "plan-review", "error", "conflict"].contains($0.status) } }
+    private func mine(_ t: CloudTask) -> Bool {
+        let me = supa.session?.userId ?? ""
+        let owner = t.assignee ?? t.createdBy
+        return owner == nil || owner == me
+    }
+    // "esperando VOCÊ" é literal: só perguntas de demanda SUA (o banco também
+    // recusa resposta de terceiro — 0013). As dos outros seguem em "rodando".
+    private var waiting: [CloudTask] { visible.filter { qByTask[$0.id] != nil && $0.flag != "closed" && mine($0) } }
+    private var running: [CloudTask] { visible.filter { (qByTask[$0.id] == nil || !mine($0)) && $0.flag != "closed" && ["running", "thinking", "queued", "requested", "plan-review", "error", "conflict"].contains($0.status) } }
     private var ready: [CloudTask] { visible.filter { $0.flag != "closed" && ["review", "delivered"].contains($0.status) && $0.prUrl == nil } }
     private var prOpen: [CloudTask] { visible.filter { $0.flag != "closed" && $0.prUrl != nil && !["merged", "done"].contains($0.status) } }
     private var doneToday: [CloudTask] {

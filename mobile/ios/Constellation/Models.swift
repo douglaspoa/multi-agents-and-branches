@@ -133,7 +133,12 @@ struct Question: Identifiable, Decodable {
     let createdAt: String
     let task: EmbeddedTask?
 
-    struct EmbeddedTask: Decodable { let title: String }
+    struct EmbeddedTask: Decodable {
+        let title: String
+        let assignee: String?
+        let createdBy: String?
+        enum CodingKeys: String, CodingKey { case title, assignee; case createdBy = "created_by" }
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, agent, prompt, options

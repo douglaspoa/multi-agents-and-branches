@@ -120,14 +120,19 @@ struct QuestionsView: View {
                     prompt: "Prefere migração com downtime zero (mais lenta) ou com janela de 5 min?",
                     options: ["downtime zero", "janela de 5 min"],
                     createdAt: ISO8601DateFormatter().string(from: Date()),
-                    task: Question.EmbeddedTask(title: "Migrar billing pra tabela nova"))]
+                    task: Question.EmbeddedTask(title: "Migrar billing pra tabela nova", assignee: nil, createdBy: nil))]
                 self.loaded = true
             }
             return
         }
         do {
-            let data = try await supa.rest("questions?select=id,agent,prompt,options,created_at,tasks(title)&status=eq.open&order=created_at.desc&limit=30")
-            let qs = try JSONDecoder().decode([Question].self, from: data)
+            let data = try await supa.rest("questions?select=id,agent,prompt,options,created_at,tasks(title,assignee,created_by)&status=eq.open&order=created_at.desc&limit=30")
+            let me = supa.session?.userId ?? ""
+            // só perguntas de demanda MINHA — responder a dos outros o banco recusa (0013)
+            let qs = try JSONDecoder().decode([Question].self, from: data).filter { q in
+                let owner = q.task?.assignee ?? q.task?.createdBy
+                return owner == nil || owner == me
+            }
             await MainActor.run { self.questions = qs; self.loaded = true; self.error = "" }
         } catch {
             await MainActor.run { if self.loaded { self.error = error.localizedDescription } ; self.loaded = true }
