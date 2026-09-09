@@ -3853,7 +3853,10 @@ function openTaskMenu(taskId, anchor){
   if(['review','delivered','merged'].includes(t.status)) item('↻ voltar pra rodando', ()=>invoke('mark_task_status',{taskId,status:'running'}));
   if(t.flag!=='blocked') item('❙❙ bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}));
   else item('▶ desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}));
-  if(['error','aborted','conflict'].includes(t.status)) item('↻ re-rodar', ()=>invoke('rerun_task',{taskId}));
+  if(['error','aborted','conflict'].includes(t.status)){
+    item('↻ tentar seguir · continua de onde parou', ()=>invoke('talk_task',{taskId, message:'A execução anterior foi interrompida (timeout de inatividade/erro). CONTINUE de onde você parou: confira git status, git diff, .cardume/PLAN.md e os requisitos em .cardume/TASK.yaml, e finalize o que falta — não recomece do zero. Se for rodar algo demorado, vá reportando progresso pra não ser encerrado por inatividade.', asReq:false, agent:null}));
+    item('↻ re-rodar do zero · descarta o parcial', ()=>invoke('rerun_task',{taskId}));
+  }
   item('✕ abortar agora', ()=>invoke('abort_task',{taskId}), true);
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();

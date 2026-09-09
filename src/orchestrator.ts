@@ -303,6 +303,26 @@ export class Orchestrator {
     return /context (low|limit|window)|prompt is too long|too long for.*context|exceeds.*context|conversation (is )?too long|out of (context|tokens)|maximum context|token limit|low on context/i.test(text || "");
   }
 
+  /** Morte por INATIVIDADE (watchdog 30min) ou SINAL (SIGTERM=143, SIGKILL=137, SIGINT=130)?
+   * São mortes onde CONTINUAR da worktree faz sentido — o trabalho parcial está lá. */
+  private static idleOrSignalDeath(text: string): boolean {
+    return /inatividade de \d+ ?min|agente encerrad|c[óo]digo (143|137|130|null)|sigterm|sigkill|sigint/i.test(text || "");
+  }
+
+  /** Deu pra tentar seguir automaticamente (token/inatividade/sinal)? NÃO cobre erro
+   * de config (ex.: "falha ao iniciar claude") que só se repetiria. */
+  private static retriableDeath(text: string): boolean {
+    return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text);
+  }
+
+  /** Instrução pra RETOMAR uma tarefa que morreu — o parcial está na worktree. */
+  private static continuePrompt(kind: "token" | "idle"): string {
+    const cause = kind === "token"
+      ? "A sessão anterior ESTOUROU O LIMITE DE TOKENS e foi encerrada."
+      : "A sessão anterior foi ENCERRADA por inatividade (ficou minutos sem emitir saída). Se você estava rodando algo demorado e silencioso, vá REPORTANDO progresso (uma linha a cada passo) pra não ser encerrado de novo; NÃO fique em loops de espera silenciosa.";
+    return cause + " O trabalho já feito está NESTA worktree: confira git status, git diff, .cardume/PLAN.md e .cardume/artifacts. Leia .cardume/TASK.yaml e CONTINUE de onde parou até finalizar TODOS os requisitos — não recomece do zero.";
+  }
+
   private queueLabel(kind: string, payload: Record<string, unknown>): string {
     if (kind === "talk") return `mensagem — "${String(payload.message ?? "").slice(0, 80)}"`;
     if (kind === "deliver") return `gerar ${payload.kind === "all" ? "todos os entregáveis" : `entregável (${payload.kind})`}`;
@@ -387,9 +407,12 @@ export class Orchestrator {
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
-      // Sessão que ESTOURA os tokens não mata a tarefa: recomeça sozinha uma
-      // sessão NOVA continuando do que já está na worktree (1 re-tentativa).
-      for (let attempt = 0; attempt < 2; attempt++) {
+      // Morte recuperável (estouro de tokens OU inatividade/SIGTERM) NÃO mata a
+      // tarefa: recomeça sozinha uma sessão NOVA continuando do que já está na
+      // worktree. Até 2 auto-tentativas; depois disso, para e espera o humano.
+      const MAX_TRIES = 3;
+      let deathKind: "token" | "idle" = "idle";
+      for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
         roleFailed = false;
         let deathText = "";
         const input = {
@@ -399,12 +422,7 @@ export class Orchestrator {
           role: r.role,
           agentName: r.name,
           dbFile: this.ws.dbFile,
-          ...(attempt > 0
-            ? {
-                promptOverride:
-                  "A sessão anterior desta tarefa ESTOUROU O LIMITE DE TOKENS e foi encerrada. O trabalho já feito está NESTA worktree: confira git status, git diff, .cardume/PLAN.md e .cardume/artifacts. Leia .cardume/TASK.yaml e CONTINUE de onde parou até finalizar TODOS os requisitos — não recomece do zero.",
-              }
-            : {}),
+          ...(attempt > 0 ? { promptOverride: Orchestrator.continuePrompt(deathKind) } : {}),
         };
         try {
           for await (const ev of engine.run(input)) {
@@ -427,7 +445,7 @@ export class Orchestrator {
           }
         } catch (err) {
           const msg = (err as Error).message;
-          if (attempt === 0 && Orchestrator.tokenDeath(msg)) {
+          if (attempt < MAX_TRIES - 1 && Orchestrator.retriableDeath(msg)) {
             deathText = msg;
             roleFailed = true;
           } else {
@@ -437,8 +455,10 @@ export class Orchestrator {
             return;
           }
         }
-        if (attempt === 0 && deathText && Orchestrator.tokenDeath(deathText)) {
-          this.store.addEvent(taskId, "Sistema", "note", "🔄 a sessão estourou o limite de tokens — recomeçando AUTOMATICAMENTE uma sessão nova, continuando do que já está na worktree.", true);
+        if (attempt < MAX_TRIES - 1 && deathText && Orchestrator.retriableDeath(deathText)) {
+          deathKind = Orchestrator.tokenDeath(deathText) ? "token" : "idle";
+          const why = deathKind === "token" ? "estourou o limite de tokens" : "foi encerrada por inatividade";
+          this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${attempt + 2}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
           this.store.setStatus(taskId, this.statusFor(r.role));
           sessionId = "";
           continue;
@@ -913,17 +933,19 @@ export class Orchestrator {
       }
       // sessão do chat estourou os tokens → recomeça SOZINHO com sessão nova
       // (sid vazio na re-entrada → caminho fresco; sem risco de loop)
-      if (sid && deathText && Orchestrator.tokenDeath(deathText)) {
+      if (sid && deathText && Orchestrator.retriableDeath(deathText)) {
+        const why = Orchestrator.tokenDeath(deathText) ? "estourou o limite de tokens" : "foi encerrada por inatividade";
         this.store.setSession(taskId, "");
-        this.store.addEvent(taskId, "Sistema", "note", "🔄 a sessão do chat estourou o limite de tokens — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).", true);
+        this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
         return this.talkToAgentInner(taskId, message, false, agentName);
       }
     } catch (err) {
       const msg = (err as Error).message;
-      if (sid && Orchestrator.tokenDeath(msg)) {
+      if (sid && Orchestrator.retriableDeath(msg)) {
+        const why = Orchestrator.tokenDeath(msg) ? "estourou o limite de tokens" : "foi encerrada por inatividade";
         this.store.setSession(taskId, "");
-        this.store.addEvent(taskId, "Sistema", "note", "🔄 a sessão do chat estourou o limite de tokens — recomeçando AUTOMATICAMENTE com uma sessão nova.", true);
+        this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova.`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
         return this.talkToAgentInner(taskId, message, false, agentName);
       }
