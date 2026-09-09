@@ -4072,8 +4072,11 @@ async function openArtifact(taskId, name){
   document.getElementById("artTitle").textContent = name;
   document.getElementById("artBody").innerHTML = extBtn + body;
   // cabeçalho: abrir no Preview (PDF) + enviar pro Slack (qualquer artefato)
-  { const h=document.querySelector('#artOverlay .mhead'); ['artOpenExt','artSlack'].forEach(id=>{ const o=document.getElementById(id); if(o) o.remove(); });
+  { const h=document.querySelector('#artOverlay .mhead'); ['artOpenExt','artSlack','artFinder'].forEach(id=>{ const o=document.getElementById(id); if(o) o.remove(); });
     if(h){ const x=h.querySelector('#artClose');
+      const fd=document.createElement('button'); fd.id='artFinder'; fd.className='btn sm'; fd.style.marginRight='8px'; fd.textContent='📁 Finder';
+      fd.title='revelar o arquivo no Finder'; fd.onclick=()=>invoke('reveal_artifact',{ taskId, name }).catch(e=>alert('Falha ao revelar:\n'+e));
+      h.insertBefore(fd, x);
       const sl=document.createElement('button'); sl.id='artSlack'; sl.className='btn sm'; sl.style.marginRight='8px'; sl.textContent='📤 Slack';
       sl.title='enviar este arquivo pra um canal do Slack'; sl.onclick=()=>sendArtifactSlack(taskId, name);
       h.insertBefore(sl, x);

@@ -3185,6 +3185,20 @@ fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
     Ok(())
 }
 
+/// Revela o artefato no gerenciador de arquivos (Finder no macOS), selecionando-o.
+#[tauri::command]
+fn reveal_artifact(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
+    let path = artifact_path(&state, &task_id, &name)?;
+    if cfg!(target_os = "macos") {
+        Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| e.to_string())?;
+    } else {
+        // fallback: abre a pasta que contém o arquivo
+        let dir = path.parent().unwrap_or(&path);
+        Command::new("xdg-open").arg(dir).spawn().map_err(|e| e.to_string())?;
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Abre uma URL no navegador do sistema (o WKWebView não abre target=_blank).
 #[tauri::command(async)]
 fn open_url(url: String) -> Result<(), String> {
@@ -3902,6 +3916,7 @@ pub fn run() {
             tunnel_stop,
             open_url,
             open_artifact,
+            reveal_artifact,
             push_task,
             env_check,
             read_artifact_raw,
