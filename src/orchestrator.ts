@@ -195,6 +195,32 @@ export class Orchestrator {
   }
 
   /**
+   * Ensina o agente que ELE PODE criar novas demandas/épicos — via o CLI oficial
+   * `cardume new`, com o node e o caminho do CLI que ESTE processo já está usando.
+   * Sem isso, agentes ficam "chutando" que existe um comando ou tentam mexer no
+   * state.sqlite cru (arriscado). Injetado no system-prompt de todo agente.
+   */
+  selfServe(): string {
+    const node = process.execPath;
+    const cli = process.argv[1] || "";
+    const repo = this.ws.repo;
+    return (
+      `\n\n## Criar novas demandas / épicos — VOCÊ PODE (não mexa no state.sqlite na mão, não invente CLI)\n` +
+      `Se o humano pedir pra criar tarefas, issues, demandas ou um épico, use o comando OFICIAL abaixo (roda de qualquer pasta; o \`--repo\` é o que importa):\n\n` +
+      `\`\`\`bash\n` +
+      `"${node}" "${cli}" new --repo "${repo}" \\\n` +
+      `  --title "título curto" --objective "o que precisa e por quê" \\\n` +
+      `  --requirements "critério verificável 1, critério 2" \\\n` +
+      `  --owns "caminho/que/mexe, outro/caminho" --engine claude --no-start\n` +
+      `\`\`\`\n\n` +
+      `- \`--no-start\` cria como RASCUNHO (não dispara agente nenhum) — é o PADRÃO SEGURO. Crie assim e avise o humano; ele inicia quando quiser. Só tire o \`--no-start\` se ele pediu explicitamente pra "já sair rodando".\n` +
+      `- ÉPICO = várias tarefas da mesma frente: crie a primeira, pegue o id que o comando imprime e nas seguintes passe \`--linked-to <id>\` pra amarrar. Dê \`--owns\` DISJUNTOS entre elas (escopos que não se sobrepõem) pra poderem rodar em paralelo sem colisão.\n` +
+      `- Flags úteis: \`--deliverable "..."\` (repita p/ vários), \`--artifact-doc\`, \`--artifact-proof\`, \`--artifact-tests\`, \`--off "caminhos proibidos"\`, \`--branch-type feat|fix|docs\`.\n` +
+      `- Cada tarefa criada aparece no app na hora. Ao terminar, liste pro humano os ids/títulos que você criou.\n`
+    );
+  }
+
+  /**
    * HISTÓRICO DE TAREFAS: índice pesquisável do que já foi feito no projeto
    * (.cardume/HISTORY.md). Agentes fazem grep nele antes de investigar do zero
    * — issue parecida pode já ter sido resolvida, com branch e arquivos citados.
@@ -357,7 +383,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec);
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -593,7 +619,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec);
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -798,7 +824,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -861,7 +887,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
     const prev = task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
