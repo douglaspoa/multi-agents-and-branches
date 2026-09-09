@@ -1841,11 +1841,28 @@ fn build_info() -> String {
 /// Whitelist de estados seguros; merged também libera claims/pendências.
 #[tauri::command]
 fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> Result<(), String> {
-    if !["review", "merged", "draft", "running"].contains(&status.as_str()) {
+    if !["review", "merged", "draft", "running", "cancelled"].contains(&status.as_str()) {
         return Err(format!("status inválido: {status}"));
     }
+    // cancelar = parar o agente se estiver rodando (como abortar, mas com rótulo próprio)
+    if status == "cancelled" {
+        let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
+        if let Some(p) = pid {
+            signal_group(p, libc::SIGCONT); // destrava se pausado
+            signal_group(p, libc::SIGTERM);
+            let procs = state.procs.clone();
+            let tid = task_id.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(1200));
+                signal_group(p, libc::SIGKILL);
+                if let Ok(mut m) = procs.lock() {
+                    if m.get(&tid) == Some(&p) { m.remove(&tid); }
+                }
+            });
+        }
+    }
     set_task_status(&state, &task_id, &status)?;
-    if status == "merged" {
+    if status == "merged" || status == "cancelled" {
         if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));

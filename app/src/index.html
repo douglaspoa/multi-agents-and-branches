@@ -1968,7 +1968,7 @@ function ico(name, label){ return (IC[name]||'') + (label?(' '+label):''); }
 async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
-const STATUS_COLOR = { draft:"var(--muted)", "plan-review":"var(--warn)", running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)", paused:"var(--info)", aborted:"var(--muted)" };
+const STATUS_COLOR = { draft:"var(--muted)", "plan-review":"var(--warn)", running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)", paused:"var(--info)", aborted:"var(--muted)", cancelled:"var(--crit)" };
 const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
 const GCOLOR = { collision:"var(--crit)", error:"var(--crit)", claim:"var(--info)", done:"var(--good)", edit:"var(--good)", write:"var(--good)" };
 
@@ -3507,10 +3507,10 @@ function flowTaskCard(t, acc){
     : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
     : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';
-  const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:t.flag==='closed'?`<span class="flagbadge cls">${IC.checkc} encerrada</span>`:'';
+  const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:t.status==='cancelled'?`<span class="flagbadge cls">⊘ cancelada</span>`:t.flag==='closed'?`<span class="flagbadge cls">${IC.checkc} encerrada</span>`:'';
   const asking = pendingOf(t.id).length>0;
   return `<div class="fcard${accCls}${t.id===selected?' sel':''}${t.flag?' flagged':''}${asking?' asking':''}" data-id="${t.id}">
-    <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus stdrop" data-stmenu="${t.id}" style="color:${asking?'var(--warn)':(t.flag==='closed'?'var(--accent)':col)}" title="mudar status da demanda">${asking?'esperando você':(t.flag==='closed'?'finalizado':esc(t.status))}<span class="stcaret">▼</span></span></div>
+    <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus stdrop" data-stmenu="${t.id}" style="color:${asking?'var(--warn)':(t.status==='cancelled'?'var(--crit)':t.flag==='closed'?'var(--accent)':col)}" title="mudar status da demanda">${asking?'esperando você':(t.status==='cancelled'?'cancelada':t.flag==='closed'?'finalizado':esc(t.status))}<span class="stcaret">▼</span></span></div>
     ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="mono">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta">${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
@@ -3866,8 +3866,9 @@ function openStatusMenu(taskId, anchor){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
   document.getElementById('stmenuPop')?.remove();
   const closed = t.flag==='closed';
-  // estado "atual" pra marcar o ●: encerrada vence; review/delivered contam como review
-  const cur = closed ? 'finished' : (['review','delivered'].includes(t.status)?'review':t.status);
+  const cancelled = t.status==='cancelled';
+  // estado "atual" pra marcar o ●: cancelada e encerrada vencem; review/delivered contam como review
+  const cur = cancelled ? 'cancelled' : closed ? 'finished' : (['review','delivered'].includes(t.status)?'review':t.status);
   // cada opção: {key, label, col, act()} — status via mark_task_status, finalizar via flag
   const setSt=(status)=>()=>invoke('mark_task_status',{taskId,status});
   const opts=[
@@ -3875,6 +3876,7 @@ function openStatusMenu(taskId, anchor){
     { key:'review',  label:'◆ Pronta pra review', col:'var(--warn)', act:setSt('review') },
     { key:'merged',  label:'✓ Mergeado',          col:'var(--good)', act:setSt('merged') },
     { key:'finished',label:'★ Finalizado · sai da fila', col:'var(--accent)', act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
+    { key:'cancelled',label:'⊘ Cancelada · para e sai da fila', col:'var(--crit)', act:async()=>{ await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } },
     { key:'draft',   label:'✎ Rascunho',          col:'var(--muted)', act:setSt('draft') },
   ];
   const pop=document.createElement('div');
@@ -3885,7 +3887,7 @@ function openStatusMenu(taskId, anchor){
     b.innerHTML=`<span style="color:${o.col}">${o.label}</span>${on?'<span style="margin-left:auto;opacity:.7">●</span>':''}`;
     b.style.cssText='display:flex;align-items:center;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
-    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await o.act(); if(closed && o.key!=='finished'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
+    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
     pop.appendChild(b); });
   // encerrada: oferece reabrir explicitamente no rodapé
   if(closed){ const b=document.createElement('button');
@@ -6962,7 +6964,7 @@ function setView(v){ const b=document.querySelector('#viewSeg button[data-v="'+v
 function tmap(){ try{ return JSON.parse(lsGet('sb:tmap')||'{}'); }catch(_){ return {}; } }
 function tmapSet(localId, cloudId){ const m=tmap(); m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
 function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
-const CT_ST_PT={ backlog:'backlog', queued:'na fila', running:'rodando', thinking:'pensando', 'plan-review':'plano em revisão', review:'pronta pra review', delivered:'entregue', done:'concluída', merged:'mergeada', error:'erro', conflict:'conflito', aborted:'abortada' };
+const CT_ST_PT={ backlog:'backlog', queued:'na fila', running:'rodando', thinking:'pensando', 'plan-review':'plano em revisão', review:'pronta pra review', delivered:'entregue', done:'concluída', merged:'mergeada', error:'erro', conflict:'conflito', aborted:'abortada', cancelled:'cancelada' };
 function ctStColor(st){ return st==='backlog'?'var(--muted)':(st==='review'||st==='delivered'||st==='done')?'var(--good)':(st==='merged')?'var(--accent)':(st==='error'||st==='conflict')?'var(--bad, #e5534b)':'var(--warn)'; }
 
 async function cloudEnsureProject(){
