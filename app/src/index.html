@@ -4084,16 +4084,21 @@ async function openArtifact(taskId, name){
 function closeArtifact(){ document.getElementById("artOverlay").style.display="none"; document.getElementById("artBody").innerHTML=""; const m=document.querySelector('#artOverlay .modal'); if(m) m.classList.remove('pdfmode'); ['artOpenExt','artSlack'].forEach(id=>{ const e=document.getElementById(id); if(e) e.remove(); }); }
 // envia um artefato pro Slack (bot token no cofre da conta; canal salvo local)
 async function sendArtifactSlack(taskId, name){
-  const hasTok=(secretsCache||[]).some(r=>r.name==='SLACK_BOT_TOKEN');
-  if(!hasTok){ alert('Configure primeiro o bot do Slack:\n\n1) Conta (botão da nuvem) → Chaves de modelo → + adicionar chave\n2) Nome: SLACK_BOT_TOKEN · Valor: o token do bot (xoxb-…) com os escopos files:write e chat:write\n\nDepois volte aqui e envie.'); return; }
-  let ch=lsGet('slackChannel')||'';
-  const inp=await askText('Canal do Slack','ID do canal (ex.: C0123ABCD) — clique no canal → Ver detalhes → ID lá embaixo', ch);
-  if(inp===null||!inp.trim()) return;
-  ch=inp.trim(); lsSet('slackChannel', ch);
-  const comment=await askText('Comentário (opcional)','ex.: segue o documento de arquitetura da issue', '');
-  if(comment===null) return;
-  try{ const msg=await invoke('slack_send_artifact',{ taskId, name, channel:ch, comment }); alert('✔ '+msg); }
-  catch(e){ alert('Falhou: '+e); }
+  try{
+    // lê o token direto do cofre (llm.env) — não depende do cache do outro bloco
+    let env=''; try{ env=await invoke('read_llm_env'); }catch(_){}
+    if(!/(^|\n)\s*SLACK_BOT_TOKEN\s*=\s*\S/.test(env||'')){
+      alert('Configure primeiro o bot do Slack:\n\n1) Conta (botão da nuvem) → Chaves de modelo → + adicionar chave\n2) Nome: SLACK_BOT_TOKEN · Valor: o token do bot (xoxb-…) com os escopos files:write e chat:write\n3) No Slack, convide o bot no canal (/invite @seu-bot)\n\nDepois volte aqui e envie.'); return;
+    }
+    let ch=lsGet('slackChannel')||'';
+    const inp=await askText('Canal do Slack','ID do canal (ex.: C0123ABCD) — no Slack: clique no canal → Ver detalhes → ID no rodapé', ch);
+    if(inp===null||!inp.trim()) return;
+    ch=inp.trim(); lsSet('slackChannel', ch);
+    const comment=await askText('Comentário (opcional)','ex.: segue o documento de arquitetura', '');
+    if(comment===null) return;
+    const msg=await invoke('slack_send_artifact',{ taskId, name, channel:ch, comment });
+    alert('✔ '+msg);
+  }catch(e){ alert('Falhou o envio pro Slack:\n'+(e&&e.message||e)); }
 }
 // ---- editor de código reutilizável: mono + números de linha + Tab + prévia MD ----
 function mountEditor(ta, opts){
