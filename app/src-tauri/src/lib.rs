@@ -2229,7 +2229,7 @@ fn chrono_iso_now() -> String {
 
 /// Memória do repo (.cardume) que SEGUE a conta do usuário — o JS sincroniza
 /// com user_repo_docs na nuvem (mais novo vence, dos dois lados).
-const REPO_DOCS: [&str; 4] = ["RUNBOOK.md", "HISTORY.md", "SPEC.md", "policy.json"];
+const REPO_DOCS: [&str; 5] = ["RUNBOOK.md", "HISTORY.md", "SPEC.md", "PREFS.md", "policy.json"];
 #[tauri::command]
 fn repo_docs(state: State<AppState>) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;

@@ -1372,6 +1372,7 @@
     <button class="btn" id="moreBtn" title="mais — chat do projeto, daily, configurações, ambiente" style="position:relative"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="8" cy="3.2" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="12.8" r="1.3"/></svg><span id="moreDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <div class="moremenu" id="moreMenu" style="display:none">
     <button class="btn" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg>Chat do projeto</button>
+    <button class="btn" id="prefsBtn" title="Preferências deste projeto — convenções que o TIME escreve e os agentes seguem"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6" stroke-linecap="round"/></svg>Preferências do projeto</button>
     <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg>Configurações</button>
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ambiente<span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
@@ -1662,6 +1663,17 @@
       <span class="pubspin"></span><span id="pubStatus" style="font-size:12.5px">enviando o pacote…</span>
     </div>
     <div id="pubDone" style="display:none;margin-top:16px"></div>
+  </div>
+</div>
+<!-- Preferências do projeto: 1 arquivo por projeto, o time escreve, os agentes seguem -->
+<div class="overlay" id="prefsOverlay" style="display:none;z-index:95">
+  <div class="modal" style="width:min(720px,100%)">
+    <div class="mhead"><b>Preferências do projeto</b><span class="dim" id="prefsRepo" style="font-size:11px;margin-left:8px"></span><span style="flex:1"></span><button class="x" id="prefsClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody">
+      <div class="imhint" style="border-left:2px solid var(--accent)">Um documento por projeto, escrito pelo <b>time</b> — convenções, padrões, o que evitar, decisões acordadas. <b>Todo agente</b> deste projeto lê e segue à risca (vira <span class="mono">.cardume/PREFS.md</span>). Sincroniza pra todos do time.</div>
+      <textarea class="in ta mono" id="prefsText" rows="16" style="font-size:12px;margin-top:10px" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea>
+    </div>
+    <div class="mfoot"><span class="dim" id="prefsMeta" style="font-size:11px"></span><span style="flex:1"></span><button class="btn" id="prefsCancel">fechar</button><button class="btn primary" id="prefsSave">salvar pro time</button></div>
   </div>
 </div>
 <!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
@@ -2211,6 +2223,49 @@ async function pcToTask(){
 }
 function openPc(){ document.getElementById('pcOverlay').style.display='flex'; pcRender(); setTimeout(()=>document.getElementById('pcInput').focus(),80); }
 document.getElementById('pcBtn').onclick=openPc;
+// ---- Preferências do projeto: 1 doc por projeto, o time escreve, agentes seguem ----
+async function prefsKey(){
+  const orgId=cloudData&&cloudData.org&&cloudData.org.id; if(!orgId) return null;
+  let remote=''; try{ remote=await invoke('repo_remote'); }catch(_){ }
+  if(!remote){ try{ const info=await invoke('repo_docs'); remote=info&&info.repo; }catch(_){ } }
+  return remote?{ orgId, repo:remote }:null;
+}
+async function prefsPull(){ // nuvem → .cardume/PREFS.md local (todo mundo pega a última do time)
+  const k=await prefsKey(); if(!k) return;
+  try{ const rows=await sbGet('project_prefs?select=content,updated_at&org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo));
+    if(rows[0]) await invoke('repo_doc_write',{ doc:'PREFS.md', content:rows[0].content||'' }); }catch(_){ }
+}
+async function openPrefs(){
+  const ov=document.getElementById('prefsOverlay');
+  if(!SB.sess()||!(cloudData&&cloudData.org)){ alert('Entre na sua conta e escolha uma organização pra usar as preferências do projeto.'); return; }
+  const k=await prefsKey(); if(!k){ alert('Abra um projeto (repositório com git remote) primeiro.'); return; }
+  document.getElementById('prefsRepo').textContent=k.repo.replace(/^https?:\/\/[^/]+\//,'').replace(/\.git$/,'');
+  document.getElementById('prefsMeta').textContent='carregando…';
+  ov.style.display='flex';
+  try{
+    const rows=await sbGet('project_prefs?select=content,updated_by,updated_at&org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo));
+    const r=rows[0];
+    document.getElementById('prefsText').value=(r&&r.content)||'';
+    if(r){ const who=(cloudData.profileByUser&&cloudData.profileByUser[r.updated_by])||{}; document.getElementById('prefsMeta').textContent='última edição: '+((who.name||who.email||'alguém'))+' · '+new Date(r.updated_at).toLocaleString('pt-BR'); }
+    else document.getElementById('prefsMeta').textContent='ainda em branco — escreva as convenções do projeto';
+  }catch(e){ document.getElementById('prefsMeta').textContent='falhou: '+(e.message||e); }
+}
+{ const b=document.getElementById('prefsBtn'); if(b) b.onclick=()=>{ openPrefs(); }; }
+document.getElementById('prefsClose').onclick=()=>{ document.getElementById('prefsOverlay').style.display='none'; };
+document.getElementById('prefsCancel').onclick=()=>{ document.getElementById('prefsOverlay').style.display='none'; };
+document.getElementById('prefsOverlay').addEventListener('click',e=>{ if(e.target.id==='prefsOverlay') document.getElementById('prefsOverlay').style.display='none'; });
+document.getElementById('prefsSave').onclick=async()=>{
+  const k=await prefsKey(); if(!k) return;
+  const b=document.getElementById('prefsSave'); b.disabled=true; b.textContent='salvando…';
+  const content=document.getElementById('prefsText').value;
+  try{
+    await sbFetch('/rest/v1/project_prefs?on_conflict=org_id,repo',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
+      body: JSON.stringify({ org_id:k.orgId, repo:k.repo, content, updated_by:cloudUserId(), updated_at:new Date().toISOString() }) });
+    await invoke('repo_doc_write',{ doc:'PREFS.md', content }).catch(()=>{}); // desce pro repo já
+    document.getElementById('prefsMeta').textContent='✓ salvo pro time · aplica nas próximas tarefas';
+  }catch(e){ document.getElementById('prefsMeta').textContent='falhou: '+(e.message||e); }
+  finally{ b.disabled=false; b.textContent='salvar pro time'; }
+};
 document.getElementById('pcClose').onclick=()=>{ document.getElementById('pcOverlay').style.display='none'; };
 document.getElementById('pcSend').onclick=pcSend;
 document.getElementById('pcTask').onclick=pcToTask;
@@ -6624,6 +6679,8 @@ async function userRepoSync(){
     }
   }catch(_){ }
   finally{ repoSyncBusy=false; }
+  // preferências do TIME (project_prefs) → .cardume/PREFS.md local, pra os agentes
+  try{ await prefsPull(); }catch(_){ }
 }
 setTimeout(billingSync, 4000);
 setInterval(billingSync, 30*60*1000);

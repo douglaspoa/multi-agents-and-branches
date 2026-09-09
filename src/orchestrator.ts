@@ -149,7 +149,7 @@ export class Orchestrator {
     await scan("", 0);
     // conhecimento acumulado: RUNBOOK (como subir o ambiente — editável, volta
     // pro repo no fim do turno) e HISTORY (índice de tarefas passadas — grep).
-    for (const doc of ["RUNBOOK.md", "HISTORY.md", "SPEC.md"]) {
+    for (const doc of ["RUNBOOK.md", "HISTORY.md", "SPEC.md", "PREFS.md"]) {
       try {
         await cp(join(this.ws.dir, doc), join(worktree, ".cardume", doc));
         seeded.push(`.cardume/${doc}`);
