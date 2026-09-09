@@ -3581,16 +3581,20 @@ function renderFlowFilters(){
     `<button class="fvic" data-view="graph" title="Grafo de branches"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="8" r="1.6"/><path d="M4 5.6v4.8M5.6 4.6C8 6 10 6.5 10.4 7.4" stroke-linecap="round"/></svg></button>`+
     `<button class="fvic" data-view="feed" title="Atividade"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 8h2.6l1.7-4 2.4 8 1.7-4h2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`+
     `</div>`;
-  const advHtml=`<div class="ffadv" style="display:${ffAdvOpen?'flex':'none'};flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">`+
+  // SEMPRE visível: status (review/rodando/merged/…) + tipo — é o que mais se filtra
+  const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
     `<div class="ffchips">${stChips}</div>`+
-    `<select class="sel" id="ffType">${tyOpts}</select>`+
+    `<span style="flex:1"></span>`+
+    `<select class="sel" id="ffType" title="filtrar por tipo (feature/fix/docs/investigação…)">${tyOpts}</select></div>`;
+  // AVANÇADO (toggle): período, agente, agrupar, busca
+  const advHtml=`<div class="ffadv" style="display:${ffAdvOpen?'flex':'none'};flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">`+
     `<select class="sel" id="ffPeriod">${peOpts}</select>`+
     `<select class="sel" id="ffAgent">${agOpts}</select>`+
     `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select>`+
     `<span class="grow"></span>`+
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
     `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div></div>`;
-  el.innerHTML = tabsHtml + advHtml;
+  el.innerHTML = tabsHtml + filterRow + advHtml;
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
     if(k==='team'){ tmView='people'; lsSet('tmView','people'); teamPaintSig=''; setView('team'); return; } // PDF p7: time por PESSOA
@@ -3763,8 +3767,11 @@ function flowTaskRow(t){
   const play=t.status==='draft'?`<button class="kplay" data-rowplay="${escA(t.id)}" title="iniciar">${IC.cright}</button>`:'';
   // ações rápidas direto da home: abrir PR (qualquer tarefa viva sem PR) · link do PR/issue · site local
   const readyPr=['review','delivered'].includes(t.status);
+  const artOnly=['invest','design'].includes(taskType(t)); // sem PR — o "pronto" delas é arquivar
   const quick=(!done && t.status!=='draft' && !t.prUrl)
-    ? `<button class="btn ${readyPr?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 10px;font-size:10.5px;flex:none">${IC.merge} abrir PR</button>` : '';
+    ? (artOnly
+        ? (readyPr?`<button class="btn primary sm" data-arch="${escA(t.id)}" title="conclui e tira da fila" style="padding:3px 10px;font-size:10.5px;flex:none">✓ concluir</button>`:'')
+        : `<button class="btn ${readyPr?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 10px;font-size:10.5px;flex:none">${IC.merge} abrir PR</button>`) : '';
   const pvChip=pvChips(t, true);
   return `<div class="frow${done?' done':''}" data-id="${t.id}">
     <span class="d" style="background:${dot}"></span>
@@ -3790,10 +3797,14 @@ function openTaskMenu(taskId, anchor){
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
     b.onclick=async()=>{ pop.remove(); try{ await fn(); lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
     pop.appendChild(b); };
+  const ty=taskType(t);
+  const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
+  // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
+  if(t.flag!=='closed') item('✓ concluir · arquiva e sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
+  if(t.flag==='closed') item('↩ reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra review', ()=>invoke('mark_task_status',{taskId,status:'review'}));
-  if(t.status!=='merged') item('⌥ marcar como merged', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
-  if(t.flag!=='closed') item('✓ encerrar (sai da fila)', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
-  if(t.flag==='closed') item('↩ reabrir', ()=>invoke('set_task_flag',{taskId,flag:null}));
+  if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como merged', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
+  if(['review','delivered','merged'].includes(t.status)) item('↻ voltar pra rodando', ()=>invoke('mark_task_status',{taskId,status:'running'}));
   if(t.flag!=='blocked') item('❙❙ bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}));
   else item('▶ desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(['error','aborted','conflict'].includes(t.status)) item('↻ re-rodar', ()=>invoke('rerun_task',{taskId}));
@@ -3841,7 +3852,7 @@ function renderFlow(){
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow').forEach(row=>{
-    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg]')) return;
+    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-arch],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg]')) return;
       const t=(state.tasks||[]).find(x=>x.id===row.dataset.id); if(!t) return;
       selected=t.id; render();
       if(t.status==='draft'){ editDraft(t); return; }
@@ -3851,6 +3862,7 @@ function renderFlow(){
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); prPrepOpen(b.dataset.rowpr, lsGet('prBase:'+b.dataset.rowpr)||'main'); });
+  el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke('set_task_flag',{taskId:b.dataset.arch,flag:'closed'}); lastSig=''; await refresh(); }catch(err){ alert('Falhou: '+err); } });
   el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
   // 📱 da home: cria o túnel pro celular (ou fecha, se já estiver aberto)
   el.querySelectorAll('[data-pvmob]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation();
@@ -3871,7 +3883,7 @@ function renderFlow(){
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskSummary(b.dataset.sum); });
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('.fcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-tmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-arch],[data-tmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
     card.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(card.dataset.id, e.target); });
     if(grouped) return;   // arrastar só faz sentido na lista plana
     card.setAttribute('draggable','true');
@@ -4044,9 +4056,13 @@ async function openArtifact(taskId, name){
   const extBtn = isHtml ? `<div style="display:flex;margin-bottom:10px"><button class="btn primary sm" id="artExt">${IC.extlink||'↗'} abrir no navegador</button><span class="dim" style="margin-left:10px;font-size:11px;align-self:center">mockup navegável — abre com as telas clicáveis</span></div>` : '';
   const body = c.kind==='image'
     ? `<img class="artimg" src="${c.dataUrl}" alt="${escA(name)}">`
+    : c.kind==='pdf'
+      ? `<iframe class="pdfview" src="${c.dataUrl}" title="${escA(name)}" style="width:100%;height:70vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`
     : c.kind==='doc'
       ? `<div class="mdview">${mdToHtml(c.text||'')}</div>`
-      : `<pre class="artpre">${esc(c.text||'')}</pre>`;
+      : c.dataUrl
+        ? `<div class="dim" style="padding:20px;text-align:center">arquivo binário — <a href="${c.dataUrl}" download="${escA(name)}" style="color:var(--accent)">baixar ${esc(name)}</a></div>`
+        : `<pre class="artpre">${esc(c.text||'')}</pre>`;
   document.getElementById("artIcon").innerHTML = c.kind==='image'?IC.image:IC.doc;
   document.getElementById("artTitle").textContent = name;
   document.getElementById("artBody").innerHTML = extBtn + body;

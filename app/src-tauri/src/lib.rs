@@ -995,6 +995,8 @@ fn artifact_kind(name: &str) -> &'static str {
         "doc"
     } else if l.ends_with(".png") || l.ends_with(".jpg") || l.ends_with(".jpeg") || l.ends_with(".gif") || l.ends_with(".webp") || l.ends_with(".svg") {
         "image"
+    } else if l.ends_with(".pdf") {
+        "pdf"
     } else {
         "file"
     }
@@ -1003,24 +1005,40 @@ fn artifact_kind(name: &str) -> &'static str {
 #[tauri::command(async)]
 fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifact>, String> {
     let repo = repo_of(&state)?;
-    let dir = repo.join(".cardume").join("artifacts").join(&task_id);
     let mut out: Vec<Artifact> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&dir) {
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.is_file() {
-                let name = e.file_name().to_string_lossy().to_string();
-                let meta = e.metadata().ok();
-                let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                let created = meta
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                out.push(Artifact { kind: artifact_kind(&name).to_string(), name, size, created });
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut scan = |dir: &std::path::Path| {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_file() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if !seen.insert(name.clone()) { continue; } // já visto (worktree tem prioridade)
+                    let meta = e.metadata().ok();
+                    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                    let created = meta
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+                    out.push(Artifact { kind: artifact_kind(&name).to_string(), name, size, created });
+                }
+            }
+        }
+    };
+    // 1) AO VIVO na worktree (aparece antes de a tarefa fechar o turno) — foi
+    //    o caso do PDF "sumido": criado na worktree, ainda não coletado.
+    if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if let Ok(conn) = open(&db) {
+            if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+                if !wt.is_empty() {
+                    scan(&PathBuf::from(&wt).join(".cardume").join("artifacts"));
+                }
             }
         }
     }
+    // 2) coletados no repo principal (persistem após merge/remoção da worktree)
+    scan(&repo.join(".cardume").join("artifacts").join(&task_id));
     // mais recentes primeiro (data de criação/modificação)
     out.sort_by(|a, b| b.created.cmp(&a.created).then(a.name.cmp(&b.name)));
     Ok(out)
@@ -1040,7 +1058,18 @@ fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
         return Err("nome de artefato inválido".to_string());
     }
     let repo = repo_of(&state)?;
-    let path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    // procura na worktree AO VIVO primeiro, depois na pasta coletada
+    let mut path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    if !path.is_file() {
+        if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if let Ok(conn) = open(&db) {
+                if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+                    let wp = PathBuf::from(&wt).join(".cardume").join("artifacts").join(&name);
+                    if wp.is_file() { path = wp; }
+                }
+            }
+        }
+    }
     if !path.is_file() {
         return Err("artefato não encontrado".to_string());
     }
@@ -1066,13 +1095,22 @@ fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
             text: None,
             data_url: Some(format!("data:{};base64,{}", mime, base64_encode(&bytes))),
         })
-    } else {
-        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    } else if kind == "pdf" {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
         Ok(ArtifactContent {
-            kind: if kind == "doc" { "doc".to_string() } else { "file".to_string() },
-            text: Some(text),
-            data_url: None,
+            kind: "pdf".to_string(),
+            text: None,
+            data_url: Some(format!("data:application/pdf;base64,{}", base64_encode(&bytes))),
         })
+    } else {
+        // doc/txt são texto; binário desconhecido cai pra data_url (não estoura)
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(ArtifactContent { kind: if kind == "doc" { "doc".into() } else { "file".into() }, text: Some(text), data_url: None }),
+            Err(_) => {
+                let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+                Ok(ArtifactContent { kind: "file".into(), text: None, data_url: Some(format!("data:application/octet-stream;base64,{}", base64_encode(&bytes))) })
+            }
+        }
     }
 }
 
@@ -1803,7 +1841,7 @@ fn build_info() -> String {
 /// Whitelist de estados seguros; merged também libera claims/pendências.
 #[tauri::command]
 fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> Result<(), String> {
-    if !["review", "merged", "draft"].contains(&status.as_str()) {
+    if !["review", "merged", "draft", "running"].contains(&status.as_str()) {
         return Err(format!("status inválido: {status}"));
     }
     set_task_status(&state, &task_id, &status)?;
