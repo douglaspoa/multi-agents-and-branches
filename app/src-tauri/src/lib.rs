@@ -3084,7 +3084,18 @@ fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
         return Err("nome de artefato inválido".to_string());
     }
     let repo = repo_of(&state)?;
-    let path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    let mut path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    if !path.is_file() {
+        // ao vivo na worktree (ainda não coletado)
+        if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if let Ok(conn) = open(&db) {
+                if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+                    let wp = PathBuf::from(&wt).join(".cardume").join("artifacts").join(&name);
+                    if wp.is_file() { path = wp; }
+                }
+            }
+        }
+    }
     if !path.is_file() {
         return Err("artefato não encontrado".to_string());
     }
