@@ -2295,6 +2295,87 @@ fn repo_doc_write(state: State<AppState>, doc: String, content: String) -> Resul
 
 /// Chaves de modelo da CONTA → cache local que os motores leem (env por task).
 /// O arquivo nunca entra em repo; a nuvem (user_secrets, RLS) é a fonte.
+/// Lê uma chave do ~/.constellation/llm.env (cofre de segredos da conta).
+fn llm_env_get(key: &str) -> Option<String> {
+    let content = std::fs::read_to_string(llm_env_path()).ok()?;
+    for line in content.lines() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix(key) {
+            if let Some(v) = rest.strip_prefix('=') {
+                return Some(v.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Resolve o caminho de um artefato (coletado no repo, ou AO VIVO na worktree).
+fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<PathBuf, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("nome de artefato inválido".into());
+    }
+    let repo = repo_of(state)?;
+    let p = repo.join(".cardume").join("artifacts").join(task_id).join(name);
+    if p.is_file() { return Ok(p); }
+    if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if let Ok(conn) = open(&db) {
+            if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+                let wp = PathBuf::from(&wt).join(".cardume").join("artifacts").join(name);
+                if wp.is_file() { return Ok(wp); }
+            }
+        }
+    }
+    Err("artefato não encontrado".into())
+}
+
+/// Envia um artefato pro Slack (files.getUploadURLExternal → PUT → completeUploadExternal).
+/// Token: SLACK_BOT_TOKEN do cofre da conta (scopes files:write + chat:write).
+#[tauri::command(async)]
+fn slack_send_artifact(state: State<AppState>, task_id: String, name: String, channel: String, comment: Option<String>) -> Result<String, String> {
+    let token = llm_env_get("SLACK_BOT_TOKEN").ok_or("configure SLACK_BOT_TOKEN em Conta → Chaves de modelo (bot do Slack com files:write)")?;
+    let path = artifact_path(&state, &task_id, &name)?;
+    let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    // 1) pede a URL de upload
+    let mut c1 = Command::new("curl");
+    c1.args(["-s", "-G", "https://slack.com/api/files.getUploadURLExternal",
+        "-H", &format!("Authorization: Bearer {token}"),
+        "--data-urlencode", &format!("filename={name}"),
+        "--data-urlencode", &format!("length={len}")]);
+    let o1 = output_timeout(c1, 30)?;
+    let j1: serde_json::Value = serde_json::from_slice(&o1.stdout).map_err(|e| format!("slack step1: {e}"))?;
+    if !j1["ok"].as_bool().unwrap_or(false) {
+        return Err(format!("slack: {}", j1["error"].as_str().unwrap_or("getUploadURL falhou")));
+    }
+    let upload_url = j1["upload_url"].as_str().ok_or("sem upload_url")?.to_string();
+    let file_id = j1["file_id"].as_str().ok_or("sem file_id")?.to_string();
+    // 2) sobe os bytes
+    let mut c2 = Command::new("curl");
+    c2.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
+        &upload_url, "-F"]).arg(format!("file=@{}", path.display()));
+    let o2 = output_timeout(c2, 120)?;
+    let code = String::from_utf8_lossy(&o2.stdout);
+    if code.trim() != "200" {
+        return Err(format!("upload pro Slack falhou (HTTP {})", code.trim()));
+    }
+    // 3) completa (posta no canal, com comentário opcional)
+    let files = serde_json::json!([{ "id": file_id, "title": name }]);
+    let mut c3 = Command::new("curl");
+    c3.args(["-s", "-X", "POST", "https://slack.com/api/files.completeUploadExternal",
+        "-H", &format!("Authorization: Bearer {token}"),
+        "-H", "Content-Type: application/x-www-form-urlencoded",
+        "--data-urlencode", &format!("files={files}"),
+        "--data-urlencode", &format!("channel_id={channel}")]);
+    if let Some(cm) = comment.filter(|s| !s.trim().is_empty()) {
+        c3.args(["--data-urlencode", &format!("initial_comment={cm}")]);
+    }
+    let o3 = output_timeout(c3, 30)?;
+    let j3: serde_json::Value = serde_json::from_slice(&o3.stdout).map_err(|e| format!("slack step3: {e}"))?;
+    if !j3["ok"].as_bool().unwrap_or(false) {
+        return Err(format!("slack: {}", j3["error"].as_str().unwrap_or("completeUpload falhou")));
+    }
+    Ok(format!("“{name}” enviado pro Slack ✓"))
+}
+
 fn llm_env_path() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("llm.env")
 }
@@ -3781,6 +3862,7 @@ pub fn run() {
             read_llm_env,
             write_llm_env,
             fetch_task_ref,
+            slack_send_artifact,
             open_project,
             switch_project,
             remove_project,
