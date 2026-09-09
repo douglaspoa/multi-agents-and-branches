@@ -3375,10 +3375,28 @@ async function prPrepRun(t, base){
   }
   await prPrepFinish(t, base);
 }
+// reconhece falha de REDE (DNS/conexão) — dá mensagem clara em vez do erro cru do git
+function prNetHint(e){
+  const s=String(e||'');
+  if(/could not resolve host|couldn'?t resolve|failed to connect|could not read from remote|connection timed out|connection refused|network is unreachable|temporary failure in name resolution|unable to access/i.test(s))
+    return 'Sem conexão com o GitHub agora — cheque a internet/VPN e tente de novo. O commit local já foi feito; o botão só re-envia.';
+  return null;
+}
+// mostra/atualiza um botão "tentar de novo" no rodapé do modal
+function prShowRetry(fn){
+  let b=document.getElementById('prepRetry');
+  if(!b){ const foot=document.querySelector('#prepBody > div:last-child'); const cancel=document.getElementById('prepCancelB');
+    b=document.createElement('button'); b.id='prepRetry'; b.className='btn primary'; if(foot&&cancel) foot.insertBefore(b, cancel.nextSibling); else if(foot) foot.appendChild(b); }
+  b.textContent='↻ tentar de novo'; b.style.display=''; b.onclick=()=>{ b.style.display='none'; fn(); };
+}
+function prHideRetry(){ const b=document.getElementById('prepRetry'); if(b) b.style.display='none'; }
 async function prPrepFinish(t, base){
+  prHideRetry();
   prepMark(2,'run','commitando e enviando a branch…');
   try{ const msg=await invoke('push_task',{ taskId:t.id }); prepMark(2,'ok', esc(msg)); }
-  catch(e){ prepMark(2,'fail', esc(String(e))); return; }
+  catch(e){ const h=prNetHint(e);
+    prepMark(2,'fail', (h?`<b>${esc(h)}</b><div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(String(e).slice(0,240))}</div>`:esc(String(e))));
+    prShowRetry(()=>prPrepFinish(t, base)); return; }
   prepMark(3,'run','escrevendo a descrição do PR (o quê · o que foi feito · como testar)…');
   let prBody;
   try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
@@ -3387,9 +3405,13 @@ async function prPrepFinish(t, base){
   try{
     const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });
     prepMark(3,'ok', url?`<button class="btn sm" onclick="openExternal('${escA(url)}')" style="margin-top:4px">${esc(url.replace('https://',''))} ↗</button>`:'PR aberto');
+    prHideRetry();
     prCache[t.id]=undefined; await loadPr(t.id,true); lastSig=''; renderSide();
     if(typeof renderWorkspace==='function'&&fwTask===t.id){ fwMode='pr'; renderWorkspace(); }
-  }catch(e){ prepMark(3,'fail', esc(String(e))); }
+  }catch(e){ const h=prNetHint(e);
+    prepMark(3,'fail', (h?`<b>${esc(h)}</b><div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(String(e).slice(0,240))}</div>`:esc(String(e))));
+    // a branch já foi enviada — re-tentar só a criação do PR
+    prShowRetry(()=>prPrepFinish(t, base)); }
 }
 async function openPr(t){
   const base=(document.getElementById('prBase')||{}).value||'main';
