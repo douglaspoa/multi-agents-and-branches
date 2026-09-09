@@ -507,6 +507,9 @@
   .fhead b{font-size:13.5px;font-weight:600}
   .fhead .sd{width:9px;height:9px;border-radius:50%;flex:none}
   .fstatus{margin-left:auto;font-size:11px;font-weight:600;text-transform:capitalize}
+  .fstatus.stdrop{display:inline-flex;align-items:center;gap:4px;cursor:pointer;padding:2px 7px;border-radius:6px;border:1px solid transparent;transition:background .12s,border-color .12s}
+  .fstatus.stdrop:hover{background:var(--surface-2);border-color:var(--border)}
+  .fstatus.stdrop .stcaret{font-size:8px;opacity:.7;transform:translateY(1px)}
   .fpipe{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:11px}
   .fstep{display:flex;align-items:center;gap:6px;border:.5px solid var(--border);border-radius:100px;padding:3px 10px 3px 3px;background:var(--surface-2)}
   .fstep.cur{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
@@ -3467,7 +3470,7 @@ function flowTaskCard(t, acc){
   const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:t.flag==='closed'?`<span class="flagbadge cls">${IC.checkc} encerrada</span>`:'';
   const asking = pendingOf(t.id).length>0;
   return `<div class="fcard${accCls}${t.id===selected?' sel':''}${t.flag?' flagged':''}${asking?' asking':''}" data-id="${t.id}">
-    <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus" style="color:${asking?'var(--warn)':col}">${asking?'esperando você':esc(t.status)}</span></div>
+    <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus stdrop" data-stmenu="${t.id}" style="color:${asking?'var(--warn)':col}" title="mudar status da demanda">${asking?'esperando você':esc(t.status)}<span class="stcaret">▼</span></span></div>
     ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="mono">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
     <div class="fmeta">${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
@@ -3818,6 +3821,34 @@ function openTaskMenu(taskId, anchor){
   pop.style.left=Math.max(10, Math.min(window.innerWidth-pop.offsetWidth-10, r.right-pop.offsetWidth))+'px';
   setTimeout(()=>{ const close=(e)=>{ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click',close); } }; document.addEventListener('click',close); },0);
 }
+// dropdown de status direto no chip "Review/Rodando/..." do card
+function openStatusMenu(taskId, anchor){
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  document.getElementById('stmenuPop')?.remove();
+  const artifactOnly=['invest','design'].includes(taskType(t)); // sem PR pra mergear
+  const opts=[
+    { st:'running', label:'▶ Rodando', col:'var(--good)' },
+    { st:'review',  label:'◆ Pronta pra review', col:'var(--warn)' },
+    ...(artifactOnly?[]:[{ st:'merged', label:'✓ Merged', col:'var(--good)' }]),
+    { st:'draft',   label:'✎ Rascunho', col:'var(--muted)' },
+  ];
+  const pop=document.createElement('div');
+  pop.id='stmenuPop';
+  pop.style.cssText='position:fixed;z-index:9000;min-width:190px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  const cur = ['review','delivered'].includes(t.status)?'review':t.status;
+  opts.forEach(o=>{ const b=document.createElement('button');
+    const on=(o.st===cur);
+    b.innerHTML=`<span style="color:${o.col}">${o.label}</span>${on?'<span style="margin-left:auto;opacity:.7">●</span>':''}`;
+    b.style.cssText='display:flex;align-items:center;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
+    b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
+    b.onclick=async()=>{ pop.remove(); if(o.st===cur) return; try{ await invoke('mark_task_status',{taskId,status:o.st}); lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
+    pop.appendChild(b); });
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
+  pop.style.left=Math.max(10, Math.min(window.innerWidth-pop.offsetWidth-10, r.right-pop.offsetWidth))+'px';
+  setTimeout(()=>{ const close=(e)=>{ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click',close); } }; document.addEventListener('click',close); },0);
+}
 function renderFlow(){
   if(flowDragId) return;   // não re-renderiza no meio de um arrasto
   renderFlowHead();
@@ -3885,8 +3916,9 @@ function renderFlow(){
   });
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskSummary(b.dataset.sum); });
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
+  el.querySelectorAll('[data-stmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openStatusMenu(b.dataset.stmenu, b); });
   el.querySelectorAll('.fcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-arch],[data-tmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-arch],[data-tmenu],[data-stmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
     card.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(card.dataset.id, e.target); });
     if(grouped) return;   // arrastar só faz sentido na lista plana
     card.setAttribute('draggable','true');
