@@ -379,6 +379,7 @@
   .ffbar .ftabs{margin-bottom:14px}
   .ffchips{display:flex;flex-wrap:wrap;gap:6px}
   .fchip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+  .typetag{display:inline-block;font:700 9.5px var(--mono,ui-monospace);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:5px;border:1px solid;background:transparent}
   .fchip:hover{background:var(--surface-2)}
   .fchip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .fchip .n{font-size:10.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -3400,7 +3401,7 @@ function flowTaskCard(t, acc){
     <div class="fhead"><span class="sd" style="background:${asking?'var(--warn)':col}"></span><b>${esc(t.title)}</b>${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}${asking?`<span class="askingbadge">✋ esperando você</span>`:''}<span class="fstatus" style="color:${asking?'var(--warn)':col}">${asking?'esperando você':esc(t.status)}</span></div>
     ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="mono">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta">${taskType(t)!=='build'?`<span style="color:var(--accent);font-weight:600">${TYPE_PT[taskType(t)]}</span>`:''}${linkChips(t)}${pvChips(t)}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta">${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${(t.deliverables||[]).length} entregável(is)</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?c.length:'…'} commit(s)</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;
@@ -3440,9 +3441,18 @@ function taskType(t){
   if(b.startsWith('design/')) return 'design';
   if(b.startsWith('invest/')) return 'invest';
   if(b.startsWith('fix/')) return 'fix';
-  return 'build';
+  if(b.startsWith('docs/')) return 'docs';
+  if(b.startsWith('chore/')) return 'chore';
+  if(b.startsWith('refactor/')) return 'refactor';
+  if(b.startsWith('perf/')) return 'perf';
+  // rascunho ainda sem branch: usa o branchType da spec
+  const bt=(t.branchType||(t.spec&&t.spec.branchType)||'').toLowerCase();
+  if(['fix','docs','chore','refactor','perf','design'].includes(bt)) return bt;
+  return 'feat';
 }
-const TYPE_PT={ build:'Entrega', design:'Design', invest:'Investigação', fix:'Fix', review:'Review' };
+const TYPE_PT={ feat:'Feature', fix:'Fix', docs:'Docs', chore:'Chore', refactor:'Refactor', perf:'Perf', design:'Design', invest:'Investigação', review:'Review', build:'Entrega' };
+const TYPE_COLOR={ feat:'var(--accent)', fix:'var(--crit)', docs:'var(--info)', chore:'var(--muted)', refactor:'var(--warn)', perf:'#c99cdb', design:'#7cd0b8', invest:'var(--warn)', review:'var(--info)' };
+const TYPE_ORDER=['feat','fix','docs','refactor','perf','chore','design','invest','review'];
 // código da issue (FND-853) direto da branch; link usa a base configurada em ⚙
 function issueCodeOf(t){ const m=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/); return m?m[1]:null; }
 function issueUrlOf(t){ const c=issueCodeOf(t); const b=(lsGet('issueBase')||'').trim(); return (c&&b)?(b.replace(/\/+$/,'')+'/'+c):null; }
@@ -3493,7 +3503,7 @@ function renderFlowFilters(){
   if(flowAgent!=='all' && !agents.includes(flowAgent)) flowAgent='all';
   const agOpts=['all',...agents].map(a=>`<option value="${escA(a)}"${flowAgent===a?' selected':''}>${a==='all'?'Todos os agentes':esc(a)}</option>`).join('');
   const tyCount=k=>byPeriod.filter(t=>taskType(t)===k).length;
-  const tyOpts=[['all','Todos os tipos']].concat(['build','design','invest','fix','review'].filter(k=>tyCount(k)>0).map(k=>[k, TYPE_PT[k]+' ('+tyCount(k)+')']))
+  const tyOpts=[['all','Todos os tipos']].concat(TYPE_ORDER.filter(k=>tyCount(k)>0).map(k=>[k, TYPE_PT[k]+' ('+tyCount(k)+')']))
     .map(([k,l])=>`<option value="${k}"${flowType===k?' selected':''}>${l}</option>`).join('');
   // abas da Central (redesign p2): Tudo · Minhas · Do time · Concluídas + vistas
   const TABS=[['all','Tudo'],['mine','Minhas'],['team','Do time'],['done','Concluídas']];
