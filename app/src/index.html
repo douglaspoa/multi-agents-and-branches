@@ -6663,7 +6663,7 @@ async function renderCloud(){
       <button class="btn" id="sbGoogle" style="width:100%;justify-content:center;gap:9px;padding:9px;font-weight:600"><svg viewBox="0 0 18 18" width="16" height="16"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>Entrar com Google</button>
       <div style="display:flex;align-items:center;gap:10px;margin:14px 0"><span style="flex:1;height:1px;background:var(--border)"></span><span class="dim" style="font-size:11px">ou</span><span style="flex:1;height:1px;background:var(--border)"></span></div>
       <label>E-mail</label><input class="in" id="sbEmail" placeholder="voce@empresa.com" value="${escA(lsGet('sb:email')||'')}">
-      <label style="margin-top:12px">Senha</label><input class="in" id="sbPass" type="password" placeholder="••••••••">
+      <label style="margin-top:12px;display:flex;align-items:center">Senha<span style="flex:1"></span><a class="lnk" id="sbForgot" style="text-transform:none;letter-spacing:0;font-size:11px;cursor:pointer">esqueci a senha</a></label><input class="in" id="sbPass" type="password" placeholder="••••••••">
       <div style="display:flex;gap:8px;margin-top:16px;align-items:center"><button class="btn sm" id="sbCfgEdit" title="trocar URL/chave do backend">backend…</button><span style="flex:1"></span><button class="btn" id="sbSignup">criar conta</button><button class="btn primary" id="sbLogin">entrar</button></div>
       <div class="aihint dim" style="margin-top:10px">A conta é sua identidade no time — quem criou a tarefa, quem assumiu, quem entregou.</div>`;
     const email=()=>document.getElementById('sbEmail').value.trim(), pass=()=>document.getElementById('sbPass').value;
@@ -6695,6 +6695,13 @@ async function renderCloud(){
     document.getElementById('sbLogin').onclick=()=>go('in');
     document.getElementById('sbSignup').onclick=()=>go('up');
     { const g=document.getElementById('sbGoogle'); if(g) g.onclick=loginGoogle; }
+    { const f=document.getElementById('sbForgot'); if(f) f.onclick=async()=>{
+        if(!email() || !email().includes('@')){ cloudMsg='Digite seu e-mail acima primeiro — o link de recuperação vai pra ele.'; renderCloud(); document.getElementById('sbEmail').focus(); return; }
+        f.textContent='enviando…';
+        try{ await sbAuth('recover', { email: email() }); lsSet('sb:email', email()); cloudMsg='✓ Se existe uma conta com <b>'+esc(email())+'</b>, enviamos um link de recuperação pro e-mail. Abra e defina uma nova senha.'; }
+        catch(e){ cloudMsg='Falhou ao enviar recuperação: '+esc(e&&e.message||String(e)); }
+        renderCloud();
+      }; }
     document.getElementById('sbPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go('in'); });
     document.getElementById('sbCfgEdit').onclick=()=>{ cloudCfgOpen=true; renderCloud(); };
     return;
