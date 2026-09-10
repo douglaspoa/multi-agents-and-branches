@@ -2382,28 +2382,31 @@ function dailyPdfHtml(md, date){
     .foot{margin-top:34px;padding-top:10px;border-top:1px solid #e5e7eb;color:#94a3b8;font-size:11px}
   </style></head><body>${mdToHtml(md)}<div class="foot">Gerado pelo Constellation · ${esc(date||'')}</div></body></html>`;
 }
+function dailyOut(html){ const el=document.getElementById('dailyAIOut'); if(el) el.innerHTML=html; }
 async function dailyGenDoc(){
-  if(!dailyData||!dailyData.length){ alert('Dia sem atividade — nada pra relatar.'); return; }
-  const btn=document.getElementById('dailyDoc'); if(!btn) return; btn.disabled=true; const o=btn.textContent; btn.textContent='escrevendo o relatório…';
+  const out=document.getElementById('dailyAIOut');
+  if(!dailyData||!dailyData.length){ dailyOut('<div class="imhint" style="border-left:2px solid var(--warn)">Dia sem atividade — nenhuma tarefa teve eventos nesse dia. Troque a data no topo.</div>'); return; }
+  const btn=document.getElementById('dailyDoc'); if(!btn) return; btn.disabled=true; const o=btn.textContent; btn.textContent='escrevendo…';
   const iso=document.getElementById('dailyDate').value;
+  dailyOut('<div class="prbox" style="margin:6px 0 14px;display:flex;align-items:center;gap:10px"><span class="pubspin"></span><span class="dim" style="font-size:12.5px">a IA está redigindo o relatório técnico do dia (o quê · por quê · arquitetura · como validar)… pode levar até 1 min</span></div>');
   try{
     const md=await invoke('ai_daily_report',{ text: dailyReportFacts(), date: iso });
     lastDailyMd=md; lastDailyDate=iso;
-    const out=document.getElementById('dailyAIOut');
-    out.innerHTML=`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">💾 salvar .md</button><button class="btn primary sm" id="dailyPdf">📄 gerar PDF</button><span class="grow" style="flex:1"></span></div></div>`;
+    dailyOut(`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">💾 salvar .md</button><button class="btn primary sm" id="dailyPdf">📄 gerar PDF</button><span class="grow" style="flex:1"></span></div><div class="dim" id="dailyDocMsg" style="font-size:11px;margin-top:6px"></div></div>`);
     document.getElementById('dailyCopy2').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
-    document.getElementById('dailySaveMd').onclick=async function(){ this.disabled=true; try{ await invoke('save_doc',{ name:`relatorio-${iso}.md`, content:md }); this.textContent='salvo ✓ (Documents/Constellation)'; }catch(e){ alert('Falhou: '+e); this.disabled=false; } };
+    document.getElementById('dailySaveMd').onclick=async function(){ this.disabled=true; try{ const p=await invoke('save_doc',{ name:`relatorio-${iso}.md`, content:md }); this.textContent='salvo ✓'; const m=document.getElementById('dailyDocMsg'); if(m) m.textContent='DOC salvo em '+p; }catch(e){ const m=document.getElementById('dailyDocMsg'); if(m) m.textContent='Falhou salvar: '+(e&&e.message||e); this.disabled=false; } };
     document.getElementById('dailyPdf').onclick=dailyGenPdf;
-  }catch(e){ alert('Falhou o relatório:\n'+e); }
+  }catch(e){ dailyOut('<div class="imhint" style="border-left:2px solid var(--crit)">Falhou o relatório: '+esc(String(e&&e.message||e))+'</div>'); }
   btn.disabled=false; btn.textContent=o;
 }
 async function dailyGenPdf(){
   if(!lastDailyMd) return;
   const b=document.getElementById('dailyPdf'); b.disabled=true; const o=b.textContent; b.textContent='gerando PDF…';
+  const m=document.getElementById('dailyDocMsg');
   try{
     const p=await invoke('html_to_pdf',{ html: dailyPdfHtml(lastDailyMd, lastDailyDate), name:`relatorio-${lastDailyDate}` });
-    b.textContent='PDF aberto ✓';
-  }catch(e){ alert('Falhou o PDF:\n'+e); }
+    b.textContent='PDF aberto ✓'; if(m) m.textContent='PDF em '+p;
+  }catch(e){ if(m) m.textContent='Falhou o PDF: '+(e&&e.message||e); b.textContent=o; }
   b.disabled=false; setTimeout(()=>{ if(b) b.textContent=o; }, 2500);
 }
 function openDaily(){
