@@ -3347,6 +3347,51 @@ fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Login OAuth (Google): abre a URL de autorização no navegador e espera o
+/// callback num servidor local (127.0.0.1:8788). Devolve a query string do
+/// callback (ex.: "code=...&..."). Fluxo PKCE — o code é trocado por sessão no JS.
+#[tauri::command(async)]
+fn oauth_wait_callback(authorize_url: String) -> Result<String, String> {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    if !authorize_url.starts_with("https://") && !authorize_url.starts_with("http://") {
+        return Err("url de autorização inválida".into());
+    }
+    let listener = TcpListener::bind("127.0.0.1:8788")
+        .map_err(|e| format!("porta 8788 ocupada — feche outra tentativa de login e tente de novo ({e})"))?;
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    // abre o navegador na tela de login do Google (via Supabase)
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let _ = Command::new(opener).arg(&authorize_url).spawn();
+    // espera o callback (teto de 3 min)
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let mut buf = [0u8; 8192];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let first = req.lines().next().unwrap_or("");
+                let path = first.split_whitespace().nth(1).unwrap_or("");
+                let query = path.split('?').nth(1).unwrap_or("").to_string();
+                let body = "<!doctype html><html><head><meta charset=utf-8><title>Login</title><style>body{font:16px -apple-system,system-ui,sans-serif;background:#0e1113;color:#e6e6e6;display:grid;place-items:center;height:100vh;margin:0}</style></head><body><div style=\"text-align:center\"><div style=\"font-size:44px;color:#16a34a;line-height:1\">✓</div><h2 style=\"margin:14px 0 4px\">Login concluído</h2><p style=\"color:#94a3b8;margin:0\">Pode fechar esta aba e voltar pro Constellation.</p></div></body></html>";
+                let _ = stream.write_all(
+                    format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes(),
+                );
+                let _ = stream.flush();
+                return Ok(query);
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() > deadline {
+                    return Err("o login expirou (3 min sem retorno) — tente de novo".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            }
+            Err(e) => return Err(format!("erro no servidor de login: {e}")),
+        }
+    }
+}
+
 /// Branches candidatas a BASE do PR (remotas, sem as agent/*).
 #[tauri::command(async)]
 fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
@@ -4068,6 +4113,7 @@ pub fn run() {
             tunnel_start,
             tunnel_stop,
             open_url,
+            oauth_wait_callback,
             open_artifact,
             reveal_artifact,
             push_task,

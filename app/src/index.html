@@ -6514,6 +6514,42 @@ async function sbAuth(path, body){
   if(!r.ok) throw new Error(j.error_description || j.msg || j.message || ('auth falhou ('+r.status+')'));
   return j;
 }
+// ---- Login social Google (OAuth PKCE + callback local) ----
+function b64url(bytes){ return btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+async function pkcePair(){
+  const rnd=new Uint8Array(48); crypto.getRandomValues(rnd);
+  const verifier=b64url(rnd);
+  const hash=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return { verifier, challenge:b64url(new Uint8Array(hash)) };
+}
+async function loginGoogle(){
+  const g=document.getElementById('sbGoogle');
+  try{
+    if(g){ g.disabled=true; g.style.opacity='.6'; }
+    const { verifier, challenge }=await pkcePair();
+    const redirect='http://localhost:8788/callback';
+    const url=SB.url()+'/auth/v1/authorize?provider=google'
+      +'&redirect_to='+encodeURIComponent(redirect)
+      +'&code_challenge='+challenge+'&code_challenge_method=s256';
+    cloudMsg='Abrindo o Google no navegador — conclua o login lá e volte.'; renderCloud();
+    const query=await invoke('oauth_wait_callback',{ authorizeUrl:url });
+    const p=new URLSearchParams(query);
+    if(p.get('error')) throw new Error(p.get('error_description')||p.get('error'));
+    const code=p.get('code'); if(!code) throw new Error('o callback não trouxe o código de autorização');
+    // troca o code por sessão (PKCE)
+    const r=await fetch(SB.url()+'/auth/v1/token?grant_type=pkce',{ method:'POST',
+      headers:{ 'apikey':SB.key(), 'Content-Type':'application/json' },
+      body: JSON.stringify({ auth_code:code, code_verifier:verifier }) });
+    const j=await r.json().catch(()=>({}));
+    if(!j.access_token) throw new Error(j.error_description||j.msg||j.message||('troca falhou (HTTP '+r.status+')'));
+    SB.setSess(j); cloudMsg=''; await cloudLoad(); cloudBtnSync(); renderCloud(); try{ loginGateSync(); }catch(_){}
+  }catch(e){
+    let m=e&&e.message||String(e);
+    if(/provider.*not.*enabled|unsupported provider/i.test(m)) m='o provider Google ainda não está ligado no Supabase (Authentication → Providers → Google).';
+    else if(/redirect/i.test(m)) m='a URL http://localhost:8788/callback precisa estar na allowlist do Supabase (Authentication → URL Configuration → Redirect URLs).';
+    cloudMsg='Falha no login com Google: '+m; renderCloud();
+  }finally{ if(g){ g.disabled=false; g.style.opacity=''; } }
+}
 async function sbRefresh(){
   const s = SB.sess(); if(!s || !s.refresh_token) return null;
   try{ const j = await sbAuth('token?grant_type=refresh_token', { refresh_token: s.refresh_token }); SB.setSess(j); return j; }
@@ -6624,6 +6660,8 @@ async function renderCloud(){
   if(!SB.sess()){
     head.textContent='Entrar';
     body.innerHTML = cloudMsgHtml()+`
+      <button class="btn" id="sbGoogle" style="width:100%;justify-content:center;gap:9px;padding:9px;font-weight:600"><svg viewBox="0 0 18 18" width="16" height="16"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>Entrar com Google</button>
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0"><span style="flex:1;height:1px;background:var(--border)"></span><span class="dim" style="font-size:11px">ou</span><span style="flex:1;height:1px;background:var(--border)"></span></div>
       <label>E-mail</label><input class="in" id="sbEmail" placeholder="voce@empresa.com" value="${escA(lsGet('sb:email')||'')}">
       <label style="margin-top:12px">Senha</label><input class="in" id="sbPass" type="password" placeholder="••••••••">
       <div style="display:flex;gap:8px;margin-top:16px;align-items:center"><button class="btn sm" id="sbCfgEdit" title="trocar URL/chave do backend">backend…</button><span style="flex:1"></span><button class="btn" id="sbSignup">criar conta</button><button class="btn primary" id="sbLogin">entrar</button></div>
@@ -6656,6 +6694,7 @@ async function renderCloud(){
     };
     document.getElementById('sbLogin').onclick=()=>go('in');
     document.getElementById('sbSignup').onclick=()=>go('up');
+    { const g=document.getElementById('sbGoogle'); if(g) g.onclick=loginGoogle; }
     document.getElementById('sbPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go('in'); });
     document.getElementById('sbCfgEdit').onclick=()=>{ cloudCfgOpen=true; renderCloud(); };
     return;
