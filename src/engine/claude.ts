@@ -8,6 +8,19 @@ import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 
+/** A tarefa parece web/UI? Só nesses casos o agente ganha o navegador (Playwright). */
+function needsBrowser(spec: { title?: string; objective?: string; deliverables?: string[]; requirements?: string[]; kind?: string }): boolean {
+  if (spec.kind === "design") return true;
+  const hay = [spec.title, spec.objective, ...(spec.deliverables ?? []), ...(spec.requirements ?? [])]
+    .filter(Boolean).join(" ").toLowerCase();
+  return /\b(ui|ux|tela|telas|front[- ]?end|frontend|web|p[áa]gina|p[áa]ginas|navegador|browser|playwright|puppeteer|e2e|end[- ]?to[- ]?end|screenshots?|responsiv\w*|css|landing|dashboard|modal|formul[áa]rio|bot[ãa]o|componente\w* visua)\b/.test(hay);
+}
+/** npx ao lado do node em uso (nvm/homebrew) — evita PATH stale; senão "npx". */
+function npxNear(): string {
+  const cand = join(dirname(process.execPath), "npx");
+  return existsSync(cand) ? cand : "npx";
+}
+
 /**
  * Acha o binário do `claude` sem depender do PATH — que pode estar stale quando
  * o app é lançado via LaunchServices (LSEnvironment). Ordem: CARDUME_CLAUDE →
@@ -148,17 +161,21 @@ export class ClaudeEngine implements AgentEngine {
       " JULGAMENTO DE PRONTO — RECONHEÇA QUANDO ACABOU: antes de CADA nova rodada de trabalho, releia os requisitos e pergunte 'a evidência que JÁ TENHO satisfaz o critério como escrito?'. Se sim, PARE de coletar e FINALIZE — continuar 'reforçando' evidência já suficiente é desperdício, não rigor. Distinga determinístico de não-determinístico: código/teste SEU que falha é bug — investigue até a causa; saída de LLM/UI/rede que VARIA entre execuções é não-determinismo — no MÁXIMO 2 re-tentativas, e se seguir variando registre a ressalva honesta com os dados que tem e siga em frente (variação não é falha nem evidência faltante). PROIBIDO: loops de sleep/espera repetidos aguardando um resultado mudar sozinho, e re-rodar o mesmo comando esperando resultado diferente. Se um requisito parecer impossível de cumprir literalmente, mostre a evidência via mcp__cardume__ask_human em vez de moer.";
     const parallelRule =
       " RITMO E PARALELISMO — FECHE RÁPIDO: seu objetivo é CONVERGIR pra solução no menor tempo, não explorar sem fim. Divida o trabalho restante em frentes INDEPENDENTES e dispare subagentes (tool Task) EM PARALELO — várias chamadas Task na MESMA mensagem — ex.: reproduzir o bug ∥ escrever o teste ∥ varrer o código por ocorrências ∥ validar na UI. Cada subagente recebe instrução autocontida (arquivos, objetivo, critério de pronto) e a regra de ouro vale pra ele também. Só serialize o que realmente depende de resultado anterior. Passou de ~15 minutos sem avanço CONCRETO (edição, teste passando, causa provada)? PARE de insistir na mesma linha: paralelize hipóteses com subagentes ou pergunte via mcp__cardume__ask_human. Trabalho longo sem fechar pendência é falha, não diligência.";
+    const wantsBrowser = needsBrowser(input.spec);
+    const browserRule = wantsBrowser
+      ? " NAVEGADOR (mcp__playwright__*): você tem um navegador REAL e VISÍVEL na tela. Use pra PROVAR o comportamento na UI de verdade — suba o app local desta branch, navegue até a página, clique, preencha e tire SCREENSHOTS salvando em .cardume/artifacts/proof.png (ou proof-<n>.png). NUNCA descreva a tela lendo o código: abra e olhe. O humano vê a MESMA janela e pode assumir o controle a qualquer momento."
+      : "";
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e
     // entregáveis sob demanda) — sem elas os agentes adivinham e serializam.
     const prompt = input.resume
-      ? input.resume.instruction + groundRule + doneRule + parallelRule
-      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule : baseline);
+      ? input.resume.instruction + groundRule + doneRule + parallelRule + browserRule
+      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule : baseline);
 
     // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
     // Dev: src/mcp/server.ts ao lado do fonte. App empacotado: o bundle vira
@@ -186,6 +203,21 @@ export class ClaudeEngine implements AgentEngine {
               CARDUME_ASK_TIMEOUT_MIN: String(input.askTimeoutMin ?? 0),
             },
           },
+          // Navegador REAL e VISÍVEL só em tarefas web/UI — usa o Chrome do sistema
+          // (headed, sem baixar Chromium). O humano vê a janela e pode assumir.
+          ...(wantsBrowser
+            ? {
+                playwright: {
+                  command: npxNear(),
+                  args: [
+                    "-y", "@playwright/mcp@latest",
+                    "--browser", "chrome",
+                    "--viewport-size", "1280,800",
+                    "--output-dir", join(input.cwd, ".cardume", "artifacts"),
+                  ],
+                },
+              }
+            : {}),
         },
       }),
       "utf8"
