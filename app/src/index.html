@@ -3602,6 +3602,7 @@ function wireLinkChips(root){
 }
 let flowScope=lsGet('flowScope')||'all';   // all | mine | done (abas da Central)
 let ffAdvOpen=false;                        // filtros avançados recolhidos por padrão
+let flowLastHtml=null;                      // último HTML do flow — pula rebuild idêntico (evita piscar no hover)
 function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
   const scopeOk=t=> flowScope==='done'
@@ -3931,33 +3932,42 @@ function renderFlow(){
   const el=document.getElementById("flow");
   el.classList.toggle('gridview', flowView==='grid');
   const ghost='<div class="fcard ghost" id="ghostNew"><span class="gplus">＋</span><b>Nova demanda</b><span style="font-size:12px">descreva o que precisa ser feito — o time de agentes cuida do resto</span></div>';
-  if(!(state.tasks||[]).length){ el.innerHTML=ghost; const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask; return; }
-  const vis=flowVisible(state.tasks).slice();
-  const hasManual=vis.some(t=>t.sortOrder!=null);
-  const tasks = hasManual
-    ? vis.sort((a,b)=> (a.sortOrder??1e15)-(b.sortOrder??1e15) || b.created_at-a.created_at)
-    : vis.sort((a,b)=> b.created_at-a.created_at);
-  if(!tasks.length){ el.innerHTML='<div class="empty">nenhuma tarefa neste filtro.</div>'; return; }
-  const grouped = flowGroupBy==='day';
-  // lista = LINHAS compactas (redesign p2); grade = cards
-  const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowTaskRow(t));
-  if(grouped){
-    const g=new Map();
-    for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
-    const keys=[...g.keys()].sort((a,b)=>b-a);
-    el.innerHTML = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("");
-  } else if(hasManual){
-    el.innerHTML = tasks.map(t=>item(t)).join("");
-  } else {
-    // AGRUPADO POR ESTADO (redesign "Central de execuções")
-    const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
-    el.innerHTML = FLOW_SECS.map(([k,label,tone,acc])=>{
-      const list=by[k]||[]; if(!list.length) return '';
-      const cards=list.map(t=>item(t, acc)).join("");
-      return `<div class="secgrp"><div class="sech ${tone}">${esc(label)} <span class="n">${list.length}</span></div>${cards}${k==='andamento'?'':''}</div>`;
-    }).join("") + ghost;
-    const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask;
+  // monta o HTML numa string (não escreve direto no DOM) pra poder pular o rebuild
+  // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
+  // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
+  let tasks=[], html='';
+  if(!(state.tasks||[]).length){ html=ghost; }
+  else {
+    const vis=flowVisible(state.tasks).slice();
+    const hasManual=vis.some(t=>t.sortOrder!=null);
+    tasks = hasManual
+      ? vis.sort((a,b)=> (a.sortOrder??1e15)-(b.sortOrder??1e15) || b.created_at-a.created_at)
+      : vis.sort((a,b)=> b.created_at-a.created_at);
+    if(!tasks.length){ html='<div class="empty">nenhuma tarefa neste filtro.</div>'; }
+    else {
+      const grouped = flowGroupBy==='day';
+      const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowTaskRow(t));
+      if(grouped){
+        const g=new Map();
+        for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
+        const keys=[...g.keys()].sort((a,b)=>b-a);
+        html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("");
+      } else if(hasManual){
+        html = tasks.map(t=>item(t)).join("");
+      } else {
+        const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
+        html = FLOW_SECS.map(([k,label,tone,acc])=>{
+          const list=by[k]||[]; if(!list.length) return '';
+          const cards=list.map(t=>item(t, acc)).join("");
+          return `<div class="secgrp"><div class="sech ${tone}">${esc(label)} <span class="n">${list.length}</span></div>${cards}</div>`;
+        }).join("") + ghost;
+      }
+    }
   }
+  // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
+  if(html===flowLastHtml && el.firstChild) return;
+  el.innerHTML=html; flowLastHtml=html;
+  { const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask; }
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow').forEach(row=>{
