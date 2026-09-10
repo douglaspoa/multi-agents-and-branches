@@ -3416,10 +3416,21 @@ async function prPrepFinish(t, base){
     prHideRetry();
     prCache[t.id]=undefined; await loadPr(t.id,true); lastSig=''; renderSide();
     if(typeof renderWorkspace==='function'&&fwTask===t.id){ fwMode='pr'; renderWorkspace(); }
-  }catch(e){ const h=prNetHint(e);
-    prepMark(3,'fail', (h?`<b>${esc(h)}</b><div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(String(e).slice(0,240))}</div>`:esc(String(e))));
-    // a branch já foi enviada — re-tentar só a criação do PR
-    prShowRetry(()=>prPrepFinish(t, base)); }
+  }catch(e){ const s=String(e); const h=prNetHint(e);
+    // gh sem acesso/SSO ao repo (comum em quem não é membro da org ou sem SSO): o
+    // push funcionou, então dá pra criar o PR no NAVEGADOR (a sessão do dev tem acesso).
+    const ghAccess=/could not resolve to a repository|graphql|sso|not authorized|não enxerga/i.test(s);
+    prepMark(3,'fail', (h?`<b>${esc(h)}</b><div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(s.slice(0,240))}</div>`:esc(s)));
+    if(ghAccess && !h){
+      try{ const cu=await invoke('pr_compare_url',{ taskId:t.id, base }); const d=document.getElementById('prep3d');
+        if(d&&cu){ d.insertAdjacentHTML('beforeend', `<div style="margin-top:8px"><button class="btn primary sm" data-prweb="${escA(cu)}" title="a branch já foi enviada — abre a página do GitHub pra criar o PR, onde a SUA conta tem acesso à org">criar o PR no navegador ↗</button></div>`);
+          const wb=d.querySelector('[data-prweb]'); if(wb) wb.onclick=()=>invoke('open_url',{url:wb.dataset.prweb}).catch(()=>{}); }
+      }catch(_){ prShowRetry(()=>prPrepFinish(t, base)); }
+    } else {
+      // a branch já foi enviada — re-tentar só a criação do PR (ex.: falha de rede)
+      prShowRetry(()=>prPrepFinish(t, base));
+    }
+  }
 }
 async function openPr(t){
   const base=(document.getElementById('prBase')||{}).value||'main';

@@ -3296,6 +3296,23 @@ fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
     Ok(set)
 }
 
+/// URL pra criar o PR no NAVEGADOR (a branch já foi empurrada). Fallback quando o
+/// `gh` do dev não enxerga o repo (sem convite/SSO) mas o navegador dele SIM.
+#[tauri::command]
+fn pr_compare_url(state: State<AppState>, task_id: String, base: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let out = Command::new("git").arg("-C").arg(&repo)
+        .args(["config", "--get", "remote.origin.url"]).output().map_err(|e| e.to_string())?;
+    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if raw.is_empty() { return Err("sem remote origin".into()); }
+    let mut s = raw.trim_end_matches(".git").to_string();
+    if let Some(rest) = s.strip_prefix("git@") { s = rest.replacen(':', "/", 1); }
+    else { for p in ["https://", "http://", "ssh://git@", "ssh://"] { if let Some(rest) = s.strip_prefix(p) { s = rest.to_string(); break; } } }
+    let path = s.strip_prefix("github.com/").ok_or("criar PR pelo navegador só vale pra repos do github.com")?;
+    let branch = task_branch(&state, &task_id)?;
+    let b = if base.trim().is_empty() { "main" } else { base.trim() };
+    Ok(format!("https://github.com/{path}/compare/{b}...{branch}?expand=1"))
+}
 /// Abre um PR: faz push da branch da tarefa e cria o PR (base escolhida).
 #[tauri::command(async)]
 fn open_pr(state: State<AppState>, task_id: String, base: String, title: String, body: String) -> Result<String, String> {
@@ -3989,6 +4006,7 @@ pub fn run() {
             read_ref,
             list_branches,
             open_pr,
+            pr_compare_url,
             pr_status,
             merge_pr,
             rework_from_pr,
