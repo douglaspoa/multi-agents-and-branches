@@ -3943,7 +3943,9 @@ function renderFlow(){
     tasks = hasManual
       ? vis.sort((a,b)=> (a.sortOrder??1e15)-(b.sortOrder??1e15) || b.created_at-a.created_at)
       : vis.sort((a,b)=> b.created_at-a.created_at);
-    if(!tasks.length){ html='<div class="empty">nenhuma tarefa neste filtro.</div>'; }
+    if(!tasks.length){ html = flowQuery.trim()
+      ? `<div class="empty">nenhuma tarefa para <b>"${esc(flowQuery.trim())}"</b> · <a class="lnk" id="flowClearSearch" style="cursor:pointer">limpar busca</a></div>`
+      : '<div class="empty">nenhuma tarefa neste filtro.</div>'; }
     else {
       const grouped = flowGroupBy==='day';
       const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowTaskRow(t));
@@ -3968,6 +3970,7 @@ function renderFlow(){
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
   { const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask; }
+  { const c=document.getElementById('flowClearSearch'); if(c) c.onclick=()=>{ flowQuery=''; const a=document.getElementById('topSearch'); if(a) a.value=''; const b=document.getElementById('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); }; }
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow').forEach(row=>{
