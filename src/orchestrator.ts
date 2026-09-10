@@ -1,5 +1,5 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { GitService } from "./git.ts";
@@ -917,7 +917,11 @@ export class Orchestrator {
   private async talkToAgentInner(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
-    if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida");
+    // mergeada NÃO impede conversar se a worktree ainda existe (o merge nem sempre
+    // remove) — só barra quando a worktree sumiu de verdade.
+    if (task.status === "merged" && !existsSync(task.worktree)) {
+      throw new Error("tarefa mergeada e a worktree já foi removida — abra uma correção linkada pra continuar.");
+    }
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     // pedido novo vira REQUISITO da tarefa (checklist cresce e cobra evidência)
     if (asReq && message.trim()) {
