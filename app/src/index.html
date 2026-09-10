@@ -3900,7 +3900,8 @@ function openStatusMenu(taskId, anchor){
     { key:'merged',  label:'✓ Mergeado',          col:'var(--good)', act:setSt('merged') },
     { key:'finished',label:'★ Finalizado · sai da fila', col:'var(--accent)', act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
     { key:'cancelled',label:'⊘ Cancelada · para e sai da fila', col:'var(--crit)', act:async()=>{ await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } },
-    { key:'draft',   label:'✎ Rascunho',          col:'var(--muted)', act:setSt('draft') },
+    // "Rascunho" NÃO entra: rebaixar uma task já iniciada pra draft a tornava
+    // não-abrível (o clique ia pro editor) — footgun. Rascunho é só na criação.
   ];
   const pop=document.createElement('div');
   pop.id='stmenuPop';
@@ -3925,6 +3926,10 @@ function openStatusMenu(taskId, anchor){
   pop.style.left=Math.max(10, Math.min(window.innerWidth-pop.offsetWidth-10, r.right-pop.offsetWidth))+'px';
   setTimeout(()=>{ const close=(e)=>{ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click',close); } }; document.addEventListener('click',close); },0);
 }
+// a task JÁ foi iniciada (tem PR ou commits)? Se sim, clicar abre o workspace
+// mesmo com status 'draft' — senão iria pro editor e não dava pra falar com o agente.
+function taskStarted(t){ return !!(t && (t.prUrl || (commitsCache[t.id] && commitsCache[t.id].length))); }
+function openOrEdit(t){ if(t.status==='draft' && !taskStarted(t)) editDraft(t); else openWorkspace(t.id); }
 function renderFlow(){
   if(flowDragId) return;   // não re-renderiza no meio de um arrasto
   renderFlowHead();
@@ -3977,8 +3982,7 @@ function renderFlow(){
     row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-arch],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg]')) return;
       const t=(state.tasks||[]).find(x=>x.id===row.dataset.id); if(!t) return;
       selected=t.id; render();
-      if(t.status==='draft'){ editDraft(t); return; }
-      openWorkspace(t.id);
+      openOrEdit(t);
     };
     row.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(row.dataset.id, e.target); });
   });
@@ -4006,7 +4010,7 @@ function renderFlow(){
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('[data-stmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openStatusMenu(b.dataset.stmenu, b); });
   el.querySelectorAll('.fcard:not(.ghost)').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-arch],[data-tmenu],[data-stmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
+    card.onclick=(e)=>{ if(e.target.closest('.fcommit,[data-lk],[data-lkcfg],[data-pvrow],[data-pvmob],[data-sum],[data-ctog],[data-rowpr],[data-arch],[data-tmenu],[data-stmenu]')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; openOrEdit(t); };
     card.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(card.dataset.id, e.target); });
     if(grouped) return;   // arrastar só faz sentido na lista plana
     card.setAttribute('draggable','true');
@@ -4054,7 +4058,7 @@ function renderKanban(){
   for(const t of (state.tasks||[]).filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
   el.innerHTML = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
   el.querySelectorAll('.kcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; if(t.status!=='draft') openWorkspace(t.id); else editDraft(t); };
+    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; selected=card.dataset.id; render(); const t=(state.tasks||[]).find(x=>x.id===card.dataset.id); if(!t) return; openOrEdit(t); };
     card.addEventListener('dragstart',e=>{ kDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
     card.addEventListener('dragend',()=>{ kDragId=null; card.classList.remove('dragging'); el.querySelectorAll('.kcol').forEach(c=>c.classList.remove('over')); });
   });

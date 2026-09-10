@@ -418,7 +418,16 @@ async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false
     process.exit(1);
   }
   console.log(c.dim(`→ conversando com o agente …`));
-  await orch.talkToAgent(taskId, msg.trim(), asReq, agent);
+  try {
+    await orch.talkToAgent(taskId, msg.trim(), asReq, agent);
+  } catch (e) {
+    // grava o erro no FEED da task pra ele NÃO sumir (o app spawna com stderr→null)
+    const em = (e as Error)?.message || String(e);
+    try { orch.store.addEvent(taskId, "Sistema", "error", "não consegui falar com o agente: " + em, false); } catch { /* ignore */ }
+    console.error(c.red("✖ " + em));
+    orch.close();
+    process.exit(1);
+  }
   console.log(c.green("✔") + " o agente respondeu");
   orch.close();
 }
