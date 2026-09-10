@@ -166,7 +166,8 @@ export class ClaudeEngine implements AgentEngine {
     const steerText = input.resume?.instruction || input.promptOverride || "";
     const wantsBrowser = needsBrowser(input.spec) || needsBrowser({ objective: steerText });
     const browserRule = wantsBrowser
-      ? " NAVEGADOR (mcp__playwright__*): você tem um navegador REAL e VISÍVEL na tela. Use pra PROVAR o comportamento na UI de verdade — suba o app local desta branch, navegue até a página, clique, preencha e tire SCREENSHOTS salvando em .cardume/artifacts/proof.png (ou proof-<n>.png). NUNCA descreva a tela lendo o código: abra e olhe. O humano vê a MESMA janela e pode assumir o controle a qualquer momento."
+      ? " NAVEGADOR (mcp__playwright__*): você tem um navegador REAL e VISÍVEL na tela, com PERFIL PERSISTENTE (logins ficam salvos entre execuções). Use pra PROVAR o comportamento na UI de verdade — suba o app local desta branch, navegue até a página, clique, preencha e tire SCREENSHOTS salvando em .cardume/artifacts/proof.png (ou proof-<n>.png). NUNCA descreva a tela lendo o código: abra e olhe." +
+        " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, um formulário que só o humano tem os dados) — NÃO tente logar nem inventar credenciais. Navegue até a tela, tire um screenshot, e chame mcp__cardume__ask_human dizendo 'abri o navegador na tela X, faça login/preencha e me avise quando terminar' e AGUARDE. O humano usa a MESMA janela pra logar; quando ele responder, continue de onde parou — a sessão dele já estará ativa no navegador. Peça login UMA vez: o perfil persiste, então em rodadas seguintes você provavelmente já estará logado."
       : "";
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
@@ -217,6 +218,10 @@ export class ClaudeEngine implements AgentEngine {
                     "--browser", "chrome",
                     "--viewport-size", "1280,800",
                     "--output-dir", join(input.cwd, ".cardume", "artifacts"),
+                    // perfil PERSISTENTE por repo → você loga UMA vez e a sessão
+                    // fica salva pras próximas rodadas (cookies/login preservados).
+                    "--user-data-dir", join(homedir(), ".constellation", "browser",
+                      (input.cwd.split("/.cardume/")[0] || input.cwd).replace(/[^a-zA-Z0-9]+/g, "_").slice(-60)),
                   ],
                 },
               }
