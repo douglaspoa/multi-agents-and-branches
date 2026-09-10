@@ -259,15 +259,21 @@ export class ClaudeEngine implements AgentEngine {
     };
     resetIdle();
 
+    // guarda o ÚLTIMO motivo de erro visto (stderr ou linha de saída com cara de
+    // erro) pra ENRIQUECER o texto da morte — senão "código 1" some o porquê real
+    // (ex.: limite de uso) e os detectores de retry/espera não conseguem agir.
+    let lastErr = "";
+    const CAUSE_RE = /session limit|usage limit|hit your .{0,24}limit|limit reached|rate[ _-]?limit|too many requests|\b429\b|quota|overloaded|resets? (at|\d)|try again later|insufficient|unauthorized|forbidden|\b401\b|\b403\b/i;
     rl.on("line", (line) => {
       resetIdle();
+      if (CAUSE_RE.test(line)) lastErr = line.slice(0, 300);
       for (const ev of mapLine(line)) queue.push(ev);
       wake();
     });
     child.stderr.on("data", (d) => {
       resetIdle();
       const s = String(d).trim();
-      if (s) queue.push({ type: "note", text: `stderr: ${s.slice(0, 140)}` });
+      if (s) { lastErr = s.slice(0, 300); queue.push({ type: "note", text: `stderr: ${s.slice(0, 140)}` }); }
       wake();
     });
     child.on("close", (code) => {
@@ -275,7 +281,7 @@ export class ClaudeEngine implements AgentEngine {
       if (!queue.some((e) => e.type === "done")) {
         queue.push({
           type: code === 0 ? "note" : "error",
-          text: code === 0 ? "claude finalizou" : `claude saiu com código ${code}`,
+          text: code === 0 ? "claude finalizou" : `claude saiu com código ${code}${lastErr ? " — " + lastErr : ""}`,
           status: code === 0 ? undefined : "error",
         });
       }

@@ -318,7 +318,7 @@ export class Orchestrator {
   /** O erro é o LIMITE DE USO/RATE da conta (não o contexto)? Esses resetam com o
    * tempo — a saída é ESPERAR e retomar, não recomeçar na hora. */
   private static usageLimitDeath(text: string): boolean {
-    return /usage limit|rate[ _-]?limit|too many requests|\b429\b|quota|resets? at|limit reached.*(plan|upgrade)|upgrade to increase|please try again later/i.test(text || "");
+    return /session limit|usage limit|hit your .{0,24}limit|rate[ _-]?limit|too many requests|\b429\b|quota|resets? (at|\d)|limit reached|upgrade to increase|please try again later/i.test(text || "");
   }
 
   /** Instrução pra RETOMAR uma tarefa que morreu — o parcial está na worktree. */

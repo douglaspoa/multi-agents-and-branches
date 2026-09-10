@@ -1664,11 +1664,12 @@
   </div>
 </div>
 <!-- Planos & assinatura (Stripe Checkout no navegador — cartão nunca toca o app) -->
-<div class="overlay" id="payOverlay" style="display:none;z-index:110">
-  <div class="modal" style="width:min(660px,100%);padding:28px 30px">
+<div class="overlay" id="payOverlay" style="display:none;z-index:110;background:var(--bg)">
+  <div class="modal" style="width:100%;height:100%;max-width:none;border-radius:0;border:0;background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+   <div style="width:min(660px,92%)">
     <div style="text-align:center">
-      <div style="font-size:30px;line-height:1;color:var(--accent)">✦</div>
-      <h2 style="margin:10px 0 4px;font-size:19px">Assine o Constellation</h2>
+      <div style="font-size:34px;line-height:1;color:var(--accent)">✦</div>
+      <h2 style="margin:12px 0 4px;font-size:22px">Assine o Constellation</h2>
       <div class="dim" style="font-size:12.5px" id="payHint">7 dias grátis — a cobrança só começa depois do teste, e dá pra cancelar em 2 cliques.</div>
     </div>
     <div style="display:flex;justify-content:center;margin:16px 0 14px">
@@ -1681,6 +1682,7 @@
       <span style="flex:1"></span>
       <button class="btn sm" id="payRefresh">já assinei — atualizar</button>
     </div>
+   </div>
   </div>
 </div>
 <!-- Publicar release: notas + progresso + sucesso (prompt() não existe no webview) -->
@@ -6467,7 +6469,7 @@ function closeCloud(){
 
 async function cloudLoad(){
   const orgs = await sbGet('orgs?select=*');
-  if(!orgs || !orgs.length){ cloudData = { org:null, teams:[], members:[], teamMembers:{}, orgMembers:[], invites:[], profileByUser:{}, meRole:'member' }; return; }
+  if(!orgs || !orgs.length){ cloudData = { org:null, teams:[], members:[], teamMembers:{}, orgMembers:[], invites:[], profileByUser:{}, meRole:'member' }; try{ billingSync(); }catch(_){} return; }
   const org = orgs[0]; // v1: uma org por usuário
   const [teams, myOrg, orgMembers] = await Promise.all([
     sbGet('teams?select=id,name&org_id=eq.'+org.id+'&order=name'),
@@ -6487,6 +6489,7 @@ async function cloudLoad(){
   const profileByUser={};
   if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); profs.forEach(p=>{ profileByUser[p.user_id]=p; }); }
   cloudData = { org, teams, teamMembers, orgMembers, invites, profileByUser, meRole:(myOrg[0]||{}).role||'member', members: teamMembers[teamId]||[] };
+  try{ billingSync(); }catch(_){}
 }
 
 function cloudBtnSync(){
@@ -6776,11 +6779,13 @@ async function billingSync(){
     billingPlans=await sbGet('billing_plans?select=*&active=eq.true');
     billingOn=billingPlans.length>0;
     if(!billingOn){ payHide(); return; }
-    // licença ENTERPRISE da organização cobre TODOS os membros (inclusive futuros)
-    let orgOk=false;
-    const orgId=cloudData&&cloudData.org&&cloudData.org.id;
-    if(orgId){ try{ const o=await sbGet('orgs?select=plan,paid_until&id=eq.'+orgId);
-      const org=o[0]; orgOk=!!(org && org.plan==='enterprise' && (!org.paid_until || new Date(org.paid_until)>new Date())); }catch(_){ } }
+    // enquanto os dados da conta não carregaram, NÃO trave (senão o paywall pisca
+    // pra quem tem plano/enterprise) — um sync posterior (pós-cloudLoad) decide.
+    if(!cloudData){ payHide(); return; }
+    // licença ENTERPRISE da org cobre TODOS os membros — lê direto do cloudData.org
+    // (já vem com plan/paid_until via select=*), sem query extra nem corrida.
+    const org=cloudData.org;
+    const orgOk=!!(org && org.plan==='enterprise' && (!org.paid_until || new Date(org.paid_until)>new Date()));
     if(orgOk){ myBilling={ plan:'enterprise', status:'active', org:true }; payHide(); return; }
     const rows=await sbGet('billing?select=*');
     const mine=rows.find(r=>r.user_id===cloudUserId());
