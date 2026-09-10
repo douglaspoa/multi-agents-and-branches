@@ -347,6 +347,8 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     // abre o app). As do motor via osascript saem como "Editor de Script" e o
     // clique abre ele; caladas aqui. No CLI puro (sem app) elas continuam.
     cmd.env("CARDUME_NOTIFY", "0");
+    // intervalo (min) pra retomar sozinho quando bate o limite de uso da IA
+    if let Some(m) = setting_get("limitRetryMin") { cmd.env("CARDUME_LIMIT_RETRY_MIN", m); }
     unsafe {
         cmd.pre_exec(|| {
             // novo grupo/sessão: o node vira líder e o claude herda o grupo
@@ -2413,6 +2415,35 @@ fn write_llm_env(content: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Preferências do app (não-segredos) em ~/.constellation/settings.json.
+fn settings_path() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("settings.json")
+}
+fn setting_get(key: &str) -> Option<String> {
+    let content = std::fs::read_to_string(settings_path()).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    match v.get(key)? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        other => Some(other.to_string()),
+    }
+}
+#[tauri::command]
+fn read_settings() -> Result<String, String> {
+    Ok(std::fs::read_to_string(settings_path()).unwrap_or_else(|_| "{}".into()))
+}
+#[tauri::command]
+fn write_setting(key: String, value: String) -> Result<(), String> {
+    let p = settings_path();
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    let mut v: serde_json::Value = std::fs::read_to_string(&p).ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !v.is_object() { v = serde_json::json!({}); }
+    if let Some(obj) = v.as_object_mut() { obj.insert(key, serde_json::Value::String(value)); }
+    std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into())).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Baixa um anexo do celular (Storage task-refs) pra .cardume/refs da worktree
 /// da tarefa — o agente recebe o caminho e ABRE a imagem.
 #[tauri::command(async)]
@@ -3892,6 +3923,8 @@ pub fn run() {
             repo_doc_write,
             read_llm_env,
             write_llm_env,
+            read_settings,
+            write_setting,
             fetch_task_ref,
             slack_send_artifact,
             open_project,

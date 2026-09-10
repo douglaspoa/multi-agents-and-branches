@@ -2376,6 +2376,8 @@ function openCfg(){
     <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/logcomex/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
     <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
     <input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}" style="width:110px;margin-top:6px">
+    <label style="margin-top:16px">Retomar após limite de uso da IA <span class="dim" style="text-transform:none;letter-spacing:0">(quando bate o limite da conta, a tarefa espera e retoma sozinha a cada X min — 0 desliga)</span></label>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><input class="in" id="cfgLimitRetry" type="number" min="0" max="240" step="5" value="60" style="width:110px"><span class="dim">min</span></div>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn sm" id="cfgEnv">🩺 verificar ambiente</button>
@@ -2383,7 +2385,11 @@ function openCfg(){
       <button class="btn sm" id="cfgTour">rever o tour</button>
     </div>
     <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
-  document.getElementById('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat(document.getElementById('cfgCost').value)||0))); lsSet('issueBase', document.getElementById('cfgIssueBase').value.trim()); setSlotMax(parseInt(document.getElementById('cfgSlots').value,10)||4); lastSig=''; document.getElementById('cfgOverlay').style.display='none'; };
+  // carrega o intervalo de retomada salvo (settings.json via Rust)
+  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=document.getElementById('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); }catch(_){} }).catch(()=>{});
+  document.getElementById('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat(document.getElementById('cfgCost').value)||0))); lsSet('issueBase', document.getElementById('cfgIssueBase').value.trim()); setSlotMax(parseInt(document.getElementById('cfgSlots').value,10)||4);
+    { const lrm=Math.max(0, Math.min(240, parseInt(document.getElementById('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
+    lastSig=''; document.getElementById('cfgOverlay').style.display='none'; };
   document.getElementById('cfgEnv').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; openEnv(); };
   document.getElementById('cfgBackend').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; cloudCfgOpen=true; openCloud(); };
   document.getElementById('cfgTour').onclick=()=>{ document.getElementById('cfgOverlay').style.display='none'; openOnboarding(); };

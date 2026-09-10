@@ -315,10 +315,18 @@ export class Orchestrator {
     return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text);
   }
 
+  /** O erro é o LIMITE DE USO/RATE da conta (não o contexto)? Esses resetam com o
+   * tempo — a saída é ESPERAR e retomar, não recomeçar na hora. */
+  private static usageLimitDeath(text: string): boolean {
+    return /usage limit|rate[ _-]?limit|too many requests|\b429\b|quota|resets? at|limit reached.*(plan|upgrade)|upgrade to increase|please try again later/i.test(text || "");
+  }
+
   /** Instrução pra RETOMAR uma tarefa que morreu — o parcial está na worktree. */
-  private static continuePrompt(kind: "token" | "idle"): string {
+  private static continuePrompt(kind: "token" | "idle" | "limit"): string {
     const cause = kind === "token"
       ? "A sessão anterior ESTOUROU O LIMITE DE TOKENS e foi encerrada."
+      : kind === "limit"
+      ? "A sessão anterior parou porque o LIMITE DE USO da IA foi atingido; ele já resetou e dá pra continuar."
       : "A sessão anterior foi ENCERRADA por inatividade (ficou minutos sem emitir saída). Se você estava rodando algo demorado e silencioso, vá REPORTANDO progresso (uma linha a cada passo) pra não ser encerrado de novo; NÃO fique em loops de espera silenciosa.";
     return cause + " O trabalho já feito está NESTA worktree: confira git status, git diff, .cardume/PLAN.md e .cardume/artifacts. Leia .cardume/TASK.yaml e CONTINUE de onde parou até finalizar TODOS os requisitos — não recomece do zero.";
   }
@@ -407,12 +415,18 @@ export class Orchestrator {
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
-      // Morte recuperável (estouro de tokens OU inatividade/SIGTERM) NÃO mata a
-      // tarefa: recomeça sozinha uma sessão NOVA continuando do que já está na
-      // worktree. Até 2 auto-tentativas; depois disso, para e espera o humano.
+      // Morte recuperável NÃO mata a tarefa — recomeça uma sessão NOVA continuando
+      // da worktree. Token/inatividade: até 2 tentativas na hora. Limite de USO da
+      // IA: ESPERA o intervalo configurado (CARDUME_LIMIT_RETRY_MIN, padrão 60min)
+      // e retoma, repetindo até destravar (cap generoso).
       const MAX_TRIES = 3;
-      let deathKind: "token" | "idle" = "idle";
-      for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
+      const MAX_LIMIT_WAITS = 24;
+      const rawLimit = parseInt(process.env.CARDUME_LIMIT_RETRY_MIN || "60", 10);
+      const LIMIT_ENABLED = Number.isFinite(rawLimit) && rawLimit > 0; // 0 = desligado
+      const LIMIT_MIN = Math.max(5, LIMIT_ENABLED ? rawLimit : 60);
+      let deathKind: "token" | "idle" | "limit" = "idle";
+      let hardTry = 0, limitWait = 0, attemptNo = 0;
+      while (true) {
         roleFailed = false;
         let deathText = "";
         const input = {
@@ -422,7 +436,7 @@ export class Orchestrator {
           role: r.role,
           agentName: r.name,
           dbFile: this.ws.dbFile,
-          ...(attempt > 0 ? { promptOverride: Orchestrator.continuePrompt(deathKind) } : {}),
+          ...(attemptNo > 0 ? { promptOverride: Orchestrator.continuePrompt(deathKind) } : {}),
         };
         try {
           for await (const ev of engine.run(input)) {
@@ -445,7 +459,7 @@ export class Orchestrator {
           }
         } catch (err) {
           const msg = (err as Error).message;
-          if (attempt < MAX_TRIES - 1 && Orchestrator.retriableDeath(msg)) {
+          if (Orchestrator.usageLimitDeath(msg) || Orchestrator.retriableDeath(msg)) {
             deathText = msg;
             roleFailed = true;
           } else {
@@ -455,12 +469,28 @@ export class Orchestrator {
             return;
           }
         }
-        if (attempt < MAX_TRIES - 1 && deathText && Orchestrator.retriableDeath(deathText)) {
+        // LIMITE DE USO DA IA: espera o intervalo e retoma (não gasta o orçamento de hard-tries)
+        if (deathText && LIMIT_ENABLED && Orchestrator.usageLimitDeath(deathText) && limitWait < MAX_LIMIT_WAITS) {
+          limitWait++;
+          deathKind = "limit";
+          const at = new Date(Date.now() + LIMIT_MIN * 60000);
+          const hhmm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+          this.store.addEvent(taskId, "Sistema", "note", `⏳ limite de uso da IA atingido — vou RETOMAR automaticamente em ${LIMIT_MIN}min (~${hhmm}). Tentativa ${limitWait}/${MAX_LIMIT_WAITS}.`, true);
+          this.store.setStatus(taskId, "queued");
+          await new Promise((res) => setTimeout(res, LIMIT_MIN * 60000));
+          this.store.addEvent(taskId, "Sistema", "note", "▶️ intervalo cumprido — retomando de onde parou…", true);
+          this.store.setStatus(taskId, this.statusFor(r.role));
+          sessionId = ""; attemptNo++;
+          continue;
+        }
+        // TOKEN/INATIVIDADE: recomeça na hora, orçamento limitado
+        if (deathText && Orchestrator.retriableDeath(deathText) && hardTry < MAX_TRIES - 1) {
+          hardTry++;
           deathKind = Orchestrator.tokenDeath(deathText) ? "token" : "idle";
           const why = deathKind === "token" ? "estourou o limite de tokens" : "foi encerrada por inatividade";
-          this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${attempt + 2}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
+          this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${hardTry + 1}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
           this.store.setStatus(taskId, this.statusFor(r.role));
-          sessionId = "";
+          sessionId = ""; attemptNo++;
           continue;
         }
         break;
