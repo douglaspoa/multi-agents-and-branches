@@ -2838,17 +2838,33 @@ fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, Stri
 /// base local mostra TODOS os arquivos do merge como se fossem da tarefa.
 fn merge_base_ref(dir: &PathBuf, base: &str, tip: &str) -> String {
     let clean = base.trim_start_matches("origin/");
+    // merge-base do tip com origin/<base> E com o <base> local. Quando origin/<base>
+    // avançou pra incluir (um ancestral d)o tip, seu merge-base fica RECENTE demais e
+    // zera o diff (painel vazio). Então, havendo dois candidatos, usamos o MAIS ANTIGO
+    // (o fork real do branch), que mostra as mudanças de verdade.
+    let mut cands: Vec<String> = Vec::new();
     for cand in [format!("origin/{clean}"), clean.to_string()] {
         if let Ok(o) = Command::new("git").arg("-C").arg(dir).args(["merge-base", &cand, tip]).output() {
             if o.status.success() {
                 let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if !s.is_empty() {
-                    return s;
-                }
+                if !s.is_empty() && !cands.contains(&s) { cands.push(s); }
             }
         }
     }
-    base.to_string()
+    match cands.len() {
+        0 => base.to_string(),
+        1 => cands.pop().unwrap(),
+        _ => {
+            // ancestral comum dos dois merge-bases = o mais antigo
+            if let Ok(o) = Command::new("git").arg("-C").arg(dir).args(["merge-base", &cands[0], &cands[1]]).output() {
+                if o.status.success() {
+                    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if !s.is_empty() { return s; }
+                }
+            }
+            cands.pop().unwrap()
+        }
+    }
 }
 fn task_diff_base(wt: &PathBuf, base: &str) -> String {
     merge_base_ref(wt, base, "HEAD")
