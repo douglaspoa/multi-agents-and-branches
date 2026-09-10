@@ -2135,6 +2135,83 @@ fn ai_daily(text: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// RELATÓRIO técnico do dia (markdown completo): o quê, por quê, arquitetura, como validar.
+#[tauri::command(async)]
+fn ai_daily_report(text: String, date: String) -> Result<String, String> {
+    let ctx: String = text.chars().take(14000).collect();
+    let prompt = format!(
+        "Você escreve um RELATÓRIO TÉCNICO do dia de trabalho de engenharia, em português (pt-BR), a partir do log abaixo (tarefas com objetivo, commits, diffs, marcos). Saída SOMENTE em Markdown bem formatado, começando com `# Relatório do dia — {date}`.\n\n\
+         Estrutura obrigatória:\n\
+         1) Um parágrafo de RESUMO EXECUTIVO: o que mudou no produto hoje e por quê (visão de negócio + técnica).\n\
+         2) Para CADA tarefa relevante, uma seção `## <título da tarefa>` com estes bullets em negrito:\n\
+         - **O que foi feito:** 1 a 3 frases concretas.\n\
+         - **Por quê:** o problema/objetivo que motivou.\n\
+         - **Mudanças de arquitetura:** SÓ se houver (novo módulo, mudança de fluxo de dados, contrato/endpoint, dependência, padrão) — cite arquivos/funções; se não houver, escreva 'sem mudança de arquitetura'.\n\
+         - **Como validar:** como testar/conferir (comando, tela, PR).\n\
+         3) Se houver pendências/bloqueios (perguntas ao humano em aberto), uma seção final `## Pendências`.\n\n\
+         Regras: técnico e específico, cite arquivos/funções quando o log permitir, sem enrolação, sem custo/token. NÃO invente o que não está no log.\n\n{ctx}"
+    );
+    let out = claude_cmd(&claude_bin())
+        .args(["-p", &prompt, "--model", "claude-sonnet-5"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Google Chrome (ou similar) pra gerar PDF via headless.
+fn chrome_bin() -> Option<String> {
+    for p in [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ] {
+        if std::path::Path::new(p).is_file() { return Some(p.to_string()); }
+    }
+    None
+}
+
+/// Salva um documento (.md) em ~/Documents/Constellation/ e revela no Finder.
+#[tauri::command]
+fn save_doc(name: String, content: String) -> Result<String, String> {
+    let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Documents").join("Constellation");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.'|' ') { c } else { '-' }).collect();
+    let p = dir.join(safe.trim());
+    std::fs::write(&p, content).map_err(|e| e.to_string())?;
+    let _ = Command::new("open").arg("-R").arg(&p).spawn();
+    Ok(p.display().to_string())
+}
+
+/// Gera um PDF a partir de HTML (headless Chrome), salva em ~/Documents/Constellation/ e abre.
+#[tauri::command(async)]
+fn html_to_pdf(html: String, name: String) -> Result<String, String> {
+    let chrome = chrome_bin().ok_or("Google Chrome não encontrado — instale o Chrome pra gerar PDF")?;
+    let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Documents").join("Constellation");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.') { c } else { '-' }).collect();
+    let html_path = dir.join(format!("{safe}.html"));
+    let pdf_path = dir.join(format!("{safe}.pdf"));
+    std::fs::write(&html_path, &html).map_err(|e| e.to_string())?;
+    let out = Command::new(&chrome)
+        .args([
+            "--headless=new", "--disable-gpu", "--no-pdf-header-footer", "--no-sandbox",
+            &format!("--print-to-pdf={}", pdf_path.display()),
+            &format!("file://{}", html_path.display()),
+        ])
+        .output()
+        .map_err(|e| format!("falha ao rodar o Chrome: {e}"))?;
+    if !pdf_path.is_file() {
+        return Err(format!("Chrome não gerou o PDF: {}", String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()));
+    }
+    let _ = std::fs::remove_file(&html_path);
+    let _ = Command::new("open").arg(&pdf_path).spawn(); // abre no Preview
+    Ok(pdf_path.display().to_string())
+}
+
 /// Desdobra um trabalho grande em sub-tarefas (JSON) — pro fluxo de épico.
 #[tauri::command(async)]
 fn ai_decompose(state: State<AppState>, text: String, guide: Option<String>) -> Result<String, String> {
@@ -3999,6 +4076,9 @@ pub fn run() {
             ai_decompose,
             daily_digest,
             ai_daily,
+            ai_daily_report,
+            save_doc,
+            html_to_pdf,
             task_files,
             read_file,
             write_file,

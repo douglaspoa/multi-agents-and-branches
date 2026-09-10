@@ -1884,7 +1884,7 @@
 <!-- daily do dev: o que fiz no dia selecionado -->
 <div class="overlay" id="dailyOverlay" style="display:none">
   <div class="modal" style="width:min(700px,100%)">
-    <div class="mhead"><b>Daily</b><input class="in" type="date" id="dailyDate" style="width:150px;margin-left:12px"><span style="flex:1"></span><button class="btn primary sm" id="dailyAI">✨ resumo pra daily</button><button class="x" id="dailyClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><b>Daily</b><input class="in" type="date" id="dailyDate" style="width:150px;margin-left:12px"><span style="flex:1"></span><button class="btn sm" id="dailyAI">✨ resumo curto</button><button class="btn primary sm" id="dailyDoc" title="relatório técnico completo do dia — o quê, por quê, mudanças de arquitetura, como validar — em DOC e PDF">📄 DOC + PDF</button><button class="x" id="dailyClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="dailyBody"></div>
   </div>
 </div>
@@ -2356,6 +2356,56 @@ async function dailyAISummary(){
   }catch(e){ alert('Falhou: '+e); }
   btn.disabled=false; btn.textContent=o;
 }
+// ---- RELATÓRIO técnico do dia (DOC .md + PDF) ----
+let lastDailyMd=null, lastDailyDate='';
+function dailyReportFacts(){
+  return (dailyData||[]).map(t=>{
+    const cs=(dailyCommits[t.id]||[]).map(c=>(c.hash||'').slice(0,7)+' '+(c.subject||''));
+    const st=(state.tasks||[]).find(x=>x.id===t.id);
+    const obj=(st&&st.objective)||'';
+    const d=diffOf(t.id);
+    const diff=d?`+${d.additions} −${d.deletions} em ${(d.files||[]).length} arquivo(s)`:'';
+    const files=(d&&d.files)?d.files.slice(0,14).map(f=>f.path||f.name||f).join(', '):'';
+    return `TAREFA: ${t.title}\nstatus: ${t.status} · branch: ${t.branch}\nobjetivo: ${obj||'(não informado)'}\ncommits do dia: ${cs.join(' | ')||'nenhum'}\ndiff: ${diff||'-'}${files?'\narquivos tocados: '+files:''}\nmarcos: ${(t.notes||[]).join(' | ')||'-'}${t.asks?'\n[tem pergunta pendente pro humano]':''}`;
+  }).join('\n\n---\n\n');
+}
+function dailyPdfHtml(md, date){
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    @page{margin:2cm}
+    body{font:14px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;color:#1b1f23}
+    h1{font-size:23px;border-bottom:2px solid #16a34a;padding-bottom:8px;margin:0 0 6px}
+    h2{font-size:16px;color:#0f172a;margin:22px 0 6px;border-left:3px solid #16a34a;padding-left:9px}
+    h3{font-size:14px;margin:14px 0 4px}
+    code{background:#f1f3f5;padding:1px 5px;border-radius:4px;font:12.5px ui-monospace,Menlo,monospace}
+    pre{background:#f6f8fa;padding:12px 14px;border-radius:8px;overflow:auto} pre code{background:none;padding:0}
+    strong{color:#0f172a} ul{margin:6px 0;padding-left:22px} li{margin:3px 0} a{color:#16a34a}
+    .foot{margin-top:34px;padding-top:10px;border-top:1px solid #e5e7eb;color:#94a3b8;font-size:11px}
+  </style></head><body>${mdToHtml(md)}<div class="foot">Gerado pelo Constellation · ${esc(date||'')}</div></body></html>`;
+}
+async function dailyGenDoc(){
+  if(!dailyData||!dailyData.length){ alert('Dia sem atividade — nada pra relatar.'); return; }
+  const btn=document.getElementById('dailyDoc'); if(!btn) return; btn.disabled=true; const o=btn.textContent; btn.textContent='escrevendo o relatório…';
+  const iso=document.getElementById('dailyDate').value;
+  try{
+    const md=await invoke('ai_daily_report',{ text: dailyReportFacts(), date: iso });
+    lastDailyMd=md; lastDailyDate=iso;
+    const out=document.getElementById('dailyAIOut');
+    out.innerHTML=`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">💾 salvar .md</button><button class="btn primary sm" id="dailyPdf">📄 gerar PDF</button><span class="grow" style="flex:1"></span></div></div>`;
+    document.getElementById('dailyCopy2').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
+    document.getElementById('dailySaveMd').onclick=async function(){ this.disabled=true; try{ await invoke('save_doc',{ name:`relatorio-${iso}.md`, content:md }); this.textContent='salvo ✓ (Documents/Constellation)'; }catch(e){ alert('Falhou: '+e); this.disabled=false; } };
+    document.getElementById('dailyPdf').onclick=dailyGenPdf;
+  }catch(e){ alert('Falhou o relatório:\n'+e); }
+  btn.disabled=false; btn.textContent=o;
+}
+async function dailyGenPdf(){
+  if(!lastDailyMd) return;
+  const b=document.getElementById('dailyPdf'); b.disabled=true; const o=b.textContent; b.textContent='gerando PDF…';
+  try{
+    const p=await invoke('html_to_pdf',{ html: dailyPdfHtml(lastDailyMd, lastDailyDate), name:`relatorio-${lastDailyDate}` });
+    b.textContent='PDF aberto ✓';
+  }catch(e){ alert('Falhou o PDF:\n'+e); }
+  b.disabled=false; setTimeout(()=>{ if(b) b.textContent=o; }, 2500);
+}
 function openDaily(){
   const d=new Date(); const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const inp=document.getElementById('dailyDate'); if(!inp.value) inp.value=iso;
@@ -2366,6 +2416,7 @@ document.getElementById('dailyBtn').onclick=openDaily;
 document.getElementById('dailyClose').onclick=()=>{ document.getElementById('dailyOverlay').style.display='none'; };
 document.getElementById('dailyDate').onchange=loadDaily;
 document.getElementById('dailyAI').onclick=dailyAISummary;
+document.getElementById('dailyDoc').onclick=dailyGenDoc;
 document.getElementById('dailyOverlay').addEventListener('click',e=>{ if(e.target.id==='dailyOverlay') document.getElementById('dailyOverlay').style.display='none'; });
 
 // ---------- configurações (⌘,) ----------
