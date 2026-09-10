@@ -3935,7 +3935,7 @@ function renderFlow(){
   // monta o HTML numa string (não escreve direto no DOM) pra poder pular o rebuild
   // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
   // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
-  let tasks=[], html='';
+  let tasks=[], html='', grouped=false;
   if(!(state.tasks||[]).length){ html=ghost; }
   else {
     const vis=flowVisible(state.tasks).slice();
@@ -3947,7 +3947,7 @@ function renderFlow(){
       ? `<div class="empty">nenhuma tarefa para <b>"${esc(flowQuery.trim())}"</b> · <a class="lnk" id="flowClearSearch" style="cursor:pointer">limpar busca</a></div>`
       : '<div class="empty">nenhuma tarefa neste filtro.</div>'; }
     else {
-      const grouped = flowGroupBy==='day';
+      grouped = flowGroupBy==='day';
       const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowTaskRow(t));
       if(grouped){
         const g=new Map();
