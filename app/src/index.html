@@ -1463,7 +1463,7 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead" data-tauri-drag-region><b data-tauri-drag-region>Nova demanda</b><span style="flex:1" data-tauri-drag-region></span><button class="btn sm" id="ntAI" title="prefere ir conversando? a IA pergunta o essencial e monta a demanda com você"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3 3.5h10v6H8l-3 2.5V9.5H3z" stroke-linejoin="round"/></svg>montar conversando</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead" data-tauri-drag-region><b data-tauri-drag-region>Nova demanda</b><span style="flex:1" data-tauri-drag-region></span><button class="btn primary" id="ntAI" title="a IA pergunta o essencial e monta a demanda completa (objetivo, entregáveis e critérios) conversando com você"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 2.4l.9 2.3 2.3.9-2.3.9L7 9.8l-.9-2.4-2.3-.9 2.3-.9z" stroke-linejoin="round"/><path d="M11.6 9.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" stroke-linejoin="round"/></svg>montar com a IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div id="aiAssist" style="display:none">
         <div class="aichat" id="aiChat"></div>
@@ -1471,7 +1471,7 @@
         <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
       </div>
       <div id="ntRight">
-      <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><button class="btn primary sm" id="ntAiFill" title="descreva em uma frase o que precisa — a IA gera a spec COMPLETA desta categoria (objetivo, entregáveis e critérios). O que você já escreveu é preservado."><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar com IA</button><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
+      <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
       <!-- wizard por etapas (Entrega/Fix): uma pergunta por vez, sem scroll -->
       <div id="wizHead" style="display:none">
         <div id="wizProg" style="display:flex;gap:6px;margin-bottom:14px"></div>
@@ -5206,7 +5206,7 @@ async function ntAiComplete(){
 // cada campo aparece UMA vez: spec → requisitos → quem executa → avançado → confira
 const WIZ_STEPS={
   build:[
-    { n:1, show:[1,3], t:'O que você precisa?', h:'escreva uma frase e toque em "✦ gerar com IA" — a IA monta objetivo, entregáveis e critérios; ou "montar conversando" lá em cima pra ir por chat', guide:true,
+    { n:1, show:[1,3], t:'O que você precisa?', h:'preencha título + objetivo com contexto e anexos — ou toque em "✦ montar com a IA" lá em cima e a IA monta tudo conversando com você', guide:true,
       ok:()=>!!(document.getElementById('ntTitle').value.trim() && document.getElementById('ntObj').value.trim()), miss:'preencha título e objetivo' },
     { n:2, show:[2], t:'Requisitos de entrega', h:()=>`critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
       ok:()=>ntReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os requisitos mínimos' },
