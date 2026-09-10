@@ -2511,14 +2511,23 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
     let guide_block = if spec_guide.trim().is_empty() { String::new() } else {
         format!("\n\nGUIA DE SPEC DESTE REPO (regras do time — siga à risca; requisitos padrão daqui entram SEMPRE que se aplicarem):\n{spec_guide}\n")
     };
+    // orientação ESPECÍFICA por categoria de issue — "gerar com IA" adapta ao tipo
+    let kind_hint = match kind.as_str() {
+        "fix" => "CATEGORIA: CORREÇÃO DE BUG. objective descreve o comportamento errado observado, onde acontece e o esperado. deliverables: a correção em si + prova (teste que falha antes e passa depois, ou print). requirements: critérios de que o bug sumiu (ex.: 'o export com +10k linhas conclui sem erro') e que nada regrediu.",
+        "design" => "CATEGORIA: DESIGN/UX. objective descreve a tela/fluxo a desenhar, o público e as restrições. deliverables: o(s) artefato(s) de design (mockup navegável, especificação de estados, tokens). requirements: cobre estados vazio/carregando/erro, responsivo e acessibilidade — cada um verificável no artefato entregue. NÃO gere código.",
+        "invest" => "CATEGORIA: INVESTIGAÇÃO. objective descreve o SINTOMA, onde/como reproduzir e desde quando; NÃO proponha solução. deliverables: um documento de investigação (causa-raiz com evidência) — 1 item só. requirements: 2 a 4 perguntas objetivas que a investigação PRECISA responder (ex.: 'qual query dobra a contagem no filtro hoje?').",
+        "review" => "CATEGORIA: REVIEW. objective descreve o que revisar e o critério. deliverables: o parecer de review. requirements: os pontos que o review deve cobrir.",
+        _ => "CATEGORIA: ENTREGA/FEATURE. deliverables são COISAS entregues (tela X, endpoint Y, doc Z), substantivos. requirements são critérios de aceite verificáveis.",
+    };
     let prompt = format!(
         "Você monta a especificação de uma tarefa de engenharia a partir do rascunho do humano. Responda SOMENTE um objeto JSON (sem cerca de código, sem texto fora) com EXATAMENTE estas chaves:\n\
          {{\"title\": string, \"objective\": string, \"deliverables\": [string], \"requirements\": [string]}}\n\n\
+         {kind_hint}\n\n\
          REGRAS DE QUALIDADE (obrigatórias):\n\
          - title: máx 70 caracteres, começa com verbo no infinitivo, específico.\n\
          - objective: 2 a 4 frases COMPLETAS em pt-BR — o que fazer, onde e por quê. Não copie o rascunho cru; escreva limpo.\n\
-         - deliverables: 2 a 4 itens — COISAS entregues (tela X, endpoint Y, doc Z), substantivos, sem verbos de processo.\n\
-         - requirements: 3 a 6 critérios de aceite VERIFICÁVEIS, cada um uma FRASE COMPLETA e independente (alguém consegue marcar ✓/✗ testando). PROIBIDO: fragmentos soltos, itens duplicando entregáveis, itens vagos tipo 'funcionar bem', itens com mais de uma exigência (quebre em dois).\n\
+         - deliverables: itens que são COISAS entregues (substantivos), conforme a categoria acima.\n\
+         - requirements: critérios VERIFICÁVEIS, cada um uma FRASE COMPLETA e independente (alguém consegue marcar ✓/✗ testando). PROIBIDO: fragmentos soltos, itens duplicando entregáveis, itens vagos tipo 'funcionar bem', itens com mais de uma exigência (quebre em dois).\n\
          - Tudo em pt-BR. NÃO invente escopo que o humano não pediu — complete e organize o que ele quis dizer.{guide_block}\n\
          Rascunho:\n{draft}"
     );
