@@ -2317,9 +2317,22 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let zip = root.join("dist").join("Constellation-portable.zip");
     let bin = root.join("dist").join("Constellation-portable.app").join("Contents").join("MacOS").join("Constellation");
     if !zip.exists() { return Err(format!("rode scripts/package-app.sh antes — sem {}", zip.display())); }
-    let build_ms = std::fs::metadata(&bin).and_then(|m| m.modified()).ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64).ok_or("binário do portable não encontrado")?;
+    let mtime_ms = |p: &PathBuf| -> Option<i64> {
+        std::fs::metadata(p).and_then(|m| m.modified()).ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+    };
+    let build_ms = mtime_ms(&bin).ok_or("binário do portable não encontrado")?;
+    // GUARD: se o app DEV (deploy-local) é bem mais novo que o portable, o pacote
+    // está DEFASADO — publicar mandaria um build velho pros colegas. Barra.
+    let dev_bin = root.join("dist").join("Constellation.app").join("Contents").join("MacOS").join("Constellation");
+    if let Some(dev_ms) = mtime_ms(&dev_bin) {
+        // 30min de folga: ignora o skew de reempacotar+redeploy na mesma sessão,
+        // mas pega o caso real (portable de dias atrás, esquecido).
+        if dev_ms > build_ms + 1_800_000 {
+            return Err("o pacote portable está DEFASADO (seu build atual é bem mais novo) — rode `scripts/package-app.sh` pra reempacotar com o código de agora ANTES de publicar, senão os colegas recebem uma versão antiga.".to_string());
+        }
+    }
     let size = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
     // 1) zip
     let mut c1 = Command::new("curl");
