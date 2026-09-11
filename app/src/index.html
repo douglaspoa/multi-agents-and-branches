@@ -261,6 +261,36 @@
   .overlay.astab:not(.fwoverlay) .mbody{flex:1;min-height:0;width:100%;max-width:1040px;margin:0 auto;overflow:auto}
   .overlay.astab .mhead>.x{display:none}
   .overlay.astab.fwoverlay{top:var(--chrome-h,96px)}
+  /* Nova demanda (redesign) — tela de início */
+  .ndwrap{min-height:100%;background:var(--bg);color:#eaf2ee;font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;display:flex;justify-content:center;padding:44px 28px 60px}
+  .ndinner{width:100%;max-width:1020px}
+  .ndeyebrow{font:500 10.5px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(255,255,255,.34);text-transform:uppercase}
+  .ndh1{margin:14px 0 6px;font:600 32px/1.15 'Instrument Sans',sans-serif;letter-spacing:-.02em}
+  .ndsub{margin:0 0 26px;font:400 14.5px/1.55 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);max-width:580px}
+  .ndtypes{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px}
+  .ndtype{text-align:left;padding:18px 16px 16px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#101312;display:flex;flex-direction:column;gap:10px;min-height:134px;cursor:pointer;transition:.12s}
+  .ndtype:hover{border-color:rgba(255,255,255,.2)}
+  .ndtype.on{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.10),rgba(63,214,138,.02))}
+  .ndtb{width:26px;height:26px;border-radius:7px;text-align:center;font:500 12px/26px 'JetBrains Mono',monospace;background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
+  .ndtype.on .ndtb{background:var(--accent);color:var(--on-accent)}
+  .ndtn{font:600 15px/1.2 'Instrument Sans',sans-serif;color:#eaf2ee}
+  .ndtd{font:400 12px/1.45 'Instrument Sans',sans-serif;color:rgba(255,255,255,.44)}
+  .ndstep2{display:flex;align-items:baseline;gap:10px;margin:34px 0 14px}
+  .ndline{flex:1;height:1px;background:rgba(255,255,255,.07)}
+  .ndmethods{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .ndm{text-align:left;padding:22px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:#101312;display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:.12s}
+  .ndm:hover{border-color:rgba(255,255,255,.22)}
+  .ndm-primary{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.12),rgba(63,214,138,.03))}
+  .ndmtop{display:flex;align-items:center;justify-content:space-between;width:100%}
+  .ndmt{font:600 18px/1.2 'Instrument Sans',sans-serif;color:#eaf2ee}
+  .ndmt2{font:600 18px/1.2 'Instrument Sans',sans-serif;color:rgba(234,242,238,.9)}
+  .ndmbadge{font:500 10px 'JetBrains Mono',monospace;color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:4px}
+  .ndmd{font:400 13px/1.5 'Instrument Sans',sans-serif;color:rgba(234,242,238,.6)}
+  .ndmeta{margin-top:6px;font:500 11px 'JetBrains Mono',monospace;color:rgba(234,242,238,.36)}
+  .ndfoot{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-top:26px;padding-top:18px;border-top:1px solid rgba(255,255,255,.07)}
+  .ndfl{font:400 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4)}
+  .ndfl a{color:var(--accent);cursor:pointer}
+  .ndft{font:500 11px 'JetBrains Mono',monospace;color:rgba(255,255,255,.3)}
   /* filtro de projeto (multi-projeto) */
   .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
   .pfchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);border:1px solid var(--border-strong);border-radius:99px;padding:4px 11px;cursor:pointer;background:transparent}
@@ -1999,6 +2029,11 @@
   </div>
 </div>
 
+<!-- Nova demanda (redesign): tela de início — tipo + método -->
+<div class="overlay" id="ndOverlay" style="display:none">
+  <div class="modal" style="width:100%"><div class="mbody" id="ndBody" style="padding:0"></div></div>
+</div>
+
 <!-- Projetos: hub de todos os projetos (tudo aparece junto no board; aqui gerencia) -->
 <div class="overlay" id="projetosOverlay" style="display:none">
   <div class="modal" style="width:min(760px,100%)">
@@ -2686,6 +2721,39 @@ function projetosRender(ov){
 }
 { const b=document.getElementById('projetosClose'); if(b) b.onclick=()=>{ document.getElementById('projetosOverlay').style.display='none'; }; }
 document.getElementById('projetosOverlay').addEventListener('click',e=>{ if(e.target.id==='projetosOverlay') document.getElementById('projetosOverlay').style.display='none'; });
+
+// ===== Nova demanda (redesign): tela de início — tipo + método =====
+const ND_TYPES=[
+  {k:'build', i:'F', name:'Feature', desc:'Construir algo novo — tela, endpoint, fluxo.'},
+  {k:'fix', i:'C', name:'Correção', desc:'Um bug pra reproduzir, entender e consertar.'},
+  {k:'invest', i:'?', name:'Investigação', desc:'Achar a causa-raiz com evidência, sem implementar.'},
+  {k:'design', i:'D', name:'Design', desc:'Definir a UX/UI antes do código.'},
+  {k:'docs', i:'≡', name:'Documentação', desc:'Escrever ou atualizar docs com exemplos.'},
+];
+let ndType='build';
+function ndInjectFonts(){ if(document.getElementById('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }
+function openNovaStart(){ ndInjectFonts(); document.getElementById('ndOverlay').style.display='flex'; ndRenderStart(); }
+function ndRenderStart(){
+  const body=document.getElementById('ndBody'); if(!body) return;
+  const cur=ND_TYPES.find(t=>t.k===ndType)||ND_TYPES[0];
+  const typeCards=ND_TYPES.map(t=>`<button class="ndtype${t.k===ndType?' on':''}" data-ndtype="${t.k}"><span class="ndtb">${esc(t.i)}</span><span class="ndtn">${esc(t.name)}</span><span class="ndtd">${esc(t.desc)}</span></button>`).join('');
+  body.innerHTML=`<div class="ndwrap"><div class="ndinner">
+    <div class="ndeyebrow">passo 1 de 2 · ${esc(projShort(state.repo)||'repo')}</div>
+    <h1 class="ndh1">Que tipo de demanda é essa?</h1>
+    <p class="ndsub">O tipo define quais campos são obrigatórios e como o agente trabalha. Dá pra trocar depois sem perder nada.</p>
+    <div class="ndtypes">${typeCards}</div>
+    <div class="ndstep2"><span class="ndeyebrow">passo 2 · como você quer montar</span><span class="ndline"></span></div>
+    <div class="ndmethods">
+      <button class="ndm ndm-primary" id="ndChat"><span class="ndmtop"><span class="ndmt">Montar conversando</span><span class="ndmbadge">recomendado</span></span><span class="ndmd">A IA pergunta só o essencial e preenche o task.yaml na sua frente. Você revisa e aprova.</span><span class="ndmeta">~7 perguntas · 2 min</span></button>
+      <button class="ndm" id="ndForm"><span class="ndmt2">Preencher eu mesmo</span><span class="ndmd">Formulário com os campos do spec. Controle total, sem conversa.</span><span class="ndmeta">10 campos · passos</span></button>
+    </div>
+    <div class="ndfoot"><div class="ndfl">já tem um .md? <a id="ndImport">importar</a> · guia deste repo: <span class="mono">.cardume/SPEC.md</span></div><div class="ndft mono">tipo: ${esc(cur.name)}</div></div>
+  </div></div>`;
+  body.querySelectorAll('[data-ndtype]').forEach(b=>b.onclick=()=>{ ndType=b.dataset.ndtype; ndRenderStart(); });
+  { const b=body.querySelector('#ndChat'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('planner'); }; }
+  { const b=body.querySelector('#ndForm'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('form'); }; }
+  { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('form'); setTimeout(()=>{ const im=document.getElementById('ntImport'); if(im) im.click(); }, 300); }; }
+}
 document.getElementById('dailyClose').onclick=()=>{ document.getElementById('dailyOverlay').style.display='none'; };
 document.getElementById('dailyDate').onchange=loadDaily;
 document.getElementById('dailyAI').onclick=dailyAISummary;
@@ -2730,6 +2798,8 @@ document.getElementById('cfgBtn').onclick=openCfg;
 const VIEW_META={
   projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
+  planner:{title:'Montar conversando',icon:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>'},
+  form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
   skills:{title:'Skills',icon:'<rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1"/>'},
   cfg:{title:'Configurações',icon:'<circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8"/>'},
@@ -2739,50 +2809,55 @@ const VIEW_META={
   agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ntOverlay', skills:'skOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
+const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // abridores que POPULAM+mostram cada view (os bloco-1 vêm via window)
 function viewOpen(kind){
-  const f={ projetos:()=>openProjetos(), nova:()=>openNewTask(), skills:()=>openSkills(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+  const f={ projetos:()=>openProjetos(), nova:()=>openNovaStart(), planner:()=>openPlanner(), form:()=>openNewTask(), skills:()=>openSkills(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); } }[kind];
   if(f) f();
 }
-let TABS=[{kind:'flow',title:'Tarefas',pin:true}];
+// cada aba tem um id único: 'flow', o próprio kind (views únicas) ou 'task:<id>' (uma por tarefa)
+let TABS=[{id:'flow',kind:'flow',title:'Tarefas',pin:true}];
 let activeTab='flow';
+function tabById(id){ return TABS.find(t=>t.id===id); }
 function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11" height="10" rx="1.4"/><path d="M2.5 6h11"/>'; return (VIEW_META[kind]||{}).icon||''; }
-function openTab(kind){
-  if(kind==='flow'){ activeTab='flow'; showActiveView(); renderTabs(); return; }
-  if(!TABS.some(t=>t.kind===kind)) TABS.push({kind,title:(VIEW_META[kind]||{}).title||kind});
-  activeTab=kind; renderTabs(); showActiveView();
+function activateTab(id){ activeTab=id; renderTabs(); showActiveView(); }
+function openTab(kind){ // views de instância única (nova, skills, cfg, planner, form, …)
+  if(kind==='flow'){ activateTab('flow'); return; }
+  if(!tabById(kind)) TABS.push({id:kind, kind, title:(VIEW_META[kind]||{}).title||kind});
+  activateTab(kind);
 }
 window.openTab=openTab;
-function closeTab(kind){
-  const i=TABS.findIndex(t=>t.kind===kind); if(i<0||TABS[i].pin) return;
-  const o=document.getElementById(VIEW_OVERLAY[kind]); if(o){ o.classList.remove('astab'); o.style.display='none'; }
+function closeTab(id){
+  const i=TABS.findIndex(t=>t.id===id); if(i<0||TABS[i].pin) return;
   TABS.splice(i,1);
-  if(activeTab===kind) activeTab=(TABS[i-1]||TABS[0]).kind;
+  // esconde o overlay do kind se nenhuma OUTRA aba do mesmo kind sobrou
+  const kind=(id.split(':')[0]==='task')?'task':id;
+  if(!TABS.some(t=>t.kind===kind)){ const o=document.getElementById(VIEW_OVERLAY[kind]); if(o){ o.classList.remove('astab'); o.style.display='none'; } }
+  if(activeTab===id) activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView();
 }
 function showActiveView(){
-  // esconde todas as views gerenciadas
+  const t=tabById(activeTab)||TABS[0];
   Object.keys(VIEW_OVERLAY).forEach(k=>{ const o=document.getElementById(VIEW_OVERLAY[k]); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
-  if(activeTab==='flow') return; // o quadro (.body) já aparece
-  viewOpen(activeTab); // popula + mostra (pode setar display='flex')
-  const o=document.getElementById(VIEW_OVERLAY[activeTab]);
+  if(t.kind==='flow') return; // o quadro (.body) já aparece
+  if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
+  viewOpen(t.kind); // popula + mostra (pode setar display='flex')
+  const o=document.getElementById(VIEW_OVERLAY[t.kind]);
   if(o){ requestAnimationFrame(()=>{ o.classList.add('astab'); o.style.display='block'; }); }
 }
 function renderTabs(){
   const bar=document.getElementById('tabBar'); if(!bar) return;
   bar.style.display='flex';
   bar.innerHTML=TABS.map(t=>{
-    const on=t.kind===activeTab;
-    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${t.kind}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(t.title)}</span>${t.pin?'':`<span class="x" data-xk="${t.kind}">✕</span>`}</span>`;
+    const on=t.id===activeTab;
+    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(t.title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">✕</span>`}</span>`;
   }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda">+</span>`;
-  bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.xk) return; openTab(el.dataset.tk); });
+  bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.xk) return; activateTab(el.dataset.tk); });
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); closeTab(el.dataset.xk); });
   const add=document.getElementById('tabAdd'); if(add) add.onclick=()=>openTab('nova');
-  // altura do "chrome" (topo + abas) → onde os painéis de aba começam
   requestAnimationFrame(()=>{ const b=bar.getBoundingClientRect().bottom; document.documentElement.style.setProperty('--chrome-h', Math.round(b)+'px'); });
 }
 document.getElementById('bdClose').onclick=()=>{ document.getElementById('bdOverlay').style.display='none'; };
@@ -3118,13 +3193,14 @@ function fwTreeHtml(node, depth){
 }
 let fwMode='conversa';   // conversa | codigo | revisao | pr (modos da tela de execução)
 let fwDiffCache={};      // taskId:path → texto do diff (tela de Revisão)
-// abre a tarefa como ABA "task" (mantém o chrome do app), reusando uma única aba
+// abre a tarefa como ABA própria (uma por tarefa) — mantém o chrome do app
 function openWorkspace(taskId, path){
-  tabTaskId=taskId; tabTaskPath=path||null;
+  tabTaskPath=path||null;
+  const id='task:'+taskId;
   const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
-  let tab=TABS.find(x=>x.kind==='task'); if(!tab){ tab={kind:'task', title:''}; TABS.push(tab); }
-  tab.title=(t.title||'Tarefa').slice(0,26);
-  activeTab='task'; renderTabs(); showActiveView();
+  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, title:(t.title||'Tarefa').slice(0,26)}; TABS.push(tab); }
+  else if(t.title) tab.title=t.title.slice(0,26);
+  activateTab(id);
 }
 async function fwOpenInner(taskId, path){
   fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false;
@@ -3155,7 +3231,7 @@ async function fwLoadFile(){
   catch(e){ fwContent='// não consegui abrir: '+String(e); fwAdded=[]; }
   fwSelA=0; fwSelB=0; renderWorkspace();
 }
-function closeWorkspace(){ const o=document.getElementById('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function') closeTab('task'); }
+function closeWorkspace(){ const o=document.getElementById('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }
 function fwSelRange(){ if(!fwSelA) return null; const a=Math.min(fwSelA,fwSelB||fwSelA), b=Math.max(fwSelA,fwSelB||fwSelA); return {a,b}; }
 function fwPlan(t){
   const roles=t.roles||[]; if(!roles.length) return '';
@@ -3249,6 +3325,7 @@ function phasesHtml(t){
 // abas de sessão: alterna entre as tarefas vivas sem sair do workspace
 function renderFwTabs(){
   const el=document.getElementById('fwTabs'); if(!el) return;
+  el.style.display='none'; el.innerHTML=''; return; // tarefas abertas agora vivem na barra de abas do topo
   // abas = sessões RODANDO ou ESPERANDO REVIEW (fechadas/mergeadas não poluem o topo)
   let open=(state.tasks||[]).filter(t=>t.flag!=='closed'&&(ACTIVE_ST.has(t.status)||['thinking','plan-review','review','delivered'].includes(t.status)))
     .sort((a,b)=>b.created_at-a.created_at).slice(0,7);
@@ -6097,7 +6174,7 @@ function setNtMode(m){
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';
   ntGate();
 }
-function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; }
+function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; if(typeof closeTab==='function' && tabById('form')) closeTab('form'); }
 function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=document.getElementById('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
@@ -6201,7 +6278,7 @@ async function plNew(){
   plReset(); plMsgs.push({who:'bot', text:'Novo. Qual é o objetivo — o que precisa ser feito e por quê?'});
   renderPlanner(); plRenderRefs();
 }
-function closePlanner(){ document.getElementById('plannerOverlay').style.display='none'; }
+function closePlanner(){ document.getElementById('plannerOverlay').style.display='none'; if(typeof closeTab==='function' && tabById('planner')) closeTab('planner'); }
 function plApplyPatch(patch){
   if(!patch||typeof patch!=='object') return;
   for(const k of ['title','objective','autonomy','engine']) if(typeof patch[k]==='string'&&patch[k].trim()) plFields[k]=patch[k].trim();
