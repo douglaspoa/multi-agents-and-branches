@@ -3979,6 +3979,61 @@ fn projects_overview() -> Vec<ProjOverview> {
         .collect()
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AllTask {
+    id: String,
+    title: String,
+    status: String,
+    stage: String,
+    agent: String,
+    flag: Option<String>,
+    engine: String,
+    created_at: i64,
+    sort_order: Option<i64>,
+    repo: String,
+    proj: String,
+}
+
+/// Tarefas de TODOS os projetos salvos (board integrado). Lê o state.sqlite de
+/// cada repo em read-only, best-effort — um projeto ilegível é só pulado.
+#[tauri::command(async)]
+fn list_all_tasks() -> Vec<AllTask> {
+    let mut out: Vec<AllTask> = Vec::new();
+    for p in read_project_list() {
+        let name = PathBuf::from(&p).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
+        let db = PathBuf::from(&p).join(".cardume").join("state.sqlite");
+        let conn = match Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
+        let mut st = match conn.prepare("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order FROM task ORDER BY created_at") {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let rows = st.query_map([], |r| {
+            Ok(AllTask {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                status: r.get(2)?,
+                stage: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                agent: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                flag: r.get::<_, Option<String>>(5)?.filter(|s| !s.is_empty()),
+                engine: r.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                created_at: r.get::<_, Option<i64>>(7)?.unwrap_or(0),
+                sort_order: r.get::<_, Option<i64>>(8)?,
+                repo: p.clone(),
+                proj: name.clone(),
+            })
+        });
+        if let Ok(rows) = rows {
+            for t in rows.flatten() { out.push(t); }
+        }
+    }
+    out
+}
+
 /// Mergeia o PR (gh) e marca a tarefa como merged localmente.
 #[tauri::command(async)]
 fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
@@ -4346,6 +4401,7 @@ pub fn run() {
             create_skill,
             import_skill_md,
             git_skills,
+            list_all_tasks,
             read_settings,
             write_setting,
             fetch_task_ref,

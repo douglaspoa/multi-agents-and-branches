@@ -258,6 +258,24 @@
   .overlay.astab .modal{width:100%;max-width:100%;height:100%;max-height:100%;border:none;border-radius:0;box-shadow:none;display:flex;flex-direction:column}
   .overlay.astab .mbody{flex:1;min-height:0}
   .overlay.astab .mhead>.x{display:none}
+  /* filtro de projeto (multi-projeto) */
+  .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
+  .pfchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);border:1px solid var(--border-strong);border-radius:99px;padding:4px 11px;cursor:pointer;background:transparent}
+  .pfchip:hover{color:var(--text-2)}
+  .pfchip.on{color:var(--text);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+  .pfchip .pfd{width:7px;height:7px;border-radius:50%;flex:none}
+  .prj .prjd{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
+  /* hub de projetos */
+  .projgrid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:640px){.projgrid2{grid-template-columns:1fr}}
+  .projcard2{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:13px 14px}
+  .pc2name{font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .pc2d{width:8px;height:8px;border-radius:50%;flex:none}
+  .pc2cur{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 50%,transparent);border-radius:4px;padding:1px 5px}
+  .pc2meta{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .pc2path{font-size:10.5px;color:var(--muted);margin-top:3px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pc2acts{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
+  .pc2acts .btn{font-size:11px;padding:4px 9px}
   .sel{appearance:none;-webkit-appearance:none;background-color:var(--surface);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:6px 26px 6px 10px;cursor:pointer;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'><path d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 9px center}
   .sel:focus{outline:2px solid var(--accent);outline-offset:-1px}
   .swatch{width:26px;height:26px;border:2px solid var(--border);border-radius:50%;padding:0;overflow:hidden;cursor:pointer;background:none;flex:none}
@@ -1542,7 +1560,7 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead" data-tauri-drag-region><b data-tauri-drag-region>Nova demanda</b><span style="flex:1" data-tauri-drag-region></span><button class="btn primary" id="ntAI" title="a IA pergunta o essencial e monta a demanda completa (objetivo, entregáveis e critérios) conversando com você"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 2.4l.9 2.3 2.3.9-2.3.9L7 9.8l-.9-2.4-2.3-.9 2.3-.9z" stroke-linejoin="round"/><path d="M11.6 9.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" stroke-linejoin="round"/></svg>montar com a IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead" data-tauri-drag-region><b data-tauri-drag-region>Nova demanda</b><span class="dim" style="font-size:11px;margin-left:12px">projeto:</span><select class="sel" id="ntProj" title="projeto onde a demanda vai abrir" style="margin-left:6px;max-width:220px;font-size:12px"></select><span style="flex:1" data-tauri-drag-region></span><button class="btn primary" id="ntAI" title="a IA pergunta o essencial e monta a demanda completa (objetivo, entregáveis e critérios) conversando com você"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 2.4l.9 2.3 2.3.9-2.3.9L7 9.8l-.9-2.4-2.3-.9 2.3-.9z" stroke-linejoin="round"/><path d="M11.6 9.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" stroke-linejoin="round"/></svg>montar com a IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div id="aiAssist" style="display:none">
         <div class="aichat" id="aiChat"></div>
@@ -1977,6 +1995,14 @@
   </div>
 </div>
 
+<!-- Projetos: hub de todos os projetos (tudo aparece junto no board; aqui gerencia) -->
+<div class="overlay" id="projetosOverlay" style="display:none">
+  <div class="modal" style="width:min(760px,100%)">
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg><div><b>Projetos</b><div class="dim" style="font-size:10.5px">tudo aparece junto no quadro — aqui você gerencia cada um</div></div><span style="flex:1"></span><button class="x" id="projetosClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="projetosBody"></div>
+  </div>
+</div>
+
 <!-- daily do dev: o que fiz no dia selecionado -->
 <div class="overlay" id="dailyOverlay" style="display:none">
   <div class="modal" style="width:min(700px,100%)">
@@ -2199,6 +2225,7 @@ async function refresh(){
   const prevGraph = state.graph;
   state = snap;
   connected = !!snap.repo;
+  loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
   // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
   if(curView()==="graph"){ try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; } }
   else state.graph = prevGraph || [];
@@ -2625,6 +2652,36 @@ async function skDoImport(){
 { const b=document.getElementById('skillsBtn'); if(b) b.onclick=openSkills; }
 { const b=document.getElementById('skClose'); if(b) b.onclick=()=>{ document.getElementById('skOverlay').style.display='none'; }; }
 document.getElementById('skOverlay').addEventListener('click',e=>{ if(e.target.id==='skOverlay') document.getElementById('skOverlay').style.display='none'; });
+// ===== Hub de Projetos =====
+async function openProjetos(){
+  const body=document.getElementById('projetosBody');
+  document.getElementById('projetosOverlay').style.display='flex';
+  body.innerHTML='<div class="dim" style="padding:20px">carregando…</div>';
+  let ov=[]; try{ ov=await invoke('projects_overview'); }catch(_){}
+  projetosRender(ov);
+}
+function projetosRender(ov){
+  const body=document.getElementById('projetosBody'); if(!body) return;
+  const head=`<div style="display:flex;align-items:center;margin-bottom:14px"><span class="dim" style="font-size:11.5px">${(ov||[]).length} projeto(s) — clique em "ver tarefas" pra focar um no quadro</span><span style="flex:1"></span><button class="btn primary sm" id="projAddBtn2" style="font-size:11.5px;padding:5px 11px">+ adicionar projeto</button></div>`;
+  const cards=(ov||[]).map(p=>{
+    const col=projColor(p.path);
+    const run=p.active?`<b style="color:var(--accent)">${p.active} rodando</b>`:'<span class="dim">nada rodando</span>';
+    return `<div class="projcard2">
+      <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="pc2cur">aberto</span>':''}</div>
+      <div class="pc2meta">${p.review?`<b style="color:var(--warn)">${p.review} em review</b> · `:''}${run}</div>
+      <div class="pc2path mono">${esc(p.path)}</div>
+      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}">Finder</button><button class="btn sm" data-pjrm="${escA(p.path)}">remover</button></div>
+    </div>`;
+  }).join('') || '<div class="dim" style="padding:14px 2px">Nenhum projeto ainda. Use "+ adicionar projeto".</div>';
+  body.innerHTML=head+`<div class="projgrid2">${cards}</div>`;
+  { const b=body.querySelector('#projAddBtn2'); if(b) b.onclick=()=>{ if(window.pickFolder) window.pickFolder(); }; }
+  body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
+  body.querySelectorAll('[data-pjsk]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjsk; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('skills'); });
+  body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('open_url',{url:'file://'+b.dataset.pjfx}).catch(()=>{}));
+  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remover '+projShort(b.dataset.pjrm)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:b.dataset.pjrm}); }catch(_){}; openProjetos(); });
+}
+{ const b=document.getElementById('projetosClose'); if(b) b.onclick=()=>{ document.getElementById('projetosOverlay').style.display='none'; }; }
+document.getElementById('projetosOverlay').addEventListener('click',e=>{ if(e.target.id==='projetosOverlay') document.getElementById('projetosOverlay').style.display='none'; });
 document.getElementById('dailyClose').onclick=()=>{ document.getElementById('dailyOverlay').style.display='none'; };
 document.getElementById('dailyDate').onchange=loadDaily;
 document.getElementById('dailyAI').onclick=dailyAISummary;
@@ -2667,6 +2724,7 @@ document.getElementById('cfgBtn').onclick=openCfg;
 
 /* ===== MOTOR DE ABAS (Chrome-style): as views que eram janela viram aba ===== */
 const VIEW_META={
+  projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
   skills:{title:'Skills',icon:'<rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1"/>'},
   cfg:{title:'Configurações',icon:'<circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8"/>'},
@@ -2676,10 +2734,10 @@ const VIEW_META={
   agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ nova:'ntOverlay', skills:'skOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay' };
+const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ntOverlay', skills:'skOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay' };
 // abridores que POPULAM+mostram cada view (os bloco-1 vêm via window)
 function viewOpen(kind){
-  const f={ nova:()=>openNewTask(), skills:()=>openSkills(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+  const f={ projetos:()=>openProjetos(), nova:()=>openNewTask(), skills:()=>openSkills(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents() }[kind];
   if(f) f();
 }
@@ -3862,6 +3920,46 @@ function flowTaskCard(t, acc){
 const flowCommitsOpen=new Set(); // cards com a lista de commits expandida
 // ----- filtros do Fluxo (status · período · agente · busca) -----
 let flowStatus = 'all';   // all | active | review | merged | error
+let projFilter = lsGet('projFilter')||'all'; // 'all' (integrado) | caminho de um projeto
+let allTasksCache = [];   // tarefas de TODOS os projetos (list_all_tasks), pro board integrado
+let allTasksSig = '';
+function projShort(p){ return String(p||'').split('/').filter(Boolean).slice(-1)[0]||''; }
+// lista [caminho, nome] dos projetos conhecidos (ativo + os do cache multi-projeto)
+function projList(){ const m=new Map(); if(state.repo) m.set(state.repo, projShort(state.repo)); (allTasksCache||[]).forEach(t=>{ if(t.repo) m.set(t.repo, t.proj||projShort(t.repo)); }); return [...m.entries()]; }
+function projColor(p){ // cor estável por projeto (hash → hue)
+  let h=0; const s=String(p||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
+  const hues=[145,210,265,32,190,330,95]; return `hsl(${hues[h%hues.length]} 62% 60%)`;
+}
+// normaliza uma tarefa agregada (de outro projeto) pro formato que o board espera
+function normAgg(t){ return Object.assign({}, t, { created_at: t.createdAt, roles: [], _cross: true }); }
+// fonte de tarefas do board conforme o filtro de projeto
+function boardSource(){
+  const cur=(state.tasks||[]).map(t=>Object.assign({}, t, { repo: state.repo, proj: projShort(state.repo) }));
+  if(projFilter && projFilter!=='all'){
+    if(projFilter===state.repo) return cur;
+    return (allTasksCache||[]).filter(t=>t.repo===projFilter).map(normAgg);
+  }
+  const others=(allTasksCache||[]).filter(t=>t.repo!==state.repo).map(normAgg);
+  return cur.concat(others);
+}
+async function loadAllTasks(){
+  try{ const r=await invoke('list_all_tasks'); const sig=r.map(t=>t.id+':'+t.status+':'+(t.sortOrder??'')).join(','); if(sig!==allTasksSig){ allTasksSig=sig; allTasksCache=r; if(curView&&curView()==='flow'){ lastSig=''; renderFlow(); } } }catch(_){}
+}
+// popula o seletor "projeto" da nova demanda; trocar ali muda o projeto-alvo
+function ntFillProjects(){
+  const sel=document.getElementById('ntProj'); if(!sel) return;
+  let list=(window.projectsList&&window.projectsList())||[];
+  if(!list.length) list=projList().map(([path,name])=>({path,name}));
+  if(!list.length && state.repo) list=[{path:state.repo,name:projShort(state.repo)}];
+  sel.innerHTML=list.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('');
+  sel.onchange=async()=>{ const p=sel.value; if(p && p!==state.repo && window.switchProject) await window.switchProject(p); };
+}
+// clicar numa tarefa de OUTRO projeto → troca pra ele e abre a tarefa
+async function switchToProjectTask(repo, id){
+  try{ if(window.switchProject) await window.switchProject(repo); }catch(_){}
+  selected=id; try{ lsSet('sel:'+repo, id); }catch(_){}
+  const t=(state.tasks||[]).find(x=>x.id===id); render(); if(t) openOrEdit(t);
+}
 let flowPeriod = 'all';   // all | today | week
 let flowAgent  = 'all';   // 'all' | nome do agente
 let flowType   = 'all';   // all | build | design | invest | fix | review
@@ -3980,7 +4078,14 @@ function renderFlowFilters(){
     `<span class="grow"></span>`+
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
     `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div></div>`;
-  el.innerHTML = tabsHtml + filterRow + advHtml;
+  // chips de PROJETO (multi-projeto integrado) — só quando há mais de um
+  const pl=projList();
+  const projChips = pl.length>1 ? `<div class="pfrow">`+
+    `<button class="pfchip${projFilter==='all'?' on':''}" data-pf="all">Todos os projetos</button>`+
+    pl.map(([path,name])=>`<button class="pfchip${projFilter===path?' on':''}" data-pf="${escA(path)}"><span class="pfd" style="background:${projColor(path)}"></span>${esc(name)}</button>`).join('')+
+    `</div>` : '';
+  el.innerHTML = tabsHtml + projChips + filterRow + advHtml;
+  el.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>{ projFilter=b.dataset.pf; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
     if(k==='team'){ tmView='people'; lsSet('tmView','people'); teamPaintSig=''; setView('team'); return; } // PDF p7: time por PESSOA
@@ -4145,7 +4250,8 @@ function flowTaskRow(t){
     : ['review','delivered'].includes(t.status) ? `${(diffOf(t.id)?.files||[]).length||''} arquivo(s) alterado(s), pronta pra revisar`
     : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,70))}`
     : 'iniciando…';
-  const proj=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'';
+  const proj=t.proj||(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'';
+  const pcol=projColor(t.repo||state.repo);
   const agoP=(ms)=>{ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; };
   const tm=agoP(ev?+new Date(ev.ts):(t.createdAt||t.created_at));
   const play=t.status==='draft'?`<button class="kplay" data-rowplay="${escA(t.id)}" title="iniciar">${IC.cright}</button>`:'';
@@ -4160,7 +4266,7 @@ function flowTaskRow(t){
   return `<div class="frow${done?' done':''}" data-id="${t.id}">
     <span class="d" style="background:${dot}"></span>
     ${play}<span class="ti">${esc(t.title)}</span>
-    <span class="prj">${esc(proj)}</span>
+    <span class="prj"><span class="prjd" style="background:${pcol}"></span>${esc(proj)}</span>
     <span class="pctwrap" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><i style="width:${pct}%;background:${asking.length?'var(--warn)':'var(--good)'}"></i></span><span class="pctn mono" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito">${pct}%</span>
     <span class="msg">${msg}</span>
     ${pvChip}${quick}${linkChips(t)}
@@ -4254,14 +4360,15 @@ function renderFlow(){
   renderFlowFilters();
   const el=document.getElementById("flow");
   el.classList.toggle('gridview', flowView==='grid');
+  let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); } // integrado por padrão; fallback pro repo ativo se algo falhar
   const ghost='<div class="fcard ghost" id="ghostNew"><span class="gplus">＋</span><b>Nova demanda</b><span style="font-size:12px">descreva o que precisa ser feito — o time de agentes cuida do resto</span></div>';
   // monta o HTML numa string (não escreve direto no DOM) pra poder pular o rebuild
   // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
   // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
   let tasks=[], html='', grouped=false;
-  if(!(state.tasks||[]).length){ html=ghost; }
+  if(!src.length){ html=ghost; }
   else {
-    const vis=flowVisible(state.tasks).slice();
+    const vis=flowVisible(src).slice();
     const hasManual=vis.some(t=>t.sortOrder!=null);
     tasks = hasManual
       ? vis.sort((a,b)=> (a.sortOrder??1e15)-(b.sortOrder??1e15) || b.created_at-a.created_at)
@@ -4298,7 +4405,8 @@ function renderFlow(){
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow').forEach(row=>{
     row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-arch],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg]')) return;
-      const t=(state.tasks||[]).find(x=>x.id===row.dataset.id); if(!t) return;
+      const t=src.find(x=>x.id===row.dataset.id); if(!t) return;
+      if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; }
       selected=t.id; render();
       openOrEdit(t);
     };
@@ -5776,6 +5884,7 @@ async function openNewTask(){
   closeHow(); // garante que não reabre na etapa "Como executar?"
   setNtMode(ntMode);
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
+  ntFillProjects();
   document.getElementById("ntOverlay").style.display = "flex";
   // o assistente lateral MORREU (bugado demais) — quem completa a spec agora é
   // o botão "✨ completar com IA", em cima do que você já digitou
@@ -8368,6 +8477,11 @@ async function cloudOrgView(){
 /* ===== ABAS: expõe openers do bloco 1 e re-aponta os botões pra abrir como aba ===== */
 window.openCloud = openCloud;
 window.openAgents = openAgents;
+window.switchProject = switchProject;
+window.pickFolder = pickFolder;
+if(typeof projects!=='undefined') window.projectsList = ()=>projects;
+// topo: o "projeto" agora abre o HUB de Projetos (integrado), não o menu de trocar
+{ const pb=document.getElementById('projBtn'); if(pb) pb.onclick=(e)=>{ e.stopPropagation(); if(window.openTab) window.openTab('projetos'); }; }
 [['newTaskBtn','nova'],['skillsBtn','skills'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
   const b=document.getElementById(id); if(b) b.onclick=(e)=>{ if(e&&e.preventDefault)e.preventDefault(); window.openTab(kind); };
 });
