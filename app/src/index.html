@@ -7106,8 +7106,8 @@ function routeAiRenderCloud(){
   const models=[['logcomex-v2','DeepSeek V4 Flash · 1M (padrão)'],['qwen3.8-27b','Qwen 3.8 27B · 3x mais rápido']];
   const known=models.some(m=>m[0]===model);
   const el=document.createElement('div');
-  el.innerHTML=`<div class="seclbl2" style="margin-top:18px">Route AI <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· IA alternativa pro Claude Code</span></div>
-    <div class="dim" style="font-size:11.5px;margin-top:4px">O agente continua sendo o <b>Claude Code</b> (com todo o MCP do Constellation) — só o modelo por trás muda pro seu gateway. Bom pra quando a assinatura do Claude estourar o limite.</div>
+  el.innerHTML=`<div class="seclbl2" style="margin-top:18px">Route AI <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· IA alternativa pro Claude Code · <b>só na sua conta</b></span></div>
+    <div class="dim" style="font-size:11.5px;margin-top:4px">O agente continua sendo o <b>Claude Code</b> (com todo o MCP do Constellation) — só o modelo por trás muda pro seu gateway. Bom pra quando a assinatura do Claude estourar o limite. <b>Configuração individual:</b> vale só pra você (sincroniza entre as suas máquinas), não afeta o time nem outros usuários.</div>
     ${hasKey?'':`<div style="font-size:11.5px;margin-top:8px;padding:7px 9px;border:1px solid var(--warn,#9e6a03);border-radius:7px;color:var(--warn,#d29922)">Adicione a chave do gateway em <b>Chaves de modelo</b> acima (nome <span class="mono">LGCX_API_KEY</span> ou <span class="mono">ALT_AI_KEY</span>) pra habilitar.</div>`}
     <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
       <label class="dim" style="width:64px;font-size:11.5px">Modelo</label>
