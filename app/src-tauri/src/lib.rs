@@ -2641,6 +2641,97 @@ fn set_active_skills(state: State<AppState>, skills: serde_json::Value) -> Resul
     Ok(())
 }
 
+fn skill_name_ok(n: &str) -> bool {
+    !n.is_empty() && n.len() <= 64 && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+fn skills_root() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".claude").join("skills")
+}
+
+/// Cria uma skill nova na biblioteca pessoal (~/.claude/skills/<nome>/SKILL.md).
+#[tauri::command]
+fn create_skill(name: String, description: String, body: String) -> Result<String, String> {
+    let n = name.trim().to_lowercase().replace(' ', "-");
+    if !skill_name_ok(&n) { return Err("nome inválido — use letras, números e hífen".into()); }
+    let dir = skills_root().join(&n);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let desc = description.trim().replace('\n', " ");
+    let content = format!("---\nname: {n}\ndescription: {desc}\n---\n\n{}\n", body.trim());
+    std::fs::write(dir.join("SKILL.md"), content).map_err(|e| e.to_string())?;
+    Ok(n)
+}
+
+/// Importa uma skill colando o conteúdo do SKILL.md (o nome sai do frontmatter).
+#[tauri::command]
+fn import_skill_md(content: String) -> Result<String, String> {
+    let tmp = std::env::temp_dir().join("cardume-import-skill.md");
+    std::fs::write(&tmp, &content).map_err(|e| e.to_string())?;
+    let name = parse_skill_md(&tmp).map(|(n, _)| n).ok_or("SKILL.md inválido (sem frontmatter name)")?;
+    let _ = std::fs::remove_file(&tmp);
+    let n = name.trim().to_lowercase().replace(' ', "-");
+    if !skill_name_ok(&n) { return Err("nome (frontmatter) inválido".into()); }
+    let dir = skills_root().join(&n);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("SKILL.md"), &content).map_err(|e| e.to_string())?;
+    Ok(n)
+}
+
+/// Clona um repo git e (a) sem `picks` → lista as skills achadas (dry-run);
+/// (b) com `picks` → copia as escolhidas pra ~/.claude/skills/. Muitas skills
+/// são distribuídas como repo (às vezes vários SKILL.md no mesmo repo).
+#[tauri::command(async)]
+fn git_skills(url: String, branch: Option<String>, subpath: Option<String>, picks: Option<Vec<String>>) -> Result<serde_json::Value, String> {
+    if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("git@")) {
+        return Err("URL inválida (use https:// ou git@)".into());
+    }
+    let tmp = std::env::temp_dir().join(format!("cardume-skillrepo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let mut c = Command::new("git");
+    c.args(["clone", "--depth", "1"]);
+    if let Some(b) = branch.as_ref().filter(|s| !s.trim().is_empty()) { c.args(["-b", b.trim()]); }
+    c.arg(&url).arg(&tmp);
+    let out = output_timeout(c, 120)?;
+    if !out.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(format!("git clone falhou: {}", String::from_utf8_lossy(&out.stderr).chars().take(220).collect::<String>()));
+    }
+    let base = match subpath.as_ref().filter(|s| !s.trim().is_empty()) {
+        Some(sp) => tmp.join(sp.trim().trim_matches('/')),
+        None => tmp.clone(),
+    };
+    // procura SKILL.md na base e em cada subpasta imediata
+    let mut found: Vec<(String, String, PathBuf)> = Vec::new();
+    let mut consider = |dir: &PathBuf| {
+        let md = dir.join("SKILL.md");
+        if md.is_file() { if let Some((n, d)) = parse_skill_md(&md) { found.push((n, d, dir.clone())); } }
+    };
+    consider(&base);
+    if let Ok(rd) = std::fs::read_dir(&base) {
+        for e in rd.flatten() { if e.path().is_dir() { consider(&e.path()); } }
+    }
+    let result = if let Some(ps) = picks.filter(|v| !v.is_empty()) {
+        let root = skills_root();
+        std::fs::create_dir_all(&root).ok();
+        let mut done: Vec<String> = Vec::new();
+        for (n, _d, dir) in &found {
+            if !ps.contains(n) { continue; }
+            let dst = root.join(n);
+            let _ = std::fs::remove_dir_all(&dst);
+            let mut cp = Command::new("cp");
+            cp.arg("-R").arg(dir).arg(&dst);
+            if output_timeout(cp, 60).map(|o| o.status.success()).unwrap_or(false) {
+                let _ = std::fs::write(dst.join(".git-origin"), &url); // pra oferecer "atualizar" depois
+                done.push(n.clone());
+            }
+        }
+        serde_json::json!({ "imported": done })
+    } else {
+        serde_json::json!({ "found": found.iter().map(|(n, d, _)| serde_json::json!({"name": n, "description": d})).collect::<Vec<_>>() })
+    };
+    let _ = std::fs::remove_dir_all(&tmp);
+    Ok(result)
+}
+
 /// Preferências do app (não-segredos) em ~/.constellation/settings.json.
 fn settings_path() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("settings.json")
@@ -4240,6 +4331,9 @@ pub fn run() {
             list_skills,
             get_active_skills,
             set_active_skills,
+            create_skill,
+            import_skill_md,
+            git_skills,
             read_settings,
             write_setting,
             fetch_task_ref,
