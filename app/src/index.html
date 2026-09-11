@@ -220,6 +220,13 @@
   .raopt .rin{flex:1;font-size:12.5px}
   .raopt.off{opacity:.55}
   .rawarn{font-size:11.5px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);color:var(--muted);line-height:1.45}
+  /* Skills */
+  .skrow{display:flex;align-items:center;gap:14px;padding:12px 2px;border-top:1px solid var(--border)}
+  .skrow:first-of-type{border-top:none}
+  .skmain{flex:1;min-width:0}
+  .sknm{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .sksrc{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border:1px solid var(--border-strong);border-radius:4px;padding:1px 5px}
+  .skdesc{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.45}
   .sel{appearance:none;-webkit-appearance:none;background-color:var(--surface);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:6px 26px 6px 10px;cursor:pointer;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'><path d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 9px center}
   .sel:focus{outline:2px solid var(--accent);outline-offset:-1px}
   .swatch{width:26px;height:26px;border:2px solid var(--border);border-radius:50%;padding:0;overflow:hidden;cursor:pointer;background:none;flex:none}
@@ -1448,6 +1455,7 @@
     <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg>Configurações</button>
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ambiente<span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
+    <button class="btn" id="skillsBtn" title="Skills — escolha quais skills do Claude Code os agentes deste projeto seguem"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1" stroke-linecap="round"/></svg>Skills</button>
     <button class="btn" id="pubRelBtn" title="sobe o zip empacotado (dist/) pro canal do time — os Macs dos colegas mostram o botão atualizar">⇡ Publicar release</button>
     </div>
     </div>
@@ -1928,6 +1936,14 @@
   </div>
 </div>
 
+<!-- Skills: escolher quais skills do Claude Code os agentes deste repo seguem -->
+<div class="overlay" id="skOverlay" style="display:none">
+  <div class="modal" style="width:min(640px,100%)">
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1" stroke-linecap="round"/></svg><div><b>Skills</b><div class="dim" style="font-size:10.5px">as ligadas viram instrução pros agentes deste projeto usarem quando o gatilho bater</div></div><span style="flex:1"></span><button class="x" id="skClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="skBody"></div>
+  </div>
+</div>
+
 <!-- daily do dev: o que fiz no dia selecionado -->
 <div class="overlay" id="dailyOverlay" style="display:none">
   <div class="modal" style="width:min(700px,100%)">
@@ -2173,7 +2189,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -2483,6 +2499,33 @@ function openDaily(){
   loadDaily();
 }
 document.getElementById('dailyBtn').onclick=openDaily;
+// ===== Skills: escolher quais skills os agentes deste repo seguem =====
+async function openSkills(){
+  const mm=document.getElementById('moreMenu'); if(mm) mm.style.display='none';
+  const body=document.getElementById('skBody');
+  document.getElementById('skOverlay').style.display='flex';
+  body.innerHTML='<div class="dim" style="padding:20px">carregando skills…</div>';
+  let list=[]; try{ list=await invoke('list_skills'); }catch(e){ body.innerHTML='<div class="imhint" style="border-left:2px solid var(--crit)">Falhou listar skills: '+esc(String(e&&e.message||e))+'</div>'; return; }
+  skRender(list);
+}
+function skRender(list){
+  const body=document.getElementById('skBody'); if(!body) return;
+  if(!list.length){ body.innerHTML='<div class="dim" style="padding:16px 2px;line-height:1.6">Nenhuma skill encontrada.<br>Skills ficam em <span class="mono">~/.claude/skills/&lt;nome&gt;/SKILL.md</span> (suas) ou <span class="mono">.claude/skills/</span> no projeto. Dá pra criar uma pedindo pro agente usar a skill <b>skill-creator</b>.</div>'; return; }
+  const nOn=list.filter(s=>s.active).length;
+  const sw=(nm,on)=>`<label class="sw"><input type="checkbox" data-sk="${escA(nm)}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label>`;
+  body.innerHTML=`<div class="dim" style="font-size:11.5px;margin-bottom:6px">${list.length} disponíve${list.length>1?'is':'l'} · <b style="color:var(--accent)">${nOn} ativa${nOn===1?'':'s'}</b> neste projeto — valem pros próximos turnos dos agentes</div>`
+    + list.map(s=>`<div class="skrow"><div class="skmain"><div class="sknm">${esc(s.name)}<span class="sksrc">${esc(s.source)}</span></div><div class="skdesc">${esc(String(s.description||'(sem descrição)').slice(0,240))}${(s.description||'').length>240?'…':''}</div></div>${sw(s.name,s.active)}</div>`).join('');
+  body.querySelectorAll('[data-sk]').forEach(cb=>cb.onchange=()=>skToggle(list, cb.dataset.sk, cb.checked));
+}
+async function skToggle(list, name, on){
+  const s=list.find(x=>x.name===name); if(s) s.active=on;
+  const active=list.filter(x=>x.active).map(x=>({ name:x.name, description:x.description||'' }));
+  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ alert('Falhou salvar as skills: '+(e&&e.message||e)); if(s) s.active=!on; }
+  skRender(list);
+}
+{ const b=document.getElementById('skillsBtn'); if(b) b.onclick=openSkills; }
+{ const b=document.getElementById('skClose'); if(b) b.onclick=()=>{ document.getElementById('skOverlay').style.display='none'; }; }
+document.getElementById('skOverlay').addEventListener('click',e=>{ if(e.target.id==='skOverlay') document.getElementById('skOverlay').style.display='none'; });
 document.getElementById('dailyClose').onclick=()=>{ document.getElementById('dailyOverlay').style.display='none'; };
 document.getElementById('dailyDate').onchange=loadDaily;
 document.getElementById('dailyAI').onclick=dailyAISummary;

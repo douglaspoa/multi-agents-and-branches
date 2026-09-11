@@ -2543,6 +2543,104 @@ fn route_ai_ping() -> Result<String, String> {
     }
 }
 
+/// SKILLS do Claude Code: lê o frontmatter (name/description) de um SKILL.md.
+fn parse_skill_md(path: &std::path::Path) -> Option<(String, String)> {
+    let txt = std::fs::read_to_string(path).ok()?;
+    let (mut name, mut desc) = (String::new(), String::new());
+    let mut in_fm = false;
+    let mut collecting_desc = false; // description em bloco YAML (> ou |) → junta linhas indentadas
+    for line in txt.lines() {
+        let t = line.trim();
+        if t == "---" {
+            if !in_fm { in_fm = true; continue; } else { break; }
+        }
+        if !in_fm { continue; }
+        if collecting_desc {
+            // continuação do bloco: linha indentada e não-vazia
+            if !t.is_empty() && line.starts_with(char::is_whitespace) {
+                if !desc.is_empty() { desc.push(' '); }
+                desc.push_str(t);
+                continue;
+            }
+            collecting_desc = false; // fim do bloco
+        }
+        if let Some(v) = t.strip_prefix("name:") {
+            name = v.trim().trim_matches('"').to_string();
+        } else if let Some(v) = t.strip_prefix("description:") {
+            let v = v.trim();
+            if v.is_empty() || v == ">" || v == "|" || v == ">-" || v == "|-" || v == ">+" || v == "|+" {
+                collecting_desc = true;
+                desc.clear();
+            } else {
+                desc = v.trim_matches('"').to_string();
+            }
+        }
+    }
+    if name.is_empty() {
+        name = path.parent()?.file_name()?.to_string_lossy().to_string();
+    }
+    Some((name, desc))
+}
+
+fn scan_skills_dir(dir: &std::path::Path, source: &str, out: &mut Vec<(String, String, String)>) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let md = e.path().join("SKILL.md");
+            if md.is_file() {
+                if let Some((n, d)) = parse_skill_md(&md) { out.push((n, d, source.to_string())); }
+            }
+        }
+    }
+}
+
+fn skills_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
+    Ok(repo_of(state)?.join(".cardume").join("skills.json"))
+}
+
+/// Lista as skills disponíveis (pessoais em ~/.claude/skills + do projeto em
+/// <repo>/.claude/skills), marcando quais estão ATIVAS pra este repo.
+#[tauri::command]
+fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut items: Vec<(String, String, String)> = Vec::new();
+    scan_skills_dir(&PathBuf::from(&home).join(".claude").join("skills"), "pessoal", &mut items);
+    if let Ok(repo) = repo_of(&state) {
+        scan_skills_dir(&repo.join(".claude").join("skills"), "projeto", &mut items);
+    }
+    // nomes ativos (do <repo>/.cardume/skills.json)
+    let mut active: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Ok(p) = skills_json_path(&state) {
+        if let Ok(txt) = std::fs::read_to_string(&p) {
+            if let Ok(serde_json::Value::Array(a)) = serde_json::from_str::<serde_json::Value>(&txt) {
+                for it in a { if let Some(n) = it.get("name").and_then(|x| x.as_str()) { active.insert(n.to_string()); } }
+            }
+        }
+    }
+    items.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    let arr: Vec<serde_json::Value> = items.into_iter().map(|(n, d, s)| {
+        let is_active = active.contains(&n);
+        serde_json::json!({ "name": n, "description": d, "source": s, "active": is_active })
+    }).collect();
+    Ok(serde_json::json!(arr))
+}
+
+/// Skills ATIVAS pra este repo (array de {name, description}).
+#[tauri::command]
+fn get_active_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let p = skills_json_path(&state)?;
+    let txt = std::fs::read_to_string(&p).unwrap_or_else(|_| "[]".into());
+    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!([])))
+}
+
+/// Grava as skills ativas do repo (o motor injeta no contexto do agente).
+#[tauri::command]
+fn set_active_skills(state: State<AppState>, skills: serde_json::Value) -> Result<(), String> {
+    let p = skills_json_path(&state)?;
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, serde_json::to_string_pretty(&skills).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Preferências do app (não-segredos) em ~/.constellation/settings.json.
 fn settings_path() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("settings.json")
@@ -4139,6 +4237,9 @@ pub fn run() {
             read_llm_env,
             write_llm_env,
             route_ai_ping,
+            list_skills,
+            get_active_skills,
+            set_active_skills,
             read_settings,
             write_setting,
             fetch_task_ref,

@@ -222,6 +222,28 @@ export class Orchestrator {
   }
 
   /**
+   * Skills que o humano ATIVOU pra este repo (.cardume/skills.json, escolhidas
+   * no painel de Skills do app). O agente já tem acesso às skills do Claude Code;
+   * aqui a gente DIZ quais usar, pra ele invocá-las (tool Skill / /nome) quando o
+   * gatilho da descrição bater — em vez de resolver do próprio jeito.
+   */
+  skillsContext(): string {
+    try {
+      const raw = readFileSync(join(this.ws.dir, "skills.json"), "utf8");
+      const arr = JSON.parse(raw);
+      const list = (Array.isArray(arr) ? arr : []).filter((s: any) => s && s.name);
+      if (!list.length) return "";
+      let out =
+        `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano escolheu; USE quando o gatilho bater\n` +
+        `Quando a situação corresponder à descrição de uma skill abaixo, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito — elas carregam o processo/estilo que o time espera:\n`;
+      for (const s of list) out += `- **${s.name}**: ${String(s.description || "").replace(/\s+/g, " ").slice(0, 320)}\n`;
+      return out;
+    } catch {
+      return "";
+    }
+  }
+
+  /**
    * HISTÓRICO DE TAREFAS: índice pesquisável do que já foi feito no projeto
    * (.cardume/HISTORY.md). Agentes fazem grep nele antes de investigar do zero
    * — issue parecida pode já ter sido resolvida, com branch e arquivos citados.
@@ -412,7 +434,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -685,7 +707,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -890,7 +912,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -957,7 +979,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe();
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
     const prev = task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
