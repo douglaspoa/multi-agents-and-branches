@@ -5809,8 +5809,8 @@ const PL_MESH=[
   {k:'autonomy',label:'autonomy',        src:'padrão'},
   {k:'engine',  label:'engine',          src:'padrão'},
 ];
-let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plBusy=false, plRefs=[], plPlan=null;
-function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; }
+let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plBusy=false, plRefs=[], plPlan=null, plNoEpic=false;
+function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; }
 function plRenderRefs(){
   const el=document.getElementById('plRefsBar'); if(!el) return;
   el.innerHTML = plRefs.map((p,i)=>{ const n=(p||'').split('/').pop(); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">×</button></span>`; }).join('');
@@ -5830,14 +5830,14 @@ function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFie
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
 function plReady(){ return plHas('title')&&plHas('objective')&&plHas('deliverables'); }
 let plSaveTimer=null;
-function plAutoSave(){ clearTimeout(plSaveTimer); plSaveTimer=setTimeout(()=>{ try{ invoke('save_draft',{ json: JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40), chips:plChips, asking:plAsking, plan:plPlan }) }); }catch(_){} }, 400); }
+function plAutoSave(){ clearTimeout(plSaveTimer); plSaveTimer=setTimeout(()=>{ try{ invoke('save_draft',{ json: JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40), chips:plChips, asking:plAsking, plan:plPlan, noEpic:plNoEpic }) }); }catch(_){} }, 400); }
 async function openPlanner(){
   plReset();
   document.getElementById('plannerOverlay').style.display='flex';
   let draft=null; try{ draft=await invoke('load_draft'); }catch(_){}
   if(draft){ try{ const d=JSON.parse(draft);
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
-      plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=d.plan||null;
+      plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=d.plan||null; plNoEpic=!!d.noEpic;
       plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou "novo" no topo pra começar do zero).'});
     }
   }catch(_){} }
@@ -5914,7 +5914,7 @@ function plWirePlanCard(){
   const card=document.getElementById('plPlanCard'); if(!card) return;
   card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ plPlan.tasks[+c.dataset.pptask].on=c.checked; renderPlanner(); });
   const nm=document.getElementById('ppName'); if(nm) nm.oninput=()=>{ plPlan.epic=nm.value; };
-  const dc=document.getElementById('ppDiscard'); if(dc) dc.onclick=()=>{ plPlan=null; plMsgs.push({who:'sys',text:'Plano descartado. Me diga de outro jeito ou seguimos como tarefa única.'}); renderPlanner(); plAutoSave(); };
+  const dc=document.getElementById('ppDiscard'); if(dc) dc.onclick=()=>{ plPlan=null; plNoEpic=true; plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
   const ap=document.getElementById('ppApprove'); if(ap) ap.onclick=plCreateEpic;
 }
 async function plCreateEpic(){
@@ -5960,7 +5960,8 @@ async function plSend(text){
   const inp=document.getElementById('plInput'); if(inp) inp.value='';
   plMsgs.push({who:'you', text}); plChips=[]; plBusy=true; renderPlanner();
   try{
-    const r=await invoke('ai_chat',{ prompt:text, sessionId:plSid });
+    const prompt = plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text;
+    const r=await invoke('ai_chat',{ prompt, sessionId:plSid });
     plSid=r.sessionId||plSid;
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
     plBusy=false;
@@ -5970,7 +5971,7 @@ async function plSend(text){
       plDone=!!obj.done;
       plChips=Array.isArray(obj.chips)?obj.chips.slice(0,4):[];
       // a IA propôs um ÉPICO (várias tarefas paralelas) → vira preview aprovável no chat
-      if(obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length){
+      if(!plNoEpic && obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length){
         plPlan={ epic:String(obj.plan.epic||plFields.title||'Épico').slice(0,80),
           tasks:obj.plan.tasks.filter(x=>x&&x.title).slice(0,8).map(x=>({
             title:String(x.title).slice(0,90),
