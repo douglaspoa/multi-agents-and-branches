@@ -1439,7 +1439,7 @@
     <span class="grow" data-tauri-drag-region></span>
     <div class="topsearchwrap"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" style="opacity:.55"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg><input id="topSearch" class="topsearch" placeholder="Buscar tarefa ou projeto…" spellcheck="false"><span class="kbd" style="opacity:.5">⌘K</span></div>
     <span class="grow" data-tauri-drag-region></span>
-    <button class="btn" id="updBtn" style="display:none;background:color-mix(in srgb,var(--accent) 18%,var(--surface));border-color:var(--accent);color:var(--accent);font-weight:700" title="versão nova disponível — clique pra atualizar e reabrir">⬆ atualizar</button>
+    <button class="btn" id="updBtn" style="display:none;background:color-mix(in srgb,var(--accent) 18%,var(--surface));border-color:var(--accent);color:var(--accent);font-weight:700" title="versão nova disponível — clique pra atualizar e reabrir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 10.6V3.2m0 0L5.3 5.9M8 3.2l2.7 2.7"/><path d="M3.4 12.6h9.2"/></svg>atualizar</button>
     <div style="position:relative" id="moreWrap">
     <button class="btn" id="moreBtn" title="mais — chat do projeto, daily, configurações, ambiente" style="position:relative"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="8" cy="3.2" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="12.8" r="1.3"/></svg><span id="moreDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <div class="moremenu" id="moreMenu" style="display:none">
@@ -1448,7 +1448,7 @@
     <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg>Configurações</button>
     <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ambiente<span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
     <button class="btn" id="agentsBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes & Equipes</button>
-    <button class="btn" id="pubRelBtn" title="sobe o zip empacotado (dist/) pro canal do time — os Macs dos colegas mostram ⬆ atualizar">⇡ Publicar release</button>
+    <button class="btn" id="pubRelBtn" title="sobe o zip empacotado (dist/) pro canal do time — os Macs dos colegas mostram o botão atualizar">⇡ Publicar release</button>
     </div>
     </div>
     <button class="btn" id="dailyBtn" title="Daily — resumo do que você fez no dia"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke-linecap="round"/><path d="M5 9.5l1.6 1.6L11 7.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Daily</button>
@@ -1515,7 +1515,7 @@
         <div id="wizProg" style="display:flex;gap:6px;margin-bottom:14px"></div>
         <h2 id="wizT" style="font-size:19px;margin:0 0 4px"></h2>
         <div class="dim" id="wizH" style="font-size:12.5px;margin-bottom:14px"></div>
-        <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:11.5px">📖 guia de demanda deste repo (.cardume/SPEC.md)</summary><div id="wizGuideTx" class="mdview" style="font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
+        <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:11.5px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/></svg>guia de demanda deste repo (.cardume/SPEC.md)</summary><div id="wizGuideTx" class="mdview" style="font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
       </div>
       <div id="ntMdPrev" style="display:none"></div>
       <!-- Como executar? — etapa da MESMA página (sem modal) -->
@@ -1913,7 +1913,7 @@
 <!-- chat do PROJETO: conversa livre sobre o repo, que pode virar tarefa -->
 <div class="overlay" id="pcOverlay" style="display:none">
   <div class="modal chatmodal" style="width:min(760px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:10.5px" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa">🧭 virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:10.5px" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/></svg>virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="chatthread" id="pcThread" style="min-height:340px;max-height:56vh"></div>
     <div class="chatinput"><textarea class="in" id="pcInput" rows="2" placeholder="pergunte sobre o projeto… (Enter envia · ex.: 'como o autocomplete resolve o ranking hoje?')"></textarea><button class="btn primary sm" id="pcSend">enviar</button></div>
   </div>
@@ -1931,7 +1931,7 @@
 <!-- daily do dev: o que fiz no dia selecionado -->
 <div class="overlay" id="dailyOverlay" style="display:none">
   <div class="modal" style="width:min(700px,100%)">
-    <div class="mhead"><b>Daily</b><input class="in" type="date" id="dailyDate" style="width:150px;margin-left:12px"><span style="flex:1"></span><button class="btn sm" id="dailyAI">✨ resumo curto</button><button class="btn primary sm" id="dailyDoc" title="relatório técnico completo do dia — o quê, por quê, mudanças de arquitetura, como validar — em DOC e PDF">📄 DOC + PDF</button><button class="x" id="dailyClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><b>Daily</b><input class="in" type="date" id="dailyDate" style="width:150px;margin-left:12px"><span style="flex:1"></span><button class="btn sm" id="dailyAI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 2.4l1 2.6 2.6 1-2.6 1L8 9.6 7 7l-2.6-1L7 5z" stroke-linejoin="round"/><path d="M12.4 9.4l.45 1.2 1.2.45-1.2.45-.45 1.2-.45-1.2-1.2-.45 1.2-.45z" stroke-linejoin="round"/></svg>resumo curto</button><button class="btn primary sm" id="dailyDoc" title="relatório técnico completo do dia — o quê, por quê, mudanças de arquitetura, como validar — em DOC e PDF"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M4.3 2.6h4.4L11.7 5.6v7.8H4.3z" stroke-linejoin="round"/><path d="M8.5 2.7v3.1h3.1"/></svg>DOC + PDF</button><button class="x" id="dailyClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="dailyBody"></div>
   </div>
 </div>
@@ -1976,6 +1976,23 @@
 
 <script>
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+// ícones SVG no estilo do app (linha, currentColor) — substituem emojis em botões/headers
+const _ICONS={
+  upload:'<path d="M8 10.6V3.2m0 0L5.3 5.9M8 3.2l2.7 2.7"/><path d="M3.4 12.6h9.2"/>',
+  book:'<path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/>',
+  compass:'<circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/>',
+  pulse:'<path d="M1.6 8h2.9l1.6-4.3 2.7 8.6L10.4 8h4"/>',
+  folder:'<path d="M2 4.5c0-.4.3-.7.7-.7h3.1l1.3 1.5h6.2c.4 0 .7.3.7.7v5.8c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>',
+  send:'<path d="M14 2 7.3 8.7M14 2l-4.4 12-2.3-5.3L2 6.4z" stroke-linejoin="round"/>',
+  edit:'<path d="M11.3 2.6 13.4 4.7 6 12.1l-2.7.6.6-2.7z" stroke-linejoin="round"/>',
+  eye:'<path d="M1.6 8S4 3.8 8 3.8 14.4 8 14.4 8 12 12.2 8 12.2 1.6 8 1.6 8z"/><circle cx="8" cy="8" r="1.7"/>',
+  spark:'<path d="M8 2.4l1 2.6 2.6 1-2.6 1L8 9.6 7 7l-2.6-1L7 5z" stroke-linejoin="round"/><path d="M12.4 9.4l.45 1.2 1.2.45-1.2.45-.45 1.2-.45-1.2-1.2-.45 1.2-.45z" stroke-linejoin="round"/>',
+  doc:'<path d="M4.3 2.6h4.4L11.7 5.6v7.8H4.3z" stroke-linejoin="round"/><path d="M8.5 2.7v3.1h3.1"/>',
+  save:'<path d="M3.2 2.6h7l2.6 2.6v7.2c0 .3-.2.4-.4.4H3.2c-.2 0-.4-.1-.4-.4V3c0-.3.2-.4.4-.4z" stroke-linejoin="round"/><path d="M5 2.6v3.2h4.6V2.6M5 12.8V9.2h6v3.6"/>',
+  cloud:'<path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/>',
+};
+function ic(n,sz){ sz=sz||12; return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:${sz}px;height:${sz}px;vertical-align:-1.5px;margin-right:5px;flex:none">${_ICONS[n]||''}</svg>`; }
+window.ic=ic; // pro bloco 1 (script separado) também usar
 // console.error e erros não tratados vão pro /tmp/constellation-web.log —
 // bug silencioso em tick não existe mais.
 setTimeout(()=>{ try{ invoke('web_log',{ line:'[boot] webview vivo · sess='+(!!localStorage.getItem('sb:sess'))+' · team='+(localStorage.getItem('sb:team')||'—') }); }catch(_){ } }, 3000);
@@ -2240,7 +2257,7 @@ async function checkUpdate(){
     if(j.buildMs && mine && j.buildMs > mine + 60000){
       updInfo=j;
       const b=document.getElementById('updBtn');
-      b.style.display=''; b.textContent='⬆ atualizar'+(j.version?(' · '+j.version):'');
+      b.style.display=''; b.innerHTML=ic('upload')+'atualizar'+(j.version?(' · '+esc(j.version)):'');
     }
   }catch(_){ }
 }
@@ -2253,7 +2270,7 @@ document.getElementById('updBtn').onclick=async function(){
     this.textContent='instalando…';
     await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });
     this.textContent='reabrindo…';
-  }catch(e){ alert('Atualização falhou:\n'+(e.message||e)+'\n\nBaixe o zip novo manualmente.'); this.disabled=false; this.textContent='⬆ atualizar'; }
+  }catch(e){ alert('Atualização falhou:\n'+(e.message||e)+'\n\nBaixe o zip novo manualmente.'); this.disabled=false; this.innerHTML=ic('upload')+'atualizar'; }
 };
 setTimeout(checkUpdate, 5000);
 setInterval(checkUpdate, 6*3600e3);
@@ -2271,7 +2288,7 @@ function pcRender(){
         ? `<div class="cmsg you"><div class="cbub">${esc(m.text)}</div></div>`
         : `<div class="cmsg"><div class="cbub">${mdToHtml(m.text)}</div></div>`).join('')
       + (pcBusy?'<div class="cmsg"><div class="cbub dim">lendo o projeto…</div></div>':'')
-    : `<div class="dim" style="padding:22px 16px;font-size:13px;line-height:1.7">Conversa livre sobre <b>${esc((state.repo||'o projeto').split('/').pop())}</b> — arquitetura, "onde fica X", "por que Y é assim", ideias.<br>Ele lê o código antes de responder e <b>não altera nada</b>.<br>Gostou de uma ideia? <b>🧭 virar tarefa</b> transforma a conversa numa spec pronta.</div>`;
+    : `<div class="dim" style="padding:22px 16px;font-size:13px;line-height:1.7">Conversa livre sobre <b>${esc((state.repo||'o projeto').split('/').pop())}</b> — arquitetura, "onde fica X", "por que Y é assim", ideias.<br>Ele lê o código antes de responder e <b>não altera nada</b>.<br>Gostou de uma ideia? <b>virar tarefa</b> transforma a conversa numa spec pronta.</div>`;
   th.scrollTop=th.scrollHeight;
 }
 async function pcSend(){
@@ -2302,7 +2319,7 @@ async function pcToTask(){
     renderNtList('ntRequirements',ntReq);
     document.getElementById('ntArtProof').checked=true;
   }catch(e){ alert('Não consegui montar a spec:\n'+(e.message||e)); }
-  finally{ btn.disabled=false; btn.textContent='🧭 virar tarefa'; }
+  finally{ btn.disabled=false; btn.innerHTML=ic('compass')+'virar tarefa'; }
 }
 function openPc(){ document.getElementById('pcOverlay').style.display='flex'; pcRender(); setTimeout(()=>document.getElementById('pcInput').focus(),80); }
 document.getElementById('pcBtn').onclick=openPc;
@@ -2391,7 +2408,7 @@ function renderDaily(){
 }
 async function dailyAISummary(){
   if(!dailyData||!dailyData.length) return;
-  const btn=document.getElementById('dailyAI'); btn.disabled=true; const o=btn.textContent; btn.textContent='escrevendo…';
+  const btn=document.getElementById('dailyAI'); btn.disabled=true; const o=btn.innerHTML; btn.textContent='escrevendo…';
   const facts=dailyData.map(t=>{
     const cs=(dailyCommits[t.id]||[]).map(c=>c.subject).join('; ');
     return `TAREFA: ${t.title} [status atual: ${t.status}]${t.asks?' [tem pergunta pendente pro dev]':''}\ncommits do dia: ${cs||'nenhum'}\nmarcos: ${t.notes.join(' | ')||'-'}`;
@@ -2401,7 +2418,7 @@ async function dailyAISummary(){
     document.getElementById('dailyAIOut').innerHTML=`<div class="prbox" style="margin:6px 0 12px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="dailyCopy">copiar pra daily</button></div></div>`;
     document.getElementById('dailyCopy').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
   }catch(e){ alert('Falhou: '+e); }
-  btn.disabled=false; btn.textContent=o;
+  btn.disabled=false; btn.innerHTML=o;
 }
 // ---- RELATÓRIO técnico do dia (DOC .md + PDF) ----
 let lastDailyMd=null, lastDailyDate='';
@@ -2436,18 +2453,18 @@ function dailyOut(html){ const el=document.getElementById('dailyAIOut'); if(el) 
 async function dailyGenDoc(){
   const out=document.getElementById('dailyAIOut');
   if(!dailyData||!dailyData.length){ dailyOut('<div class="imhint" style="border-left:2px solid var(--warn)">Dia sem atividade — nenhuma tarefa teve eventos nesse dia. Troque a data no topo.</div>'); return; }
-  const btn=document.getElementById('dailyDoc'); if(!btn) return; btn.disabled=true; const o=btn.textContent; btn.textContent='escrevendo…';
+  const btn=document.getElementById('dailyDoc'); if(!btn) return; btn.disabled=true; const o=btn.innerHTML; btn.textContent='escrevendo…';
   const iso=document.getElementById('dailyDate').value;
   dailyOut('<div class="prbox" style="margin:6px 0 14px;display:flex;align-items:center;gap:10px"><span class="pubspin"></span><span class="dim" style="font-size:12.5px">a IA está redigindo o relatório técnico do dia (o quê · por quê · arquitetura · como validar)… pode levar até 1 min</span></div>');
   try{
     const md=await invoke('ai_daily_report',{ text: dailyReportFacts(), date: iso });
     lastDailyMd=md; lastDailyDate=iso;
-    dailyOut(`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">💾 salvar .md</button><button class="btn primary sm" id="dailyPdf">📄 gerar PDF</button><span class="grow" style="flex:1"></span></div><div class="dim" id="dailyDocMsg" style="font-size:11px;margin-top:6px"></div></div>`);
+    dailyOut(`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">${ic('save')}salvar .md</button><button class="btn primary sm" id="dailyPdf">${ic('doc')}gerar PDF</button><span class="grow" style="flex:1"></span></div><div class="dim" id="dailyDocMsg" style="font-size:11px;margin-top:6px"></div></div>`);
     document.getElementById('dailyCopy2').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
     document.getElementById('dailySaveMd').onclick=async function(){ this.disabled=true; try{ const p=await invoke('save_doc',{ name:`relatorio-${iso}.md`, content:md }); this.textContent='salvo ✓'; const m=document.getElementById('dailyDocMsg'); if(m) m.textContent='DOC salvo em '+p; }catch(e){ const m=document.getElementById('dailyDocMsg'); if(m) m.textContent='Falhou salvar: '+(e&&e.message||e); this.disabled=false; } };
     document.getElementById('dailyPdf').onclick=dailyGenPdf;
   }catch(e){ dailyOut('<div class="imhint" style="border-left:2px solid var(--crit)">Falhou o relatório: '+esc(String(e&&e.message||e))+'</div>'); }
-  btn.disabled=false; btn.textContent=o;
+  btn.disabled=false; btn.innerHTML=o;
 }
 async function dailyGenPdf(){
   if(!lastDailyMd) return;
@@ -2487,7 +2504,7 @@ function openCfg(){
     <div id="raHost"></div>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-      <button class="btn sm" id="cfgEnv">🩺 verificar ambiente</button>
+      <button class="btn sm" id="cfgEnv">${ic('pulse')}verificar ambiente</button>
       <button class="btn sm" id="cfgBackend">backend do time…</button>
       <button class="btn sm" id="cfgTour">rever o tour</button>
     </div>
@@ -4305,10 +4322,10 @@ async function openArtifact(taskId, name){
   // cabeçalho: abrir no Preview (PDF) + enviar pro Slack (qualquer artefato)
   { const h=document.querySelector('#artOverlay .mhead'); ['artOpenExt','artSlack','artFinder'].forEach(id=>{ const o=document.getElementById(id); if(o) o.remove(); });
     if(h){ const x=h.querySelector('#artClose');
-      const fd=document.createElement('button'); fd.id='artFinder'; fd.className='btn sm'; fd.style.marginRight='8px'; fd.textContent='📁 Finder';
+      const fd=document.createElement('button'); fd.id='artFinder'; fd.className='btn sm'; fd.style.marginRight='8px'; fd.innerHTML=ic('folder')+'Finder';
       fd.title='revelar o arquivo no Finder'; fd.onclick=()=>invoke('reveal_artifact',{ taskId, name }).catch(e=>alert('Falha ao revelar:\n'+e));
       h.insertBefore(fd, x);
-      const sl=document.createElement('button'); sl.id='artSlack'; sl.className='btn sm'; sl.style.marginRight='8px'; sl.textContent='📤 Slack';
+      const sl=document.createElement('button'); sl.id='artSlack'; sl.className='btn sm'; sl.style.marginRight='8px'; sl.innerHTML=ic('send')+'Slack';
       sl.title='enviar este arquivo pra um canal do Slack'; sl.onclick=()=>sendArtifactSlack(taskId, name);
       h.insertBefore(sl, x);
       if(isPdf){ const bx=document.createElement('button'); bx.id='artOpenExt'; bx.className='btn sm'; bx.style.marginRight='8px'; bx.textContent='↗ abrir no Preview'; bx.onclick=()=>invoke('open_artifact',{ taskId, name }).catch(e=>alert('Falha:\n'+e)); h.insertBefore(bx, x); } } }
@@ -4341,7 +4358,7 @@ function mountEditor(ta, opts){
   ta.dataset.ce='1';
   const wrap=document.createElement('div'); wrap.className='ceditor';
   const tabs=document.createElement('div'); tabs.className='cetabs';
-  tabs.innerHTML=`<button data-cev="edit" class="on">✎ Editar</button>${opts.markdown!==false?'<button data-cev="prev">👁 Prévia</button>':''}<span class="cehint">${opts.markdown!==false?'markdown · ':''}Tab indenta</span>`;
+  tabs.innerHTML=`<button data-cev="edit" class="on">${ic('edit')}Editar</button>${opts.markdown!==false?'<button data-cev="prev">'+ic('eye')+'Prévia</button>':''}<span class="cehint">${opts.markdown!==false?'markdown · ':''}Tab indenta</span>`;
   const cew=document.createElement('div'); cew.className='cewrap';
   const gut=document.createElement('div'); gut.className='cegutter';
   const prev=document.createElement('div'); prev.className='cepreview mdview'; prev.hidden=true;
@@ -5331,7 +5348,7 @@ async function ntAiComplete(){
     if(wizModeOn() && wizN===1){
       wizN=2; wizRender();
       const m=document.getElementById('wizMiss');
-      if(m){ m.textContent='✨ preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
+      if(m){ m.textContent='✦ preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
     }
   }catch(e){ alert('Não consegui completar:\n'+e); }
   finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }
@@ -5891,7 +5908,7 @@ function renderPlanner(){
   const mesh=document.getElementById('plMesh');
   mesh.innerHTML=`<div class="plmeshh">TASK.yaml <span class="plmesht">montando ao vivo · ${okCount}/${PL_MESH.length}</span></div>`+
     PL_MESH.map(f=>{ const st=plState(f.k); const v=plVal(f.k); const disp=Array.isArray(v)?v.join('\n'):v;
-      const ctl = f.arts ? (()=>{ const a=plFields.artifacts||{}; const chip=(k,lbl)=>`<button class="plart${a[k]?' on':''}" data-plart="${k}">${lbl}</button>`; return `<div class="plarts">${chip('doc','📄→doc')}${chip('proof','prints')}${chip('tests','testes')}</div>`.replace('📄→doc','doc de arquitetura'); })()
+      const ctl = f.arts ? (()=>{ const a=plFields.artifacts||{}; const chip=(k,lbl)=>`<button class="plart${a[k]?' on':''}" data-plart="${k}">${lbl}</button>`; return `<div class="plarts">${chip('doc','doc de arquitetura')}${chip('proof','prints')}${chip('tests','testes')}</div>`; })()
         : f.auto ? `<div class="plfv mono auto">${esc(disp)||'—'}</div>`
         : f.list ? `<textarea class="plfv in mono" data-fk="${f.k}" rows="2" placeholder="um por linha…">${esc(Array.isArray(v)?v.join('\n'):'')}</textarea>`
         : f.area ? `<textarea class="plfv in" data-fk="${f.k}" rows="2" placeholder="…">${esc(disp)}</textarea>`
@@ -8067,7 +8084,7 @@ function cloudProofsBlock(t){
   const n=pub===undefined?'…':pub.length;
   return `<div class="seclbl">Provas no time <span class="n">${n}</span></div>
     <div class="prbox"><div class="ihint">O time vê o cartão desta tarefa, mas os artefatos só sobem quando VOCÊ publicar. Publicados ficam na galeria do cartão (aba Time).</div>
-    <div class="prrow" style="margin-top:8px"><button class="btn primary sm" id="pubProofs">☁ publicar provas pro time</button><span class="grow"></span>${pub&&pub.length?`<span class="dim" style="font-size:11px">${pub.length} publicado(s)</span>`:''}</div></div>`;
+    <div class="prrow" style="margin-top:8px"><button class="btn primary sm" id="pubProofs"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z"/></svg>publicar provas pro time</button><span class="grow"></span>${pub&&pub.length?`<span class="dim" style="font-size:11px">${pub.length} publicado(s)</span>`:''}</div></div>`;
 }
 async function cloudPubList(cid, force){
   if(cloudPubCache[cid]!==undefined && !force) return cloudPubCache[cid];
@@ -8096,9 +8113,9 @@ async function cloudPublishProofs(t, btn){
     }
     sbPost('task_activity',{ task_id:cid, user_id:cloudUserId(), kind:'delivered', body:sent+' artefato(s) publicados' }).catch(()=>{});
     await cloudPubList(cid, true);
-    if(btn){ btn.textContent='✓ '+sent+' publicados'; setTimeout(()=>{ btn.disabled=false; btn.textContent='☁ publicar provas pro time'; }, 3500); }
+    if(btn){ btn.textContent='✓ '+sent+' publicados'; setTimeout(()=>{ btn.disabled=false; btn.innerHTML=window.ic('cloud')+'publicar provas pro time'; }, 3500); }
     lastSig=''; renderSide();
-  }catch(e){ alert('Falha ao publicar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.textContent='☁ publicar provas pro time'; } }
+  }catch(e){ alert('Falha ao publicar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.innerHTML=window.ic('cloud')+'publicar provas pro time'; } }
 }
 async function cloudSignedUrl(path){
   const j=await sbFetch('/storage/v1/object/sign/artifacts/'+path, { method:'POST', body: JSON.stringify({ expiresIn: 3600 }) });
