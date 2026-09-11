@@ -2508,6 +2508,41 @@ fn write_llm_env(content: String) -> Result<(), String> {
     Ok(())
 }
 
+/// ROUTE AI: testa a conexão com o gateway alternativo (OpenAI-compatible) usando
+/// a config do cofre. Prova chave + endpoint + modelo respondendo de verdade, sem
+/// depender do shim (que vive no processo do motor). Não expõe a chave.
+#[tauri::command(async)]
+fn route_ai_ping() -> Result<String, String> {
+    let key = llm_env_get("ALT_AI_KEY")
+        .or_else(|| llm_env_get("LGCX_API_KEY"))
+        .ok_or("configure a chave do gateway (ALT_AI_KEY ou LGCX_API_KEY) em Chaves de modelo")?;
+    let base = llm_env_get("ALT_AI_BASE_URL").unwrap_or_else(|| "https://llm.logcomex.ai/v1".into());
+    let base = base.trim_end_matches('/').to_string();
+    let model = llm_env_get("ALT_AI_MODEL").unwrap_or_else(|| "logcomex-v2".into());
+    let payload = serde_json::json!({
+        "model": model, "max_tokens": 32, "stream": false,
+        "messages": [{ "role": "user", "content": "responda apenas: ok" }]
+    })
+    .to_string();
+    let mut c = Command::new("curl");
+    c.args([
+        "-s", "-m", "30", "-X", "POST", &format!("{base}/chat/completions"),
+        "-H", &format!("Authorization: Bearer {key}"),
+        "-H", "Content-Type: application/json", "-d", &payload,
+    ]);
+    let out = output_timeout(c, 35)?;
+    let body = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .map_err(|_| format!("resposta inesperada do gateway: {}", body.chars().take(160).collect::<String>()))?;
+    if let Some(msg) = v["choices"][0]["message"]["content"].as_str() {
+        Ok(format!("{} respondeu: “{}”", model, msg.trim().chars().take(60).collect::<String>()))
+    } else if let Some(err) = v["error"]["message"].as_str().or_else(|| v["detail"].as_str()) {
+        Err(format!("gateway recusou: {err}"))
+    } else {
+        Err(format!("sem resposta do gateway ({})", body.chars().take(120).collect::<String>()))
+    }
+}
+
 /// Preferências do app (não-segredos) em ~/.constellation/settings.json.
 fn settings_path() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("settings.json")
@@ -4103,6 +4138,7 @@ pub fn run() {
             repo_doc_write,
             read_llm_env,
             write_llm_env,
+            route_ai_ping,
             read_settings,
             write_setting,
             fetch_task_ref,

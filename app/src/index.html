@@ -6882,6 +6882,7 @@ async function renderCloud(){
   if(typeof billingRenderCloud==='function') billingRenderCloud();
   if(typeof orgDefaultsRenderCloud==='function') orgDefaultsRenderCloud(isAdmin);
   if(typeof secretsRenderCloud==='function') secretsRenderCloud();
+  if(typeof routeAiRenderCloud==='function') routeAiRenderCloud();
 }
 // seção "Padrões da organização" na Conta (admins editam; o resto só vê)
 function orgDefaultsRenderCloud(isAdmin){
@@ -7092,6 +7093,48 @@ function secretsRenderCloud(){
       if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ alert('Nome inválido — use MAIÚSCULAS_E_UNDERSCORE.'); return; }
       const v=await askText('Valor de '+name,'cole a chave'); if(v===null||!v.trim()) return;
       await secretSet(name, v.trim()); renderCloud();
+    }; }
+}
+// seção na Conta: ROUTE AI — IA alternativa pro Claude Code (fallback / teste)
+function routeAiRenderCloud(){
+  const body=document.getElementById('cloudBody'); if(!body||!SB.sess()) return;
+  const S=n=>{ const r=(secretsCache||[]).find(x=>x.name===n); return r?String(r.value):''; };
+  const hasKey=!!(S('ALT_AI_KEY')||S('LGCX_API_KEY'));
+  const always=S('ALT_AI_ALWAYS')==='1', fallback=S('ALT_AI_FALLBACK')==='1';
+  const baseUrl=S('ALT_AI_BASE_URL')||'https://llm.logcomex.ai/v1';
+  const model=S('ALT_AI_MODEL')||'logcomex-v2';
+  const models=[['logcomex-v2','DeepSeek V4 Flash · 1M (padrão)'],['qwen3.8-27b','Qwen 3.8 27B · 3x mais rápido']];
+  const known=models.some(m=>m[0]===model);
+  const el=document.createElement('div');
+  el.innerHTML=`<div class="seclbl2" style="margin-top:18px">Route AI <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· IA alternativa pro Claude Code</span></div>
+    <div class="dim" style="font-size:11.5px;margin-top:4px">O agente continua sendo o <b>Claude Code</b> (com todo o MCP do Constellation) — só o modelo por trás muda pro seu gateway. Bom pra quando a assinatura do Claude estourar o limite.</div>
+    ${hasKey?'':`<div style="font-size:11.5px;margin-top:8px;padding:7px 9px;border:1px solid var(--warn,#9e6a03);border-radius:7px;color:var(--warn,#d29922)">Adicione a chave do gateway em <b>Chaves de modelo</b> acima (nome <span class="mono">LGCX_API_KEY</span> ou <span class="mono">ALT_AI_KEY</span>) pra habilitar.</div>`}
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+      <label class="dim" style="width:64px;font-size:11.5px">Modelo</label>
+      <select class="sel" id="raModel" style="flex:1">${models.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+      <label class="dim" style="width:64px;font-size:11.5px">Endpoint</label>
+      <input class="in mono" id="raBase" value="${escA(baseUrl)}" style="flex:1;font-size:11px" placeholder="https://.../v1" />
+    </div>
+    <label style="display:flex;gap:9px;align-items:flex-start;margin-top:12px;cursor:pointer;font-size:12.5px${hasKey?'':';opacity:.5;cursor:not-allowed'}"><input type="checkbox" id="raFallback" style="margin-top:2px"${fallback?' checked':''}${hasKey?'':' disabled'}/> <span><b>Fallback automático</b> — quando o Claude bater limite de uso, roteia a tarefa pra cá e <b>continua na hora</b> (em vez de esperar a assinatura voltar).</span></label>
+    <label style="display:flex;gap:9px;align-items:flex-start;margin-top:9px;cursor:pointer;font-size:12.5px${hasKey?'':';opacity:.5;cursor:not-allowed'}"><input type="checkbox" id="raAlways" style="margin-top:2px"${always?' checked':''}${hasKey?'':' disabled'}/> <span><b>Usar sempre (modo teste)</b> — TODAS as tarefas novas rodam na IA alternativa. Ligue pra testar; desligue pra voltar ao Claude.</span></label>
+    ${always?'<div style="font-size:11px;margin-top:7px;color:var(--warn,#d29922)">⚠ Modo teste ligado: tudo está rodando na IA alternativa, não no Claude.</div>':''}
+    <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+      <button class="btn sm" id="raTest"${hasKey?'':' disabled'}>testar conexão</button>
+      <span class="dim" id="raTestMsg" style="font-size:11px"></span>
+    </div>`;
+  body.appendChild(el);
+  const save=(k,v)=>secretSet(k,v);
+  el.querySelector('#raModel').onchange=e=>save('ALT_AI_MODEL',e.target.value);
+  { const b=el.querySelector('#raBase'); if(b) b.onchange=e=>save('ALT_AI_BASE_URL',e.target.value.trim()); }
+  { const b=el.querySelector('#raFallback'); if(b) b.onchange=e=>save('ALT_AI_FALLBACK',e.target.checked?'1':'0').then(renderCloud); }
+  { const b=el.querySelector('#raAlways'); if(b) b.onchange=e=>save('ALT_AI_ALWAYS',e.target.checked?'1':'0').then(renderCloud); }
+  { const tb=el.querySelector('#raTest'); if(tb) tb.onclick=async()=>{
+      const msg=el.querySelector('#raTestMsg'); msg.style.color='var(--dim)'; msg.textContent='testando…'; tb.disabled=true;
+      try{ const r=await invoke('route_ai_ping'); msg.textContent='✓ '+r; msg.style.color='var(--ok,#3fb950)'; }
+      catch(e){ msg.textContent='✕ '+String(e); msg.style.color='var(--err,#f85149)'; }
+      tb.disabled=false;
     }; }
 }
 setTimeout(secretsSync, 6000);

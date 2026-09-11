@@ -39,6 +39,8 @@ export interface RunInput {
   promptOverride?: string;
   /** Minutos de INATIVIDADE do humano pra o ask_human encerrar educadamente (0 = espera pra sempre). */
   askTimeoutMin?: number;
+  /** Route AI: força ESTE turno na IA alternativa (ex.: fallback após o Claude bater limite). */
+  forceAlt?: boolean;
 }
 
 /**

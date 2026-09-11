@@ -12,6 +12,7 @@ import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
 import { CodexEngine } from "./engine/codex.ts";
+import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
@@ -426,6 +427,7 @@ export class Orchestrator {
       const LIMIT_MIN = Math.max(5, LIMIT_ENABLED ? rawLimit : 60);
       let deathKind: "token" | "idle" | "limit" = "idle";
       let hardTry = 0, limitWait = 0, attemptNo = 0;
+      let usingAlt = false; // ROUTE AI: já roteamos esta tarefa pra IA alternativa?
       while (true) {
         roleFailed = false;
         let deathText = "";
@@ -436,6 +438,7 @@ export class Orchestrator {
           role: r.role,
           agentName: r.name,
           dbFile: this.ws.dbFile,
+          forceAlt: usingAlt,
           ...(attemptNo > 0 ? { promptOverride: Orchestrator.continuePrompt(deathKind) } : {}),
         };
         try {
@@ -467,6 +470,19 @@ export class Orchestrator {
             this.store.setStatus(taskId, "error");
             notify("Cardume", "Tarefa falhou — veja o log", task.title);
             return;
+          }
+        }
+        // ROUTE AI: Claude bateu limite e o fallback está ligado → em vez de esperar,
+        // roteia esta tarefa pra IA alternativa NA HORA e retoma continuando da worktree.
+        if (deathText && Orchestrator.usageLimitDeath(deathText) && !usingAlt) {
+          const altCfg = readAltConfig();
+          if (altCfg && altCfg.fallback) {
+            usingAlt = true;
+            deathKind = "limit";
+            this.store.addEvent(taskId, "Sistema", "note", `🔀 Claude bateu o limite de uso — roteando esta tarefa para a ${altCfg.label} (${altCfg.model}) automaticamente e retomando agora.`, true);
+            this.store.setStatus(taskId, this.statusFor(r.role));
+            sessionId = ""; attemptNo++;
+            continue;
           }
         }
         // LIMITE DE USO DA IA: espera o intervalo e retoma (não gasta o orçamento de hard-tries)

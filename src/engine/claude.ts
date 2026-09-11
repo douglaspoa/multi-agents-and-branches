@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
+import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
 
 /** A tarefa parece web/UI? Só nesses casos o agente ganha o navegador (Playwright). */
 function needsBrowser(spec: { title?: string; objective?: string; deliverables?: string[]; requirements?: string[]; kind?: string }): boolean {
@@ -231,6 +232,12 @@ export class ClaudeEngine implements AgentEngine {
       "utf8"
     );
 
+    // ROUTE AI: usar a IA alternativa neste turno? (fallback após limite do Claude,
+    // ou modo "usar sempre" ligado na config). Se sim, o agente fala com o shim
+    // local que traduz Anthropic→OpenAI pro gateway configurado.
+    const alt = readAltConfig();
+    const useAlt = !!((input.forceAlt || alt?.always) && alt);
+
     const args = [
       "-p",
       prompt,
@@ -249,24 +256,38 @@ export class ClaudeEngine implements AgentEngine {
     } else {
       // turno normal, ou instrução nova sem sessão capturada (fallback: turno fresco)
       if (input.systemContext) args.push("--append-system-prompt", input.systemContext);
-      if (this.model) args.push("--model", this.model);
+      if (useAlt && alt) args.push("--model", alt.model);
+      else if (this.model) args.push("--model", this.model);
     }
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
     // Limpa marcadores de "sessão Claude Code" herdados (ex.: app aberto a
     // partir de um terminal com claude rodando) — senão o CLI recusa "nested".
-    const env = { ...process.env };
+    const env: Record<string, string | undefined> = { ...process.env };
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SSE_PORT;
-    // API key no ambiente sobrepõe o login claude.ai: agente passa a COBRAR POR
-    // TOKEN na API e perde os connectors. Aqui é sempre a ASSINATURA que paga.
-    delete env.ANTHROPIC_API_KEY;
-    delete env.ANTHROPIC_AUTH_TOKEN;
+    if (useAlt && alt) {
+      // ROUTE AI: aponta o agente pro shim local (Anthropic→OpenAI). A chave REAL
+      // do gateway vive no shim (lida do cofre); o token aqui é só um placeholder
+      // não-vazio pra o Claude Code usar o caminho de API em vez da assinatura.
+      const proxyPort = await ensureAltProxy();
+      env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${proxyPort}`;
+      env.ANTHROPIC_AUTH_TOKEN = "route-ai";
+      env.ANTHROPIC_MODEL = alt.model;
+      env.ANTHROPIC_SMALL_FAST_MODEL = alt.model;
+      delete env.ANTHROPIC_API_KEY;
+    } else {
+      // API key no ambiente sobrepõe o login claude.ai: agente passa a COBRAR POR
+      // TOKEN na API e perde os connectors. Aqui é sempre a ASSINATURA que paga.
+      delete env.ANTHROPIC_API_KEY;
+      delete env.ANTHROPIC_AUTH_TOKEN;
+    }
     const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];
+    if (useAlt && alt) queue.push({ type: "note", text: `🔀 Route AI: rodando na ${alt.label} (${alt.model})` });
     let done = false;
     let notify: (() => void) | null = null;
     const wake = () => {
