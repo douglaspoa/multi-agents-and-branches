@@ -2360,14 +2360,16 @@ async function dailyAISummary(){
 let lastDailyMd=null, lastDailyDate='';
 function dailyReportFacts(){
   return (dailyData||[]).map(t=>{
-    const cs=(dailyCommits[t.id]||[]).map(c=>(c.hash||'').slice(0,7)+' '+(c.subject||''));
+    // só o assunto do commit (sem hash), pra descrever a mudança
+    const cs=(dailyCommits[t.id]||[]).map(c=>c.subject||'').filter(Boolean);
     const st=(state.tasks||[]).find(x=>x.id===t.id);
     const obj=(st&&st.objective)||'';
     const d=diffOf(t.id);
     const nfiles=d?(Array.isArray(d.files)?d.files.length:(typeof d.files==='number'?d.files:0)):0;
-    const diff=d?`+${d.additions||0} −${d.deletions||0} em ${nfiles} arquivo(s)`:'';
-    const files=(d&&Array.isArray(d.files))?d.files.slice(0,14).map(f=>(f&&(f.path||f.name))||f).join(', '):'';
-    return `TAREFA: ${t.title}\nstatus: ${t.status} · branch: ${t.branch}\nobjetivo: ${obj||'(não informado)'}\ncommits do dia: ${cs.join(' | ')||'nenhum'}\ndiff: ${diff||'-'}${files?'\narquivos tocados: '+files:''}\nmarcos: ${(t.notes||[]).join(' | ')||'-'}${t.asks?'\n[tem pergunta pendente pro humano]':''}`;
+    const scope=nfiles?`~${nfiles} arquivo(s)`:'';
+    // marcos ÚTEIS: descarta o ruído de engine/processo (não vai pra diretoria)
+    const marcos=(t.notes||[]).filter(n=>!/sess[aã]o iniciada|iniciando claude|claude finaliz|pipeline parado|worktree criada|bypasspermission|approval:|perguntou ao humano|humano respondeu|\btimeout\b|rework/i.test(n)).slice(0,6);
+    return `ENTREGA: ${t.title}\ncontexto/objetivo: ${obj||'—'}\nmudanças: ${cs.join(' | ')||'—'}\nescopo: ${scope||'—'}\nnotas: ${marcos.join(' | ')||'—'}`;
   }).join('\n\n---\n\n');
 }
 function dailyPdfHtml(md, date){

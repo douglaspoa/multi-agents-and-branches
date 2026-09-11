@@ -2140,16 +2140,15 @@ fn ai_daily(text: String) -> Result<String, String> {
 fn ai_daily_report(text: String, date: String) -> Result<String, String> {
     let ctx: String = text.chars().take(14000).collect();
     let prompt = format!(
-        "Você escreve um RELATÓRIO TÉCNICO do dia de trabalho de engenharia, em português (pt-BR), a partir do log abaixo (tarefas com objetivo, commits, diffs, marcos). Saída SOMENTE em Markdown bem formatado, começando com `# Relatório do dia — {date}`.\n\n\
-         Estrutura obrigatória:\n\
-         1) Um parágrafo de RESUMO EXECUTIVO: o que mudou no produto hoje e por quê (visão de negócio + técnica).\n\
-         2) Para CADA tarefa relevante, uma seção `## <título da tarefa>` com estes bullets em negrito:\n\
-         - **O que foi feito:** 1 a 3 frases concretas.\n\
-         - **Por quê:** o problema/objetivo que motivou.\n\
-         - **Mudanças de arquitetura:** SÓ se houver (novo módulo, mudança de fluxo de dados, contrato/endpoint, dependência, padrão) — cite arquivos/funções; se não houver, escreva 'sem mudança de arquitetura'.\n\
-         - **Como validar:** como testar/conferir (comando, tela, PR).\n\
-         3) Se houver pendências/bloqueios (perguntas ao humano em aberto), uma seção final `## Pendências`.\n\n\
-         Regras: técnico e específico, cite arquivos/funções quando o log permitir, sem enrolação, sem custo/token. NÃO invente o que não está no log.\n\n{ctx}"
+        "Você escreve um RELATÓRIO EXECUTIVO do dia de engenharia PARA A DIRETORIA, em português (pt-BR), tom profissional e objetivo — foco em RESULTADO e IMPACTO no produto/negócio, não na mecânica interna. Saída SOMENTE em Markdown bem formatado, começando com `# Relatório do dia — {date}`.\n\n\
+         Estrutura:\n\
+         1) RESUMO EXECUTIVO (2 a 4 frases): o que avançou no produto hoje e o valor pro usuário/negócio.\n\
+         2) Uma seção `## <tema da entrega>` por frente relevante (AGRUPE entregas relacionadas num tema só), cada uma com:\n\
+         - **Entrega:** o que passou a funcionar ou melhorou, em termos de PRODUTO (não de código).\n\
+         - **Impacto:** por que importa pro usuário/negócio.\n\
+         - **Nota técnica:** só se houve mudança de arquitetura relevante — descreva em linguagem acessível (1-2 frases). OMITA a linha inteira se não houver.\n\
+         3) Se houver riscos ou pontos que precisam de decisão de NEGÓCIO, uma seção final `## Pontos de atenção` (profissional, sem jargão de processo).\n\n\
+         PROIBIDO mencionar (não cite NADA disso): nomes de branch, hashes de commit, caminhos de arquivo internos (.cardume etc.), status internos de execução (timeout, erro de pipeline, rework, 'em review', 'merged'), perguntas feitas ao time durante a execução, custos/tokens, e a frase 'não especificado no log'. Se um dado não estiver claro, simplesmente NÃO comente — NUNCA escreva que faltou informação. Escreva com confiança e clareza, como um líder de produto reportando à diretoria.\n\n{ctx}"
     );
     let out = claude_cmd(&claude_bin())
         .args(["-p", &prompt, "--model", "claude-sonnet-5"])
