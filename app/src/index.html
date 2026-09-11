@@ -2364,8 +2364,9 @@ function dailyReportFacts(){
     const st=(state.tasks||[]).find(x=>x.id===t.id);
     const obj=(st&&st.objective)||'';
     const d=diffOf(t.id);
-    const diff=d?`+${d.additions} −${d.deletions} em ${(d.files||[]).length} arquivo(s)`:'';
-    const files=(d&&d.files)?d.files.slice(0,14).map(f=>f.path||f.name||f).join(', '):'';
+    const nfiles=d?(Array.isArray(d.files)?d.files.length:(typeof d.files==='number'?d.files:0)):0;
+    const diff=d?`+${d.additions||0} −${d.deletions||0} em ${nfiles} arquivo(s)`:'';
+    const files=(d&&Array.isArray(d.files))?d.files.slice(0,14).map(f=>(f&&(f.path||f.name))||f).join(', '):'';
     return `TAREFA: ${t.title}\nstatus: ${t.status} · branch: ${t.branch}\nobjetivo: ${obj||'(não informado)'}\ncommits do dia: ${cs.join(' | ')||'nenhum'}\ndiff: ${diff||'-'}${files?'\narquivos tocados: '+files:''}\nmarcos: ${(t.notes||[]).join(' | ')||'-'}${t.asks?'\n[tem pergunta pendente pro humano]':''}`;
   }).join('\n\n---\n\n');
 }
