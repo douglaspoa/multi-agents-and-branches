@@ -227,6 +227,18 @@
   .sknm{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
   .sksrc{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border:1px solid var(--border-strong);border-radius:4px;padding:1px 5px}
   .skdesc{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+  /* adicionar skill */
+  .addpanel{margin:4px 0 14px;padding:13px 14px;background:var(--surface-2);border:1px solid var(--accent);border-radius:10px}
+  .addpanel label{display:block;font-size:12px;color:var(--text-2);font-weight:600;margin-top:11px}
+  .addpanel textarea.in,.addpanel input.in{width:100%;margin-top:6px}
+  .addtabs{display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap}
+  .addtabs .at{font-size:11.5px;color:var(--muted);padding:5px 10px;border-radius:7px;cursor:pointer;border:1px solid transparent}
+  .addtabs .at:hover{color:var(--text-2)}
+  .addtabs .at.on{color:var(--text);background:var(--surface-3);border-color:var(--border-strong)}
+  .found{margin-top:12px;background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;padding:10px 11px}
+  .foundh{font-size:11.5px;color:var(--accent);font-weight:600;margin-bottom:7px}
+  .foundit{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0;cursor:pointer}
+  .foundit b{font-family:var(--mono)}
   /* ===== Motor de abas (Chrome-style) ===== */
   .tabbar{display:flex;align-items:stretch;gap:2px;padding:5px 8px 0;background:var(--surface-2);border-bottom:1px solid var(--border);overflow-x:auto;flex:none}
   .tabbar::-webkit-scrollbar{height:0}
@@ -2520,29 +2532,95 @@ function openDaily(){
   loadDaily();
 }
 document.getElementById('dailyBtn').onclick=openDaily;
-// ===== Skills: escolher quais skills os agentes deste repo seguem =====
+// ===== Skills: biblioteca (adicionar) + habilitar por projeto =====
+let skAddOpen=false, skAddMode='git', skGitFound=null, skList=[];
 async function openSkills(){
   const mm=document.getElementById('moreMenu'); if(mm) mm.style.display='none';
   const body=document.getElementById('skBody');
   document.getElementById('skOverlay').style.display='flex';
   body.innerHTML='<div class="dim" style="padding:20px">carregando skills…</div>';
-  let list=[]; try{ list=await invoke('list_skills'); }catch(e){ body.innerHTML='<div class="imhint" style="border-left:2px solid var(--crit)">Falhou listar skills: '+esc(String(e&&e.message||e))+'</div>'; return; }
-  skRender(list);
+  try{ skList=await invoke('list_skills'); }catch(e){ body.innerHTML='<div class="imhint" style="border-left:2px solid var(--crit)">Falhou listar skills: '+esc(String(e&&e.message||e))+'</div>'; return; }
+  skRender();
 }
-function skRender(list){
+function skAddPanelHtml(){
+  const tab=(m,l)=>`<span class="at ${skAddMode===m?'on':''}" data-skmode="${m}">${l}</span>`;
+  let b='';
+  if(skAddMode==='git'){
+    const found = skGitFound ? (skGitFound.length
+        ? `<div class="found"><div class="foundh">✓ ${skGitFound.length} skill(s) no repo — escolha</div>${skGitFound.map((s,i)=>`<label class="foundit"><input type="checkbox" data-gk="${escA(s.name)}" checked><b>${esc(s.name)}</b><span class="dim">${esc(String(s.description||'').slice(0,90))}</span></label>`).join('')}</div>`
+        : `<div class="rawarn" style="margin-top:10px">Nenhum SKILL.md achado nesse repo/subpasta.</div>`) : '';
+    b=`<label>URL do repositório Git <span class="dim" style="font-weight:400">(muita skill vem como repo)</span></label>
+      <input class="in mono" id="skGitUrl" placeholder="https://github.com/org/repo.git" style="font-size:12px">
+      <div style="display:flex;gap:8px;margin-top:8px"><input class="in mono" id="skGitBranch" placeholder="branch (opcional)" style="font-size:11.5px;flex:1"><input class="in mono" id="skGitSub" placeholder="subpasta (opcional)" style="font-size:11.5px;flex:1"></div>
+      ${found}
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">${skGitFound&&skGitFound.length?`<button class="btn primary" id="skGitImport">importar selecionadas</button>`:`<button class="btn primary" id="skGitDetect">detectar skills</button>`}<button class="btn" id="skAddCancel">cancelar</button></div>`;
+  } else if(skAddMode==='criar'){
+    b=`<label>Nome</label><input class="in mono" id="skNewName" placeholder="ex.: revisar-pr-logcomex" style="font-size:12px">
+      <label>Quando usar <span class="dim" style="font-weight:400">(o gatilho — a IA lê isso pra saber quando disparar)</span></label>
+      <textarea class="in" id="skNewDesc" rows="2" placeholder="Use SEMPRE que for revisar um PR nos repos X… dispara mesmo sem pedir"></textarea>
+      <label>Instruções</label><textarea class="in" id="skNewBody" rows="5" placeholder="o passo a passo / regras da skill (markdown)"></textarea>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skDoCreate">salvar na biblioteca</button><button class="btn" id="skAddCancel">cancelar</button></div>`;
+  } else if(skAddMode==='importar'){
+    b=`<label>Cole o conteúdo do SKILL.md <span class="dim" style="font-weight:400">(o nome sai do frontmatter)</span></label>
+      <textarea class="in mono" id="skImpMd" rows="8" style="font-size:11.5px" placeholder="---\nname: minha-skill\ndescription: quando usar…\n---\n\n# Instruções\n…"></textarea>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skDoImport">importar</button><button class="btn" id="skAddCancel">cancelar</button></div>`;
+  } else {
+    b=`<div class="dim" style="line-height:1.6;padding:2px 0 6px">Pra criar com IA, abra uma <b>Nova demanda</b> pedindo a skill-creator (ex.: "crie uma skill que padroniza como abro PR"), ou use o <span class="mono">skill-creator</span> no Claude Code. Depois ela aparece aqui na biblioteca.</div>
+      <div style="margin-top:4px"><button class="btn" id="skAddCancel">fechar</button></div>`;
+  }
+  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia','✦ Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
+}
+function skRender(){
   const body=document.getElementById('skBody'); if(!body) return;
-  if(!list.length){ body.innerHTML='<div class="dim" style="padding:16px 2px;line-height:1.6">Nenhuma skill encontrada.<br>Skills ficam em <span class="mono">~/.claude/skills/&lt;nome&gt;/SKILL.md</span> (suas) ou <span class="mono">.claude/skills/</span> no projeto. Dá pra criar uma pedindo pro agente usar a skill <b>skill-creator</b>.</div>'; return; }
+  const list=skList||[];
   const nOn=list.filter(s=>s.active).length;
   const sw=(nm,on)=>`<label class="sw"><input type="checkbox" data-sk="${escA(nm)}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label>`;
-  body.innerHTML=`<div class="dim" style="font-size:11.5px;margin-bottom:6px">${list.length} disponíve${list.length>1?'is':'l'} · <b style="color:var(--accent)">${nOn} ativa${nOn===1?'':'s'}</b> neste projeto — valem pros próximos turnos dos agentes</div>`
-    + list.map(s=>`<div class="skrow"><div class="skmain"><div class="sknm">${esc(s.name)}<span class="sksrc">${esc(s.source)}</span></div><div class="skdesc">${esc(String(s.description||'(sem descrição)').slice(0,240))}${(s.description||'').length>240?'…':''}</div></div>${sw(s.name,s.active)}</div>`).join('');
-  body.querySelectorAll('[data-sk]').forEach(cb=>cb.onchange=()=>skToggle(list, cb.dataset.sk, cb.checked));
+  const head=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><div class="dim" style="font-size:11.5px">${list.length} na biblioteca · <b style="color:var(--accent)">${nOn} ativa${nOn===1?'':'s'}</b> neste projeto</div><span style="flex:1"></span><button class="btn sm" id="skAddBtn" style="font-size:11.5px;padding:5px 11px">+ adicionar skill</button></div>`;
+  const rows = list.length
+    ? list.map(s=>`<div class="skrow"><div class="skmain"><div class="sknm">${esc(s.name)}<span class="sksrc">${esc(s.source)}</span></div><div class="skdesc">${esc(String(s.description||'(sem descrição)').slice(0,240))}${(s.description||'').length>240?'…':''}</div></div>${sw(s.name,s.active)}</div>`).join('')
+    : `<div class="dim" style="padding:14px 2px;line-height:1.6">Biblioteca vazia. Use <b>+ adicionar skill</b> — dá pra importar de um repo Git, colar um SKILL.md ou criar do zero.</div>`;
+  body.innerHTML=head+(skAddOpen?skAddPanelHtml():'')+rows;
+  body.querySelectorAll('[data-sk]').forEach(cb=>cb.onchange=()=>skToggle(cb.dataset.sk, cb.checked));
+  { const b=body.querySelector('#skAddBtn'); if(b) b.onclick=()=>{ skAddOpen=true; skGitFound=null; skRender(); }; }
+  { const b=body.querySelector('#skAddCancel'); if(b) b.onclick=()=>{ skAddOpen=false; skGitFound=null; skRender(); }; }
+  body.querySelectorAll('[data-skmode]').forEach(el=>el.onclick=()=>{ skAddMode=el.dataset.skmode; skGitFound=null; skRender(); });
+  { const b=body.querySelector('#skGitDetect'); if(b) b.onclick=skGitDetect; }
+  { const b=body.querySelector('#skGitImport'); if(b) b.onclick=skGitImport; }
+  { const b=body.querySelector('#skDoCreate'); if(b) b.onclick=skDoCreate; }
+  { const b=body.querySelector('#skDoImport'); if(b) b.onclick=skDoImport; }
 }
-async function skToggle(list, name, on){
-  const s=list.find(x=>x.name===name); if(s) s.active=on;
-  const active=list.filter(x=>x.active).map(x=>({ name:x.name, description:x.description||'' }));
+async function skToggle(name, on){
+  const s=(skList||[]).find(x=>x.name===name); if(s) s.active=on;
+  const active=(skList||[]).filter(x=>x.active).map(x=>({ name:x.name, description:x.description||'' }));
   try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ alert('Falhou salvar as skills: '+(e&&e.message||e)); if(s) s.active=!on; }
-  skRender(list);
+  skRender();
+}
+function skGitVals(){ return { url:(document.getElementById('skGitUrl')||{}).value||'', branch:(document.getElementById('skGitBranch')||{}).value||'', subpath:(document.getElementById('skGitSub')||{}).value||'' }; }
+async function skGitDetect(){
+  const {url,branch,subpath}=skGitVals(); if(!url.trim()){ alert('Cole a URL do repositório.'); return; }
+  const b=document.getElementById('skGitDetect'); if(b){ b.disabled=true; b.textContent='clonando…'; }
+  try{ const r=await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks:null }); skGitFound=r.found||[]; skRender(); }
+  catch(e){ alert('Falhou: '+(e&&e.message||e)); if(b){ b.disabled=false; b.textContent='detectar skills'; } }
+}
+async function skGitImport(){
+  const {url,branch,subpath}=skGitVals();
+  const picks=[...document.querySelectorAll('[data-gk]:checked')].map(c=>c.dataset.gk);
+  if(!picks.length){ alert('Marque ao menos uma skill.'); return; }
+  const b=document.getElementById('skGitImport'); if(b){ b.disabled=true; b.textContent='importando…'; }
+  try{ await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks }); skAddOpen=false; skGitFound=null; await openSkills(); }
+  catch(e){ alert('Falhou importar: '+(e&&e.message||e)); if(b){ b.disabled=false; b.textContent='importar selecionadas'; } }
+}
+async function skDoCreate(){
+  const name=(document.getElementById('skNewName')||{}).value||'', desc=(document.getElementById('skNewDesc')||{}).value||'', bodyv=(document.getElementById('skNewBody')||{}).value||'';
+  if(!name.trim()||!desc.trim()){ alert('Preencha nome e "quando usar".'); return; }
+  try{ await invoke('create_skill',{ name:name.trim(), description:desc.trim(), body:bodyv }); skAddOpen=false; await openSkills(); }
+  catch(e){ alert('Falhou criar: '+(e&&e.message||e)); }
+}
+async function skDoImport(){
+  const md=(document.getElementById('skImpMd')||{}).value||'';
+  if(!md.trim()){ alert('Cole o conteúdo do SKILL.md.'); return; }
+  try{ await invoke('import_skill_md',{ content:md }); skAddOpen=false; await openSkills(); }
+  catch(e){ alert('Falhou importar: '+(e&&e.message||e)); }
 }
 { const b=document.getElementById('skillsBtn'); if(b) b.onclick=openSkills; }
 { const b=document.getElementById('skClose'); if(b) b.onclick=()=>{ document.getElementById('skOverlay').style.display='none'; }; }

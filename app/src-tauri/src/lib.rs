@@ -2641,6 +2641,25 @@ fn set_active_skills(state: State<AppState>, skills: serde_json::Value) -> Resul
     Ok(())
 }
 
+/// Anda a árvore procurando pastas que contêm SKILL.md (cada uma é uma skill).
+fn walk_skills(dir: &std::path::Path, depth: usize, out: &mut Vec<(String, String, PathBuf)>) {
+    if depth > 4 { return; }
+    let md = dir.join("SKILL.md");
+    if md.is_file() {
+        if let Some((n, d)) = parse_skill_md(&md) { out.push((n, d, dir.to_path_buf())); }
+        return; // uma skill não contém outra
+    }
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.is_dir() { continue; }
+            let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            if name.starts_with('.') || name == "node_modules" || name == "target" { continue; }
+            walk_skills(&p, depth + 1, out);
+        }
+    }
+}
+
 fn skill_name_ok(n: &str) -> bool {
     !n.is_empty() && n.len() <= 64 && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
@@ -2699,16 +2718,9 @@ fn git_skills(url: String, branch: Option<String>, subpath: Option<String>, pick
         Some(sp) => tmp.join(sp.trim().trim_matches('/')),
         None => tmp.clone(),
     };
-    // procura SKILL.md na base e em cada subpasta imediata
+    // procura SKILL.md recursivamente (repos guardam em skills/<nome>/, document-skills/<nome>/, etc.)
     let mut found: Vec<(String, String, PathBuf)> = Vec::new();
-    let mut consider = |dir: &PathBuf| {
-        let md = dir.join("SKILL.md");
-        if md.is_file() { if let Some((n, d)) = parse_skill_md(&md) { found.push((n, d, dir.clone())); } }
-    };
-    consider(&base);
-    if let Ok(rd) = std::fs::read_dir(&base) {
-        for e in rd.flatten() { if e.path().is_dir() { consider(&e.path()); } }
-    }
+    walk_skills(&base, 0, &mut found);
     let result = if let Some(ps) = picks.filter(|v| !v.is_empty()) {
         let root = skills_root();
         std::fs::create_dir_all(&root).ok();
