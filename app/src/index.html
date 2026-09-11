@@ -549,7 +549,8 @@
   .phst .plabel{margin-left:3px;color:var(--text)}
   /* abas de sessão no workspace */
   /* recuo dos semáforos do macOS + área de arrasto da janela (páginas em tela cheia) */
-  .fwtabs{display:flex;gap:6px;align-items:center;padding:8px 14px 4px 86px;overflow-x:auto;min-height:34px}
+  .fwtabs{display:none} /* as tarefas abertas agora vivem na barra de abas do topo */
+  .fwtabs.legacy{display:flex;gap:6px;align-items:center;padding:8px 14px 4px 86px;overflow-x:auto;min-height:34px}
   #ntOverlay .mhead{padding-left:86px}
   .fwtab{display:flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:11.5px;color:var(--text-2);white-space:nowrap}
   .fwtab.on{border-color:var(--accent);color:var(--text)}
