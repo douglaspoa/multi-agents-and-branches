@@ -256,8 +256,11 @@
   /* view (ex-overlay) renderizada INLINE como painel de aba */
   .overlay.astab{position:fixed;left:0;right:0;bottom:0;top:var(--chrome-h,96px);background:var(--bg);display:block;padding:0;z-index:30;align-items:stretch;justify-content:stretch}
   .overlay.astab .modal{width:100%;max-width:100%;height:100%;max-height:100%;border:none;border-radius:0;box-shadow:none;display:flex;flex-direction:column}
-  .overlay.astab .mbody{flex:1;min-height:0}
+  /* conteúdo da view-aba centralizado num max-width confortável (senão fica "pela metade") — exceto o workspace, que é largo */
+  .overlay.astab:not(.fwoverlay) .mhead{width:100%;max-width:1040px;margin:0 auto;flex:none}
+  .overlay.astab:not(.fwoverlay) .mbody{flex:1;min-height:0;width:100%;max-width:1040px;margin:0 auto;overflow:auto}
   .overlay.astab .mhead>.x{display:none}
+  .overlay.astab.fwoverlay{top:var(--chrome-h,96px)}
   /* filtro de projeto (multi-projeto) */
   .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
   .pfchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);border:1px solid var(--border-strong);border-radius:99px;padding:4px 11px;cursor:pointer;background:transparent}
@@ -2726,6 +2729,7 @@ document.getElementById('cfgBtn').onclick=openCfg;
 const VIEW_META={
   projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
+  task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
   skills:{title:'Skills',icon:'<rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1"/>'},
   cfg:{title:'Configurações',icon:'<circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8"/>'},
   daily:{title:'Daily',icon:'<rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5"/>'},
@@ -2734,11 +2738,13 @@ const VIEW_META={
   agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ntOverlay', skills:'skOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay' };
+const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ntOverlay', skills:'skOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
+let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // abridores que POPULAM+mostram cada view (os bloco-1 vêm via window)
 function viewOpen(kind){
   const f={ projetos:()=>openProjetos(), nova:()=>openNewTask(), skills:()=>openSkills(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
-            conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents() }[kind];
+            conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
+            task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); } }[kind];
   if(f) f();
 }
 let TABS=[{kind:'flow',title:'Tarefas',pin:true}];
@@ -3111,7 +3117,15 @@ function fwTreeHtml(node, depth){
 }
 let fwMode='conversa';   // conversa | codigo | revisao | pr (modos da tela de execução)
 let fwDiffCache={};      // taskId:path → texto do diff (tela de Revisão)
-async function openWorkspace(taskId, path){
+// abre a tarefa como ABA "task" (mantém o chrome do app), reusando uma única aba
+function openWorkspace(taskId, path){
+  tabTaskId=taskId; tabTaskPath=path||null;
+  const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
+  let tab=TABS.find(x=>x.kind==='task'); if(!tab){ tab={kind:'task', title:''}; TABS.push(tab); }
+  tab.title=(t.title||'Tarefa').slice(0,26);
+  activeTab='task'; renderTabs(); showActiveView();
+}
+async function fwOpenInner(taskId, path){
   fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false;
   fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig=''; fwAgentSel=null;
   // modo inicial pela FASE da tarefa: PR aberto → página do PR; pronta → revisão; senão conversa
@@ -3140,7 +3154,7 @@ async function fwLoadFile(){
   catch(e){ fwContent='// não consegui abrir: '+String(e); fwAdded=[]; }
   fwSelA=0; fwSelB=0; renderWorkspace();
 }
-function closeWorkspace(){ document.getElementById('fwOverlay').style.display='none'; }
+function closeWorkspace(){ const o=document.getElementById('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function') closeTab('task'); }
 function fwSelRange(){ if(!fwSelA) return null; const a=Math.min(fwSelA,fwSelB||fwSelA), b=Math.max(fwSelA,fwSelB||fwSelA); return {a,b}; }
 function fwPlan(t){
   const roles=t.roles||[]; if(!roles.length) return '';
