@@ -817,6 +817,8 @@
   .prow2 .tg{font-size:9.5px;letter-spacing:.04em;flex:none;opacity:.9}
   .prow2.other .tt{color:var(--text-2)}
   #rail{padding-top:8px}
+  .railadd{display:flex;align-items:center;gap:8px;width:calc(100% - 24px);margin:10px 12px 4px;padding:9px 11px;border:1px dashed var(--border-strong);border-radius:8px;background:none;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+  .railadd:hover{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
   .rsub.crit{color:var(--crit)}
   .lrow{display:grid;grid-template-columns:auto auto 1fr auto;gap:9px;align-items:center;padding:8px 12px;border:1px solid transparent;cursor:pointer;min-width:0}
   .lrow:hover{background:var(--surface-2)}
@@ -5420,7 +5422,9 @@ function renderRail(){
   const nProj=1+others.length;
   html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
     <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
+  html+=`<button class="railadd" id="railAddProj" title="abrir/adicionar um projeto"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" style="width:13px;height:13px"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>adicionar projeto</button>`;
   el.innerHTML = html;
+  { const b=el.querySelector('#railAddProj'); if(b) b.onclick=()=>{ if(typeof pickFolder==='function') pickFolder(); else if(window.pickFolder) window.pickFolder(); }; }
   el.querySelectorAll('.prow2').forEach(r=>r.onclick=()=>{
     if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
     const t=(state.tasks||[]).find(x=>x.id===r.dataset.id); if(!t) return;
