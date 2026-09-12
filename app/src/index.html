@@ -2562,22 +2562,40 @@ async function loadDaily(){
   renderDaily();
 }
 function renderDaily(){
+  if(typeof ndInjectFonts==='function') ndInjectFonts();
   const body=document.getElementById('dailyBody'); if(!body||!dailyData) return;
-  if(!dailyData.length){ body.innerHTML='<div class="emptyrepo" style="display:flex"><div class="big">Dia sem atividade</div><div>nenhuma tarefa teve eventos nesse dia neste projeto.</div></div>'; return; }
+  const iso=(document.getElementById('dailyDate')||{}).value||'';
+  const head=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">O que os agentes fizeram — pronto pra colar na reunião.</p></div>
+    <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" style="color:#eaf2ee;padding:8px 12px">
+      <button class="as-btn" id="dlAI">resumo curto</button><button class="as-btn primary" id="dlDoc">DOC + PDF</button></div></div>`;
+  if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div class="as-card" style="margin-top:22px;text-align:center;padding:40px"><div style="font:600 16px 'Instrument Sans',sans-serif">Dia sem atividade</div><div class="dim" style="margin-top:6px">nenhuma tarefa teve eventos nesse dia neste projeto.</div></div></div>`; wireDaily(); return; }
   const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
   const totCommits=Object.values(dailyCommits).reduce((s,c)=>s+c.length,0);
   const merged=dailyData.filter(t=>t.status==='merged').length, rev=dailyData.filter(t=>t.status==='review').length;
-  body.innerHTML=
-    `<div class="tmstats" style="margin-bottom:6px"><div class="tmstat"><div class="v">${dailyData.length}</div><div class="l">tarefas tocadas</div></div><div class="tmstat"><div class="v">${totCommits}</div><div class="l">commits</div></div><div class="tmstat"><div class="v" style="color:var(--good)">${rev+merged}</div><div class="l">prontas/merged</div></div><div class="tmstat"><div class="v">${fmtUsd(totUsd)}</div><div class="l">custo do dia</div></div></div>`+
-    `<div id="dailyAIOut"></div>`+
-    dailyData.map(t=>{
-      const cs=dailyCommits[t.id]||[];
-      return `<div class="tmcard"><div class="tmrow1"><b class="tmtitle">${esc(t.title)}</b><span style="flex:1"></span><span class="tmst" style="color:${ctStColor(t.status)}">● ${esc(CT_ST_PT[t.status]||t.status)}</span></div>
-        <div class="tmrow2"><span class="dim" style="font-size:11px"><span class="mono">${esc(t.branch)}</span> · ${t.edits} edições · ${t.cmds} comandos${t.asks?` · ${t.asks} pergunta(s)`:''}${t.usd?` · ${fmtUsd(t.usd)}`:''}</span></div>
-        ${cs.length?`<div style="margin-top:7px;display:flex;flex-direction:column;gap:3px">${cs.slice(0,6).map(c=>`<div class="dim" style="font-size:11.5px"><span class="mono" style="color:var(--accent)">${esc((c.hash||'').slice(0,7))}</span> ${esc(c.subject||'')}</div>`).join('')}${cs.length>6?`<div class="dim" style="font-size:11px">+${cs.length-6} commits</div>`:''}</div>`:''}
-        ${t.notes.length?`<div style="margin-top:7px;border-top:1px dashed var(--border);padding-top:6px">${t.notes.map(n=>`<div class="dim" style="font-size:11px">· ${esc(n)}</div>`).join('')}</div>`:''}
-      </div>`;
-    }).join('');
+  const kpis=[[dailyData.length,'tarefas tocadas',''],[totCommits,'commits',''],[rev+merged,'prontas/merged','var(--accent)'],[fmtUsd(totUsd),'custo do dia','']];
+  const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 28px/1 'Instrument Sans',sans-serif;color:${k[2]||'#eaf2ee'}">${k[0]}</div><div style="margin-top:8px;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(255,255,255,.34)">${esc(k[1])}</div></div>`).join('')}</div>`;
+  const cards=dailyData.map(t=>{
+    const cs=dailyCommits[t.id]||[];
+    const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 12.5px/1.45 'JetBrains Mono',monospace;min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:rgba(234,242,238,.62);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.34)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:12px">sem commits</div>';
+    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 12px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.5)"><span style="color:rgba(255,255,255,.22)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:12px">—</div>';
+    return `<div class="as-card" style="padding:0;overflow:hidden">
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
+        <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 'Instrument Sans',sans-serif">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.36)">${esc(t.branch||'')}</div></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="display:flex;align-items:center;gap:7px;font:500 12px 'Instrument Sans',sans-serif;color:${ctStColor(t.status)}"><span style="width:7px;height:7px;border-radius:50%;background:${ctStColor(t.status)}"></span>${esc(CT_ST_PT[t.status]||t.status)}</span><span style="font:500 12px 'JetBrains Mono',monospace;color:rgba(255,255,255,.5)">${t.usd?fmtUsd(t.usd):''}</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
+        <div style="padding:14px 18px;border-right:1px solid rgba(255,255,255,.06)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>
+        <div style="padding:14px 18px"><div class="as-sect" style="margin:0 0 10px">TURNO</div>${log}</div>
+      </div></div>`;
+  }).join('');
+  body.innerHTML=`<div class="appscreen">${head}${kpiRow}<div id="dailyAIOut"></div><div style="display:flex;flex-direction:column;gap:12px">${cards}</div></div>`;
+  wireDaily();
+}
+function wireDaily(){
+  const b=document.getElementById('dailyBody'); if(!b) return;
+  { const d=b.querySelector('#dlDate'); if(d) d.onchange=()=>{ const old=document.getElementById('dailyDate'); if(old) old.value=d.value; loadDaily(); }; }
+  { const a=b.querySelector('#dlAI'); if(a) a.onclick=dailyAISummary; }
+  { const dd=b.querySelector('#dlDoc'); if(dd) dd.onclick=dailyGenDoc; }
 }
 async function dailyAISummary(){
   if(!dailyData||!dailyData.length) return;
