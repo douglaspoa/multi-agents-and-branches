@@ -4630,7 +4630,7 @@ function renderFlow(){
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
-  { const g=document.getElementById('ghostNew'); if(g) g.onclick=openNewTask; }
+  { const g=document.getElementById('ghostNew'); if(g) g.onclick=()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); }; }
   { const c=document.getElementById('flowClearSearch'); if(c) c.onclick=()=>{ flowQuery=''; const a=document.getElementById('topSearch'); if(a) a.value=''; const b=document.getElementById('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); }; }
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
