@@ -4388,7 +4388,13 @@ function openTaskMenu(taskId, anchor){
 }
 // dropdown de status direto no chip "Review/Rodando/..." do card
 function openStatusMenu(taskId, anchor){
-  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  // tarefa do projeto atual OU de outro projeto (card agregado no board integrado).
+  // cross-project: o menu abre com o dado do cache; ao aplicar, troca pro projeto
+  // dono e só então grava (mark_task_status/set_task_flag operam no repo ativo).
+  let t=(state.tasks||[]).find(x=>x.id===taskId), crossRepo=null;
+  if(!t){ const a=(allTasksCache||[]).find(x=>x.id===taskId); if(a){ t=a; crossRepo=(a.repo&&a.repo!==state.repo)?a.repo:null; } }
+  if(!t) return;
+  const ensureProj=async()=>{ if(crossRepo && window.switchProject){ await window.switchProject(crossRepo); crossRepo=null; } };
   document.getElementById('stmenuPop')?.remove();
   const closed = t.flag==='closed';
   const cancelled = t.status==='cancelled';
@@ -4413,14 +4419,14 @@ function openStatusMenu(taskId, anchor){
     b.innerHTML=`<span style="color:${o.col}">${o.label}</span>${on?'<span style="margin-left:auto;opacity:.7">●</span>':''}`;
     b.style.cssText='display:flex;align-items:center;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
-    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
+    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
     pop.appendChild(b); });
   // encerrada: oferece reabrir explicitamente no rodapé
   if(closed){ const b=document.createElement('button');
     b.textContent='↩ reabrir (volta pra fila)';
     b.style.cssText='display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--border);margin-top:4px;padding:8px 10px;background:none;color:var(--text);font:inherit;font-size:12px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ pop.remove(); try{ await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
+    b.onclick=async()=>{ pop.remove(); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
     pop.appendChild(b); }
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
