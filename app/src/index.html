@@ -360,6 +360,12 @@
   .pc-sc:hover{border-color:rgba(255,255,255,.2)}
   .pc-sc-t{font:500 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:rgba(255,255,255,.3)}
   .pc-sc-x{font:400 13px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.78)}
+  /* shell leve pras telas CRUD (Agentes/Conta) — fonte + header no padrão novo */
+  #agOverlay.astab .modal,#cloudOverlay.astab .modal{font-family:'Instrument Sans',-apple-system,system-ui,sans-serif}
+  #agOverlay.astab .mbody,#cloudOverlay.astab .mbody{padding:24px 34px 44px}
+  #agOverlay.astab .mhead,#cloudOverlay.astab .mhead{padding:22px 34px 14px;border-bottom:1px solid var(--border);gap:12px}
+  #agOverlay.astab .mhead>b,#cloudOverlay.astab .mhead>b{font:600 24px 'Instrument Sans',sans-serif;letter-spacing:-.015em}
+  #agOverlay.astab .seclbl2,#cloudOverlay.astab .seclbl2{font-family:'JetBrains Mono',monospace}
   /* filtro de projeto (multi-projeto) */
   .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
   .pfchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);border:1px solid var(--border-strong);border-radius:99px;padding:4px 11px;cursor:pointer;background:transparent}
@@ -2860,6 +2866,7 @@ const ND_TYPES=[
 ];
 let ndType='build';
 function ndInjectFonts(){ if(document.getElementById('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }
+window.ndInjectFonts=ndInjectFonts;
 function openNovaStart(){ ndInjectFonts(); document.getElementById('ndOverlay').style.display='flex'; ndRenderStart(); }
 function ndRenderStart(){
   const body=document.getElementById('ndBody'); if(!body) return;
@@ -8704,6 +8711,7 @@ window.openCloud = openCloud;
 window.openAgents = openAgents;
 window.switchProject = switchProject;
 window.pickFolder = pickFolder;
+try{ if(window.ndInjectFonts) window.ndInjectFonts(); }catch(_){}
 if(typeof projects!=='undefined') window.projectsList = ()=>projects;
 // topo: o "projeto" agora abre o HUB de Projetos (integrado), não o menu de trocar
 { const pb=document.getElementById('projBtn'); if(pb) pb.onclick=(e)=>{ e.stopPropagation(); if(window.openTab) window.openTab('projetos'); }; }
