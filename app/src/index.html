@@ -254,7 +254,7 @@
   .tabbar .tabadd{display:inline-flex;align-items:center;justify-content:center;width:28px;color:var(--muted);cursor:pointer;border-radius:7px;align-self:center;margin-left:2px;font-size:15px}
   .tabbar .tabadd:hover{background:var(--surface-3);color:var(--text)}
   /* view (ex-overlay) renderizada INLINE como painel de aba */
-  .overlay.astab{position:fixed;left:0;right:0;bottom:0;top:var(--chrome-h,96px);background:var(--bg);display:block;padding:0;z-index:30;align-items:stretch;justify-content:stretch}
+  .overlay.astab{position:fixed;left:var(--rail-w,250px);right:0;bottom:0;top:var(--chrome-h,96px);background:var(--bg);display:block;padding:0;z-index:30;align-items:stretch;justify-content:stretch}
   .overlay.astab .modal{width:100%!important;max-width:100%!important;height:100%!important;max-height:100%!important;border:none;border-radius:0;box-shadow:none;display:flex;flex-direction:column}
   /* conteúdo da view-aba centralizado num max-width confortável (senão fica "pela metade") — exceto o workspace, que é largo */
   .overlay.astab:not(.fwoverlay) .mhead{width:100%;max-width:1040px;margin:0 auto;flex:none}
@@ -317,6 +317,29 @@
   .skc-name{font:500 14px 'JetBrains Mono',monospace;color:#eaf2ee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .skc-scope{font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.08em;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px;flex:none;text-transform:uppercase}
   .skc-d{font:400 12.5px/1.5 'Instrument Sans',sans-serif;color:rgba(234,242,238,.55)}
+  /* ===== design system das TELAS redesenhadas (dentro das abas) ===== */
+  #skOverlay.astab .mhead,#envOverlay.astab .mhead,#dailyOverlay.astab .mhead,#agOverlay.astab .mhead,#cloudOverlay.astab .mhead,#pcOverlay.astab .mhead{display:none}
+  #envOverlay.astab .mbody,#dailyOverlay.astab .mbody,#agOverlay.astab .mbody,#cloudOverlay.astab .mbody,#pcOverlay.astab .mbody{max-width:none!important;margin:0!important;padding:0!important}
+  .appscreen{max-width:1320px;margin:0 auto;padding:30px 34px 56px;font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;color:#eaf2ee}
+  .appscreen h1,.appscreen h2,.appscreen p{margin:0}
+  .as-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin-bottom:8px}
+  .as-h1{font:600 28px/1.15 'Instrument Sans',sans-serif;letter-spacing:-.02em}
+  .as-sub{margin-top:7px;font:400 13.5px/1.5 'Instrument Sans',sans-serif;color:rgba(255,255,255,.48);max-width:600px}
+  .as-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .as-btn{font:600 13px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.14);padding:10px 15px;border-radius:9px;background:none;cursor:pointer}
+  .as-btn:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24)}
+  .as-btn.primary{color:var(--on-accent);background:var(--accent);border-color:transparent}
+  .as-note{font:500 11.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.3)}
+  .as-mono{font-family:'JetBrains Mono',monospace}
+  .as-sect{font:500 10px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.34);margin:26px 0 12px}
+  .as-grid{display:grid;gap:12px}
+  .as-card{padding:16px 18px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:#0e1110}
+  .as-banner{margin:22px 0 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px 20px;border-radius:12px}
+  .as-banner.ok{border:1px solid color-mix(in srgb,var(--accent) 32%,transparent);background:rgba(63,214,138,.06)}
+  .as-banner.warn{border:1px solid color-mix(in srgb,var(--warn) 38%,transparent);background:rgba(240,180,73,.06)}
+  .as-banner .bd{width:8px;height:8px;border-radius:50%;flex:none}
+  .as-badge{font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px}
+  .as-chk{width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:600 11px 'JetBrains Mono',monospace;color:#08110d}
   /* filtro de projeto (multi-projeto) */
   .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
   .pfchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);border:1px solid var(--border-strong);border-radius:99px;padding:4px 11px;cursor:pointer;background:transparent}
@@ -2346,19 +2369,28 @@ async function runEnvCheck(){
   return bad;
 }
 function renderEnv(){
+  if(typeof ndInjectFonts==='function') ndInjectFonts();
   const el=document.getElementById('envBody'); if(!el) return;
-  if(!envChecks){ el.innerHTML='<div class="dim" style="padding:8px 2px">verificando…</div>'; return; }
-  el.innerHTML = envChecks.map(c=>`
-    <div style="display:flex;gap:12px;align-items:flex-start;padding:11px 2px;border-bottom:1px dashed var(--border)">
-      <span style="font-size:15px;line-height:1.2;color:${c.ok?'var(--good)':'var(--warn)'}">${c.ok?'✓':'✗'}</span>
-      <div style="flex:1;min-width:0">
-        <b style="font-size:13.5px">${esc(c.name)}</b>
-        <div class="dim" style="font-size:11.5px;word-break:break-all">${esc(c.detail)}</div>
-        ${c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:7px"><code class="mono" style="font-size:11.5px;background:var(--surface-2);border:1px solid var(--border);padding:4px 8px;border-radius:6px">${esc(c.fix)}</code><button class="btn sm" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}
-      </div>
-    </div>`).join('')
-    + `<div class="aihint dim" style="margin-top:12px">Tudo ✓? As tarefas rodam. Corrigiu algo? Clique em <b>verificar de novo</b>.</div>`;
+  if(!envChecks){ el.innerHTML='<div class="appscreen"><div class="dim" style="padding:8px 2px">verificando…</div></div>'; return; }
+  const okN=envChecks.filter(c=>c.ok).length, tot=envChecks.length, bad=tot-okN;
+  const banner = bad
+    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px 'Instrument Sans',sans-serif">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} ok</span></div>`
+    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px 'Instrument Sans',sans-serif">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} checagens ok</span></div>`;
+  const cards=envChecks.map(c=>`<div class="as-card" style="display:flex;gap:13px;align-items:flex-start">
+    <span class="as-chk" style="background:${c.ok?'var(--accent)':'var(--warn)'}">${c.ok?'✓':'!'}</span>
+    <div style="min-width:0;flex:1">
+      <div style="font:600 14.5px 'Instrument Sans',sans-serif">${esc(c.name)}</div>
+      <div style="margin-top:6px;font:400 11.5px/1.5 'JetBrains Mono',monospace;color:rgba(255,255,255,.4);word-break:break-all">${esc(c.detail||'')}</div>
+      ${c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:9px"><code class="as-mono" style="font-size:11.5px;background:#141817;border:1px solid rgba(255,255,255,.1);padding:5px 9px;border-radius:6px;color:#eaf2ee">${esc(c.fix)}</code><button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}
+    </div></div>`).join('');
+  el.innerHTML=`<div class="appscreen">
+    <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>
+      <div class="as-actions"><span class="as-note">última checagem: agora</span><button class="as-btn" id="envRecheck2">verificar de novo</button></div></div>
+    ${banner}
+    <div class="as-grid" style="grid-template-columns:repeat(auto-fill,minmax(400px,1fr))">${cards}</div>
+  </div>`;
   el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>{ navigator.clipboard.writeText(b.dataset.envfix); b.textContent='copiado ✓'; }; });
+  { const b=el.querySelector('#envRecheck2'); if(b) b.onclick=async()=>{ envChecks=null; renderEnv(); await runEnvCheck(); renderEnv(); }; }
 }
 async function openEnv(){ document.getElementById('envOverlay').style.display='flex'; renderEnv(); await runEnvCheck(); renderEnv(); }
 document.getElementById('envBtn').onclick=openEnv;
