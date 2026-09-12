@@ -255,7 +255,7 @@
   .tabbar .tabadd:hover{background:var(--surface-3);color:var(--text)}
   /* view (ex-overlay) renderizada INLINE como painel de aba */
   .overlay.astab{position:fixed;left:0;right:0;bottom:0;top:var(--chrome-h,96px);background:var(--bg);display:block;padding:0;z-index:30;align-items:stretch;justify-content:stretch}
-  .overlay.astab .modal{width:100%;max-width:100%;height:100%;max-height:100%;border:none;border-radius:0;box-shadow:none;display:flex;flex-direction:column}
+  .overlay.astab .modal{width:100%!important;max-width:100%!important;height:100%!important;max-height:100%!important;border:none;border-radius:0;box-shadow:none;display:flex;flex-direction:column}
   /* conteúdo da view-aba centralizado num max-width confortável (senão fica "pela metade") — exceto o workspace, que é largo */
   .overlay.astab:not(.fwoverlay) .mhead{width:100%;max-width:1040px;margin:0 auto;flex:none}
   .overlay.astab:not(.fwoverlay) .mbody{flex:1;min-height:0;width:100%;max-width:1040px;margin:0 auto;overflow:auto}
@@ -293,6 +293,7 @@
   .ndft{font:500 11px 'JetBrains Mono',monospace;color:rgba(255,255,255,.3)}
   /* Skills (redesign) — larga; o wrapper interno centra em 1320 */
   #skOverlay.astab .mbody{max-width:none;margin:0;padding:0}
+  #skOverlay.astab .mhead{display:none} /* a tela Skills tem H1 próprio */
   .sk-screen{max-width:1320px;margin:0 auto;padding:30px 34px 56px;font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;color:#eaf2ee}
   .sk-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin-bottom:8px}
   .sk-h1{margin:0;font:600 28px/1.15 'Instrument Sans',sans-serif;letter-spacing:-.02em}
