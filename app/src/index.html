@@ -220,13 +220,6 @@
   .raopt .rin{flex:1;font-size:12.5px}
   .raopt.off{opacity:.55}
   .rawarn{font-size:11.5px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);color:var(--muted);line-height:1.45}
-  /* Skills */
-  .skrow{display:flex;align-items:center;gap:14px;padding:12px 2px;border-top:1px solid var(--border)}
-  .skrow:first-of-type{border-top:none}
-  .skmain{flex:1;min-width:0}
-  .sknm{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
-  .sksrc{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border:1px solid var(--border-strong);border-radius:4px;padding:1px 5px}
-  .skdesc{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.45}
   /* adicionar skill */
   .addpanel{margin:4px 0 14px;padding:13px 14px;background:var(--surface-2);border:1px solid var(--accent);border-radius:10px}
   .addpanel label{display:block;font-size:12px;color:var(--text-2);font-weight:600;margin-top:11px}
@@ -2224,7 +2217,6 @@ const IC = {
   clip:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 // helper: ícone + rótulo num botão (substitui os emojis por SVG da biblioteca)
-function ico(name, label){ return (IC[name]||'') + (label?(' '+label):''); }
 async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
@@ -3078,8 +3070,7 @@ function coachStart(){
 document.addEventListener('keydown', e=>{
   if(!(e.metaKey||e.ctrlKey)) return;
   const inField=/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'');
-  if(e.key==='n' && !inField){ e.preventDefault(); openNewTask(); }
-  else if(e.key==='j'){ e.preventDefault(); openPc(); }
+  if(e.key==='j'){ e.preventDefault(); openPc(); }
   else if(e.key===','){ e.preventDefault(); openCfg(); }
 });
 
@@ -3188,12 +3179,6 @@ async function loadTaskFiles(taskId, status){
   try{ fileCache[taskId]={status, at:Date.now(), list: await invoke("task_files",{ taskId })}; }
   catch(e){ fileCache[taskId]={status, at:Date.now(), list:[]}; }
   return fileCache[taskId].list;
-}
-function filesBlock(t){
-  if(t.status==='draft') return '';
-  const c=fileCache[t.id];
-  loadTaskFiles(t.id,t.status).then(()=>{ if(selected===t.id && ACTIVE_ST.has(t.status)) { /* re-render vem do poll */ } });
-  return c ? filesListHtml(c.list) : (loadTaskFiles(t.id,t.status).then(()=>{ if(selected===t.id) renderSide(); }), '');
 }
 function activityBlock(t){
   if(!ACTIVE_ST.has(t.status)) return '';
@@ -5230,36 +5215,6 @@ const LANE_COLORS = ["#39d46a","#e5c07b","#56b6c2","#ff6b5f","#b48ead","#5b9dff"
 function parseRefs(refs){
   return refs ? refs.split(",").map(s=>s.trim().replace(/^HEAD -> /,"").replace(/^tag: /,"")).filter(Boolean) : [];
 }
-function layoutGraph(commits){
-  const pos = {}; const lanes = []; const placed = [];
-  commits.forEach((c,row)=>{
-    let lane = lanes.indexOf(c.hash);
-    if(lane===-1){ lane = lanes.indexOf(null); if(lane===-1){ lane=lanes.length; lanes.push(null); } }
-    lanes[lane]=null;
-    for(let j=0;j<lanes.length;j++) if(lanes[j]===c.hash) lanes[j]=null;
-    pos[c.hash]={lane,row};
-    placed.push(Object.assign({lane,row}, c));
-    if(c.parents[0]) lanes[lane]=c.parents[0];
-    for(let k=1;k<c.parents.length;k++){ const ph=c.parents[k]; if(lanes.indexOf(ph)===-1){ let pl=lanes.indexOf(null); if(pl===-1){pl=lanes.length;lanes.push(null);} lanes[pl]=ph; } }
-  });
-  return {placed,pos,laneCount:Math.max(1,lanes.length)};
-}
-// layout com LANES POR AGENTE: main na coluna 0, cada tarefa numa coluna própria
-// (cor do agente). Commits herdam a lane do tip pela cadeia do primeiro pai.
-function laneByAgent(commits, tasks){
-  const byHash=Object.fromEntries(commits.map(c=>[c.hash,c]));
-  const taskByBranch={}; (tasks||[]).forEach(t=>taskByBranch[t.branch]=t);
-  const lanes=[{key:'main',label:'main',color:'var(--c-main)'}];
-  const laneIdx=new Map([['main',0]]);
-  (tasks||[]).forEach(t=>{ const k='t:'+t.id; if(!laneIdx.has(k)){ laneIdx.set(k,lanes.length); lanes.push({key:k,label:t.branch,color:agentColor(t.agent),task:t}); } });
-  const key={};
-  commits.forEach(c=>{ const refs=parseRefs(c.refs); const tb=refs.find(r=>taskByBranch[r]); if(tb) key[c.hash]='t:'+taskByBranch[tb].id; else if(refs.some(r=>r==='main'||r==='master')) key[c.hash]='main'; });
-  // propaga tip→ancestrais (1º pai); commits vêm do mais novo pro mais velho
-  commits.forEach(c=>{ const k=key[c.hash]; const p=c.parents&&c.parents[0]; if(k&&p&&byHash[p]&&!key[p]) key[p]=k; });
-  const placed=commits.map((c,row)=>{ const k=key[c.hash]||'main'; const li=laneIdx.get(k)??0; return Object.assign({row,lane:li,color:lanes[li].color}, c); });
-  const pos={}; placed.forEach(c=>pos[c.hash]={lane:c.lane,row:c.row});
-  return {placed,pos,lanes};
-}
 // ============================================================================
 // GRAFO v2 — trilhos por tarefa: cada branch é uma linha horizontal legível
 // (fork na base → commits clicáveis → ponta com o agente e a cor do status →
@@ -6600,11 +6555,6 @@ document.getElementById('plInput').addEventListener('keydown',e=>{ if(e.key==='E
 document.getElementById('plannerOverlay').addEventListener('click',e=>{ if(e.target.id==='plannerOverlay') closePlanner(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('plannerOverlay').style.display!=='none') closePlanner(); });
 
-function toggleAiAssist(){
-  const a=document.getElementById('aiAssist'); const show=a.style.display==='none';
-  a.style.display=show?'block':'none';
-  if(show){ if(!document.getElementById('aiChat').children.length) aiAppend('assistant','Oi! Me conta em uma ou duas frases o que você quer fazer — eu pergunto o resto e monto a tarefa.'); document.getElementById('aiInput').focus(); }
-}
 // aplica o destino Time (local/self/team) a QUALQUER modo de criação;
 // devolve true quando virou cartão do time (não roda nesta máquina)
 async function ntApplyShare(payload){
@@ -6921,7 +6871,7 @@ document.addEventListener("keydown", e=>{
   if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); closeFile(); closePlan(); return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
-    if(k==="n"){ e.preventDefault(); if(connected) openNewTask(); }
+    if(k==="n"){ e.preventDefault(); if(connected){ if(window.openTab) window.openTab('nova'); else openNewTask(); } }
     else if(k==="o"){ e.preventDefault(); pickFolder(); }
   }
 });
@@ -8271,7 +8221,6 @@ async function teamFetchRun(){
   } finally { teamFetching=false; }
 }
 function tmName(uid){ const p=teamProfiles[uid]; return p?(p.name||p.email):((uid||'').slice(0,8)); }
-function tmAv(uid){ const n=tmName(uid); return `<span class="cav" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
 
 // ============================================================================
 // ESPAÇO TIMES (redesign aprovado): sidebar do time + Visão geral · Quadro ·
