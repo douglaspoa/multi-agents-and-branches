@@ -4036,14 +4036,15 @@ async function switchToProjectTask(repo, id){
   selected=id; try{ lsSet('sel:'+repo, id); }catch(_){}
   const t=(state.tasks||[]).find(x=>x.id===id); render(); if(t) openOrEdit(t);
 }
-// abre uma demanda clicada no board — do projeto ATUAL ou de OUTRO (card agregado):
-// no board integrado a tarefa de outro repo não está em state.tasks, então caía no
-// `if(!t) return` e o clique não abria nada. Aqui trocamos pro projeto dono e abrimos.
+// abre uma demanda clicada no board — do projeto ATUAL ou de OUTRO (card agregado).
+// usa boardSource() (a MESMA lista que renderizou o card) como fonte de verdade: assim
+// a tarefa é sempre encontrada, com o flag _cross/repo pra saber se precisa trocar de
+// projeto. Antes buscava em state.tasks/allTasksCache e às vezes não achava → clique morto.
 function openTaskById(id){
-  const t=(state.tasks||[]).find(x=>x.id===id);
-  if(t){ selected=id; render(); openOrEdit(t); return; }
-  const a=(allTasksCache||[]).find(x=>x.id===id);
-  if(a && a.repo && a.repo!==state.repo){ switchToProjectTask(a.repo, id); }
+  let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
+  const t=src.find(x=>x.id===id); if(!t) return;
+  if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, id); return; }
+  selected=id; render(); openOrEdit(t);
 }
 let flowPeriod = 'all';   // all | today | week
 let flowAgent  = 'all';   // 'all' | nome do agente
