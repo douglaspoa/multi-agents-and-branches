@@ -728,7 +728,13 @@
   .fcommits{border-top:0 !important;padding-top:3px !important;margin-top:3px !important}
 
   /* body */
-  .body{display:grid;grid-template-columns:250px 1fr 340px;min-height:0;flex:1}
+  .body{display:grid;grid-template-columns:var(--rail-w,250px) 1fr 340px;min-height:0;flex:1}
+  /* rail colapsável (igual ao Claude): a coluna e a borda somem; o overlay de tarefa
+     (que lê --rail-w no seu left) se expande sozinho pra ocupar o espaço liberado */
+  .app.railcol .rail{overflow:hidden;border-right:0;pointer-events:none}
+  .railtgl{display:inline-flex;align-items:center;justify-content:center;width:30px;height:28px;flex:none;border:1px solid transparent;border-radius:7px;background:none;color:var(--muted);cursor:pointer}
+  .railtgl:hover{color:var(--text);background:var(--surface-2)}
+  .railtgl svg{width:15px;height:15px}
   /* aba Time: o espaço do time toma a largura inteira (sem régua nem painel) */
   .body.teamfull{grid-template-columns:1fr}
   /* Time com a MESMA disposição das demais: sidebar de projetos à esquerda, conteúdo à direita */
@@ -1015,10 +1021,14 @@
   .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:nowrap;min-width:0}
   .fwhead b{font-size:13.5px}
   .fwhead .fwsub{font-size:11px;color:var(--muted)}
-  /* header do workspace sem aperto: nada quebra linha; título/branch encolhem com … */
-  #fwTaskName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:26vw;flex:none}
-  #fwTaskBranch{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;flex:1 1 auto;min-width:0}
-  .fwhead .btn,.fwhead #fwReviewBar .btn{white-space:nowrap;flex:none}
+  /* header do workspace: título/branch/preview encolhem com … ; as AÇÕES (commit&push,
+     fechar) ficam SEMPRE visíveis — quem cede espaço é a URL de preview, não os botões */
+  #fwTaskName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22vw;flex:0 1 auto;min-width:40px}
+  #fwTaskBranch{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;flex:0 1 auto;min-width:0}
+  .fwhead #fwReviewBar{min-width:0;flex:0 1 auto;overflow:hidden}
+  .fwhead #fwReviewBar .btn{white-space:nowrap;flex:none}
+  .fwhead #fwReviewBar #fwPv{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .fwhead #fwPush,.fwhead #fwClose{white-space:nowrap;flex:none}
   #fwReviewBar{flex:none;min-width:0}
   @media (max-width:1360px){ #fwTaskBranch{display:none} .fwhead .phst{display:none} }
   @media (max-width:1180px){ #fwSum span:first-child{display:none} }
@@ -1588,6 +1598,7 @@
 <body>
 <div class="app">
   <div class="top" data-tauri-drag-region>
+    <button class="railtgl" id="railToggle" title="Recolher/expandir a barra lateral (⌘B)" aria-label="Recolher barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>
     <div class="brand" data-tauri-drag-region><span class="logo"><svg viewBox="0 0 20 20" fill="none"><g stroke="currentColor" stroke-width="1.1" stroke-opacity=".7" stroke-linecap="round"><path d="M5 14L9.5 9M9.5 9L15 11.5M9.5 9L12 4"/></g><g fill="currentColor"><circle cx="5" cy="14" r="1.5"/><circle cx="15" cy="11.5" r="1.5"/><circle cx="12" cy="4" r="1.4"/><circle cx="9.5" cy="9" r="2.2"/></g></svg></span>Constellation</div>
     <div class="projsw">
       <button class="btn projbtn" id="projBtn" title="Trocar de projeto">
@@ -2705,6 +2716,16 @@ function openDaily(){
   loadDaily();
 }
 document.getElementById('dailyBtn').onclick=openDaily;
+// barra lateral colapsável (⌘B) — o overlay de tarefa lê --rail-w e reflui sozinho
+function railIsCol(){ return document.querySelector('.app').classList.contains('railcol'); }
+function setRailCollapsed(v){
+  document.querySelector('.app').classList.toggle('railcol', !!v);
+  document.documentElement.style.setProperty('--rail-w', v?'0px':'250px');
+  lsSet('railCollapsed', v?'1':'0');
+  const b=document.getElementById('railToggle'); if(b) b.setAttribute('aria-pressed', v?'true':'false');
+}
+document.getElementById('railToggle').onclick=()=>setRailCollapsed(!railIsCol());
+setRailCollapsed(lsGet('railCollapsed')==='1');
 // ===== Skills: biblioteca (adicionar) + habilitar por projeto =====
 let skAddOpen=false, skAddMode='git', skGitFound=null, skList=[], skQuery='';
 async function openSkills(){
@@ -3072,6 +3093,7 @@ document.addEventListener('keydown', e=>{
   const inField=/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'');
   if(e.key==='j'){ e.preventDefault(); openPc(); }
   else if(e.key===','){ e.preventDefault(); openCfg(); }
+  else if(e.key==='b'){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
 });
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
