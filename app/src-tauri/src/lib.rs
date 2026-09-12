@@ -3090,16 +3090,19 @@ fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, Stri
 /// base local mostra TODOS os arquivos do merge como se fossem da tarefa.
 fn merge_base_ref(dir: &PathBuf, base: &str, tip: &str) -> String {
     let clean = base.trim_start_matches("origin/");
-    // merge-base do tip com origin/<base> E com o <base> local. Quando origin/<base>
-    // avançou pra incluir (um ancestral d)o tip, seu merge-base fica RECENTE demais e
-    // zera o diff (painel vazio). Então, havendo dois candidatos, usamos o MAIS ANTIGO
-    // (o fork real do branch), que mostra as mudanças de verdade.
+    // sha do tip: um merge-base IGUAL ao tip zera o diff (painel vazio) — descartamos.
+    let head = Command::new("git").arg("-C").arg(dir).args(["rev-parse", tip]).output().ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    // merge-base do tip com origin/<base> E com o <base> local. Candidatos válidos:
+    // não-vazios e DIFERENTES do tip (senão o diff fica vazio).
     let mut cands: Vec<String> = Vec::new();
     for cand in [format!("origin/{clean}"), clean.to_string()] {
         if let Ok(o) = Command::new("git").arg("-C").arg(dir).args(["merge-base", &cand, tip]).output() {
             if o.status.success() {
                 let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if !s.is_empty() && !cands.contains(&s) { cands.push(s); }
+                if !s.is_empty() && s != head && !cands.contains(&s) { cands.push(s); }
             }
         }
     }
@@ -3107,14 +3110,12 @@ fn merge_base_ref(dir: &PathBuf, base: &str, tip: &str) -> String {
         0 => base.to_string(),
         1 => cands.pop().unwrap(),
         _ => {
-            // ancestral comum dos dois merge-bases = o mais antigo
-            if let Ok(o) = Command::new("git").arg("-C").arg(dir).args(["merge-base", &cands[0], &cands[1]]).output() {
-                if o.status.success() {
-                    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    if !s.is_empty() { return s; }
-                }
-            }
-            cands.pop().unwrap()
+            // dois candidatos: pega o MAIS RECENTE (diff mais justo — só o que a tarefa
+            // mexeu, sem arrastar o avanço do main). c0 é ancestral de c1 → c1 é o novo.
+            let c0_anc_c1 = Command::new("git").arg("-C").arg(dir)
+                .args(["merge-base", "--is-ancestor", &cands[0], &cands[1]])
+                .status().map(|s| s.success()).unwrap_or(false);
+            if c0_anc_c1 { cands[1].clone() } else { cands[0].clone() }
         }
     }
 }
