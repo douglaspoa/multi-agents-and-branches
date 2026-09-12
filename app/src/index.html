@@ -340,6 +340,26 @@
   .as-banner .bd{width:8px;height:8px;border-radius:50%;flex:none}
   .as-badge{font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px}
   .as-chk{width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:600 11px 'JetBrains Mono',monospace;color:#08110d}
+  /* Chat do projeto (redesign) */
+  #pcOverlay.astab .mhead{display:none}
+  #pcOverlay.astab .chatthread{max-height:none!important;min-height:0!important;flex:1;overflow:auto;padding:0}
+  #pcOverlay.astab .chatthread>.appscreen{display:flex;flex-direction:column;min-height:100%}
+  #pcOverlay.astab .chatinput{max-width:1040px;margin:0 auto 20px;width:calc(100% - 68px);border:1px solid rgba(255,255,255,.16);border-radius:13px;background:#0e1110;padding:12px 14px;font-family:'Instrument Sans',sans-serif}
+  #pcOverlay.astab .chatinput .in{background:none;border:none;font:400 14px/1.5 'Instrument Sans',sans-serif}
+  .pc-head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:8px}
+  .pc-thread{display:flex;flex-direction:column;gap:12px;padding:12px 0}
+  .pc-msg{display:flex}.pc-msg.you{justify-content:flex-end}
+  .pc-bub{max-width:76%;padding:13px 16px;border:1px solid rgba(255,255,255,.07);border-radius:14px;background:#0e1110;font:400 14px/1.55 'Instrument Sans',sans-serif;color:#eaf2ee}
+  .pc-msg.you .pc-bub{background:color-mix(in srgb,var(--accent) 12%,#0e1110);border-color:color-mix(in srgb,var(--accent) 28%,transparent);border-bottom-right-radius:4px}
+  .pc-msg:not(.you) .pc-bub{border-bottom-left-radius:4px}
+  .pc-empty{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:22px;padding:50px 0 30px;text-align:center}
+  .pc-empty-t{max-width:520px;font:600 19px/1.4 'Instrument Sans',sans-serif;color:#eaf2ee}
+  .pc-empty-d{max-width:520px;font:400 13.5px/1.6 'Instrument Sans',sans-serif;color:rgba(255,255,255,.45)}
+  .pc-sugg{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;width:100%;max-width:840px}
+  .pc-sc{text-align:left;padding:14px 16px;border:1px solid rgba(255,255,255,.09);border-radius:11px;background:#0e1110;display:flex;flex-direction:column;gap:6px;cursor:pointer}
+  .pc-sc:hover{border-color:rgba(255,255,255,.2)}
+  .pc-sc-t{font:500 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:rgba(255,255,255,.3)}
+  .pc-sc-x{font:400 13px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.78)}
   /* filtro de projeto (multi-projeto) */
   .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
   .pfchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);border:1px solid var(--border-strong);border-radius:99px;padding:4px 11px;cursor:pointer;background:transparent}
@@ -2456,14 +2476,22 @@ function pcKey(){ return 'pchat:'+(state.repo||''); }
 function pcMsgs(){ try{ return JSON.parse(lsGet(pcKey())||'[]'); }catch(_){ return []; } }
 function pcSave(ms){ lsSet(pcKey(), JSON.stringify(ms.slice(-60))); }
 function pcRender(){
+  if(typeof ndInjectFonts==='function') ndInjectFonts();
   const th=document.getElementById('pcThread'); if(!th) return;
   const ms=pcMsgs();
-  th.innerHTML = ms.length
-    ? ms.map(m=>m.role==='user'
-        ? `<div class="cmsg you"><div class="cbub">${esc(m.text)}</div></div>`
-        : `<div class="cmsg"><div class="cbub">${mdToHtml(m.text)}</div></div>`).join('')
-      + (pcBusy?'<div class="cmsg"><div class="cbub dim">lendo o projeto…</div></div>':'')
-    : `<div class="dim" style="padding:22px 16px;font-size:13px;line-height:1.7">Conversa livre sobre <b>${esc((state.repo||'o projeto').split('/').pop())}</b> — arquitetura, "onde fica X", "por que Y é assim", ideias.<br>Ele lê o código antes de responder e <b>não altera nada</b>.<br>Gostou de uma ideia? <b>virar tarefa</b> transforma a conversa numa spec pronta.</div>`;
+  const repo=esc((state.repo||'o projeto').split('/').pop());
+  const head=`<div class="pc-head"><div><h1 class="as-h1" style="font-size:24px">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:rgba(255,255,255,.42)">limpar</button></div></div>`;
+  let bodyHtml;
+  if(ms.length){
+    bodyHtml=`<div class="pc-thread">${ms.map(m=>m.role==='user'?`<div class="pc-msg you"><div class="pc-bub">${esc(m.text)}</div></div>`:`<div class="pc-msg"><div class="pc-bub">${mdToHtml(m.text)}</div></div>`).join('')}${pcBusy?'<div class="pc-msg"><div class="pc-bub dim">lendo o projeto…</div></div>':''}</div>`;
+  } else {
+    const sugg=[['ARQUITETURA','como o autocomplete resolve o ranking hoje?'],['ONDE FICA','onde fica a lógica de autenticação?'],['POR QUÊ','por que o cache é invalidado desse jeito?'],['IDEIA','como eu adicionaria rate limiting aqui?']];
+    bodyHtml=`<div class="pc-empty"><div class="pc-empty-t">Pergunte qualquer coisa sobre <span class="as-mono" style="color:var(--accent)">${repo}</span></div><div class="pc-empty-d">Arquitetura, "onde fica X", "por que Y é assim", ideias. Gostou de uma resposta? <b style="color:#eaf2ee">virar tarefa</b> transforma a conversa numa spec pronta.</div><div class="pc-sugg">${sugg.map(s=>`<button class="pc-sc" data-sg="${escA(s[1])}"><span class="pc-sc-t">${esc(s[0])}</span><span class="pc-sc-x">${esc(s[1])}</span></button>`).join('')}</div></div>`;
+  }
+  th.innerHTML=`<div class="appscreen" style="padding:24px 34px 16px">${head}${bodyHtml}</div>`;
+  { const b=th.querySelector('#pcTask2'); if(b) b.onclick=()=>{ const o=document.getElementById('pcTask'); if(o) o.click(); }; }
+  { const b=th.querySelector('#pcClear2'); if(b) b.onclick=()=>{ const o=document.getElementById('pcClear'); if(o) o.click(); }; }
+  th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=document.getElementById('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
   th.scrollTop=th.scrollHeight;
 }
 async function pcSend(){
@@ -2526,7 +2554,7 @@ async function openPrefs(){
     else document.getElementById('prefsMeta').textContent='ainda em branco — escreva as convenções do projeto';
   }catch(e){ document.getElementById('prefsMeta').textContent='falhou: '+(e.message||e); }
 }
-{ const b=document.getElementById('prefsBtn'); if(b) b.onclick=()=>{ openPrefs(); }; }
+{ const b=document.getElementById('prefsBtn'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('prefs'); else openPrefs(); }; }
 document.getElementById('prefsClose').onclick=()=>{ document.getElementById('prefsOverlay').style.display='none'; };
 document.getElementById('prefsCancel').onclick=()=>{ document.getElementById('prefsOverlay').style.display='none'; };
 document.getElementById('prefsOverlay').addEventListener('click',e=>{ if(e.target.id==='prefsOverlay') document.getElementById('prefsOverlay').style.display='none'; });
@@ -2900,6 +2928,7 @@ const VIEW_META={
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
   planner:{title:'Montar conversando',icon:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>'},
   form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
+  prefs:{title:'Preferências',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
   skills:{title:'Skills',icon:'<rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1"/>'},
   cfg:{title:'Configurações',icon:'<circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8"/>'},
@@ -2909,11 +2938,11 @@ const VIEW_META={
   agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
+const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // abridores que POPULAM+mostram cada view (os bloco-1 vêm via window)
 function viewOpen(kind){
-  const f={ projetos:()=>openProjetos(), nova:()=>openNovaStart(), planner:()=>openPlanner(), form:()=>openNewTask(), skills:()=>openSkills(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+  const f={ projetos:()=>openProjetos(), nova:()=>openNovaStart(), planner:()=>openPlanner(), form:()=>openNewTask(), skills:()=>openSkills(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); } }[kind];
   if(f) f();
