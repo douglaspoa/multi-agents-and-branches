@@ -99,10 +99,6 @@
   .mhead .x{border:0;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}
   .mbody{padding:14px 16px;display:flex;flex-direction:column;gap:5px}
   /* chat com o agente */
-  .chatmodal{width:min(680px,100%);height:min(80vh,760px);display:flex;flex-direction:column}
-  .chatav{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--on-accent);flex:none}
-  .chatid b{font-size:14px}
-  .chatsub{font-size:11px}
   .chatthread{flex:1;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px;background:var(--surface-2)}
   .cmsg{display:flex;gap:8px;align-items:flex-start;max-width:88%;min-width:0}
   .cmsg.you{align-self:flex-end}
@@ -142,8 +138,6 @@
   /* chat expandido: BEM grande, mas arquivos e código continuam visíveis/clicáveis */
   .fwcols.chatwide{grid-template-columns:210px minmax(250px,.55fr) minmax(520px,1.1fr)}
   @media(max-width:1100px){ .fwcols.chatwide{grid-template-columns:180px minmax(220px,.5fr) minmax(440px,1fr)} }
-  .chatstop{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
-  .chatstop:hover{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}
   .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border);position:relative}
   .cbub.asknow{border-color:color-mix(in srgb,var(--warn) 50%,var(--border));background:color-mix(in srgb,var(--warn) 8%,var(--surface))}
   .asknote{font-size:10.5px;color:var(--warn);margin-top:7px;font-family:var(--mono)}
@@ -982,39 +976,6 @@
   .kav{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
   .knote{margin-top:8px;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .knote.amber{color:var(--warn)}
-  /* editor de plano */
-  .planmodal{max-width:640px;width:min(640px,94vw)}
-  .planmodal .mbody{max-height:76vh;overflow:auto}
-  .planlbl{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
-  .planlbl:first-child{margin-top:2px}
-  .plansteps{display:flex;flex-direction:column;gap:8px}
-  .pstep{display:grid;grid-template-columns:auto auto 1fr auto;gap:9px;align-items:start;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:9px 10px}
-  .pstep.dragging{opacity:.4}
-  .pstep .pgrip{cursor:grab;color:var(--muted);font-size:13px;line-height:26px;user-select:none}
-  .pstep .pnum{width:22px;height:22px;border-radius:6px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:11px;font-weight:700;margin-top:2px}
-  .pstx{resize:none;overflow:hidden;min-height:26px;line-height:1.45;padding:4px 8px}
-  .pdel{border:none;background:none;color:var(--muted);cursor:pointer;padding:3px;border-radius:5px;margin-top:2px}
-  .pdel svg{width:15px;height:15px}
-  .pdel:hover{color:var(--crit);background:var(--surface-3)}
-  #planNotes{min-height:70px}
-  .pmicon{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:2px}
-  /* revisor de arquivos */
-  .fvmodal{max-width:920px;width:min(920px,94vw)}
-  .fvmodal .mbody{max-height:76vh;overflow:auto;padding:0}
-  .fvcode{font-family:var(--mono);font-size:12px;line-height:1.55;width:max-content;min-width:100%}
-  .fvln{display:grid;grid-template-columns:46px 1fr;cursor:pointer}
-  .fvln:hover{background:var(--surface-2)}
-  .fvln.sel{background:color-mix(in srgb,var(--accent) 16%,transparent)}
-  .fvln.add{background:color-mix(in srgb,var(--good) 13%,transparent)}
-  .fvln.add:hover{background:color-mix(in srgb,var(--good) 20%,transparent)}
-  .fvnum{color:var(--muted);text-align:right;padding:1px 10px 1px 6px;user-select:none;border-right:1px solid var(--border);position:sticky;left:0;background:var(--surface)}
-  .fvln.add .fvnum{background:color-mix(in srgb,var(--good) 13%,var(--surface))}
-  .fvtxt{padding:1px 12px;white-space:pre}
-  /* editor de arquivo com gutter de linhas (igual ao modo de leitura) */
-  .fveditwrap{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface-2);height:62vh}
-  .fvgutter{font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--muted);text-align:right;padding:12px 8px;background:var(--surface-3);border-right:1px solid var(--border);user-select:none;overflow:hidden;white-space:pre;min-width:46px}
-  .fvedit{flex:1;height:100%;font-family:var(--mono);font-size:12px;line-height:1.55;border:none;outline:none;background:var(--surface-2);color:var(--text);padding:12px;resize:none;white-space:pre;overflow:auto;tab-size:2}
-  .fvedit:focus{background:var(--surface)}
   /* ===== workspace 3 colunas (arquivos · código · chat) ===== */
   /* deixa o topo livre: não cobrir os controles da janela (semáforo do macOS) */
   /* execução é PÁGINA, não modal: tela cheia, sem backdrop nem cartão flutuante */
@@ -1392,8 +1353,6 @@
   .fileitem{grid-template-columns:auto 1fr auto auto}
   .fileopen{font-size:11px;font-weight:600;color:var(--accent);opacity:0;transition:opacity .12s;white-space:nowrap}
   .fileitem:hover .fileopen{opacity:1}
-  .fvtip{font-size:11.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;margin-bottom:10px;line-height:1.5}
-  .fvtip svg{width:13px;height:13px;vertical-align:-2px;color:var(--accent)}
   .artmodal{max-width:820px;width:min(820px,92vw)}
   .artmodal.pdfmode{max-width:none;width:96vw;height:94vh;display:flex;flex-direction:column}
   .artmodal.pdfmode .mbody{flex:1;padding:0;overflow:hidden;display:flex}
@@ -2009,19 +1968,7 @@
   </div>
 </div>
 
-<div class="overlay" id="planOverlay" style="display:none">
-  <div class="modal planmodal">
-    <div class="mhead"><span class="pmicon"></span><b id="planHead">Plano da tarefa</b><span style="flex:1"></span><button class="btn primary sm" id="planSave">salvar</button><button class="x" id="planClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="planBody"></div>
-  </div>
-</div>
 
-<div class="overlay" id="fvOverlay" style="display:none">
-  <div class="modal fvmodal">
-    <div class="mhead"><b id="fvTitle" class="mono"></b><span style="flex:1"></span><button class="btn sm" id="fvEdit">editar</button><button class="btn primary sm" id="fvSave" style="display:none">salvar</button><button class="x" id="fvClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="fvBody"></div>
-  </div>
-</div>
 
 <div class="overlay" id="artOverlay" style="display:none">
   <div class="modal artmodal">
@@ -2031,13 +1978,6 @@
 </div>
 
 <!-- chat com o agente (conversa contínua, retoma a sessão a cada mensagem) -->
-<div class="overlay" id="chatOverlay" style="display:none">
-  <div class="modal chatmodal">
-    <div class="mhead"><span class="chatav" id="chatAv"></span><div class="chatid"><b id="chatWho">Agente</b><div class="dim chatsub" id="chatSub"></div></div><span style="flex:1"></span><button class="x" id="chatClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="chatthread" id="chatThread"></div>
-    <div class="chatinput"><div class="atmenu" id="atMenu" style="display:none"></div><button class="btn sm" id="chatAttach" title="anexar arquivo (print, PDF, doc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="chatInput" rows="2" placeholder="peça um ajuste… ( / skills · @ arquivos · Enter envia)"></textarea><button class="btn primary sm" id="chatSend">enviar</button></div>
-  </div>
-</div>
 
 <!-- modal de resposta à pergunta do agente (ask_human) — legível + input estável -->
 <div class="overlay" id="askOverlay" style="display:none">
@@ -2374,13 +2314,12 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','fvOverlay','artOverlay','planOverlay','chatOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
     .some(id=>{ const el=document.getElementById(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
     const fw=document.getElementById('fwOverlay');
     if(fw && fw.style.display!=='none' && fwTask){ try{ fwLiveUpdate(); }catch(_){} }
-    if(chatIsOpen()){ try{ renderChat(); }catch(_){} }
     return;
   }
   const sig = snapSig();
@@ -3126,75 +3065,7 @@ function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId);
 function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
 function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2); }
 function fmtTok(n){ n=n||0; return n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : String(n); }
-// ---------- editor de plano (etapas em cards, drag-and-drop) ----------
-let planTask=null, planPath=null, planData=null, planDragIdx=null, planKind='Plano';
-function parsePlan(md){
-  const lines=String(md||'').replace(/\r\n/g,'\n').split('\n');
-  let title=''; const steps=[], notes=[]; let seenList=false, inSection=false;
-  for(const ln of lines){
-    if(!title){ const h=ln.match(/^#\s+(.*)/); if(h){ title=h[1].trim(); continue; } }
-    if(/^#{2,}\s/.test(ln)){ inSection=true; notes.push(ln); continue; }   // ## seção → daqui pra baixo é nota
-    const li=ln.match(/^\s*(?:\d+[.)]|[-*+])\s+(.*)/);
-    if(li && !inSection){ steps.push(li[1].trim()); seenList=true; continue; }
-    if(seenList || inSection || ln.trim()!=='') notes.push(ln);
-  }
-  return { title: title||planKind, steps, notes: notes.join('\n').trim() };
-}
-function serializePlan(p){
-  let out='# '+(p.title||planKind)+'\n\n';
-  p.steps.forEach((s,i)=> out+=(i+1)+'. '+(s||'').trim()+'\n');
-  if((p.notes||'').trim()) out+='\n'+p.notes.trim()+'\n';
-  return out;
-}
-async function openPlan(taskId, path, kind){
-  planTask=taskId; planPath=path; planKind=kind||'Plano';
-  document.getElementById('planHead').textContent=planKind+' da tarefa';
-  document.getElementById('planOverlay').style.display='flex';
-  document.getElementById('planBody').innerHTML='<div class="dim" style="padding:12px">carregando…</div>';
-  try{ const r=await invoke('read_file',{ taskId, path }); planData=parsePlan(r.content); }
-  catch(e){ planData={ title:planKind, steps:[], notes:'' }; }
-  renderPlan();
-}
-function closePlan(){ document.getElementById('planOverlay').style.display='none'; document.getElementById('planBody').innerHTML=''; }
-function pAutoGrow(ta){ ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,220)+'px'; }
-function planStepCard(text,i){
-  return `<div class="pstep" draggable="true" data-i="${i}"><span class="pgrip" title="arraste">⠿</span><span class="pnum">${i+1}</span><textarea class="pstx in" data-i="${i}" rows="1" placeholder="descreva a etapa…">${esc(text)}</textarea><button class="pdel" data-i="${i}" title="remover">${IC.trash}</button></div>`;
-}
-function renderPlan(){
-  const b=document.getElementById('planBody');
-  b.innerHTML=`
-    <div class="planlbl">Título</div>
-    <input class="in" id="planTitle" value="${escA(planData.title)}">
-    <div class="planlbl">Etapas <span class="dim" style="font-weight:400;text-transform:none;letter-spacing:0">· arraste ⠿ pra reordenar · edite cada uma</span></div>
-    <div class="plansteps" id="plansteps">${planData.steps.map(planStepCard).join('')||'<div class="dim" style="font-size:12px;padding:4px 2px">nenhuma etapa — clique "+ etapa"</div>'}</div>
-    <button class="btn sm" id="planAdd" style="margin-top:8px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>etapa</button>
-    <div class="planlbl" style="margin-top:15px">Notas / riscos</div>
-    <textarea class="in ta" id="planNotes" placeholder="observações, riscos, critérios…">${esc(planData.notes)}</textarea>`;
-  const el=document.getElementById('plansteps');
-  el.querySelectorAll('.pstx').forEach(ta=>{ pAutoGrow(ta); ta.oninput=()=>{ planData.steps[+ta.dataset.i]=ta.value; pAutoGrow(ta); }; });
-  el.querySelectorAll('.pdel').forEach(btn=>btn.onclick=()=>{ planData.steps.splice(+btn.dataset.i,1); renderPlan(); });
-  el.querySelectorAll('.pstep').forEach(card=>{
-    card.addEventListener('dragstart',e=>{ planDragIdx=+card.dataset.i; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
-    card.addEventListener('dragend',()=>{ planDragIdx=null; card.classList.remove('dragging'); });
-    card.addEventListener('dragover',e=>{ if(planDragIdx!==null){ e.preventDefault(); e.dataTransfer.dropEffect='move'; } });
-    card.addEventListener('drop',e=>{ e.preventDefault(); const to=+card.dataset.i; if(planDragIdx===null||planDragIdx===to) return; const [m]=planData.steps.splice(planDragIdx,1); planData.steps.splice(to,0,m); planDragIdx=null; renderPlan(); });
-  });
-  document.getElementById('planTitle').oninput=e=>planData.title=e.target.value;
-  document.getElementById('planNotes').oninput=e=>{ planData.notes=e.target.value; };
-  document.getElementById('planAdd').onclick=()=>{ planData.steps.push(''); renderPlan(); const tas=document.querySelectorAll('.pstx'); if(tas.length) tas[tas.length-1].focus(); };
-}
-async function savePlan(){
-  const md=serializePlan(planData);
-  const b=document.getElementById('planSave'); b.disabled=true; const orig=b.textContent; b.textContent='salvando…';
-  try{ await invoke('write_file',{ taskId:planTask, path:planPath, content:md }); closePlan(); }
-  catch(e){ alert('Falha ao salvar o plano:\n'+e); }
-  finally{ b.disabled=false; b.textContent=orig; }
-}
-document.getElementById('planSave').onclick=savePlan;
-document.getElementById('planClose').onclick=closePlan;
-document.getElementById('planOverlay').addEventListener('click', e=>{ if(e.target.id==='planOverlay') closePlan(); });
 
-// ---------- revisor de arquivos (abrir/editar/salvar + falar por linha) ----------
 const fileCache={}; // taskId -> {status, at, list}
 async function loadTaskFiles(taskId, status){
   const c=fileCache[taskId];
@@ -3235,54 +3106,6 @@ function filesListHtml(files){
     `<div class="fileshint">Clique num arquivo pra <b>abrir, editar</b> e <b>falar com o agente linha a linha</b>.</div><div class="artlist">`+
     files.map(f=>`<button class="artitem fileitem" data-file="${escA(f.path)}"><span class="artic">${IC.doc}</span><span class="artnm mono">${esc(f.path)}</span><span class="artkb"><span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span><span class="fileopen">abrir ›</span></button>`).join('')+`</div>`;
 }
-let fvTask=null, fvPath=null, fvEditing=false, fvContent='', fvAdded=[];
-async function openFile(taskId, path){
-  fvTask=taskId; fvPath=path; fvEditing=false;
-  document.getElementById('fvTitle').textContent=path;
-  document.getElementById('fvOverlay').style.display='flex';
-  document.getElementById('fvBody').innerHTML='<div class="dim" style="font-size:12px;padding:8px">carregando…</div>';
-  try{ const r=await invoke('read_file',{ taskId, path }); fvContent=r.content||''; fvAdded=r.addedLines||[]; renderFileView(); }
-  catch(e){ document.getElementById('fvBody').innerHTML='<div class="dim" style="padding:8px">'+esc(String(e))+'</div>'; }
-}
-function closeFile(){ document.getElementById('fvOverlay').style.display='none'; document.getElementById('fvBody').innerHTML=''; }
-function renderFileView(){
-  const body=document.getElementById('fvBody');
-  document.getElementById('fvEdit').style.display=fvEditing?'none':'';
-  document.getElementById('fvSave').style.display=fvEditing?'':'none';
-  if(fvEditing){
-    body.innerHTML=`<div class="fvtip">${IC.pencil||'✎'} Editando <b class="mono">${esc(fvPath)}</b> — <b>salvar</b> grava direto na worktree do agente.</div>`+
-      `<div class="fveditwrap"><div class="fvgutter" id="fvGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fvText" spellcheck="false" wrap="off"></textarea></div>`;
-    const ta=document.getElementById('fvText'), gut=document.getElementById('fvGutter');
-    ta.value=fvContent;
-    const syncGutter=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; };
-    const syncScroll=()=>{ gut.scrollTop=ta.scrollTop; };
-    syncGutter();
-    ta.addEventListener('input', syncGutter);
-    ta.addEventListener('scroll', syncScroll);
-    // Tab insere indentação em vez de trocar de foco (comportamento de editor)
-    ta.addEventListener('keydown', e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart, en=ta.selectionEnd; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(en); ta.selectionStart=ta.selectionEnd=s+2; syncGutter(); } });
-    ta.focus();
-    return;
-  }
-  const added=new Set(fvAdded);
-  const lines=fvContent.split('\n');
-  body.innerHTML=`<div class="fvtip">${IC.ai} Clique numa <b>linha</b> pra falar com o agente sobre ela · ou <b>editar</b> pra alterar e salvar direto na worktree${fvAdded.length?` · <span style="color:var(--good)">verde</span> = linhas que o agente adicionou`:''}</div><div class="fvcode">`+lines.map((ln,i)=>{ const n=i+1; return `<div class="fvln${added.has(n)?' add':''}" data-ln="${n}"><span class="fvnum">${n}</span><span class="fvtxt">${esc(ln)||' '}</span></div>`; }).join('')+`</div><div id="fvLineBox"></div>`;
-  body.querySelectorAll('.fvln').forEach(el=>el.onclick=()=>showLineAsk(+el.dataset.ln));
-}
-function showLineAsk(n){
-  document.querySelectorAll('.fvln.sel').forEach(x=>x.classList.remove('sel'));
-  const row=document.querySelector('.fvln[data-ln="'+n+'"]'); if(row) row.classList.add('sel');
-  const box=document.getElementById('fvLineBox');
-  box.innerHTML=`<div class="instrbox" style="margin:10px 0"><div class="ilbl">${IC.ai} Falar com o agente sobre a linha ${n}</div><div class="ihint">O agente da tarefa refaz na worktree endereçando este ponto (via --resume).</div><div class="irow"><input class="in iinput" id="fvAsk" placeholder="ex.: renomeia essa variável / trata o nulo aqui / explica"><button class="btn primary sm" id="fvAskSend">pedir ajuste</button></div></div>`;
-  const inp=document.getElementById('fvAsk'); inp.focus();
-  const go=async()=>{ const v=inp.value.trim(); if(!v) return; inp.disabled=true; try{ await invoke('rework_task',{ taskId:fvTask, text:`Sobre ${fvPath}:${n}: ${v}` }); closeFile(); lastSig=''; await refresh(); }catch(e){ alert('Falha:\n'+e); inp.disabled=false; } };
-  document.getElementById('fvAskSend').onclick=go;
-  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
-}
-document.getElementById('fvEdit').onclick=()=>{ fvEditing=true; renderFileView(); };
-document.getElementById('fvSave').onclick=async()=>{ const v=document.getElementById('fvText').value; const b=document.getElementById('fvSave'); b.disabled=true; try{ await invoke('write_file',{ taskId:fvTask, path:fvPath, content:v }); fvContent=v; fvEditing=false; fileCache[fvTask]=undefined; renderFileView(); lastSig=''; refresh(); }catch(e){ alert('Falha ao salvar:\n'+e); }finally{ b.disabled=false; } };
-document.getElementById('fvClose').onclick=closeFile;
-document.getElementById('fvOverlay').addEventListener('click', e=>{ if(e.target.id==='fvOverlay') closeFile(); });
 
 // ---------- workspace 3 colunas (arquivos · código · chat do agente) ----------
 let fwTask=null, fwPath=null, fwContent='', fwAdded=[], fwSelA=0, fwSelB=0, fwFiles=[], fwEditing=false, fwDrag=false;
@@ -4089,7 +3912,6 @@ const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
 let __selPersisted='';
 function render(){
   if(selected && selected!==__selPersisted && state.repo){ __selPersisted=selected; lsSet('sel:'+state.repo, selected); }
-  if(chatIsOpen()){ try{ renderChat(); }catch(_){} }
   const noRepo = !state.repo;
   const chead=document.querySelector(".chead"); if(chead) chead.style.display = noRepo?"none":"flex";
   document.getElementById("emptyRepo").style.display = noRepo ? "flex":"none";
@@ -5120,113 +4942,8 @@ async function stopTask(taskId){
   try{ await invoke("stop_task",{ taskId }); lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao parar:\n"+e); }
 }
-// ---------- chat com o agente (conversa contínua) ----------
-let chatTask=null;
-function chatIsOpen(){ const o=document.getElementById('chatOverlay'); return o && o.style.display!=='none'; }
+// openChat: o "chat" da tarefa agora é o próprio workspace (colunas fw*)
 function openChat(taskId){ /* chat agora É o workspace estilo Cursor (arquivos + requisitos + conversa) */ openWorkspace(taskId); setTimeout(()=>{ const i=document.getElementById('fwInput'); if(i) i.focus(); },250); }
-function closeChat(){ document.getElementById('chatOverlay').style.display='none'; chatTask=null; }
-function renderChat(){
-  const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t){ closeChat(); return; }
-  const av=document.getElementById('chatAv'); av.style.background=agentColor(t.agent); av.textContent=(t.agent||'?').slice(0,2).toUpperCase();
-  document.getElementById('chatWho').textContent=t.agent;
-  const asking=pendingOf(t.id);
-  const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
-  const sub=document.getElementById('chatSub'); sub.textContent=asking.length?'esperando sua resposta — o turno continua':working?'trabalhando…':(t.status==='review'?'pronto — mande um ajuste':esc(t.status));
-  // botão parar no header enquanto o agente trabalha (pra você intervir)
-  { let stopBtn=document.getElementById('chatStop');
-    if(working && !stopBtn){ stopBtn=document.createElement('button'); stopBtn.id='chatStop'; stopBtn.className='btn sm chatstop'; stopBtn.innerHTML=IC.pause+' parar'; document.querySelector('#chatOverlay .mhead').insertBefore(stopBtn, document.getElementById('chatClose')); }
-    if(stopBtn){ stopBtn.style.display=working?'':'none'; stopBtn.onclick=()=>stopTask(t.id); }
-  }
-  const sendBtn=document.getElementById('chatSend'); if(sendBtn) sendBtn.textContent=asking.length?'responder':working?'parar e enviar':'enviar';
-  // "na fila" ao lado do enviar enquanto trabalha: não interrompe o turno
-  { let qBtn=document.getElementById('chatQueue');
-    if(working && !qBtn && sendBtn){ qBtn=document.createElement('button'); qBtn.id='chatQueue'; qBtn.className='btn sm'; qBtn.textContent='na fila'; qBtn.title='não interrompe: o agente executa quando terminar o turno atual'; sendBtn.parentNode.insertBefore(qBtn, sendBtn); }
-    if(qBtn){ qBtn.style.display=working?'':'none'; qBtn.onclick=()=>chatSend(true); }
-  }
-  { const i=document.getElementById('chatInput'); if(i) i.placeholder=asking.length?'responda a pergunta do agente — a conversa continua no mesmo turno':'peça um ajuste… (ex.: teste na UI real e me dê os prints)'; }
-  // preserva o que está sendo digitado entre re-renders do poll
-  const inEl=document.getElementById('chatInput'), keep=document.activeElement===inEl, iv=inEl?inEl.value:null, ic=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
-  const evs=eventsOf(t.id);
-  const th=document.getElementById('chatThread');
-  th.innerHTML=evs.map(e=>{
-    if(e.agent==='Você' && (e.text||'').startsWith('💬')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^💬\s*/,''))}</div></div>`;
-    // resposta do humano ao ask_human → balão SEU (é você falando, não o agente)
-    if((e.text||'').startsWith('humano respondeu:')) return `<div class="cmsg you"><div class="cbub">${esc(e.text.replace(/^humano respondeu:\s*/,''))}</div></div>`;
-    if(['think','note','done'].includes(e.type) && (e.text||'').trim()) return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub">${esc(e.text)}</div></div>`;
-    if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(e.text)}</div></div>`;
-    return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(e.text||'')}</span></div>`;
-  }).join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub asknow">${esc(asking[0].prompt||'aguardando sua resposta')}<div class="asknote">↳ responda abaixo — o turno continua de onde parou</div></div></div>`:'')
-  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
-  th.scrollTop=th.scrollHeight;
-  const send=document.getElementById('chatSend'); if(send) send.onclick=()=>chatSend(false);
-  if(inEl){ if(iv!=null) inEl.value=iv; if(keep){ inEl.focus(); if(ic!=null){ try{ inEl.setSelectionRange(ic,ic); }catch(_){} } } }
-}
-async function chatSend(queueOnly){
-  const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t) return;
-  const inp=document.getElementById('chatInput'); const v=inp.value.trim(); if(!v) return;
-  // CHAT CONTÍNUO: se o agente está ESPERANDO RESPOSTA (ask_human), a mensagem
-  // RESPONDE a pergunta e o MESMO turno continua — nada de matar/reiniciar.
-  const pend=pendingOf(t.id);
-  if(pend.length){
-    inp.value=''; inp.disabled=true;
-    try{ await resolvePending(pend[0].id, v); }
-    finally{ inp.disabled=false; renderChat(); const i=document.getElementById('chatInput'); if(i) i.focus(); }
-    return;
-  }
-  // trabalhando (status ativo OU turno de fundo segurando o lock) → o padrão
-  // interrompe e manda já; "na fila" (queueOnly) deixa o motor enfileirar.
-  if(!queueOnly && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy)){ try{ await stopTask(t.id); }catch(_){} }
-  inp.value=''; inp.disabled=true;
-  try{ await talkTask(t.id, v); } finally{ inp.disabled=false; renderChat(); const i=document.getElementById('chatInput'); if(i) i.focus(); }
-}
-document.getElementById('chatClose').onclick=closeChat;
-document.getElementById('chatOverlay').addEventListener('click',e=>{ if(e.target.id==='chatOverlay') closeChat(); });
-// Enter ENVIA (Shift+Enter quebra linha); Esc fecha o menu de @
-document.getElementById('chatInput').addEventListener('keydown',e=>{
-  if(e.key==='Escape' && document.getElementById('atMenu').style.display!=='none'){ e.stopPropagation(); hideAtMenu(); return; }
-  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); hideAtMenu(); chatSend(); }
-});
-// 📎 anexo: picker nativo → insere os caminhos na mensagem (o agente lê os arquivos)
-document.getElementById('chatAttach').onclick=async()=>{
-  try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){
-    const i=document.getElementById('chatInput');
-    i.value=(i.value?i.value+'\n':'')+paths.map(p=>'Anexo: '+p).join('\n'); i.focus();
-  } }catch(e){ console.error('pick_ref_files', e); }
-};
-// @ ou / no início de palavra → menu com arquivos da task e artefatos
-function hideAtMenu(){ const m=document.getElementById('atMenu'); m.style.display='none'; m.innerHTML=''; }
-async function showAtMenu(trigger){
-  const t=(state.tasks||[]).find(x=>x.id===chatTask); if(!t) return;
-  let items=[];
-  if(trigger==='/'){
-    items=CHAT_SKILLS.map(s=>({label:'/'+s.label+' — '+s.desc, kind:'skill', skill:s}));
-  } else {
-    let files=[]; let arts=[];
-    try{ files=await invoke('task_files',{ taskId:t.id }); }catch(_){ }
-    try{ arts=await invoke('list_artifacts',{ taskId:t.id }); }catch(_){ }
-    items=[
-      ...files.slice(0,12).map(f=>({label:f.path, ins:f.path, kind:'arquivo'})),
-      ...arts.slice(0,8).map(a=>({label:a.name, ins:'.cardume/artifacts/'+a.name, kind:'artefato'})),
-    ];
-  }
-  const m=document.getElementById('atMenu');
-  if(!items.length){ hideAtMenu(); return; }
-  m.innerHTML='<div class="ath">'+(trigger==='/'?'skills':'referenciar')+'</div>'+items.map((it,i)=>`<button class="atit" data-ai="${i}"><span class="${it.skill?'':'mono'}"${it.skill?' style="color:var(--accent)"':''}>${esc(it.label)}</span><span class="atk">${it.kind}</span></button>`).join('');
-  m.style.display='block';
-  m.querySelectorAll('.atit').forEach(b=>b.onclick=()=>{
-    const it=items[+b.dataset.ai]; const i=document.getElementById('chatInput');
-    if(it.skill){ i.value=''; hideAtMenu(); talkTask(t.id, it.skill.prompt()); return; }
-    // substitui o @/ que abriu o menu pelo caminho escolhido
-    i.value=i.value.replace(/[@/]$/,'')+'`'+it.ins+'` '; hideAtMenu(); i.focus();
-  });
-}
-document.getElementById('chatInput').addEventListener('input',e=>{
-  const v=e.target.value; const last=v.slice(-1);
-  if((last==='@'||last==='/') && (v.length===1 || /\s/.test(v.slice(-2,-1)))) showAtMenu(last);
-  else if(document.getElementById('atMenu').style.display!=='none' && last!==' ') hideAtMenu();
-});
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&chatIsOpen()) closeChat(); });
 async function deliverArtifact(taskId, kind){
   const lbl={doc:'documento de arquitetura',tests:'testes',proof:'prova (prints)',all:'todos os entregáveis'}[kind]||kind;
   try{ await invoke("deliver_artifact",{ taskId, kind }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; lastSig=""; await refresh(); }
@@ -5734,7 +5451,7 @@ function renderSide(){
     const role=s.dataset.role;
     // plano/design abrem no workspace estilo Cursor (markdown editável + chat)
     if(stageDoc[role]){ openWorkspace(t.id, stageDoc[role]); return; }
-    if(['review','error','aborted','conflict'].includes(t.status)){ openChat(t.id); const ci=document.getElementById('chatInput'); if(ci){ ci.value='Sobre a etapa '+(ROLE_PT[role]||role)+' ('+s.dataset.name+'): '; ci.focus(); } }
+    if(['review','error','aborted','conflict'].includes(t.status)){ openChat(t.id); const _pf='Sobre a etapa '+(ROLE_PT[role]||role)+' ('+s.dataset.name+'): '; setTimeout(()=>{ const ci=document.getElementById('fwInput'); if(ci){ ci.value=_pf; ci.focus(); } },300); }
   });
   wireQuestion(el);
   // restaura foco/caret do input que estava sendo digitado
@@ -6904,7 +6621,7 @@ document.getElementById("artOverlay").addEventListener("click", e=>{ if(e.target
 document.getElementById("cmClose").onclick = closeCommit;
 document.getElementById("cmOverlay").addEventListener("click", e=>{ if(e.target.id==="cmOverlay") closeCommit(); });
 document.addEventListener("keydown", e=>{
-  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); closeFile(); closePlan(); return; }
+  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
     if(k==="n"){ e.preventDefault(); if(connected){ if(window.openTab) window.openTab('nova'); else openNewTask(); } }
