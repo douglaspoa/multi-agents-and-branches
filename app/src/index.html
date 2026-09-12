@@ -291,6 +291,31 @@
   .ndfl{font:400 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4)}
   .ndfl a{color:var(--accent);cursor:pointer}
   .ndft{font:500 11px 'JetBrains Mono',monospace;color:rgba(255,255,255,.3)}
+  /* Skills (redesign) — larga; o wrapper interno centra em 1320 */
+  #skOverlay.astab .mbody{max-width:none;margin:0;padding:0}
+  .sk-screen{max-width:1320px;margin:0 auto;padding:30px 34px 56px;font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;color:#eaf2ee}
+  .sk-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin-bottom:8px}
+  .sk-h1{margin:0;font:600 28px/1.15 'Instrument Sans',sans-serif;letter-spacing:-.02em}
+  .sk-sub{margin:7px 0 0;font:400 13.5px/1.5 'Instrument Sans',sans-serif;color:rgba(255,255,255,.48);max-width:560px}
+  .sk-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .sk-search{display:flex;align-items:center;gap:9px;padding:9px 13px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:#0e1110;min-width:230px}
+  .sk-search .sk-sd{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.3);flex:none}
+  .sk-search input{flex:1;font:400 13px 'Instrument Sans',sans-serif;background:none;border:none;outline:none;color:#eaf2ee}
+  .sk-add{font:600 13px 'Instrument Sans',sans-serif;color:var(--on-accent);background:var(--accent);padding:10px 16px;border-radius:9px;border:none;cursor:pointer}
+  .sk-stats{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 0 20px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:22px}
+  .sk-mono{font:500 12px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)}
+  .sk-mono.on{color:var(--accent)}
+  .sk-progress{flex:1;min-width:120px;max-width:260px;height:4px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+  .sk-progress i{display:block;height:4px;border-radius:3px;background:var(--accent)}
+  .sk-toggleall{font:500 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.12);padding:7px 12px;border-radius:7px;background:none;cursor:pointer}
+  .sk-toggleall:hover{color:#eaf2ee}
+  .sk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+  .skc{display:flex;flex-direction:column;gap:11px;padding:17px 18px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:#0e1110;transition:.12s}
+  .skc.on{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:linear-gradient(180deg,rgba(63,214,138,.06),rgba(63,214,138,.015))}
+  .skc-h{display:flex;align-items:center;gap:10px}
+  .skc-name{font:500 14px 'JetBrains Mono',monospace;color:#eaf2ee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .skc-scope{font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.08em;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px;flex:none;text-transform:uppercase}
+  .skc-d{font:400 12.5px/1.5 'Instrument Sans',sans-serif;color:rgba(234,242,238,.55)}
   /* filtro de projeto (multi-projeto) */
   .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
   .pfchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);border:1px solid var(--border-strong);border-radius:99px;padding:4px 11px;cursor:pointer;background:transparent}
@@ -2599,7 +2624,7 @@ function openDaily(){
 }
 document.getElementById('dailyBtn').onclick=openDaily;
 // ===== Skills: biblioteca (adicionar) + habilitar por projeto =====
-let skAddOpen=false, skAddMode='git', skGitFound=null, skList=[];
+let skAddOpen=false, skAddMode='git', skGitFound=null, skList=[], skQuery='';
 async function openSkills(){
   const mm=document.getElementById('moreMenu'); if(mm) mm.style.display='none';
   const body=document.getElementById('skBody');
@@ -2637,23 +2662,45 @@ function skAddPanelHtml(){
   return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia','✦ Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
 }
 function skRender(){
+  if(typeof ndInjectFonts==='function') ndInjectFonts();
   const body=document.getElementById('skBody'); if(!body) return;
-  const list=skList||[];
-  const nOn=list.filter(s=>s.active).length;
+  const all=skList||[];
+  const q=(skQuery||'').trim().toLowerCase();
+  const list=q?all.filter(s=>((s.name||'')+' '+(s.description||'')).toLowerCase().includes(q)):all;
+  const nOn=all.filter(s=>s.active).length, allOn=all.length&&nOn===all.length;
+  const bar=all.length?Math.round(nOn/all.length*100):0;
   const sw=(nm,on)=>`<label class="sw"><input type="checkbox" data-sk="${escA(nm)}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label>`;
-  const head=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><div class="dim" style="font-size:11.5px">${list.length} na biblioteca · <b style="color:var(--accent)">${nOn} ativa${nOn===1?'':'s'}</b> neste projeto</div><span style="flex:1"></span><button class="btn sm" id="skAddBtn" style="font-size:11.5px;padding:5px 11px">+ adicionar skill</button></div>`;
-  const rows = list.length
-    ? list.map(s=>`<div class="skrow"><div class="skmain"><div class="sknm">${esc(s.name)}<span class="sksrc">${esc(s.source)}</span></div><div class="skdesc">${esc(String(s.description||'(sem descrição)').slice(0,240))}${(s.description||'').length>240?'…':''}</div></div>${sw(s.name,s.active)}</div>`).join('')
-    : `<div class="dim" style="padding:14px 2px;line-height:1.6">Biblioteca vazia. Use <b>+ adicionar skill</b> — dá pra importar de um repo Git, colar um SKILL.md ou criar do zero.</div>`;
-  body.innerHTML=head+(skAddOpen?skAddPanelHtml():'')+rows;
+  const cards=list.length
+    ? list.map(s=>`<div class="skc${s.active?' on':''}"><div class="skc-h"><span class="skc-name">${esc(s.name)}</span><span class="skc-scope">${esc(s.source||'')}</span><span style="flex:1"></span>${sw(s.name,s.active)}</div><div class="skc-d">${esc(String(s.description||'(sem descrição)').slice(0,220))}${(s.description||'').length>220?'…':''}</div></div>`).join('')
+    : `<div class="dim" style="padding:20px 2px">${q?'nada encontrado pra <b>'+esc(skQuery)+'</b>':'Biblioteca vazia — use <b>+ adicionar skill</b> (do Git, SKILL.md ou criar).'}</div>`;
+  body.innerHTML=`<div class="sk-screen">
+    <div class="sk-head">
+      <div><h1 class="sk-h1">Skills</h1><p class="sk-sub">Skills ligadas viram instrução para os agentes deste projeto — entram sozinhas quando o gatilho bate.</p></div>
+      <div class="sk-actions">
+        <div class="sk-search"><span class="sk-sd"></span><input id="skQ" value="${escA(skQuery)}" placeholder="filtrar por nome ou gatilho"></div>
+        <button class="sk-add" id="skAddBtn">+ adicionar skill</button>
+      </div>
+    </div>
+    <div class="sk-stats"><span class="sk-mono">${all.length} na biblioteca</span><span class="sk-mono on">${nOn} ativas neste projeto</span><span class="sk-progress"><i style="width:${bar}%"></i></span><button class="sk-toggleall" id="skToggleAll">${allOn?'desligar todas':'ligar todas'}</button></div>
+    ${skAddOpen?skAddPanelHtml():''}
+    <div class="sk-grid">${cards}</div>
+  </div>`;
+  { const qi=body.querySelector('#skQ'); if(qi){ qi.oninput=()=>{ skQuery=qi.value; skRender(); const n=body.querySelector('#skQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; } }
   body.querySelectorAll('[data-sk]').forEach(cb=>cb.onchange=()=>skToggle(cb.dataset.sk, cb.checked));
-  { const b=body.querySelector('#skAddBtn'); if(b) b.onclick=()=>{ skAddOpen=true; skGitFound=null; skRender(); }; }
+  { const b=body.querySelector('#skAddBtn'); if(b) b.onclick=()=>{ skAddOpen=!skAddOpen; skGitFound=null; skRender(); }; }
+  { const b=body.querySelector('#skToggleAll'); if(b) b.onclick=()=>skSetAll(!allOn); }
   { const b=body.querySelector('#skAddCancel'); if(b) b.onclick=()=>{ skAddOpen=false; skGitFound=null; skRender(); }; }
   body.querySelectorAll('[data-skmode]').forEach(el=>el.onclick=()=>{ skAddMode=el.dataset.skmode; skGitFound=null; skRender(); });
   { const b=body.querySelector('#skGitDetect'); if(b) b.onclick=skGitDetect; }
   { const b=body.querySelector('#skGitImport'); if(b) b.onclick=skGitImport; }
   { const b=body.querySelector('#skDoCreate'); if(b) b.onclick=skDoCreate; }
   { const b=body.querySelector('#skDoImport'); if(b) b.onclick=skDoImport; }
+}
+async function skSetAll(on){
+  (skList||[]).forEach(s=>s.active=on);
+  const active=on?(skList||[]).map(x=>({name:x.name,description:x.description||''})):[];
+  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ alert('Falhou: '+(e&&e.message||e)); }
+  skRender();
 }
 async function skToggle(name, on){
   const s=(skList||[]).find(x=>x.name===name); if(s) s.active=on;
