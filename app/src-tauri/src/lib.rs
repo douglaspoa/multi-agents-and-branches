@@ -3090,34 +3090,22 @@ fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, Stri
 /// base local mostra TODOS os arquivos do merge como se fossem da tarefa.
 fn merge_base_ref(dir: &PathBuf, base: &str, tip: &str) -> String {
     let clean = base.trim_start_matches("origin/");
-    // sha do tip: um merge-base IGUAL ao tip zera o diff (painel vazio) — descartamos.
-    let head = Command::new("git").arg("-C").arg(dir).args(["rev-parse", tip]).output().ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
-    // merge-base do tip com origin/<base> E com o <base> local. Candidatos válidos:
-    // não-vazios e DIFERENTES do tip (senão o diff fica vazio).
-    let mut cands: Vec<String> = Vec::new();
+    // Ponto de bifurcação da branch. PREFERE origin/<base>: é a referência estável.
+    //  - tarefa EM ANDAMENTO (branch ainda não mergeada): merge-base = o fork real,
+    //    então o diff mostra só o que a tarefa mexeu, mesmo que o main tenha avançado.
+    //  - tarefa JÁ MERGEADA (HEAD == origin/base): merge-base = HEAD → diff rastreado
+    //    vazio (correto: nada pendente; o trabalho novo aparece como untracked em task_files).
+    // NUNCA cai no <base> LOCAL quando o origin resolve: a main local costuma estar
+    // defasada e arrasta dezenas de arquivos do avanço do main como se fossem da tarefa.
     for cand in [format!("origin/{clean}"), clean.to_string()] {
         if let Ok(o) = Command::new("git").arg("-C").arg(dir).args(["merge-base", &cand, tip]).output() {
             if o.status.success() {
                 let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if !s.is_empty() && s != head && !cands.contains(&s) { cands.push(s); }
+                if !s.is_empty() { return s; }
             }
         }
     }
-    match cands.len() {
-        0 => base.to_string(),
-        1 => cands.pop().unwrap(),
-        _ => {
-            // dois candidatos: pega o MAIS RECENTE (diff mais justo — só o que a tarefa
-            // mexeu, sem arrastar o avanço do main). c0 é ancestral de c1 → c1 é o novo.
-            let c0_anc_c1 = Command::new("git").arg("-C").arg(dir)
-                .args(["merge-base", "--is-ancestor", &cands[0], &cands[1]])
-                .status().map(|s| s.success()).unwrap_or(false);
-            if c0_anc_c1 { cands[1].clone() } else { cands[0].clone() }
-        }
-    }
+    base.to_string()
 }
 fn task_diff_base(wt: &PathBuf, base: &str) -> String {
     merge_base_ref(wt, base, "HEAD")
@@ -3151,10 +3139,30 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
         .output()
         .map_err(|e| e.to_string())?;
     let mut files = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let p: Vec<&str> = line.split('\t').collect();
         if p.len() >= 3 {
+            seen.insert(p[2].to_string());
             files.push(TaskFile { add: p[0].parse().unwrap_or(0), del: p[1].parse().unwrap_or(0), path: p[2].to_string() });
+        }
+    }
+    // Arquivos NOVOS ainda não commitados (untracked) — para tarefas de design/criação
+    // o deliverable é justamente o arquivo novo, e `git diff` NÃO lista untracked.
+    // Sem isto, a árvore fica vazia mesmo com o agente tendo criado arquivos.
+    if let Ok(o) = Command::new("git").arg("-C").arg(&wt)
+        .args(["ls-files", "--others", "--exclude-standard"]).output() {
+        for rel in String::from_utf8_lossy(&o.stdout).lines() {
+            let rel = rel.trim();
+            if rel.is_empty() || seen.contains(rel) { continue; }
+            // conta linhas como adições (arquivo de texto); binário conta 0.
+            let add = std::fs::read(wt.join(rel)).ok()
+                .filter(|b| !b.contains(&0))
+                .map(|b| b.iter().filter(|&&c| c == b'\n').count() as i64
+                        + if b.last().map(|&c| c != b'\n').unwrap_or(false) { 1 } else { 0 })
+                .unwrap_or(0);
+            seen.insert(rel.to_string());
+            files.push(TaskFile { add, del: 0, path: rel.to_string() });
         }
     }
     // Artefatos da worktree: .cardume/ é git-excluded e NUNCA aparece no diff —
