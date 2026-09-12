@@ -1446,7 +1446,7 @@
 
   /* ===== espaço TIMES (redesign aprovado) ===== */
   #teamPane{padding:0!important;height:100%;overflow:hidden}
-  .tspace{display:grid;grid-template-columns:minmax(0,1fr);height:100%;min-height:0} /* sem menu lateral próprio — abas horizontais como o resto do app */
+  .tspace{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);height:100%;min-height:0} /* rows 1fr → o .tmain ganha altura e scrolla */
   .tspace>*{min-width:0}
   .tside{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;overflow:auto}
   .tslbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 8px 6px}
@@ -4255,6 +4255,7 @@ function renderFlowFilters(){
     TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}">${l}</button>`).join('')+
     `<span class="grow"></span>`+
     `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic on" data-view="flow" title="Fluxo (lista)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
     `<button class="fvic" data-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
     `</div>`;
   // SEMPRE visível: status (review/rodando/merged/…) + tipo — é o que mais se filtra
@@ -4306,6 +4307,7 @@ function renderNavTabs(v){
     <button class="ft${v==='team'?' on':''}" data-nv-team>Do time</button>
     <button class="ft" data-nv-scope="done">Concluídas</button>
     <span class="grow"></span>
+    <button class="fvic${v==='flow'?' on':''}" data-nv-view="flow" title="Fluxo (lista)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>
     <button class="fvic${v==='kanban'?' on':''}" data-nv-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>
   </div>`;
   el.querySelectorAll('[data-nv-scope]').forEach(b=>b.onclick=()=>{ flowScope=b.dataset.nvScope; lsSet('flowScope',flowScope); lastSig=''; setView('flow'); });
