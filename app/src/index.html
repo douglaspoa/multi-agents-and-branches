@@ -4167,6 +4167,7 @@ let flowStatus = 'all';   // all | active | review | merged | error
 let projFilter = lsGet('projFilter')||'all'; // 'all' (integrado) | caminho de um projeto
 let allTasksCache = [];   // tarefas de TODOS os projetos (list_all_tasks), pro board integrado
 let allTasksSig = '';
+let allTasksAt = 0;       // throttle: list_all_tasks abre o sqlite de CADA projeto (I/O)
 function projShort(p){ return String(p||'').split('/').filter(Boolean).slice(-1)[0]||''; }
 // lista [caminho, nome] dos projetos conhecidos (ativo + os do cache multi-projeto)
 function projList(){ const m=new Map(); if(state.repo) m.set(state.repo, projShort(state.repo)); (allTasksCache||[]).forEach(t=>{ if(t.repo) m.set(t.repo, t.proj||projShort(t.repo)); }); return [...m.entries()]; }
@@ -4186,8 +4187,17 @@ function boardSource(){
   const others=(allTasksCache||[]).filter(t=>t.repo!==state.repo).map(normAgg);
   return cur.concat(others);
 }
-async function loadAllTasks(){
-  try{ const r=await invoke('list_all_tasks'); const sig=r.map(t=>t.id+':'+t.status+':'+(t.sortOrder??'')).join(','); if(sig!==allTasksSig){ allTasksSig=sig; allTasksCache=r; if(curView&&curView()==='flow'){ lastSig=''; renderFlow(); } } }catch(_){}
+async function loadAllTasks(force){
+  // throttle: abre o state.sqlite de CADA projeto — rodar a cada 1s (com 48 agentes
+  // escrevendo) fazia o board recarregar sem parar e "comer" o clique. A cada ~4s basta.
+  if(!force && Date.now()-allTasksAt < 4000) return;
+  allTasksAt=Date.now();
+  try{ const r=await invoke('list_all_tasks'); const sig=r.map(t=>t.id+':'+t.status+':'+(t.sortOrder??'')).join(','); if(sig!==allTasksSig){ allTasksSig=sig; allTasksCache=r;
+    // NÃO re-renderiza o Fluxo direto aqui: isso pulava o guard de clique (uiHoldUntil)
+    // e destruía o card entre mousedown/mouseup. Marca sujo e deixa o refresh (guardado)
+    // aplicar no próximo tick, respeitando o clique em andamento.
+    if(curView&&curView()==='flow') lastSig='';
+  } }catch(_){}
 }
 // popula o seletor "projeto" da nova demanda; trocar ali muda o projeto-alvo
 function ntFillProjects(){
