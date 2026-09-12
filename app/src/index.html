@@ -265,6 +265,8 @@
   .ndwrap{min-height:100%;background:var(--bg);color:#eaf2ee;font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;display:flex;justify-content:center;padding:44px 28px 60px}
   .ndinner{width:100%;max-width:1020px}
   .ndeyebrow{font:500 10.5px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(255,255,255,.34);text-transform:uppercase}
+  .nd-projrow{display:flex;align-items:center;gap:12px;margin-bottom:2px}
+  .nd-projsel{font:500 12px 'JetBrains Mono',monospace;color:#eaf2ee;background:#101312;border:1px solid var(--accent);border-radius:7px;padding:5px 9px;cursor:pointer}
   .ndh1{margin:14px 0 6px;font:600 32px/1.15 'Instrument Sans',sans-serif;letter-spacing:-.02em}
   .ndsub{margin:0 0 26px;font:400 14.5px/1.55 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);max-width:580px}
   .ndtypes{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px}
@@ -2873,8 +2875,10 @@ function ndRenderStart(){
   const body=document.getElementById('ndBody'); if(!body) return;
   const cur=ND_TYPES.find(t=>t.k===ndType)||ND_TYPES[0];
   const typeCards=ND_TYPES.map(t=>`<button class="ndtype${t.k===ndType?' on':''}" data-ndtype="${t.k}"><span class="ndtb">${esc(t.i)}</span><span class="ndtn">${esc(t.name)}</span><span class="ndtd">${esc(t.desc)}</span></button>`).join('');
+  const projs=(window.projectsList&&window.projectsList())||projList().map(([path,name])=>({path,name}));
+  const projSel=`<select class="nd-projsel" id="ndProj" title="projeto onde a demanda vai abrir">${projs.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('')}</select>`;
   body.innerHTML=`<div class="ndwrap"><div class="ndinner">
-    <div class="ndeyebrow">passo 1 de 2 · ${esc(projShort(state.repo)||'repo')}</div>
+    <div class="nd-projrow"><span class="ndeyebrow">passo 1 de 2 · projeto</span>${projs.length?projSel:`<span class="as-mono" style="color:var(--accent);font-size:12px">${esc(projShort(state.repo)||'—')}</span>`}</div>
     <h1 class="ndh1">Que tipo de demanda é essa?</h1>
     <p class="ndsub">O tipo define quais campos são obrigatórios e como o agente trabalha. Dá pra trocar depois sem perder nada.</p>
     <div class="ndtypes">${typeCards}</div>
@@ -2886,6 +2890,7 @@ function ndRenderStart(){
     <div class="ndfoot"><div class="ndfl">já tem um .md? <a id="ndImport">importar</a> · guia deste repo: <span class="mono">.cardume/SPEC.md</span></div><div class="ndft mono">tipo: ${esc(cur.name)}</div></div>
   </div></div>`;
   body.querySelectorAll('[data-ndtype]').forEach(b=>b.onclick=()=>{ ndType=b.dataset.ndtype; ndRenderStart(); });
+  { const s=body.querySelector('#ndProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p && p!==state.repo && window.switchProject){ await window.switchProject(p); } ndRenderStart(); }; }
   { const b=body.querySelector('#ndChat'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('planner'); }; }
   { const b=body.querySelector('#ndForm'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('form'); }; }
   { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('form'); setTimeout(()=>{ const im=document.getElementById('ntImport'); if(im) im.click(); }, 300); }; }
