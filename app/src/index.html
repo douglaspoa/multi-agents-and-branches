@@ -2969,7 +2969,14 @@ function showActiveView(){
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
   viewOpen(t.kind); // popula + mostra (pode setar display='flex')
   const o=document.getElementById(VIEW_OVERLAY[t.kind]);
-  if(o){ requestAnimationFrame(()=>{ o.classList.add('astab'); o.style.display='block'; }); }
+  if(o){ requestAnimationFrame(()=>{
+    // mede a base da barra de abas AGORA (layout já assentado) e fixa o topo do overlay —
+    // sem isso, uma mudança de altura do topo deixava --chrome-h defasado e o overlay
+    // cobria as abas (recolhido) ou deixava o board vazar por cima (expandido).
+    const tb=document.getElementById('tabBar');
+    if(tb && tb.style.display!=='none'){ document.documentElement.style.setProperty('--chrome-h', Math.round(tb.getBoundingClientRect().bottom)+'px'); }
+    o.classList.add('astab'); o.style.display='block';
+  }); }
 }
 function renderTabs(){
   const bar=document.getElementById('tabBar'); if(!bar) return;
