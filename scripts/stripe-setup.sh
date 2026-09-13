@@ -23,11 +23,11 @@ echo "✔ criado. Agora cole este SQL no Supabase (SQL Editor) — é ele que LI
 echo "   (amount_cents = preço POR ASSENTO por mês, como o app mostra; seats = teto de assentos do plano)"
 echo ""
 cat <<SQL
-insert into billing_plans (id, stripe_price_id, plan, "interval", amount_cents, seats, trial_days) values
-  ('individual_month', '$IND_M',  'individual', 'month', 4900,  1,  14),
-  ('individual_year',  '$IND_Y',  'individual', 'year',  3900,  1,  14),
-  ('team_month',       '$TEAM_M', 'team',       'month', 3900,  12, 14),
-  ('team_year',        '$TEAM_Y', 'team',       'year',  3100,  12, 14)
+insert into billing_plans (id, stripe_price_id, plan, "interval", amount_cents, seats, trial_days, per_seat) values
+  ('individual_month', '$IND_M',  'individual', 'month', 4900,  1,  14, false),
+  ('individual_year',  '$IND_Y',  'individual', 'year',  3900,  1,  14, false),
+  ('team_month',       '$TEAM_M', 'team',       'month', 3900,  12, 14, true),
+  ('team_year',        '$TEAM_Y', 'team',       'year',  3100,  12, 14, true)
 on conflict (id) do update set stripe_price_id = excluded.stripe_price_id,
-  amount_cents = excluded.amount_cents, seats = excluded.seats, trial_days = excluded.trial_days, active = true;
+  amount_cents = excluded.amount_cents, seats = excluded.seats, trial_days = excluded.trial_days, per_seat = excluded.per_seat, active = true;
 SQL

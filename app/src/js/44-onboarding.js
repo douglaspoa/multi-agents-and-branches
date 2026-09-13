@@ -160,21 +160,24 @@ const AU_PLAN_DEFAULTS=[
 ];
 const AU_FALLBACK_PRICE={ individual:{month:4900,year:3900}, team:{month:3900,year:3100} };
 function auPlanRow(key, interval){ return (billingPlans||[]).find(p=>p.plan===key&&p.interval===interval); }
+// preço por assento (per_seat) ou fechado por time (planos antigos: amount = time inteiro, seats = teto)
+function auPerSeat(key, interval){ const p=auPlanRow(key, interval); return p ? !!p.per_seat : key==='team'; }
+function auSeatsOf(key){ const p=auPlanRow(key, au.plan.interval); return (key==='team' && p && !p.per_seat) ? (p.seats||1) : (key==='team' ? au.plan.seats : 1); }
 function auPrice(key, interval){ const p=auPlanRow(key, interval); return p?p.amount_cents:(AU_FALLBACK_PRICE[key]||{})[interval]||0; }
-function auTotal(){ const per=auPrice(au.plan.key, au.plan.interval); const seats=au.plan.key==='team'?au.plan.seats:1; return per*seats; }
+function auTotal(){ const per=auPrice(au.plan.key, au.plan.interval); return auPerSeat(au.plan.key, au.plan.interval) ? per*auSeatsOf(au.plan.key) : per; }
 function auRenderPlans(R, topbar){
   const iv=au.plan.interval, hasPlans=!!(billingPlans&&billingPlans.length);
   const cards=AU_PLAN_DEFAULTS.map(p=>{
-    const on=au.plan.key===p.key; const price=p.key==='enterprise'?null:auPrice(p.key,iv);
+    const on=au.plan.key===p.key; const price=p.key==='enterprise'?null:auPrice(p.key,iv); const ps=auPerSeat(p.key,iv); const row=auPlanRow(p.key,iv);
     return `<button class="au-plan${on?' on':''}${p.hot?' hot':''}" data-plan="${p.key}"><div class="au-plh"><span class="au-pldot"></span><b>${esc(p.name)}</b>${p.hot?'<span class="au-badge">mais usado</span>':''}<span class="au-plwho">${esc(p.who)}</span></div>
-      <div class="au-plprice">${price==null?'<b>sob consulta</b><span>fale com vendas</span>':`<b>${fmtBRL(price).replace(',00','')}</b><span>por ${p.perSeat?'assento':'pessoa'}/${iv==='year'?'mês, no anual':'mês'}</span>`}</div>
+      <div class="au-plprice">${price==null?'<b>sob consulta</b><span>fale com vendas</span>':`<b>${fmtBRL(price).replace(',00','')}</b><span>${p.key==='team'&&!ps?`por time (até ${(row&&row.seats)||6} assentos)`:`por ${p.perSeat?'assento':'pessoa'}`}/${iv==='year'?(ps||p.key!=='team'?'mês, no anual':'ano'):'mês'}</span>`}</div>
       <ul class="au-plf">${p.feats.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></button>`; }).join('');
-  const total=auTotal(); const seats=au.plan.key==='team'?au.plan.seats:1; const isEnt=au.plan.key==='enterprise';
+  const total=auTotal(); const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key); const isEnt=au.plan.key==='enterprise';
   const trial=(auPlanRow(au.plan.key,iv)||{}).trial_days||14;
   R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>-20%</i></button></div></div>${auMsg()}
     <div class="au-plans">${cards}</div>
     <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por repo e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
-      `${au.plan.key==='team'?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/mês</small></b><span class="au-hint">${seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:''}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'cobrança ainda não ativada neste backend (BILLING-SETUP.md)'}</span></div>`}</div></div>`;
+      `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'cobrança ainda não ativada neste backend (BILLING-SETUP.md)'}</span></div>`}</div></div>`;
   R.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>{ au.plan.key=b.dataset.plan; auRender(); });
   R.querySelectorAll('[data-iv]').forEach(b=>b.onclick=()=>{ au.plan.interval=b.dataset.iv; auRender(); });
   bindClick('auSeatM', ()=>{ au.plan.seats=Math.max(1,au.plan.seats-1); auRender(); });
@@ -183,7 +186,7 @@ function auRenderPlans(R, topbar){
   bindClick('auSales', ()=>openExternal('mailto:vendas@constellation.ai?subject=Plano%20Organiza%C3%A7%C3%A3o%20Constellation'));
 }
 function auRenderPay(R, topbar){
-  const p=auPlanRow(au.plan.key, au.plan.interval); const iv=au.plan.interval; const seats=au.plan.key==='team'?au.plan.seats:1;
+  const p=auPlanRow(au.plan.key, au.plan.interval); const iv=au.plan.interval; const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key);
   const per=auPrice(au.plan.key,iv), total=auTotal(); const trial=(p&&p.trial_days)||14;
   const first=new Date(Date.now()+trial*864e5).toLocaleDateString('pt-BR');
   const name=(AU_PLAN_DEFAULTS.find(x=>x.key===au.plan.key)||{}).name||au.plan.key;
@@ -193,7 +196,7 @@ function auRenderPay(R, topbar){
       ${au.waiting?`<div class="au-wait">${cosmosHtml('esperando a confirmação da Stripe…','inline')}<div class="au-hint">Concluiu o pagamento? O app reconhece sozinho em instantes. <a id="auRecheck">verificar agora</a></div></div>`:`<button class="au-btn primary big" id="auGo">Começar teste de ${trial} dias</button><div class="au-hint" style="margin-top:10px">Sem cobrança agora. Avisamos 3 dias antes de renovar.</div>`}
     </div>
     <aside class="au-payr"><div class="au-lbl" style="margin:0 0 10px">resumo</div><div class="au-sumt"><i></i>${esc(name)} · ${iv==='year'?'anual':'mensal'}</div>
-      <div class="au-sumr"><span>Assento</span><b>${fmtBRL(per).replace(',00','')}/mês</b></div><div class="au-sumr"><span>Assentos</span><b>${seats}</b></div><div class="au-sumr"><span>Após o teste</span><b>${fmtBRL(total).replace(',00','')}/${iv==='year'?'mês (anual)':'mês'}</b></div>
+      ${perSeat?`<div class="au-sumr"><span>Assento</span><b>${fmtBRL(per).replace(',00','')}/mês</b></div>`:''}<div class="au-sumr"><span>Assentos</span><b>${seats}</b></div><div class="au-sumr"><span>Após o teste</span><b>${fmtBRL(total).replace(',00','')}/${iv==='year'?(perSeat||au.plan.key!=='team'?'mês (anual)':'ano'):'mês'}</b></div>
       <div class="au-sumr big"><span>Hoje</span><b style="color:var(--accent)">R$ 0,00</b></div>
       <p class="au-hint">Primeira cobrança em ${first}. Custo de modelo é medido por tarefa e cobrado no mês seguinte.</p>
       <div class="au-secure"><i></i>pagamento seguro · Stripe</div></aside></div>`;
@@ -207,7 +210,7 @@ async function auCheckout(){
   au.busy=true; auRender();
   try{
     const r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST', headers:{ 'Content-Type':'application/json', 'apikey':SB.key(), 'Authorization':'Bearer '+SB.sess().access_token },
-      body: JSON.stringify({ planId:p.id, teamId: au.plan.key==='team'?cloudTeamId():null, seats: au.plan.key==='team'?au.plan.seats:1 }) });
+      body: JSON.stringify({ planId:p.id, teamId: au.plan.key==='team'?cloudTeamId():null, seats: (au.plan.key==='team'&&p.per_seat)?au.plan.seats:1 }) });
     const j=await r.json(); if(!j.url) throw new Error(j.error||('HTTP '+r.status));
     try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
     au.waiting=true; au.busy=false; auRender();

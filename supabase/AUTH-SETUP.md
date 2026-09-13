@@ -1,5 +1,11 @@
 # Entrada e assinatura — o que ligar no Supabase (painel) e na Stripe
 
+> Feito em 13/09/2026 pela Management API: código de e-mail com 6 dígitos (10 min), templates
+> em PT com `{{ .Token }}` + link, Site URL = https://constellation-ai-v1.lovable.app,
+> Redirect URLs (callback local, /confirmado, /redefinir-senha), coluna `billing_plans.per_seat`
+> e deploy da `stripe-checkout` com assentos. FALTA: provider GitHub (precisa do OAuth App) e os
+> preços novos na Stripe (seção 4) — os planos atuais (Individual/Equipes) continuam valendo.
+
 O app (`app/src/js/44-onboarding.js`) implementa: criar conta · entrar · confirmar e-mail
 por **código de 6 dígitos** · link mágico · esqueci a senha (código + senha nova) ·
 trocar senha (Conta) · login com GitHub/Google · planos por assento · checkout na Stripe.
