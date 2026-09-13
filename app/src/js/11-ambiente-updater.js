@@ -10,7 +10,7 @@ async function runEnvCheck(){
 function renderEnv(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const el=$id('envBody'); if(!el) return;
-  if(!envChecks){ el.innerHTML='<div class="appscreen"><div class="dim" style="padding:8px 2px">verificando…</div></div>'; return; }
+  if(!envChecks){ el.innerHTML='<div class="appscreen">'+cosmosHtml('verificando o ambiente…')+'</div>'; return; }
   const okN=envChecks.filter(c=>c.ok).length, tot=envChecks.length, bad=tot-okN;
   const banner = bad
     ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px 'Instrument Sans',sans-serif">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} ok</span></div>`

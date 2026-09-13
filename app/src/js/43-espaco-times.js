@@ -67,7 +67,7 @@ function renderTeamBoard(){
     return;
   }
   if(!teamTasks){
-    el.innerHTML='<div class="dim" style="padding:14px">carregando o espaço do time…</div>'; teamPaintSig='';
+    el.innerHTML=cosmosHtml('carregando o espaço do time…'); teamPaintSig='';
     teamFetch(true).then(()=>{
       if(teamTasks){ renderTeamBoard(); return; }
       el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn);margin:12px">Não consegui carregar o time. <button class="btn sm" id="tbRetry">tentar de novo</button></div>';

@@ -145,7 +145,7 @@ function wizRender(){
   wizShareApply(st);
   // etapa "Quem executa?": o painel do Como executar vira o corpo da etapa
   { const hp=$id('ntHowPane'), hf=$id('howFootRow'), hh=$id('howHead');
-    if(st.how){ howPopulate(); hp.style.display='block'; if(hf) hf.style.display='none'; if(hh) hh.style.display='none'; cont.style.display='none'; md.style.display='none'; }
+    if(st.how){ howPopulate(); aiPickRender(); hp.style.display='block'; if(hf) hf.style.display='none'; if(hh) hh.style.display='none'; cont.style.display='none'; md.style.display='none'; }
     else hp.style.display='none'; }
   if(st.rev){ ntMdRender(); md.style.display='block'; cont.style.display='none'; }
   else if(!st.how){ md.style.display='none'; cont.style.display=''; }
@@ -193,7 +193,7 @@ function goRender(nReq){
     return `<div style="display:flex;gap:9px;align-items:center;font-size:12.5px;color:${col}"><span class="mono" style="width:14px">${ic}</span>${k==='req'?`${l} (${nReq})`:l}${s==='run'?'…':''}</div>`;
   }).join('');
 }
-function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; }
+function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; cosmosStart($id('goOverlay')); }
 function goHide(){ $id('goOverlay').style.display='none'; }
 // última etapa do wizard: aplica as escolhas do "Quem executa?" e cria mostrando progresso
 async function wizLaunch(){
@@ -530,6 +530,7 @@ function setNtMode(m){
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';
   ntGate();
+  if(typeof aiPickRender==='function') aiPickRender();
 }
 { const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{ if(window.openTab) window.openTab('nova'); }; }
 // o toggle Formulário|Markdown mora na linha do eyebrow (à direita); a barra "SPEC" solta some

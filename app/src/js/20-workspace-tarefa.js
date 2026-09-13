@@ -408,7 +408,7 @@ function fwRenderDiff(t, main){
   let rows='';
   const diff=fwPath?fwDiffCache[key]:'';
   if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
-  else if(diff==null) rows='<div class="dim" style="padding:14px">carregando o diff…</div>';
+  else if(diff==null) rows=cosmosHtml('carregando o diff…','inline');
   else {
     let oldLn=0, newLn=0;
     rows=diff.split('\n').map(l=>{

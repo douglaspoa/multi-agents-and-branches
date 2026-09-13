@@ -229,7 +229,7 @@ async function renderCloud(){
     return;
   }
   // dados frescos
-  if(!cloudData){ body.innerHTML='<div class="dim" style="padding:8px 2px">carregando…</div>'; try{ await cloudLoad(); }catch(e){ cloudMsg='Falhou: '+e.message; SB.setSess(SB.sess()); } }
+  if(!cloudData){ body.innerHTML=cosmosHtml('carregando a conta…'); try{ await cloudLoad(); }catch(e){ cloudMsg='Falhou: '+e.message; SB.setSess(SB.sess()); } }
   // 3) logado mas sem org → criar ou aceitar convite
   if(!cloudData || !cloudData.org){
     head.textContent='Sua organização';

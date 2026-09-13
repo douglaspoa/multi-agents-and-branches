@@ -105,7 +105,7 @@ let curCommit=null;
 async function openCommit(hash){
   curCommit=hash;
   const ov=$id("cmOverlay"), body=$id("cmBody");
-  ov.style.display="flex"; body.innerHTML='<div class="dim" style="font-size:12px">carregando…</div>';
+  ov.style.display="flex"; body.innerHTML=cosmosHtml('carregando…','inline');
   let d; try{ d=await invoke("commit_detail",{hash}); }
   catch(e){ body.innerHTML='<div class="dim" style="font-size:12px">'+esc(String(e))+'</div>'; return; }
   const files = parseDiff(d.diff);

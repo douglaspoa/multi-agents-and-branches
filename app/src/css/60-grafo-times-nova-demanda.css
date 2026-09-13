@@ -245,3 +245,32 @@
 .attx:hover{color:var(--crit)}
 .plmsg.you .attchip,.cmsg.you .attchip{background:rgba(0,0,0,.18);border-color:rgba(0,0,0,.25);color:inherit}
 .plmsg.you .attsz,.cmsg.you .attsz,.plmsg.you .attic,.cmsg.you .attic{color:inherit;opacity:.8}
+
+/* ===== céu estrelado dos loadings (05-cosmos.js) ===== */
+.cosmos{position:relative;width:100%;height:120px;border-radius:12px;overflow:hidden;background:radial-gradient(120% 90% at 50% 115%,#10201a 0%,#0b0d0f 62%);border:1px solid rgba(255,255,255,.06)}
+.cosmos.tall{height:200px;border-radius:0;border:0;border-bottom:1px solid rgba(255,255,255,.06)}
+.cosmos.inline{height:64px;border-radius:9px}
+.cosmos canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.cosmos-t{position:absolute;left:0;right:0;bottom:12px;text-align:center;font:500 12px 'JetBrains Mono',monospace;letter-spacing:.08em;color:rgba(234,242,238,.62);pointer-events:none}
+.cosmos.tall .cosmos-t{font-size:13px;bottom:16px}
+.cosmos.inline .cosmos-t{bottom:8px;font-size:11px}
+/* ===== "Com qual IA?" — motor + modelo (29-ia-picker.js) ===== */
+.aipick{margin-top:6px}
+.aieng{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.aicard{text-align:left;display:flex;flex-direction:column;gap:6px;padding:12px 13px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#101312;cursor:pointer;color:#eaf2ee;font:inherit;transition:.12s}
+.aicard:hover{border-color:rgba(255,255,255,.22)}
+.aicard.on{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.10),rgba(63,214,138,.02))}
+.aiic{width:26px;height:26px;border-radius:7px;background:rgba(255,255,255,.06);display:grid;place-items:center}
+.aiic svg{width:15px;height:15px}
+.ain{font:600 13.5px 'Instrument Sans',sans-serif}
+.aiv{font:500 10.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)}
+.aidesc{font:400 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.45);margin:10px 2px 8px}
+.aimodels{display:flex;flex-wrap:wrap;gap:8px}
+.aimodel{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:#101312;color:#eaf2ee;font:inherit;cursor:pointer;transition:.12s}
+.aimodel b{font:600 12.5px 'Instrument Sans',sans-serif}
+.aimodel span{font:500 10.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)}
+.aimodel i{font:500 9.5px 'JetBrains Mono',monospace;font-style:normal;color:var(--on-accent);background:var(--accent);padding:2px 6px;border-radius:4px}
+.aimodel:hover{border-color:rgba(255,255,255,.22)}
+.aimodel.on{border-color:var(--accent);background:rgba(63,214,138,.08)}
+.airec{margin-top:10px;font:400 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5)}
+.airec a{color:var(--accent);cursor:pointer}

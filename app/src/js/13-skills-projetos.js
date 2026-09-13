@@ -5,7 +5,7 @@ async function openSkills(){
   const mm=$id('moreMenu'); if(mm) mm.style.display='none';
   const body=$id('skBody');
   $id('skOverlay').style.display='flex';
-  body.innerHTML='<div class="dim" style="padding:20px">carregando skills…</div>';
+  body.innerHTML=cosmosHtml('carregando skills…');
   try{ skList=await invoke('list_skills'); }catch(e){ body.innerHTML='<div class="imhint" style="border-left:2px solid var(--crit)">Falhou listar skills: '+esc(String(e&&e.message||e))+'</div>'; return; }
   skRender();
 }
@@ -118,7 +118,7 @@ $id('skOverlay').addEventListener('click',e=>{ if(e.target.id==='skOverlay') $id
 async function openProjetos(){
   const body=$id('projetosBody');
   $id('projetosOverlay').style.display='flex';
-  body.innerHTML='<div class="dim" style="padding:20px">carregando…</div>';
+  body.innerHTML=cosmosHtml('carregando projetos…');
   let ov=[]; try{ ov=await invoke('projects_overview'); }catch(_){}
   projetosRender(ov);
 }

@@ -121,9 +121,11 @@
         <div id="howHead"><h2 style="font-size:17px;margin:2px 0 4px">Como executar?</h2>
         <div class="dim" style="font-size:12px;margin-bottom:14px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div></div>
         <div id="howOpts"></div>
+        <div class="seclbl2" style="margin-top:22px">Com qual IA? <span class="dim">· motor e versão do modelo — a recomendação olha a sua demanda</span></div>
+        <div class="aipick" id="aiPickHow"></div>
         <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-            <div><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
+            <div style="display:none"><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
             <div><label>Limite de custo (aviso)</label><input class="in" id="howCost" type="number" min="0" step="1" style="width:100%"></div>
             <div><label>Tarefas em paralelo</label><input class="in" id="howSlots" type="number" min="1" max="12" style="width:100%"></div>
           </div>
@@ -147,6 +149,8 @@
         <div id="ntInvRefs" class="reflist"></div>
         <label style="margin-top:12px">Quem investiga</label>
         <select class="sel" id="ntInvAgent" style="width:100%"></select>
+        <div class="seclbl2" style="margin-top:14px">Com qual IA?</div>
+        <div class="aipick" id="aiPickInv"></div>
         <div class="seclbl2" style="margin-top:14px">Entregáveis da investigação</div>
         <label class="ckrow"><input type="checkbox" id="ntInvDoc" checked disabled><span><b>INVESTIGATION.md</b> <span class="dim">— reprodução, causa raiz (arquivo:linha), evidências e recomendação de correção</span></span></label>
         <label class="ckrow"><input type="checkbox" id="ntInvRepro" checked><span><b>Reprodução comprovada</b> <span class="dim">— o problema reproduzido no ambiente real, com a saída/print anexada</span></span></label>
@@ -163,6 +167,8 @@
         <div id="ntDzRefs" class="reflist"></div>
         <label style="margin-top:12px">Quem desenha</label>
         <select class="sel" id="ntDzAgent" style="width:100%"></select>
+        <div class="seclbl2" style="margin-top:14px">Com qual IA?</div>
+        <div class="aipick" id="aiPickDz"></div>
         <div class="seclbl2" style="margin-top:14px">Entregáveis do design</div>
         <label class="ckrow"><input type="checkbox" id="ntDzMock" checked><span><b>Mockup navegável (HTML)</b> <span class="dim">— telas clicáveis em um arquivo só, abre no navegador</span></span></label>
         <label class="ckrow"><input type="checkbox" id="ntDzDoc" checked><span><b>DESIGN.md</b> <span class="dim">— decisões, hierarquia, estados e o porquê</span></span></label>
@@ -351,9 +357,9 @@
 </div>
 <!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
 <div class="overlay" id="goOverlay" style="display:none;z-index:120">
-  <div class="modal" style="max-width:380px;padding:22px 24px">
-    <b style="font-size:14px">Colocando no ar</b>
-    <div id="goSteps" style="margin-top:14px;display:flex;flex-direction:column;gap:9px"></div>
+  <div class="modal" style="max-width:420px;padding:0 0 20px;overflow:hidden">
+    <div class="cosmos tall"><canvas class="cosmos-c"></canvas><div class="cosmos-t">colocando no ar</div></div>
+    <div id="goSteps" style="padding:0 24px" style="margin-top:14px;display:flex;flex-direction:column;gap:9px"></div>
   </div>
 </div>
 <!-- Como executar? (redesign): fluxo, modelo e limites antes de iniciar -->
@@ -577,6 +583,7 @@
   </div>
 </div>
 <script src="js/00-util.js"></script>
+<script src="js/05-cosmos.js"></script>
 <script src="js/10-core.js"></script>
 <script src="js/11-ambiente-updater.js"></script>
 <script src="js/12-chat-prefs-daily.js"></script>
@@ -590,6 +597,7 @@
 <script src="js/24-perguntas-agente.js"></script>
 <script src="js/25-grafo.js"></script>
 <script src="js/26-sidebar-projetos.js"></script>
+<script src="js/29-ia-picker.js"></script>
 <script src="js/30-anexos.js"></script>
 <script src="js/31-nova-demanda-form.js"></script>
 <script src="js/32-planner.js"></script>

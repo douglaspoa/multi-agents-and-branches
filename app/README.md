@@ -53,7 +53,8 @@ app/
       50-workspace-planner.css  tela da tarefa (3 colunas), planner, PR, artefatos
       60-grafo-times-nova-demanda.css  grafo, espaço Times, formulário da Nova demanda
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
-      00-util.js            $id(), bindClick(), lsGet/lsSet — helpers usados por todos
+      00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH — helpers usados por todos
+      05-cosmos.js          céu estrelado dos loadings (cosmosHtml/cosmosStart)
       10-core.js            invoke, ícones, refresh() do snapshot, notificações
       11-ambiente-updater.js  preflight (node/git/claude/gh) e updater
       12-chat-prefs-daily.js  chat do projeto, preferências do projeto, daily/relatório
@@ -67,7 +68,8 @@ app/
       24-perguntas-agente.js  modal de resposta ao agente
       25-grafo.js             grafo git por trilhos
       26-sidebar-projetos.js  sidebar por projeto
-      30-anexos.js            anexos importados (chips, bloco [ANEXOS] pro modelo)
+      29-ia-picker.js         "Com qual IA?" — motor + modelo com ícones e recomendação
+      30-anexos.js            anexos importados (chips, bloco [ANEXOS], composer: anexar/colar/arrastar)
       31-nova-demanda-form.js formulário por etapas, política do repo, épico, spec com IA
       32-planner.js           "Montar conversando" (chat + TASK.yaml ao vivo)
       33-switcher-projetos.js troca de projeto
