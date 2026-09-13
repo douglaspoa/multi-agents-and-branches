@@ -740,6 +740,9 @@
   .railtgl svg{width:15px;height:15px}
   .railtgl-main{display:none}                 /* só aparece quando a sidebar está recolhida */
   .app.railcol .railtgl-main{display:inline-flex}
+  /* recolhida: o conteúdo começa no x=0, então a barra do topo precisa desviar dos
+     controles da janela (semáforo do macOS) — senão o botão de expandir fica colado neles */
+  .app.railcol .top{padding-left:80px}
   /* área principal à direita da sidebar */
   .appmain{flex:1;min-height:0;display:flex;flex-direction:column;margin-left:var(--rail-w,250px)}
   /* body */
