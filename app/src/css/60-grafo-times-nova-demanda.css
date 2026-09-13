@@ -1,0 +1,247 @@
+/* Constellation — 60-grafo-times-nova-demanda (fatia 6/6; a ORDEM dos arquivos importa: cascata) */
+/* ===== Grafo v2: trilhos por tarefa ===== */
+#graphPane{padding:14px 16px;overflow:auto}
+.gtlwrap{max-width:980px}
+.grmain{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);margin-bottom:12px}
+.grmc{display:flex;gap:7px}
+.gmdot{width:9px;height:9px;border-radius:99px;background:var(--surface-3);border:1.5px solid var(--text-2);cursor:pointer}
+.gmdot:hover{border-color:var(--accent)}
+.grow2{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin-bottom:9px;cursor:pointer;transition:border-color .12s}
+.grow2:hover{border-color:var(--border-strong)}
+.grow2.sel{border-color:var(--accent)}
+.grh{display:flex;align-items:center;gap:8px;padding:9px 14px 0;flex-wrap:wrap}
+.grt{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:360px}
+.grrail{overflow-x:auto}
+.gtipping{animation:tsblip 1.6s infinite}
+@media (prefers-reduced-motion:reduce){.gtipping{animation:none}}
+
+/* ===== espaço TIMES (redesign aprovado) ===== */
+#teamPane{padding:0!important;height:100%;overflow:hidden}
+#teamPane>#teamBoard{height:100%;min-height:0}
+.tspace{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);height:100%;min-height:0} /* rows 1fr → o .tmain ganha altura e scrolla */
+.tspace>*{min-width:0}
+.tside{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;overflow:auto}
+.tslbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 8px 6px}
+.tslbl:first-child{margin-top:2px}
+.tsnav{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;background:none;color:var(--text-2);font:inherit;font-size:13px;border-radius:8px;cursor:pointer;text-align:left}
+.tsnav:hover{background:var(--surface-2);color:var(--text)}
+.tsnav.on{background:var(--surface-3);color:var(--text);font-weight:600}
+.tsnav .n{margin-left:auto;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tsnav .n.hot{color:#0b0e0d;background:var(--warn);border-radius:99px;padding:0 6px;font-weight:700}
+.tsep{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:8px;cursor:pointer}
+.tsep:hover{background:var(--surface-2)}
+.tsep .nm{font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;gap:6px}
+.tsep .nm b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsep.on{background:var(--surface-3)}
+.tsbar{height:4px;border-radius:99px;background:var(--border);overflow:hidden}
+.tsbar i{display:block;height:100%;background:var(--accent)}
+.tsmem{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;color:var(--text-2)}
+.tsmem .r{margin-left:auto;font-size:10px;color:var(--muted)}
+.tsav{width:22px;height:22px;border-radius:99px;display:grid;place-items:center;font-size:9.5px;font-weight:800;color:#0b0e0d;flex:none;position:relative}
+.tsav.on::after{content:"";position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:99px;background:var(--accent);border:2px solid var(--surface);animation:tsblip 1.6s infinite}
+@keyframes tsblip{50%{opacity:.4}}
+.tmain{padding:18px 26px;overflow-y:auto;overflow-x:hidden;min-height:0}
+.tmain>*{max-width:1240px}
+.tmain h1{font-size:16px;margin-bottom:2px}
+.tssub{color:var(--muted);font-size:11.5px;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tskpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.tskpis>*{min-width:0}
+.tskpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px}
+.tskpi .v{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+.tskpi .l{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
+.tskpi .d{font-size:10px;margin-top:3px;color:var(--muted)}
+.tscols{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:12px}
+.tscols>div{min-width:0}
+.tspanel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:12px;min-width:0;overflow:hidden}
+.tsph{display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.tslive{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12px}
+.tslive:last-child{border:0}
+.tslive .who{width:140px;display:flex;align-items:center;gap:8px;flex:none}
+.tslive .what{flex:1;min-width:0;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tslive .what b{color:var(--text)}
+.tstag{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:99px;white-space:nowrap}
+.tstag.run{color:#0b0e0d;background:var(--accent)}
+.tstag.ask{color:#0b0e0d;background:var(--warn);animation:tsblip 1.4s infinite}
+.tsspark{display:flex;align-items:stretch;gap:5px;height:78px;padding-top:4px}
+.tsspark .c{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px}
+.tsspark .b{width:100%;border-radius:4px 4px 0 0;background:linear-gradient(180deg,var(--accent),rgba(57,212,106,.22));min-height:2px}
+.tsspark .dl{font-size:9px;color:var(--muted)}
+.tsboard{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;align-items:start}
+/* ---- PADRONIZAÇÃO do Time na linguagem nova da Central ---- */
+.tmain h1{font-size:26px;letter-spacing:-.015em;margin-bottom:4px}
+.tssub{font-family:var(--mono,ui-monospace,monospace);font-size:11px}
+.tsph{font-family:var(--mono,ui-monospace,monospace);font-size:10px;letter-spacing:.11em;color:var(--text-2)}
+.tsph::after{content:"";flex:1;height:1px;background:var(--border)}
+.tskh{font-family:var(--mono,ui-monospace,monospace);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-2)}
+.tslbl{font-family:var(--mono,ui-monospace,monospace);letter-spacing:.11em}
+.tsnav.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--text)}
+.tskpi{border-radius:14px}
+.tskpi .v{font-family:var(--mono,ui-monospace,monospace);font-size:17px;font-weight:700}
+.tspanel{border-radius:14px}
+.tscard{border-radius:12px}
+/* barra de 5 fases + % nos cartões do time (mesma leitura da Central) */
+.ctph{display:flex;align-items:center;gap:8px;margin:7px 0 2px}
+.ctph .segs{display:flex;gap:3px;flex:1}
+.ctph .segs i{height:4px;border-radius:99px;background:rgba(255,255,255,.1);flex:1}
+.ctph .segs i.on{background:var(--accent)}
+.ctph .pctx{font-size:9.5px;color:var(--muted)}
+.tscol{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px}
+.tskh{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);padding:2px 4px 9px}
+.tskh .dot{width:7px;height:7px;border-radius:99px}
+.tskh .n{margin-left:auto;color:var(--muted);font-weight:600}
+.tscard{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 11px;margin-bottom:8px;cursor:pointer;transition:border-color .12s}
+.tscard:hover{border-color:var(--border-strong)}
+.tscard.asking{border-color:var(--warn);animation:askpulse 1.8s infinite}
+.tscard .tt{font-size:12px;font-weight:600;line-height:1.35;margin-bottom:6px}
+.tscard .meta{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);flex-wrap:wrap}
+.tscard .foot{display:flex;align-items:center;gap:6px;margin-top:8px}
+.tsepc{color:#c678dd;font-weight:600}
+.tspv{display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text-2)}
+.tspv b{color:var(--good)}
+.tsfeed .fi{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12.5px;align-items:flex-start}
+.tsfeed .fi .tm{margin-left:auto;color:var(--muted);font-size:10.5px;white-space:nowrap}
+.tsfeed .fi .tx{color:var(--text-2)} .tsfeed .fi .tx b{color:var(--text)}
+.tsppl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.tspc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px}
+.tspc .hh{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.tspc .hh .tsav{width:30px;height:30px;font-size:11px}
+.tspc .nums{display:flex;gap:14px;margin:8px 0}
+.tspc .nums div b{display:block;font-size:15px;font-variant-numeric:tabular-nums}
+.tspc .nums div span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.tspc .now{font-size:11px;color:var(--text-2);border-top:1px dashed var(--border);padding-top:8px}
+@media(max-width:1000px){.tsboard{grid-template-columns:1fr 1fr}.tskpis{grid-template-columns:repeat(3,1fr)}.tscols{grid-template-columns:1fr}.tsppl{grid-template-columns:1fr 1fr}}
+
+/* backlog do time (aba Time) */
+.tmcard{border:1px solid var(--border);background:var(--surface);padding:10px 12px;margin:0 2px 8px;border-radius:6px}
+.tmcard:hover{border-color:var(--accent)}
+.tmrow1,.tmrow2,.tmrow3{display:flex;align-items:center;gap:8px}
+.tmrow2{margin-top:4px}
+.tmrow3{margin-top:8px}
+.tmtitle{font-size:13px}
+.tmst{font-size:11px;white-space:nowrap}
+.tmbadge{font-size:10px;color:var(--warn);border:1px solid var(--warn);padding:1px 6px;border-radius:99px;white-space:nowrap}
+.tmstats{display:flex;gap:8px;margin:4px 2px 6px;flex-wrap:wrap}
+.tmstat{border:1px solid var(--border);background:var(--surface);padding:8px 14px;border-radius:6px;min-width:86px}
+.tmstat .v{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+.tmstat .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+
+/* bus */
+.bus{display:flex;align-items:center;gap:12px;padding:7px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:12px}
+#busSummary{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.bus .live{background:var(--accent);color:var(--on-accent);padding:3px 9px;font-weight:700}
+.bus .warn{color:var(--warn)}
+.sep{width:1px;height:14px;background:var(--border)}
+.grow{flex:1}
+.dim{color:var(--muted)}
+/* ===== Nova demanda · passo 2 (formulário): MESMA linguagem da tela de início ===== */
+#ntOverlay .modal{font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;color:#eaf2ee}
+/* head + body + foot alinhados na mesma coluna de 1020px */
+#ntOverlay.astab .mhead,#ntOverlay.astab .mbody,#ntOverlay.astab .mfoot{max-width:none!important;margin:0!important;width:100%!important;padding-left:max(28px,calc((100% - 1020px)/2))!important;padding-right:max(28px,calc((100% - 1020px)/2))!important}
+#ntOverlay.astab .mhead{padding-top:34px!important;padding-bottom:0!important;border-bottom:0;display:flex;align-items:center;gap:10px;row-gap:10px;flex-wrap:wrap;font:inherit;flex:none}
+#ntOverlay.astab .mhead .ndeyebrow,#ntOverlay.astab .mhead .as-btn,#ntOverlay.astab .mhead .nf-typechip{white-space:nowrap}
+#ntOverlay.astab .mhead .btn,#ntOverlay.astab .mhead .as-btn{margin:0}
+#ntOverlay.astab .mhead .as-btn{padding:6px 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px}
+#ntOverlay.astab .mhead .as-btn svg{width:13px;height:13px}
+#ntOverlay.astab .mbody{display:block!important;padding-top:8px!important;padding-bottom:40px!important;gap:0}
+#ntOverlay #ntRight{width:100%;max-width:none}
+#ntOverlay.astab .mfoot{padding-top:14px!important;padding-bottom:14px!important;border-top:1px solid rgba(255,255,255,.07);background:var(--bg);display:flex;align-items:center;gap:10px;flex:none}
+.nf-head .nd-projsel{max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.nf-typechip{display:inline-flex;align-items:center;gap:6px;font:500 12px 'JetBrains Mono',monospace;color:#eaf2ee;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:4px 9px;background:#101312}
+.nf-typechip .nf-typedot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.nf-typechip a{color:rgba(255,255,255,.4);cursor:pointer;font-size:10.5px;margin-left:2px}
+.nf-typechip a:hover{color:var(--accent)}
+.nf-progrow{display:flex;align-items:center;gap:16px;margin-top:28px}
+.nf-prog{display:flex;gap:6px;flex:1;max-width:320px}
+.nf-prog span{height:3px;flex:1;border-radius:99px;background:rgba(255,255,255,.1)}
+.nf-prog span.done{background:var(--accent)}
+.nf-prog span.cur{background:color-mix(in srgb,var(--accent) 55%,transparent)}
+#ntOverlay .ndh1{font-size:28px;margin:12px 0 6px}
+#ntOverlay .ndsub{margin-bottom:22px;max-width:680px}
+#ntOverlay #wizGuide{margin:-8px 0 20px}
+#ntOverlay #wizGuide summary{font:500 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.45);list-style:none;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+#ntOverlay #wizGuide summary::-webkit-details-marker{display:none}
+#ntOverlay #wizGuide summary:hover{color:#eaf2ee}
+#ntOverlay #wizGuideTx{margin-top:10px;border:1px solid rgba(255,255,255,.08)!important;border-radius:10px!important;background:#101312!important;padding:14px 16px!important;font:400 13px/1.55 'Instrument Sans',sans-serif!important;color:rgba(234,242,238,.7)}
+#ntOverlay .ntmode{display:none!important} /* o tipo é escolhido na tela de início */
+/* rótulos = eyebrow mono, campos = cartões escuros com borda fina */
+#ntOverlay .mbody label:not(.ckrow):not(.howopt){font:500 10.5px/1 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.4);margin:20px 0 8px;display:flex;align-items:center;gap:8px}
+#ntOverlay .mbody label:not(.ckrow):not(.howopt):first-child{margin-top:0}
+#ntOverlay .mbody label .dim{font-family:'Instrument Sans',sans-serif;font-size:11.5px;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.32)}
+#ntOverlay .in,#ntOverlay .sel,#ntOverlay .ta{background:#101312;border:1px solid rgba(255,255,255,.1);border-radius:9px;color:#eaf2ee;font:400 14px/1.5 'Instrument Sans',sans-serif;padding:11px 13px;box-shadow:none;width:100%}
+#ntOverlay .in.mono{font-family:'JetBrains Mono',monospace;font-size:13px}
+#ntOverlay .in::placeholder,#ntOverlay .ta::placeholder{color:rgba(255,255,255,.28)}
+#ntOverlay .in:focus,#ntOverlay .sel:focus,#ntOverlay .ta:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent);outline:none}
+#ntOverlay .in.okf{border-color:color-mix(in srgb,var(--accent) 40%,rgba(255,255,255,.1))}
+#ntOverlay .in.missf{border-color:rgba(255,255,255,.1)} /* âmbar em campo ainda vazio era ruído */
+#ntOverlay .ta{min-height:180px}
+#ntOverlay .sel{padding-right:32px;background-position:right 12px center;background-color:#101312}
+#ntOverlay .two{gap:16px}
+/* seções: eyebrow, sem linha tracejada */
+#ntOverlay .seclbl2{font:500 10.5px/1 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.4);margin:26px 0 10px;padding:0;border:0;display:flex;align-items:center;gap:10px}
+#ntOverlay .seclbl2 .dim{font-family:'Instrument Sans',sans-serif;font-size:11.5px;letter-spacing:0;text-transform:none;font-weight:400;color:rgba(255,255,255,.32)}
+/* botões pequenos dentro do form (gerar, anexar, + item) = ghost */
+#ntOverlay .mbody .btn.sm{background:transparent;border:1px solid rgba(255,255,255,.12);border-radius:7px;box-shadow:none;color:rgba(255,255,255,.7);font:500 12px 'Instrument Sans',sans-serif;padding:6px 11px;text-transform:none;letter-spacing:0}
+#ntOverlay .mbody .btn.sm:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+#ntOverlay .listrow{display:flex;gap:8px;align-items:center}
+#ntOverlay .listrow .iconbtn{border-radius:9px;padding:10px;background:#101312;border:1px solid rgba(255,255,255,.1);box-shadow:none}
+#ntOverlay .listed .dim,#ntOverlay .reflist .dim{font:400 13px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.32);padding:0}
+#ntOverlay .ckrow{padding:12px 14px;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:#101312;margin-top:8px;font:400 13px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.85);text-transform:none;letter-spacing:0}
+#ntOverlay .ckrow:hover{border-color:rgba(255,255,255,.18)}
+#ntOverlay .ckrow b{font-weight:600;color:#eaf2ee}
+#ntOverlay .aihint{font:400 12.5px/1.55 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4)}
+#ntOverlay .wfprev{background:#101312;border:1px solid rgba(255,255,255,.08);border-radius:9px;font:500 12px 'JetBrains Mono',monospace;color:rgba(255,255,255,.5);padding:10px 13px}
+/* etapa "Quem executa?": opções como os cards da tela de início */
+#ntOverlay .howopt{padding:16px 18px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:#101312;margin-bottom:10px;gap:12px;align-items:center}
+#ntOverlay .howopt:hover{border-color:rgba(255,255,255,.22)}
+#ntOverlay .howopt.on{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.10),rgba(63,214,138,.02))}
+#ntOverlay .howopt>span:not(.rec){flex:1}
+#ntOverlay .howopt .ht{font:600 15px/1.2 'Instrument Sans',sans-serif}
+#ntOverlay .howopt .hd{font:400 12.5px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.55);margin-top:4px}
+#ntOverlay .howopt .rec{font:500 10px 'JetBrains Mono',monospace;color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:4px;letter-spacing:0;margin:0}
+#ntOverlay .howopt input{accent-color:var(--accent);margin:0}
+#ntRight.howview #ntHowPane,#ntOverlay #ntHowPane{max-width:none!important}
+#ntOverlay #ntHowPane details summary{font:500 12.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);cursor:pointer}
+/* etapa "Confira a spec": preview como cartão */
+#ntRight.mdview #ntMdPrev,#ntOverlay #ntMdPrev{border:1px solid rgba(255,255,255,.08)!important;border-radius:12px!important;background:#101312!important;padding:22px 26px!important;font:400 14px/1.6 'Instrument Sans',sans-serif!important;max-height:none!important}
+#ntOverlay #ntMdPrev h2{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(255,255,255,.4);margin:18px 0 6px}
+#ntOverlay #ntMdPrev h2:first-child{margin-top:0}
+#ntOverlay .ntviewbar .dim{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.4)}
+/* rodapé fixo: voltar à esquerda, próximo à direita — sem rolar pra avançar */
+.nf-foot .btn{font:500 13px 'Instrument Sans',sans-serif;border-radius:9px;padding:9px 15px;box-shadow:none}
+.nf-foot .btn.nf-ghost{background:transparent;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7)}
+.nf-foot .btn.nf-ghost:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+.nf-foot .btn.primary{font-weight:600;padding:9px 18px}
+.nf-foot .btn.primary:disabled{opacity:.45;cursor:not-allowed}
+.nf-fl,.nf-fr{display:flex;align-items:center;gap:10px}
+#ntOverlay #ntMissing{font:500 11.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)}
+#ntOverlay #ntMissing.ok{color:var(--accent)}
+/* Projetos: página no padrão novo (sem cabeçalho de modal) */
+#projetosOverlay.astab .mhead{display:none}
+#projetosOverlay.astab .mbody{max-width:none!important;margin:0!important;padding:0!important}
+#projetosOverlay .appscreen{max-width:1040px}
+#projetosOverlay .projgrid2{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+#projetosOverlay .projcard2{padding:18px 20px}
+#projetosOverlay .pc2name{font:600 16px/1.2 'Instrument Sans',sans-serif;gap:10px}
+#projetosOverlay .pc2meta{font:400 13px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);margin-top:8px}
+#projetosOverlay .pc2path{font:400 11.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.32);margin-top:5px;opacity:1}
+#projetosOverlay .pc2acts{margin-top:14px;gap:8px}
+#projetosOverlay .pc2acts .btn{background:transparent;border:1px solid rgba(255,255,255,.12);border-radius:7px;box-shadow:none;color:rgba(255,255,255,.7);font:500 12px 'Instrument Sans',sans-serif;padding:6px 11px}
+#projetosOverlay .pc2acts .btn:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+/* páginas dentro de .mbody (flex column): NÃO encolher — sem isto o rodapé da tela ficava cortado */
+.ndwrap,.appscreen,.sk-screen,#pcOverlay.astab .chatthread>.appscreen{flex-shrink:0}
+.ndwrap{padding-bottom:72px}
+#ntOverlay .howopt,#ntOverlay .howopt .ht,#ntOverlay .howopt .hd{text-transform:none;letter-spacing:0}
+/* anexos importados: chips com miniatura (pendentes acima do input e dentro da bolha) */
+.attrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.attpend{padding:8px 18px 0;margin:0}
+.pcpend{max-width:1040px;margin:0 auto;width:calc(100% - 68px);padding:0 0 8px}
+#fwPend{padding:0 0 6px}
+.attchip{display:inline-flex;align-items:center;gap:7px;max-width:260px;padding:4px 8px 4px 4px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface-2);font-size:11.5px;color:var(--text);line-height:1.2}
+.attchip img{width:28px;height:28px;object-fit:cover;border-radius:5px;flex:none;background:#000}
+.attic{width:28px;height:28px;border-radius:5px;background:var(--surface-3);display:grid;place-items:center;font:600 8.5px var(--mono);color:var(--muted);flex:none}
+.attnm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+.attsz{color:var(--muted);font-family:var(--mono);font-size:10px;flex:none}
+.attx{border:0;background:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px;line-height:1}
+.attx:hover{color:var(--crit)}
+.plmsg.you .attchip,.cmsg.you .attchip{background:rgba(0,0,0,.18);border-color:rgba(0,0,0,.25);color:inherit}
+.plmsg.you .attsz,.cmsg.you .attsz,.plmsg.you .attic,.cmsg.you .attic{color:inherit;opacity:.8}
