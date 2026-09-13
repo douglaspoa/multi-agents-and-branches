@@ -78,6 +78,7 @@ app/
       41-assinatura-chaves.js Stripe + chaves de modelo da conta
       42-nuvem-sync-mobile.js cartões compartilhados, túnel, pontes do celular, APNs
       43-espaco-times.js      espaço Times (visão geral, quadro, PRs, pessoas)
+      44-onboarding.js        entrada e assinatura: criar conta, entrar, código de e-mail, senha, planos, pagamento, pronto
   src-tauri/
     Cargo.toml              deps: tauri, rusqlite (bundled), serde
     tauri.conf.json         janela, frontendDist=../src, withGlobalTauri

@@ -10,7 +10,7 @@ function cosmosRun(c){
   const ctx=c.getContext('2d'); if(!ctx) return;
   let W=0,H=0, stars=[], meteors=[], last=0, nextMeteor=600;
   const seed=()=>{ const n=Math.max(40, Math.round(W*H/900)); stars=Array.from({length:n},()=>({ x:Math.random()*W, y:Math.random()*H, r:Math.random()*1.3+.3, p:Math.random()*Math.PI*2, s:.4+Math.random()*1.2, v:.02+Math.random()*.06 })); };
-  const resize=()=>{ const r=c.getBoundingClientRect(); if(!r.width||!r.height) return; const dpr=Math.min(2, window.devicePixelRatio||1); W=r.width; H=r.height; c.width=Math.round(W*dpr); c.height=Math.round(H*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); if(!stars.length) seed(); };
+  const resize=()=>{ const r=c.getBoundingClientRect(); if(!r.width||!r.height) return; if(Math.abs(r.width-W)<1 && Math.abs(r.height-H)<1 && stars.length) return; /* nada mudou: evita loop do ResizeObserver */ const dpr=Math.min(2, window.devicePixelRatio||1); W=r.width; H=r.height; c.width=Math.round(W*dpr); c.height=Math.round(H*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); seed(); };
   const frame=(t)=>{
     if(!c.isConnected) return;                       // saiu do DOM: para de vez
     if(!c.offsetParent){ requestAnimationFrame(frame); return; } // oculto: pausa
@@ -39,6 +39,6 @@ function cosmosRun(c){
     requestAnimationFrame(frame);
   };
   resize(); requestAnimationFrame(frame);
-  if(window.ResizeObserver) new ResizeObserver(()=>{ stars=[]; resize(); }).observe(c);
+  if(window.ResizeObserver) new ResizeObserver(()=>requestAnimationFrame(resize)).observe(c);
 }
 new MutationObserver(()=>cosmosStart()).observe(document.documentElement, { childList:true, subtree:true });

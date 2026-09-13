@@ -395,3 +395,112 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .lbnav,.lbx{position:absolute;border:1px solid rgba(255,255,255,.14);background:rgba(20,24,28,.85);color:#eaf2ee;font-size:22px;width:42px;height:42px;border-radius:99px;cursor:pointer;display:grid;place-items:center}
 .lbnav:hover,.lbx:hover{border-color:var(--accent);color:var(--accent)}
 .lbprev{left:22px}.lbnext{right:22px}.lbx{top:18px;right:22px;font-size:15px}
+/* ===== entrada e assinatura (44-onboarding.js) — design "onboarding-planos" ===== */
+.au{position:fixed;inset:0;z-index:116;background:#080a09;display:flex;align-items:stretch;justify-content:stretch;font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;color:#eaf2ee}
+.au-wrap{display:grid;grid-template-columns:minmax(300px,38%) 1fr;width:100%;height:100%}
+@media(max-width:900px){.au-wrap{grid-template-columns:1fr}.au-left{display:none}}
+.au-wrap.full{grid-template-columns:1fr}.au-wrap.full .au-left{display:none}
+.au-left{position:relative;overflow:hidden;background:radial-gradient(120% 80% at 20% 100%,#0f1f17 0%,#0b0e0d 55%);border-right:1px solid rgba(255,255,255,.06)}
+.au-sky{position:absolute;inset:0;width:100%;height:100%;opacity:.55}
+.au-lin{position:relative;z-index:1;display:flex;flex-direction:column;height:100%;padding:56px 44px 40px}
+.au-brand{display:flex;align-items:center;gap:10px}
+.au-logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#05170e;display:grid;place-items:center;font:700 13px 'JetBrains Mono',monospace}
+.au-brandt{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.16em;color:var(--accent)}
+.au-h1{margin:44px 0 12px;font:600 30px/1.2 'Instrument Sans',sans-serif;letter-spacing:-.02em;max-width:360px}
+.au-sub{margin:0;font:400 13.5px/1.6 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);max-width:380px}
+.au-bul{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding-top:40px}
+.au-b{display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(16,19,18,.8);font:500 12.5px 'Instrument Sans',sans-serif}
+.au-b i{width:8px;height:8px;border-radius:2px;transform:rotate(45deg);flex:none}
+.au-foot{margin-top:36px;display:flex;align-items:center;gap:8px;font:500 10.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.35)}
+.au-foot i{width:6px;height:6px;border-radius:99px;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.au-right{position:relative;overflow:auto;display:flex;flex-direction:column;background:#0b0e0d}
+.au-top{display:flex;align-items:center;gap:12px;padding:16px 28px;border-bottom:1px solid rgba(255,255,255,.05)}
+.au-topl{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.35)}
+.au-form{width:min(520px,100%);margin:auto;padding:36px 40px 48px}
+.au-form.wide{width:min(1040px,100%);margin:0 auto;padding:28px 40px 40px}
+.au-form.au-center{text-align:left}
+.au-prog{display:flex;align-items:center;gap:6px;margin-bottom:22px}
+.au-prog i{height:2px;width:64px;background:rgba(255,255,255,.1);border-radius:99px}.au-prog i.on{background:var(--accent)}
+.au-prog span{margin-left:10px;font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.4)}
+.au-eyebrow{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.au-h2{margin:0 0 8px;font:600 28px/1.15 'Instrument Sans',sans-serif;letter-spacing:-.02em}
+.au-p{margin:0 0 18px;font:400 13.5px/1.55 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5)}
+.au-msg{margin:0 0 14px;padding:10px 12px;border-left:2px solid var(--warn);background:rgba(240,180,73,.06);border-radius:0 8px 8px 0;font:400 12.5px/1.5 'Instrument Sans',sans-serif;color:rgba(255,255,255,.8)}
+.au-msg.ok{border-left-color:var(--accent);background:rgba(63,221,138,.06)}
+.au-lbl{display:block;margin:16px 0 7px;font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.4)}
+.au-in{width:100%;background:#101312;border:1px solid rgba(255,255,255,.1);border-radius:9px;color:#eaf2ee;font:400 14px 'Instrument Sans',sans-serif;padding:12px 14px}
+.au-in::placeholder{color:rgba(255,255,255,.25)}
+.au-in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(63,221,138,.18)}
+.au-strength{display:flex;align-items:center;gap:5px;margin-top:8px}
+.au-strength i{height:2px;width:56px;background:rgba(255,255,255,.1);border-radius:99px}.au-strength i.on{background:var(--accent)}
+.au-strength span{margin-left:8px;font:400 11px 'JetBrains Mono',monospace;color:rgba(255,255,255,.35)}
+.au-row{display:flex;align-items:center;gap:10px;margin-top:22px;flex-wrap:wrap}
+.au-btn{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.12);background:#101312;color:#eaf2ee;font:600 13px 'Instrument Sans',sans-serif;padding:11px 16px;border-radius:9px;cursor:pointer}
+.au-btn:hover{border-color:rgba(255,255,255,.24)}
+.au-btn.primary{background:var(--accent);color:#05170e;border-color:transparent;box-shadow:0 8px 24px rgba(63,221,138,.18)}
+.au-btn.primary:hover{filter:brightness(1.06)}
+.au-btn.outline{border-color:rgba(63,221,138,.5);color:var(--accent)}
+.au-btn.big{padding:13px 22px;font-size:14px}
+.au-btn:disabled{opacity:.5;cursor:default}
+.au-link{border:0;background:none;color:var(--accent);font:500 12.5px 'Instrument Sans',sans-serif;cursor:pointer;padding:0}
+.au-link:hover{text-decoration:underline}
+.au-legal{margin-top:18px;font:400 11.5px/1.6 'Instrument Sans',sans-serif;color:rgba(255,255,255,.35)}
+.au-legal a{color:var(--accent);cursor:pointer}.au-legal code{font:400 11px 'JetBrains Mono',monospace;color:rgba(255,255,255,.5)}
+.au-hint{font:400 12px/1.5 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4)}.au-hint a{color:var(--accent);cursor:pointer}
+.au-code{display:flex;gap:10px;margin:6px 0 4px}
+.au-code input{width:56px;height:60px;text-align:center;font:600 22px 'JetBrains Mono',monospace;background:#101312;border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#eaf2ee}
+.au-code input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(63,221,138,.18)}
+.au-code input:not(:placeholder-shown){border-color:rgba(63,221,138,.5)}
+.au-check{width:56px;height:56px;border-radius:14px;background:rgba(63,221,138,.12);border:1px solid rgba(63,221,138,.4);display:grid;place-items:center;font:600 24px 'Instrument Sans',sans-serif;color:var(--accent);margin-bottom:22px;box-shadow:0 0 30px rgba(63,221,138,.15)}
+.au-todo{display:flex;flex-direction:column;gap:8px;margin:6px 0 24px}
+.au-td{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101312;font:400 13px 'Instrument Sans',sans-serif}
+.au-td>span:nth-child(2){flex:1}
+.au-tn{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:700 11px 'JetBrains Mono',monospace;color:#05170e;flex:none}
+.au-tdone{font:500 11px 'JetBrains Mono',monospace;color:var(--accent)}
+/* planos */
+.au-plhead{display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:18px}
+.au-plhead>div:first-child{flex:1;min-width:280px}
+.au-seg{display:inline-flex;gap:2px;background:#101312;border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:3px;align-self:center}
+.au-seg button{border:0;background:transparent;color:rgba(255,255,255,.6);font:500 12.5px 'Instrument Sans',sans-serif;padding:6px 14px;border-radius:7px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.au-seg button.on{background:var(--accent);color:#05170e}
+.au-seg i{font:500 10px 'JetBrains Mono',monospace;font-style:normal;color:var(--accent);border:1px solid rgba(63,221,138,.45);border-radius:4px;padding:1px 5px}
+.au-seg button.on i{color:#05170e;border-color:rgba(5,23,14,.4)}
+.au-plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.au-plan{text-align:left;display:flex;flex-direction:column;gap:12px;padding:18px 18px 16px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:#101312;color:#eaf2ee;font:inherit;cursor:pointer;transition:.12s}
+.au-plan:hover{border-color:rgba(255,255,255,.22)}
+.au-plan.on{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,221,138,.10),rgba(63,221,138,.02));box-shadow:0 0 0 1px rgba(63,221,138,.2)}
+.au-plh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.au-plh b{font:600 15px 'Instrument Sans',sans-serif}
+.au-pldot{width:8px;height:8px;border-radius:99px;background:rgba(255,255,255,.25)}.au-plan.on .au-pldot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.au-plwho{flex-basis:100%;font:400 11.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4);margin-left:16px}
+.au-badge{font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:#05170e;background:var(--accent);padding:2px 7px;border-radius:4px}
+.au-plprice{display:flex;align-items:baseline;gap:8px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.07)}
+.au-plprice b{font:600 26px 'Instrument Sans',sans-serif;letter-spacing:-.02em}.au-plan.on .au-plprice b{color:var(--accent)}
+.au-plprice span{font:400 11px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)}
+.au-plf{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.au-plf li{font:400 12.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.62);padding-left:14px;position:relative}
+.au-plf li::before{content:'';position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:99px;background:rgba(255,255,255,.3)}.au-plan.on .au-plf li::before{background:var(--accent)}
+.au-plbar{display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-top:18px;padding:16px 20px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:#0c0f0e}
+.au-seats{display:flex;flex-direction:column;gap:8px}
+.au-step{display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#101312}
+.au-step button{border:0;background:none;color:#eaf2ee;font:500 16px 'Instrument Sans',sans-serif;width:32px;height:34px;cursor:pointer}
+.au-step b{min-width:34px;text-align:center;font:600 14px 'JetBrains Mono',monospace}
+.au-plsum{display:flex;flex-direction:column;gap:4px}
+.au-plsum b{font:600 22px 'Instrument Sans',sans-serif;letter-spacing:-.02em}.au-plsum b small{font:400 12px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)}
+.au-plcta{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+/* pagamento */
+.au-pay{display:grid;grid-template-columns:1fr 300px;gap:0;flex:1;min-height:0}
+@media(max-width:900px){.au-pay{grid-template-columns:1fr}}
+.au-payl{padding:32px 40px}
+.au-payr{padding:32px 26px;border-left:1px solid rgba(255,255,255,.06);background:#0c0f0e;display:flex;flex-direction:column;gap:10px}
+.au-methods{display:flex;gap:8px;margin:14px 0 16px}
+.au-methods button{border:1px solid rgba(255,255,255,.12);background:#101312;color:rgba(255,255,255,.7);font:500 12.5px 'Instrument Sans',sans-serif;padding:7px 14px;border-radius:9px;cursor:default}
+.au-methods button.on{background:var(--accent);color:#05170e;border-color:transparent}
+.au-wait{margin-top:8px;display:flex;flex-direction:column;gap:10px}
+.au-sumt{display:flex;align-items:center;gap:8px;font:600 14px 'Instrument Sans',sans-serif;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.08)}
+.au-sumt i{width:8px;height:8px;border-radius:2px;background:var(--accent);transform:rotate(45deg)}
+.au-sumr{display:flex;justify-content:space-between;align-items:baseline;font:400 12.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.55)}
+.au-sumr b{font:500 12px 'JetBrains Mono',monospace;color:#eaf2ee}
+.au-sumr.big{padding-top:10px;border-top:1px solid rgba(255,255,255,.08);font-weight:600;color:#eaf2ee}.au-sumr.big b{font:600 20px 'Instrument Sans',sans-serif}
+.au-secure{margin-top:auto;display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:9px;font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.4)}
+.au-secure i{width:6px;height:6px;border-radius:99px;background:var(--accent)}

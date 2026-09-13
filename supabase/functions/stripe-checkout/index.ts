@@ -34,10 +34,13 @@ Deno.serve(async (req) => {
     const { data: { user } } = await asUser.auth.getUser();
     if (!user) return json({ error: "não autenticado" }, 401);
 
-    const { planId, teamId } = await req.json().catch(() => ({}));
+    const { planId, teamId, seats: seatsIn } = await req.json().catch(() => ({}));
     const { data: plan } = await admin.from("billing_plans").select("*").eq("id", planId).eq("active", true).maybeSingle();
     if (!plan) return json({ error: "plano inexistente" }, 400);
     if (plan.plan === "team" && !teamId) return json({ error: "plano de equipe precisa de um time" }, 400);
+    // assentos: o preço é POR assento (quantity na Stripe); o plano define o teto (plan.seats)
+    const cap = Math.max(1, Number(plan.seats) || 1);
+    const seats = plan.plan === "team" ? Math.min(cap, Math.max(1, parseInt(String(seatsIn ?? 1), 10) || 1)) : 1;
 
     // customer da Stripe amarrado ao user_id
     const { data: bill } = await admin.from("billing").select("stripe_customer_id").eq("user_id", user.id).maybeSingle();
@@ -52,12 +55,12 @@ Deno.serve(async (req) => {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer,
-      line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+      line_items: [{ price: plan.stripe_price_id, quantity: seats }],
       subscription_data: {
         trial_period_days: plan.trial_days > 0 ? plan.trial_days : undefined,
         metadata: {
           user_id: user.id, plan: plan.plan, interval: plan.interval,
-          seats: String(plan.seats), team_id: teamId ?? "",
+          seats: String(seats), team_id: teamId ?? "",
         },
       },
       allow_promotion_codes: true,

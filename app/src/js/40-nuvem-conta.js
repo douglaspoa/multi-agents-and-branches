@@ -44,13 +44,14 @@ async function pkcePair(){
   const hash=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
   return { verifier, challenge:b64url(new Uint8Array(hash)) };
 }
-async function loginGoogle(){
+async function loginGoogle(){ try{ return await loginOAuth('google'); }catch(_){ /* a mensagem já foi pra tela */ } }
+async function loginOAuth(provider){
   const g=$id('sbGoogle');
   try{
     if(g){ g.disabled=true; g.style.opacity='.6'; }
     const { verifier, challenge }=await pkcePair();
     const redirect='http://localhost:8788/callback';
-    const url=SB.url()+'/auth/v1/authorize?provider=google'
+    const url=SB.url()+'/auth/v1/authorize?provider='+encodeURIComponent(provider||'google')
       +'&redirect_to='+encodeURIComponent(redirect)
       +'&code_challenge='+challenge+'&code_challenge_method=s256';
     cloudMsg='Abrindo o Google no navegador — conclua o login lá e volte.'; renderCloud();
@@ -67,9 +68,9 @@ async function loginGoogle(){
     SB.setSess(j); cloudMsg=''; await cloudLoad(); cloudBtnSync(); renderCloud(); try{ loginGateSync(); }catch(_){}
   }catch(e){
     let m=e&&e.message||String(e);
-    if(/provider.*not.*enabled|unsupported provider/i.test(m)) m='o provider Google ainda não está ligado no Supabase (Authentication → Providers → Google).';
+    if(/provider.*not.*enabled|unsupported provider/i.test(m)) m='o provider '+(provider||'google')+' ainda não está ligado no Supabase (Authentication → Providers).';
     else if(/redirect/i.test(m)) m='a URL http://localhost:8788/callback precisa estar na allowlist do Supabase (Authentication → URL Configuration → Redirect URLs).';
-    cloudMsg='Falha no login com Google: '+m; renderCloud();
+    cloudMsg='Falha no login: '+m; renderCloud(); throw e;
   }finally{ if(g){ g.disabled=false; g.style.opacity=''; } }
 }
 async function sbRefresh(){
@@ -295,7 +296,7 @@ async function renderCloud(){
     <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="grava os agentes/workflows da org no cardume.config.json do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
     ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>`:''}
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
-    <div style="display:flex;margin-top:22px;align-items:center"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbLogout">sair</button></div>
+    <div style="display:flex;margin-top:22px;align-items:center;gap:8px"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbPassChange" title="define uma senha nova pra sua conta">trocar senha</button><button class="btn sm" id="sbLogout">sair</button></div>
     <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;
   bindClick('sbTeamAdd', async()=>{ const n=await askText('Novo time','ex.: Data'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg='Falhou: '+e.message; } renderCloud(); });
   // ações nos times: usar / promover-rebaixar / remover / adicionar membro
@@ -348,6 +349,7 @@ async function renderCloud(){
       }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
     }; }
   $id('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+  bindClick('sbPassChange', ()=>auShow('newpass', { backTo: ()=>{ if(window.openTab) window.openTab('conta'); } }));
   cloudCatalog(d.org.id, isAdmin);
   if(isAdmin){
     cloudOrgView().then(rows=>{
