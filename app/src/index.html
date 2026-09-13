@@ -1665,6 +1665,24 @@
   #projetosOverlay .pc2acts{margin-top:14px;gap:8px}
   #projetosOverlay .pc2acts .btn{background:transparent;border:1px solid rgba(255,255,255,.12);border-radius:7px;box-shadow:none;color:rgba(255,255,255,.7);font:500 12px 'Instrument Sans',sans-serif;padding:6px 11px}
   #projetosOverlay .pc2acts .btn:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+  /* páginas dentro de .mbody (flex column): NÃO encolher — sem isto o rodapé da tela ficava cortado */
+  .ndwrap,.appscreen,.sk-screen,#pcOverlay.astab .chatthread>.appscreen{flex-shrink:0}
+  .ndwrap{padding-bottom:72px}
+  #ntOverlay .howopt,#ntOverlay .howopt .ht,#ntOverlay .howopt .hd{text-transform:none;letter-spacing:0}
+  /* anexos importados: chips com miniatura (pendentes acima do input e dentro da bolha) */
+  .attrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .attpend{padding:8px 18px 0;margin:0}
+  .pcpend{max-width:1040px;margin:0 auto;width:calc(100% - 68px);padding:0 0 8px}
+  #fwPend{padding:0 0 6px}
+  .attchip{display:inline-flex;align-items:center;gap:7px;max-width:260px;padding:4px 8px 4px 4px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface-2);font-size:11.5px;color:var(--text);line-height:1.2}
+  .attchip img{width:28px;height:28px;object-fit:cover;border-radius:5px;flex:none;background:#000}
+  .attic{width:28px;height:28px;border-radius:5px;background:var(--surface-3);display:grid;place-items:center;font:600 8.5px var(--mono);color:var(--muted);flex:none}
+  .attnm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+  .attsz{color:var(--muted);font-family:var(--mono);font-size:10px;flex:none}
+  .attx{border:0;background:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px;line-height:1}
+  .attx:hover{color:var(--crit)}
+  .plmsg.you .attchip,.cmsg.you .attchip{background:rgba(0,0,0,.18);border-color:rgba(0,0,0,.25);color:inherit}
+  .plmsg.you .attsz,.cmsg.you .attsz,.plmsg.you .attic,.cmsg.you .attic{color:inherit;opacity:.8}
 </style>
 </head>
 <body>
@@ -2061,6 +2079,7 @@
         <div class="plthread" id="plThread"></div>
         <div class="plchips" id="plChips"></div>
         <div class="plrefs" id="plRefsBar"></div>
+        <div class="attrow attpend" id="plPend" style="display:none"></div>
         <div class="plinput"><button class="btn sm" id="plAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in plta" id="plInput" rows="2" placeholder="responda aqui… (ou anexe um print do que você quer)"></textarea><button class="btn primary sm" id="plSend">enviar</button></div>
       </div>
       <div class="plmesh" id="plMesh"></div>
@@ -2157,7 +2176,8 @@
   <div class="modal chatmodal" style="width:min(760px,100%)">
     <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:10.5px" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/></svg>virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="chatthread" id="pcThread" style="min-height:340px;max-height:56vh"></div>
-    <div class="chatinput"><textarea class="in" id="pcInput" rows="2" placeholder="pergunte sobre o projeto… (Enter envia · ex.: 'como o autocomplete resolve o ranking hoje?')"></textarea><button class="btn primary sm" id="pcSend">enviar</button></div>
+    <div class="attrow attpend pcpend" id="pcPend" style="display:none"></div>
+    <div class="chatinput"><button class="btn sm" id="pcAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="pcInput" rows="2" placeholder="pergunte sobre o projeto… (Enter envia · ex.: 'como o autocomplete resolve o ranking hoje?')"></textarea><button class="btn primary sm" id="pcSend">enviar</button></div>
   </div>
 </div>
 
@@ -2559,7 +2579,7 @@ function pcRender(){
   const head=`<div class="pc-head"><div><h1 class="as-h1" style="font-size:24px">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:rgba(255,255,255,.42)">limpar</button></div></div>`;
   let bodyHtml;
   if(ms.length){
-    bodyHtml=`<div class="pc-thread">${ms.map(m=>m.role==='user'?`<div class="pc-msg you"><div class="pc-bub">${esc(m.text)}</div></div>`:`<div class="pc-msg"><div class="pc-bub">${mdToHtml(m.text)}</div></div>`).join('')}${pcBusy?'<div class="pc-msg"><div class="pc-bub dim">lendo o projeto…</div></div>':''}</div>`;
+    bodyHtml=`<div class="pc-thread">${ms.map(m=>m.role==='user'?`<div class="pc-msg you"><div class="pc-bub">${esc(m.text)}${attRowHtml(m.atts)}</div></div>`:`<div class="pc-msg"><div class="pc-bub">${mdToHtml(m.text)}</div></div>`).join('')}${pcBusy?'<div class="pc-msg"><div class="pc-bub dim">lendo o projeto…</div></div>':''}</div>`;
   } else {
     const sugg=[['ARQUITETURA','como o autocomplete resolve o ranking hoje?'],['ONDE FICA','onde fica a lógica de autenticação?'],['POR QUÊ','por que o cache é invalidado desse jeito?'],['IDEIA','como eu adicionaria rate limiting aqui?']];
     bodyHtml=`<div class="pc-empty"><div class="pc-empty-t">Pergunte qualquer coisa sobre <span class="as-mono" style="color:var(--accent)">${repo}</span></div><div class="pc-empty-d">Arquitetura, "onde fica X", "por que Y é assim", ideias. Gostou de uma resposta? <b style="color:#eaf2ee">virar tarefa</b> transforma a conversa numa spec pronta.</div><div class="pc-sugg">${sugg.map(s=>`<button class="pc-sc" data-sg="${escA(s[1])}"><span class="pc-sc-t">${esc(s[0])}</span><span class="pc-sc-x">${esc(s[1])}</span></button>`).join('')}</div></div>`;
@@ -2568,14 +2588,19 @@ function pcRender(){
   { const b=th.querySelector('#pcTask2'); if(b) b.onclick=()=>{ const o=document.getElementById('pcTask'); if(o) o.click(); }; }
   { const b=th.querySelector('#pcClear2'); if(b) b.onclick=()=>{ const o=document.getElementById('pcClear'); if(o) o.click(); }; }
   th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=document.getElementById('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
+  attRenderPend('pcPend', pcPend, pcRender);
   th.scrollTop=th.scrollHeight;
 }
+let pcPend=[]; // anexos importados, ainda não enviados
 async function pcSend(){
   if(pcBusy) return;
-  const inp=document.getElementById('pcInput'); const text=inp.value.trim(); if(!text) return;
-  const ms=pcMsgs(); ms.push({role:'user',text}); pcSave(ms); inp.value=''; pcBusy=true; pcRender();
+  const inp=document.getElementById('pcInput'); let text=inp.value.trim();
+  const atts=pcPend.splice(0);
+  if(!text && atts.length) text='Anexei estes arquivos — leia e considere no contexto do projeto.';
+  if(!text) return;
+  const ms=pcMsgs(); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms); inp.value=''; pcBusy=true; pcRender();
   try{
-    const r=await invoke('project_chat',{ prompt:text, sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
+    const r=await invoke('project_chat',{ prompt:text+attPromptBlock(atts), sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
     if(r.sessionId) lsSet('pcsid:'+(state.repo||''), r.sessionId);
     const ms2=pcMsgs(); ms2.push({role:'assistant',text:r.text||'(sem resposta)'}); pcSave(ms2);
   }catch(e){ const ms2=pcMsgs(); ms2.push({role:'assistant',text:'⚠ Falhou: '+(e.message||e)}); pcSave(ms2); }
@@ -2602,6 +2627,7 @@ async function pcToTask(){
 }
 function openPc(){ document.getElementById('pcOverlay').style.display='flex'; pcRender(); setTimeout(()=>document.getElementById('pcInput').focus(),80); }
 document.getElementById('pcBtn').onclick=openPc;
+{ const b=document.getElementById('pcAttach'); if(b) b.onclick=async()=>{ const a=await attPick(null); if(a.length){ pcPend.push(...a); pcRender(); document.getElementById('pcInput').focus(); } }; }
 // ---- Preferências do projeto: 1 doc por projeto, o time escreve, agentes seguem ----
 async function prefsKey(){
   const orgId=cloudData&&cloudData.org&&cloudData.org.id; if(!orgId) return null;
@@ -3594,6 +3620,7 @@ function renderWorkspace(){
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
+      <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
       <textarea class="in fwta" id="fwInput" rows="2" style="width:100%" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills )'}"></textarea>
       <div class="fwinrow" style="margin-top:6px"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq"><span>vira <b>requisito</b></span></label><span style="flex:1"></span>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend" style="white-space:nowrap">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div></div>`;
   { const b=document.getElementById('fwSteer'); if(b) b.onclick=()=>{ const inp=document.getElementById('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
@@ -3605,7 +3632,8 @@ function renderWorkspace(){
   { const b=document.getElementById('fwSelX'); if(b) b.onclick=()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); }; }
   { const b=document.getElementById('fwSend'); if(b) b.onclick=()=>fwSendMsg(false); }
   { const b=document.getElementById('fwQueue'); if(b) b.onclick=()=>fwSendMsg(true); }
-  { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ try{ const ps=await invoke('pick_ref_files'); if(ps&&ps.length){ const i=document.getElementById('fwInput'); i.value=(i.value?i.value+'\n':'')+ps.map(p=>'Anexo: '+p).join('\n'); i.focus(); } }catch(_){} }; }
+  { const b=document.getElementById('fwAttach'); if(b) b.onclick=async()=>{ const a=await attPick(t.id); if(a.length){ (fwPend[t.id]=fwPend[t.id]||[]).push(...a); renderWorkspace(); const i=document.getElementById('fwInput'); if(i) i.focus(); } }; }
+  { const pp=document.getElementById('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
     const ao=e.target.closest('[data-askopt]');
     if(ao){ const p=pendingOf(t.id)[0]; if(p){ ao.disabled=true; resolvePending(p.id, ao.dataset.askopt); } return; }
@@ -3710,7 +3738,7 @@ function fwRenderPrPage(t, main){
   main.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id,b.dataset.prign); renderWorkspace(); });
 }
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
-function chatMd(t){ try{ return mdToHtml(String(t||'')); }catch(_){ return esc(String(t||'')); } }
+function chatMd(t){ try{ const sp=attSplit(t); return mdToHtml(sp.text)+attRowHtml(sp.atts); }catch(_){ return esc(String(t||'')); } }
 const mdMemo=new Map(); // evId:len → html (evita re-parsear a thread toda a cada tick)
 function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(k); if(v===undefined){ v=chatMd(t); if(mdMemo.size>800) mdMemo.clear(); mdMemo.set(k,v); } return v; }
 // notas "de sistema" (não são fala do agente) viram linha discreta central
@@ -3817,14 +3845,18 @@ async function fwSendText(taskId, text){
     artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; await refresh(); renderWorkspace();
   }catch(e){ alert('Falha ao enviar:\n'+e); }
 }
+const fwPend={}; // taskId → anexos importados ainda não enviados
 async function fwSendMsg(queueOnly){
   const t=fwTaskObj(); if(!t) return;
-  const inp=document.getElementById('fwInput'); const v=inp.value.trim(); if(!v) return;
+  const inp=document.getElementById('fwInput'); let v=inp.value.trim();
+  const atts=(fwPend[t.id]||[]).splice(0);
+  if(!v && atts.length) v='Anexei estes arquivos — leia e considere.';
+  if(!v) return;
   const sel=fwSelRange();
   // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';
   const asReq=!!(document.getElementById('fwAsReq')&&document.getElementById('fwAsReq').checked);
-  const full = ctx+v;
+  const full = ctx+v+attPromptBlock(atts);
   inp.value=''; inp.disabled=true;
   try{
     const pend=pendingOf(t.id);
@@ -5648,6 +5680,49 @@ document.getElementById("viewSeg").querySelectorAll("button").forEach(b=>b.oncli
 });
 
 let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[], ntDzRefs=[], ntFixRefs=[], ntInvRefs=[];
+// ===== anexos IMPORTADOS (planner, chat do projeto e chat da tarefa) =====
+// o arquivo é copiado pra dentro do projeto (import_attachment), o texto entra
+// INTEIRO na mensagem e a imagem vira miniatura — antes só o caminho ia pro chat.
+async function attPick(taskId){
+  let paths=[]; try{ paths=await invoke('pick_ref_files'); }catch(e){ console.error('pick_ref_files',e); }
+  const out=[];
+  for(const p of (paths||[])){
+    try{ out.push(await invoke('import_attachment',{ path:p, taskId:taskId||null })); }
+    catch(e){ console.error('import_attachment',e); alert('Não consegui importar '+String(p).split('/').pop()+':\n'+e); }
+  }
+  return out;
+}
+function attFmtSize(n){ n=+n||0; return n<1024?n+' B':n<1048576?Math.round(n/1024)+' KB':(n/1048576).toFixed(1)+' MB'; }
+function attChipHtml(a,i,removable){
+  const thumb=(a.kind==='image'&&a.dataUrl)?`<img src="${a.dataUrl}" alt="">`:`<span class="attic">${a.kind==='pdf'?'PDF':a.kind==='image'?'IMG':a.kind==='text'?'TXT':'FILE'}</span>`;
+  return `<span class="attchip ${esc(a.kind||'file')}" title="${escA(a.rel||a.name||'')}">${thumb}<span class="attnm">${esc(a.name||'')}</span><span class="attsz">${esc(a.sizeLabel||attFmtSize(a.size))}</span>${removable?`<button class="attx" data-attrm="${i}" title="remover">✕</button>`:''}</span>`;
+}
+function attRowHtml(atts,removable){ return (atts&&atts.length)?`<div class="attrow">${atts.map((a,i)=>attChipHtml(a,i,removable)).join('')}</div>`:''; }
+function attRenderPend(id, arr, rerender){
+  const el=document.getElementById(id); if(!el) return;
+  el.innerHTML=arr.map((a,i)=>attChipHtml(a,i,true)).join(''); el.style.display=arr.length?'flex':'none';
+  el.querySelectorAll('[data-attrm]').forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.attrm,1); rerender(); });
+}
+function attLite(atts){ return (atts||[]).map(a=>({ name:a.name, kind:a.kind, size:a.size, rel:a.rel })); } // sem dataUrl/texto (persistência)
+// bloco que VAI pro modelo: texto integral inline; imagem/PDF pelo caminho dentro do projeto
+function attPromptBlock(atts){
+  if(!atts||!atts.length) return '';
+  return '\n\n[ANEXOS]\n'+atts.map((a,i)=>{
+    const h=`${i+1}. ${a.name} (${a.kind}, ${attFmtSize(a.size)}) — ${a.rel}`;
+    if(a.kind==='text'&&a.text!=null) return h+(a.truncated?' — TRUNCADO nos primeiros 60k caracteres':'')+' — conteúdo integral:\n<<<\n'+a.text+'\n>>>';
+    if(a.kind==='image') return h+' — imagem: abra com a ferramenta Read pra VER o print.';
+    if(a.kind==='pdf') return h+' — PDF: abra com a ferramenta Read pra ler.';
+    return h;
+  }).join('\n')+'\n[/ANEXOS]';
+}
+// mensagem EXIBIDA: o bloco vira chips (o texto integral do anexo não polui a conversa)
+function attSplit(text){
+  const src=String(text||''); const m=src.match(/\n*\[ANEXOS\]\n([\s\S]*?)\n\[\/ANEXOS\]/);
+  if(!m) return { text:src, atts:[] };
+  const atts=[];
+  m[1].split('\n').forEach(l=>{ const mm=l.match(/^\d+\. (.+?) \((image|pdf|text|file), ([^)]+)\) — (\S+)/); if(mm) atts.push({ name:mm[1], kind:mm[2], sizeLabel:mm[3], rel:mm[4] }); });
+  return { text:src.replace(m[0],'').trim(), atts };
+}
 function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?IC.image:IC.doc; }
 // lista de anexos genérica: prints/PDFs/docs em qualquer modo da Nova tarefa
 function renderRefsInto(elId, arr, emptyMsg){
@@ -6268,6 +6343,7 @@ const PL_MESH=[
   {k:'engine',  label:'engine',          src:'padrão'},
 ];
 let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plBusy=false, plRefs=[], plPlan=null, plNoEpic=false;
+let plPend=[]; // anexos importados, ainda não enviados
 function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; }
 function plRenderRefs(){
   const el=document.getElementById('plRefsBar'); if(!el) return;
@@ -6275,20 +6351,18 @@ function plRenderRefs(){
   el.querySelectorAll('.plrefx').forEach(b=>b.onclick=()=>{ plRefs.splice(+b.dataset.r,1); plRenderRefs(); });
 }
 async function plAttach(){
-  try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){
-    plRefs.push(...paths); plRenderRefs();
-    const names=paths.map(p=>p.split('/').pop());
-    plMsgs.push({who:'you', text:'📎 anexei: '+names.join(', ')}); renderPlanner();
-    // pede pro planner ler os anexos e extrair contexto (ele tem acesso a arquivos)
-    await plSend('Anexei estes arquivos (leia e extraia o contexto — specs, print de bug, etc.): '+paths.join(' ; '));
-  } }catch(e){ console.error('pick_ref_files', e); }
+  const atts=await attPick(null); if(!atts.length) return;
+  plPend.push(...atts);
+  atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); // viram refs da tarefa criada
+  plRenderRefs(); renderPlanner();
+  const i=document.getElementById('plInput'); if(i) i.focus();
 }
 function plVal(k){ if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
 function plReady(){ return plHas('title')&&plHas('objective')&&plHas('deliverables'); }
 let plSaveTimer=null;
-function plAutoSave(){ clearTimeout(plSaveTimer); plSaveTimer=setTimeout(()=>{ try{ invoke('save_draft',{ json: JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40), chips:plChips, asking:plAsking, plan:plPlan, noEpic:plNoEpic }) }); }catch(_){} }, 400); }
+function plAutoSave(){ clearTimeout(plSaveTimer); plSaveTimer=setTimeout(()=>{ try{ invoke('save_draft',{ json: JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40).map(m=>m.atts?{...m, atts:attLite(m.atts)}:m), chips:plChips, asking:plAsking, plan:plPlan, noEpic:plNoEpic }) }); }catch(_){} }, 400); }
 async function openPlanner(){
   plReset();
   document.getElementById('plannerOverlay').style.display='flex';
@@ -6322,8 +6396,9 @@ function renderPlanner(){
   // chat
   const th=document.getElementById('plThread');
   const ci=document.activeElement, keep=(ci&&ci.id==='plInput'), iv=document.getElementById('plInput')?document.getElementById('plInput').value:null;
-  th.innerHTML=plMsgs.map(m=>`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span></div></div>':'')+plPlanCardHtml();
+  th.innerHTML=plMsgs.map(m=>`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span></div></div>':'')+plPlanCardHtml();
   plWirePlanCard();
+  attRenderPend('plPend', plPend, renderPlanner);
   th.scrollTop=th.scrollHeight;
   // chips
   const chipsEl=document.getElementById('plChips');
@@ -6414,11 +6489,14 @@ function renderPlannerMeterOnly(){
   const hint=document.querySelector('.plmeshfoot .dim'); if(hint) hint.textContent=plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ');
 }
 async function plSend(text){
-  if(plBusy) return; text=(text||'').trim(); if(!text) return;
+  if(plBusy) return; text=(text||'').trim();
+  const atts=plPend.splice(0);
+  if(!text && atts.length) text='Anexei estes arquivos — leia e extraia o contexto (spec, print do bug, etc.).';
+  if(!text) return;
   const inp=document.getElementById('plInput'); if(inp) inp.value='';
-  plMsgs.push({who:'you', text}); plChips=[]; plBusy=true; renderPlanner();
+  plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
   try{
-    const prompt = plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text;
+    const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts);
     const r=await invoke('ai_chat',{ prompt, sessionId:plSid });
     plSid=r.sessionId||plSid;
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}

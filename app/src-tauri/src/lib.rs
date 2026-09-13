@@ -4193,6 +4193,102 @@ async fn pick_ref_files(app: tauri::AppHandle) -> Vec<String> {
     out
 }
 
+/// Anexo IMPORTADO pro chat: o arquivo é copiado pra dentro do projeto
+/// (.cardume/refs da worktree quando há tarefa; .cardume/attachments do repo
+/// nos chats sem tarefa), o texto vem inteiro pra entrar na mensagem e a
+/// imagem vem como dataURL pra miniatura. Antes só o CAMINHO ia pro chat.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Attachment {
+    name: String,
+    path: String,
+    rel: String,
+    kind: String,
+    size: u64,
+    text: Option<String>,
+    truncated: bool,
+    data_url: Option<String>,
+}
+
+#[tauri::command(async)]
+fn import_attachment(state: State<AppState>, path: String, task_id: Option<String>) -> Result<Attachment, String> {
+    let src = PathBuf::from(&path);
+    if !src.is_file() {
+        return Err(format!("arquivo não encontrado: {path}"));
+    }
+    let (dir, rel_dir) = match task_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(tid) => {
+            let (wt, _) = task_wt_base(&state, tid)?;
+            (wt.join(".cardume").join("refs"), ".cardume/refs".to_string())
+        }
+        None => (repo_of(&state)?.join(".cardume").join("attachments"), ".cardume/attachments".to_string()),
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let base = src.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "anexo".into());
+    let (stem, ext) = match base.rfind('.') {
+        Some(i) if i > 0 => (base[..i].to_string(), base[i..].to_lowercase()),
+        _ => (base.clone(), String::new()),
+    };
+    let mut safe = slug_raw(&stem);
+    if safe.is_empty() {
+        safe = "anexo".into();
+    }
+    let mut name = format!("{safe}{ext}");
+    let mut n = 1;
+    while dir.join(&name).exists() {
+        n += 1;
+        name = format!("{safe}-{n}{ext}");
+    }
+    let dest = dir.join(&name);
+    std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+    let ext_l = ext.trim_start_matches('.').to_string();
+    let kind = if ["png", "jpg", "jpeg", "gif", "webp", "svg"].contains(&ext_l.as_str()) {
+        "image"
+    } else if ext_l == "pdf" {
+        "pdf"
+    } else if ["md", "markdown", "txt", "json", "yaml", "yml", "csv", "ts", "tsx", "js", "mjs", "py", "rs", "sql", "html", "css", "sh", "toml", "log", "xml", "env", "ini", "conf"].contains(&ext_l.as_str()) {
+        "text"
+    } else {
+        "file"
+    };
+    let mut text = None;
+    let mut truncated = false;
+    let mut data_url = None;
+    if kind == "text" && size <= 2_000_000 {
+        if let Ok(s) = std::fs::read_to_string(&dest) {
+            const MAX: usize = 60_000;
+            if s.chars().count() > MAX {
+                text = Some(s.chars().take(MAX).collect());
+                truncated = true;
+            } else {
+                text = Some(s);
+            }
+        }
+    }
+    if kind == "image" && size <= 6_000_000 {
+        let bytes = std::fs::read(&dest).map_err(|e| e.to_string())?;
+        let mime = match ext_l.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            _ => "image/svg+xml",
+        };
+        data_url = Some(format!("data:{mime};base64,{}", base64_encode(&bytes)));
+    }
+    Ok(Attachment {
+        rel: format!("{rel_dir}/{name}"),
+        path: dest.display().to_string(),
+        name,
+        kind: kind.to_string(),
+        size,
+        text,
+        truncated,
+        data_url,
+    })
+}
+
 #[tauri::command]
 async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     use tauri_plugin_dialog::DialogExt;
@@ -4487,6 +4583,7 @@ pub fn run() {
             remove_task,
             pick_folder,
             pick_ref_files,
+            import_attachment,
             save_config,
             import_agent_files,
             commit_detail,
