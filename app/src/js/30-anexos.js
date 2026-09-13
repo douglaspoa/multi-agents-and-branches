@@ -34,6 +34,34 @@ function attPromptBlock(atts){
     return h;
   }).join('\n')+'\n[/ANEXOS]';
 }
+// ===== COMPOSER de chat ÚNICO — anexar (botão), colar (⌘V de print/arquivo) e arrastar, igual nos 3 chats =====
+function attFileToB64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(file); }); }
+function attPastedName(f){
+  if(f.name && !/^image\.(png|jpe?g|gif|webp)$/i.test(f.name)) return f.name; // "image.png" é o nome genérico do clipboard
+  const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  const ext=f.type==='image/jpeg'?'.jpg':f.type==='image/gif'?'.gif':f.type==='image/webp'?'.webp':f.type==='application/pdf'?'.pdf':f.type==='text/plain'?'.txt':'.png';
+  return 'print-'+ts+ext;
+}
+async function attImportFiles(files, taskId){
+  const out=[];
+  for(const f of files){
+    try{ const b64=await attFileToB64(f); out.push(await invoke('import_attachment_data',{ name:attPastedName(f), dataB64:b64, taskId:taskId||null })); }
+    catch(e){ console.error('import_attachment_data',e); alert('Não consegui importar '+(f.name||'o conteúdo colado')+':\n'+e); }
+  }
+  return out;
+}
+// cfg: { input, attach (ids), pend: ()=>array pendente, taskId: ()=>id|null, rerender: fn, afterAdd?: fn(atts) }
+// idempotente (usa on* em vez de addEventListener) — pode ser chamado a cada render
+function attWireComposer(cfg){
+  const input=$id(cfg.input), btn=$id(cfg.attach);
+  const add=async(atts)=>{ if(!atts||!atts.length) return; cfg.pend().push(...atts); if(cfg.afterAdd) cfg.afterAdd(atts); cfg.rerender(); const i=$id(cfg.input); if(i) i.focus(); };
+  if(btn) btn.onclick=async()=>add(await attPick(cfg.taskId()));
+  if(!input) return;
+  input.onpaste=async(e)=>{ const files=[...((e.clipboardData&&e.clipboardData.files)||[])]; if(!files.length) return; e.preventDefault(); add(await attImportFiles(files, cfg.taskId())); };
+  input.ondragover=(e)=>{ e.preventDefault(); input.classList.add('dropping'); };
+  input.ondragleave=()=>input.classList.remove('dropping');
+  input.ondrop=async(e)=>{ e.preventDefault(); input.classList.remove('dropping'); const files=[...((e.dataTransfer&&e.dataTransfer.files)||[])]; if(files.length) add(await attImportFiles(files, cfg.taskId())); };
+}
 // mensagem EXIBIDA: o bloco vira chips (o texto integral do anexo não polui a conversa)
 function attSplit(text){
   const src=String(text||''); const m=src.match(/\n*\[ANEXOS\]\n([\s\S]*?)\n\[\/ANEXOS\]/);

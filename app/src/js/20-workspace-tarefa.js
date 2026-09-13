@@ -350,7 +350,7 @@ function renderWorkspace(){
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
-      <textarea class="in fwta" id="fwInput" rows="2" style="width:100%" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills )'}"></textarea>
+      <textarea class="in fwta" id="fwInput" rows="2" style="width:100%" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
       <div class="fwinrow" style="margin-top:6px"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq"><span>vira <b>requisito</b></span></label><span style="flex:1"></span>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend" style="white-space:nowrap">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div></div>`;
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwStop', ()=>stopTask(t.id));
@@ -361,7 +361,7 @@ function renderWorkspace(){
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
   bindClick('fwSend', ()=>fwSendMsg(false));
   bindClick('fwQueue', ()=>fwSendMsg(true));
-  bindClick('fwAttach', async()=>{ const a=await attPick(t.id); if(a.length){ (fwPend[t.id]=fwPend[t.id]||[]).push(...a); renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); } });
+  attWireComposer({ input:'fwInput', attach:'fwAttach', pend:()=>(fwPend[t.id]=fwPend[t.id]||[]), taskId:()=>t.id, rerender:renderWorkspace });
   { const pp=$id('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
     const ao=e.target.closest('[data-askopt]');

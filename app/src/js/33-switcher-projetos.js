@@ -15,10 +15,10 @@ function renderProjName(){
   const dot=$id("projDot"); if(dot) dot.classList.toggle("live", connected && (state.tasks||[]).length>0);
 }
 function projMenuOpen(){ const m=$id("projMenu"); return m && m.style.display!=="none"; }
-function openProjMenu(){ renderProjMenu(); $id("projMenu").style.display="block"; }
+function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) alert(projErr); return; } renderProjMenu(); m.style.display="block"; }
 function closeProjMenu(){ const m=$id("projMenu"); if(m) m.style.display="none"; }
 function toggleProjMenu(){ projMenuOpen()?closeProjMenu():openProjMenu(); }
-function renderProjMenu(){
+function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos é uma aba); fica só se algum HTML antigo tiver #projMenu
   const m=$id("projMenu"); if(!m) return;
   const rows = projects.length ? projects.map(p=>`<div class="prow${p.active?' on':''}" data-path="${escA(p.path)}">
       <span class="pd"></span>
@@ -114,8 +114,6 @@ document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMo
 $id("ntAI").onclick = openPlanner;
 $id("aiSend").onclick = sendAiMsg;
 $id("aiInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendAiMsg(); });
-$id("projBtn").onclick = (e)=>{ e.stopPropagation(); toggleProjMenu(); };
-document.addEventListener("click", e=>{ if(!e.target.closest(".projsw")) closeProjMenu(); });
 $id("emAbrir").onclick = pickFolder;
 $id("ntImport").onclick = importTaskMd;
 $id("ntRefAdd").onclick = pickRefs;

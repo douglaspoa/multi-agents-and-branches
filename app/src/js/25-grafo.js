@@ -185,16 +185,23 @@ function renderRail(){
     : ['error','conflict'].includes(t.status) ? 'var(--crit)'
     : (ACTIVE_ST.has(t.status)||t.status==='thinking') ? 'var(--good)'
     : ['review','delivered'].includes(t.status) ? 'var(--warn)' : 'var(--muted)';
-  const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&!['merged','done'].includes(t.status));
+  // MESMA regra de visibilidade do quadro (bloqueadas e encerradas ficam fora — o quadro tem o chip pra revelar)
+  const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&t.flag!=='blocked'&&!['merged','done'].includes(t.status));
   const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
   const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| (b.createdAt||b.created_at)-(a.createdAt||a.created_at)).slice(0,12);
   const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
-  let html=`<div class="rproj on" title="projeto atual · ${escA(rows.length||0)} sessão(ões)"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length||'—'}</span></div></div>`;
-  html += rows.length ? rows.map(t=>{ const [tg,tc]=tagOf(t);
-    return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
-  }).join('') : '<div class="dim" style="font-size:11.5px;padding:4px 16px 8px">nenhuma sessão — crie uma demanda</div>';
-  // outros projetos (visão multi-repo)
+  // agrupado por PROJETO: o atual (com as sessões vivas e rascunhos) e depois os outros repos que têm algo rodando
   const others=(projOv||[]).filter(p=>p.path!==curPath && (p.active+p.review>0));
+  let html='';
+  if(rows.length){
+    html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div></div>`;
+    html+=rows.map(t=>{ const [tg,tc]=tagOf(t);
+      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
+    }).join('');
+  }
+  if(!rows.length && !others.length){
+    html+=`<div class="railempty"><b>${esc(curName)}</b><span>nenhuma demanda rodando ou em rascunho</span></div>`;
+  }
   for(const p of others){
     html+=`<div class="rproj" data-proj="${escA(p.path)}"><div class="rph"><b>${esc(p.name)}</b><span class="n">${p.active+p.review}</span></div></div>`;
     html+=(p.tasks||[]).slice(0,4).map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
@@ -203,9 +210,7 @@ function renderRail(){
   const nProj=1+others.length;
   html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
     <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
-  html+=`<button class="railadd" id="railAddProj" title="abrir/adicionar um projeto"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" style="width:13px;height:13px"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>adicionar projeto</button>`;
   el.innerHTML = html;
-  { const b=el.querySelector('#railAddProj'); if(b) b.onclick=()=>{ if(typeof pickFolder==='function') pickFolder(); else if(window.pickFolder) window.pickFolder(); }; }
   el.querySelectorAll('.prow2').forEach(r=>r.onclick=()=>{
     if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
     openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba

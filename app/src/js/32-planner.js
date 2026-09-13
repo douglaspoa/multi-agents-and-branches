@@ -20,13 +20,8 @@ function plRenderRefs(){
   el.innerHTML = plRefs.map((p,i)=>{ const n=(p||'').split('/').pop(); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">×</button></span>`; }).join('');
   el.querySelectorAll('.plrefx').forEach(b=>b.onclick=()=>{ plRefs.splice(+b.dataset.r,1); plRenderRefs(); });
 }
-async function plAttach(){
-  const atts=await attPick(null); if(!atts.length) return;
-  plPend.push(...atts);
-  atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); // viram refs da tarefa criada
-  plRenderRefs(); renderPlanner();
-  const i=$id('plInput'); if(i) i.focus();
-}
+// anexos do planner: composer único; o que entra também vira ref da tarefa criada
+function plWireComposer(){ attWireComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); } }); }
 function plVal(k){ if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
@@ -226,7 +221,7 @@ async function plCreate(){
 }
 $id('plClose').onclick=closePlanner;
 $id('plNew').onclick=plNew;
-$id('plAttach').onclick=plAttach;
+plWireComposer();
 $id('plSend').onclick=()=>plSend($id('plInput').value);
 $id('plInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); plSend($id('plInput').value); } });
 $id('plannerOverlay').addEventListener('click',e=>{ if(e.target.id==='plannerOverlay') closePlanner(); });

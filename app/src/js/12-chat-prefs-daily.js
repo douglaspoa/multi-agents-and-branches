@@ -58,9 +58,8 @@ async function pcToTask(){
   }catch(e){ alert('Não consegui montar a spec:\n'+(e.message||e)); }
   finally{ btn.disabled=false; btn.innerHTML=ic('compass')+'virar tarefa'; }
 }
-function openPc(){ $id('pcOverlay').style.display='flex'; pcRender(); setTimeout(()=>$id('pcInput').focus(),80); }
+function openPc(){ $id('pcOverlay').style.display='flex'; pcRender(); attWireComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender }); setTimeout(()=>$id('pcInput').focus(),80); }
 $id('pcBtn').onclick=openPc;
-bindClick('pcAttach', async()=>{ const a=await attPick(null); if(a.length){ pcPend.push(...a); pcRender(); $id('pcInput').focus(); } });
 // ---- Preferências do projeto: 1 doc por projeto, o time escreve, agentes seguem ----
 async function prefsKey(){
   const orgId=cloudData&&cloudData.org&&cloudData.org.id; if(!orgId) return null;

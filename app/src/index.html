@@ -21,13 +21,7 @@
     </div>
     <div class="sbnew">
       <button class="btn primary sbbig" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova demanda</button>
-      <div class="projsw">
-        <button class="btn projbtn" id="projBtn" title="Trocar de projeto">
-          <span class="pdot" id="projDot"></span><b id="projName">sem projeto</b>
-          <svg class="chev" viewBox="0 0 10 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
-        </button>
-        <div class="projmenu" id="projMenu" style="display:none"></div>
-      </div>
+      <button class="btn sbitem sbproj" id="projetosBtn" title="Projetos — todos os repositórios (trocar, adicionar, remover)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Projetos</button>
       <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho do repo" spellcheck="false" style="display:none">
       <button class="btn" id="connectBtn" style="display:none">abrir</button>
       <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
@@ -406,7 +400,7 @@
         <div class="plchips" id="plChips"></div>
         <div class="plrefs" id="plRefsBar"></div>
         <div class="attrow attpend" id="plPend" style="display:none"></div>
-        <div class="plinput"><button class="btn sm" id="plAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in plta" id="plInput" rows="2" placeholder="responda aqui… (ou anexe um print do que você quer)"></textarea><button class="btn primary sm" id="plSend">enviar</button></div>
+        <div class="plinput"><button class="btn sm" id="plAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in plta" id="plInput" rows="2" placeholder="responda aqui… (⌘V cola um print · clipe anexa)"></textarea><button class="btn primary sm" id="plSend">enviar</button></div>
       </div>
       <div class="plmesh" id="plMesh"></div>
     </div>
@@ -503,7 +497,7 @@
     <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:10.5px" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/></svg>virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="chatthread" id="pcThread" style="min-height:340px;max-height:56vh"></div>
     <div class="attrow attpend pcpend" id="pcPend" style="display:none"></div>
-    <div class="chatinput"><button class="btn sm" id="pcAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="pcInput" rows="2" placeholder="pergunte sobre o projeto… (Enter envia · ex.: 'como o autocomplete resolve o ranking hoje?')"></textarea><button class="btn primary sm" id="pcSend">enviar</button></div>
+    <div class="chatinput"><button class="btn sm" id="pcAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="pcInput" rows="2" placeholder="pergunte sobre o projeto… (Enter envia · ⌘V cola um print)"></textarea><button class="btn primary sm" id="pcSend">enviar</button></div>
   </div>
 </div>
 

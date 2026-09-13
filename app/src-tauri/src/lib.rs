@@ -4210,24 +4210,23 @@ struct Attachment {
     data_url: Option<String>,
 }
 
-#[tauri::command(async)]
-fn import_attachment(state: State<AppState>, path: String, task_id: Option<String>) -> Result<Attachment, String> {
-    let src = PathBuf::from(&path);
-    if !src.is_file() {
-        return Err(format!("arquivo não encontrado: {path}"));
-    }
-    let (dir, rel_dir) = match task_id.as_deref().filter(|s| !s.is_empty()) {
+/// Pasta de destino dos anexos: .cardume/refs da worktree (com tarefa) ou
+/// .cardume/attachments do repo (chats sem tarefa).
+fn attachment_dir(state: &State<AppState>, task_id: Option<&str>) -> Result<(PathBuf, String), String> {
+    match task_id.filter(|s| !s.is_empty()) {
         Some(tid) => {
-            let (wt, _) = task_wt_base(&state, tid)?;
-            (wt.join(".cardume").join("refs"), ".cardume/refs".to_string())
+            let (wt, _) = task_wt_base(state, tid)?;
+            Ok((wt.join(".cardume").join("refs"), ".cardume/refs".to_string()))
         }
-        None => (repo_of(&state)?.join(".cardume").join("attachments"), ".cardume/attachments".to_string()),
-    };
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let base = src.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "anexo".into());
+        None => Ok((repo_of(state)?.join(".cardume").join("attachments"), ".cardume/attachments".to_string())),
+    }
+}
+
+/// Nome seguro e sem colisão dentro da pasta (slug do stem + extensão original).
+fn attachment_name(dir: &PathBuf, base: &str) -> String {
     let (stem, ext) = match base.rfind('.') {
         Some(i) if i > 0 => (base[..i].to_string(), base[i..].to_lowercase()),
-        _ => (base.clone(), String::new()),
+        _ => (base.to_string(), String::new()),
     };
     let mut safe = slug_raw(&stem);
     if safe.is_empty() {
@@ -4239,10 +4238,14 @@ fn import_attachment(state: State<AppState>, path: String, task_id: Option<Strin
         n += 1;
         name = format!("{safe}-{n}{ext}");
     }
-    let dest = dir.join(&name);
-    std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-    let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-    let ext_l = ext.trim_start_matches('.').to_string();
+    name
+}
+
+/// Descreve um anexo já gravado em `dest`: tipo, tamanho, texto integral
+/// (texto até 60k chars) e dataURL (imagem até 6 MB, pra miniatura).
+fn describe_attachment(dest: &PathBuf, name: String, rel: String) -> Result<Attachment, String> {
+    let size = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    let ext_l = name.rsplit('.').next().map(|e| e.to_lowercase()).filter(|e| e != &name.to_lowercase()).unwrap_or_default();
     let kind = if ["png", "jpg", "jpeg", "gif", "webp", "svg"].contains(&ext_l.as_str()) {
         "image"
     } else if ext_l == "pdf" {
@@ -4256,7 +4259,7 @@ fn import_attachment(state: State<AppState>, path: String, task_id: Option<Strin
     let mut truncated = false;
     let mut data_url = None;
     if kind == "text" && size <= 2_000_000 {
-        if let Ok(s) = std::fs::read_to_string(&dest) {
+        if let Ok(s) = std::fs::read_to_string(dest) {
             const MAX: usize = 60_000;
             if s.chars().count() > MAX {
                 text = Some(s.chars().take(MAX).collect());
@@ -4267,7 +4270,7 @@ fn import_attachment(state: State<AppState>, path: String, task_id: Option<Strin
         }
     }
     if kind == "image" && size <= 6_000_000 {
-        let bytes = std::fs::read(&dest).map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(dest).map_err(|e| e.to_string())?;
         let mime = match ext_l.as_str() {
             "png" => "image/png",
             "jpg" | "jpeg" => "image/jpeg",
@@ -4277,16 +4280,84 @@ fn import_attachment(state: State<AppState>, path: String, task_id: Option<Strin
         };
         data_url = Some(format!("data:{mime};base64,{}", base64_encode(&bytes)));
     }
-    Ok(Attachment {
-        rel: format!("{rel_dir}/{name}"),
-        path: dest.display().to_string(),
-        name,
-        kind: kind.to_string(),
-        size,
-        text,
-        truncated,
-        data_url,
-    })
+    Ok(Attachment { rel, path: dest.display().to_string(), name, kind: kind.to_string(), size, text, truncated, data_url })
+}
+
+/// Anexo a partir de um ARQUIVO do disco (botão "anexar").
+#[tauri::command(async)]
+fn import_attachment(state: State<AppState>, path: String, task_id: Option<String>) -> Result<Attachment, String> {
+    let src = PathBuf::from(&path);
+    if !src.is_file() {
+        return Err(format!("arquivo não encontrado: {path}"));
+    }
+    let (dir, rel_dir) = attachment_dir(&state, task_id.as_deref())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let base = src.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "anexo".into());
+    let name = attachment_name(&dir, &base);
+    let dest = dir.join(&name);
+    std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    describe_attachment(&dest, name.clone(), format!("{rel_dir}/{name}"))
+}
+
+/// Anexo a partir de BYTES (Ctrl+V de um print, arrastar um arquivo pro chat) —
+/// o webview não tem o caminho, manda o conteúdo em base64.
+#[tauri::command(async)]
+fn import_attachment_data(state: State<AppState>, name: String, data_b64: String, task_id: Option<String>) -> Result<Attachment, String> {
+    let bytes = base64_decode(&data_b64).ok_or("base64 inválido")?;
+    if bytes.is_empty() {
+        return Err("anexo vazio".into());
+    }
+    if bytes.len() > 25_000_000 {
+        return Err("anexo maior que 25 MB".into());
+    }
+    let (dir, rel_dir) = attachment_dir(&state, task_id.as_deref())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let base = if name.trim().is_empty() { "anexo".to_string() } else { name.trim().to_string() };
+    let name = attachment_name(&dir, &base);
+    let dest = dir.join(&name);
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    describe_attachment(&dest, name.clone(), format!("{rel_dir}/{name}"))
+}
+
+fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    let clean: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    let val = |c: u8| -> Option<u32> {
+        match c {
+            b'A'..=b'Z' => Some((c - b'A') as u32),
+            b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+            b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+            b'+' | b'-' => Some(62),
+            b'/' | b'_' => Some(63),
+            _ => None,
+        }
+    };
+    let mut out = Vec::with_capacity(clean.len() / 4 * 3);
+    for chunk in clean.chunks(4) {
+        let mut n: u32 = 0;
+        let mut pad = 0;
+        for (i, &c) in chunk.iter().enumerate() {
+            if c == b'=' {
+                pad += 1;
+                n <<= 6;
+            } else {
+                n = (n << 6) | val(c)?;
+            }
+            let _ = i;
+        }
+        for _ in chunk.len()..4 {
+            n <<= 6;
+            pad += 1;
+        }
+        let b = n.to_be_bytes();
+        out.push(b[1]);
+        if pad < 2 {
+            out.push(b[2]);
+        }
+        if pad < 1 {
+            out.push(b[3]);
+        }
+    }
+    Some(out)
 }
 
 #[tauri::command]
@@ -4584,6 +4655,7 @@ pub fn run() {
             pick_folder,
             pick_ref_files,
             import_attachment,
+            import_attachment_data,
             save_config,
             import_agent_files,
             commit_detail,

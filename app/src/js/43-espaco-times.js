@@ -445,7 +445,7 @@ window.switchProject = switchProject;
 window.pickFolder = pickFolder;
 try{ if(window.ndInjectFonts) window.ndInjectFonts(); }catch(_){}
 if(typeof projects!=='undefined') window.projectsList = ()=>projects;
-[['newTaskBtn','nova'],['skillsBtn','skills'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
+[['newTaskBtn','nova'],['projetosBtn','projetos'],['skillsBtn','skills'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
   const b=$id(id); if(b) b.onclick=(e)=>{ if(e&&e.preventDefault)e.preventDefault(); window.openTab(kind); };
 });
 if(window.openTab) window.openTab('flow');

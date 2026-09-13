@@ -10,6 +10,11 @@
 .sbscroll{flex:1;min-height:0;overflow:auto}
 .sbnav{display:flex;flex-direction:column;gap:2px;padding:8px 10px 12px;border-top:1px solid var(--border);flex:none}
 .sbitem{width:100%;justify-content:flex-start;gap:9px}
+.sbnew .sbproj{border-color:transparent;background:transparent;box-shadow:none;color:var(--text-2);padding:7px 10px}
+.sbnew .sbproj:hover{background:var(--surface-2);color:var(--text)}
+.railempty{margin:6px 12px;padding:12px 12px;border:1px dashed var(--border-strong);border-radius:8px;display:flex;flex-direction:column;gap:3px}
+.railempty b{font-family:var(--mono);font-size:12px;font-weight:600}
+.railempty span{font-size:11.5px;color:var(--muted)}
 .sbnav .moremenu{bottom:calc(100% + 4px);top:auto;left:0;right:0}
 /* colapso: a --rail-w vai a 0 → a sidebar some e o appmain (margin-left) reflui */
 .app.railcol .sidebar{border-right:0}
