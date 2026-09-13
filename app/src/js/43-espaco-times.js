@@ -445,8 +445,6 @@ window.switchProject = switchProject;
 window.pickFolder = pickFolder;
 try{ if(window.ndInjectFonts) window.ndInjectFonts(); }catch(_){}
 if(typeof projects!=='undefined') window.projectsList = ()=>projects;
-// topo: o "projeto" agora abre o HUB de Projetos (integrado), não o menu de trocar
-{ const pb=$id('projBtn'); if(pb) pb.onclick=(e)=>{ e.stopPropagation(); if(window.openTab) window.openTab('projetos'); }; }
 [['newTaskBtn','nova'],['skillsBtn','skills'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
   const b=$id(id); if(b) b.onclick=(e)=>{ if(e&&e.preventDefault)e.preventDefault(); window.openTab(kind); };
 });

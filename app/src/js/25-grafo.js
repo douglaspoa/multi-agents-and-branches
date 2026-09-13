@@ -189,7 +189,7 @@ function renderRail(){
   const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
   const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| (b.createdAt||b.created_at)-(a.createdAt||a.created_at)).slice(0,12);
   const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
-  let html=`<div class="rproj on"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length||'—'}</span><button class="railcol-btn" id="railColBtn" title="Recolher a barra lateral (⌘B)" aria-label="Recolher barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.5 4L5.5 8l4 4" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3v10" stroke-linecap="round"/></svg></button></div></div>`;
+  let html=`<div class="rproj on" title="projeto atual · ${escA(rows.length||0)} sessão(ões)"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length||'—'}</span></div></div>`;
   html += rows.length ? rows.map(t=>{ const [tg,tc]=tagOf(t);
     return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
   }).join('') : '<div class="dim" style="font-size:11.5px;padding:4px 16px 8px">nenhuma sessão — crie uma demanda</div>';
@@ -212,5 +212,4 @@ function renderRail(){
   });
   el.querySelectorAll('.rproj[data-proj]').forEach(r=>r.onclick=()=>switchProject(r.dataset.proj));
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
-  { const cb=$id('railColBtn'); if(cb) cb.onclick=(e)=>{ e.stopPropagation(); setRailCollapsed(true); }; }
 }

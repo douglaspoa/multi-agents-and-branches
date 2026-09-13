@@ -114,13 +114,10 @@
 /* sidebar por projeto (redesign p2) */
 .rproj{margin:4px 10px;padding:8px 10px;border:1px solid transparent;border-radius:8px;cursor:pointer}
 .rproj:hover{background:var(--surface-2)}
-.rproj.on{border-color:var(--border);background:var(--surface-2)}
+.rproj.on{border-color:var(--border);background:var(--surface-2);cursor:default}
 .rproj .rph{display:flex;align-items:center;gap:8px;font-size:12px}
 .rproj .rph b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rproj .rph .n{font-family:var(--mono,ui-monospace,monospace);font-size:10.5px;color:var(--muted)}
-.railcol-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);cursor:pointer}
-.railcol-btn:hover{color:var(--text);background:var(--surface)}
-.railcol-btn svg{width:14px;height:14px}
 .rpt{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2);padding:2px 0 0 2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .rpt .d{width:6px;height:6px;border-radius:99px;flex:none}
 .rpfoot{font-size:10.5px;color:var(--muted);padding:10px 14px 12px;border-top:1px dashed var(--border);margin-top:10px}

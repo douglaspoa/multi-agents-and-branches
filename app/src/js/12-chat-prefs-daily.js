@@ -246,6 +246,7 @@ function setRailCollapsed(v){
   document.documentElement.style.setProperty('--rail-w', v?'0px':'250px');
   lsSet('railCollapsed', v?'1':'0');
   const b=$id('railToggle'); if(b) b.setAttribute('aria-pressed', v?'true':'false');
+  requestAnimationFrame(syncChromeH); setTimeout(syncChromeH, 320); // o topo muda de altura ao recolher (com transição) — a view-aba desce junto
 }
 $id('railToggle').onclick=()=>setRailCollapsed(!railIsCol());
 { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); } // botão de expandir (aparece só recolhido)

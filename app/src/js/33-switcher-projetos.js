@@ -26,10 +26,12 @@ function renderProjMenu(){
       <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">✕</button>
     </div>`).join("") : '<div class="projerr" style="color:var(--muted)">nenhum projeto ainda</div>';
   m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr">${esc(projErr)}</div>`:""}<div class="psep"></div>`+
-    `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`;
+    `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`+
+    `<div class="projadd projmanage" id="projManage"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Gerenciar projetos</div>`;
   m.querySelectorAll('.prow').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.px')) return; switchProject(r.dataset.path); });
   m.querySelectorAll('.px').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke("remove_project",{path:b.dataset.rm}); }catch(_){}; await loadProjects(); });
   $id("projAdd").onclick = pickFolder;
+  bindClick("projManage", ()=>{ closeProjMenu(); if(window.openTab) window.openTab('projetos'); });
 }
 async function switchProject(path){
   try{

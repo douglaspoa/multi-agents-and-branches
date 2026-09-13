@@ -90,8 +90,7 @@ function showActiveView(){
     // mede a base da barra de abas AGORA (layout já assentado) e fixa o topo do overlay —
     // sem isso, uma mudança de altura do topo deixava --chrome-h defasado e o overlay
     // cobria as abas (recolhido) ou deixava o board vazar por cima (expandido).
-    const tb=$id('tabBar');
-    if(tb && tb.style.display!=='none'){ document.documentElement.style.setProperty('--chrome-h', Math.round(tb.getBoundingClientRect().bottom)+'px'); }
+    syncChromeH();
     o.classList.add('astab'); o.style.display='block';
   }); }
 }
@@ -105,7 +104,7 @@ function renderTabs(){
   bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.xk) return; activateTab(el.dataset.tk); });
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); closeTab(el.dataset.xk); });
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
-  requestAnimationFrame(()=>{ const b=bar.getBoundingClientRect().bottom; document.documentElement.style.setProperty('--chrome-h', Math.round(b)+'px'); });
+  requestAnimationFrame(syncChromeH);
 }
 $id('bdClose').onclick=()=>{ $id('bdOverlay').style.display='none'; };
 $id('bdCancel').onclick=()=>{ $id('bdOverlay').style.display='none'; };
