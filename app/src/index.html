@@ -4905,7 +4905,7 @@ async function mergeTask(taskId){
 // o rascunho antigo é substituído (remove_task + criação nova)
 let ntEditingDraft=null;
 async function editDraft(t){
-  await openNewTask();
+  if(window.openTab) window.openTab('form'); else await openNewTask(); // abre a Nova demanda como ABA
   setNtMode('build');
   ntEditingDraft=t.id;
   document.getElementById('ntTitle').value=t.title||'';
@@ -5227,9 +5227,7 @@ function renderRail(){
   { const b=el.querySelector('#railAddProj'); if(b) b.onclick=()=>{ if(typeof pickFolder==='function') pickFolder(); else if(window.pickFolder) window.pickFolder(); }; }
   el.querySelectorAll('.prow2').forEach(r=>r.onclick=()=>{
     if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
-    const t=(state.tasks||[]).find(x=>x.id===r.dataset.id); if(!t) return;
-    selected=t.id; render();
-    if(t.status!=='draft') openWorkspace(t.id);
+    openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });
   el.querySelectorAll('.rproj[data-proj]').forEach(r=>r.onclick=()=>switchProject(r.dataset.proj));
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
