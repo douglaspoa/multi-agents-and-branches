@@ -256,7 +256,7 @@
   .nd-projsel{font:500 12px 'JetBrains Mono',monospace;color:#eaf2ee;background:#101312;border:1px solid var(--accent);border-radius:7px;padding:5px 9px;cursor:pointer}
   .ndh1{margin:14px 0 6px;font:600 32px/1.15 'Instrument Sans',sans-serif;letter-spacing:-.02em}
   .ndsub{margin:0 0 26px;font:400 14.5px/1.55 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);max-width:580px}
-  .ndtypes{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px}
+  .ndtypes{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px}
   .ndtype{text-align:left;padding:18px 16px 16px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#101312;display:flex;flex-direction:column;gap:10px;min-height:134px;cursor:pointer;transition:.12s}
   .ndtype:hover{border-color:rgba(255,255,255,.2)}
   .ndtype.on{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.10),rgba(63,214,138,.02))}
@@ -760,6 +760,7 @@
   .ftabs .ft{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:7px 2px 9px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
   .ftabs .ft:hover{color:var(--text-2)}
   .ftabs .ft.on{color:var(--text);border-bottom-color:var(--accent)}
+  .ftabs .fvsep{width:1px;height:16px;background:var(--border-strong);margin:0 4px;align-self:center}
   .ftabs .fvic{border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;border-radius:7px;padding:5px 7px;display:flex;align-items:center}
   .ftabs .fvic:hover{color:var(--text);background:var(--surface-2)}
   .ftabs .fvic.on{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
@@ -1570,6 +1571,100 @@
   .sep{width:1px;height:14px;background:var(--border)}
   .grow{flex:1}
   .dim{color:var(--muted)}
+  /* ===== Nova demanda · passo 2 (formulário): MESMA linguagem da tela de início ===== */
+  #ntOverlay .modal{font-family:'Instrument Sans',-apple-system,system-ui,sans-serif;color:#eaf2ee}
+  /* head + body + foot alinhados na mesma coluna de 1020px */
+  #ntOverlay.astab .mhead,#ntOverlay.astab .mbody,#ntOverlay.astab .mfoot{max-width:none!important;margin:0!important;width:100%!important;padding-left:max(28px,calc((100% - 1020px)/2))!important;padding-right:max(28px,calc((100% - 1020px)/2))!important}
+  #ntOverlay.astab .mhead{padding-top:34px!important;padding-bottom:0!important;border-bottom:0;display:flex;align-items:center;gap:10px;row-gap:10px;flex-wrap:wrap;font:inherit;flex:none}
+  #ntOverlay.astab .mhead .ndeyebrow,#ntOverlay.astab .mhead .as-btn,#ntOverlay.astab .mhead .nf-typechip{white-space:nowrap}
+  #ntOverlay.astab .mhead .btn,#ntOverlay.astab .mhead .as-btn{margin:0}
+  #ntOverlay.astab .mhead .as-btn{padding:6px 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px}
+  #ntOverlay.astab .mhead .as-btn svg{width:13px;height:13px}
+  #ntOverlay.astab .mbody{display:block!important;padding-top:8px!important;padding-bottom:40px!important;gap:0}
+  #ntOverlay #ntRight{width:100%;max-width:none}
+  #ntOverlay.astab .mfoot{padding-top:14px!important;padding-bottom:14px!important;border-top:1px solid rgba(255,255,255,.07);background:var(--bg);display:flex;align-items:center;gap:10px;flex:none}
+  .nf-head .nd-projsel{max-width:180px;overflow:hidden;text-overflow:ellipsis}
+  .nf-typechip{display:inline-flex;align-items:center;gap:6px;font:500 12px 'JetBrains Mono',monospace;color:#eaf2ee;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:4px 9px;background:#101312}
+  .nf-typechip .nf-typedot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .nf-typechip a{color:rgba(255,255,255,.4);cursor:pointer;font-size:10.5px;margin-left:2px}
+  .nf-typechip a:hover{color:var(--accent)}
+  .nf-progrow{display:flex;align-items:center;gap:16px;margin-top:28px}
+  .nf-prog{display:flex;gap:6px;flex:1;max-width:320px}
+  .nf-prog span{height:3px;flex:1;border-radius:99px;background:rgba(255,255,255,.1)}
+  .nf-prog span.done{background:var(--accent)}
+  .nf-prog span.cur{background:color-mix(in srgb,var(--accent) 55%,transparent)}
+  #ntOverlay .ndh1{font-size:28px;margin:12px 0 6px}
+  #ntOverlay .ndsub{margin-bottom:22px;max-width:680px}
+  #ntOverlay #wizGuide{margin:-8px 0 20px}
+  #ntOverlay #wizGuide summary{font:500 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.45);list-style:none;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+  #ntOverlay #wizGuide summary::-webkit-details-marker{display:none}
+  #ntOverlay #wizGuide summary:hover{color:#eaf2ee}
+  #ntOverlay #wizGuideTx{margin-top:10px;border:1px solid rgba(255,255,255,.08)!important;border-radius:10px!important;background:#101312!important;padding:14px 16px!important;font:400 13px/1.55 'Instrument Sans',sans-serif!important;color:rgba(234,242,238,.7)}
+  #ntOverlay .ntmode{display:none!important} /* o tipo é escolhido na tela de início */
+  /* rótulos = eyebrow mono, campos = cartões escuros com borda fina */
+  #ntOverlay .mbody label:not(.ckrow):not(.howopt){font:500 10.5px/1 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.4);margin:20px 0 8px;display:flex;align-items:center;gap:8px}
+  #ntOverlay .mbody label:not(.ckrow):not(.howopt):first-child{margin-top:0}
+  #ntOverlay .mbody label .dim{font-family:'Instrument Sans',sans-serif;font-size:11.5px;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.32)}
+  #ntOverlay .in,#ntOverlay .sel,#ntOverlay .ta{background:#101312;border:1px solid rgba(255,255,255,.1);border-radius:9px;color:#eaf2ee;font:400 14px/1.5 'Instrument Sans',sans-serif;padding:11px 13px;box-shadow:none;width:100%}
+  #ntOverlay .in.mono{font-family:'JetBrains Mono',monospace;font-size:13px}
+  #ntOverlay .in::placeholder,#ntOverlay .ta::placeholder{color:rgba(255,255,255,.28)}
+  #ntOverlay .in:focus,#ntOverlay .sel:focus,#ntOverlay .ta:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent);outline:none}
+  #ntOverlay .in.okf{border-color:color-mix(in srgb,var(--accent) 40%,rgba(255,255,255,.1))}
+  #ntOverlay .in.missf{border-color:rgba(255,255,255,.1)} /* âmbar em campo ainda vazio era ruído */
+  #ntOverlay .ta{min-height:180px}
+  #ntOverlay .sel{padding-right:32px;background-position:right 12px center;background-color:#101312}
+  #ntOverlay .two{gap:16px}
+  /* seções: eyebrow, sem linha tracejada */
+  #ntOverlay .seclbl2{font:500 10.5px/1 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.4);margin:26px 0 10px;padding:0;border:0;display:flex;align-items:center;gap:10px}
+  #ntOverlay .seclbl2 .dim{font-family:'Instrument Sans',sans-serif;font-size:11.5px;letter-spacing:0;text-transform:none;font-weight:400;color:rgba(255,255,255,.32)}
+  /* botões pequenos dentro do form (gerar, anexar, + item) = ghost */
+  #ntOverlay .mbody .btn.sm{background:transparent;border:1px solid rgba(255,255,255,.12);border-radius:7px;box-shadow:none;color:rgba(255,255,255,.7);font:500 12px 'Instrument Sans',sans-serif;padding:6px 11px;text-transform:none;letter-spacing:0}
+  #ntOverlay .mbody .btn.sm:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+  #ntOverlay .listrow{display:flex;gap:8px;align-items:center}
+  #ntOverlay .listrow .iconbtn{border-radius:9px;padding:10px;background:#101312;border:1px solid rgba(255,255,255,.1);box-shadow:none}
+  #ntOverlay .listed .dim,#ntOverlay .reflist .dim{font:400 13px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.32);padding:0}
+  #ntOverlay .ckrow{padding:12px 14px;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:#101312;margin-top:8px;font:400 13px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.85);text-transform:none;letter-spacing:0}
+  #ntOverlay .ckrow:hover{border-color:rgba(255,255,255,.18)}
+  #ntOverlay .ckrow b{font-weight:600;color:#eaf2ee}
+  #ntOverlay .aihint{font:400 12.5px/1.55 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4)}
+  #ntOverlay .wfprev{background:#101312;border:1px solid rgba(255,255,255,.08);border-radius:9px;font:500 12px 'JetBrains Mono',monospace;color:rgba(255,255,255,.5);padding:10px 13px}
+  /* etapa "Quem executa?": opções como os cards da tela de início */
+  #ntOverlay .howopt{padding:16px 18px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:#101312;margin-bottom:10px;gap:12px;align-items:center}
+  #ntOverlay .howopt:hover{border-color:rgba(255,255,255,.22)}
+  #ntOverlay .howopt.on{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.10),rgba(63,214,138,.02))}
+  #ntOverlay .howopt>span:not(.rec){flex:1}
+  #ntOverlay .howopt .ht{font:600 15px/1.2 'Instrument Sans',sans-serif}
+  #ntOverlay .howopt .hd{font:400 12.5px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.55);margin-top:4px}
+  #ntOverlay .howopt .rec{font:500 10px 'JetBrains Mono',monospace;color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:4px;letter-spacing:0;margin:0}
+  #ntOverlay .howopt input{accent-color:var(--accent);margin:0}
+  #ntRight.howview #ntHowPane,#ntOverlay #ntHowPane{max-width:none!important}
+  #ntOverlay #ntHowPane details summary{font:500 12.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);cursor:pointer}
+  /* etapa "Confira a spec": preview como cartão */
+  #ntRight.mdview #ntMdPrev,#ntOverlay #ntMdPrev{border:1px solid rgba(255,255,255,.08)!important;border-radius:12px!important;background:#101312!important;padding:22px 26px!important;font:400 14px/1.6 'Instrument Sans',sans-serif!important;max-height:none!important}
+  #ntOverlay #ntMdPrev h2{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(255,255,255,.4);margin:18px 0 6px}
+  #ntOverlay #ntMdPrev h2:first-child{margin-top:0}
+  #ntOverlay .ntviewbar .dim{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.4)}
+  /* rodapé fixo: voltar à esquerda, próximo à direita — sem rolar pra avançar */
+  .nf-foot .btn{font:500 13px 'Instrument Sans',sans-serif;border-radius:9px;padding:9px 15px;box-shadow:none}
+  .nf-foot .btn.nf-ghost{background:transparent;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7)}
+  .nf-foot .btn.nf-ghost:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+  .nf-foot .btn.primary{font-weight:600;padding:9px 18px}
+  .nf-foot .btn.primary:disabled{opacity:.45;cursor:not-allowed}
+  .nf-fl,.nf-fr{display:flex;align-items:center;gap:10px}
+  #ntOverlay #ntMissing{font:500 11.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)}
+  #ntOverlay #ntMissing.ok{color:var(--accent)}
+  /* Projetos: página no padrão novo (sem cabeçalho de modal) */
+  #projetosOverlay.astab .mhead{display:none}
+  #projetosOverlay.astab .mbody{max-width:none!important;margin:0!important;padding:0!important}
+  #projetosOverlay .appscreen{max-width:1040px}
+  #projetosOverlay .projgrid2{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  #projetosOverlay .projcard2{padding:18px 20px}
+  #projetosOverlay .pc2name{font:600 16px/1.2 'Instrument Sans',sans-serif;gap:10px}
+  #projetosOverlay .pc2meta{font:400 13px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);margin-top:8px}
+  #projetosOverlay .pc2path{font:400 11.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.32);margin-top:5px;opacity:1}
+  #projetosOverlay .pc2acts{margin-top:14px;gap:8px}
+  #projetosOverlay .pc2acts .btn{background:transparent;border:1px solid rgba(255,255,255,.12);border-radius:7px;box-shadow:none;color:rgba(255,255,255,.7);font:500 12px 'Instrument Sans',sans-serif;padding:6px 11px}
+  #projetosOverlay .pc2acts .btn:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
 </style>
 </head>
 <body>
@@ -1666,7 +1761,7 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead" data-tauri-drag-region><b data-tauri-drag-region>Nova demanda</b><span class="dim" style="font-size:11px;margin-left:12px">projeto:</span><select class="sel" id="ntProj" title="projeto onde a demanda vai abrir" style="margin-left:6px;max-width:220px;font-size:12px"></select><span style="flex:1" data-tauri-drag-region></span><button class="btn primary" id="ntAI" title="a IA pergunta o essencial e monta a demanda completa (objetivo, entregáveis e critérios) conversando com você"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 2.4l.9 2.3 2.3.9-2.3.9L7 9.8l-.9-2.4-2.3-.9 2.3-.9z" stroke-linejoin="round"/><path d="M11.6 9.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" stroke-linejoin="round"/></svg>montar com a IA</button><button class="btn sm" id="ntImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead nf-head" data-tauri-drag-region><span class="ndeyebrow" data-tauri-drag-region>passo 2 de 2</span><select class="nd-projsel" id="ntProj" title="projeto onde a demanda vai abrir"></select><span class="nf-typechip" id="ntTypeChip" title="tipo escolhido na tela anterior"><span class="nf-typedot"></span><span id="ntTypeName">Feature</span><a id="ntTypeSwap" title="voltar e escolher outro tipo">trocar</a></span><span style="flex:1" data-tauri-drag-region></span><button class="as-btn" id="ntAI" title="a IA pergunta o essencial e monta a demanda completa (objetivo, entregáveis e critérios) conversando com você"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 2.4l.9 2.3 2.3.9-2.3.9L7 9.8l-.9-2.4-2.3-.9 2.3-.9z" stroke-linejoin="round"/><path d="M11.6 9.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" stroke-linejoin="round"/></svg>montar conversando</button><button class="as-btn" id="ntImport" title="importar uma spec .md pronta"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div id="aiAssist" style="display:none">
         <div class="aichat" id="aiChat"></div>
@@ -1677,9 +1772,9 @@
       <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
       <!-- wizard por etapas (Entrega/Fix): uma pergunta por vez, sem scroll -->
       <div id="wizHead" style="display:none">
-        <div id="wizProg" style="display:flex;gap:6px;margin-bottom:14px"></div>
-        <h2 id="wizT" style="font-size:19px;margin:0 0 4px"></h2>
-        <div class="dim" id="wizH" style="font-size:12.5px;margin-bottom:14px"></div>
+        <div class="nf-progrow"><span class="ndeyebrow" id="wizStep"></span><div id="wizProg" class="nf-prog"></div></div>
+        <h2 id="wizT" class="ndh1"></h2>
+        <div id="wizH" class="ndsub"></div>
         <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:11.5px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/></svg>guia de demanda deste repo (.cardume/SPEC.md)</summary><div id="wizGuideTx" class="mdview" style="font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
       </div>
       <div id="ntMdPrev" style="display:none"></div>
@@ -1832,15 +1927,16 @@
         <select class="sel" id="ntEpic" style="width:100%"><option value="">— sem épico —</option></select>
         <div class="aihint dim" style="margin-top:7px">O time vê só o cartão (spec, status, custo, provas) — o stream do agente fica na sua máquina.</div>
       </div>
-      <div id="wizFoot" style="display:none;gap:8px;align-items:center;margin-top:18px"></div>
       </div>
     </div>
-    <div class="mfoot">
-      <span class="dim" id="ntHint">cada demanda vira uma branch + worktree isolada</span>
+    <div class="mfoot nf-foot">
+      <div id="wizFootL" class="nf-fl"></div>
+      <button class="btn nf-ghost" id="ntCancel">cancelar</button>
       <span style="flex:1"></span>
+      <span class="dim" id="ntHint" style="display:none">cada demanda vira uma branch + worktree isolada</span>
       <span id="ntMissing"></span>
-      <button class="btn" id="ntCancel">cancelar</button>
-      <button class="btn" id="ntDraft"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 3.5h6.5L12.5 6v6.5c0 .3-.2.5-.5.5H3.5c-.3 0-.5-.2-.5-.5v-9c0-.3.2-.5.5-.5z" stroke-linejoin="round"/></svg>salvar rascunho</button>
+      <button class="btn nf-ghost" id="ntDraft"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 3.5h6.5L12.5 6v6.5c0 .3-.2.5-.5.5H3.5c-.3 0-.5-.2-.5-.5v-9c0-.3.2-.5.5-.5z" stroke-linejoin="round"/></svg>salvar rascunho</button>
+      <div id="wizFoot" class="nf-fr" style="display:none"></div>
       <button class="btn primary" id="ntCreate"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8l3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>Iniciar execução</button>
     </div>
   </div>
@@ -2820,18 +2916,20 @@ async function openProjetos(){
 }
 function projetosRender(ov){
   const body=document.getElementById('projetosBody'); if(!body) return;
-  const head=`<div style="display:flex;align-items:center;margin-bottom:14px"><span class="dim" style="font-size:11.5px">${(ov||[]).length} projeto(s) — clique em "ver tarefas" pra focar um no quadro</span><span style="flex:1"></span><button class="btn primary sm" id="projAddBtn2" style="font-size:11.5px;padding:5px 11px">+ adicionar projeto</button></div>`;
+  if(typeof ndInjectFonts==='function') ndInjectFonts();
+  const n=(ov||[]).length;
+  const head=`<div class="as-head"><div><h1 class="as-h1">Projetos</h1><p class="as-sub">Tudo aparece junto no quadro — aqui você gerencia cada repositório.</p></div><div class="as-actions"><span class="as-note">${n} projeto${n===1?'':'s'}</span><button class="as-btn primary" id="projAddBtn2">+ adicionar projeto</button></div></div>`;
   const cards=(ov||[]).map(p=>{
     const col=projColor(p.path);
     const run=p.active?`<b style="color:var(--accent)">${p.active} rodando</b>`:'<span class="dim">nada rodando</span>';
-    return `<div class="projcard2">
-      <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="pc2cur">aberto</span>':''}</div>
+    return `<div class="projcard2 as-card">
+      <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="as-badge" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)">aberto</span>':''}</div>
       <div class="pc2meta">${p.review?`<b style="color:var(--warn)">${p.review} em review</b> · `:''}${run}</div>
       <div class="pc2path mono">${esc(p.path)}</div>
       <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}">Finder</button><button class="btn sm" data-pjrm="${escA(p.path)}">remover</button></div>
     </div>`;
-  }).join('') || '<div class="dim" style="padding:14px 2px">Nenhum projeto ainda. Use "+ adicionar projeto".</div>';
-  body.innerHTML=head+`<div class="projgrid2">${cards}</div>`;
+  }).join('') || '<div class="as-card" style="color:rgba(255,255,255,.45);font-size:13.5px">Nenhum projeto ainda. Use "+ adicionar projeto".</div>';
+  body.innerHTML=`<div class="appscreen">${head}<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div></div>`;
   { const b=body.querySelector('#projAddBtn2'); if(b) b.onclick=()=>{ if(window.pickFolder) window.pickFolder(); }; }
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
   body.querySelectorAll('[data-pjsk]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjsk; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('skills'); });
@@ -2848,7 +2946,12 @@ const ND_TYPES=[
   {k:'invest', i:'?', name:'Investigação', desc:'Achar a causa-raiz com evidência, sem implementar.'},
   {k:'design', i:'D', name:'Design', desc:'Definir a UX/UI antes do código.'},
   {k:'docs', i:'≡', name:'Documentação', desc:'Escrever ou atualizar docs com exemplos.'},
+  {k:'review', i:'R', name:'Review de PR', desc:'Revisar um PR que já existe, sem criar branch.'},
 ];
+// tipo da tela de início → modo do formulário (docs = entrega em branch docs/…)
+const ND_TO_MODE={build:'build',fix:'fix',invest:'invest',design:'design',docs:'build',review:'review'};
+const ND_NAME_OF_MODE={build:'Feature',fix:'Correção',invest:'Investigação',design:'Design',review:'Review de PR'};
+window.ND_TO_MODE=ND_TO_MODE; window.ND_NAME_OF_MODE=ND_NAME_OF_MODE;
 let ndType='build';
 function ndInjectFonts(){ if(document.getElementById('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }
 window.ndInjectFonts=ndInjectFonts;
@@ -2874,8 +2977,8 @@ function ndRenderStart(){
   body.querySelectorAll('[data-ndtype]').forEach(b=>b.onclick=()=>{ ndType=b.dataset.ndtype; ndRenderStart(); });
   { const s=body.querySelector('#ndProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p && p!==state.repo && window.switchProject){ await window.switchProject(p); } ndRenderStart(); }; }
   { const b=body.querySelector('#ndChat'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('planner'); }; }
-  { const b=body.querySelector('#ndForm'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('form'); }; }
-  { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('form'); setTimeout(()=>{ const im=document.getElementById('ntImport'); if(im) im.click(); }, 300); }; }
+  { const b=body.querySelector('#ndForm'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form'); }; }
+  { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form'); setTimeout(()=>{ const im=document.getElementById('ntImport'); if(im) im.click(); }, 300); }; }
 }
 document.getElementById('dailyClose').onclick=()=>{ document.getElementById('dailyOverlay').style.display='none'; };
 document.getElementById('dailyDate').onchange=loadDaily;
@@ -4183,7 +4286,9 @@ function renderFlowFilters(){
     TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}">${l}</button>`).join('')+
     `<span class="grow"></span>`+
     `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
-    `<button class="fvic on" data-view="flow" title="Fluxo (lista)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
+    `<span class="fvsep"></span>`+
+    `<button class="fvic${flowView==='list'?' on':''}" data-fv="list" title="Fluxo em lista"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic${flowView==='grid'?' on':''}" data-fv="grid" title="Fluxo em grade"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button>`+
     `<button class="fvic" data-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
     `</div>`;
   // SEMPRE visível: status (review/rodando/merged/…) + tipo — é o que mais se filtra
@@ -4213,6 +4318,7 @@ function renderFlowFilters(){
     flowScope=k; lsSet('flowScope',k); lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+  el.querySelectorAll('[data-fv]').forEach(b=>b.onclick=()=>{ flowView=b.dataset.fv; lsSet('flowView',flowView); if(curView()!=='flow') setView('flow'); lastSig=''; renderFlow(); });
   { const b=el.querySelector('#ffMore'); if(b) b.onclick=()=>{ ffAdvOpen=!ffAdvOpen; lastSig=''; renderFlow(); }; }
   el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
@@ -4271,9 +4377,7 @@ function renderFlowHead(){
   const andamento=vis.filter(t=>['andamento','prontas','praberto'].includes(flowBucket(t))).length;
   const aguardando=vis.filter(t=>flowBucket(t)==='aguardando').length;
   el.innerHTML=`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
-    <span style="flex:1"></span>
-    <div class="seg2" style="align-self:center"><button data-fv="list" class="${flowView==='list'?'on':''}" title="lista"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke-linecap="round"/></svg></button><button data-fv="grid" class="${flowView==='grid'?'on':''}" title="grade"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button></div>`;
-  el.querySelectorAll('[data-fv]').forEach(b=>b.onclick=()=>{ flowView=b.dataset.fv; lsSet('flowView',flowView); lastSig=''; renderFlow(); });
+    <span style="flex:1"></span>`;
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -5654,7 +5758,7 @@ async function ntAiComplete(){
 // cada campo aparece UMA vez: spec → requisitos → quem executa → avançado → confira
 const WIZ_STEPS={
   build:[
-    { n:1, show:[1,3], t:'O que você precisa?', h:'preencha título + objetivo com contexto e anexos — ou toque em "✦ montar com a IA" lá em cima e a IA monta tudo conversando com você', guide:true,
+    { n:1, show:[1,3], t:'O que você precisa?', h:'título + objetivo com contexto e anexos — ou "montar conversando" lá em cima, e a IA monta tudo com você', guide:true,
       ok:()=>!!(document.getElementById('ntTitle').value.trim() && document.getElementById('ntObj').value.trim()), miss:'preencha título e objetivo' },
     { n:2, show:[2], t:'Requisitos de entrega', h:()=>`critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
       ok:()=>ntReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os requisitos mínimos' },
@@ -5678,12 +5782,22 @@ function wizRender(){
   const head=document.getElementById('wizHead'), foot=document.getElementById('wizFoot');
   if(!head||!foot) return;
   const on=wizModeOn();
-  const seg=document.querySelector('.ntviewbar .seg2'); if(seg) seg.style.display=on?'none':'flex';
+  const seg=document.querySelector('#ntRight .seg2'); if(seg) seg.style.display=on?'none':'flex';
   document.querySelectorAll('#ntBuildFields .wstep,#ntFixFields .wstep').forEach(e=>e.style.display='');
   const md=document.getElementById('ntMdPrev');
   const contB=document.getElementById('ntBuildFields'), contF=document.getElementById('ntFixFields');
   { const c=document.getElementById('ntCreate'); if(c) c.style.display=on?'none':''; } // no wizard, quem inicia é a última etapa
-  if(!on){ head.style.display='none'; foot.style.display='none'; const mo=document.getElementById('ntMode'); if(mo) mo.style.display='';
+  const footL=document.getElementById('wizFootL');
+  { const ms=document.getElementById('ntMissing'); if(ms) ms.style.display=on?'none':''; }
+  if(!on){
+    // modos sem etapas (review/design/investigar): cabeçalho fixo com o tipo + o que ele faz
+    head.style.display='block'; foot.style.display='none'; if(footL) footL.style.display='none';
+    document.getElementById('wizProg').innerHTML='';
+    document.getElementById('wizStep').textContent=ntMode==='review'?'review':ntMode==='design'?'design':'investigação';
+    document.getElementById('wizT').textContent=ntMode==='review'?'Qual PR revisar?':ntMode==='design'?'O que projetar?':'O que investigar?';
+    document.getElementById('wizH').textContent=(document.getElementById('ntHint')||{}).textContent||'';
+    { const g=document.getElementById('wizGuide'); if(g) g.style.display='none'; }
+    const mo=document.getElementById('ntMode'); if(mo) mo.style.display='none';
     ['ntTeamRow','ntFixTeamRow'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display=''; });
     { const hp=document.getElementById('ntHowPane'), hf=document.getElementById('howFootRow'); if(hp) hp.style.display='none'; if(hf) hf.style.display='flex'; }
     wizShareApply(null);
@@ -5691,9 +5805,9 @@ function wizRender(){
   const cont=ntMode==='build'?contB:contF;
   const steps=WIZ_STEPS[ntMode];
   const st=steps.find(s=>s.n===wizN)||steps[0];
-  head.style.display='block'; foot.style.display='flex';
+  head.style.display='block'; foot.style.display='flex'; if(footL) footL.style.display='flex';
   cont.querySelectorAll('.wstep').forEach(e=>{ e.style.display=(st.show||[]).includes(+e.dataset.w)?'':'none'; });
-  { const mo=document.getElementById('ntMode'); if(mo) mo.style.display=(st.n===1)?'':'none'; } // o TIPO se escolhe na etapa 1
+  { const mo=document.getElementById('ntMode'); if(mo) mo.style.display='none'; } // o TIPO vem da tela de início (chip no cabeçalho, "trocar" volta lá)
   // equipe/motor/modelo vivem na etapa "Quem executa?" — não repetem no avançado
   ['ntTeamRow','ntFixTeamRow'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
   // Time & épico só na etapa marcada (e só se a nuvem liberou — ntShareSync)
@@ -5704,8 +5818,9 @@ function wizRender(){
     else hp.style.display='none'; }
   if(st.rev){ ntMdRender(); md.style.display='block'; cont.style.display='none'; }
   else if(!st.how){ md.style.display='none'; cont.style.display=''; }
-  document.getElementById('wizProg').innerHTML=steps.map(s=>`<span style="height:4px;flex:1;border-radius:99px;background:${s.n<wizN?'var(--accent)':s.n===wizN?'color-mix(in srgb,var(--accent) 55%,transparent)':'var(--border-strong)'}"></span>`).join('');
-  document.getElementById('wizT').textContent=`${st.n}/${steps.length} · ${st.t}`;
+  document.getElementById('wizProg').innerHTML=steps.map(s=>`<span class="${s.n<wizN?'done':s.n===wizN?'cur':''}"></span>`).join('');
+  document.getElementById('wizStep').textContent=`etapa ${st.n} de ${steps.length}${st.opt?' · opcional':''}`;
+  document.getElementById('wizT').textContent=st.t;
   document.getElementById('wizH').textContent=typeof st.h==='function'?st.h():st.h;
   // guia do repo (o MESMO texto que a IA segue) nas etapas de conteúdo
   { const g=document.getElementById('wizGuide');
@@ -5713,11 +5828,11 @@ function wizRender(){
       g.style.display=has?'block':'none';
       if(has) document.getElementById('wizGuideTx').innerHTML=mdToHtml(String(ntPolicy.specGuide)); } }
   const last=wizN===steps[steps.length-1].n;
+  if(footL) footL.innerHTML=(wizN>1?`<button class="btn nf-ghost" id="wizBack">← voltar</button>`:'');
   foot.innerHTML=
-    (wizN>1?`<button class="btn" id="wizBack">← voltar</button>`:'')+
-    `<span style="flex:1"></span><span class="dim" id="wizMiss" style="font-size:11.5px;color:var(--warn)"></span>`+
-    (st.opt?`<button class="btn" id="wizSkip">pular</button>`:'')+
-    `<button class="btn primary" id="wizNext">${last?'✓ Iniciar execução':'próximo →'}</button>`;
+    `<span class="dim" id="wizMiss" style="font-size:11.5px;color:var(--warn)"></span>`+
+    (st.opt?`<button class="btn nf-ghost" id="wizSkip">pular</button>`:'')+
+    `<button class="btn primary" id="wizNext">${last?'Iniciar execução':'próximo →'}</button>`;
   { const b=document.getElementById('wizBack'); if(b) b.onclick=()=>{ wizN=steps[Math.max(0,steps.findIndex(s=>s.n===wizN)-1)].n; wizRender(); }; }
   { const b=document.getElementById('wizSkip'); if(b) b.onclick=()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); }; }
   { const b=document.getElementById('wizNext'); if(b) b.onclick=()=>{
@@ -5876,7 +5991,14 @@ async function policyChain(){
 async function openNewTask(){
   // página na hora — o catálogo (config) chega logo atrás e preenche os selects
   closeHow(); // garante que não reabre na etapa "Como executar?"
+  // o TIPO vem da tela de início ("Que tipo de demanda é essa?") — aqui só se aplica
+  if(window.ntPresetType){
+    const t=window.ntPresetType; window.ntPresetType=null;
+    ntMode=(window.ND_TO_MODE||{})[t]||'build';
+    ntDocsPreset=(t==='docs');
+  }
   setNtMode(ntMode);
+  { const bt=document.getElementById('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; }
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   ntFillProjects();
   document.getElementById("ntOverlay").style.display = "flex";
@@ -5928,6 +6050,7 @@ async function openNewTask(){
   { const b=document.getElementById("ntFixReqAdd"); if(b) b.onclick=()=>{ ntFixReq.push(""); renderNtList("ntFixReqs", ntFixReq); }; }
 }
 let ntMode='build';
+let ntDocsPreset=false; // tipo "Documentação" da tela de início = entrega em branch docs/…
 let ntLinkedTo=null; // id da tarefa de origem quando esta é uma correção linkada
 // design aprovado → cria a tarefa de ENTREGA linkada, com os artefatos do
 // design (mockup/DESIGN.md) anexados como referência obrigatória.
@@ -6070,12 +6193,17 @@ function setNtMode(m){
   document.getElementById("ntDraft").style.display = m==='build'?'':'none';
   document.getElementById("ntAI").style.display = m==='build'?'':'none'; // planner conversacional: monta a issue conversando (Entrega)
   document.getElementById("ntImport").style.display = m==='build'?'':'none';
+  { const tn=document.getElementById('ntTypeName'); if(tn) tn.textContent=(ntDocsPreset&&m==='build')?'Documentação':((window.ND_NAME_OF_MODE||{})[m]||m); }
   document.getElementById("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';
   const create=document.getElementById("ntCreate");
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';
   ntGate();
 }
+{ const sw=document.getElementById('ntTypeSwap'); if(sw) sw.onclick=()=>{ if(window.openTab) window.openTab('nova'); }; }
+// o toggle Formulário|Markdown mora na linha do eyebrow (à direita); a barra "SPEC" solta some
+{ const seg=document.querySelector('#ntRight .ntviewbar .seg2'), pr=document.querySelector('#wizHead .nf-progrow'), vb=document.querySelector('#ntRight .ntviewbar');
+  if(seg&&pr){ seg.style.marginLeft='auto'; pr.appendChild(seg); } if(vb) vb.style.display='none'; }
 function closeNewTask(){ document.getElementById("ntOverlay").style.display="none"; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; if(typeof closeTab==='function' && tabById('form')) closeTab('form'); }
 function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=document.getElementById(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); setNtMode('build'); document.getElementById("ntArtDoc").checked=false; document.getElementById("ntArtProof").checked=false; document.getElementById("ntArtTests").checked=false; document.getElementById("ntAutoPr").value="ask"; document.getElementById("ntPlan").value="auto"; document.getElementById("ntBranchType").value="feat"; document.getElementById("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=document.getElementById('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=document.getElementById(id); if(e) e.checked=true; }); { const e=document.getElementById('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; document.getElementById("aiChat").innerHTML=""; document.getElementById("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
