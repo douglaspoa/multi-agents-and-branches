@@ -74,7 +74,8 @@ async function fwOpenInner(taskId, path){
   fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig=''; fwAgentSel=null;
   // modo inicial pela FASE da tarefa: PR aberto → página do PR; pronta → revisão; senão conversa
   { const t=(state.tasks||[]).find(x=>x.id===taskId);
-    fwMode = path ? 'codigo' : (t&&t.prUrl&&t.status!=='draft') ? 'pr' : (t&&['review','delivered'].includes(t.status)) ? 'revisao' : 'codigo'; }
+    // pronta pra revisar ou concluída → aba ENTREGA (objetivo, provas, docs); rodando → código/conversa
+    fwMode = path ? 'codigo' : (t&&(taskIsDone(t)||['review','delivered'].includes(t.status))) ? 'entrega' : (t&&t.prUrl&&t.status!=='draft') ? 'pr' : 'codigo'; }
   { const sc=$id('fwStepChip'); if(sc) sc.innerHTML=''; } // popover não vaza entre tarefas
   $id('fwOverlay').style.display='flex';
   renderWorkspace(); // abre NA HORA (skeleton); os dados chegam em paralelo
@@ -212,7 +213,8 @@ function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
   { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.remove('chatwide'); }
   // modo da tela (conversa · código · revisão · PR) — layout muda junto
-  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr'); cols.classList.add('m-'+fwMode); } }
+  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega'); cols.classList.add('m-'+fwMode); } }
+  { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=()=>{ fwMode=b.dataset.fwmode; renderWorkspace(); }); } }
   // stepper flutuante de fases removido (pouco útil) — não renderiza mais
   // preserva o que está sendo digitado no chat entre re-renders
   const ai=document.activeElement, keepInput=(ai&&ai.id==='fwInput'), inEl=$id('fwInput'), inVal=inEl?inEl.value:null, inCaret=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
@@ -304,7 +306,8 @@ function renderWorkspace(){
   const lines=fwContent.split('\n');
   const why = reviewOf(t.id)?reviewOf(t.id).summary : t.objective;
   const whyBand = `<div class="fwwhy"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div><span class="fwwhyl">Por que este arquivo</span> <span class="fwwhyt">${esc(why)}</span></div></div>`;
-  if(fwMode==='pr'){ fwRenderPrPage(t, main); }
+  if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
+  else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
   else if(!fwPath){ main.innerHTML='<div class="empty">selecione um arquivo à esquerda</div>'; }
   else {
@@ -323,7 +326,7 @@ function renderWorkspace(){
       ${body}
       ${bar}`;
   }
-  if(fwMode==='pr'||fwMode==='revisao'){ /* wiring próprio nas funções de página */ }
+  if(fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'){ /* wiring próprio nas funções de página */ }
   else if(fwEditing){
     const ta=$id('fwText'), gut=$id('fwGutter');
     if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); ta.focus(); }

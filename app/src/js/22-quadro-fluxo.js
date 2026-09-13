@@ -81,6 +81,7 @@ function inPeriod(t){
   const now=Date.now(), d=new Date();
   if(flowPeriod==='today'){ return t.created_at >= new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
   if(flowPeriod==='week'){ return t.created_at >= now-7*864e5; }
+  if(flowPeriod==='month'){ return t.created_at >= now-30*864e5; }
   return true;
 }
 // agentes de uma tarefa = líder + toda a equipe (papéis) — assim o filtro cobre "agente" e "equipe"
@@ -121,14 +122,15 @@ function wireLinkChips(root){
   root.querySelectorAll('[data-lk]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openExternal(b.dataset.lk); }; });
   root.querySelectorAll('[data-lkcfg]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openCfg(); }; });
 }
-let flowScope=lsGet('flowScope')||'all';   // all | mine | done (abas da Central)
+let flowScope=(lsGet('flowScope')==='done')?'done':'exec';   // all | mine | done (abas da Central)
 let ffAdvOpen=false;                        // filtros avançados recolhidos por padrão
 let flowLastHtml=null;                      // último HTML do flow — pula rebuild idêntico (evita piscar no hover)
 function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
+  // Execução = o que está vivo (rascunho, rodando, review, PR aberto); Concluídas = mergeadas/encerradas
   const scopeOk=t=> flowScope==='done'
     ? (t.flag==='closed'||['merged','done'].includes(t.status))
-    : notHidden(t);
+    : (notHidden(t) && !(t.flag==='closed'||['merged','done'].includes(t.status)));
   return tasks.filter(t=>
     scopeOk(t) &&
     (flowStatus==='all'||taskGroup(t)===flowStatus) &&
@@ -150,7 +152,7 @@ function renderFlowFilters(){
   const nClosed=(state.tasks||[]).filter(t=>t.flag==='closed'&&inPeriod(t)).length;
   if(nBlocked) stChips+=`<button class="fchip flagchip${flowShowBlocked?' on':''}" data-flag="blocked" title="mostrar/ocultar bloqueadas">${IC.pause} Bloqueadas<span class="n">${nBlocked}</span></button>`;
   if(nClosed) stChips+=`<button class="fchip flagchip${flowShowClosed?' on':''}" data-flag="closed" title="mostrar/ocultar encerradas">${IC.checkc} Encerradas<span class="n">${nClosed}</span></button>`;
-  const PE=[['all','Todo período'],['today','Hoje'],['week','Últimos 7 dias']];
+  const PE=[['all','Todo período'],['today','Hoje'],['week','Últimos 7 dias'],['month','Últimos 30 dias']];
   const peOpts=PE.map(([k,label])=>`<option value="${k}"${flowPeriod===k?' selected':''}>${label}</option>`).join('');
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
   if(flowAgent!=='all' && !agents.includes(flowAgent)) flowAgent='all';
@@ -158,8 +160,9 @@ function renderFlowFilters(){
   const tyCount=k=>byPeriod.filter(t=>taskType(t)===k).length;
   const tyOpts=[['all','Todos os tipos']].concat(TYPE_ORDER.filter(k=>tyCount(k)>0).map(k=>[k, TYPE_PT[k]+' ('+tyCount(k)+')']))
     .map(([k,l])=>`<option value="${k}"${flowType===k?' selected':''}>${l}</option>`).join('');
-  // abas da Central (redesign p2): Tudo · Minhas · Do time · Concluídas + vistas
-  const TABS=[['all','Tudo'],['mine','Minhas'],['team','Do time'],['done','Concluídas']];
+  // abas da Central: Execução (o que está vivo) · Concluídas (portfólio) · Time (espaço próprio)
+  if(flowScope!=='done') flowScope='exec';
+  const TABS=[['exec','Execução'],['done','Concluídas'],['team','Time']];
   const tabsHtml=`<div class="ftabs">`+
     TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}">${l}</button>`).join('')+
     `<span class="grow"></span>`+
@@ -170,8 +173,9 @@ function renderFlowFilters(){
     `<button class="fvic" data-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
     `</div>`;
   // SEMPRE visível: status (review/rodando/merged/…) + tipo — é o que mais se filtra
+  const isDone=flowScope==='done';
   const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
-    `<div class="ffchips">${stChips}</div>`+
+    (isDone?`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`:`<div class="ffchips">${stChips}</div>`)+
     `<span style="flex:1"></span>`+
     `<select class="sel" id="ffType" title="filtrar por tipo (feature/fix/docs/investigação…)">${tyOpts}</select></div>`;
   // AVANÇADO (toggle): período, agente, agrupar, busca
@@ -202,6 +206,8 @@ function renderFlowFilters(){
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
   $id('ffType').onchange=(e)=>{ flowType=e.target.value; lastSig=''; renderFlow(); };
   $id('ffPeriod').onchange=(e)=>{ flowPeriod=e.target.value; lastSig=''; renderFlow(); };
+  { const p2=$id('ffPeriod2'); if(p2) p2.onchange=(e)=>{ flowPeriod=e.target.value; lastSig=''; renderFlow(); }; }
+  bindClick('flowPeriodRep', periodReport);
   $id('ffAgent').onchange=(e)=>{ flowAgent=e.target.value; lastSig=''; renderFlow(); };
   $id('ffGroup').onchange=(e)=>{ flowGroupBy=e.target.value; lastSig=''; renderFlow(); };
   const s=$id('ffSearch');
@@ -214,10 +220,9 @@ function renderNavTabs(v){
   const el=$id('navTabs'); if(!el) return;
   if(el.dataset.sig===('nav:'+v)) return; el.dataset.sig='nav:'+v;
   el.innerHTML=`<div class="ftabs">
-    <button class="ft" data-nv-scope="all">Tudo</button>
-    <button class="ft" data-nv-scope="mine">Minhas</button>
-    <button class="ft${v==='team'?' on':''}" data-nv-team>Do time</button>
+    <button class="ft" data-nv-scope="exec">Execução</button>
     <button class="ft" data-nv-scope="done">Concluídas</button>
+    <button class="ft${v==='team'?' on':''}" data-nv-team>Time</button>
     <span class="grow"></span>
     <button class="fvic${v==='flow'?' on':''}" data-nv-view="flow" title="Fluxo (lista)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>
     <button class="fvic${v==='kanban'?' on':''}" data-nv-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>
@@ -254,6 +259,12 @@ function renderFlowHead(){
   const vis=(state.tasks||[]).filter(t=>notHidden(t));
   const andamento=vis.filter(t=>['andamento','prontas','praberto'].includes(flowBucket(t))).length;
   const aguardando=vis.filter(t=>flowBucket(t)==='aguardando').length;
+  if(flowScope==='done'){
+    let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
+    const done=flowVisible(src); const prs=done.filter(t=>t.prUrl).length;
+    el.innerHTML=`<h1>Entregas concluídas</h1><div class="sub">${done.length} demanda${done.length===1?'':'s'}${prs?` · ${prs} PR${prs===1?'':'s'}`:''} · objetivos, provas e documentos de cada uma</div><span style="flex:1"></span>`;
+    return;
+  }
   el.innerHTML=`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
     <span style="flex:1"></span>`;
 }
@@ -488,12 +499,17 @@ function renderFlow(){
       : '<div class="empty">nenhuma tarefa neste filtro.</div>'; }
     else {
       grouped = flowGroupBy==='day';
-      const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowTaskRow(t));
+      const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowDemandCard(t));
+      const byProject = flowScope==='done' && projFilter==='all' && projList().length>1;
       if(grouped){
         const g=new Map();
         for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         const keys=[...g.keys()].sort((a,b)=>b-a);
         html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("");
+      } else if(byProject){
+        const g=new Map();
+        for(const t of tasks){ const k=t.repo||state.repo||''; if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
+        html = [...g.entries()].map(([k,list])=>`<div class="secgrp"><div class="sech"><span class="prjd" style="background:${projColor(k)};width:8px;height:8px;border-radius:99px;display:inline-block"></span>${esc(projShort(k))} <span class="n">${list.length}</span></div>${list.map(t=>item(t)).join("")}</div>`).join("");
       } else if(hasManual){
         html = tasks.map(t=>item(t)).join("");
       } else {
@@ -513,8 +529,8 @@ function renderFlow(){
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
-  el.querySelectorAll('.frow').forEach(row=>{
-    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-arch],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg]')) return;
+  el.querySelectorAll('.frow,.dcard').forEach(row=>{
+    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-arch],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg],[data-tmenu],[data-dcopen]')) return;
       const t=src.find(x=>x.id===row.dataset.id); if(!t) return;
       if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; }
       selected=t.id; render();
@@ -543,6 +559,7 @@ function renderFlow(){
     lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskSummary(b.dataset.sum); });
+  el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openWorkspace(t.id); });
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('[data-stmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openStatusMenu(b.dataset.stmenu, b); });
   el.querySelectorAll('.fcard:not(.ghost)').forEach(card=>{

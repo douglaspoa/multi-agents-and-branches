@@ -47,8 +47,12 @@ function tsCardHtml(t, me, isAdmin){
   const who=t.assignee||t.created_by;
   const running=TS_DOING.includes(t.status);
   const isErr=t.status==='error'||t.status==='conflict';
-  return `<div class="tscard" data-ct="${escA(t.id)}">
+  const obj=((t.spec||{}).objective||'').replace(/\s+/g,' ').slice(0,160);
+  const reqs=((t.spec||{}).requirements||[]).filter(Boolean);
+  return `<div class="tscard dcard-like" data-ct="${escA(t.id)}">
     <div class="tt">${esc(t.title)}</div>
+    ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
+    ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?'✓':st==='blk'?'!':'○'}</i>${esc(r)}</span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
     <div class="meta">${ep?`<span class="tsepc">◆ ${esc(ep)}</span>`:''}${t.pr_url?`<button class="mono" data-lk="${escA(t.pr_url)}" style="color:var(--accent);background:none;border:0;cursor:pointer;font-size:10px;padding:0">PR ↗</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" style="color:var(--text-2);background:none;border:0;cursor:pointer;font-size:10px;padding:0">${esc(c[1])} ↗</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>

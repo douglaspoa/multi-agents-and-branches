@@ -421,6 +421,7 @@
       <b class="mono" id="fwTaskName">Arquivos & chat</b>
       <span class="fwsub" id="fwTaskBranch"></span>
       <span class="phst" id="fwPhases" style="margin-left:12px"></span>
+      <span class="fwmodes" id="fwModes"></span>
       <span style="flex:1"></span>
       <span id="fwReviewBar" style="display:flex;gap:8px;align-items:center"></span>
       <button class="btn primary sm" id="fwPush" title="commita o que estiver solto e faz push da branch — o PR atualiza na hora"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px"><path d="M8 12.5v-8M4.5 8L8 4.5 11.5 8" stroke-linecap="round" stroke-linejoin="round"/></svg> commit &amp; push</button>
@@ -437,6 +438,16 @@
 
 
 
+<!-- lightbox das provas (prints) — setas navegam entre as evidências da demanda -->
+<div class="lbov" id="lbOverlay" style="display:none"><button class="lbx" id="lbClose" aria-label="fechar">✕</button><button class="lbnav lbprev" id="lbPrev" aria-label="anterior">‹</button><figure class="lbfig"><img id="lbImg" alt=""><figcaption class="lbcap" id="lbCap"></figcaption></figure><button class="lbnav lbnext" id="lbNext" aria-label="próxima">›</button></div>
+<!-- relatório gerado (entrega ou período): leitura + copiar/salvar/PDF -->
+<div class="overlay" id="repOverlay" style="display:none;z-index:96">
+  <div class="modal" style="width:min(820px,100%)">
+    <div class="mhead"><b id="repTitle">Relatório</b><span style="flex:1"></span><button class="x" id="repClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="repBody" style="max-height:70vh;overflow:auto"></div>
+    <div class="mfoot" id="repFoot"></div>
+  </div>
+</div>
 <div class="overlay" id="artOverlay" style="display:none">
   <div class="modal artmodal">
     <div class="mhead"><span class="artic" id="artIcon"></span><b id="artTitle"></b><span style="flex:1"></span><button class="x" id="artClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
@@ -597,6 +608,7 @@
 <script src="js/24-perguntas-agente.js"></script>
 <script src="js/25-grafo.js"></script>
 <script src="js/26-sidebar-projetos.js"></script>
+<script src="js/27-entregas.js"></script>
 <script src="js/29-ia-picker.js"></script>
 <script src="js/30-anexos.js"></script>
 <script src="js/31-nova-demanda-form.js"></script>

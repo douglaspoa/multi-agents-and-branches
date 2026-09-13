@@ -68,6 +68,7 @@ app/
       24-perguntas-agente.js  modal de resposta ao agente
       25-grafo.js             grafo git por trilhos
       26-sidebar-projetos.js  sidebar por projeto
+      27-entregas.js          card de demanda (Execução/Concluídas), aba Entrega (provas, docs, lightbox), relatório da entrega/período
       29-ia-picker.js         "Com qual IA?" — motor + modelo com ícones e recomendação
       30-anexos.js            anexos importados (chips, bloco [ANEXOS], composer: anexar/colar/arrastar)
       31-nova-demanda-form.js formulário por etapas, política do repo, épico, spec com IA

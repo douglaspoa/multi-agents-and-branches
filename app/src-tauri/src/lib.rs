@@ -2166,6 +2166,56 @@ fn ai_daily_report(text: String, date: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Relatório por DEMANDA (o que foi feito e por quê) ou por PERÍODO (várias entregas),
+/// escrito pela IA a partir dos fatos que o app já guarda (spec, provas, commits, PR).
+#[tauri::command(async)]
+fn ai_task_report(text: String, kind: String, label: String) -> Result<String, String> {
+    let ctx: String = text.chars().take(16000).collect();
+    let prompt = if kind == "periodo" {
+        format!(
+            "Você escreve um RELATÓRIO DE ENTREGAS do período para a liderança, em português (pt-BR), tom profissional e objetivo — foco em RESULTADO e IMPACTO no produto/negócio. Saída SOMENTE em Markdown bem formatado, começando com `# Relatório de entregas — {label}`.\n\n\
+             Estrutura: 1) RESUMO EXECUTIVO (2 a 4 frases). 2) Uma seção `## <nome da demanda>` por entrega, cada uma com **Entrega:** (o que passou a funcionar, em termos de produto), **Por quê:** (motivação/contexto), **Validação:** (o que foi comprovado — testes, prints, revisão) e, só quando houver decisão técnica relevante, **Nota técnica:** em linguagem acessível. 3) `## Pontos de atenção` só se houver pendências ou riscos.\n\n\
+             PROIBIDO citar hashes de commit, caminhos internos (.cardume etc.), status internos de execução, custos/tokens ou a frase 'não especificado'. Se um dado não estiver claro, não comente. Escreva com confiança, como um líder de produto.\n\n{ctx}"
+        )
+    } else {
+        format!(
+            "Você escreve o RELATÓRIO DE UMA ENTREGA de engenharia, em português (pt-BR), para o time e a liderança lerem: claro, objetivo, sem jargão de processo. Saída SOMENTE em Markdown bem formatado, começando com `# {label}`.\n\n\
+             Estrutura obrigatória:\n\
+             `## Resumo` — 2 a 3 frases: o que foi entregue e o valor pro usuário/negócio.\n\
+             `## O que foi feito` — lista do que passou a funcionar ou mudou, em termos de PRODUTO; cite o PR quando houver (número e link).\n\
+             `## Por quê` — o contexto e a motivação da demanda (use o objetivo e os requisitos).\n\
+             `## Como foi feito` — as decisões técnicas relevantes em linguagem acessível (arquitetura, integrações, trade-offs). Sem caminhos internos nem hashes.\n\
+             `## Validação` — o que foi comprovado: requisitos provados (com a evidência citada pelo nome do arquivo de prova/teste), testes rodados, revisão e como testar.\n\
+             `## Pendências` — SÓ se houver requisitos não provados, comentários abertos no PR ou próximos passos; senão omita a seção.\n\n\
+             PROIBIDO: hashes de commit, caminhos internos (.cardume etc.), status internos de execução (timeout, rework, 'em review'), custos/tokens, e frases como 'não informado'. Se um dado faltar, não comente.\n\n{ctx}"
+        )
+    };
+    let out = claude_cmd(&claude_bin())
+        .args(["-p", &prompt, "--model", "claude-sonnet-5"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Grava um artefato GERADO PELO APP (ex.: relatório da entrega) na pasta coletada
+/// do repo (.cardume/artifacts/<task-id>/) — aparece na lista de artefatos e persiste após o merge.
+#[tauri::command(async)]
+fn write_artifact(state: State<AppState>, task_id: String, name: String, content: String) -> Result<String, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") || name.trim().is_empty() {
+        return Err("nome de artefato inválido".into());
+    }
+    let repo = repo_of(&state)?;
+    let dir = repo.join(".cardume").join("artifacts").join(&task_id);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let p = dir.join(name.trim());
+    std::fs::write(&p, content).map_err(|e| e.to_string())?;
+    Ok(p.display().to_string())
+}
+
 /// Google Chrome (ou similar) pra gerar PDF via headless.
 fn chrome_bin() -> Option<String> {
     for p in [
@@ -4656,6 +4706,8 @@ pub fn run() {
             pick_ref_files,
             import_attachment,
             import_attachment_data,
+            ai_task_report,
+            write_artifact,
             save_config,
             import_agent_files,
             commit_detail,
