@@ -1618,8 +1618,6 @@
   <div class="top" data-tauri-drag-region>
     <button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>
     <span class="grow" data-tauri-drag-region></span>
-    <div class="topsearchwrap"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" style="opacity:.55"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg><input id="topSearch" class="topsearch" placeholder="Buscar tarefa ou projeto…" spellcheck="false"><span class="kbd" style="opacity:.5">⌘K</span></div>
-    <span class="grow" data-tauri-drag-region></span>
     <button class="btn" id="updBtn" style="display:none;background:color-mix(in srgb,var(--accent) 18%,var(--surface));border-color:var(--accent);color:var(--accent);font-weight:700" title="versão nova disponível — clique pra atualizar e reabrir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 10.6V3.2m0 0L5.3 5.9M8 3.2l2.7 2.7"/><path d="M3.4 12.6h9.2"/></svg>atualizar</button>
   </div>
 
@@ -3028,7 +3026,7 @@ if(!lsGet('onboarded')) setTimeout(openOnboarding, 900);
 // ---------- coach marks de primeira vez (redesign p17) ----------
 const COACH=[
   ['newTaskBtn','Tudo começa aqui','Descreva o que precisa em 1–2 frases — o assistente monta a spec e o time de agentes executa.'],
-  ['topSearch','Busca em tudo','Ache qualquer demanda pelo título — ou use ⌘K de qualquer lugar.'],
+  ['ffSearch','Busca em tudo','Ache qualquer demanda pelo título — ou use ⌘K de qualquer lugar.'],
   ['rail','Execução ao vivo','Os agentes rodando agora ficam aqui. Amarelo = um deles precisa de você.'],
 ];
 function coachStart(){
