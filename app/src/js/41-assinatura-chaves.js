@@ -173,8 +173,9 @@ function routeAiCfgHtml(){
   const model=raGet('ALT_AI_MODEL')||'logcomex-v2';
   const known=RA_MODELS.some(m=>m[0]===model);
   const sw=(id,on,dis)=>`<label class="sw"><input type="checkbox" id="${id}"${on?' checked':''}${dis?' disabled':''}><span class="tr"><span class="kn"></span></span></label>`;
-  return `<div class="seclbl2" style="margin-top:22px">Route AI <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· IA alternativa quando o Claude estourar</span></div>
-    <div class="dim" style="margin-top:5px;line-height:1.5">O agente continua sendo o <b>Claude Code</b> (todo o MCP do Constellation) — só o modelo por trás muda pro seu gateway. Config <b>individual</b> da sua conta.</div>
+  const label=raGet('ALT_AI_LABEL')||'', models=raGet('ALT_AI_MODELS')||'';
+  return `<div class="seclbl2" style="margin-top:22px">Gateway próprio <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· qualquer endpoint OpenAI-compatível da sua empresa (vLLM, LiteLLM, Azure, Ollama…)</span></div>
+    <div class="dim" style="margin-top:5px;line-height:1.5">Aparece como motor em "Com qual IA?" na hora de abrir a demanda e serve de <b>Route AI</b>: o agente continua sendo o <b>Claude Code</b> (todo o MCP do Constellation) — só o modelo por trás muda pro seu gateway. Config <b>individual</b> da sua conta.</div>
     ${!logged?`<div class="rawarn" style="margin-top:10px">Entre na conta (botão da nuvem, no topo) pra configurar — a chave fica no seu cofre pessoal.</div>`:`
     <div id="raPanel" style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r-sm);padding:13px 14px;background:var(--surface-2)">
       <label style="margin:0">Chave do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(fica só no seu cofre)</span></label>
@@ -185,6 +186,10 @@ function routeAiCfgHtml(){
       <select class="sel" id="raModel" style="width:100%;margin-top:6px"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
       <label style="margin-top:14px">Endpoint <span class="dim" style="text-transform:none;letter-spacing:0">(OpenAI-compatible)</span></label>
       <input class="in mono" id="raBase" value="${escA(baseUrl)}" placeholder="https://.../v1" style="margin-top:6px;font-size:12px"${hasKey?'':' disabled'}>
+      <div class="two" style="margin-top:14px">
+        <div><label style="margin:0">Nome do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(como aparece no app)</span></label><input class="in" id="raLabel" value="${escA(label)}" placeholder="ex.: Logcomex AI, LLM interno…" style="margin-top:6px"${hasKey?'':' disabled'}></div>
+        <div><label style="margin:0">Modelos disponíveis <span class="dim" style="text-transform:none;letter-spacing:0">(ids, separados por vírgula)</span></label><input class="in mono" id="raModels" value="${escA(models)}" placeholder="ex.: logcomex-v2, qwen3.8-27b" style="margin-top:6px;font-size:12px"${hasKey?'':' disabled'}></div>
+      </div>
       <div class="raopt${hasKey?'':' off'}" style="margin-top:14px">
         <div class="rin"><b>Fallback automático</b><div class="dim" style="margin-top:2px">Claude bateu limite → roteia pra cá e <b>continua na hora</b>.</div></div>
         ${sw('raFallback',fallback,!hasKey)}
@@ -216,6 +221,8 @@ function wireRouteAiCfg(root){
   { const b=$('raKeyEdit'); if(b) b.onclick=async()=>{ await secretDel('ALT_AI_KEY'); rerender(); }; }
   { const b=$('raModel'); if(b) b.onchange=e=>save('ALT_AI_MODEL',e.target.value); }
   { const b=$('raBase'); if(b) b.onchange=e=>save('ALT_AI_BASE_URL',e.target.value.trim()); }
+  { const b=$('raLabel'); if(b) b.onchange=e=>save('ALT_AI_LABEL',e.target.value.trim()); }
+  { const b=$('raModels'); if(b) b.onchange=e=>save('ALT_AI_MODELS',e.target.value.split(',').map(s=>s.trim()).filter(Boolean).join(',')); }
   { const b=$('raFallback'); if(b) b.onchange=e=>save('ALT_AI_FALLBACK',e.target.checked?'1':'0').then(rerender); }
   { const b=$('raAlways'); if(b) b.onchange=e=>save('ALT_AI_ALWAYS',e.target.checked?'1':'0').then(rerender); }
   { const tb=$('raTest'); if(tb) tb.onclick=async()=>{

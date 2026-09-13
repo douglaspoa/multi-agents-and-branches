@@ -46,11 +46,17 @@ export class Orchestrator {
   private engineFor(name: string, model: string | undefined, approval: TaskSpec["autonomy"]["approval"]): AgentEngine {
     if (name === "claude") return new ClaudeEngine({ model, approval });
     if (name === "codex") return new CodexEngine({ model });
-    if (name === "logcomex")
+    if (name === "gateway" || name === "logcomex") {
+      // gateway OpenAI-compatível da EMPRESA (URL/chave/modelos vêm do cofre da conta — Configurações → Gateway).
+      // "logcomex" é o nome antigo: sem config, cai nos padrões da Logcomex pra não quebrar tarefas existentes.
+      const alt = readAltConfig();
       return new CodexEngine({
-        model: model || "logcomex-v2", // DeepSeek V4 Flash 1M (padrão do servidor); qwen3.8-27b = 3x mais rápido
-        provider: { id: "logcomex", name: "Logcomex AI", baseUrl: "https://llm.logcomex.ai/v1", envKey: "LGCX_API_KEY" },
+        model: model || (alt?.model || "logcomex-v2"),
+        provider: alt
+          ? { id: "gateway", name: alt.label, baseUrl: alt.baseUrl, envKey: alt.keyVar }
+          : { id: "logcomex", name: "Logcomex AI", baseUrl: "https://llm.logcomex.ai/v1", envKey: "LGCX_API_KEY" },
       });
+    }
     return new MockEngine();
   }
 

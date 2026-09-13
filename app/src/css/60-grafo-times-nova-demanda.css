@@ -274,3 +274,37 @@
 .aimodel.on{border-color:var(--accent);background:rgba(63,214,138,.08)}
 .airec{margin-top:10px;font:400 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5)}
 .airec a{color:var(--accent);cursor:pointer}
+
+/* ===== Conta · times e membros (40-nuvem-conta.js) — linhas que não quebram, ações agrupadas ===== */
+#cloudOverlay .tmcard.tm2{border:1px solid rgba(255,255,255,.09);background:#101312;border-radius:12px;padding:16px 18px 14px;margin:0 0 12px}
+#cloudOverlay .tmcard.tm2:hover{border-color:rgba(255,255,255,.14)}
+.tmhead{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px}
+.tmtl{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.tmtl .tmtitle{font:600 16px/1.2 'Instrument Sans',sans-serif;color:#eaf2ee}
+.tmmeta{flex-basis:100%;font:400 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.45)}
+.tmr{display:flex;align-items:center;gap:8px;flex:none}
+.tmbadge.on{font:500 10.5px 'JetBrains Mono',monospace;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:99px;padding:3px 9px;background:rgba(63,214,138,.06)}
+.mlist{display:flex;flex-direction:column}
+.mlist.tm2{border:1px solid rgba(255,255,255,.08);border-radius:12px;background:#101312;padding:4px 14px;margin-top:8px}
+.mrow{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid rgba(255,255,255,.06);min-height:44px}
+.tmcard .mrow:first-child,.mlist.tm2 .mrow:first-child{border-top:0}
+.mav{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font:700 10px 'JetBrains Mono',monospace;color:#fff;flex:none}
+.mnm{flex:1;min-width:0;display:block;font:600 13.5px 'Instrument Sans',sans-serif;color:#eaf2ee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mnm .mme{display:inline-block;margin-left:6px;font:500 10px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:1px 5px;vertical-align:1px}
+.mnm .msub{display:block;margin-top:2px;font:400 11.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4)}
+.mrole{flex:none;font:500 10.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.45);border:1px solid rgba(255,255,255,.1);border-radius:99px;padding:3px 9px}
+.mrole.lead{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.macts{display:flex;align-items:center;gap:6px;flex:none}
+.mrm{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:7px;background:transparent;color:rgba(255,255,255,.4);cursor:pointer;padding:0}
+.mrm svg{width:14px;height:14px}
+.mrm:hover{color:var(--crit);border-color:color-mix(in srgb,var(--crit) 40%,transparent);background:color-mix(in srgb,var(--crit) 8%,transparent)}
+.mempty{font:400 12.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.4);padding:8px 0}
+.maddrow{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.08)}
+.maddrow .sel{flex:1;background-color:#0b0d0f;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 30px 8px 11px;font:400 13px 'Instrument Sans',sans-serif}
+#cloudOverlay .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.12);box-shadow:none;color:rgba(255,255,255,.72);font:500 12px 'Instrument Sans',sans-serif;border-radius:7px;padding:6px 11px}
+#cloudOverlay .btn.ghost:hover{color:#eaf2ee;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+.aicard.off{opacity:.55}
+.aicard.off.on{opacity:1}
+.aidesc a{color:var(--accent);cursor:pointer}
+.aicustom{display:flex;gap:8px;margin-top:8px;max-width:460px}
+.aicustom .in{flex:1;font-size:12.5px}

@@ -27,6 +27,8 @@ export interface AltConfig {
   label: string; // nome amigável pra UI/log
   always: boolean; // usar SEMPRE (modo teste)
   fallback: boolean; // usar quando o Claude bater limite de uso
+  keyVar: string; // variável do llm.env que guarda a chave (ALT_AI_KEY ou LGCX_API_KEY)
+  models: string[]; // ids de modelo que o gateway oferece (ALT_AI_MODELS, separados por vírgula)
 }
 
 /** Lê a config do Route AI do cofre da conta. Retorna null se não configurado. */
@@ -40,15 +42,21 @@ export function readAltConfig(): AltConfig | null {
     // Reaproveita a LGCX_API_KEY / gateway da Logcomex que a conta talvez já tenha
     // (motor "logcomex"), pra o Route AI funcionar só ligando os toggles.
     const baseUrl = (g("ALT_AI_BASE_URL") || "https://llm.logcomex.ai/v1").replace(/\/+$/, "");
-    const key = g("ALT_AI_KEY") || g("LGCX_API_KEY");
+    const keyVar = g("ALT_AI_KEY") ? "ALT_AI_KEY" : "LGCX_API_KEY";
+    const key = g(keyVar);
     if (!baseUrl || !key) return null;
+    const isLgcx = /logcomex/i.test(baseUrl);
+    const model = g("ALT_AI_MODEL") || (isLgcx ? "logcomex-v2" : "");
+    const models = g("ALT_AI_MODELS").split(",").map((s) => s.trim()).filter(Boolean);
     return {
       baseUrl,
       key,
-      model: g("ALT_AI_MODEL") || "logcomex-v2",
-      label: g("ALT_AI_LABEL") || "Logcomex AI",
+      model,
+      label: g("ALT_AI_LABEL") || (isLgcx ? "Logcomex AI" : "Gateway"),
       always: g("ALT_AI_ALWAYS") === "1",
       fallback: g("ALT_AI_FALLBACK") === "1",
+      keyVar,
+      models: models.length ? models : model ? [model] : [],
     };
   } catch {
     return null;
