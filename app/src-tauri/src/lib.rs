@@ -1034,7 +1034,9 @@ fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifac
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
                 if !wt.is_empty() {
-                    scan(&PathBuf::from(&wt).join(".cardume").join("artifacts"));
+                    let art = PathBuf::from(&wt).join(".cardume").join("artifacts");
+                    scan(&art);                       // topo (convenção)
+                    scan(&art.join(&task_id));         // subpasta <task-id> (alguns agentes escrevem aqui)
                 }
             }
         }
@@ -1066,8 +1068,11 @@ fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
         if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             if let Ok(conn) = open(&db) {
                 if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-                    let wp = PathBuf::from(&wt).join(".cardume").join("artifacts").join(&name);
-                    if wp.is_file() { path = wp; }
+                    let art = PathBuf::from(&wt).join(".cardume").join("artifacts");
+                    // topo (convenção) e subpasta <task-id> (alguns agentes escrevem lá)
+                    for wp in [art.join(&name), art.join(&task_id).join(&name)] {
+                        if wp.is_file() { path = wp; break; }
+                    }
                 }
             }
         }
@@ -2432,8 +2437,10 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
     if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-                let wp = PathBuf::from(&wt).join(".cardume").join("artifacts").join(name);
-                if wp.is_file() { return Ok(wp); }
+                let art = PathBuf::from(&wt).join(".cardume").join("artifacts");
+                for wp in [art.join(name), art.join(task_id).join(name)] {
+                    if wp.is_file() { return Ok(wp); }
+                }
             }
         }
     }
