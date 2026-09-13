@@ -3,6 +3,9 @@
 // Tudo fala com o Supabase (GoTrue) e com a function stripe-checkout que já existem.
 // Substitui o gate de login do cloudOverlay e o payOverlay (as duas funções são reapontadas no fim).
 const AU_STEPS_ORDER=['signup','confirm','plans','pay','ready'];
+// pra onde o LINK do e-mail leva (alternativa ao código): páginas do site
+const AU_SITE='https://constellation-ai-v1.lovable.app';
+const auRedir=path=>'?redirect_to='+encodeURIComponent(AU_SITE+path);
 let au={ step:'login', email:lsGet('sb:email')||'', name:'', confirmType:'signup', msg:'', busy:false, resendAt:0, plan:{ key:'team', interval:'month', seats:5 }, fromGate:false, waiting:false, backTo:null };
 let _auTimer=null;
 function auEl(){ return $id('authOverlay'); }
@@ -60,7 +63,7 @@ function auRender(){
     const go=async()=>{ au.name=$id('auName').value.trim(); au.email=$id('auEmail').value.trim(); const pass=$id('auPass').value;
       if(!auValidEmail(au.email)){ au.msg='informe um e-mail válido.'; auRender(); return; } if(pass.length<8){ au.msg='a senha precisa de 8+ caracteres.'; auRender(); return; }
       au.busy=true; auRender(); lsSet('sb:email',au.email);
-      try{ const j=await sbAuth('signup',{ email:au.email, password:pass, data:{ name:au.name } });
+      try{ const j=await sbAuth('signup'+auRedir('/confirmado'),{ email:au.email, password:pass, data:{ name:au.name } });
         if(j.access_token){ SB.setSess(j); await auAfterSession(); return; }
         au.confirmType='signup'; au.resendAt=Date.now()+60000; auShow('confirm'); }
       catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } };
@@ -82,9 +85,9 @@ function auRender(){
     bindClick('auGo', go); bindClick('auToSignup', ()=>auShow('signup'));
     bindClick('auGh', ()=>auOAuth('github')); bindClick('auGoogle', ()=>auOAuth('google'));
     bindClick('auForgot', async()=>{ au.email=$id('auEmail').value.trim(); if(!auValidEmail(au.email)){ au.msg='digite seu e-mail acima — o código de recuperação vai pra ele.'; auRender(); return; }
-      au.busy=true; auRender(); try{ await sbAuth('recover',{ email:au.email }); lsSet('sb:email',au.email); au.confirmType='recovery'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
+      au.busy=true; auRender(); try{ await sbAuth('recover'+auRedir('/redefinir-senha'),{ email:au.email }); lsSet('sb:email',au.email); au.confirmType='recovery'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
     bindClick('auMagic', async()=>{ au.email=$id('auEmail').value.trim(); if(!auValidEmail(au.email)){ au.msg='digite seu e-mail acima — o link mágico vai pra ele.'; auRender(); return; }
-      au.busy=true; auRender(); try{ await sbAuth('otp',{ email:au.email, create_user:false }); lsSet('sb:email',au.email); au.confirmType='magiclink'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
+      au.busy=true; auRender(); try{ await sbAuth('otp'+auRedir('/confirmado'),{ email:au.email, create_user:false }); lsSet('sb:email',au.email); au.confirmType='magiclink'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
     { const p=$id('auPass'); if(p) p.onkeydown=e=>{ if(e.key==='Enter') go(); }; }
   }
   else if(s==='confirm'){
@@ -110,7 +113,7 @@ function auRender(){
     if(inputs[0]&&!au.busy) inputs[0].focus();
     bindClick('auGo', go); bindClick('auToLogin', ()=>auShow('login'));
     bindClick('auResend', async()=>{ au.busy=true; auRender(); try{
-        if(au.confirmType==='signup') await sbAuth('resend',{ type:'signup', email:au.email }); else if(au.confirmType==='recovery') await sbAuth('recover',{ email:au.email }); else await sbAuth('otp',{ email:au.email, create_user:false });
+        if(au.confirmType==='signup') await sbAuth('resend'+auRedir('/confirmado'),{ type:'signup', email:au.email }); else if(au.confirmType==='recovery') await sbAuth('recover'+auRedir('/redefinir-senha'),{ email:au.email }); else await sbAuth('otp'+auRedir('/confirmado'),{ email:au.email, create_user:false });
         au.resendAt=Date.now()+60000; au.msg='✓ código reenviado'; }catch(e){ au.msg='Falhou: '+auErr(e); } au.busy=false; auRender(); });
     if(left>0){ if(_auTimer) clearInterval(_auTimer); _auTimer=setInterval(()=>{ if(au.step!=='confirm'||!auOpen()){ clearInterval(_auTimer); _auTimer=null; return; } const l=Math.max(0,Math.ceil((au.resendAt-Date.now())/1000)); const e=$id('auResendIn'); if(!e||l<=0){ clearInterval(_auTimer); _auTimer=null; auRender(); return; } e.textContent='reenviar em 0:'+String(l).padStart(2,'0'); },1000); }
   }
