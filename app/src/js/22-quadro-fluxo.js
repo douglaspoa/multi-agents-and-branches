@@ -125,14 +125,17 @@ function wireLinkChips(root){
 let flowScope=(lsGet('flowScope')==='done')?'done':'exec';   // all | mine | done (abas da Central)
 let ffAdvOpen=false;                        // filtros avançados recolhidos por padrão
 let flowLastHtml=null;                      // último HTML do flow — pula rebuild idêntico (evita piscar no hover)
-function flowVisible(tasks){
-  const q=flowQuery.trim().toLowerCase();
-  // Execução = o que está vivo (rascunho, rodando, review, PR aberto); Concluídas = mergeadas/encerradas
-  const scopeOk=t=> flowScope==='done'
+// Execução = o que está vivo (rascunho, rodando, review, PR aberto); Concluídas = mergeadas/encerradas.
+// Uma tarefa ENCERRADA (flag closed) mora em Concluídas mesmo que o status seja review/erro.
+function flowScopeOk(t){
+  return flowScope==='done'
     ? (t.flag==='closed'||['merged','done'].includes(t.status))
     : (notHidden(t) && !(t.flag==='closed'||['merged','done'].includes(t.status)));
+}
+function flowVisible(tasks){
+  const q=flowQuery.trim().toLowerCase();
   return tasks.filter(t=>
-    scopeOk(t) &&
+    flowScopeOk(t) &&
     (flowStatus==='all'||taskGroup(t)===flowStatus) &&
     (flowType==='all'||taskType(t)===flowType) &&
     inPeriod(t) &&
@@ -144,14 +147,19 @@ function renderFlowFilters(){
   const el=$id('flowFilters'); if(!el) return;
   // preserva foco/caret da busca (o poll pode re-renderizar durante digitação)
   const ae=document.activeElement, wasSearch=ae&&ae.id==='ffSearch', caret=wasSearch?ae.selectionStart:0;
-  const byPeriod=(state.tasks||[]).filter(t=>inPeriod(t)&&notHidden(t));
+  // os chips contam SÓ o que a aba atual (Execução/Concluídas) mostra — senão "Review 29" aparece
+  // com a lista vazia porque as 29 estão encerradas (moram em Concluídas)
+  let srcAll; try{ srcAll=boardSource(); }catch(_){ srcAll=(state.tasks||[]); }
+  const byPeriod=srcAll.filter(t=>inPeriod(t)&&flowScopeOk(t));
   const count=g=> g==='all'?byPeriod.length:byPeriod.filter(t=>taskGroup(t)===g).length;
-  const ST=[['all','Todas',null],['draft','Rascunho','var(--muted)'],['active','Rodando','var(--good)'],['review','Review','var(--warn)'],['merged','Merged','var(--info)'],['error','Erro','var(--crit)']];
+  const ST=[['all','Todas',null],['draft','Rascunho','var(--muted)'],['active','Rodando','var(--good)'],['review','Review','var(--warn)'],['merged','Merged','var(--info)'],['error','Erro','var(--crit)']]
+    .filter(([k])=>k==='all'||k===flowStatus||count(k)>0);
+  if(flowStatus!=='all' && count(flowStatus)===0 && !ST.some(([k])=>k===flowStatus)) flowStatus='all';
   let stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}">${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
-  const nBlocked=(state.tasks||[]).filter(t=>t.flag==='blocked'&&inPeriod(t)).length;
-  const nClosed=(state.tasks||[]).filter(t=>t.flag==='closed'&&inPeriod(t)).length;
+  // bloqueadas: escondidas por padrão em Execução (toggle); encerradas moram em Concluídas
+  const nBlocked=flowScope==='done'?0:srcAll.filter(t=>t.flag==='blocked'&&inPeriod(t)&&!(t.flag==='closed'||['merged','done'].includes(t.status))).length;
   if(nBlocked) stChips+=`<button class="fchip flagchip${flowShowBlocked?' on':''}" data-flag="blocked" title="mostrar/ocultar bloqueadas">${IC.pause} Bloqueadas<span class="n">${nBlocked}</span></button>`;
-  if(nClosed) stChips+=`<button class="fchip flagchip${flowShowClosed?' on':''}" data-flag="closed" title="mostrar/ocultar encerradas">${IC.checkc} Encerradas<span class="n">${nClosed}</span></button>`;
+  flowShowClosed=false;
   const PE=[['all','Todo período'],['today','Hoje'],['week','Últimos 7 dias'],['month','Últimos 30 dias']];
   const peOpts=PE.map(([k,label])=>`<option value="${k}"${flowPeriod===k?' selected':''}>${label}</option>`).join('');
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
