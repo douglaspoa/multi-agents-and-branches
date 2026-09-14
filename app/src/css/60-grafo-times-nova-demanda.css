@@ -506,3 +506,14 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .au-secure i{width:6px;height:6px;border-radius:99px;background:var(--accent)}
 
 .dc-model{font:500 10.5px 'JetBrains Mono',monospace;color:var(--muted)}
+
+/* "Com qual IA?" dentro do chat do planner */
+.plbub.plmodel{max-width:100%}
+.plmchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.plmchips .plchip.on{border-color:var(--accent);color:var(--accent)}
+.plmsave{display:flex;align-items:center;gap:7px;margin-top:10px;font-size:11.5px;color:var(--muted);cursor:pointer}
+.plmsave input{accent-color:var(--accent)}
+.plmtag{font:500 10px 'JetBrains Mono',monospace;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:4px;padding:1px 6px;margin-left:4px}
+.plmchg{color:var(--accent);cursor:pointer;margin-left:8px;font-size:12px}
+.plmodel.done{border-color:color-mix(in srgb,var(--accent) 30%,var(--border))}
+.aipick-pl .aieng{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}

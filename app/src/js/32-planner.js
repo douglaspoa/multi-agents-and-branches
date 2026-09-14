@@ -38,13 +38,13 @@ async function openPlanner(){
       plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou "novo" no topo pra começar do zero).'});
     }
   }catch(_){} }
-  if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê? (se for grande e tiver várias frentes, eu proponho um épico com tarefas em paralelo pra você aprovar)'}); }
+  if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê? (se for grande e tiver várias frentes, eu proponho um épico com tarefas em paralelo pra você aprovar)'}); plMsgs.push({who:'bot', kind:'model'}); }
   renderPlanner(); plRenderRefs();
   const i=$id('plInput'); if(i) i.focus();
 }
 async function plNew(){
   try{ await invoke('clear_draft'); }catch(_){}
-  plReset(); plMsgs.push({who:'bot', text:'Novo. Qual é o objetivo — o que precisa ser feito e por quê?'});
+  plReset(); plMsgs.push({who:'bot', text:'Novo. Qual é o objetivo — o que precisa ser feito e por quê?'}); plMsgs.push({who:'bot', kind:'model'});
   renderPlanner(); plRenderRefs();
 }
 function closePlanner(){ $id('plannerOverlay').style.display='none'; if(typeof closeTab==='function' && tabById('planner')) closeTab('planner'); }
@@ -61,8 +61,8 @@ function renderPlanner(){
   // chat
   const th=$id('plThread');
   const ci=document.activeElement, keep=(ci&&ci.id==='plInput'), iv=$id('plInput')?$id('plInput').value:null;
-  th.innerHTML=plMsgs.map(m=>`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span></div></div>':'')+plPlanCardHtml();
-  plWirePlanCard();
+  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span></div></div>':'')+plPlanCardHtml();
+  plWirePlanCard(); plWireModelCard(th);
   attRenderPend('plPend', plPend, renderPlanner);
   th.scrollTop=th.scrollHeight;
   // chips
@@ -85,6 +85,31 @@ function renderPlanner(){
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
   bindClick('plCreate', plCreate);
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
+}
+// ---- "Com qual IA?" no começo da conversa: usa o padrão do usuário ou escolhe (e pode salvar como padrão) ----
+function plModelCardHtml(m){
+  const d=aiDefaults(); const hasDef=!!d.model||d.eng!=='claude';
+  const lbl=(e,mo)=>`${aiModelName(mo)} · ${(AI_ENGINES.find(x=>x.id===e)||{}).name||e}`;
+  if(m.choice){ return `<div class="plmsg bot"><span class="plav">✦</span><div class="plbub plmodel done"><b>IA desta demanda:</b> ${esc(lbl(m.choice.eng,m.choice.model))}${m.choice.saved?' <span class="plmtag">salvo como padrão</span>':''} <a class="plmchg" data-plm="change">trocar</a></div></div>`; }
+  const quick=[['claude','claude-opus-4-8','Opus 4.8'],['claude','claude-sonnet-5','Sonnet 5'],['claude','claude-haiku-4-5-20251001','Haiku 4.5']];
+  return `<div class="plmsg bot"><span class="plav">✦</span><div class="plbub plmodel">
+    ${hasDef?`Com qual IA? Seu padrão é <b>${esc(lbl(d.eng,d.model))}</b>.`:`Com qual IA quer montar esta demanda? Você ainda não tem um <b>padrão</b> — escolha aqui e, se quiser, eu guardo como padrão pras próximas.`}
+    <div class="plmchips">${hasDef?`<button class="plchip on" data-plm="default">✓ usar o padrão · ${esc(aiModelName(d.model))}</button>`:''}${quick.filter(([e,mo])=>!(hasDef&&e===d.eng&&mo===d.model)).map(([e,mo,n])=>`<button class="plchip" data-plm="pick" data-eng="${e}" data-model="${mo}">${esc(n)}</button>`).join('')}<button class="plchip" data-plm="more">escolher… (Codex, gateway, outro id)</button></div>
+    ${m.open?`<div class="aipick aipick-pl" style="margin-top:10px"></div><div style="margin-top:8px"><button class="btn primary sm" data-plm="done">usar esta</button></div>`:''}
+    <label class="plmsave"><input type="checkbox" data-plm="save"${hasDef?'':' checked'}> salvar como padrão pras próximas demandas</label>
+  </div></div>`;
+}
+function plWireModelCard(th){
+  const m=plMsgs.find(x=>x.kind==='model'); if(!m) return;
+  const card=th.querySelector('.plmodel'); if(!card) return;
+  const saveOn=()=>{ const c=card.querySelector('[data-plm="save"]'); return !!(c&&c.checked); };
+  const choose=(eng,model)=>{ aiPickApply(eng, model); const saved=saveOn(); if(saved){ lsSet('defaultEngine',eng||'claude'); lsSet('defaultModel',model||''); } m.choice={eng,model,saved}; m.open=false; plFields.engine=`${(AI_ENGINES.find(x=>x.id===eng)||{}).name||eng} · ${aiModelName(model)}`; renderPlanner(); plAutoSave(); };
+  card.querySelectorAll('[data-plm="default"]').forEach(b=>b.onclick=()=>{ const d=aiDefaults(); choose(d.eng,d.model); });
+  card.querySelectorAll('[data-plm="pick"]').forEach(b=>b.onclick=()=>choose(b.dataset.eng,b.dataset.model));
+  card.querySelectorAll('[data-plm="more"]').forEach(b=>b.onclick=()=>{ m.open=true; renderPlanner(); });
+  card.querySelectorAll('[data-plm="done"]').forEach(b=>b.onclick=()=>{ const cur=AI_TARGET_FORM.get(); choose(cur.eng,cur.model); });
+  card.querySelectorAll('[data-plm="change"]').forEach(a=>a.onclick=()=>{ m.choice=null; m.open=false; renderPlanner(); });
+  if(m.open) aiPickRender();
 }
 // ---- preview aprovável de ÉPICO dentro do chat do planner ----
 function plPlanCardHtml(){
