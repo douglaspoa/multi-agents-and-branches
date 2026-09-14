@@ -12,6 +12,10 @@ struct TaskSpec: Decodable {
     let stat: Stat?
     let prInfo: PrInfo?
     let review: Review?
+    let modelRaw: String?
+    let engine: String?
+
+    enum CodingKeys: String, CodingKey { case objective, deliverables, requirements, kind, previewUrl, intent, intentResult, stat, prInfo, review, engine; case modelRaw = "model" }
 
     struct Intent: Decodable { let kind: String; let at: String? }
     struct IntentResult: Decodable { let kind: String; let ok: Bool; let msg: String?; let at: String? }
@@ -172,4 +176,35 @@ func agoPt(_ iso: String) -> String {
 func fmtUsd(_ v: Double?) -> String? {
     guard let v, v > 0 else { return nil }
     return String(format: "$%.2f", v)
+}
+
+// MARK: - IA / modelos (espelho de app/src/js/29-ia-picker.js)
+
+struct AIModel: Identifiable, Hashable {
+    let id: String          // id enviado no spec.model ("" = padrão da assinatura)
+    let name: String
+    let tag: String         // rótulo curto
+    let hint: String
+    var recommended = false
+    static let all: [AIModel] = [
+        AIModel(id: "claude-opus-4-8", name: "Opus 4.8", tag: "opus", hint: "o mais capaz pra código — recomendado", recommended: true),
+        AIModel(id: "claude-sonnet-5", name: "Sonnet 5", tag: "sonnet", hint: "equilíbrio entre custo e qualidade"),
+        AIModel(id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", tag: "haiku", hint: "o mais veloz e barato — tarefas simples"),
+        AIModel(id: "claude-fable-5-1", name: "Fable 5.1", tag: "fable", hint: "topo de linha — investigações difíceis"),
+        AIModel(id: "claude-opus-5", name: "Opus 5", tag: "opus5", hint: "geração nova do Opus"),
+    ]
+    static func named(_ id: String?) -> String {
+        guard let id, !id.isEmpty else { return "padrão" }
+        if let m = all.first(where: { $0.id == id }) { return m.name }
+        switch id { case "opus": return "Opus"; case "sonnet": return "Sonnet"; case "haiku": return "Haiku"; default: return id }
+    }
+    /// modelo padrão do usuário (Conta → IA padrão); "" = padrão da assinatura
+    static var userDefault: String {
+        get { UserDefaults.standard.string(forKey: "defaultModel") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "defaultModel") }
+    }
+}
+
+extension TaskSpec {
+    var model: String? { modelRaw }
 }

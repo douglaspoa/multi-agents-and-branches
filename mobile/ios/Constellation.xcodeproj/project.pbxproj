@@ -14,7 +14,7 @@
 		3B24267411CD08C3A61F1312 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E3911EDDDC2995CFB26A47 /* Components.swift */; };
 		5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */; };
 		5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */; };
-		77EEFAFACA1D5D5A187E6E3A /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F19BEBDCD6A770493FE488 /* LoginView.swift */; };
+		806AAE9A14135509032F8A97 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7812C9C5511C7D9F8842315 /* OnboardingView.swift */; };
 		82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */; };
 		B6F6997F1728F5A214E436DA /* Speech.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */; };
 		C179EC5E709344409D7B782F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 387991461E9C1C80C2CB9F32 /* Theme.swift */; };
@@ -43,11 +43,11 @@
 		5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		7F06584523C9DFF7B3567892 /* Constellation.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Constellation.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		95F19BEBDCD6A770493FE488 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skeleton.swift; sourceTree = "<group>"; };
 		BDA0728D17FC058100F378C6 /* ConstellationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstellationApp.swift; sourceTree = "<group>"; };
 		C676F8EF1536EC2AA4735422 /* CentralView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CentralView.swift; sourceTree = "<group>"; };
 		DEC089E05D5B5941A779A6FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F7812C9C5511C7D9F8842315 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		FA6D1939927FD6490D5CD700 /* TeamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -69,9 +69,9 @@
 				55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */,
 				BDA0728D17FC058100F378C6 /* ConstellationApp.swift */,
 				342ABDAB30C51C6523955582 /* Info.plist */,
-				95F19BEBDCD6A770493FE488 /* LoginView.swift */,
 				5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */,
 				33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */,
+				F7812C9C5511C7D9F8842315 /* OnboardingView.swift */,
 				15609A2FE9DB55DA327F7617 /* PushManager.swift */,
 				35F8F6081FFC033EA789D55E /* QuestionsView.swift */,
 				7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */,
@@ -169,9 +169,9 @@
 				0444AAF8100278E68229CB88 /* CentralView.swift in Sources */,
 				3B24267411CD08C3A61F1312 /* Components.swift in Sources */,
 				2EF14D8005488AB7157C4276 /* ConstellationApp.swift in Sources */,
-				77EEFAFACA1D5D5A187E6E3A /* LoginView.swift in Sources */,
 				82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */,
 				5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */,
+				806AAE9A14135509032F8A97 /* OnboardingView.swift in Sources */,
 				CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */,
 				E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */,
 				5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */,
@@ -196,14 +196,14 @@
 				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -281,14 +281,14 @@
 				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;

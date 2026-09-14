@@ -36,7 +36,7 @@ struct NewTaskView: View {
     @State private var reqs: [String] = []
     @State private var newReq = ""
     @State private var issue = ""
-    @State private var model = ""
+    @State private var model = AIModel.userDefault
     @State private var artDoc = false
     @State private var artProof = true
     @State private var artTests = false
@@ -122,11 +122,14 @@ struct NewTaskView: View {
                     Picker("Projeto", selection: $projectId) {
                         ForEach(projects) { p in Text(p.name).tag(p.id) }
                     }
-                    Picker("Modelo", selection: $model) {
+                    Picker("IA / modelo", selection: $model) {
                         Text("Padrão da assinatura").tag("")
-                        Text("Opus — o mais capaz").tag("opus")
-                        Text("Sonnet — equilíbrio").tag("sonnet")
-                        Text("Haiku — o mais veloz").tag("haiku")
+                        ForEach(AIModel.all) { m in
+                            Text(m.name + (m.recommended ? " — recomendado" : "") + (m.id == AIModel.userDefault ? " (seu padrão)" : "")).tag(m.id)
+                        }
+                    }
+                    if AIModel.userDefault.isEmpty {
+                        Text("Sem IA padrão ainda — defina em Conta → IA padrão pra já vir marcada.").font(.caption2).foregroundStyle(T.dim)
                     }
                 }
                 .listRowBackground(T.panel)

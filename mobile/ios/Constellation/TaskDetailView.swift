@@ -71,7 +71,7 @@ struct TaskDetailView: View {
             if isMine {
                 Picker("", selection: $tab) {
                     Text("Conversa").tag(0)
-                    Text("Requisitos · Provas").tag(1)
+                    Text("Entrega").tag(1)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 14).padding(.vertical, 7)

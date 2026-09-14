@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Quadro do time (leitura): rodando · pra review · finalizadas — com PR link.
+/// Minhas — sua órbita: chips (rodando · review · backlog · feitas) e cartões
+/// com faixa de status. `mine=false` mostra o quadro inteiro (mesmo layout).
 struct TasksView: View {
     @EnvironmentObject var supa: Supa
-    /// true = aba "Minhas" (só o que é meu — espelho do Fluxo pessoal do Mac)
+    @EnvironmentObject var router: PushRouter
     var mine = false
     @State private var tasks: [CloudTask] = []
     @State private var profiles: [String: Profile] = [:]
@@ -12,47 +13,56 @@ struct TasksView: View {
     @State private var showNew = false
     @State private var openTaskId: String? = nil
     @State private var openQ: Set<String> = []
-    @EnvironmentObject var router: PushRouter
+    @State private var filter = 0   // 0 rodando · 1 review · 2 backlog · 3 feitas
 
-    /// tarefas com pergunta ABERTA de agente — o mais urgente do quadro
     private var waiting: [CloudTask] { tasks.filter { openQ.contains($0.id) && $0.flag != "closed" } }
     private var doing: [CloudTask] { tasks.filter { !openQ.contains($0.id) && $0.flag != "closed" && ["running", "thinking", "queued", "plan-review", "requested", "error", "conflict"].contains($0.status) } }
-    private var review: [CloudTask] { tasks.filter { $0.flag != "closed" && ["review", "delivered"].contains($0.status) } }
+    private var review: [CloudTask] { tasks.filter { $0.flag != "closed" && (["review", "delivered"].contains($0.status) || ($0.prUrl != nil && !["merged", "done"].contains($0.status))) } }
     private var done: [CloudTask] { tasks.filter { $0.flag == "closed" || ["merged", "done"].contains($0.status) } }
-    private var backlog: [CloudTask] { tasks.filter { $0.flag != "closed" && $0.status == "backlog" } }
+    private var backlog: [CloudTask] { tasks.filter { $0.flag != "closed" && ["backlog", "draft"].contains($0.status) } }
+    private var lists: [[CloudTask]] { [waiting + doing, review, backlog, done] }
+    private let names = ["rodando", "review", "backlog", "feitas"]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if !loaded {
-                    BoardSkeleton()
-                } else {
-                    if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(T.warn) }
-                    if !waiting.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("⏳ ESPERANDO VOCÊ")
-                                .font(.system(.caption, design: .monospaced).bold())
-                                .foregroundStyle(T.warn).kerning(1)
-                            ForEach(waiting) { t in row(t) }
+        ZStack(alignment: .top) {
+            T.bg.ignoresSafeArea()
+            Starfield(seed: 9).frame(height: 380).frame(maxHeight: .infinity, alignment: .top)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    PageHeader(kicker: mine ? "Sua órbita" : "Quadro", title: mine ? "Minhas" : "Quadro",
+                               sub: loaded ? "\(tasks.count) tarefa\(tasks.count == 1 ? "" : "s") · \(lists[0].count) rodando agora" : "sincronizando…")
+                    if !loaded { BoardSkeleton() } else {
+                        if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(T.warn) }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(0..<4, id: \.self) { i in
+                                    Button { withAnimation(.easeOut(duration: 0.15)) { filter = i } } label: {
+                                        Chip(label: names[i], count: lists[i].count, on: filter == i)
+                                    }.buttonStyle(.plain)
+                                }
+                            }.padding(.horizontal, 1)
                         }
+                        let list = lists[filter]
+                        if list.isEmpty {
+                            Text(["nenhum agente rodando", "nada esperando review", "backlog vazio", "nada concluído ainda"][filter])
+                                .font(.system(size: 12.5)).foregroundStyle(T.dim2).padding(.vertical, 10)
+                        }
+                        ForEach(filter == 3 ? Array(list.prefix(40)) : list) { t in row(t) }
                     }
-                    section("● RODANDO AGORA", doing, empty: "nenhum agente rodando")
-                    section("◆ PRONTAS PRA REVIEW", review, empty: "nada esperando review")
-                    section("○ BACKLOG", backlog, empty: "backlog vazio")
-                    section("✓ FINALIZADAS", Array(done.prefix(20)), empty: "—")
                 }
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 96)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(14)
-            .animation(.easeOut(duration: 0.25), value: loaded)
+            .refreshable { await load() }
         }
-        .background(T.bg)
-        .refreshable { await load() }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { showNew = true } label: {
-                    Image(systemName: "plus.circle.fill").foregroundStyle(T.accent)
-                }
-            }
+        .overlay(alignment: .bottomTrailing) {
+            Button { showNew = true } label: {
+                Image(systemName: "plus").font(.system(size: 22, weight: .bold)).foregroundStyle(T.onAccent)
+                    .frame(width: 56, height: 56)
+                    .background(LinearGradient(colors: [T.accent, T.accent2], startPoint: .top, endPoint: .bottom))
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .shadow(color: T.accent.opacity(0.45), radius: 18, y: 6)
+            }.padding(.trailing, 20).padding(.bottom, 18)
         }
         .sheet(isPresented: $showNew) {
             NewTaskView { createdId in if !createdId.isEmpty { openTaskId = createdId } }
@@ -61,7 +71,6 @@ struct TasksView: View {
             TaskDetailView(taskId: id, title: tasks.first(where: { $0.id == id })?.title ?? "Tarefa")
         }
         .onChange(of: router.openTaskId) { _, id in
-            // toque numa notificação → abre o detalhe da tarefa (aba Minhas)
             if mine, let id { openTaskId = id; router.openTaskId = nil }
         }
         .task {
@@ -75,94 +84,54 @@ struct TasksView: View {
     }
 
     @ViewBuilder
-    private func section(_ title: String, _ list: [CloudTask], empty: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.system(.caption, design: .monospaced).bold())
-                    .foregroundStyle(T.dim).kerning(1)
-                if !list.isEmpty {
-                    Text("\(list.count)")
-                        .font(.system(.caption2, design: .monospaced).bold())
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(T.line).foregroundStyle(T.text.opacity(0.8))
-                        .clipShape(Capsule())
-                }
-            }
-            if list.isEmpty {
-                Text(empty).font(.caption).foregroundStyle(T.dim.opacity(0.6))
-            }
-            ForEach(list) { t in row(t) }
-        }
-    }
-
-    @ViewBuilder
     private func row(_ t: CloudTask) -> some View {
         let st = T.status(t.status, flag: t.flag)
-        Button { openTaskId = t.id } label: { rowBody(t, st) }
-            .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private func rowBody(_ t: CloudTask, _ st: (String, Color)) -> some View {
         let isWaiting = openQ.contains(t.id)
-        VStack(alignment: .leading, spacing: 7) {
-            if isWaiting {
-                Text("⏳ o agente fez uma pergunta — toque pra responder")
-                    .font(.system(.caption2, design: .monospaced).bold())
-                    .foregroundStyle(T.warn)
-            }
-            Text(t.title).font(.subheadline).foregroundStyle(T.text).lineLimit(2)
-            PhaseBar(phase: T.phase(t))
-            HStack(spacing: 8) {
-                Circle().fill(st.1).frame(width: 7, height: 7)
-                Text(st.0).font(.system(.caption2, design: .monospaced)).foregroundStyle(st.1)
-                    .lineLimit(1).fixedSize()
-                if let b = t.branch, let m = b.range(of: #"[A-Z]{2,10}-\d+"#, options: .regularExpression) {
-                    Text(String(b[m])).font(.system(.caption2, design: .monospaced))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(T.info.opacity(0.15)).foregroundStyle(T.info)
-                        .clipShape(Capsule())
+        Button { openTaskId = t.id } label: {
+            VStack(alignment: .leading, spacing: 9) {
+                if isWaiting {
+                    Text("⏳ o agente fez uma pergunta — toque pra responder").font(.mono(10.5, .bold)).foregroundStyle(T.warn)
                 }
-                if let who = t.assignee ?? t.createdBy, let p = profiles[who] {
-                    Text(p.name ?? p.email ?? "").font(.caption2).foregroundStyle(T.dim).lineLimit(1)
-                }
-                Spacer()
-                if let c = t.costUsd, c > 0 {
-                    Text(String(format: "$%.2f", c)).font(.system(.caption2, design: .monospaced)).foregroundStyle(T.dim)
-                }
-                if let pr = t.prUrl, let url = URL(string: pr) {
-                    Link(destination: url) {
-                        Text("PR ↗").font(.system(.caption2, design: .monospaced).bold()).foregroundStyle(T.accent)
+                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                ProgressLine(pct: T.pct(t), color: isWaiting ? T.warn : st.1)
+                HStack(spacing: 8) {
+                    Text(isWaiting ? "esperando você" : st.0).font(.mono(11)).foregroundStyle(isWaiting ? T.warn : st.1).lineLimit(1).fixedSize()
+                    if let code = t.issueCode {
+                        Text(code).font(.mono(10)).padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(T.info.opacity(0.15)).foregroundStyle(T.info).clipShape(Capsule())
+                    }
+                    if !mine, let who = t.assignee ?? t.createdBy, let p = profiles[who] {
+                        Text(p.name ?? p.email ?? "").font(.system(size: 11)).foregroundStyle(T.dim).lineLimit(1)
+                    }
+                    Spacer()
+                    HStack(spacing: 5) {
+                        if let c = fmtUsd(t.costUsd) { Text(c).font(.mono(11)).foregroundStyle(T.dim2) }
+                        if t.prUrl != nil { Text("· PR ↗").font(.mono(11)).foregroundStyle(T.dim2) }
+                        Text("· \(agoPt(t.updatedAt))").font(.mono(11)).foregroundStyle(T.dim2)
                     }
                 }
-                Text(agoPt(t.updatedAt)).font(.caption2).foregroundStyle(T.dim)
             }
+            .card(stroke: isWaiting ? T.warn.opacity(0.5) : T.line)
+            .rail(isWaiting ? T.warn : st.1)
         }
-        .card()
-        .overlay(alignment: .leading) {
-            // faixa de status à esquerda — leitura de relance, como no desktop
-            UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10)
-                .fill(st.1.opacity(0.75)).frame(width: 3)
-        }
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isWaiting ? T.warn.opacity(0.55) : .clear, lineWidth: 1.5))
+        .buttonStyle(.plain)
     }
 
     private func load() async {
         do {
             let me = supa.session?.userId ?? ""
             let filter = mine ? "&or=(assignee.eq.\(me),created_by.eq.\(me))" : ""
-            // perguntas abertas → seção "esperando você" (o mais urgente primeiro)
             if let qd = try? await supa.rest("questions?select=task_id&status=eq.open&limit=50"),
                let qs = try? JSONSerialization.jsonObject(with: qd) as? [[String: Any]] {
                 let ids = Set(qs.compactMap { $0["task_id"] as? String })
                 await MainActor.run { openQ = ids }
             }
-            let data = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at\(filter)&order=updated_at.desc&limit=150")
+            let data = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at,spec,requirements_proof\(filter)&order=updated_at.desc&limit=150")
             let ts = try JSONDecoder().decode([CloudTask].self, from: data)
             var profs = profiles
             let missing = Set(ts.compactMap { $0.assignee ?? $0.createdBy }).subtracting(profs.keys)
-            if !missing.isEmpty {
+            if !mine, !missing.isEmpty {
                 let list = missing.map { "\"\($0)\"" }.joined(separator: ",")
                 if let pd = try? await supa.rest("profiles?select=user_id,name,email&user_id=in.(\(list))"),
                    let ps = try? JSONDecoder().decode([Profile].self, from: pd) {

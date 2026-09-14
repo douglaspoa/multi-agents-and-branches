@@ -1,22 +1,20 @@
 import SwiftUI
 
 /// Tela 01 — Central: a fila na ordem em que ela te cobra.
+/// Redesign: cabeçalho com eyebrow + AO VIVO, faixa de números, EM ÓRBITA
+/// (agentes rodando) e ESPERAM VOCÊ (entregas prontas + perguntas).
 struct CentralView: View {
     @EnvironmentObject var supa: Supa
     @EnvironmentObject var router: PushRouter
     @State private var tasks: [CloudTask] = []
     @State private var questions: [Question] = []
     @State private var lastFeed: [String: FeedItem] = [:]   // taskId → última fala
-    @State private var projects: [Epic] = []                 // id,name (reuso do shape)
-    @State private var projFilter: String? = nil
     @State private var loaded = false
     @State private var showNew = false
     @State private var openTaskId: String? = nil
     @State private var answering: Set<String> = []
 
-    private var visible: [CloudTask] {
-        tasks // filtro de projeto entra quando project_id estiver no select
-    }
+    private var visible: [CloudTask] { tasks }
     private var qByTask: [String: Question] {
         Dictionary(questions.compactMap { q in q.taskId.map { ($0, q) } }, uniquingKeysWith: { a, _ in a })
     }
@@ -26,7 +24,7 @@ struct CentralView: View {
         return owner == nil || owner == me
     }
     // "esperando VOCÊ" é literal: só perguntas de demanda SUA (o banco também
-    // recusa resposta de terceiro — 0013). As dos outros seguem em "rodando".
+    // recusa resposta de terceiro — 0013). As dos outros seguem em órbita.
     private var waiting: [CloudTask] { visible.filter { qByTask[$0.id] != nil && $0.flag != "closed" && mine($0) } }
     private var running: [CloudTask] { visible.filter { (qByTask[$0.id] == nil || !mine($0)) && $0.flag != "closed" && ["running", "thinking", "queued", "requested", "plan-review", "error", "conflict"].contains($0.status) } }
     private var ready: [CloudTask] { visible.filter { $0.flag != "closed" && ["review", "delivered"].contains($0.status) && $0.prUrl == nil } }
@@ -34,42 +32,41 @@ struct CentralView: View {
     private var doneToday: [CloudTask] {
         visible.filter { $0.flag == "closed" || ["merged", "done"].contains($0.status) }.prefix(8).map { $0 }
     }
+    private var cost: Double { visible.compactMap { $0.costUsd }.reduce(0, +) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if !loaded { BoardSkeleton() } else {
-                    daily
-                    if !waiting.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            kicker("⏳ ESPERANDO VOCÊ", T.warn, count: waiting.count)
-                            ForEach(waiting) { t in questionCard(t) }
+        ZStack(alignment: .top) {
+            T.bg.ignoresSafeArea()
+            Starfield(seed: 5).frame(height: 420).frame(maxHeight: .infinity, alignment: .top)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    PageHeader(kicker: "Constellation", title: "Central",
+                               sub: loaded ? "\(running.count) agente\(running.count == 1 ? "" : "s") em órbita · \(ready.count + waiting.count) entrega\(ready.count + waiting.count == 1 ? "" : "s") esperando você" : "sincronizando com a nuvem…",
+                               live: true)
+                    if !loaded { BoardSkeleton() } else {
+                        StatRow(items: [
+                            .init(value: "\(running.count)", label: "em órbita"),
+                            .init(value: "\(ready.count + waiting.count)", label: "esperam você", color: T.accent),
+                            .init(value: String(format: "$%.0f", cost), label: "custo"),
+                        ])
+                        section("em órbita", T.warn, running, empty: "nenhum agente rodando — bora criar a próxima?") { t in orbitCard(t) }
+                        if !waiting.isEmpty || !ready.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                kicker("esperam você", T.accent, count: waiting.count + ready.count, dot: true)
+                                ForEach(waiting) { t in questionCard(t) }
+                                ForEach(ready) { t in readyCard(t) }
+                            }
                         }
-                    }
-                    section("● RODANDO AGORA", T.accent, running, empty: "nenhum agente rodando") { t in runningCard(t) }
-                    section("◆ PRONTAS PRA REVISAR", T.accent, ready, empty: "nada esperando revisão") { t in readyCard(t) }
-                    section("⇱ PR ABERTO", T.info, prOpen, empty: nil) { t in prCard(t) }
-                    section("✓ CONCLUÍDAS HOJE", T.dim, doneToday, empty: nil) { t in doneRow(t) }
-                    if waiting.isEmpty && running.isEmpty && ready.isEmpty && prOpen.isEmpty {
-                        VStack(spacing: 8) {
-                            Text("✓ Fila limpa").font(.system(size: 17, weight: .bold)).foregroundStyle(T.accent)
-                            Text("nada esperando você — bora criar a próxima?").font(.system(size: 13)).foregroundStyle(T.dim)
-                        }.frame(maxWidth: .infinity).padding(.vertical, 30)
+                        section("PR aberto", T.info, prOpen, empty: nil) { t in prCard(t) }
+                        section("concluídas hoje", T.dim, doneToday, empty: nil) { t in doneRow(t) }
                     }
                 }
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 96)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(16).padding(.bottom, 80)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .refreshable { await load() }
         }
-        .background(T.bg)
-        .refreshable { await load() }
-        .overlay(alignment: .bottomTrailing) {
-            Button { showNew = true } label: {
-                Text("＋").font(.system(size: 26, weight: .bold)).foregroundStyle(T.onAccent)
-                    .frame(width: 56, height: 56).background(T.accent).clipShape(Circle())
-                    .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
-            }.padding(20)
-        }
+        .overlay(alignment: .bottomTrailing) { fab }
         .sheet(isPresented: $showNew) { NewTaskView { id in if !id.isEmpty { openTaskId = id } } }
         .navigationDestination(item: $openTaskId) { id in
             TaskDetailView(taskId: id, title: tasks.first(where: { $0.id == id })?.title ?? "Tarefa")
@@ -91,13 +88,23 @@ struct CentralView: View {
         }
     }
 
+    private var fab: some View {
+        Button { showNew = true } label: {
+            Image(systemName: "plus").font(.system(size: 22, weight: .bold)).foregroundStyle(T.onAccent)
+                .frame(width: 56, height: 56)
+                .background(LinearGradient(colors: [T.accent, T.accent2], startPoint: .top, endPoint: .bottom))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .shadow(color: T.accent.opacity(0.45), radius: 18, y: 6)
+        }.padding(.trailing, 20).padding(.bottom, 18)
+    }
+
     // ---- seções ----
     @ViewBuilder private func section(_ label: String, _ color: Color, _ list: [CloudTask], empty: String?, @ViewBuilder row: @escaping (CloudTask) -> some View) -> some View {
         if !list.isEmpty || empty != nil {
             VStack(alignment: .leading, spacing: 10) {
-                kicker(label, color, count: list.count)
+                kicker(label, color, count: list.count, dot: true)
                 if list.isEmpty, let e = empty {
-                    Text(e).font(.system(size: 12)).foregroundStyle(T.dim2)
+                    Text(e).font(.system(size: 12.5)).foregroundStyle(T.dim2).padding(.vertical, 6)
                 }
                 ForEach(list) { t in
                     Button { openTaskId = t.id } label: { row(t) }.buttonStyle(.plain)
@@ -106,41 +113,48 @@ struct CentralView: View {
         }
     }
 
-    private var daily: some View {
-        let done = doneToday.count
-        let cost = visible.compactMap { $0.costUsd }.reduce(0, +)
-        return HStack(spacing: 14) {
-            stat("\(done)", "entregas hoje")
-            stat("\(running.count)", "rodando")
-            stat(String(format: "$%.0f", cost), "custo")
-            Spacer()
-            HStack(spacing: 5) { BlinkDot(); Text("AO VIVO").font(.system(size: 9, design: .monospaced).bold()).foregroundStyle(T.accent) }
+    // ---- cards ----
+    /// EM ÓRBITA: avatar do agente + título + última fala + barra + status · custo · tempo
+    private func orbitCard(_ t: CloudTask) -> some View {
+        let st = T.status(t.status, flag: t.flag)
+        let who = t.issueCode ?? String(t.id.suffix(2))
+        return HStack(alignment: .top, spacing: 12) {
+            Av(name: who, size: 30)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let f = lastFeed[t.id] {
+                    let g = feedGlyph(f.kind)
+                    HStack(spacing: 6) {
+                        Text(g.0).font(.mono(11)).foregroundStyle(g.1)
+                        Text(f.text).font(.mono(11)).foregroundStyle(T.dim).lineLimit(1).truncationMode(.tail)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ProgressLine(pct: T.pct(t), color: st.1)
+                HStack(spacing: 8) {
+                    Text(st.0).font(.mono(11)).foregroundStyle(st.1)
+                    if t.spec?.previewUrl != nil { Text("· preview no ar").font(.mono(11)).foregroundStyle(T.accent) }
+                    Spacer()
+                    Text([fmtUsd(t.costUsd), agoPt(t.updatedAt)].compactMap { $0 }.joined(separator: " · "))
+                        .font(.mono(11)).foregroundStyle(T.dim2)
+                }
+            }
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .background(T.panel).overlay(RoundedRectangle(cornerRadius: 14).stroke(T.line))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-    }
-    private func stat(_ v: String, _ l: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(v).font(.system(size: 17, design: .monospaced).bold()).foregroundStyle(T.text)
-            Text(l).font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.dim)
-        }
+        .card()
+        .rail(agentColor(who))
     }
 
-    // ---- cards ----
-    /// 5.3 — pergunta com as opções DIRETO no card
+    /// pergunta com as opções DIRETO no card
     private func questionCard(_ t: CloudTask) -> some View {
         let q = qByTask[t.id]!
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Av(name: q.agent, size: 22)
-                Text("\(q.agent.uppercased()) · PERGUNTOU").font(.system(size: 10, design: .monospaced).bold()).foregroundStyle(T.warn)
+                Text("\(q.agent) · perguntou".uppercased()).font(.mono(10, .bold)).kerning(1).foregroundStyle(T.warn)
                 Spacer()
-                Text(agoPt(q.createdAt)).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim)
+                Text(agoPt(q.createdAt)).font(.mono(10.5)).foregroundStyle(T.dim)
             }
-            Text(t.title).font(.system(size: 12, design: .monospaced)).foregroundStyle(T.dim).lineLimit(1)
-            // card é resumo: mostra o começo (toca pra ler tudo no detalhe);
-            // markdown + largura travada pra não escorregar pro lado
+            Text(t.title).font(.mono(12)).foregroundStyle(T.dim).lineLimit(1)
             mdText(q.prompt, size: 14, color: T.text)
                 .lineLimit(6)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,68 +171,51 @@ struct CentralView: View {
                     }
                 }
                 Button { openTaskId = t.id } label: {
-                    Text("✎ responder com minhas palavras").font(.system(size: 12, design: .monospaced)).foregroundStyle(T.dim)
+                    Text("✎ responder com minhas palavras").font(.mono(12)).foregroundStyle(T.dim)
                 }
             }
         }
         .card(stroke: T.warn.opacity(0.4))
+        .rail(T.warn)
         .contentShape(Rectangle())
         .onTapGesture { openTaskId = t.id }
     }
 
-    private func runningCard(_ t: CloudTask) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                BlinkDot(color: T.warn)
-                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(1)
-                Spacer()
-                Text("\(T.pct(t))%").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim)
-            }
-            PhaseBar(phase: t.phase)
-            if let f = lastFeed[t.id] {
-                HStack(spacing: 6) {
-                    let g = feedGlyph(f.kind)
-                    Text(g.0).font(.system(size: 11, design: .monospaced)).foregroundStyle(g.1)
-                    // trava a largura + truncamento: sem isso, uma linha longa do
-                    // feed estica o card e a Central escorrega pro lado
-                    Text(f.text).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(T.dim)
-                        .lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            HStack(spacing: 10) {
-                if let a = t.assignee ?? t.createdBy { Av(name: a, size: 18) }
-                if t.spec?.previewUrl != nil {
-                    Text("🌐 preview no ar").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.accent)
-                }
-                Spacer()
-                if let c = fmtUsd(t.costUsd) { Text(c).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim) }
-                Text(agoPt(t.updatedAt)).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim2)
-            }
-        }.card()
-    }
-
+    /// ESPERAM VOCÊ: entrega pronta — provas + "aprovar e abrir PR" + "ver"
     private func readyCard(_ t: CloudTask) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Text("◆").foregroundStyle(T.accent)
-                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
+                if let r = t.reqsProved {
+                    Text("✓ \(r.done)/\(r.total) requisitos provados").font(.mono(11)).foregroundStyle(r.done == r.total ? T.accent : T.warn)
+                } else {
+                    Text("✓ entrega pronta pra revisar").font(.mono(11)).foregroundStyle(T.accent)
+                }
                 Spacer()
-            }
-            PhaseBar(phase: t.phase)
-            if let r = t.reqsProved {
-                Text("✓ \(r.done)/\(r.total) requisitos provados")
-                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(r.done == r.total ? T.accent : T.warn)
+                Text("\(t.kind == "invest" ? "Investigador" : t.kind == "design" ? "Designer" : "Coder") · \(agoPt(t.updatedAt))").font(.mono(11)).foregroundStyle(T.dim2)
             }
             if t.spec?.intent?.kind == "openPr" {
                 IntentPill(label: "o Mac está executando · abrir PR")
             } else {
-                BigButton(label: "aprovar e abrir PR") { sendIntent(t, "openPr") }
+                HStack(spacing: 8) {
+                    Button { sendIntent(t, "openPr") } label: {
+                        Text("aprovar e abrir PR").font(.system(size: 13.5, weight: .semibold))
+                            .frame(maxWidth: .infinity).frame(height: 44)
+                            .background(T.accent).foregroundStyle(T.onAccent)
+                            .clipShape(RoundedRectangle(cornerRadius: 11))
+                    }.buttonStyle(.plain)
+                    OutlineButton(label: "ver") { openTaskId = t.id }
+                }
             }
             if let res = t.spec?.intentResult, res.ok == false, res.kind == "openPr" {
                 Text("✖ \(res.msg ?? "falhou")").font(.system(size: 11.5)).foregroundStyle(T.bad)
             }
-        }.card(stroke: T.accent.opacity(0.35))
+        }
+        .card(stroke: T.accent.opacity(0.3))
+        .rail(T.accent)
+        .contentShape(Rectangle())
+        .onTapGesture { openTaskId = t.id }
     }
 
     private func prCard(_ t: CloudTask) -> some View {
@@ -226,28 +223,28 @@ struct CentralView: View {
         let open = (pr?.comments ?? []).filter { !($0.answered ?? false) }.count
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("⇱").foregroundStyle(T.info)
-                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(1)
+                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
                 Spacer()
-                if let n = pr?.number { Text("#\(n)").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(T.info) }
+                if let n = pr?.number { Text("#\(n)").font(.mono(11.5, .bold)).foregroundStyle(T.info) }
             }
-            PhaseBar(phase: 5)
+            ProgressLine(pct: 92, color: T.info)
             HStack(spacing: 10) {
-                if pr?.decision == "APPROVED" { Text("✓ aprovado").font(.system(size: 11, design: .monospaced)).foregroundStyle(T.accent) }
-                else if pr?.decision == "CHANGES_REQUESTED" { Text("mudanças pedidas").font(.system(size: 11, design: .monospaced)).foregroundStyle(T.warn) }
-                if open > 0 { Text("\(open) comentário\(open == 1 ? "" : "s") aberto\(open == 1 ? "" : "s")").font(.system(size: 11, design: .monospaced)).foregroundStyle(T.warn) }
+                if pr?.decision == "APPROVED" { Text("✓ aprovado").font(.mono(11)).foregroundStyle(T.accent) }
+                else if pr?.decision == "CHANGES_REQUESTED" { Text("mudanças pedidas").font(.mono(11)).foregroundStyle(T.warn) }
+                else { Text("PR aberto").font(.mono(11)).foregroundStyle(T.info) }
+                if open > 0 { Text("\(open) comentário\(open == 1 ? "" : "s") aberto\(open == 1 ? "" : "s")").font(.mono(11)).foregroundStyle(T.warn) }
                 Spacer()
-                Text(agoPt(t.updatedAt)).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim2)
+                Text(agoPt(t.updatedAt)).font(.mono(11)).foregroundStyle(T.dim2)
             }
-        }.card()
+        }.card().rail(T.info)
     }
 
     private func doneRow(_ t: CloudTask) -> some View {
         HStack(spacing: 9) {
-            Text("✓").foregroundStyle(T.dim2)
+            Text("✓").font(.mono(12, .bold)).foregroundStyle(T.dim2)
             Text(t.title).font(.system(size: 13)).foregroundStyle(T.dim).lineLimit(1)
             Spacer()
-            if let n = t.spec?.prInfo?.number { Text("#\(n)").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim2) }
+            if let n = t.spec?.prInfo?.number { Text("#\(n)").font(.mono(10.5)).foregroundStyle(T.dim2) }
         }.padding(.vertical, 5)
     }
 
@@ -274,7 +271,6 @@ struct CentralView: View {
             }
             let data = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at,spec,requirements_proof&order=updated_at.desc&limit=120")
             let ts = try JSONDecoder().decode([CloudTask].self, from: data)
-            // última fala das rodando (1 query, mapeia a primeira por tarefa)
             var feed: [String: FeedItem] = [:]
             if let fd = try? await supa.rest("task_feed?select=id,task_id,agent,kind,text&order=id.desc&limit=80"),
                let fs = try? JSONDecoder().decode([FeedItem].self, from: fd) {
