@@ -42,6 +42,7 @@ $id('cfgBtn').onclick=openCfg;
 /* ===== MOTOR DE ABAS (Chrome-style): as views que eram janela viram aba ===== */
 const VIEW_META={
   projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
+  orq:{title:'Orquestrador',icon:'<circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="1.8"/><circle cx="12" cy="12" r="1.8"/><path d="M6 7.2l4.2-2.4M6 8.8l4.2 2.4"/>'},
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
   planner:{title:'Montar conversando',icon:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>'},
   form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
@@ -55,11 +56,11 @@ const VIEW_META={
   agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
+const VIEW_OVERLAY={ orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // abridores que POPULAM+mostram cada view (os bloco-1 vêm via window)
 function viewOpen(kind){
-  const f={ projetos:()=>openProjetos(), nova:()=>openNovaStart(), planner:()=>openPlanner(), form:()=>openNewTask(), skills:()=>openSkills(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+  const f={ orq:()=>window.openOrq&&window.openOrq(), projetos:()=>openProjetos(), nova:()=>openNovaStart(), planner:()=>openPlanner(), form:()=>openNewTask(), skills:()=>openSkills(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); } }[kind];
   if(f) f();

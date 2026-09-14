@@ -417,6 +417,9 @@ struct Task {
     flag: Option<String>,
     auto_pr: Option<String>,
     linked_to: Option<String>,
+    /// Plano do orquestrador que criou esta tarefa ({id,title,phase}) e de quem ela depende.
+    orchestration: Option<serde_json::Value>,
+    depends_on: Vec<String>,
     /// Um turno do MOTOR está rodando agora (lock busy_pid vivo) — pode ser um
     /// turno de fundo (verificar provas, rework) mesmo com status 'review'.
     busy: bool,
@@ -1439,6 +1442,8 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 flag: r.get::<_, Option<String>>(15).unwrap_or(None),
                 auto_pr: spec.get("autoPr").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 linked_to: spec.get("linkedTo").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                orchestration: spec.get("orchestration").filter(|v| v.is_object()).cloned(),
+                depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
                 busy: r
                     .get::<_, Option<i64>>(16)
                     .unwrap_or(None)
@@ -2493,6 +2498,128 @@ fn set_task_model(state: State<AppState>, task_id: String, model: String) -> Res
         params![task_id, now_ms(), format!("modelo trocado para {} — vale a partir do próximo turno", if m.is_empty() { "o padrão da assinatura".to_string() } else { m.clone() })],
     );
     Ok(())
+}
+
+// ---------- Orquestrador: um agente lê o problema inteiro e abre uma tarefa por fase ----------
+
+/// Pede ao orquestrador (claude headless, só leitura no repo) um PLANO em JSON:
+/// fases com objetivos verificáveis, dependências e autonomia. Nada é criado aqui.
+#[tauri::command(async)]
+fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let sys = "Você é o ORQUESTRADOR do Constellation. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
+    let claude = claude_bin();
+    let mut args: Vec<String> = vec![
+        "-p".to_string(),
+        briefing,
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--append-system-prompt".to_string(),
+        sys.to_string(),
+        "--allowedTools".to_string(),
+        "Read,Grep,Glob".to_string(),
+    ];
+    if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
+        args.push("--model".to_string());
+        args.push(m);
+    }
+    let mut cmd = claude_cmd(&claude);
+    cmd.args(&args).current_dir(&repo);
+    let out = output_timeout(cmd, 300)?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    Ok(v["result"].as_str().unwrap_or("").to_string())
+}
+
+fn orch_dir(repo: &PathBuf) -> PathBuf {
+    let d = repo.join(".cardume").join("orchestrations");
+    let _ = std::fs::create_dir_all(&d);
+    d
+}
+fn orch_ok_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Salva/atualiza o plano (JSON inteiro) em .cardume/orchestrations/<id>.json
+#[tauri::command]
+fn orch_save(state: State<AppState>, id: String, data: serde_json::Value) -> Result<(), String> {
+    if !orch_ok_id(&id) { return Err("id inválido".into()); }
+    let repo = repo_of(&state)?;
+    let s = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    std::fs::write(orch_dir(&repo).join(format!("{id}.json")), s).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+fn orch_list(state: State<AppState>) -> Vec<serde_json::Value> {
+    let Ok(repo) = repo_of(&state) else { return vec![] };
+    let mut out: Vec<serde_json::Value> = vec![];
+    if let Ok(rd) = std::fs::read_dir(orch_dir(&repo)) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().map(|x| x == "json").unwrap_or(false) {
+                if let Ok(txt) = std::fs::read_to_string(&p) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) { out.push(v); }
+                }
+            }
+        }
+    }
+    out.sort_by_key(|v| std::cmp::Reverse(v.get("createdAt").and_then(|x| x.as_i64()).unwrap_or(0)));
+    out
+}
+
+#[tauri::command]
+fn orch_delete(state: State<AppState>, id: String) -> Result<(), String> {
+    if !orch_ok_id(&id) { return Err("id inválido".into()); }
+    let repo = repo_of(&state)?;
+    let p = orch_dir(&repo).join(format!("{id}.json"));
+    if p.exists() { std::fs::remove_file(p).map_err(|e| e.to_string())?; }
+    Ok(())
+}
+
+/// Funde chaves no spec_json da tarefa (ex.: orchestration, dependsOn) e,
+/// se vier `base`, troca a branch base da worktree (fase que parte da anterior).
+#[tauri::command]
+fn patch_task_spec(state: State<AppState>, task_id: String, patch: serde_json::Value, base: Option<String>) -> Result<(), String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open(&db).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    let spec_json: String = conn
+        .query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    let mut spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or(serde_json::json!({}));
+    if let (Some(o), Some(p)) = (spec.as_object_mut(), patch.as_object()) {
+        for (k, v) in p { o.insert(k.clone(), v.clone()); }
+    }
+    if let Some(b) = &base {
+        if let Some(o) = spec.as_object_mut() { o.insert("base".into(), serde_json::Value::String(b.clone())); }
+        conn.execute("UPDATE task SET base=?1 WHERE id=?2", params![b, task_id]).map_err(|e| e.to_string())?;
+    }
+    conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Antes de uma fase dependente começar: alinha a worktree (ainda sem commits
+/// próprios) com a ponta atual da branch base — a fase anterior commitou depois
+/// que a worktree foi criada. Best-effort; nunca descarta trabalho da própria fase.
+#[tauri::command(async)]
+fn orch_sync_base(state: State<AppState>, task_id: String) -> Result<String, String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open(&db).map_err(|e| e.to_string())?;
+    let (wt, base): (String, String) = conn
+        .query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?;
+    if wt.is_empty() || base.is_empty() || !PathBuf::from(&wt).is_dir() { return Ok("sem worktree".into()); }
+    let ahead = Command::new("git").args(["-C", &wt, "rev-list", "--count", &format!("{base}..HEAD")]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<i64>().unwrap_or(1)).unwrap_or(1);
+    if ahead > 0 { return Ok(format!("worktree já tem {ahead} commit(s) próprios — mantida")); }
+    let dirty = Command::new("git").args(["-C", &wt, "status", "--porcelain"]).output()
+        .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(true);
+    if dirty { return Ok("worktree com alterações locais — mantida".into()); }
+    let out = Command::new("git").args(["-C", &wt, "reset", "--hard", &base]).output().map_err(|e| e.to_string())?;
+    if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
+    Ok(format!("worktree alinhada com {base}"))
 }
 
 /// Google Chrome (ou similar) pra gerar PDF via headless.
@@ -4920,6 +5047,12 @@ pub fn run() {
             slack_send_artifact,
             open_project,
             create_project,
+            ai_orchestrate,
+            orch_save,
+            orch_list,
+            orch_delete,
+            patch_task_spec,
+            orch_sync_base,
             gh_accounts,
             gh_switch_account,
             gh_login_start,

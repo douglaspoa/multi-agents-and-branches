@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/40-sidebar-quadro.css">
 <link rel="stylesheet" href="css/50-workspace-planner.css">
 <link rel="stylesheet" href="css/60-grafo-times-nova-demanda.css">
+<link rel="stylesheet" href="css/70-orquestrador.css">
 </head>
 <body>
 <div class="app">
@@ -420,6 +421,7 @@
     <div class="fwhead">
       <b class="mono" id="fwTaskName">Arquivos & chat</b>
       <span class="fwsub" id="fwTaskBranch"></span>
+      <span id="fwOrqChips"></span>
       <span class="phst" id="fwPhases" style="margin-left:12px"></span>
       <span class="fwmodes" id="fwModes"></span>
       <span style="flex:1"></span>
@@ -538,6 +540,10 @@
 </div>
 
 <!-- Nova demanda (redesign): tela de início — tipo + método -->
+<!-- Orquestrador: briefing → plano em grafo (subagentes) → execução coordenada -->
+<div class="overlay" id="orqOverlay" style="display:none">
+  <div class="modal" style="width:100%"><div class="mhead"><b>Orquestrador</b><span style="flex:1"></span><button class="x" id="orqClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div><div class="mbody" id="orqBody"></div></div>
+</div>
 <div class="overlay" id="ndOverlay" style="display:none">
   <div class="modal" style="width:100%"><div class="mbody" id="ndBody" style="padding:0"></div></div>
 </div>
@@ -616,6 +622,7 @@
 <script src="js/31-nova-demanda-form.js"></script>
 <script src="js/32-planner.js"></script>
 <script src="js/33-switcher-projetos.js"></script>
+<script src="js/34-orquestrador.js"></script>
 <script src="js/40-nuvem-conta.js"></script>
 <script src="js/41-assinatura-chaves.js"></script>
 <script src="js/42-nuvem-sync-mobile.js"></script>

@@ -31,6 +31,7 @@ function ndRenderStart(){
     <div class="ndmethods">
       <button class="ndm ndm-primary" id="ndChat"><span class="ndmtop"><span class="ndmt">Montar conversando</span><span class="ndmbadge">recomendado</span></span><span class="ndmd">A IA pergunta só o essencial e preenche o task.yaml na sua frente. Você revisa e aprova.</span><span class="ndmeta">~7 perguntas · 2 min</span></button>
       <button class="ndm" id="ndForm"><span class="ndmt2">Preencher eu mesmo</span><span class="ndmd">Formulário com os campos do spec. Controle total, sem conversa.</span><span class="ndmeta">10 campos · passos</span></button>
+      <button class="ndm ndm-orq" id="ndOrq"><span class="ndmtop"><span class="ndmt2">Orquestrar com subagentes</span><span class="ndmbadge" style="background:rgba(180,124,224,.2);color:#d9b8f2">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente orquestrador quebra em fases, abre uma tarefa por fase e comanda a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano em grafo</span></button>
     </div>
     <div class="ndfoot"><div class="ndfl">já tem um .md? <a id="ndImport">importar</a> · guia deste repo: <span class="mono">.cardume/SPEC.md</span></div><div class="ndft mono">tipo: ${esc(cur.name)}</div></div>
   </div></div>`;
@@ -38,6 +39,7 @@ function ndRenderStart(){
   { const s=body.querySelector('#ndProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p && p!==state.repo && window.switchProject){ await window.switchProject(p); } ndRenderStart(); }; }
   { const b=body.querySelector('#ndChat'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('planner'); }; }
   { const b=body.querySelector('#ndForm'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form'); }; }
+  { const b=body.querySelector('#ndOrq'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('orq'); }; }
   { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form'); setTimeout(()=>{ const im=$id('ntImport'); if(im) im.click(); }, 300); }; }
 }
 $id('dailyClose').onclick=()=>{ $id('dailyOverlay').style.display='none'; };

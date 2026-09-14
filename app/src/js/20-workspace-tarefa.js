@@ -220,6 +220,7 @@ function renderWorkspace(){
   const ai=document.activeElement, keepInput=(ai&&ai.id==='fwInput'), inEl=$id('fwInput'), inVal=inEl?inEl.value:null, inCaret=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
   $id('fwTaskName').textContent=t.title;
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
+  if(typeof orqTaskChips==='function') orqTaskChips(t);
   // barra de REVISÃO (redesign p12): entrega pronta → aprovar/pedir ajuste dali mesmo
   { const rb=$id('fwReviewBar');
     if(rb){
