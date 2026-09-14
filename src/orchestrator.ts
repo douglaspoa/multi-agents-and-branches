@@ -44,6 +44,16 @@ export class Orchestrator {
   }
 
   private engineFor(name: string, model: string | undefined, approval: TaskSpec["autonomy"]["approval"]): AgentEngine {
+    // tolera rótulos/variações ("Claude · Opus 4.8", "CLAUDE"): o mock só entra quando pedido de fato —
+    // uma tarefa real cair no MockEngine por um nome fora da lista "concluía" com código de mentira.
+    const n = String(name ?? "").trim().toLowerCase();
+    const kind = n === "mock" ? "mock"
+      : n.startsWith("codex") ? "codex"
+      : (n.startsWith("gateway") || n.startsWith("logcomex")) ? (n.startsWith("gateway") ? "gateway" : "logcomex")
+      : n.startsWith("claude") ? "claude"
+      : (n === "" ? "mock" : "claude");
+    if (kind !== n) console.warn(`[engine] "${name}" interpretado como ${kind}`);
+    name = kind;
     if (name === "claude") return new ClaudeEngine({ model, approval });
     if (name === "codex") return new CodexEngine({ model });
     if (name === "gateway" || name === "logcomex") {

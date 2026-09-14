@@ -22,7 +22,7 @@ function plRenderRefs(){
 }
 // anexos do planner: composer único; o que entra também vira ref da tarefa criada
 function plWireComposer(){ attWireComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); } }); }
-function plVal(k){ if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
+function plVal(k){ if(k==='engine'&&plFields.engineLabel) return plFields.engineLabel; if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
 function plReady(){ return plHas('title')&&plHas('objective')&&plHas('deliverables'); }
@@ -110,7 +110,7 @@ function plWireModelCard(th){
   const m=plMsgs.find(x=>x.kind==='model'); if(!m) return;
   const card=th.querySelector('.plmodel'); if(!card) return;
   const saveOn=()=>{ const c=card.querySelector('[data-plm="save"]'); return !!(c&&c.checked); };
-  const choose=(eng,model)=>{ aiPickApply(eng, model); const saved=saveOn(); if(saved){ lsSet('defaultEngine',eng||'claude'); lsSet('defaultModel',model||''); } m.choice={eng,model,saved}; m.open=false; plFields.engine=`${(AI_ENGINES.find(x=>x.id===eng)||{}).name||eng} · ${aiModelName(model)}`; renderPlanner(); plAutoSave(); };
+  const choose=(eng,model)=>{ aiPickApply(eng, model); const saved=saveOn(); if(saved){ lsSet('defaultEngine',eng||'claude'); lsSet('defaultModel',model||''); } m.choice={eng,model,saved}; m.open=false; plFields.engine=eng||'claude'; plFields.model=model||''; plFields.engineLabel=`${(AI_ENGINES.find(x=>x.id===eng)||{}).name||eng} · ${aiModelName(model)}`; renderPlanner(); plAutoSave(); };
   card.querySelectorAll('[data-plm="default"]').forEach(b=>b.onclick=()=>{ const d=aiDefaults(); choose(d.eng,d.model); });
   card.querySelectorAll('[data-plm="pick"]').forEach(b=>b.onclick=()=>choose(b.dataset.eng,b.dataset.model));
   card.querySelectorAll('[data-plm="more"]').forEach(b=>b.onclick=()=>{ m.open=true; renderPlanner(); });
@@ -241,7 +241,7 @@ async function plCreate(){
     return;
   }
   const payload={ start:true, title:plFields.title, workflow:null, agents:null,
-    engine:(plFields.engine||'claude'), approval:'auto',
+    engine:(function(){ const e=String(plFields.engine||'claude').toLowerCase(); return ['claude','codex','gateway','logcomex','mock'].includes(e)?e:(e.includes('codex')?'codex':e.includes('gateway')?'gateway':'claude'); })(), model:(plFields.model||aiDefaults().model||null), approval:'auto',
     owns:(plFields.owns||[]).join(', ')||null, off:(plFields.off||[]).join(', ')||null,
     objective:plFields.objective||null, deliverables:[],
     // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova
