@@ -121,3 +121,36 @@
 .orq-dep,.orq-dep span,.orq-depchip{text-transform:none;letter-spacing:0}
 #orqOverlay label{text-transform:none;letter-spacing:0;font-weight:400}
 @media (max-width:1200px){.orq-tools .mono.dim{display:none}}
+
+/* ---- layout v2: aba ocupa a largura toda, grafo respira, inspetor legível ---- */
+#orqOverlay.astab .mhead{display:none}
+#orqOverlay.astab .mbody{max-width:none!important;margin:0!important;overflow:hidden!important}
+#orqOverlay:not(.astab) .modal{height:92vh}
+.orq-main{grid-template-columns:minmax(0,1fr) 420px}
+.orq-node{padding:13px 15px;gap:8px;border-radius:14px}
+.orq-nn{font-size:13.5px}
+.orq-nm{font-size:10.5px}
+.orq-term{font-size:10px;min-height:38px;padding:7px 9px}
+.orq-open{font-size:11px;padding-top:8px;margin:0 -15px -5px}
+.orq-master .orq-nn{font-size:14px}
+.orq-nd{font-size:11.5px}
+.orq-insp{padding:18px 20px 28px;gap:4px}
+.orq-ih{align-items:flex-start;gap:12px}
+.orq-ih b{font-size:17px;line-height:1.25;display:block;overflow-wrap:anywhere}
+.orq-ih .as-btn.sm{white-space:nowrap;margin-top:2px}
+.orq-meta{display:flex;gap:6px;font-size:11px;margin-top:4px;flex-wrap:wrap}
+.orq-branch{font-size:11px;color:rgba(255,255,255,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:-2px 0 10px;padding:5px 9px;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#0b0d0c}
+.orq-p{font-size:13.5px;line-height:1.55;color:rgba(255,255,255,.78)}
+.orq-objs{gap:7px}
+.orq-obj{align-items:flex-start;gap:11px;padding:10px 12px;border-radius:11px}
+.orq-chk{width:20px;height:20px;border-radius:6px;font:600 10px 'JetBrains Mono',monospace;color:rgba(255,255,255,.55);margin-top:1px}
+.orq-obj.ok .orq-chk{color:var(--on-accent)}
+.orq-objbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.orq-objt{font-size:13px;line-height:1.5;color:rgba(255,255,255,.85);overflow-wrap:anywhere;white-space:normal}
+.orq-obj.ok .orq-objt{color:#eaf2ee}
+.orq-objev{font-size:10.5px;color:var(--accent);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.orq-obj textarea.orq-objin{border:0;background:transparent;padding:0;resize:none;line-height:1.45;font-size:13px;overflow:hidden;field-sizing:content}
+.orq-objadd .orq-objin{font-size:13px}
+.orq-termbox{font-size:11px;line-height:1.5;max-height:190px}
+.ndeyebrow{margin-top:18px}
+.orq-insp .ndeyebrow:first-of-type{margin-top:0}

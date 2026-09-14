@@ -58,11 +58,11 @@ function orqLayout(plan){
     const deps=(p.dependsOn||[]).map(k=>byKey[k]).filter(Boolean); depth[p.key]=deps.length?1+Math.max(...deps.map(x=>d(x,seen))):0; return depth[p.key]; };
   ph.forEach(p=>d(p,new Set()));
   const cols={}; ph.forEach(p=>{ (cols[depth[p.key]]||(cols[depth[p.key]]=[])).push(p); });
-  const W=196, H=126, GX=44, GY=22, X0=250, Y0=30; const pos={};
+  const W=236, H=142, GX=56, GY=26, X0=290, Y0=30; const pos={};
   const maxRows=Math.max(1,...Object.values(cols).map(c=>c.length));
   Object.entries(cols).forEach(([c,list])=>{ const off=(maxRows-list.length)*(H+GY)/2; list.forEach((p,i)=>{ pos[p.key]={ x:X0+(+c)*(W+GX), y:Y0+off+i*(H+GY), w:W, h:H }; }); });
   const totalH=Y0*2+maxRows*(H+GY)-GY;
-  pos.__orq={ x:20, y:Math.max(Y0, totalH/2-70), w:180, h:140 };
+  pos.__orq={ x:20, y:Math.max(Y0, totalH/2-78), w:212, h:156 };
   pos.__size={ w:X0+(Object.keys(cols).length)*(W+GX)+40, h:totalH+40 };
   return pos;
 }
@@ -180,7 +180,7 @@ function orqWire(body,pos){
   canvas.onmousedown=e=>{ if(e.target.closest('.orq-node')) return; orqDrag={ x:e.clientX, y:e.clientY, px:orq.pan.x, py:orq.pan.y }; canvas.classList.add('drag'); };
   window.onmousemove=e=>{ if(!orqDrag) return; orq.pan.x=orqDrag.px+(e.clientX-orqDrag.x); orq.pan.y=orqDrag.py+(e.clientY-orqDrag.y); world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; };
   window.onmouseup=()=>{ if(orqDrag){ orqDrag=null; canvas.classList.remove('drag'); } };
-  const fit=()=>{ const r=canvas.getBoundingClientRect(); if(!r.width) return; orq.zoom=Math.max(.72,Math.min(1,(r.width-40)/pos.__size.w,(r.height-40)/pos.__size.h)); orq.pan={x:Math.max(16,(r.width-pos.__size.w*orq.zoom)/2), y:Math.max(16,(r.height-pos.__size.h*orq.zoom)/2)}; world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; };
+  const fit=()=>{ const r=canvas.getBoundingClientRect(); if(!r.width) return; orq.zoom=Math.max(.85,Math.min(1,(r.width-40)/pos.__size.w,(r.height-40)/pos.__size.h)); orq.pan={x:Math.max(16,(r.width-pos.__size.w*orq.zoom)/2), y:Math.max(16,(r.height-pos.__size.h*orq.zoom)/2)}; world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; };
   if(orq.needFit){ orq.needFit=false; requestAnimationFrame(fit); }
   body.querySelectorAll('[data-orqz]').forEach(b=>b.onclick=()=>{ const z=b.dataset.orqz; if(z==='fit'){ fit(); return; } orq.zoom=Math.max(.4,Math.min(1.6,orq.zoom+(z==='+'?.12:-.12))); world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; });
   body.querySelectorAll('[data-orqsel]').forEach(n=>n.onclick=e=>{ if(e.target.closest('[data-orqtask]')) return; orq.sel=n.dataset.orqsel; orq.addOpen=false; orqRender(); });
@@ -197,13 +197,14 @@ function orqInspHtml(){
     <div class="ndeyebrow" style="margin-top:14px">briefing</div><p class="orq-p dim" style="white-space:pre-wrap">${esc(p.briefing||'')}</p>`;
   const ph=p.phases.find(x=>x.key===orq.sel); if(!ph) return '';
   const t=orqTaskOf(ph); const st=orqPhaseState(ph); const locked=!!t||p.status!=='planned'; const c=t?reqProofCache[t.id]:null; const m=(t&&c&&c.list)?matchReqProofs(Array.isArray(t.requirements)?t.requirements:ph.objectives, c.list):null;
-  const objs=(ph.objectives||[]).map((o,i)=>{ const ok=m&&m[i]&&m[i].status==='done'; return `<div class="orq-obj${ok?' ok':''}"><span class="orq-chk">${ok?'✓':''}</span>${locked?`<span class="orq-objt">${esc(o)}</span>`:`<input class="orq-objin" data-orqobj="${i}" value="${escA(o)}">`}${locked?'':`<button class="orq-x" data-orqrm="${i}">×</button>`}</div>`; }).join('');
+  const objs=(ph.objectives||[]).map((o,i)=>{ const ok=m&&m[i]&&m[i].status==='done'; const ev=(m&&m[i]&&Array.isArray(m[i].evidence)&&m[i].evidence[0])||''; return `<div class="orq-obj${ok?' ok':''}"><span class="orq-chk" title="${ok?'provado':'pendente'}">${ok?'✓':(i+1)}</span><div class="orq-objbody">${locked?`<span class="orq-objt">${esc(o)}</span>${ev?`<span class="orq-objev mono">${esc(String(ev).split('/').pop())}</span>`:''}`:`<textarea class="orq-objin" data-orqobj="${i}" rows="2">${esc(o)}</textarea>`}</div>${locked?'':`<button class="orq-x" data-orqrm="${i}" title="remover">×</button>`}</div>`; }).join('');
   const others=p.phases.filter(x=>x.key!==ph.key);
   const deps=locked?`<div class="orq-p dim">${(ph.dependsOn||[]).length?(ph.dependsOn||[]).map(k=>{ const d=p.phases.find(x=>x.key===k); return d?`<span class="orq-depchip" style="--c:${orqColor(d.kind)}">${orqBadge(d.kind)} ${esc(d.name)}</span>`:''; }).join(''):'roda em paralelo, sem depender de ninguém'}</div>`
     :`<div class="orq-deps">${others.map(o=>`<label class="orq-dep${(ph.dependsOn||[]).includes(o.key)?' on':''}"><input type="checkbox" data-orqdep="${escA(o.key)}" ${(ph.dependsOn||[]).includes(o.key)?'checked':''}><span class="orq-badge" style="--c:${orqColor(o.kind)}">${orqBadge(o.kind)}</span>${esc(o.name)}</label>`).join('')||'<span class="dim">só esta fase no plano</span>'}</div>`;
   const waiting=p.phases.filter(x=>(x.dependsOn||[]).includes(ph.key));
   const term=t?orqLastLines(t.id,8):[];
-  return `<div class="orq-ih"><span class="orq-badge" style="--c:${orqColor(ph.kind)}">${orqBadge(ph.kind)}</span><div style="min-width:0;flex:1"><b>${locked?esc(ph.name):`<input class="orq-namein" id="orqName" value="${escA(ph.name)}">`}</b><div class="mono" style="font-size:10.5px;color:${st.color}">${esc(st.label)} <span class="dim">· ${esc(ph.agent)}${locked&&t.branch?' · '+esc(t.branch):''}</span></div></div>${t?`<button class="as-btn sm" data-orqtask="${escA(t.id)}">abrir tarefa</button>`:''}</div>
+  return `<div class="orq-ih"><span class="orq-badge" style="--c:${orqColor(ph.kind)}">${orqBadge(ph.kind)}</span><div style="min-width:0;flex:1"><b>${locked?esc(ph.name):`<input class="orq-namein" id="orqName" value="${escA(ph.name)}">`}</b><div class="orq-meta mono"><span style="color:${st.color}">${esc(st.label)}</span><span class="dim">· ${esc(ph.agent)}</span></div></div>${t?`<button class="as-btn sm" data-orqtask="${escA(t.id)}">abrir tarefa ↗</button>`:''}</div>
+    ${locked&&t&&t.branch?`<div class="orq-branch mono" title="${escA(t.branch)}">${esc(t.branch)}</div>`:''}
     ${locked?`<p class="orq-p">${esc(ph.objective)}</p>`:`<textarea class="orq-objta" id="orqObjective" placeholder="o que essa fase entrega">${esc(ph.objective)}</textarea>
     <div class="orq-kindrow">${Object.entries(ORQ_KINDS).map(([k,v])=>`<button class="orq-kind${ph.kind===k?' on':''}" data-orqkind="${k}" style="--c:${v.color}">${v.badge} ${v.label}</button>`).join('')}</div>`}
     <div class="ndeyebrow" style="margin-top:14px">objetivos <span class="dim" style="text-transform:none;letter-spacing:0">${locked?'· provados com evidência pelo subagente':'· edite, marque ou adicione'}</span></div>
