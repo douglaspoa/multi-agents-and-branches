@@ -224,7 +224,8 @@ function renderWorkspace(){
   { const rb=$id('fwReviewBar');
     if(rb){
       const cost=taskCost(t.id);
-      const costChip=cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'';
+      const modelChip=(t.status!=='draft')?`<button class="btn sm" id="fwModel" title="trocar o modelo desta demanda (vale a partir do próximo turno)" style="font-family:var(--mono);font-size:11px">⚙ ${esc(typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão'))}</button>`:'';
+      const costChip=modelChip+(cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'');
       // site local que o agente subiu (🌐 preview) — abrir aqui ou no celular (túnel)
       const pv=taskPreviewUrl(t.id);
       const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
@@ -246,6 +247,7 @@ function renderWorkspace(){
       bindClick('fwPrGo', ()=>{ fwMode='pr'; renderWorkspace(); });
       bindClick('fwPrOpen', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
       bindClick('fwSum', ()=>openTaskSummary(t.id));
+      bindClick('fwModel', (e)=>{ e.stopPropagation(); openModelMenu(t.id, e.currentTarget); });
       bindClick('fwPv', ()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}));
       { const b=$id('fwPvMob'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='criando túnel…';
           const pub=await mobilePreview(t.id, b.dataset.url);

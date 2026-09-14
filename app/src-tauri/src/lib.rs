@@ -2216,6 +2216,43 @@ fn write_artifact(state: State<AppState>, task_id: String, name: String, content
     Ok(p.display().to_string())
 }
 
+/// Troca o modelo (versão do Claude, id do gateway…) de uma demanda JÁ criada: atualiza
+/// task.model, roles_json e o spec_json (é dele que o motor lê o modelo de cada papel).
+/// Vale a partir do PRÓXIMO turno (talk/rework/retomada) — o turno em andamento termina no modelo atual.
+#[tauri::command(async)]
+fn set_task_model(state: State<AppState>, task_id: String, model: String) -> Result<(), String> {
+    let m = model.trim().to_string();
+    if m.len() > 80 || m.chars().any(|c| !(c.is_ascii_alphanumeric() || "-_.:/".contains(c))) {
+        return Err("id de modelo inválido".into());
+    }
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open(&db).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    let (roles_json, spec_json): (String, String) = conn
+        .query_row("SELECT roles_json, spec_json FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?;
+    let set_model = |v: &mut serde_json::Value| {
+        if let Some(o) = v.as_object_mut() {
+            if m.is_empty() { o.remove("model"); } else { o.insert("model".into(), serde_json::Value::String(m.clone())); }
+        }
+    };
+    let mut roles: serde_json::Value = serde_json::from_str(&roles_json).unwrap_or(serde_json::Value::Array(vec![]));
+    if let Some(arr) = roles.as_array_mut() { for r in arr.iter_mut() { set_model(r); } }
+    let mut spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or(serde_json::json!({}));
+    set_model(&mut spec);
+    if let Some(arr) = spec.get_mut("roles").and_then(|r| r.as_array_mut()) { for r in arr.iter_mut() { set_model(r); } }
+    let model_col: Option<String> = if m.is_empty() { None } else { Some(m.clone()) };
+    conn.execute(
+        "UPDATE task SET model=?1, roles_json=?2, spec_json=?3 WHERE id=?4",
+        params![model_col, roles.to_string(), spec.to_string(), task_id],
+    ).map_err(|e| e.to_string())?;
+    let _ = conn.execute(
+        "INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)",
+        params![task_id, now_ms(), format!("modelo trocado para {} — vale a partir do próximo turno", if m.is_empty() { "o padrão da assinatura".to_string() } else { m.clone() })],
+    );
+    Ok(())
+}
+
 /// Google Chrome (ou similar) pra gerar PDF via headless.
 fn chrome_bin() -> Option<String> {
     for p in [
@@ -4707,6 +4744,7 @@ pub fn run() {
             import_attachment,
             import_attachment_data,
             ai_task_report,
+            set_task_model,
             write_artifact,
             save_config,
             import_agent_files,

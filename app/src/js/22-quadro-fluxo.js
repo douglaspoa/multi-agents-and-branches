@@ -406,6 +406,7 @@ function openTaskMenu(taskId, anchor){
   const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
   // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
   if(t.flag!=='closed') item('✓ concluir · arquiva e sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
+  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='⚙ trocar modelo · '+(typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão')); b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); pop.remove(); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
   if(t.flag==='closed') item('↩ reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra review', ()=>invoke('mark_task_status',{taskId,status:'review'}));
   if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como merged', ()=>invoke('mark_task_status',{taskId,status:'merged'}));

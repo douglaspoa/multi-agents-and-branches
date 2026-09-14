@@ -66,16 +66,22 @@ function aiRecommend(s){
   return { engine:'claude', model:tier, label:AI_TIER_LABEL[tier], reason:why };
 }
 function setSelValue(sel, v){ if(!sel) return; v=v||''; if(![...sel.options].some(o=>o.value===v)) sel.add(new Option(v, v)); sel.value=v; }
-function aiPickApply(eng, model){
-  setSelValue($id('ntEngine'), eng); setSelValue($id('ntModel'), model);
-  const hm=$id('howModel'); if(hm) setSelValue(hm, model);
-  aiPickRender();
+// ---- padrão do USUÁRIO (Configurações → IA padrão): vale pra toda demanda nova, do formulário ou do chat ----
+function aiDefaults(){ return { eng:lsGet('defaultEngine')||'claude', model:lsGet('defaultModel')||'' }; }
+function aiApplyDefaults(){ const d=aiDefaults(); setSelValue($id('ntEngine'), d.eng); setSelValue($id('ntModel'), d.model); const hm=$id('howModel'); if(hm) setSelValue(hm, d.model); }
+function aiModelName(id){ if(!id) return 'padrão da assinatura'; for(const e of AI_ENGINES){ const m=(e.models||[]).find(x=>x.id===id); if(m) return m.name; } return id; }
+// alvo do seletor: o FORMULÁRIO (selects escondidos) ou as CONFIGURAÇÕES (localStorage)
+const AI_TARGET_FORM={ sel:'.aipick:not(.aipick-cfg)', get:()=>({ eng:($id('ntEngine')||{}).value||'claude', model:($id('ntModel')||{}).value||'' }), set:(e,m)=>{ setSelValue($id('ntEngine'), e); setSelValue($id('ntModel'), m); const hm=$id('howModel'); if(hm) setSelValue(hm, m); } };
+const AI_TARGET_CFG={ sel:'.aipick-cfg', cfg:true, get:aiDefaults, set:(e,m)=>{ lsSet('defaultEngine', e||'claude'); lsSet('defaultModel', m||''); } };
+function aiPickApply(eng, model, target){
+  target=target||AI_TARGET_FORM; target.set(eng, model);
+  aiPickRender(target);
 }
 let _aiCustomOpen=false;
-function aiPickRender(){
-  const hosts=[...document.querySelectorAll('.aipick')]; if(!hosts.length) return;
-  let eng=($id('ntEngine')||{}).value||'claude'; if(eng==='logcomex'){ eng='gateway'; setSelValue($id('ntEngine'),'gateway'); }
-  const model=($id('ntModel')||{}).value||'';
+function aiPickRender(target){
+  target=target||AI_TARGET_FORM;
+  const hosts=[...document.querySelectorAll(target.sel)]; if(!hosts.length) return;
+  let { eng, model }=target.get(); if(eng==='logcomex'){ eng='gateway'; target.set('gateway', model); }
   const rec=aiRecommend(aiSpecSnapshot());
   const e=AI_ENGINES.find(x=>x.id===eng)||AI_ENGINES[0];
   // gateway: nome/modelos vêm da conta (assíncrono — renderiza de novo quando chegar)
@@ -92,18 +98,39 @@ function aiPickRender(){
     (models.length||e.custom?`<div class="aimodels">${models.map(m=>{ const r=rec.engine===e.id&&rec.model===m.id; return `<button type="button" class="aimodel${m.id===model?' on':''}${r?' rec':''}" data-aimodel="${escA(m.id)}"><b>${esc(m.name)}</b>${m.tag?`<span>${esc(m.tag)}</span>`:''}${r?'<i>recomendado</i>':''}</button>`; }).join('')}`+
       (e.custom?`<button type="button" class="aimodel${(!known&&model)?' on':''}" data-aicustom><b>${(!known&&model)?esc(model):'outro id…'}</b><span>${(!known&&model)?'id digitado':'digite o id exato'}</span></button>`:'')+`</div>`:'')+
     (_aiCustomOpen?`<div class="aicustom"><input class="in mono" id="aiCustomId" placeholder="${e.id==='claude'?'ex.: claude-opus-4-8':e.id==='codex'?'ex.: gpt-5-codex':'id do modelo no gateway'}" value="${escA((!known&&model)?model:'')}"><button type="button" class="btn sm" data-aicustomok>usar</button></div>`:'')+
-    `<div class="airec">${isRecSel?'✓ ':'✦ '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`;
+    (target.cfg?`<div class="airec">✓ padrão pra toda demanda nova — pelo formulário ou pelo chat. A recomendação por demanda continua sendo só uma sugestão.</div>`:`<div class="airec">${isRecSel?'✓ ':'✦ '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`);
   hosts.forEach(h=>{
     h.innerHTML=html;
-    h.querySelectorAll('[data-aieng]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=false; aiPickApply(b.dataset.aieng, ''); });
-    h.querySelectorAll('[data-aimodel]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=false; aiPickApply(eng, b.dataset.aimodel); });
-    h.querySelectorAll('[data-airec]').forEach(a=>a.onclick=()=>{ _aiCustomOpen=false; aiPickApply(rec.engine, rec.model); });
-    h.querySelectorAll('[data-aicustom]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=true; aiPickRender(); const i=h.querySelector('#aiCustomId'); if(i) i.focus(); });
-    h.querySelectorAll('[data-aicustomok]').forEach(b=>b.onclick=()=>{ const i=h.querySelector('#aiCustomId'); const v=(i&&i.value.trim())||''; _aiCustomOpen=false; aiPickApply(eng, v); });
-    { const i=h.querySelector('#aiCustomId'); if(i) i.onkeydown=ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); _aiCustomOpen=false; aiPickApply(eng, i.value.trim()); } }; }
+    h.querySelectorAll('[data-aieng]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=false; aiPickApply(b.dataset.aieng, '', target); });
+    h.querySelectorAll('[data-aimodel]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=false; aiPickApply(eng, b.dataset.aimodel, target); });
+    h.querySelectorAll('[data-airec]').forEach(a=>a.onclick=()=>{ _aiCustomOpen=false; aiPickApply(rec.engine, rec.model, target); });
+    h.querySelectorAll('[data-aicustom]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=true; aiPickRender(target); const i=h.querySelector('#aiCustomId'); if(i) i.focus(); });
+    h.querySelectorAll('[data-aicustomok]').forEach(b=>b.onclick=()=>{ const i=h.querySelector('#aiCustomId'); const v=(i&&i.value.trim())||''; _aiCustomOpen=false; aiPickApply(eng, v, target); });
+    { const i=h.querySelector('#aiCustomId'); if(i) i.onkeydown=ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); _aiCustomOpen=false; aiPickApply(eng, i.value.trim(), target); } }; }
     h.querySelectorAll('[data-aicfg]').forEach(a=>a.onclick=()=>{ if(typeof openCfg==='function') openCfg(); });
   });
 }
+// ---- trocar o modelo de uma demanda JÁ criada (menu ⋯ e cabeçalho da tarefa) ----
+function openModelMenu(taskId, anchor){
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  $id('tmenuPop')?.remove();
+  const pop=document.createElement('div'); pop.id='tmenuPop';
+  pop.style.cssText='position:fixed;z-index:9000;min-width:240px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  const cur=t.model||'';
+  const head=document.createElement('div'); head.className='mono'; head.style.cssText='font-size:10px;letter-spacing:.08em;color:var(--muted);padding:6px 10px 4px;text-transform:uppercase'; head.textContent='modelo desta demanda'; pop.appendChild(head);
+  const apply=async(id)=>{ pop.remove(); try{ await invoke('set_task_model',{ taskId, model:id }); lastSig=''; await refresh(); if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===taskId) renderWorkspace(); }catch(e){ alert('Falhou: '+e); } };
+  const item=(label, id, on)=>{ const b=document.createElement('button'); b.innerHTML=`${on?'<span style="color:var(--accent)">✓</span> ':'<span style="opacity:0">✓</span> '}${esc(label)}`; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=()=>apply(id); pop.appendChild(b); };
+  AI_CLAUDE_MODELS.forEach(m=>item(m.name+(m.tag?'  · '+m.tag:''), m.id, m.id===cur));
+  if(cur && !AI_CLAUDE_MODELS.some(m=>m.id===cur)) item(cur+'  · id atual', cur, true);
+  item('outro id…', '__custom', false);
+  pop.querySelector('button:last-child').onclick=async()=>{ pop.remove(); const v=await askText('Id do modelo','ex.: claude-opus-4-8', cur); if(v!=null && v.trim()) apply(v.trim()); };
+  const note=document.createElement('div'); note.className='dim'; note.style.cssText='font-size:10.5px;padding:6px 10px 4px;line-height:1.4'; note.textContent='vale a partir do próximo turno do agente'; pop.appendChild(note);
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect(); pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-8, r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
+  setTimeout(()=>document.addEventListener('click', function h(e){ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click', h); } }), 0);
+}
+// aplica o padrão do usuário nos selects do formulário na carga (o chat/planner lê dali)
+aiApplyDefaults();
 // a recomendação acompanha o que você digita (design/investigação são página única)
 let _aiPickT=null;
 ['ntDzTitle','ntDzObj','ntInvTitle','ntInvObj'].forEach(id=>{ const e=$id(id); if(e) e.addEventListener('input',()=>{ clearTimeout(_aiPickT); _aiPickT=setTimeout(aiPickRender,400); }); });

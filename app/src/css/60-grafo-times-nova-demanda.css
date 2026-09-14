@@ -504,3 +504,5 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .au-sumr.big{padding-top:10px;border-top:1px solid rgba(255,255,255,.08);font-weight:600;color:#eaf2ee}.au-sumr.big b{font:600 20px 'Instrument Sans',sans-serif}
 .au-secure{margin-top:auto;display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:9px;font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.4)}
 .au-secure i{width:6px;height:6px;border-radius:99px;background:var(--accent)}
+
+.dc-model{font:500 10.5px 'JetBrains Mono',monospace;color:var(--muted)}

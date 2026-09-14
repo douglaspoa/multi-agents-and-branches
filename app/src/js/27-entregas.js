@@ -53,7 +53,7 @@ function flowDemandCard(t){
     <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(t.title)}</span><span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span><span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar">⋯</button></div>
     ${t.objective?`<div class="dc-obj">${esc(String(t.objective).replace(/\s+/g,' ').slice(0,220))}</div>`:''}
     ${reqsHtml}
-    <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><span class="dc-agent">${esc(t.agent||'')}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):(t.createdAt||t.created_at))}</span></div>
+    <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><span class="dc-agent">${esc(t.agent||'')}${t.model?` <span class="dc-model">· ${esc(typeof aiModelName==='function'?aiModelName(t.model):t.model)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):(t.createdAt||t.created_at))}</span></div>
   </div>`;
 }
 // ---- ABA ENTREGA (dentro da demanda) ----

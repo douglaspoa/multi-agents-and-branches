@@ -11,6 +11,8 @@ function openCfg(){
     <input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}" style="width:110px;margin-top:6px">
     <label style="margin-top:16px">Retomar após limite de uso da IA <span class="dim" style="text-transform:none;letter-spacing:0">(quando bate o limite da conta, a tarefa espera e retoma sozinha a cada X min — 0 desliga)</span></label>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><input class="in" id="cfgLimitRetry" type="number" min="0" max="240" step="5" value="60" style="width:110px"><span class="dim">min</span></div>
+    <div class="seclbl2" style="margin-top:20px">IA padrão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· motor e versão de modelo pra toda demanda nova</span></div>
+    <div class="aipick aipick-cfg" id="aiPickCfg" style="margin-top:8px"></div>
     <div id="raHost"></div>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
@@ -29,6 +31,7 @@ function openCfg(){
   $id('cfgTour').onclick=()=>{ $id('cfgOverlay').style.display='none'; openOnboarding(); };
   // Route AI vive no bloco 1 (onde secretsCache/secretSet moram); monta via window
   if(window.routeAiMount) window.routeAiMount();
+  if(typeof aiPickRender==='function' && typeof AI_TARGET_CFG!=='undefined') aiPickRender(AI_TARGET_CFG);
   $id('cfgOverlay').style.display='flex';
 }
 $id('cfgBtn').onclick=openCfg;
