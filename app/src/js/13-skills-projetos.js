@@ -126,7 +126,7 @@ function projetosRender(ov){
   const body=$id('projetosBody'); if(!body) return;
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const n=(ov||[]).length;
-  const head=`<div class="as-head"><div><h1 class="as-h1">Projetos</h1><p class="as-sub">Tudo aparece junto no quadro — aqui você gerencia cada repositório.</p></div><div class="as-actions"><span class="as-note">${n} projeto${n===1?'':'s'}</span><button class="as-btn primary" id="projAddBtn2">+ adicionar projeto</button></div></div>`;
+  const head=`<div class="as-head"><div><h1 class="as-h1">Projetos</h1><p class="as-sub">Tudo aparece junto no quadro — aqui você gerencia cada repositório.</p></div><div class="as-actions"><span class="as-note">${n} projeto${n===1?'':'s'}</span><button class="as-btn" id="projAddBtn2">abrir existente…</button><button class="as-btn primary" id="projNewBtn">+ novo projeto</button></div></div>`;
   const cards=(ov||[]).map(p=>{
     const col=projColor(p.path);
     const run=p.active?`<b style="color:var(--accent)">${p.active} rodando</b>`:'<span class="dim">nada rodando</span>';
@@ -137,12 +137,61 @@ function projetosRender(ov){
       <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}">Finder</button><button class="btn sm" data-pjrm="${escA(p.path)}">remover</button></div>
     </div>`;
   }).join('') || '<div class="as-card" style="color:rgba(255,255,255,.45);font-size:13.5px">Nenhum projeto ainda. Use "+ adicionar projeto".</div>';
-  body.innerHTML=`<div class="appscreen">${head}<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div></div>`;
+  body.innerHTML=`<div class="appscreen">${head}${projNewOpen?projNewHtml():''}<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div></div>`;
   { const b=body.querySelector('#projAddBtn2'); if(b) b.onclick=()=>{ if(window.pickFolder) window.pickFolder(); }; }
+  { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ projNewOpen=!projNewOpen; projetosRender(ov); if(projNewOpen){ projNewWire(ov); const i=$id('pnName'); if(i) i.focus(); } }; }
+  if(projNewOpen) projNewWire(ov);
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
   body.querySelectorAll('[data-pjsk]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjsk; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('skills'); });
   body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('open_url',{url:'file://'+b.dataset.pjfx}).catch(()=>{}));
   body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ if(!confirm('Remover '+projShort(b.dataset.pjrm)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:b.dataset.pjrm}); }catch(_){}; openProjetos(); });
+}
+// ---- novo projeto do zero: pasta + git init + (opcional) repositório no GitHub ----
+let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:true, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='';
+function projNewHtml(){
+  const owners=ghOwnersCache||[];
+  const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:160px">${owners.map(o=>`<option value="${escA(o)}"${(projNew.owner||owners[0])===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`:`<span class="dim" style="font-size:12px">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
+  return `<div class="as-card" id="projNewCard" style="margin-bottom:18px">
+    <div class="seclbl2" style="margin:0 0 12px">novo projeto <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta nova, git na main, 1º commit e o repositório no GitHub</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:12px">
+      <label style="display:block"><span class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">nome</span><input class="in" id="pnName" placeholder="ex.: painel-financeiro" value="${escA(projNew.name)}" style="margin-top:5px"></label>
+      <label style="display:block"><span class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">pasta onde vai morar</span><div style="display:flex;gap:8px;margin-top:5px"><input class="in mono" id="pnParent" readonly placeholder="escolha uma pasta (ex.: ~/Documents/GitHub)" value="${escA(projNew.parent)}" style="flex:1;font-size:12px"><button class="btn sm" id="pnPick">escolher…</button></div></label>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="pnGh"${projNew.github?' checked':''}> criar o repositório no GitHub e fazer o push</label>
+    <div id="pnGhOpts" style="display:${projNew.github?'flex':'none'};gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0 0 24px">
+      <span class="dim" style="font-size:12px">dono:</span>${ownerSel}
+      <label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="private"${projNew.private?' checked':''}> privado</label>
+      <label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="public"${projNew.private?'':' checked'}> público</label>
+      <a class="dim" id="pnGhCfg" style="font-size:12px;cursor:pointer;text-decoration:underline">outra conta do GitHub?</a>
+    </div>
+    ${projNewMsg?`<div style="margin-top:12px;font-size:12.5px;color:var(--warn);white-space:pre-wrap">${esc(projNewMsg)}</div>`:''}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="as-btn" id="pnCancel">cancelar</button><button class="as-btn primary" id="pnCreate"${projNewBusy?' disabled':''}>${projNewBusy?'criando…':'criar projeto'}</button></div>
+  </div>`;
+}
+function projNewWire(ov){
+  if(ghOwnersCache===null){ invoke('gh_owners').then(o=>{ ghOwnersCache=o||[]; if(projNewOpen) { projetosRender(ov); } }).catch(()=>{ ghOwnersCache=[]; if(projNewOpen) projetosRender(ov); }); }
+  const nm=$id('pnName'); if(nm) nm.oninput=()=>{ projNew.name=nm.value; };
+  bindClick('pnPick', async()=>{ try{ const d=await invoke('pick_folder'); if(d){ projNew.parent=d; lsSet('projParent',d); $id('pnParent').value=d; } }catch(_){} });
+  const gh=$id('pnGh'); if(gh) gh.onchange=()=>{ projNew.github=gh.checked; $id('pnGhOpts').style.display=gh.checked?'flex':'none'; };
+  const ow=$id('pnOwner'); if(ow) ow.onchange=()=>{ projNew.owner=ow.value; };
+  document.querySelectorAll('input[name=pnVis]').forEach(r=>r.onchange=()=>{ projNew.private=r.value==='private'; });
+  bindClick('pnGhCfg', ()=>{ if(window.openTab) window.openTab('cfg'); });
+  bindClick('pnCancel', ()=>{ projNewOpen=false; projNewMsg=''; projetosRender(ov); });
+  bindClick('pnCreate', async()=>{
+    projNew.name=($id('pnName')||{}).value||projNew.name;
+    if(!projNew.name.trim()){ projNewMsg='dê um nome ao projeto.'; projetosRender(ov); projNewWire(ov); return; }
+    if(!projNew.parent){ projNewMsg='escolha a pasta onde o projeto vai morar.'; projetosRender(ov); projNewWire(ov); return; }
+    const owner=($id('pnOwner')||{}).value||projNew.owner||'';
+    projNewBusy=true; projNewMsg=''; projetosRender(ov); projNewWire(ov);
+    try{
+      const path=await invoke('create_project',{ parent:projNew.parent, name:projNew.name.trim(), github:!!projNew.github, private:!!projNew.private, owner });
+      projNewBusy=false; projNewOpen=false; projNew.name='';
+      selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
+      await refresh(); if(window.loadProjects) await window.loadProjects();
+      await openProjetos();
+      if(window.toast) window.toast('projeto criado em '+path);
+    }catch(e){ projNewBusy=false; projNewMsg='Falhou: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); }
+  });
 }
 bindClick('projetosClose', ()=>{ $id('projetosOverlay').style.display='none'; });
 $id('projetosOverlay').addEventListener('click',e=>{ if(e.target.id==='projetosOverlay') $id('projetosOverlay').style.display='none'; });

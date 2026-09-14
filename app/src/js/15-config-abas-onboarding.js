@@ -14,6 +14,8 @@ function openCfg(){
     <div class="seclbl2" style="margin-top:20px">IA padrão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· motor e versão de modelo pra toda demanda nova</span></div>
     <div class="aipick aipick-cfg" id="aiPickCfg" style="margin-top:8px"></div>
     <div id="raHost"></div>
+    <div class="seclbl2" style="margin-top:20px">GitHub <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· a conta ativa abre os PRs e faz o push — troque ao mudar de empresa/conta</span></div>
+    <div id="ghHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn sm" id="cfgEnv">${ic('pulse')}verificar ambiente</button>
@@ -31,6 +33,7 @@ function openCfg(){
   $id('cfgTour').onclick=()=>{ $id('cfgOverlay').style.display='none'; openOnboarding(); };
   // Route AI vive no bloco 1 (onde secretsCache/secretSet moram); monta via window
   if(window.routeAiMount) window.routeAiMount();
+  if(typeof ghMount==='function') ghMount();
   if(typeof aiPickRender==='function' && typeof AI_TARGET_CFG!=='undefined') aiPickRender(AI_TARGET_CFG);
   $id('cfgOverlay').style.display='flex';
 }

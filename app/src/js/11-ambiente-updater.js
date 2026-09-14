@@ -86,3 +86,42 @@ $id('updBtn').onclick=async function(){
 };
 setTimeout(checkUpdate, 5000);
 setInterval(checkUpdate, 6*3600e3);
+
+// ---------- contas do GitHub (gh auth): listar, trocar, adicionar ----------
+let ghAccs=null, ghLogin=null, ghLoginT=null, ghMsg='';
+async function ghMount(){
+  const h=$id('ghHost'); if(!h) return;
+  h.innerHTML='<div class="dim" style="font-size:12px">lendo contas do gh…</div>';
+  try{ ghAccs=await invoke('gh_accounts'); }catch(e){ ghAccs=[]; ghMsg=String(e&&e.message||e); }
+  ghRender();
+}
+function ghRender(){
+  const h=$id('ghHost'); if(!h) return;
+  const rows=(ghAccs||[]).map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid ${a.active?'color-mix(in srgb,var(--accent) 45%,transparent)':'var(--border)'};border-radius:10px;background:${a.active?'color-mix(in srgb,var(--accent) 6%,transparent)':'var(--surface-2)'}">
+      <span style="width:8px;height:8px;border-radius:50%;background:${a.active?'var(--accent)':'rgba(255,255,255,.2)'}"></span>
+      <b style="font-size:13px">${esc(a.user)}</b><span class="dim mono" style="font-size:11px">${a.active?'ativa · PRs e push usam esta':'git via '+esc(a.protocol)}</span>
+      <span style="flex:1"></span>${a.active?'':`<button class="btn sm" data-ghuse="${escA(a.user)}">usar esta conta</button>`}
+    </div>`).join('');
+  const login = ghLogin ? (ghLogin.done
+      ? `<div style="font-size:12.5px;color:${ghLogin.ok?'var(--accent)':'var(--warn)'}">${ghLogin.ok?'✓ conta adicionada e ativa':'não concluiu: '+esc((ghLogin.log||'').trim().split('\n').slice(-2).join(' '))}</div>`
+      : `<div class="as-card" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12.5px">1) copie o código · 2) autorize no github.com (abre sozinho) · 3) volte aqui — o app reconhece na hora</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><code class="mono" style="font-size:18px;letter-spacing:.12em;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:#141817">${esc(ghLogin.code)}</code><button class="btn sm" id="ghCopy">copiar</button><button class="btn sm" id="ghOpen">abrir github.com/login/device</button><span class="dim" style="font-size:12px">esperando autorização…</span></div>
+        </div>`) : '';
+  h.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="dim" style="font-size:12.5px">nenhuma conta logada no gh.</div>'}
+    ${ghMsg?`<div style="font-size:12px;color:var(--warn)">${esc(ghMsg)}</div>`:''}${login}
+    <div style="display:flex;gap:8px;margin-top:2px"><button class="btn sm" id="ghAdd"${ghLogin&&!ghLogin.done?' disabled':''}>+ entrar com outra conta</button><button class="btn sm" id="ghRefresh">atualizar</button></div>
+    <div class="dim" style="font-size:11.5px">Cada conta fica guardada no gh; trocar a ativa muda quem abre PRs e faz push (git usa a credencial do gh). Repositórios de organização com SSO podem pedir <code>gh auth refresh -s repo</code> uma vez.</div></div>`;
+  h.querySelectorAll('[data-ghuse]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='trocando…'; ghMsg=''; try{ await invoke('gh_switch_account',{ user:b.dataset.ghuse }); envChecks=null; runEnvCheck(); }catch(e){ ghMsg='Falhou trocar: '+(e&&e.message||e); } await ghMount(); });
+  bindClick('ghRefresh', ghMount);
+  bindClick('ghAdd', async()=>{ ghMsg=''; try{ const r=await invoke('gh_login_start'); ghLogin={ code:r.code, url:r.url, done:false, ok:false, log:'' }; try{ await navigator.clipboard.writeText(r.code); }catch(_){ } try{ await invoke('open_url',{ url:r.url }); }catch(_){ } ghRender(); ghPoll(); }catch(e){ ghMsg='Falhou iniciar o login: '+(e&&e.message||e); ghRender(); } });
+  bindClick('ghCopy', ()=>{ navigator.clipboard.writeText(ghLogin.code); const b=$id('ghCopy'); if(b) b.textContent='copiado ✓'; });
+  bindClick('ghOpen', ()=>invoke('open_url',{ url:ghLogin.url }).catch(()=>{}));
+}
+function ghPoll(){
+  if(ghLoginT) clearInterval(ghLoginT);
+  ghLoginT=setInterval(async()=>{
+    if(!ghLogin||ghLogin.done){ clearInterval(ghLoginT); ghLoginT=null; return; }
+    try{ const st=await invoke('gh_login_status'); if(st.done){ ghLogin.done=true; ghLogin.ok=st.ok; ghLogin.log=st.log; clearInterval(ghLoginT); ghLoginT=null; envChecks=null; runEnvCheck(); await ghMount(); } }catch(_){ }
+  }, 2000);
+}

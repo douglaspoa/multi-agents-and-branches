@@ -911,7 +911,11 @@ fn list_projects(state: State<AppState>) -> Vec<Project> {
 /// torna-o o projeto ativo e adiciona ao topo da lista.
 #[tauri::command]
 fn open_project(state: State<AppState>, path: String) -> Result<String, String> {
-    let repo = PathBuf::from(&path);
+    open_project_at(&state, &path)
+}
+
+fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
+    let repo = PathBuf::from(path);
     let is_git = Command::new("git")
         .arg("-C")
         .arg(&repo)
@@ -948,10 +952,248 @@ fn open_project(state: State<AppState>, path: String) -> Result<String, String> 
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
     let mut list = read_project_list();
-    list.retain(|p| p != &path);
-    list.insert(0, path.clone());
+    list.retain(|p| p != path);
+    list.insert(0, path.to_string());
     write_project_list(&list);
-    Ok(path)
+    Ok(path.to_string())
+}
+
+/// Cria um projeto DO ZERO: pasta nova dentro de `parent`, `git init` na main,
+/// README + .gitignore + 1º commit e, se pedido, o repositório no GitHub via
+/// `gh repo create` (na conta ativa do gh — trocável em Configurações → GitHub).
+#[tauri::command(async)]
+fn create_project(
+    state: State<AppState>,
+    parent: String,
+    name: String,
+    github: bool,
+    private: bool,
+    owner: String,
+) -> Result<String, String> {
+    let slug: String = name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    if slug.is_empty() {
+        return Err("dê um nome ao projeto".into());
+    }
+    let parent_p = PathBuf::from(&parent);
+    if !parent_p.is_dir() {
+        return Err(format!("pasta não existe: {parent}"));
+    }
+    let repo = parent_p.join(&slug);
+    if repo.exists() {
+        return Err(format!("já existe uma pasta {} em {}", slug, parent));
+    }
+    std::fs::create_dir_all(&repo).map_err(|e| format!("não consegui criar a pasta: {e}"))?;
+    let run = |args: &[&str]| -> Result<String, String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .map_err(|e| format!("git: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    };
+    run(&["init", "-b", "main"])?;
+    std::fs::write(repo.join("README.md"), format!("# {}
+
+Projeto criado pelo Constellation.
+", name.trim()))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(repo.join(".gitignore"), ".DS_Store
+node_modules/
+.env
+.cardume/
+").map_err(|e| e.to_string())?;
+    run(&["add", "-A"])?;
+    run(&["-c", "user.name=Constellation", "-c", "user.email=constellation@local", "commit", "-q", "-m", "chore: projeto criado pelo Constellation"])
+        .or_else(|_| run(&["commit", "-q", "-m", "chore: projeto criado pelo Constellation"]))?;
+    if github {
+        let full = if owner.trim().is_empty() { slug.clone() } else { format!("{}/{}", owner.trim(), slug) };
+        let mut c = Command::new(gh_bin());
+        c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &repo.display().to_string(), "--remote", "origin", "--push"]);
+        c.current_dir(&repo);
+        let out = output_timeout(c, 120)?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(format!(
+                "pasta e git criados em {}, mas o GitHub falhou: {}\n\nConfira a conta ativa do gh em Configurações → GitHub.",
+                repo.display(),
+                err
+            ));
+        }
+    }
+    open_project_at(&state, &repo.display().to_string())
+}
+
+// ---------- contas do GitHub (gh auth) ----------
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GhAccount {
+    user: String,
+    active: bool,
+    protocol: String,
+}
+
+/// Contas logadas no `gh` (pode haver várias; a ATIVA é a que abre PR e faz push).
+#[tauri::command(async)]
+fn gh_accounts() -> Result<Vec<GhAccount>, String> {
+    let mut c = Command::new(gh_bin());
+    c.args(["auth", "status"]);
+    let out = output_timeout(c, 10)?;
+    let text = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
+    let mut list: Vec<GhAccount> = vec![];
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(i) = l.find(" account ") {
+            if l.contains("Logged in to") {
+                let rest = &l[i + 9..];
+                let user = rest.split_whitespace().next().unwrap_or("").to_string();
+                if !user.is_empty() {
+                    list.push(GhAccount { user, active: false, protocol: "https".into() });
+                }
+            }
+        } else if l.starts_with("- Active account:") {
+            if let Some(last) = list.last_mut() { last.active = l.ends_with("true"); }
+        } else if l.starts_with("- Git operations protocol:") {
+            if let Some(last) = list.last_mut() { last.protocol = l.rsplit(' ').next().unwrap_or("https").to_string(); }
+        }
+    }
+    if list.is_empty() && !out.status.success() {
+        return Err("gh sem login — adicione uma conta".into());
+    }
+    Ok(list)
+}
+
+/// Torna outra conta a ativa (PRs e push passam a usar ela — git via credencial do gh).
+#[tauri::command(async)]
+fn gh_switch_account(user: String) -> Result<String, String> {
+    let mut c = Command::new(gh_bin());
+    c.args(["auth", "switch", "-h", "github.com", "-u", &user]);
+    let out = output_timeout(c, 15)?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let mut g = Command::new(gh_bin());
+    g.args(["auth", "setup-git", "-h", "github.com"]);
+    let _ = output_timeout(g, 15);
+    Ok(user)
+}
+
+struct GhLogin {
+    log: String,
+    done: bool,
+    ok: bool,
+}
+static GH_LOGIN: Mutex<Option<GhLogin>> = Mutex::new(None);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhLoginStart { code: String, url: String }
+
+/// Começa `gh auth login` por navegador: devolve o código de uso único e a URL
+/// (github.com/login/device). O processo segue em background até o usuário
+/// autorizar; `gh_login_status` acompanha. Nenhum token passa pelo app.
+#[tauri::command(async)]
+fn gh_login_start() -> Result<GhLoginStart, String> {
+    *GH_LOGIN.lock().unwrap_or_else(|e| e.into_inner()) = Some(GhLogin { log: String::new(), done: false, ok: false });
+    let mut child = Command::new(gh_bin())
+        .args(["auth", "login", "-h", "github.com", "-p", "https", "-w", "--skip-ssh-key"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("gh: {e}"))?;
+    if let Some(mut si) = child.stdin.take() {
+        use std::io::Write;
+        let _ = si.write_all(b"\n\n");
+    }
+    let stderr = child.stderr.take();
+    let stdout = child.stdout.take();
+    fn pump<R: std::io::Read + Send + 'static>(r: Option<R>) {
+        if let Some(mut r) = r {
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 512];
+                loop {
+                    match r.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                            if let Some(g) = GH_LOGIN.lock().unwrap_or_else(|e| e.into_inner()).as_mut() { g.log.push_str(&s); }
+                        }
+                    }
+                }
+            });
+        }
+    }
+    pump(stderr);
+    pump(stdout);
+    std::thread::spawn(move || {
+        let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+        if let Some(g) = GH_LOGIN.lock().unwrap_or_else(|e| e.into_inner()).as_mut() { g.done = true; g.ok = ok; }
+        if ok {
+            let mut g = Command::new(gh_bin());
+            g.args(["auth", "setup-git", "-h", "github.com"]);
+            let _ = output_timeout(g, 15);
+        }
+    });
+    // espera o código aparecer (XXXX-XXXX)
+    for _ in 0..80 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let (log, done) = {
+            let g = GH_LOGIN.lock().unwrap_or_else(|e| e.into_inner());
+            g.as_ref().map(|x| (x.log.clone(), x.done)).unwrap_or_default()
+        };
+        if let Some(code) = log.split(|c: char| c.is_whitespace()).find(|t| t.len() == 9 && t.as_bytes()[4] == b'-' && t.chars().filter(|c| *c != '-').all(|c| c.is_ascii_alphanumeric() && !c.is_ascii_lowercase())) {
+            return Ok(GhLoginStart { code: code.to_string(), url: "https://github.com/login/device".into() });
+        }
+        if done {
+            return Err(format!("gh encerrou antes de gerar o código:\n{}", log.trim()));
+        }
+    }
+    Err("gh não respondeu com o código (rede?)".into())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhLoginStatus { done: bool, ok: bool, log: String }
+
+#[tauri::command(async)]
+fn gh_login_status() -> GhLoginStatus {
+    let g = GH_LOGIN.lock().unwrap_or_else(|e| e.into_inner());
+    match g.as_ref() {
+        Some(x) => GhLoginStatus { done: x.done, ok: x.ok, log: x.log.clone() },
+        None => GhLoginStatus { done: true, ok: false, log: String::new() },
+    }
+}
+
+/// Donos possíveis pro repositório novo: o usuário ativo + organizações dele.
+#[tauri::command(async)]
+fn gh_owners() -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    let mut c = Command::new(gh_bin());
+    c.args(["api", "user", "--jq", ".login"]);
+    if let Ok(o) = output_timeout(c, 15) {
+        let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !u.is_empty() { out.push(u); }
+    }
+    let mut c2 = Command::new(gh_bin());
+    c2.args(["api", "user/orgs", "--paginate", "--jq", ".[].login"]);
+    if let Ok(o) = output_timeout(c2, 20) {
+        for l in String::from_utf8_lossy(&o.stdout).lines() {
+            let l = l.trim();
+            if !l.is_empty() && !out.contains(&l.to_string()) { out.push(l.to_string()); }
+        }
+    }
+    out
 }
 
 /// Troca o projeto ativo para um já existente na lista.
@@ -4677,6 +4919,12 @@ pub fn run() {
             fetch_task_ref,
             slack_send_artifact,
             open_project,
+            create_project,
+            gh_accounts,
+            gh_switch_account,
+            gh_login_start,
+            gh_login_status,
+            gh_owners,
             switch_project,
             remove_project,
             snapshot,
