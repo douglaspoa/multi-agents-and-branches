@@ -185,7 +185,12 @@ function orqRenderPlan(body){
   const nodes=p.phases.map(ph=>{ const q=pos[ph.key]; const st=orqPhaseState(ph); const [done,tot]=orqObjDone(ph); const t=orqTaskOf(ph);
     const last=t?orqLastLines(t.id,2):[];
     const deps=(ph.dependsOn||[]).map(k=>byKey[k]).filter(Boolean);
-    const sub=last.length?last.map(l=>`<span>${esc(l)}</span>`).join(''):(deps.length&&st.key!=='done'?`<span>aguardando ${esc(deps.map(d=>d.key).join(', '))} · ${esc(deps[0].name.toLowerCase())}</span>`:`<span>${t?'branch reservada':'aguardando aprovação do plano'}</span>`);
+    const idle = st.key==='done' ? `entregou · ${done}/${tot} objetivos provados`
+      : st.key==='review' ? `entregou · ${done}/${tot} provados — revise`
+      : st.key==='error' ? 'falhou — abra a tarefa'
+      : (deps.length&&st.key==='waiting') ? `aguardando ${deps.map(d=>d.key).join(', ')} · ${deps[0].name.toLowerCase()}`
+      : t ? (st.key==='waiting'?'pronta pra começar':'iniciando…') : 'aguardando aprovação do plano';
+    const sub=last.length?last.map(l=>`<span>${esc(l)}</span>`).join(''):`<span>${esc(idle)}</span>`;
     return `<div class="orq-node ${st.key}${orq.sel===ph.key?' sel':''}" data-orqsel="${escA(ph.key)}" style="left:${q.x}px;top:${q.y}px;width:${q.w}px;height:${q.h}px;--c:${orqColor(ph.kind)}">
       <div class="orq-nh"><b class="orq-badge">${orqBadge(ph.kind)}</b><span class="orq-nn">${esc(ph.name)}</span><i class="orq-dot" style="background:${st.color}"></i></div>
       <div class="orq-nm mono"><span style="color:${st.color}">${esc(st.label)}</span><span>${done}/${tot} objetivos</span></div>
@@ -216,7 +221,27 @@ function orqRenderPlan(body){
     ${running?`<button class="as-btn" disabled>${doneN===p.phases.length?'plano concluído':'plano rodando'}</button>`:`<button class="as-btn primary big" id="orqApprove" ${orq.busy?'disabled':''}>${orq.busy?'criando as tarefas…':'aprovar plano e rodar'}</button>`}</div>`;
   orqWire(body, pos);
 }
-function orqLastLines(taskId,n){ const ev=(state.events||[]).filter(e=>e.taskId===taskId&&['bash','edit','write','note','done','error','think','talk','msg'].includes(e.type)).slice(-n); return ev.map(e=>(e.type==='bash'?'$ ':'')+String(e.text||'').split('\n')[0].slice(0,60)); }
+// eventos por tarefa via task_events (incremental) — o snapshot só carrega os 1200 últimos do projeto
+// inteiro, então uma fase antiga aparecia "sem atividade" mesmo tendo rodado.
+const orqEv={}; // taskId → { lastId, lines:[], at }
+const ORQ_EV_TYPES=new Set(['bash','edit','write','note','done','error','think','talk','msg','status','read']);
+async function orqLoadEvents(taskId, force){
+  const c=orqEv[taskId]||(orqEv[taskId]={ lastId:0, lines:[], at:0, loading:false });
+  if(c.loading) return; if(!force && Date.now()-c.at<6000) return;
+  c.loading=true;
+  try{ const rows=(await invoke('task_events',{ taskId, sinceId:c.lastId }))||[];
+    for(const e of rows){ if(e.id>c.lastId) c.lastId=e.id; if(!ORQ_EV_TYPES.has(e.type)) continue; c.lines.push((e.type==='bash'?'$ ':e.type==='status'?'· ':'')+String(e.text||'').split('\n')[0].slice(0,90)); }
+    if(c.lines.length>40) c.lines=c.lines.slice(-40);
+    c.at=Date.now(); if(rows.length && orqOpen()) orqRender();
+  }catch(_){ c.at=Date.now(); }
+  c.loading=false;
+}
+function orqLastLines(taskId,n){
+  const c=orqEv[taskId];
+  if(!c){ orqLoadEvents(taskId, true); const ev=(state.events||[]).filter(e=>e.taskId===taskId&&ORQ_EV_TYPES.has(e.type)).slice(-n); return ev.map(e=>(e.type==='bash'?'$ ':'')+String(e.text||'').split('\n')[0].slice(0,60)); }
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(t&&['running','thinking','queued','plan-review'].includes(t.status)) orqLoadEvents(taskId,false);
+  return c.lines.slice(-n);
+}
 function orqWire(body,pos){
   const canvas=$id('orqCanvas'), world=$id('orqWorld');
   canvas.onmousedown=e=>{ if(e.target.closest('.orq-node')) return; orqDrag={ x:e.clientX, y:e.clientY, px:orq.pan.x, py:orq.pan.y }; canvas.classList.add('drag'); };
