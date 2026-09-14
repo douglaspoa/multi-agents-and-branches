@@ -12,7 +12,8 @@ const ND_TYPES=[
 const ND_TO_MODE={build:'build',fix:'fix',invest:'invest',design:'design',docs:'build',review:'review'};
 const ND_NAME_OF_MODE={build:'Feature',fix:'Correção',invest:'Investigação',design:'Design',review:'Review de PR'};
 window.ND_TO_MODE=ND_TO_MODE; window.ND_NAME_OF_MODE=ND_NAME_OF_MODE;
-let ndType='build';
+let ndType='build', ndMethod='chat';
+window.TAB_STATE_nova={ get:()=>({ ndType, ndMethod }), set:(st)=>{ ndType=st.ndType||'build'; ndMethod=st.ndMethod||'chat'; } };
 function ndInjectFonts(){ if($id('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }
 window.ndInjectFonts=ndInjectFonts;
 function openNovaStart(){ ndInjectFonts(); $id('ndOverlay').style.display='flex'; ndRenderStart(); }
@@ -29,18 +30,21 @@ function ndRenderStart(){
     <div class="ndtypes">${typeCards}</div>
     <div class="ndstep2"><span class="ndeyebrow">passo 2 · como você quer montar</span><span class="ndline"></span></div>
     <div class="ndmethods">
-      <button class="ndm ndm-primary" id="ndChat"><span class="ndmtop"><span class="ndmt">Montar conversando</span><span class="ndmbadge">recomendado</span></span><span class="ndmd">A IA pergunta só o essencial e preenche o task.yaml na sua frente. Você revisa e aprova.</span><span class="ndmeta">~7 perguntas · 2 min</span></button>
-      <button class="ndm" id="ndForm"><span class="ndmt2">Preencher eu mesmo</span><span class="ndmd">Formulário com os campos do spec. Controle total, sem conversa.</span><span class="ndmeta">10 campos · passos</span></button>
-      <button class="ndm ndm-orq" id="ndOrq"><span class="ndmtop"><span class="ndmt2">Orquestrar com subagentes</span><span class="ndmbadge" style="background:rgba(180,124,224,.2);color:#d9b8f2">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente orquestrador quebra em fases, abre uma tarefa por fase e comanda a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano em grafo</span></button>
+      <button class="ndm ndm-primary${ndMethod==='chat'?' on':''}" id="ndChat" data-ndm="chat"><span class="ndmtop"><span class="ndmt">Montar conversando</span><span class="ndmbadge">recomendado</span></span><span class="ndmd">A IA pergunta só o essencial e preenche o task.yaml na sua frente. Você revisa e aprova.</span><span class="ndmeta">~7 perguntas · 2 min</span></button>
+      <button class="ndm${ndMethod==='form'?' on':''}" id="ndForm" data-ndm="form"><span class="ndmt2">Preencher eu mesmo</span><span class="ndmd">Formulário com os campos do spec. Controle total, sem conversa.</span><span class="ndmeta">10 campos · passos</span></button>
+      <button class="ndm ndm-orq${ndMethod==='orq'?' on':''}" id="ndOrq" data-ndm="orq"><span class="ndmtop"><span class="ndmt2">Orquestrar com subagentes</span><span class="ndmbadge" style="background:rgba(180,124,224,.2);color:#d9b8f2">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente orquestrador quebra em fases, abre uma tarefa por fase e comanda a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano em grafo</span></button>
     </div>
+    <div class="ndcta"><button class="as-btn primary big" id="ndGo">Continuar${ndMethod==='chat'?' · montar conversando':ndMethod==='form'?' · preencher eu mesmo':' · orquestrar com subagentes'} →</button><span class="dim" style="font-size:12.5px">tipo <b style="color:#eaf2ee">${esc(cur.name)}</b> · o caminho escolhido abre nesta mesma aba</span></div>
     <div class="ndfoot"><div class="ndfl">já tem um .md? <a id="ndImport">importar</a> · guia deste repo: <span class="mono">.cardume/SPEC.md</span></div><div class="ndft mono">tipo: ${esc(cur.name)}</div></div>
   </div></div>`;
   body.querySelectorAll('[data-ndtype]').forEach(b=>b.onclick=()=>{ ndType=b.dataset.ndtype; ndRenderStart(); });
   { const s=body.querySelector('#ndProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p && p!==state.repo && window.switchProject){ await window.switchProject(p); } ndRenderStart(); }; }
-  { const b=body.querySelector('#ndChat'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('planner'); }; }
-  { const b=body.querySelector('#ndForm'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form'); }; }
-  { const b=body.querySelector('#ndOrq'); if(b) b.onclick=()=>{ if(window.openTab) window.openTab('orq'); }; }
-  { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form'); setTimeout(()=>{ const im=$id('ntImport'); if(im) im.click(); }, 300); }; }
+  // 1º clique no card SELECIONA o método; o botão Continuar (ou 2º clique no mesmo card) segue —
+  // o caminho escolhido substitui esta aba (cada aba é um fluxo isolado)
+  const go=()=>{ const m=ndMethod; if(m==='form') window.ntPresetType=ndType; if(window.openTab) window.openTab(m==='chat'?'planner':m==='form'?'form':'orq', { replace:true }); };
+  body.querySelectorAll('[data-ndm]').forEach(b=>b.onclick=()=>{ if(ndMethod===b.dataset.ndm){ go(); return; } ndMethod=b.dataset.ndm; ndRenderStart(); });
+  { const b=body.querySelector('#ndGo'); if(b) b.onclick=go; }
+  { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form', { replace:true }); setTimeout(()=>{ const im=$id('ntImport'); if(im) im.click(); }, 300); }; }
 }
 $id('dailyClose').onclick=()=>{ $id('dailyOverlay').style.display='none'; };
 $id('dailyDate').onchange=loadDaily;

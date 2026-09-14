@@ -181,3 +181,16 @@
 .agtile{cursor:grab}
 .agtile:active{cursor:grabbing}
 .agtile.dragging{opacity:.4}
+
+/* ---- abas: barra do topo some (era uma faixa vazia); expandir sidebar e "atualizar" vivem na barra de abas ---- */
+.top{display:none}
+.tabbar{align-items:center}
+.tabbar .railtgl-main{display:none;margin:0 6px 4px 0}
+.app.railcol .tabbar{padding-left:84px}
+.app.railcol .tabbar .railtgl-main{display:inline-flex}
+.tabgrow{flex:1;min-width:12px;align-self:stretch}
+.tabright{display:flex;align-items:center;gap:6px;padding:0 4px 4px 0}
+/* Nova demanda: card do método selecionado + CTA explícita */
+.ndm.on{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.ndm.on .ndmt2{color:#eaf2ee}
+.ndcta{display:flex;align-items:center;gap:16px;margin-top:22px}

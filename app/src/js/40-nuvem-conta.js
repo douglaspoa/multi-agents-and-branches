@@ -139,7 +139,11 @@ function cloudBtnSync(){
   if(!s){ tx.textContent='Entrar'; }
   else {
     const team = cloudData && cloudData.teams.find(t=>t.id===cloudTeamId());
-    tx.textContent = team ? team.name : ((s.user&&s.user.email)||'Equipe').split('@')[0];
+    const prof = cloudData && cloudData.profileByUser && cloudData.profileByUser[cloudUserId()];
+    const meta = (s.user && s.user.user_metadata) || {};
+    const name = (prof && prof.name) || meta.name || meta.full_name || ((s.user&&s.user.email)||'Conta').split('@')[0];
+    tx.textContent = name;
+    const btn=$id('cloudBtn'); if(btn) btn.title = (team ? 'Time '+team.name+' · ' : '') + ((s.user&&s.user.email)||'') + ' — conta, organização e convites';
   }
   loginGateSync();
 }

@@ -47,7 +47,14 @@ async function plNew(){
   plReset(); plMsgs.push({who:'bot', text:'Novo. Qual é o objetivo — o que precisa ser feito e por quê?'}); plMsgs.push({who:'bot', kind:'model'});
   renderPlanner(); plRenderRefs();
 }
-function closePlanner(){ $id('plannerOverlay').style.display='none'; if(typeof closeTab==='function' && tabById('planner')) closeTab('planner'); }
+function closePlanner(){ $id('plannerOverlay').style.display='none'; if(window.closeTabOfKind) window.closeTabOfKind('planner'); }
+// mostra a conversa desta aba do jeito que estava (sem recarregar rascunho nem resetar)
+function plShow(){ $id('plannerOverlay').style.display='flex'; renderPlanner(); plRenderRefs(); const i=$id('plInput'); if(i) i.focus(); }
+window.plShow=plShow;
+window.TAB_STATE_planner={
+  get:()=>({ _title:(plFields&&plFields.title)||'', plFields, plSid, plMsgs, plChips, plAsking, plDone, plRefs, plPlan, plNoEpic, plPend }),
+  set:(st)=>{ plFields=st.plFields||{}; plSid=st.plSid||''; plMsgs=st.plMsgs||[]; plChips=st.plChips||[]; plAsking=st.plAsking||''; plDone=!!st.plDone; plBusy=false; plRefs=st.plRefs||[]; plPlan=st.plPlan||null; plNoEpic=!!st.plNoEpic; plPend=st.plPend||[]; }
+};
 function plApplyPatch(patch){
   if(!patch||typeof patch!=='object') return;
   for(const k of ['title','objective','autonomy','engine']) if(typeof patch[k]==='string'&&patch[k].trim()) plFields[k]=patch[k].trim();

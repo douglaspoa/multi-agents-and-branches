@@ -62,18 +62,22 @@ echo "→ 4/4 zip (com LEIA-ME de instalação)"
 cat > dist/LEIA-ME.txt <<'TXT'
 CONSTELLATION — instalação (macOS, Apple Silicon)
 
-1. Arraste Constellation-portable.app para /Applications.
+1. Arraste Constellation.app para /Applications (substituindo o antigo, se houver).
 2. Ao abrir, o macOS vai BLOQUEAR ("A Apple não pôde verificar…").
    Isso é o Gatekeeper com apps fora da App Store — o app está íntegro.
    Destrave por UM dos caminhos:
 
    A) Sem terminal: clique OK (NÃO "Mover para o Lixo") →
       Ajustes do Sistema → Privacidade e Segurança → role até
-      "Constellation-portable foi bloqueado…" → Abrir Mesmo Assim.
+      "Constellation foi bloqueado…" → Abrir Mesmo Assim.
 
    B) Terminal (1 linha):
-      xattr -dr com.apple.quarantine /Applications/Constellation-portable.app
+      xattr -dr com.apple.quarantine /Applications/Constellation.app
 
+   Na 1ª execução o macOS também pergunta se o Constellation pode acessar
+   a pasta Documentos (é onde ficam os repositórios) — clique Permitir.
+   Ele pergunta UMA vez por app; mantendo o nome Constellation.app nas
+   atualizações, a permissão fica guardada.
 3. Abra o app: tour de 1 minuto + verificação do ambiente
    (precisa de node, git, claude logado e gh autenticado — a tela
    de Ambiente mostra o comando de correção de cada um).
@@ -87,14 +91,16 @@ COMO ATUALIZAR (quando receber um zip novo)
 3. Destrave o Gatekeeper de novo (todo download re-quarentena):
    Ajustes → Privacidade e Segurança → Abrir Mesmo Assim
    — ou no terminal:
-   xattr -dr com.apple.quarantine /Applications/Constellation-portable.app
+   xattr -dr com.apple.quarantine /Applications/Constellation.app
 4. Abra. Nada se perde: login, projetos e tarefas continuam
    (ficam fora do .app).
 
 Qual versão estou rodando? Olhe o rodapé do app, canto direito:
 "· build dd/mm hh:mm". Ao reportar um problema, informe esse carimbo.
 TXT
-( cd dist && rm -f Constellation-portable.zip && ditto -c -k --keepParent Constellation-portable.app /tmp/_capp.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Constellation-portable.app _pkg/ && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Constellation-portable.zip && rm -rf _pkg /tmp/_capp.zip )
+# dentro do zip o app se chama Constellation.app: mesmo nome do instalado → substitui no lugar e o macOS
+# mantém as permissões (Documentos etc.) em vez de perguntar de novo pra um "Constellation-portable"
+( cd dist && rm -f Constellation-portable.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Constellation-portable.app _pkg/Constellation.app && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Constellation-portable.zip && rm -rf _pkg )
 echo "✔ dist/Constellation-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
 
 # publica no canal de releases quando as credenciais do owner estão no ambiente

@@ -58,59 +58,96 @@ const VIEW_META={
 };
 const VIEW_OVERLAY={ orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
+// Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
+// e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
+const MULTI_KINDS=new Set(['nova','planner','form','orq']);
+let tabSeq=0;
+function tabStateApi(kind){ return window['TAB_STATE_'+kind]||null; }
+function saveTabState(tab){ if(!tab||!MULTI_KINDS.has(tab.kind)) return; const api=tabStateApi(tab.kind); if(!api||!api.get) return; try{ tab.state=api.get(); if(tab.state&&tab.state._title) tab.title=String(tab.state._title).slice(0,28); }catch(e){ console.error('saveTabState',e); } }
+function loadTabState(tab){ if(!tab||!MULTI_KINDS.has(tab.kind)||!tab.state) return; const api=tabStateApi(tab.kind); if(!api||!api.set) return; try{ api.set(tab.state); }catch(e){ console.error('loadTabState',e); } }
 // abridores que POPULAM+mostram cada view (os bloco-1 vêm via window)
-function viewOpen(kind){
-  const f={ orq:()=>window.openOrq&&window.openOrq(), projetos:()=>openProjetos(), nova:()=>openNovaStart(), planner:()=>openPlanner(), form:()=>openNewTask(), skills:()=>openSkills(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+function viewOpen(kind, tab){
+  const fresh=!!(tab&&tab.fresh); if(tab) tab.fresh=false;
+  const f={ orq:()=>{ if(fresh&&window.orqFresh) window.orqFresh(); window.openOrq&&window.openOrq(); },
+            projetos:()=>openProjetos(), nova:()=>openNovaStart(),
+            planner:()=>{ if(fresh||!window.plShow) openPlanner(); else window.plShow(); },
+            form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
+            skills:()=>openSkills(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); } }[kind];
   if(f) f();
 }
-// cada aba tem um id único: 'flow', o próprio kind (views únicas) ou 'task:<id>' (uma por tarefa)
+// cada aba tem um id único: 'flow', o próprio kind (views únicas), 'task:<id>' (uma por tarefa)
+// ou '<kind>:<n>' (views de instância múltipla)
 let TABS=[{id:'flow',kind:'flow',title:'Tarefas',pin:true}];
 let activeTab='flow';
 function tabById(id){ return TABS.find(t=>t.id===id); }
+function tabsOfKind(kind){ return TABS.filter(t=>t.kind===kind); }
 function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11" height="10" rx="1.4"/><path d="M2.5 6h11"/>'; return (VIEW_META[kind]||{}).icon||''; }
-function activateTab(id){ activeTab=id; renderTabs(); showActiveView(); }
-function openTab(kind){ // views de instância única (nova, skills, cfg, planner, form, …)
+function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id; renderTabs(); showActiveView(); }
+// openTab(kind, opts): views únicas reaproveitam a aba; views múltiplas abrem uma NOVA aba,
+// salvo opts.replace (a aba ativa de "Nova demanda" vira o método escolhido, mantendo o id)
+// ou opts.reuse (função que escolhe uma aba já aberta do mesmo kind).
+function openTab(kind, opts){
+  opts=opts||{};
   if(kind==='flow'){ activateTab('flow'); return; }
-  if(!tabById(kind)) TABS.push({id:kind, kind, title:(VIEW_META[kind]||{}).title||kind});
-  activateTab(kind);
+  let tab=null;
+  if(MULTI_KINDS.has(kind)){
+    const cur=tabById(activeTab);
+    if(opts.replace && cur && MULTI_KINDS.has(cur.kind) && cur.id===activeTab){ tab=cur; tab.kind=kind; tab.title=(VIEW_META[kind]||{}).title||kind; tab.state=null; tab.fresh=true; }
+    else if(opts.reuse){ tab=tabsOfKind(kind).find(t=>{ try{ return opts.reuse(t); }catch(_){ return false; } })||null; }
+    if(!tab){ tab={id:kind+':'+(++tabSeq), kind, title:(VIEW_META[kind]||{}).title||kind, fresh:true, state:null}; TABS.push(tab); }
+  } else {
+    tab=tabById(kind); if(!tab){ tab={id:kind, kind, title:(VIEW_META[kind]||{}).title||kind}; TABS.push(tab); }
+  }
+  activateTab(tab.id);
 }
 window.openTab=openTab;
 function closeTab(id){
   const i=TABS.findIndex(t=>t.id===id); if(i<0||TABS[i].pin) return;
+  const kind=TABS[i].kind;
   TABS.splice(i,1);
   // esconde o overlay do kind se nenhuma OUTRA aba do mesmo kind sobrou
-  const kind=(id.split(':')[0]==='task')?'task':id;
   if(!TABS.some(t=>t.kind===kind)){ const o=$id(VIEW_OVERLAY[kind]); if(o){ o.classList.remove('astab'); o.style.display='none'; } }
   if(activeTab===id) activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView();
 }
+// fecha a aba ATIVA desse kind (ou a última aberta) — usado pelos botões "fechar" das views
+function closeTabOfKind(kind){ const cur=tabById(activeTab); const t=(cur&&cur.kind===kind)?cur:tabsOfKind(kind).slice(-1)[0]; if(t) closeTab(t.id); }
+window.closeTabOfKind=closeTabOfKind;
 function showActiveView(){
   const t=tabById(activeTab)||TABS[0];
   Object.keys(VIEW_OVERLAY).forEach(k=>{ const o=$id(VIEW_OVERLAY[k]); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
   if(t.kind==='flow') return; // o quadro (.body) já aparece
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
-  viewOpen(t.kind); // popula + mostra (pode setar display='flex')
+  loadTabState(t);      // devolve o estado guardado desta aba (views múltiplas)
+  viewOpen(t.kind, t);  // popula + mostra (pode setar display='flex')
   const o=$id(VIEW_OVERLAY[t.kind]);
   if(o){ requestAnimationFrame(()=>{
-    // mede a base da barra de abas AGORA (layout já assentado) e fixa o topo do overlay —
-    // sem isso, uma mudança de altura do topo deixava --chrome-h defasado e o overlay
-    // cobria as abas (recolhido) ou deixava o board vazar por cima (expandido).
+    // mede a base da barra de abas AGORA (layout já assentado) e fixa o topo do overlay
     syncChromeH();
     o.classList.add('astab'); o.style.display='block';
   }); }
 }
 function renderTabs(){
   const bar=$id('tabBar'); if(!bar) return;
-  bar.style.display='flex';
-  bar.innerHTML=TABS.map(t=>{
-    const on=t.id===activeTab;
-    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(t.title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">✕</span>`}</span>`;
-  }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda">+</span>`;
+  bar.style.display='flex'; bar.setAttribute('data-tauri-drag-region','');
+  // título vivo das abas múltiplas (ex.: a demanda que está sendo montada)
+  for(const t of TABS){ if(t.id===activeTab && MULTI_KINDS.has(t.kind)){ const api=tabStateApi(t.kind); try{ const st=api&&api.get&&api.get(); if(st&&st._title) t.title=String(st._title).slice(0,28); else if(st&&st._title===''){ t.title=(VIEW_META[t.kind]||{}).title||t.kind; } }catch(_){ } } }
+  // numera só as abas que ainda têm o título genérico ("Montar conversando 1, 2…")
+  const counts={}; TABS.forEach(t=>{ if(t.title===((VIEW_META[t.kind]||{}).title||t.kind)) counts[t.kind]=(counts[t.kind]||0)+1; });
+  const seen={};
+  bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+TABS.map(t=>{
+    const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
+    const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
+    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">✕</span>`}</span>`;
+  }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda (sempre abre uma aba nova)">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
   bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.xk) return; activateTab(el.dataset.tk); });
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); closeTab(el.dataset.xk); });
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
+  { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
+  // o botão "atualizar" (versão nova) mora na barra de abas, à direita
+  { const u=$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
   requestAnimationFrame(syncChromeH);
 }
 $id('bdClose').onclick=()=>{ $id('bdOverlay').style.display='none'; };

@@ -536,7 +536,18 @@ function setNtMode(m){
 // o toggle Formulário|Markdown mora na linha do eyebrow (à direita); a barra "SPEC" solta some
 { const seg=document.querySelector('#ntRight .ntviewbar .seg2'), pr=document.querySelector('#wizHead .nf-progrow'), vb=document.querySelector('#ntRight .ntviewbar');
   if(seg&&pr){ seg.style.marginLeft='auto'; pr.appendChild(seg); } if(vb) vb.style.display='none'; }
-function closeNewTask(){ $id("ntOverlay").style.display="none"; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; if(typeof closeTab==='function' && tabById('form')) closeTab('form'); }
+function closeNewTask(){ $id("ntOverlay").style.display="none"; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; if(window.closeTabOfKind) window.closeTabOfKind('form'); }
+function ntShow(){ setNtMode(ntMode); $id("ntOverlay").style.display="flex"; }
+window.ntShow=ntShow;
+// estado por aba: todos os campos do formulário + listas em memória
+window.TAB_STATE_form={
+  get:()=>{ const fields={}; document.querySelectorAll('#ntOverlay input[id],#ntOverlay select[id],#ntOverlay textarea[id]').forEach(e=>{ fields[e.id]=(e.type==='checkbox'||e.type==='radio')?{c:e.checked}:{v:e.value}; });
+    const ti=($id('ntTitle')||{}).value||($id('ntFixTitle')||{}).value||($id('ntDzTitle')||{}).value||($id('ntInvTitle')||{}).value||'';
+    return { _title:ti, fields, ntMode, ntModels, ntDocsPreset, ntLinkedTo, ntDel:ntDel.slice(), ntReq:ntReq.slice(), ntRefs:ntRefs.slice(), ntFixReq:ntFixReq.slice(), ntDzRefs:ntDzRefs.slice(), ntFixRefs:ntFixRefs.slice(), ntInvRefs:ntInvRefs.slice(), aiSid, ntEditingDraft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; },
+  set:(st)=>{ Object.entries(st.fields||{}).forEach(([id,f])=>{ const e=$id(id); if(!e) return; if('c' in f) e.checked=!!f.c; else e.value=f.v; });
+    ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; aiSid=st.aiSid||''; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
+    renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
+};
 function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; $id("aiChat").innerHTML=""; $id("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;

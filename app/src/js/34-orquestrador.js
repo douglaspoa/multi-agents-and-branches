@@ -7,7 +7,10 @@ const ORQ_KINDS={ invest:{label:'Investigar', badge:'IN', color:'#b47ce0', branc
                   design:{label:'Desenhar',   badge:'DS', color:'#5b9df9', branch:'design', doc:'DESIGN.md', agent:'Designer'},
                   build: {label:'Implementar',badge:'IM', color:'#3fd68a', branch:'feat',   doc:null, agent:'Coder'},
                   review:{label:'Revisar',    badge:'CR', color:'#4fc4c9', branch:'review', doc:'REVIEW.md', agent:'Revisor'} };
-let orq={ step:'brief', briefing:'', atts:[], plan:null, sel:null, zoom:1, pan:{x:40,y:40}, busy:false, msg:'', list:null, addOpen:false, model:'' };
+function orqNewState(){ return { step:'brief', briefing:'', atts:[], plan:null, sel:null, zoom:1, pan:{x:40,y:40}, busy:false, msg:'', list:(typeof orq!=='undefined'&&orq&&orq.list)||null, addOpen:false, model:'' }; }
+let orq=orqNewState();
+window.orqFresh=()=>{ orq=orqNewState(); };
+window.TAB_STATE_orq={ get:()=>Object.assign({ _title:(orq.plan&&orq.plan.title)||'' }, { s:orq }), set:(st)=>{ if(st&&st.s){ const list=orq.list; orq=st.s; if(!orq.list) orq.list=list; } } };
 let orqDrag=null, orqTickT=null, orqListAt=0;
 
 function orqBadge(k){ return (ORQ_KINDS[k]||ORQ_KINDS.build).badge; }
@@ -75,10 +78,14 @@ async function orqLoadList(){ const before=JSON.stringify((orq.list||[]).map(p=>
 async function orqOpenPlan(id, taskId){
   if(!orq.list) await orqLoadList();
   const p=(orq.list||[]).find(x=>x.id===id); if(!p){ alert('plano não encontrado neste projeto.'); return; }
+  if(window.openTab){
+    // aba que já mostra este plano → volta pra ela; senão, uma aba nova só pra ele
+    window.openTab('orq', { reuse:t=>(t.id===activeTab && orq.plan && orq.plan.id===p.id) || (t.state && t.state.s && t.state.s.plan && t.state.s.plan.id===p.id) });
+  }
   if(!orq.plan||orq.plan.id!==p.id){ orq.plan=p; orq.needFit=true; orq.pan={x:20,y:20}; orq.zoom=1; }
   orq.step='plan'; orq.addOpen=false;
   orq.sel=(taskId&&(p.phases.find(x=>x.taskId===taskId)||{}).key)||orq.sel||(p.phases[0]?p.phases[0].key:'__orq');
-  if(window.openTab) window.openTab('orq'); else orqShow();
+  if(!window.openTab) orqShow();
   orqRender();
 }
 window.orqOpenPlan=orqOpenPlan;
@@ -375,4 +382,4 @@ function orqTaskChips(t){
   el.querySelectorAll('[data-orqgraph]').forEach(b=>b.onclick=async()=>{ if(!orq.list) await orqLoadList(); const p=(orq.list||[]).find(x=>x.id===b.dataset.orqgraph); if(p){ orq.plan=p; orq.step='plan'; orq.sel=(p.phases.find(x=>x.taskId===t.id)||{}).key||'__orq'; } if(window.openTab) window.openTab('orq'); });
 }
 window.openOrq=orqShow; window.orqTaskChips=orqTaskChips;
-bindClick('orqClose', ()=>{ $id('orqOverlay').style.display='none'; if(typeof closeTab==='function' && tabById('orq')) closeTab('orq'); });
+bindClick('orqClose', ()=>{ $id('orqOverlay').style.display='none'; if(window.closeTabOfKind) window.closeTabOfKind('orq'); });
