@@ -523,15 +523,18 @@ function renderFlow(){
       }
     }
   }
+  // planos do orquestrador entram no topo em QUALQUER ordenação/agrupamento (sem busca ativa)
+  if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
+  if(window.orqWireOpeners) window.orqWireOpeners(el);
   bindClick('ghostNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow,.dcard').forEach(row=>{
-    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-arch],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg],[data-tmenu],[data-dcopen]')) return;
+    row.onclick=(e)=>{ if(e.target.closest('[data-rowplay],[data-rowpr],[data-arch],[data-pvrow],[data-pvmob],[data-sum],[data-lk],[data-lkcfg],[data-tmenu],[data-dcopen],[data-orq]')) return;
       const t=src.find(x=>x.id===row.dataset.id); if(!t) return;
       if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; }
       selected=t.id; render();

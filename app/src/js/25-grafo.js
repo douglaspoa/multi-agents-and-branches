@@ -195,12 +195,14 @@ function renderRail(){
   let html='';
   if(rows.length){
     html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div></div>`;
+    if(window.orqRailRows) html+=window.orqRailRows();
     html+=rows.map(t=>{ const [tg,tc]=tagOf(t);
       return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
     }).join('');
   }
   if(!rows.length && !others.length){
-    html+=`<div class="railempty"><b>${esc(curName)}</b><span>nenhuma demanda rodando ou em rascunho</span></div>`;
+    const pr=window.orqRailRows?window.orqRailRows():'';
+    html+=pr?`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">0</span></div></div>${pr}`:`<div class="railempty"><b>${esc(curName)}</b><span>nenhuma demanda rodando ou em rascunho</span></div>`;
   }
   for(const p of others){
     html+=`<div class="rproj" data-proj="${escA(p.path)}"><div class="rph"><b>${esc(p.name)}</b><span class="n">${p.active+p.review}</span></div></div>`;
@@ -211,7 +213,8 @@ function renderRail(){
   html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
     <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
   el.innerHTML = html;
-  el.querySelectorAll('.prow2').forEach(r=>r.onclick=()=>{
+  if(window.orqWireOpeners) window.orqWireOpeners(el);
+  el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
     if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
     openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });

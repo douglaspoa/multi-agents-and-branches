@@ -154,3 +154,23 @@
 .orq-termbox{font-size:11px;line-height:1.5;max-height:190px}
 .ndeyebrow{margin-top:18px}
 .orq-insp .ndeyebrow:first-of-type{margin-top:0}
+
+/* ---- pontos de entrada do plano: sidebar, quadro e chip no card ---- */
+.prow2.orqrow .tt{color:var(--accent)}
+.prow2.orqrow{border-left:2px solid rgba(63,214,138,.35);padding-left:6px}
+.orqcard{border:1px solid rgba(63,214,138,.28);border-radius:12px;background:linear-gradient(180deg,rgba(63,214,138,.06),rgba(63,214,138,.015));padding:13px 16px 12px;margin-bottom:10px;cursor:pointer;transition:border-color .12s}
+.orqcard:hover{border-color:rgba(63,214,138,.55)}
+.orqc-top{display:flex;align-items:center;gap:10px;min-width:0}
+.orqc-ring{width:12px;height:12px;border-radius:50%;border:1px dashed rgba(63,214,138,.7);position:relative;flex:none}
+.orqc-ring::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--accent)}
+.orqc-title{font:600 14px 'Instrument Sans',sans-serif;color:#eaf2ee;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.orqc-st{font-size:10.5px;white-space:nowrap}
+.orqc-sum{font-size:12px;color:rgba(255,255,255,.55);margin-top:6px;line-height:1.45}
+.orqc-bar{height:3px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:10px}
+.orqc-bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.orqc-phs{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.orqc-ph{display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:99px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);font:400 11px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.75);max-width:220px}
+.orqc-ph i{width:6px;height:6px;border-radius:50%;flex:none}
+.orqc-ph b{font:700 9px 'JetBrains Mono',monospace;color:var(--c);flex:none}
+.dc-orq{font:500 10px 'JetBrains Mono',monospace;color:var(--accent);border:1px solid rgba(63,214,138,.35);border-radius:99px;padding:2px 8px;white-space:nowrap;flex:none;cursor:pointer}
+.dc-orq:hover{background:rgba(63,214,138,.12)}

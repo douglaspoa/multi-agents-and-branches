@@ -70,7 +70,42 @@ function orqEdge(a,b,cls){ const x1=a.x+a.w, y1=a.y+a.h/2, x2=b.x, y2=b.y+b.h/2;
 
 // ---- render ----
 function orqShow(){ ndInjectFonts&&ndInjectFonts(); $id('orqOverlay').style.display='flex'; if(!orq.list||Date.now()-orqListAt>20000) orqLoadList().then(orqRender); orqRender(); }
-async function orqLoadList(){ try{ orq.list=await invoke('orch_list'); }catch(_){ orq.list=[]; } orqListAt=Date.now(); }
+async function orqLoadList(){ const before=JSON.stringify((orq.list||[]).map(p=>[p.id,p.status,(p.phases||[]).map(x=>x.taskId)])); try{ orq.list=await invoke('orch_list'); }catch(_){ orq.list=[]; } orqListAt=Date.now(); const after=JSON.stringify((orq.list||[]).map(p=>[p.id,p.status,(p.phases||[]).map(x=>x.taskId)])); if(before!==after){ lastSig=''; } }
+// abre o grafo de um plano salvo (sidebar, quadro, chip da tarefa)
+async function orqOpenPlan(id, taskId){
+  if(!orq.list) await orqLoadList();
+  const p=(orq.list||[]).find(x=>x.id===id); if(!p){ alert('plano não encontrado neste projeto.'); return; }
+  if(!orq.plan||orq.plan.id!==p.id){ orq.plan=p; orq.needFit=true; orq.pan={x:20,y:20}; orq.zoom=1; }
+  orq.step='plan'; orq.addOpen=false;
+  orq.sel=(taskId&&(p.phases.find(x=>x.taskId===taskId)||{}).key)||orq.sel||(p.phases[0]?p.phases[0].key:'__orq');
+  if(window.openTab) window.openTab('orq'); else orqShow();
+  orqRender();
+}
+window.orqOpenPlan=orqOpenPlan;
+function orqPlansHere(){ return (orq.list||[]).filter(p=>p.status!=='planned'||(p.phases||[]).some(x=>x.taskId)).concat((orq.list||[]).filter(p=>p.status==='planned'&&!(p.phases||[]).some(x=>x.taskId))); }
+function orqPlanStats(p){ const ph=p.phases||[]; const st=ph.map(orqPhaseState); return { total:ph.length, done:st.filter(x=>x.key==='done').length, run:st.filter(x=>['running','queued'].includes(x.key)).length, err:st.filter(x=>x.key==='error').length, st }; }
+// sidebar: uma linha por plano vivo, acima das tarefas do projeto
+function orqRailRows(){
+  const list=(orq.list||[]).filter(p=>p.status!=='done');
+  if(!list.length){ if(!orq.list) orqLoadList(); return ''; }
+  return list.slice(0,4).map(p=>{ const s=orqPlanStats(p); const col=p.status==='planned'?'var(--muted)':s.err?'var(--crit)':s.run?'var(--good)':'var(--warn)';
+    return `<div class="prow2 orqrow" data-orq="${escA(p.id)}" title="plano do orquestrador — abrir o grafo"><span class="d" style="background:${col}"></span><span class="tt">◉ ${esc(p.title||'plano')}</span><span class="tg mono" style="color:${col}">${p.status==='planned'?'plano':`${s.done}/${s.total}`}</span></div>`; }).join('');
+}
+// quadro (Execução): cartão por plano com as fases e o progresso
+function orqBoardHtml(scope){
+  const list=(orq.list||[]).filter(p=>scope==='done'?p.status==='done':p.status!=='done');
+  if(!list.length) return '';
+  const cards=list.map(p=>{ const s=orqPlanStats(p); const pct=s.total?Math.round(s.done/s.total*100):0;
+    const label=p.status==='planned'?'plano proposto · aguardando aprovação':p.status==='done'?'concluído':s.err?`${s.err} fase(s) com erro`:s.run?`${s.run} rodando · ${s.done}/${s.total} entregues`:`esperando · ${s.done}/${s.total} entregues`;
+    const col=p.status==='planned'?'var(--muted)':p.status==='done'?'var(--accent)':s.err?'var(--crit)':s.run?'var(--good)':'var(--warn)';
+    const chips=(p.phases||[]).map((ph,i)=>`<span class="orqc-ph" style="--c:${orqColor(ph.kind)}" title="${escA(ph.name)} · ${escA(s.st[i].label)}"><i style="background:${s.st[i].color}"></i><b>${orqBadge(ph.kind)}</b>${esc(ph.name)}</span>`).join('');
+    return `<div class="orqcard" data-orq="${escA(p.id)}"><div class="orqc-top"><span class="orqc-ring"></span><span class="orqc-title">${esc(p.title||'plano')}</span><span class="orqc-st mono" style="color:${col}">${esc(label)}</span><button class="btn sm" data-orq="${escA(p.id)}">abrir grafo ↗</button></div>
+      ${p.summary?`<div class="orqc-sum">${esc(String(p.summary).slice(0,200))}</div>`:''}
+      <div class="orqc-bar"><i style="width:${pct}%"></i></div><div class="orqc-phs">${chips}</div></div>`; }).join('');
+  return `<div class="secgrp orqgrp"><div class="sech">◉ Planos do orquestrador <span class="n">${list.length}</span></div>${cards}</div>`;
+}
+function orqWireOpeners(root){ (root||document).querySelectorAll('[data-orq]').forEach(b=>{ if(b.dataset.orqWired) return; b.dataset.orqWired='1'; b.onclick=(e)=>{ e.stopPropagation(); orqOpenPlan(b.dataset.orq, b.dataset.orqTask||null); }; }); }
+window.orqRailRows=orqRailRows; window.orqBoardHtml=orqBoardHtml; window.orqWireOpeners=orqWireOpeners;
 function orqSeg(cur){
   return `<div class="orq-seg"><button class="${cur==='chat'?'on':''}" data-orqgo="planner">Conversar</button><button class="${cur==='form'?'on':''}" data-orqgo="form">Formulário</button><button class="on" data-orqgo="">Orquestrador</button></div><span class="orq-segd">um agente lê o problema inteiro e abre uma tarefa por fase</span>`;
 }
