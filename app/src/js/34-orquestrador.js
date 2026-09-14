@@ -7,9 +7,9 @@ const ORQ_KINDS={ invest:{label:'Investigar', badge:'IN', color:'#b47ce0', branc
                   design:{label:'Desenhar',   badge:'DS', color:'#5b9df9', branch:'design', doc:'DESIGN.md', agent:'Designer'},
                   build: {label:'Implementar',badge:'IM', color:'#3fd68a', branch:'feat',   doc:null, agent:'Coder'},
                   review:{label:'Revisar',    badge:'CR', color:'#4fc4c9', branch:'review', doc:'REVIEW.md', agent:'Revisor'} };
-function orqNewState(){ return { step:'brief', briefing:'', atts:[], plan:null, sel:null, zoom:1, pan:{x:40,y:40}, busy:false, msg:'', list:(typeof orq!=='undefined'&&orq&&orq.list)||null, addOpen:false, model:'' }; }
+function orqNewState(){ return { step:'brief', briefing:'', atts:[], plan:null, sel:null, zoom:1, pan:{x:40,y:40}, busy:false, msg:'', list:null, addOpen:false, model:'' }; }
 let orq=orqNewState();
-window.orqFresh=()=>{ orq=orqNewState(); };
+window.orqFresh=()=>{ const l=orq.list; orq=orqNewState(); orq.list=l; };
 window.TAB_STATE_orq={ get:()=>Object.assign({ _title:(orq.plan&&orq.plan.title)||'' }, { s:orq }), set:(st)=>{ if(st&&st.s){ const list=orq.list; orq=st.s; if(!orq.list) orq.list=list; } } };
 let orqDrag=null, orqTickT=null, orqListAt=0;
 
