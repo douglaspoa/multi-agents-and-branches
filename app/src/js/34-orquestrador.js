@@ -283,8 +283,13 @@ function orqWireInsp(body){
     bindClick('orqAddOk', ()=>{ const name=($id('orqAddName').value||'').trim(); if(!name){ $id('orqAddName').focus(); return; }
       const deps=when==='after'?[...body.querySelectorAll('#orqAddDeps input:checked')].map(i=>i.value):[];
       let n=p.phases.length+1, key='n'+n; while(p.phases.some(x=>x.key===key)) key='n'+(++n);
-      p.phases.push({ key, name:name.slice(0,60), kind, agent:ORQ_KINDS[kind].agent, objective:($id('orqAddObj').value||'').trim(), objectives:[], autonomy:'free', dependsOn:deps, taskId:null });
-      orq.addOpen=false; orq.sel=key; orqSave(); orqRender(); });
+      const ph={ key, name:name.slice(0,60), kind, agent:ORQ_KINDS[kind].agent, objective:($id('orqAddObj').value||'').trim(), objectives:[], autonomy:'free', dependsOn:deps, taskId:null };
+      p.phases.push(ph);
+      orq.addOpen=false; orq.sel=key; orqSave(); orqRender();
+      if(p.status!=='planned'){ // plano já aprovado: a fase nova vira tarefa agora (rascunho se depende de algo ainda não provado)
+        (async()=>{ try{ const created={}; p.phases.forEach(x=>{ if(x.taskId) created[x.key]=x.taskId; }); await orqCreatePhaseTask(p, ph, created); if(p.status==='done') p.status='running'; orqSave(); lastSig=''; orqRender(); }
+          catch(e){ alert('Fase adicionada ao plano, mas não consegui criar a tarefa:\n'+(e&&e.message||e)); } })();
+      } });
     return;
   }
   if(!ph) return;
@@ -317,26 +322,36 @@ function orqAgentIdFor(ph){
   const role={ invest:'investigator', design:'designer', build:'builder', review:'reviewer' }[ph.kind];
   const byRole=ags.find(a=>String(a.role||'').toLowerCase()===role); return byRole?byRole.id:null;
 }
+// cria a TAREFA REAL de uma fase: raízes começam na hora; dependentes nascem em rascunho e o
+// coordenador (orqTick) inicia quando as anteriores provarem. Build/review parte da branch da fase anterior.
+async function orqCreatePhaseTask(p, ph, created){
+  const byKey=Object.fromEntries(p.phases.map(x=>[x.key,x]));
+  const kd=ORQ_KINDS[ph.kind]||ORQ_KINDS.build; const deps=(ph.dependsOn||[]).map(k=>byKey[k]).filter(Boolean);
+  const depTxt=deps.length?`\n\nDEPENDE DE: ${deps.map(d=>`"${d.name}" (tarefa ${created[d.key]||d.taskId||d.key})`).join(', ')}. ANTES de começar, leia o que essas fases entregaram: .cardume/artifacts/<id-da-tarefa>/ (INVESTIGATION.md, DESIGN.md, REVIEW.md, requirements.json, provas) e os commits da branch delas. Sua worktree já parte da branch da fase anterior quando há código.`:'';
+  const ctx=`\n\n[PLANO DO ORQUESTRADOR "${p.title}" — fase ${ph.key} de ${p.phases.length}: ${ph.name} (${kd.label})]\nProblema original: ${(p.briefing||'').slice(0,1500)}\nResumo do plano: ${p.summary||''}${depTxt}\nFases irmãs rodam em paralelo em branches próprias — NÃO toque em arquivos fora do escopo desta fase.`;
+  const depTasks=deps.map(d=>({ d, t:(state.tasks||[]).find(t=>t.id===(created[d.key]||d.taskId)) })).filter(x=>x.t);
+  const buildDep=depTasks.filter(x=>['build','review'].includes(x.d.kind)).map(x=>x.t).slice(-1)[0];
+  // começa já se não depende de ninguém OU se todas as dependências já provaram (plano em andamento)
+  const startNow=deps.length===0 || (p.status!=='planned' && deps.every(d=>orqProved((state.tasks||[]).find(t=>t.id===(created[d.key]||d.taskId)))));
+  const payload={ start:startNow, title:ph.name, workflow:null, agents:orqAgentIdFor(ph), engine:p.engine||'claude', model:p.model||null, approval:ph.autonomy==='ask'?'ask':'auto',
+    owns:null, off:null, objective:(ph.objective||ph.name)+ctx, deliverables:[], requirements:(ph.objectives||[]).slice(), doc:kd.doc,
+    proof:ph.kind==='build'||ph.kind==='review', tests:ph.kind==='build', planApproval:'auto', refs:[], branchType:kd.branch, issue:null,
+    autoPr:ph.kind==='build'?'ask':'no', prBase:null, base:buildDep&&buildDep.branch?buildDep.branch:null };
+  const id=await invoke('new_task', payload);
+  created[ph.key]=id; ph.taskId=id; ph.startedAt=startNow?Date.now():null;
+  await refresh();
+  const depIds=deps.map(d=>created[d.key]||d.taskId).filter(Boolean);
+  await invoke('patch_task_spec',{ taskId:id, patch:{ orchestration:{ id:p.id, title:p.title, phase:ph.key, name:ph.name }, dependsOn:depIds, dependents:[] }, base:null }).catch(e=>console.error('patch_task_spec',e));
+  return id;
+}
 async function orqApprove(){
   const p=orq.plan; if(!p||orq.busy) return;
   const bad=p.phases.filter(x=>!(x.objectives||[]).length);
   if(bad.length && !confirm(`${bad.length} fase(s) sem objetivos verificáveis (${bad.map(x=>x.name).join(', ')}). Criar mesmo assim? Sem objetivos, a fase seguinte começa assim que esta entregar.`)) return;
   orq.busy=true; orqRender();
-  const order=orqTopo(p.phases); const byKey=Object.fromEntries(p.phases.map(x=>[x.key,x])); const created={};
+  const order=orqTopo(p.phases); const created={}; p.phases.forEach(x=>{ if(x.taskId) created[x.key]=x.taskId; });
   try{
-    for(const ph of order){
-      const kd=ORQ_KINDS[ph.kind]||ORQ_KINDS.build; const deps=(ph.dependsOn||[]).map(k=>byKey[k]).filter(Boolean);
-      const depTxt=deps.length?`\n\nDEPENDE DE: ${deps.map(d=>`"${d.name}" (tarefa ${created[d.key]||d.key})`).join(', ')}. ANTES de começar, leia o que essas fases entregaram: .cardume/artifacts/<id-da-tarefa>/ (INVESTIGATION.md, DESIGN.md, REVIEW.md, requirements.json, provas) e os commits da branch delas. Sua worktree já parte da branch da fase anterior quando há código.`:'';
-      const ctx=`\n\n[PLANO DO ORQUESTRADOR "${p.title}" — fase ${ph.key} de ${p.phases.length}: ${ph.name} (${kd.label})]\nProblema original: ${p.briefing.slice(0,1500)}\nResumo do plano: ${p.summary}${depTxt}\nFases irmãs rodam em paralelo em branches próprias — NÃO toque em arquivos fora do escopo desta fase.`;
-      const buildDep=deps.map(d=>(state.tasks||[]).find(t=>t.id===created[d.key])).filter(t=>t&&['build','review'].includes((byKey[deps.find(d=>created[d.key]===t.id).key]||{}).kind)).slice(-1)[0];
-      const payload={ start:deps.length===0, title:ph.name, workflow:null, agents:orqAgentIdFor(ph), engine:p.engine||'claude', model:p.model||null, approval:ph.autonomy==='ask'?'ask':'auto',
-        owns:null, off:null, objective:(ph.objective||ph.name)+ctx, deliverables:[], requirements:(ph.objectives||[]).slice(), doc:kd.doc,
-        proof:ph.kind==='build'||ph.kind==='review', tests:ph.kind==='build', planApproval:'auto', refs:[], branchType:kd.branch, issue:null,
-        autoPr:ph.kind==='build'?'ask':'no', prBase:null, base:buildDep&&buildDep.branch?buildDep.branch:null };
-      const id=await invoke('new_task', payload);
-      created[ph.key]=id; ph.taskId=id; ph.startedAt=deps.length===0?Date.now():null;
-      await refresh();
-    }
+    for(const ph of order){ if(ph.taskId) continue; await orqCreatePhaseTask(p, ph, created); }
     // segunda passada: grava no spec de cada tarefa quem a criou e de quem depende
     for(const ph of p.phases){ const depIds=(ph.dependsOn||[]).map(k=>created[k]).filter(Boolean); const waitIds=p.phases.filter(x=>(x.dependsOn||[]).includes(ph.key)).map(x=>created[x.key]).filter(Boolean);
       await invoke('patch_task_spec',{ taskId:ph.taskId, patch:{ orchestration:{ id:p.id, title:p.title, phase:ph.key, name:ph.name }, dependsOn:depIds, dependents:waitIds }, base:null }).catch(e=>console.error('patch_task_spec',e)); }
