@@ -3780,6 +3780,70 @@ fn file_diff(state: State<AppState>, task_id: String, path: String) -> Result<St
     Ok(text.chars().take(200_000).collect())
 }
 
+/// "Por que este arquivo": explicação REAL do que mudou neste arquivo (funções, libs, por quê),
+/// gerada pela IA a partir do diff — em vez de repetir o objetivo da tarefa. Cache por
+/// (tarefa, arquivo, hash do diff) em .cardume/why/, então cada versão do diff paga uma vez.
+#[tauri::command(async)]
+fn ai_file_why(state: State<AppState>, task_id: String, path: String) -> Result<String, String> {
+    use std::hash::{Hash, Hasher};
+    safe_rel(&path)?;
+    let repo = repo_of(&state)?;
+    let (wt, base) = task_wt_base(&state, &task_id)?;
+    let base = task_diff_base(&wt, &base);
+    let out = Command::new("git").arg("-C").arg(&wt).args(["diff", "--unified=3", &base, "--", &path]).output().map_err(|e| e.to_string())?;
+    let mut diff = String::from_utf8_lossy(&out.stdout).to_string();
+    if diff.trim().is_empty() {
+        if let Ok(content) = std::fs::read_to_string(wt.join(&path)) { diff = content.lines().map(|l| format!("+{l}\n")).collect(); }
+    }
+    if diff.trim().is_empty() { return Ok(String::new()); }
+    let (objective, title): (String, String) = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        let conn = open(&db)?;
+        conn.query_row("SELECT objective, title FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(|e| e.to_string())?
+    };
+    // o bloco de contexto do orquestrador não é "objetivo" — fica fora do prompt e da tela
+    let objective = objective.split("[PLANO DO ORQUESTRADOR").next().unwrap_or("").trim().to_string();
+    let mut hp = std::collections::hash_map::DefaultHasher::new(); path.hash(&mut hp);
+    let mut hd = std::collections::hash_map::DefaultHasher::new(); diff.hash(&mut hd);
+    let key = format!("{:016x}-{:016x}", hp.finish(), hd.finish());
+    let dir = repo.join(".cardume").join("why").join(&task_id);
+    let _ = std::fs::create_dir_all(&dir);
+    let cache = dir.join(format!("{key}.md"));
+    if let Ok(md) = std::fs::read_to_string(&cache) { if !md.trim().is_empty() { return Ok(md); } }
+    let diff_cut: String = diff.chars().take(60_000).collect();
+    let prompt = format!(
+        "Você explica, para o dono do produto, O QUE FOI FEITO NESTE ARQUIVO e POR QUÊ, a partir do diff abaixo. Responda em português, SOMENTE em Markdown curto, sem título, com esta estrutura:\n\
+         **O que mudou** — 3 a 7 bullets concretos: cada função/classe/método criado ou alterado (pelo nome), o que cada um faz, bibliotecas/módulos novos usados, mudanças de assinatura/comportamento.\n\
+         **Por quê** — 1 a 2 frases ligando as mudanças ao objetivo da tarefa.\n\
+         **Atenção** — (só se houver) riscos, TODOs ou pontos que merecem revisão.\n\
+         PROIBIDO repetir o objetivo da tarefa, falar do 'plano' ou generalizar ('foram feitas melhorias'). Cite nomes reais do diff.\n\n\
+         Tarefa: {title}\nObjetivo: {objective}\nArquivo: {path}\n\nDIFF:\n```\n{diff_cut}\n```",
+    );
+    let out = claude_cmd(&claude_bin())
+        .args(["-p", &prompt, "--model", "claude-sonnet-5"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
+    let md = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let _ = std::fs::write(&cache, &md);
+    Ok(md)
+}
+
+/// Apaga a explicação em cache de um arquivo (botão ↻ "gerar de novo").
+#[tauri::command]
+fn ai_file_why_reset(state: State<AppState>, task_id: String, path: String) -> Result<(), String> {
+    use std::hash::{Hash, Hasher};
+    safe_rel(&path)?;
+    let repo = repo_of(&state)?;
+    let mut hp = std::collections::hash_map::DefaultHasher::new(); path.hash(&mut hp);
+    let prefix = format!("{:016x}-", hp.finish());
+    if let Ok(rd) = std::fs::read_dir(repo.join(".cardume").join("why").join(&task_id)) {
+        for e in rd.flatten() { if e.file_name().to_string_lossy().starts_with(&prefix) { let _ = std::fs::remove_file(e.path()); } }
+    }
+    Ok(())
+}
+
 /// Renomeia a branch de uma tarefa existente (git branch -m) + atualiza o DB.
 #[tauri::command]
 fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
@@ -5048,6 +5112,8 @@ pub fn run() {
             open_project,
             create_project,
             ai_orchestrate,
+            ai_file_why,
+            ai_file_why_reset,
             orch_save,
             orch_list,
             orch_delete,

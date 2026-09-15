@@ -1,5 +1,6 @@
 // Constellation — 20-workspace-tarefa
 // ---------- workspace 3 colunas (arquivos · código · chat do agente) ----------
+let fwWhyCache={}, fwWhyOpen=false;
 let fwTask=null, fwPath=null, fwContent='', fwAdded=[], fwSelA=0, fwSelB=0, fwFiles=[], fwEditing=false, fwDrag=false;
 let fwEvents=[], fwEvLast=0, fwFetching=false; // conversa com texto COMPLETO (incremental)
 let fwAgentSel=null; // com quem estou falando (null = agente padrão da tarefa)
@@ -307,8 +308,22 @@ function renderWorkspace(){
   const added=new Set(fwAdded); const sel=fwSelRange();
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
   const lines=fwContent.split('\n');
-  const why = reviewOf(t.id)?reviewOf(t.id).summary : t.objective;
-  const whyBand = `<div class="fwwhy"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div><span class="fwwhyl">Por que este arquivo</span> <span class="fwwhyt">${esc(why)}</span></div></div>`;
+  // "Por que este arquivo": explicação REAL do diff deste arquivo (IA, cache por versão do diff),
+  // recolhível; enquanto carrega, mostra o objetivo da tarefa (sem o bloco de contexto do orquestrador)
+  const objShort=String(t.objective||'').split('[PLANO DO ORQUESTRADOR')[0].trim();
+  const whyKey=t.id+'|'+(fwPath||'');
+  if(fwPath && fwWhyCache[whyKey]===undefined && !fwEditing){
+    fwWhyCache[whyKey]=null;
+    invoke('ai_file_why',{ taskId:t.id, path:fwPath }).then(md=>{ fwWhyCache[whyKey]={ md:md||'' }; if(fwTask===t.id) renderWorkspace(); })
+      .catch(e=>{ fwWhyCache[whyKey]={ err:String(e&&e.message||e) }; if(fwTask===t.id) renderWorkspace(); });
+  }
+  const w=fwPath?fwWhyCache[whyKey]:null;
+  const whyInner = !fwPath ? esc(objShort)
+    : w===null ? `<span class="dim">lendo o diff deste arquivo e escrevendo a explicação…</span>`
+    : (w&&w.md) ? mdToHtml(w.md)
+    : (w&&w.err) ? `<span style="color:var(--warn)">não consegui explicar este arquivo: ${esc(w.err)}</span> <a class="lnk" id="fwWhyRetry">tentar de novo</a>`
+    : `<span class="dim">sem alterações neste arquivo nesta branch.</span> ${esc(objShort)}`;
+  const whyBand = `<div class="fwwhy${fwWhyOpen?' open':''}"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div class="fwwhyb"><div class="fwwhyh"><span class="fwwhyl">${fwPath?'O que foi feito neste arquivo e por quê':'Objetivo da tarefa'}</span><span style="flex:1"></span>${fwPath&&w&&w.md?`<button class="fwwhyre" id="fwWhyRedo" title="gerar de novo">↻</button>`:''}<button class="fwwhytg" id="fwWhyTg">${fwWhyOpen?'▴ menos':'▾ mais'}</button></div><div class="fwwhyt">${whyInner}</div></div></div>`;
   if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
@@ -343,6 +358,9 @@ function renderWorkspace(){
       codeEl.addEventListener('mouseover',e=>{ if(!fwDrag)return; const ln=e.target.closest('.fwln'); if(!ln)return; fwSelB=+ln.dataset.ln; fwPaintSel(); });
     }
     const eb=$id('fwEditBtn'); if(eb) eb.onclick=()=>{ fwEditing=true; renderWorkspace(); };
+    bindClick('fwWhyTg', ()=>{ fwWhyOpen=!fwWhyOpen; renderWorkspace(); });
+    bindClick('fwWhyRedo', async()=>{ const k=t.id+'|'+fwPath; try{ await invoke('ai_file_why_reset',{ taskId:t.id, path:fwPath }); }catch(_){ } fwWhyCache[k]=undefined; renderWorkspace(); });
+    bindClick('fwWhyRetry', ()=>{ fwWhyCache[t.id+'|'+fwPath]=undefined; renderWorkspace(); });
   }
   // ---- coluna 3: chat com o agente (estilo Cursor: requisitos + conversa real) ----
   const chat=$id('fwChatCol');
