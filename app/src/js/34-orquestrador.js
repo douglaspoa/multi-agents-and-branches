@@ -30,6 +30,18 @@ function orqPhaseState(ph){
   if(t.status==='queued'||t.status==='plan-review') return { key:'queued', label:t.status==='queued'?'na fila':'plano em revisão', color:'var(--warn)' };
   return { key:'running', label:'rodando', color:'var(--warn)' };
 }
+// provas com validade: o requirements.json nasce no FIM do turno, então o cache lido cedo ({list:null})
+// precisa ser relido enquanto a fase está viva ou esperando revisão — senão ficava 0/N pra sempre.
+const orqProofAt={};
+function orqFreshProofs(t){
+  if(!t) return;
+  const live=['review','delivered','running','thinking','queued','plan-review'].includes(t.status);
+  const c=reqProofCache[t.id]; const age=Date.now()-(orqProofAt[t.id]||0);
+  if(c===undefined || (live && age>8000 && !orqProofAt['loading:'+t.id])){
+    orqProofAt['loading:'+t.id]=1;
+    loadReqProofs(t.id).then(()=>{ orqProofAt[t.id]=Date.now(); delete orqProofAt['loading:'+t.id]; if(orqOpen()) orqRender(); }).catch(()=>{ delete orqProofAt['loading:'+t.id]; });
+  }
+}
 // "provou": entregou (review/delivered/done/merged) E, se tem requisitos, todos com prova
 function orqProved(t){
   if(!t) return false;
@@ -37,8 +49,9 @@ function orqProved(t){
   if(!['review','delivered'].includes(t.status)) return false;
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   if(!reqs.length) return true;
+  orqFreshProofs(t);
   const c=reqProofCache[t.id];
-  if(c===undefined){ loadReqProofs(t.id).then(()=>{ if(orqOpen()) orqRender(); }); return false; }
+  if(c===undefined) return false;
   if(!c.list) return false;
   const m=matchReqProofs(reqs, c.list);
   return m.every(x=>x&&x.status==='done');
@@ -47,8 +60,7 @@ function orqObjDone(ph){ // [n provados, total]
   const objs=ph.objectives||[]; const t=orqTaskOf(ph);
   if(!t) return [0, objs.length];
   if(t.flag==='closed'||['merged','done'].includes(t.status)) return [objs.length, objs.length];
-  const reqs=Array.isArray(t.requirements)?t.requirements:objs; const c=reqProofCache[t.id];
-  if(reqs.length && c===undefined) loadReqProofs(t.id).then(()=>{ if(orqOpen()) orqRender(); });
+  const reqs=Array.isArray(t.requirements)?t.requirements:objs; if(reqs.length) orqFreshProofs(t); const c=reqProofCache[t.id];
   if(!c||!c.list) return [0, reqs.length];
   const m=matchReqProofs(reqs, c.list); return [m.filter(x=>x&&x.status==='done').length, reqs.length];
 }
@@ -397,6 +409,7 @@ async function orqTick(){
     for(const ph of live.phases){
       const t=orqTaskOf(ph); if(!t||t.status!=='draft'||ph.startedAt) continue;
       const deps=(ph.dependsOn||[]).map(k=>byKey[k]).filter(Boolean);
+      for(const d of deps){ const dt=orqTaskOf(d); if(dt && ['review','delivered'].includes(dt.status)){ try{ await loadReqProofs(dt.id); orqProofAt[dt.id]=Date.now(); }catch(_){ } } }
       if(!deps.every(d=>orqProved(orqTaskOf(d)))) continue;
       try{ await invoke('orch_sync_base',{ taskId:t.id }).catch(()=>{}); await invoke('start_task',{ taskId:t.id }); ph.startedAt=Date.now(); changed=true; }
       catch(e){ console.error('orquestrador: start', ph.key, e); }

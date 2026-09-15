@@ -155,7 +155,7 @@ async function cmdNew(repo: string, a: Args) {
     agent: lead.name,
     objective: a.flags.objective ?? title,
     deliverables: a.multi.deliverable ?? [title],
-    requirements: list(a.flags.requirements),
+    requirements: a.multi.requirement ?? list(a.flags.requirements),
     artifacts: artifacts.length ? artifacts : undefined,
     branchType: a.flags["branch-type"] || undefined,
     issueCode: a.flags.issue || undefined,

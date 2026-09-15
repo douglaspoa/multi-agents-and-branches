@@ -1888,10 +1888,10 @@ fn new_task(
         }
     }
     if let Some(rs) = &requirements {
-        let joined: Vec<String> = rs.iter().filter(|x| !x.is_empty()).cloned().collect();
-        if !joined.is_empty() {
-            args.push("--requirements".to_string());
-            args.push(joined.join(","));
+        // um flag por requisito: o join por vírgula quebrava "a, b e c" em três requisitos
+        for r in rs.iter().filter(|x| !x.trim().is_empty()) {
+            args.push("--requirement".to_string());
+            args.push(r.clone());
         }
     }
     if let Some(d) = &doc {
