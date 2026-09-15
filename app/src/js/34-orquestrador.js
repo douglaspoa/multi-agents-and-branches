@@ -24,7 +24,7 @@ function orqPhaseState(ph){
   if(!t) return { key:'planned', label:'planejado', color:'rgba(255,255,255,.4)' };
   if(t.flag==='closed'||['merged','done'].includes(t.status)) return { key:'done', label:'pronto', color:'var(--accent)' };
   if(['review','delivered'].includes(t.status)) return orqProved(t) ? { key:'done', label:'pronto', color:'var(--accent)' } : { key:'review', label:'pronto pra revisar', color:'var(--accent)' };
-  if(['error','conflict','timeout'].includes(t.status)) return { key:'error', label:t.status==='conflict'?'conflito':'erro', color:'var(--bad)' };
+  if(['error','conflict','timeout','aborted'].includes(t.status)) return orqProved(t) ? { key:'done', label:'pronto (sessão caiu no fim)', color:'var(--accent)' } : { key:'error', label:t.status==='conflict'?'conflito':'erro', color:'var(--bad)' };
   if(t.status==='draft') return { key:'waiting', label:'esperando', color:'rgba(255,255,255,.4)' };
   if(t.status==='paused') return { key:'paused', label:'pausada', color:'var(--warn)' };
   if(t.status==='queued'||t.status==='plan-review') return { key:'queued', label:t.status==='queued'?'na fila':'plano em revisão', color:'var(--warn)' };
@@ -46,9 +46,11 @@ function orqFreshProofs(t){
 function orqProved(t){
   if(!t) return false;
   if(t.flag==='closed'||['merged','done'].includes(t.status)) return true;
-  if(!['review','delivered'].includes(t.status)) return false;
+  // erro/abortada com TODAS as provas no requirements.json = entregou (a sessão caiu depois de terminar)
+  const crashed=['error','aborted','conflict'].includes(t.status)&&!t.busy;
+  if(!['review','delivered'].includes(t.status)&&!crashed) return false;
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
-  if(!reqs.length) return true;
+  if(!reqs.length) return !crashed;
   orqFreshProofs(t);
   const c=reqProofCache[t.id];
   if(c===undefined) return false;

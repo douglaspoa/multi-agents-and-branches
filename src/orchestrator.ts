@@ -350,8 +350,26 @@ export class Orchestrator {
 
   /** Deu pra tentar seguir automaticamente (token/inatividade/sinal)? NÃO cobre erro
    * de config (ex.: "falha ao iniciar claude") que só se repetiria. */
+  /** Queda de REDE/socket no meio do turno (API Error: socket closed, ECONNRESET, fetch failed…):
+   * o trabalho parcial está na worktree — continuar faz sentido, igual à inatividade. */
+  private static networkDeath(text: string): boolean {
+    return /socket connection was closed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|other side closed|Connection error/i.test(text || "");
+  }
   private static retriableDeath(text: string): boolean {
-    return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text);
+    return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text) || Orchestrator.networkDeath(text);
+  }
+
+  /** requirements.json (worktree ou pasta coletada do repo) existe e TODOS os requisitos estão "done"?
+   * É a régua do "provou" — vale pra não marcar como erro uma sessão que caiu DEPOIS de entregar. */
+  private async proofsComplete(taskId: string, worktree: string): Promise<boolean> {
+    for (const p of [join(worktree, ".cardume", "artifacts", "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
+      try {
+        const raw = JSON.parse(await readFile(p, "utf8"));
+        const list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.list) ? raw.list : []);
+        if (list.length && list.every((x: { status?: string }) => x && x.status === "done")) return true;
+      } catch { /* sem arquivo aqui */ }
+    }
+    return false;
   }
 
   /** O erro é o LIMITE DE USO/RATE da conta (não o contexto)? Esses resetam com o
@@ -541,7 +559,7 @@ export class Orchestrator {
         if (deathText && Orchestrator.retriableDeath(deathText) && hardTry < MAX_TRIES - 1) {
           hardTry++;
           deathKind = Orchestrator.tokenDeath(deathText) ? "token" : "idle";
-          const why = deathKind === "token" ? "estourou o limite de tokens" : "foi encerrada por inatividade";
+          const why = deathKind === "token" ? "estourou o limite de tokens" : (Orchestrator.networkDeath(deathText) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
           this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${hardTry + 1}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
           this.store.setStatus(taskId, this.statusFor(r.role));
           sessionId = ""; attemptNo++;
@@ -550,6 +568,11 @@ export class Orchestrator {
         break;
       }
 
+      // Sessão caiu DEPOIS de entregar (requirements.json completo)? Então não é falha: segue o fluxo.
+      if (roleFailed && await this.proofsComplete(taskId, task.worktree)) {
+        roleFailed = false;
+        this.store.addEvent(taskId, "Sistema", "note", "a sessão caiu no fim, mas a entrega já estava completa (requirements.json com todos os requisitos provados) — seguindo como concluída", true);
+      }
       // Se o papel FALHOU (timeout/erro), PARA aqui — não avança pro próximo
       // (antes o pipeline seguia pro review mesmo sem o builder ter implementado).
       if (roleFailed) {
@@ -1022,7 +1045,7 @@ export class Orchestrator {
       // sessão do chat estourou os tokens → recomeça SOZINHO com sessão nova
       // (sid vazio na re-entrada → caminho fresco; sem risco de loop)
       if (sid && deathText && Orchestrator.retriableDeath(deathText)) {
-        const why = Orchestrator.tokenDeath(deathText) ? "estourou o limite de tokens" : "foi encerrada por inatividade";
+        const why = Orchestrator.tokenDeath(deathText) ? "estourou o limite de tokens" : (Orchestrator.networkDeath(deathText) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
         this.store.setSession(taskId, "");
         this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
@@ -1031,7 +1054,7 @@ export class Orchestrator {
     } catch (err) {
       const msg = (err as Error).message;
       if (sid && Orchestrator.retriableDeath(msg)) {
-        const why = Orchestrator.tokenDeath(msg) ? "estourou o limite de tokens" : "foi encerrada por inatividade";
+        const why = Orchestrator.tokenDeath(msg) ? "estourou o limite de tokens" : (Orchestrator.networkDeath(msg) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
         this.store.setSession(taskId, "");
         this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova.`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
@@ -1054,7 +1077,12 @@ export class Orchestrator {
         } catch { /* worktree sem git ou nada a commitar */ }
       }
     }
-    this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+    let next: AgentStatus = prev === "thinking" ? "review" : prev;
+    if (!failed && ["error", "aborted", "conflict"].includes(prev) && await this.proofsComplete(taskId, task.worktree)) {
+      next = "review";
+      this.store.addEvent(taskId, "Sistema", "note", "entrega completa depois do erro (requirements.json com todos os requisitos provados) — status corrigido para pronta pra revisar", true);
+    }
+    this.store.setStatus(taskId, next);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
     else notify("Constellation", `${role.name} respondeu`, task.title);
     // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
