@@ -194,3 +194,8 @@
 .ndm.on{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
 .ndm.on .ndmt2{color:#eaf2ee}
 .ndcta{display:flex;align-items:center;gap:16px;margin-top:22px}
+/* Nova demanda como aba: a tela preenche a largura toda (o teto de 1040px deixava o fundo com 2 cores —
+   .ndwrap escuro no centro e a surface do modal nas laterais); o conteúdo continua centralizado pelo .ndinner */
+#ndOverlay.astab .mbody{max-width:none!important;margin:0!important}
+#ndOverlay.astab .modal{background:var(--bg)}
+.ndinner{width:100%;max-width:1040px}
