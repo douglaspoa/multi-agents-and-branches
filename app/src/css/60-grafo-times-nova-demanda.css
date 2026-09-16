@@ -517,3 +517,12 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .plmchg{color:var(--accent);cursor:pointer;margin-left:8px;font-size:12px}
 .plmodel.done{border-color:color-mix(in srgb,var(--accent) 30%,var(--border))}
 .aipick-pl .aieng{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+
+/* página de entrega de uma tarefa do time (aba cttask) */
+#ctPageMain{flex:1;min-height:0;overflow:auto}
+.ctp-who{display:flex;align-items:center;gap:9px;margin-top:12px;font:400 12.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.6)}
+.ctp-who b{color:#eaf2ee;font-weight:600}
+.ctp-who .tsav{width:22px;height:22px;font-size:9px}
+.ctp-who .btn{margin-left:6px}
+.au-plinv{margin:6px 0 10px}
+.au-plinv a{color:var(--accent);cursor:pointer;text-decoration:underline dotted}

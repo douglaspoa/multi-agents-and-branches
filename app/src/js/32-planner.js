@@ -194,8 +194,9 @@ async function plSend(text){
   plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
   try{
     const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts);
-    const r=await invoke('ai_chat',{ prompt, sessionId:plSid });
-    plSid=r.sessionId||plSid;
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
+    if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
+    plSid=r.sessionId||(r&&r.recovered?'':plSid);
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
     plBusy=false;
     if(obj){

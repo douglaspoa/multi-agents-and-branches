@@ -179,6 +179,7 @@ function auRenderPlans(R, topbar){
   const trial=(auPlanRow(au.plan.key,iv)||{}).trial_days||14;
   R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>-20%</i></button></div></div>${auMsg()}
     <div class="au-plans">${cards}</div>
+    <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Constellation? <a id="auInvite">tenho um convite / verificar</a></span></div>
     <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por repo e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
       `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'cobrança ainda não ativada neste backend (BILLING-SETUP.md)'}</span></div>`}</div></div>`;
   R.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>{ au.plan.key=b.dataset.plan; auRender(); });
@@ -187,6 +188,18 @@ function auRenderPlans(R, topbar){
   bindClick('auSeatP', ()=>{ const cap=(auPlanRow('team',iv)||{}).seats||12; au.plan.seats=Math.min(cap,au.plan.seats+1); auRender(); });
   bindClick('auGo', ()=>auShow('pay'));
   bindClick('auSales', ()=>openExternal('mailto:vendas@constellation.ai?subject=Plano%20Organiza%C3%A7%C3%A3o%20Constellation'));
+  bindClick('auInvite', async()=>{
+    const tok=await askText('Convite do time','cole o token que o lead te mandou (se o convite foi pro seu e-mail, normalmente entra sozinho — deixe vazio pra só verificar)', '');
+    if(tok===null) return;
+    au.busy=true; au.msg=''; auRender();
+    try{
+      if(tok.trim()){ const j=await sbRpc('accept_invite',{ p_token:tok.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); }
+      cloudData=null; cloudAutoInvTried=false; await cloudLoad(); await billingSync();
+      if(billingActive()){ au.busy=false; auShow('ready'); return; }
+      au.msg=tok.trim()?'entrou no time, mas a organização não tem plano ativo — fale com o admin.':'nenhum convite pendente pro seu e-mail.';
+    }catch(e){ au.msg=auErr(e); }
+    au.busy=false; auRender();
+  });
 }
 function auRenderPay(R, topbar){
   const p=auPlanRow(au.plan.key, au.plan.interval); const iv=au.plan.interval; const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key);

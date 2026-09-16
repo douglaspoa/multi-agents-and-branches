@@ -311,3 +311,13 @@
 .fclabel{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;margin-top:11px;border-top:.5px dashed var(--border);padding-top:9px}
 .fclabel .dim{text-transform:none;letter-spacing:0;font-weight:400}
 .fcommits{border-top:0 !important;padding-top:3px !important;margin-top:3px !important}
+
+/* ── Linux/Windows: sem semáforos à esquerda ──────────────────────────────
+   O recuo grande no topo (80–86px) só existe pra não cobrir os controles da
+   janela do macOS, que ficam no canto SUPERIOR ESQUERDO. Fora do macOS os
+   controles ficam à direita (ou nem existem no AppImage), então o recuo vira
+   um vão vazio estranho — aqui devolvemos uma sarjeta normal. */
+html:not(.os-mac) .app.railcol .top{padding-left:16px}
+html:not(.os-mac) .app.railcol .tabbar{padding-left:16px}
+html:not(.os-mac) #ntOverlay .mhead{padding-left:20px}
+html:not(.os-mac) .fwtabs.legacy{padding-left:14px}

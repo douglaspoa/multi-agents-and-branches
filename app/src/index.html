@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Constellation</title>
+<script>/* marca a plataforma no <html> ANTES do CSS: só o macOS tem semáforos à esquerda */try{var ua=navigator.userAgent;document.documentElement.classList.add(/Mac/i.test(ua)?'os-mac':/Windows/i.test(ua)?'os-win':'os-linux');}catch(e){document.documentElement.classList.add('os-mac');}</script>
 <link rel="stylesheet" href="css/10-base.css">
 <link rel="stylesheet" href="css/20-abas-e-telas.css">
 <link rel="stylesheet" href="css/30-refino-macos.css">
@@ -587,6 +588,20 @@
 </div>
 
 <!-- detalhe/edição de um cartão compartilhado do time -->
+<!-- tarefa de um colega do time: página de ENTREGA (aba), com o que ele publicou -->
+<div class="overlay fwoverlay" id="ctPageOverlay" style="display:none">
+  <div class="fw">
+    <div class="fwhead" data-tauri-drag-region>
+      <b id="ctPageName">Tarefa do time</b>
+      <span class="fwsub" id="ctPageSub"></span>
+      <span style="flex:1"></span>
+      <button class="btn sm" id="ctPageRefresh" title="recarregar da nuvem">↻</button>
+      <button class="btn sm" id="ctPageClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
+    </div>
+    <div class="fwmain" id="ctPageMain"></div>
+  </div>
+</div>
+
 <div class="overlay" id="ctOverlay" style="display:none">
   <div class="modal" style="width:min(680px,100%)">
     <div class="mhead"><b id="ctHead">Tarefa do time</b><span style="flex:1"></span><button class="x" id="ctClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
@@ -627,5 +642,6 @@
 <script src="js/42-nuvem-sync-mobile.js"></script>
 <script src="js/43-espaco-times.js"></script>
 <script src="js/44-onboarding.js"></script>
+<script src="js/45-entrega-time.js"></script>
 </body>
 </html>

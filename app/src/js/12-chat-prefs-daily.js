@@ -33,7 +33,7 @@ async function pcSend(){
   if(!text) return;
   const ms=pcMsgs(); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms); inp.value=''; pcBusy=true; pcRender();
   try{
-    const r=await invoke('project_chat',{ prompt:text+attPromptBlock(atts), sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'' }), lsGet('pcsid:'+(state.repo||''))||'', text+attPromptBlock(atts), pcMsgs().slice(0,-1));
     if(r.sessionId) lsSet('pcsid:'+(state.repo||''), r.sessionId);
     const ms2=pcMsgs(); ms2.push({role:'assistant',text:r.text||'(sem resposta)'}); pcSave(ms2);
   }catch(e){ const ms2=pcMsgs(); ms2.push({role:'assistant',text:'⚠ Falhou: '+(e.message||e)}); pcSave(ms2); }
