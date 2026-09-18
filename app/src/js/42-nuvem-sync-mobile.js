@@ -468,6 +468,14 @@ setInterval(()=>{ cloudMsgTick().catch(()=>{}); }, 5000);
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
 let tmView=lsGet('tmView')||'overview';
+// escopo da aba Time: 'team' (o time escolhido no topo) ou 'org' (TODOS os times — só owner/admin,
+// que já enxergam tudo pela RLS; é a visão de super usuário da empresa)
+let tmScope=lsGet('tmScope')||'team';
+function tsIsOrgAdmin(){ return !!(cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin')); }
+function tsOrgScope(){ return tmScope==='org' && tsIsOrgAdmin() && !!(cloudData&&cloudData.teams&&cloudData.teams.length); }
+function tsScopeTeamIds(){ return tsOrgScope() ? cloudData.teams.map(t=>t.id) : (cloudTeamId()?[cloudTeamId()]:[]); }
+function tsTeamName(id){ return ((((cloudData&&cloudData.teams)||[]).find(x=>x.id===id))||{}).name||''; }
+function tsSetScope(s){ tmScope=s==='org'?'org':'team'; lsSet('tmScope',tmScope); teamTasks=null; teamPaintSig=''; if(typeof renderTeamBoard==='function') renderTeamBoard(); }
 // presença: marca "estou online" a cada 60s (profiles.last_seen_at)
 setInterval(()=>{ if(SB.sess()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
 let teamFetchP=null; // promise compartilhada: chamadas concorrentes esperam o MESMO fetch
@@ -481,17 +489,20 @@ async function teamFetchRun(){
   teamFetching=true;
   try{
     const teamId=cloudTeamId(); if(!teamId) return;
+    const ids=tsScopeTeamIds(); if(!ids.length) return;
+    const inq='team_id=in.('+ids.map(i=>'"'+i+'"').join(',')+')';
     const [tasks, projs, eps, acts]=await Promise.all([
-      sbGet('tasks?select=*&team_id=eq.'+teamId+'&order=updated_at.desc&limit=200'),
-      sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId),
-      sbGet('epics?select=id,name,status&team_id=eq.'+teamId+'&status=neq.archived&order=created_at').catch(()=>[]),
+      sbGet('tasks?select=*&'+inq+'&order=updated_at.desc&limit='+(ids.length>1?600:200)),
+      sbGet('projects?select=id,name,repo_remote&'+inq),
+      sbGet('epics?select=id,name,status,team_id&'+inq+'&status=neq.archived&order=created_at').catch(()=>[]),
       sbGet('task_activity?select=id,task_id,user_id,kind,body,at&order=id.desc&limit=60').catch(()=>[]),
     ]);
     teamEpics=eps||[]; teamActivity=acts||[];
     teamProj={}; projs.forEach(p=>teamProj[p.id]=p);
     const uids=new Set(); tasks.forEach(t=>{ uids.add(t.created_by); if(t.assignee) uids.add(t.assignee); });
     (teamActivity||[]).forEach(a=>uids.add(a.user_id));
-    ((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[teamId])||[]).forEach(m=>uids.add(m.user_id));
+    ids.forEach(tid=>((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[tid])||[]).forEach(m=>uids.add(m.user_id)));
+    if(tsOrgScope()) ((cloudData&&cloudData.orgMembers)||[]).forEach(m=>uids.add(m.user_id)); // membro da org sem time também aparece
     if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
     try{ teamRepoRemote=await invoke('repo_remote'); }catch(_){ teamRepoRemote=''; }
     teamTasks=tasks; teamFetchedAt=Date.now();

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -8,6 +8,55 @@ import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
+
+/**
+ * Perfil do Chrome pra este agente. O perfil é PERSISTENTE por repo (login feito uma vez
+ * vale pras próximas rodadas), mas o Chrome só aceita UMA instância por perfil: com tarefas
+ * em paralelo, o 2º agente não conseguia abrir o navegador ("profile in use") e ficava sem
+ * mexer na tela. Regra: se o perfil do repo está em uso (SingletonLock), o agente ganha uma
+ * CÓPIA própria semeada com os cookies/logins atuais — cada tarefa no seu Chrome.
+ */
+export function browserProfileFor(cwd: string, taskId: string): string {
+  const repoKey = (cwd.split("/.cardume/")[0] || cwd).replace(/[^a-zA-Z0-9]+/g, "_").slice(-60);
+  const root = join(homedir(), ".constellation", "browser");
+  const shared = join(root, repoKey);
+  mkdirSync(shared, { recursive: true });
+  // o SingletonLock do Chrome é um symlink PENDENTE ("host-pid") — existsSync devolve false; lstat enxerga
+  const lexists = (p: string) => { try { lstatSync(p); return true; } catch { return false; } };
+  const inUse = ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"].some((f) => lexists(join(shared, f)));
+  if (!inUse) return shared;
+  const tasksDir = join(root, "tasks");
+  mkdirSync(tasksDir, { recursive: true });
+  // limpa cópias antigas (>3 dias) — são descartáveis, o perfil de verdade é o do repo
+  try {
+    for (const d of readdirSync(tasksDir)) {
+      const p = join(tasksDir, d);
+      try { if (Date.now() - statSync(p).mtimeMs > 3 * 864e5) rmSync(p, { recursive: true, force: true }); } catch { /* ignora */ }
+    }
+  } catch { /* ignora */ }
+  const mine = join(tasksDir, `${repoKey}__${taskId.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(-40)}`);
+  if (!existsSync(mine)) {
+    const skip = new Set(["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile", "Cache", "Code Cache", "GPUCache", "GrShaderCache", "ShaderCache", "DawnCache", "CacheStorage", "Crashpad"]);
+    try {
+      cpSync(shared, mine, { recursive: true, filter: (src) => !skip.has(src.split("/").pop() ?? "") });
+    } catch {
+      // cópia parcial ou perfil sem nada ainda: perfil vazio próprio (funciona, só sem login salvo)
+      mkdirSync(mine, { recursive: true });
+    }
+  }
+  return mine;
+}
+
+/** "Mostrar o navegador dos agentes" (Configurações → ~/.constellation/settings.json). Padrão: segundo plano. */
+export function browserVisibleSetting(): boolean {
+  try {
+    const raw = JSON.parse(readFileSync(join(homedir(), ".constellation", "settings.json"), "utf8")) as Record<string, unknown>;
+    const v = raw.browserVisible;
+    return v === true || v === "1" || v === "true";
+  } catch {
+    return false;
+  }
+}
 
 /** A tarefa parece web/UI? Só nesses casos o agente ganha o navegador (Playwright). */
 function needsBrowser(spec: { title?: string; objective?: string; deliverables?: string[]; requirements?: string[]; kind?: string }): boolean {
@@ -150,7 +199,7 @@ export class ClaudeEngine implements AgentEngine {
     const reqs = input.spec.requirements ?? [];
     const reqProofRule =
       reqs.length && input.role !== "planner"
-        ? ` Ao FINAL do seu trabalho, escreva/atualize ".cardume/artifacts/requirements.json": um array JSON onde CADA requirement do TASK.yaml vira {"req": "<TEXTO EXATO do requisito, copiado do TASK.yaml>", "status": "done"|"blocked", "evidence": ["<arquivos em .cardume/artifacts/ que COMPROVAM — print e/ou teste>"], "note": "<explicação curta>"}. Requirement sem evidência real não é "done". Se algum ficar "blocked", pergunte ao humano ANTES de finalizar.`
+        ? ` Ao FINAL do seu trabalho, escreva/atualize ".cardume/artifacts/requirements.json": um array JSON onde CADA requirement do TASK.yaml vira {"req": "<TEXTO EXATO do requisito, copiado do TASK.yaml>", "status": "done"|"blocked"|"deferred", "evidence": ["<arquivos em .cardume/artifacts/ que COMPROVAM — print e/ou teste>"], "note": "<explicação curta>"}. Requirement sem evidência real não é "done". Se algum ficar "blocked", pergunte ao humano ANTES de finalizar. Use "deferred" SOMENTE quando o HUMANO decidir (via ask_human) adiar/dispensar aquele requisito — registre a decisão dele na note; "deferred" não trava as próximas fases, "blocked" trava.`
         : "";
     // Regras INEGOCIÁVEIS (valem pra todos os papéis, em qualquer modo de autonomia):
     // o pior desfecho possível é entregar sem os requisitos ou "decidir não fazer".
@@ -166,9 +215,17 @@ export class ClaudeEngine implements AgentEngine {
     // pedido) mencionar navegador/UI — assim "abre o navegador" funciona na hora.
     const steerText = input.resume?.instruction || input.promptOverride || "";
     const wantsBrowser = needsBrowser(input.spec) || needsBrowser({ objective: steerText });
+    // Navegador em SEGUNDO PLANO por padrão (várias tarefas em paralelo não brigam pela tela);
+    // "mostrar o navegador dos agentes" em Configurações liga a janela visível.
+    const browserVisible = browserVisibleSetting();
     const browserRule = wantsBrowser
-      ? " NAVEGADOR (mcp__playwright__*): você tem um navegador REAL e VISÍVEL na tela, com PERFIL PERSISTENTE (logins ficam salvos entre execuções). Use pra PROVAR o comportamento na UI de verdade — suba o app local desta branch, navegue até a página, clique, preencha e tire SCREENSHOTS salvando em .cardume/artifacts/proof.png (ou proof-<n>.png). NUNCA descreva a tela lendo o código: abra e olhe." +
-        " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, um formulário que só o humano tem os dados) — NÃO tente logar nem inventar credenciais. Navegue até a tela, tire um screenshot, e chame mcp__cardume__ask_human dizendo 'abri o navegador na tela X, faça login/preencha e me avise quando terminar' e AGUARDE. O humano usa a MESMA janela pra logar; quando ele responder, continue de onde parou — a sessão dele já estará ativa no navegador. Peça login UMA vez: o perfil persiste, então em rodadas seguintes você provavelmente já estará logado."
+      ? (browserVisible
+          ? " NAVEGADOR (mcp__playwright__*): você tem um navegador REAL e VISÍVEL na tela, com PERFIL PERSISTENTE (logins ficam salvos entre execuções)."
+          : " NAVEGADOR (mcp__playwright__*): você tem um navegador REAL rodando em SEGUNDO PLANO (sem janela — o humano NÃO vê a tela, só os seus screenshots), com PERFIL PERSISTENTE (logins ficam salvos entre execuções).") +
+        " Use pra PROVAR o comportamento na UI de verdade — suba o app local desta branch, navegue até a página, clique, preencha e tire SCREENSHOTS salvando em .cardume/artifacts/proof.png (ou proof-<n>.png). NUNCA descreva a tela lendo o código: abra e olhe." +
+        (browserVisible
+          ? " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, um formulário que só o humano tem os dados) — NÃO tente logar nem inventar credenciais. Navegue até a tela, tire um screenshot, e chame mcp__cardume__ask_human dizendo 'abri o navegador na tela X, faça login/preencha e me avise quando terminar' e AGUARDE. O humano usa a MESMA janela pra logar; quando ele responder, continue de onde parou — a sessão dele já estará ativa no navegador. Peça login UMA vez: o perfil persiste, então em rodadas seguintes você provavelmente já estará logado."
+          : " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, dados que só o humano tem) — NÃO tente logar nem inventar credenciais. Como o navegador está em segundo plano, o humano não consegue usar a janela: tire um screenshot e chame mcp__cardume__ask_human pedindo que ele (1) ligue 'mostrar o navegador dos agentes' em Configurações e (2) responda 'ok'. Quando ele responder, FINALIZE o turno dizendo exatamente o que ficou pendente (a URL da tela de login) — na retomada o navegador abre visível e ele faz o login na sua janela. O perfil persiste: peça login UMA vez.")
       : "";
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
@@ -208,8 +265,8 @@ export class ClaudeEngine implements AgentEngine {
               CARDUME_ASK_TIMEOUT_MIN: String(input.askTimeoutMin ?? 0),
             },
           },
-          // Navegador REAL e VISÍVEL só em tarefas web/UI — usa o Chrome do sistema
-          // (headed, sem baixar Chromium). O humano vê a janela e pode assumir.
+          // Navegador REAL só em tarefas web/UI — usa o Chrome do sistema (sem baixar
+          // Chromium). Em segundo plano por padrão; visível quando ligado em Configurações.
           ...(wantsBrowser
             ? {
                 playwright: {
@@ -217,12 +274,12 @@ export class ClaudeEngine implements AgentEngine {
                   args: [
                     "-y", "@playwright/mcp@latest",
                     "--browser", "chrome",
+                    ...(browserVisible ? [] : ["--headless"]),
                     "--viewport-size", "1280,800",
                     "--output-dir", join(input.cwd, ".cardume", "artifacts"),
-                    // perfil PERSISTENTE por repo → você loga UMA vez e a sessão
-                    // fica salva pras próximas rodadas (cookies/login preservados).
-                    "--user-data-dir", join(homedir(), ".constellation", "browser",
-                      (input.cwd.split("/.cardume/")[0] || input.cwd).replace(/[^a-zA-Z0-9]+/g, "_").slice(-60)),
+                    // perfil PERSISTENTE por repo → você loga UMA vez e a sessão fica
+                    // salva; em paralelo, cada tarefa ganha uma cópia própria (ver browserProfileFor)
+                    "--user-data-dir", browserProfileFor(input.cwd, input.spec.id),
                   ],
                 },
               }

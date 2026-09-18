@@ -194,7 +194,7 @@ function renderRail(){
   const others=(projOv||[]).filter(p=>p.path!==curPath && (p.active+p.review>0));
   let html='';
   if(rows.length){
-    html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div></div>`;
+    html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div>${gitRailTag()}</div>`;
     if(window.orqRailRows) html+=window.orqRailRows();
     html+=rows.map(t=>{ const [tg,tc]=tagOf(t);
       return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
@@ -202,7 +202,7 @@ function renderRail(){
   }
   if(!rows.length && !others.length){
     const pr=window.orqRailRows?window.orqRailRows():'';
-    html+=pr?`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">0</span></div></div>${pr}`:`<div class="railempty"><b>${esc(curName)}</b><span>nenhuma demanda rodando ou em rascunho</span></div>`;
+    html+=pr?`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">0</span></div>${gitRailTag()}</div>${pr}`:`<div class="railempty"><b>${esc(curName)}</b><span>${repoHasGit()?'nenhuma demanda rodando ou em rascunho':'pasta sem git — crie o repositório pra abrir demandas'}</span>${gitRailTag()}</div>`;
   }
   for(const p of others){
     html+=`<div class="rproj" data-proj="${escA(p.path)}"><div class="rph"><b>${esc(p.name)}</b><span class="n">${p.active+p.review}</span></div></div>`;

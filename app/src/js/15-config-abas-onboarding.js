@@ -16,6 +16,8 @@ function openCfg(){
     <div id="raHost"></div>
     <div class="seclbl2" style="margin-top:20px">GitHub <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· a conta ativa abre os PRs e faz o push — troque ao mudar de empresa/conta</span></div>
     <div id="ghHost" style="margin-top:8px"></div>
+    <div class="seclbl2" style="margin-top:20px">Navegador dos agentes</div>
+    <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn sm" id="cfgEnv">${ic('pulse')}verificar ambiente</button>
@@ -24,9 +26,10 @@ function openCfg(){
     </div>
     <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
-  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); }catch(_){} }).catch(()=>{});
+  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); }catch(_){} }).catch(()=>{});
   $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
     { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
+    { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
     lastSig=''; $id('cfgOverlay').style.display='none'; };
   $id('cfgEnv').onclick=()=>{ $id('cfgOverlay').style.display='none'; openEnv(); };
   $id('cfgBackend').onclick=()=>{ $id('cfgOverlay').style.display='none'; cloudCfgOpen=true; openCloud(); };
@@ -92,6 +95,8 @@ function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); a
 // ou opts.reuse (função que escolhe uma aba já aberta do mesmo kind).
 function openTab(kind, opts){
   opts=opts||{};
+  // criar demanda/plano exige branch: pasta sem git passa pelo "criar repositório" antes
+  if(['nova','form','planner','orq'].includes(kind) && typeof repoHasGit==='function' && !repoHasGit()){ gitGate().then(ok=>{ if(ok) openTab(kind, opts); }); return; }
   if(kind==='flow'){ activateTab('flow'); return; }
   let tab=null;
   if(MULTI_KINDS.has(kind)){

@@ -97,6 +97,28 @@ async function connect(repo){
   }
 }
 
+// ---- pasta aberta SEM git: o app abre, mas branch/PR/worktree só depois de criar o repositório ----
+function repoHasGit(){ return !state || !state.repo || state.git!==false; }
+function gitUiSync(){
+  const off=!repoHasGit();
+  document.body.classList.toggle('nogit', off);
+  const g=document.querySelector('#viewSeg button[data-v="graph"]'); if(g) g.style.display=off?'none':'';
+  if(off && curView()==='graph'){ const f=document.querySelector('#viewSeg button[data-v="flow"]'); if(f) f.click(); }
+}
+// Antes de qualquer ação que precise de branch (nova demanda, orquestrador…): oferece criar o repo.
+// Devolve true quando pode seguir.
+async function gitGate(){
+  if(repoHasGit()) return true;
+  const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
+  if(!confirm(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Constellation precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
+  try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
+  catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
+}
+// etiqueta na barra lateral: "sem git · criar repositório"
+function gitRailTag(){
+  if(repoHasGit()) return '';
+  return `<div class="nogitrow" title="esta pasta não tem repositório git — sem branch/PR até criar um"><span class="nogittag">sem git</span><button class="nogitbtn" onclick="gitGate()">criar repositório</button></div>`;
+}
 function curView(){ return (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow"; }
 // Assinatura barata do estado: se nada mudou, pulamos o render inteiro.
 function snapSig(){
@@ -190,6 +212,7 @@ async function refresh(){
   const prevGraph = state.graph;
   state = snap;
   connected = !!snap.repo;
+  gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
   // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
   if(curView()==="graph"){ try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; } }
