@@ -373,6 +373,65 @@ export class Orchestrator {
     return false;
   }
 
+  /**
+   * GATE MECÂNICO da entrega — não confia só no auto-relato do agente:
+   *  1) todo requisito precisa estar "done" (ou "deferred", decidido pelo humano);
+   *  2) todo requisito "done" precisa ter EVIDÊNCIA que EXISTE no disco;
+   *  3) se a tarefa pediu testes e há comando de teste no repo, os testes RODAM
+   *     de verdade e precisam passar.
+   * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
+   */
+  private async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
+    const reasons: string[] = [];
+    const artDir = join(task.worktree, ".cardume", "artifacts");
+    let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
+    let found = false;
+    for (const p of [join(artDir, "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
+      try {
+        const raw = JSON.parse(await readFile(p, "utf8"));
+        list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.list) ? raw.list : []);
+        found = true;
+        if (list.length) break;
+      } catch { /* sem arquivo aqui */ }
+    }
+    if (!found || list.length === 0) {
+      if ((spec.requirements ?? []).length) reasons.push("sem requirements.json comprovando os requisitos");
+      return { ok: reasons.length === 0, reasons };
+    }
+    for (const r of list) {
+      const label = String(r.req ?? "requisito").slice(0, 70);
+      if (r.status === "deferred") continue; // o humano decidiu adiar/dispensar
+      if (r.status !== "done") { reasons.push(`requisito não provado (${r.status ?? "?"}): ${label}`); continue; }
+      const ev = Array.isArray(r.evidence) ? r.evidence : [];
+      const hasReal = ev.some((e) => {
+        const name = String(e).replace(/^\.?\/?(\.cardume\/artifacts\/)?/, "");
+        return existsSync(join(artDir, name)) || existsSync(String(e));
+      });
+      if (!hasReal) reasons.push(`requisito "done" sem evidência real no disco: ${label}`);
+    }
+    const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
+    if (wantsTests) {
+      const t = await this.runRepoTests(task.worktree);
+      if (t.ran && !t.passed) reasons.push(`os testes falharam: ${t.detail}`);
+    }
+    return { ok: reasons.length === 0, reasons };
+  }
+
+  /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
+  private async runRepoTests(worktree: string): Promise<{ ran: boolean; passed: boolean; detail: string }> {
+    try {
+      const pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+      const testCmd = pkg.scripts?.test ?? "";
+      if (!testCmd || /no test specified/i.test(testCmd)) return { ran: false, passed: true, detail: "sem comando de teste" };
+      await run("npm", ["test", "--silent"], { cwd: worktree, timeout: 180000 });
+      return { ran: true, passed: true, detail: "npm test passou" };
+    } catch (err) {
+      const e = err as Error & { killed?: boolean; stderr?: string };
+      if (e.killed) return { ran: true, passed: false, detail: "npm test estourou o tempo (180s)" };
+      return { ran: true, passed: false, detail: String(e.stderr || e.message || "").slice(0, 160) };
+    }
+  }
+
   /** O erro é o LIMITE DE USO/RATE da conta (não o contexto)? Esses resetam com o
    * tempo — a saída é ESPERAR e retomar, não recomeçar na hora. */
   private static usageLimitDeath(text: string): boolean {
@@ -666,21 +725,13 @@ export class Orchestrator {
       notify("Constellation", "Pronta — quer abrir o PR? (aba PR da tarefa)", task.title);
       return;
     }
-    // mode === "auto": checa pendências antes de abrir
-    try {
-      const raw = await readFile(join(task.worktree, ".cardume", "artifacts", "requirements.json"), "utf8");
-      const rj = JSON.parse(raw);
-      const blocked = Array.isArray(rj) ? rj.filter((r: { status?: string }) => r && r.status !== "done") : [];
-      if (blocked.length) {
-        this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto: ${blocked.length} requisito(s) pendente(s) — resolva ou abra manualmente`, false);
-        notify("Constellation", "PR não aberto — requisitos pendentes", task.title);
-        return;
-      }
-    } catch {
-      if ((spec.requirements ?? []).length) {
-        this.store.addEvent(taskId, spec.agent, "note", "PR NÃO aberto: sem requirements.json comprovando os requisitos — abra manualmente após conferir", false);
-        return;
-      }
+    // mode === "auto": GATE MECÂNICO antes de abrir (evidência existe + testes passam)
+    const gate = await this.verifyProofs(taskId, task, spec);
+    if (!gate.ok) {
+      const why = gate.reasons.slice(0, 3).join(" · ");
+      this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
+      notify("Constellation", "PR não aberto — verificação falhou", task.title);
+      return;
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
