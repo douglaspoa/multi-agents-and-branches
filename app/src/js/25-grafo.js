@@ -193,15 +193,8 @@ function renderRail(){
   // rank de tarefa de OUTRO projeto (sem pendingOf): review/entregue e ativas em cima
   const rankOther=(t)=> (t.status==='review'||t.status==='delivered')?3 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : t.status==='plan-review'?1 : 0;
 
-  // ---- NAV: skills · agentes · equipes · chat do projeto (sobem pra cá, junto dos projetos) ----
-  let html = `<div class="railnav">`+
-    `<button class="rnav" data-rnav="skills"><span class="rnavi">📚</span>Skills</button>`+
-    `<button class="rnav" data-rnav="agents"><span class="rnavi">🤖</span>Agentes</button>`+
-    `<button class="rnav" data-rnav="team"><span class="rnavi">👥</span>Equipes</button>`+
-    `<button class="rnav" data-rnav="chat"><span class="rnavi">💬</span>Chat do projeto</button>`+
-    `</div><div class="raildiv"></div>`;
-
   // ---- PROJETO ATUAL (tarefas vivas do state, já priorizadas: pendência → plano → exec → review) ----
+  let html = '';
   html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div>${gitRailTag()}</div>`;
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
@@ -232,8 +225,6 @@ function renderRail(){
     <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
   el.innerHTML = html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
-  const navAct={ skills:()=>openTab('skills'), agents:()=>{ if(window.openAgents) openAgents(); else openTab('agents'); }, team:()=>setView('team'), chat:()=>openTab('chat') };
-  el.querySelectorAll('[data-rnav]').forEach(b=>b.onclick=()=>{ const f=navAct[b.dataset.rnav]; if(f) f(); });
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
     if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
     if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
