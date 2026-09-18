@@ -53,6 +53,20 @@
 /* cursor "digitando" mais suave */
 .blink { opacity: .7; }
 
+/* ---------- SELEÇÃO DE TEXTO no chat ----------
+   O body tem -webkit-user-select:none (pra não selecionar a UI). As bolhas só
+   reabilitavam com `user-select:text` — SEM o prefixo `-webkit-`, que é o que o
+   WebKit do macOS (Tauri) respeita — então dava pra ver mas não copiar.
+   Aqui reabilita de verdade (com prefixo) no conteúdo dos 3 chats. */
+.cbub, .cbub *,
+.plbub, .plbub *,
+.pc-bub, .pc-bub *,
+.csys, .cact, .ctool {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.cbub, .plbub, .pc-bub { cursor: text; }
+
 /* ---------- resultado de tool: linha sutil (sem pill), estilo Claude ---------- */
 .ctool {
   display: inline-flex; align-items: center; gap: 6px;
