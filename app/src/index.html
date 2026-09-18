@@ -126,6 +126,7 @@
         <div id="howOpts"></div>
         <div class="seclbl2" style="margin-top:22px">Com qual IA? <span class="dim">· motor e versão do modelo — a recomendação olha a sua demanda</span></div>
         <div class="aipick" id="aiPickHow"></div>
+        <div id="howEstimate" class="dim" style="font-size:12px;margin-top:10px"></div>
         <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
             <div style="display:none"><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
@@ -231,6 +232,7 @@
         <div><label>Reivindica (owns)</label><input class="in" id="ntOwns" placeholder="src/auth, src/x.ts"></div>
         <div><label>Fora dos limites (off)</label><input class="in" id="ntOff" placeholder="src/checkout"></div>
       </div>
+      <label class="cfgck" style="display:flex;gap:9px;align-items:center;margin-top:10px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="ntLight"><span>Faixa leve <span class="dim">— mudança pequena: pula linkar dependências e o setup.sh na worktree (mais rápido; ligue só se a tarefa não precisa rodar/buildar o projeto)</span></span></label>
       <div class="two" id="ntTeamRow" style="margin-top:11px">
         <div><label>Equipe (workflow)</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
         <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%" title="Logcomex AI usa a LGCX_API_KEY da sua conta (Conta → Chaves de modelo)"><option value="claude">Claude (assinatura)</option><option value="codex">Codex (OpenAI)</option><option value="gateway">Gateway próprio (OpenAI-compatível)</option><option value="mock">Mock (sem IA)</option></select></div>

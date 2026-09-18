@@ -5,6 +5,7 @@ function openCfg(){
   body.innerHTML=`
     <label>Limite de custo por tarefa <span class="dim" style="text-transform:none;letter-spacing:0">(notifica ao cruzar — 0 desliga)</span></label>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}" style="width:110px"></div>
+    <label class="cfgck" style="display:flex;gap:9px;align-items:center;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgHardCap"${lsGet('costHardCap')==='1'?' checked':''}><span>Teto rígido <span class="dim">— ao cruzar o limite, PAUSA a tarefa automaticamente (não só avisa)</span></span></label>
     <label style="margin-top:16px">URL base das issues <span class="dim" style="text-transform:none;letter-spacing:0">(o código FND-853 vira link: base/FND-853)</span></label>
     <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/logcomex/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
     <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
@@ -27,7 +28,7 @@ function openCfg(){
     <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
   invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); }catch(_){} }).catch(()=>{});
-  $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
+  $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); { const hc=$id('cfgHardCap'); lsSet('costHardCap', hc&&hc.checked?'1':'0'); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
     { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
     { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
     lastSig=''; $id('cfgOverlay').style.display='none'; };

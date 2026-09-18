@@ -102,6 +102,8 @@ export interface TaskSpec {
   prBase?: string;
   /** Tarefa de ORIGEM quando esta é uma correção/continuação linkada. */
   linkedTo?: string;
+  /** Faixa leve: pula linkar deps + setup.sh na worktree (mudança pequena). */
+  light?: boolean;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

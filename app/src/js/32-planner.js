@@ -383,6 +383,7 @@ async function submitNewTask(start=true){
     issue: $id("ntIssue").value.trim() || null,
     base: $id("ntBase").value.trim() || null,
     linkedTo: ntLinkedTo,
+    light: (($id("ntLight")||{}).checked) || false,
   };
   // Detecção proativa de sobreposição de escopo (fosso): avisa ANTES de rodar,
   // não no merge. Só ao iniciar de fato e com escopo declarado. Nunca bloqueia por erro.

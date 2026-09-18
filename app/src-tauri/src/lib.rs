@@ -2076,6 +2076,7 @@ fn new_task(
     linked_to: Option<String>,
     model: Option<String>,
     models: Option<String>,
+    light: Option<bool>,
 ) -> Result<String, String> {
     let repo = repo_of(&state)?;
     if !repo_is_git(&repo.display().to_string()) {
@@ -2184,6 +2185,7 @@ fn new_task(
     push_opt(&mut args, "--auto-pr", &auto_pr);
     push_opt(&mut args, "--pr-base", &pr_base);
     push_opt(&mut args, "--linked-to", &linked_to);
+    if light.unwrap_or(false) { args.push("--light".to_string()); }
 
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);

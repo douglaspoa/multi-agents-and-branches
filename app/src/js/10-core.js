@@ -195,7 +195,11 @@ function detectNotifs(snap){
   // guarda-custos: avisa UMA vez quando a tarefa cruza o limite (padrão $25)
   try{
     const lim=parseFloat(lsGet('costWarn')||'25');
-    if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id); pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); } } } }
+    const hardCap=lsGet('costHardCap')==='1';
+    if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id);
+      if(hardCap){ pushNotif('⛔ Teto de custo — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — PAUSADA automaticamente (teto rígido)'); try{ stopTask(t.id); }catch(_){ } }
+      else { pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); }
+    } } } }
   }catch(_){ }
   // eventos novos numa tarefa → a lista de commits pode estar defasada
   const top={};

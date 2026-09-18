@@ -248,6 +248,7 @@ function howPopulate(){
   bindClick('howManage', ()=>{ closeHow(); openAgents(); });
   box.querySelectorAll('.howopt').forEach(l=>l.onclick=()=>{ box.querySelectorAll('.howopt').forEach(x=>x.classList.remove('on')); l.classList.add('on'); l.querySelector('input').checked=true; howAgentsRender(); });
   $id('howModel').value=($id('ntModel')||{}).value||'';
+  $id('howModel').onchange=howEstimateUpdate;
   howAgentsRender();
   $id('howCost').value=parseFloat(lsGet('costWarn')||'25');
   $id('howSlots').value=slotMax;
@@ -258,7 +259,21 @@ $id('howCancel').onclick=closeHow;
 $id('howOverlay').addEventListener('click',e=>{ if(e.target.id==='howOverlay') closeHow(); });
 // modelo POR AGENTE do fluxo escolhido (redesign p10) — vira --models no CLI
 let ntModels='';
+// estimativa GROSSA de custo pré-run: nº de agentes × faixa por modelo. Dá noção
+// de ordem de grandeza — o custo real depende do tamanho da tarefa.
+function howEstimateUpdate(){
+  const el=$id('howEstimate'); if(!el) return;
+  const pick=document.querySelector('input[name="howflow"]:checked');
+  const wid=pick?pick.value:'';
+  const wfs=(state.config&&state.config.workflows)||[];
+  const w=wfs.find(x=>x.id===wid);
+  const n=w?((w.steps||[]).length||1):1;
+  const model=(($id('howModel')||{}).value)||'';
+  const per=({opus:[0.40,1.60], sonnet:[0.12,0.50], haiku:[0.03,0.12]})[model]||[0.15,0.65];
+  el.innerHTML=`Estimativa grosseira: <b style="color:var(--text-2)">~${fmtUsd(per[0]*n)}–${fmtUsd(per[1]*n)}</b> · ${n} agente(s)${model?` · ${esc(model)}`:''} <span class="dim">(varia com o tamanho da tarefa)</span>`;
+}
 function howAgentsRender(){
+  howEstimateUpdate();
   const el=$id('howAgents'); if(!el) return;
   const pick=document.querySelector('input[name="howflow"]:checked');
   const wid=pick?pick.value:'';
@@ -548,7 +563,7 @@ window.TAB_STATE_form={
     ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; aiSid=st.aiSid||''; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
     renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
 };
-function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; $id("aiChat").innerHTML=""; $id("aiAssist").style.display="none"; }
+function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; $id("aiChat").innerHTML=""; $id("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){

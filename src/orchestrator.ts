@@ -101,7 +101,7 @@ export class Orchestrator {
     // Semeia o ambiente: o `git worktree add` NÃO traz o que o git ignora
     // (.env, node_modules, .venv) — e sem isso o agente não consegue RODAR o
     // projeto e queima a sessão redescobrindo o óbvio a cada tarefa.
-    const seeded = await this.seedWorktreeEnv(worktree);
+    const seeded = await this.seedWorktreeEnv(worktree, spec.light === true);
     if (seeded.length) {
       await writeFile(
         join(taskDir, "AMBIENTE.md"),
@@ -148,7 +148,7 @@ export class Orchestrator {
    * roda `.cardume/setup.sh` do repo se o projeto tiver necessidades próprias.
    * Retorna a lista do que foi semeado. Nunca derruba a criação da tarefa.
    */
-  private async seedWorktreeEnv(worktree: string): Promise<string[]> {
+  private async seedWorktreeEnv(worktree: string, light = false): Promise<string[]> {
     const seeded: string[] = [];
     const skip = new Set(["node_modules", ".git", ".venv", "venv", ".cardume", ".constellation", "dist", "build", "__pycache__", ".next", "target"]);
     const scan = async (rel: string, depth: number): Promise<void> => {
@@ -174,19 +174,25 @@ export class Orchestrator {
         seeded.push(`.cardume/${doc}`);
       } catch { /* ainda não existe no projeto */ }
     }
-    for (const d of ["node_modules", ".venv", "venv", "frontend/node_modules", "backend/node_modules", "backend/.venv", "backend/venv"]) {
+    // FAIXA LEVE: mudança pequena não vale o custo de linkar deps + rodar setup.sh
+    // (o VoC aponta: "não vale a pena pra uma correção que a IA faz em 10min").
+    if (!light) {
+      for (const d of ["node_modules", ".venv", "venv", "frontend/node_modules", "backend/node_modules", "backend/.venv", "backend/venv"]) {
+        try {
+          if (!(await stat(join(this.ws.repo, d))).isDirectory()) continue;
+          await symlink(join(this.ws.repo, d), join(worktree, d));
+          seeded.push(`${d} (link → repo principal)`);
+        } catch { /* não existe no repo, ou a worktree já tem */ }
+      }
       try {
-        if (!(await stat(join(this.ws.repo, d))).isDirectory()) continue;
-        await symlink(join(this.ws.repo, d), join(worktree, d));
-        seeded.push(`${d} (link → repo principal)`);
-      } catch { /* não existe no repo, ou a worktree já tem */ }
+        const hook = join(this.ws.dir, "setup.sh");
+        await stat(hook);
+        await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
+        seeded.push(".cardume/setup.sh executado");
+      } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
+    } else {
+      seeded.push("faixa leve (deps não linkadas)");
     }
-    try {
-      const hook = join(this.ws.dir, "setup.sh");
-      await stat(hook);
-      await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
-      seeded.push(".cardume/setup.sh executado");
-    } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
     return seeded;
   }
 
