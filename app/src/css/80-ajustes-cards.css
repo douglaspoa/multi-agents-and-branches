@@ -95,3 +95,11 @@
   padding: 7px 10px;
 }
 .sbnew .sbitem:hover { background: var(--surface-2); color: var(--text); }
+
+/* "Nova demanda" estava colado no topo — dá respiro abaixo da marca */
+.sbnew { padding-top: 14px; }
+
+/* Sidebar informativa (tipo Claude): o cabeçalho do projeto é um RÓTULO, não
+   um botão de trocar de projeto. Só as demandas abrem ao clicar. */
+.rproj { cursor: default; }
+.rproj .rph { cursor: default; }

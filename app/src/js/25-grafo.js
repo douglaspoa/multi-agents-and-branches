@@ -210,10 +210,10 @@ function renderRail(){
     .sort((a,b)=> (b.active+b.review)-(a.active+a.review) || String(a.name).localeCompare(String(b.name)));
   for(const p of allOthers){
     const act=p.active+p.review;
-    html+=`<div class="rproj" data-proj="${escA(p.path)}"><div class="rph"><b>${esc(p.name)}</b><span class="n">${act}</span></div></div>`;
+    html+=`<div class="rproj"><div class="rph"><b>${esc(p.name)}</b><span class="n">${act}</span></div></div>`;
     const ptasks=(p.tasks||[]).slice().sort((x,y)=>rankOther(y)-rankOther(x)).slice(0,3);
     if(ptasks.length){
-      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
+      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''}><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
     } else {
       html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}"><span class="tt dim" style="font-size:11px">abrir projeto</span></div>`;
     }
@@ -226,9 +226,12 @@ function renderRail(){
   el.innerHTML = html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
-    if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
+    if(r.classList.contains('other')){ // demanda de outro projeto: ABRE a tarefa (não é "selecionar projeto")
+      if(r.dataset.id) switchToProjectTask(r.dataset.proj, r.dataset.id);
+      else switchProject(r.dataset.proj);
+      return;
+    }
     if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });
-  el.querySelectorAll('.rproj[data-proj]').forEach(r=>r.onclick=()=>switchProject(r.dataset.proj));
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
 }
