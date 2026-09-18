@@ -232,7 +232,7 @@ async function plSend(text){
     } else {
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }
-  }catch(e){ plBusy=false; plMsgs.push({who:'sys', text:'⚠ '+String(e)}); }
+  }catch(e){ plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim(); if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.'; plMsgs.push({who:'sys', text:'⚠ '+(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true); }
   renderPlanner(); plAutoSave();
 }
 async function plCreate(){
