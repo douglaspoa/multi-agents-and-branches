@@ -2,11 +2,12 @@ import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
+import { globsOverlap } from "./glob.ts";
 import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
-import { ghBin, run } from "./util/run.ts";
+import { ghBin, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
@@ -432,6 +433,41 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * SEQUENTIAL-LOCK honrado: se a política é sequential-lock e o escopo desta
+   * tarefa colide com o de outra que está EDITANDO agora (running/thinking) e é
+   * MAIS VELHA, espera ela liberar antes de começar — assim as duas rodam em
+   * sequência em vez de brigar no merge. Regra "mais novo espera o mais velho"
+   * evita deadlock (duas tarefas não ficam esperando uma à outra).
+   */
+  private async waitForScopeClear(taskId: string, spec: TaskSpec): Promise<void> {
+    if (this.bus.policy !== "sequential-lock") return;
+    const mine = (spec.scope?.owns ?? []).map((s) => s.trim()).filter(Boolean);
+    if (!mine.length) return;
+    const myCreated = this.store.getTask(taskId)?.created_at ?? Date.now();
+    const blockers = () =>
+      this.store.listTasks().filter((t) => {
+        if (t.id === taskId) return false;
+        if (!["running", "thinking"].includes(t.status)) return false; // só quem edita AGORA
+        if ((t.created_at ?? 0) >= myCreated) return false; // mais novo espera o mais velho
+        let owns: string[] = [];
+        try { owns = (JSON.parse(t.spec_json) as TaskSpec).scope?.owns ?? []; } catch { /* ignora */ }
+        return mine.some((m) => owns.some((o) => globsOverlap(m, o)));
+      });
+    const deadline = Date.now() + 30 * 60_000; // teto de 30min esperando
+    let announced = false;
+    while (Date.now() < deadline) {
+      const b = blockers();
+      if (!b.length) break;
+      if (!announced) {
+        announced = true;
+        this.store.addEvent(taskId, spec.agent, "blocked", `sequential-lock: aguardando ${b.map((x) => x.id).join(", ")} liberar o escopo`, false);
+      }
+      await sleep(3000);
+    }
+    if (announced) this.store.addEvent(taskId, spec.agent, "note", "escopo liberado — seguindo", true);
+  }
+
   /** O erro é o LIMITE DE USO/RATE da conta (não o contexto)? Esses resetam com o
    * tempo — a saída é ESPERAR e retomar, não recomeçar na hora. */
   private static usageLimitDeath(text: string): boolean {
@@ -520,6 +556,7 @@ export class Orchestrator {
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
+    await this.waitForScopeClear(taskId, spec); // sequential-lock: espera o escopo liberar antes de editar
     const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
     const startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
 
