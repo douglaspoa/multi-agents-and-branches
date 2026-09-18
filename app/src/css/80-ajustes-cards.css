@@ -83,3 +83,15 @@
 /* linha vazia de projeto na sidebar (só um "abrir projeto" discreto) */
 .prow2.emptyrow { cursor: pointer; opacity: .75; }
 .prow2.emptyrow:hover { opacity: 1; }
+
+/* Nav do topo (Projetos/Skills/Agentes/Chat): linha LIMPA, sem caixa — igual ao
+   "Projetos" (que usa .sbproj). Vale só no grupo de cima (.sbnew); o Daily/Mais
+   de baixo (.sbnav) mantêm a caixa. */
+.sbnew .sbitem {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  padding: 7px 10px;
+}
+.sbnew .sbitem:hover { background: var(--surface-2); color: var(--text); }
