@@ -268,7 +268,7 @@ function howAgentsRender(){
   const team=w?(w.steps||[]).map(s=>byId[s]).filter(Boolean):[];
   if(team.length<2){ el.innerHTML=''; return; }
   el.innerHTML=`<label>Modelo por agente <span class="dim" style="text-transform:none;letter-spacing:0">(sobrepõe o modelo geral)</span></label>`+
-    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" style="background:${agentColor(a.name)}">${esc((a.name||'?').slice(0,2).toUpperCase())}</span><span style="flex:1;font-size:12.5px">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
+    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" style="background:${agentColor(a.name)}">${agentBadge(a.name)}</span><span style="flex:1;font-size:12.5px">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
 }
 $id('howGo').onclick=()=>{
   const pick=document.querySelector('input[name="howflow"]:checked');

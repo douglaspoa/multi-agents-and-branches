@@ -180,7 +180,7 @@ function costBlock(taskId){
   const byAgent={};
   for(const c of cs){ const k=c.agent||'?'; (byAgent[k]||(byAgent[k]={usd:0,tok:0}));  byAgent[k].usd+=c.usd||0; byAgent[k].tok+=(c.inTok||0)+(c.outTok||0); }
   return `<div class="seclbl">Custo <span class="n">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span></div><div class="costlist">`+
-    Object.entries(byAgent).map(([a,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(a)}">${esc(a.slice(0,2).toUpperCase())}</span><span class="cnm">${esc(a)}</span><span class="ctok">${fmtTok(v.tok)} tok</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')+
+    Object.entries(byAgent).map(([a,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(a)}">${agentBadge(a)}</span><span class="cnm">${esc(a)}</span><span class="ctok">${fmtTok(v.tok)} tok</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')+
     `</div>`;
 }
 const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
@@ -233,16 +233,21 @@ async function loadCommits(taskId, force){
 }
 async function loadAllCommits(){ for(const t of (state.tasks||[])) await loadCommits(t.id); render(); }
 function commitChip(x, agent){
-  const av = agent ? `<span class="cav" style="background:${agentColor(agent)}" title="${escA(agent)}">${esc(agent.slice(0,2).toUpperCase())}</span>` : '';
+  const av = agent ? `<span class="cav" style="background:${agentColor(agent)}" title="${escA(agent)}">${agentBadge(agent)}</span>` : '';
   return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA((agent?agent+' · ':'')+x.subject)}">${av}<span class="chash mono">${esc((x.hash||'').slice(0,7))}</span><span class="csub">${esc(x.subject||'')}</span></button>`;
 }
 const FLOW_PAL=["#3fd68a","#5b9df9","#b47ce0","#f0b449","#f2685c","#4fc4c9","#e07ab4","#7c8792"];
-function agentColor(name){ let h=0; const s=String(name||""); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return FLOW_PAL[h%FLOW_PAL.length]; }
+// Busca o agente no catálogo do projeto (config) POR NOME — é como as tarefas
+// referenciam o agente (só o nome fica gravado). Dá acesso a cor + avatar escolhidos no editor.
+function agentCat(name){ try{ return ((state.config&&state.config.agents)||[]).find(a=>String(a.name||'').toLowerCase()===String(name||'').toLowerCase())||null; }catch(_){ return null; } }
+function agentColor(name){ const a=agentCat(name); if(a&&a.color) return a.color; let h=0; const s=String(name||""); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return FLOW_PAL[h%FLOW_PAL.length]; }
+// Conteúdo do badge do agente: o AVATAR (emoji) escolhido no editor, ou as iniciais.
+function agentBadge(name){ const a=agentCat(name); return a&&a.avatar ? a.avatar : esc(String(name||'?').trim().slice(0,2).toUpperCase()); }
 function flowTaskCard(t, acc){
   const col=STATUS_COLOR[t.status]||"var(--muted)";
   const accCls=acc?(' '+acc):'';
   const roles=t.roles||[];
-  const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${esc((r.name||'?').slice(0,2).toUpperCase())}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
+  const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${agentBadge(r.name)}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
   const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
   const cchips = c===undefined ? '<span class="dim" style="font-size:11px">carregando…</span>'
     : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")

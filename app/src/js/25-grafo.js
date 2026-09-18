@@ -36,7 +36,7 @@ function renderGraph(){
     const cs=commitsCache[t.id];
     return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}">
       <div class="grh">
-        <span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
+        <span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
         <b class="grt">${esc(t.title)}</b>
         ${linkChips(t)}
         <span style="flex:1"></span>

@@ -393,7 +393,7 @@ function flowTaskRow(t){
     <span class="pctwrap" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><i style="width:${pct}%;background:${asking.length?'var(--warn)':'var(--good)'}"></i></span><span class="pctn mono" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito">${pct}%</span>
     <span class="msg">${msg}</span>
     ${pvChip}${quick}${linkChips(t)}
-    <span class="ini2" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
+    <span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
     <span class="tm">${tm}</span>
     <button class="btn sm" data-tmenu="${escA(t.id)}" title="mudar status / encerrar" style="padding:2px 7px;font-size:11px;flex:none">⋯</button>
   </div>`;

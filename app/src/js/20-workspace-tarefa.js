@@ -141,7 +141,7 @@ function fwNowHtml(t){
   if(ACTIVE_ST.has(t.status)){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
-    const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${esc((lastThink.agent||'?').slice(0,2).toUpperCase())}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
+    const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
     return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
@@ -339,7 +339,7 @@ function renderWorkspace(){
       ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela`
       : `<div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique e <b>arraste</b> pra selecionar várias linhas (ou shift+clique) e pergunte no chat'}</div>`;
     main.innerHTML = `
-      <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
+      <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
       ${whyBand}
       ${body}
       ${bar}`;
@@ -369,7 +369,7 @@ function renderWorkspace(){
   const workingW=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !askingW.length;
   const sel2=fwSelRange();
   chat.innerHTML=`
-    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${esc(((fwAgentSel||t.agent)||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwMode==='conversa'?'recolher — voltar à visão de código':'expandir o chat — só a barra de arquivos fica ao lado'}">${fwMode==='conversa'?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
+    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwMode==='conversa'?'recolher — voltar à visão de código':'expandir o chat — só a barra de arquivos fica ao lado'}">${fwMode==='conversa'?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
@@ -519,13 +519,13 @@ function fwThreadHtml(t){
     if(['think','note','done'].includes(e.type) && tx.trim()){
       const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';
       lastWho=e.agent;
-      return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`;
+      return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`;
     }
     if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`;
     return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(tx)}</span></div>`;
   }).join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${esc(((asking[0].agent||t.agent)||'?').slice(0,2).toUpperCase())}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
-  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
+  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
 }
 // requisitos com status ao vivo (o "no que ele está trabalhando")
 function fwReqsHtml(t){

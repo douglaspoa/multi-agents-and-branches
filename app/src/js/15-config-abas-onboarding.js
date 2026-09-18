@@ -290,7 +290,7 @@ function activityBlock(t){
   // O QUÊ ele está fazendo: a própria narração do agente (último "pensamento")
   // + as últimas ações concretas — não só quem/contadores.
   const lastThink=[...evs].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
-  const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${esc((lastThink.agent||'?').slice(0,2).toUpperCase())}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
+  const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
   const feed=evs.filter(e=>['bash','edit','write','read'].includes(e.type)).slice(-4)
     .map(e=>`<div class="nowact"><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="mono">${esc(e.text||'')}</span></div>`).join('');
   return `<div class="progbox">
