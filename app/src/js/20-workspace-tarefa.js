@@ -522,29 +522,55 @@ function prettyTool(tx){
 function toolChip(label, done){
   return `<div class="ctool${done?' done':''}"><span class="ctool-ic">${done?TOOL_DONE_IC:TOOL_IC}</span><span class="ctool-tx">${esc(label)}</span></div>`;
 }
+// ---- várias ações seguidas (ler/rodar/editar) viram UMA linha, tipo Claude ----
+const ACT_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5.2l2.2 1.8L3 8.8M7.3 9.2h5.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function actSummary(evs){
+  const c={}; for(const e of evs) c[e.type]=(c[e.type]||0)+1;
+  const plu=(n,s,p)=>`${n} ${n>1?(p||s+'s'):s}`;
+  const parts=[];
+  if(c.read) parts.push(plu(c.read,'arquivo lido','arquivos lidos'));
+  if(c.bash) parts.push(plu(c.bash,'comando','comandos'));
+  if(c.edit) parts.push(plu(c.edit,'edição','edições'));
+  if(c.write) parts.push(plu(c.write,'arquivo criado','arquivos criados'));
+  if(c.claim) parts.push(plu(c.claim,'reivindicação','reivindicações'));
+  const known=(c.read||0)+(c.bash||0)+(c.edit||0)+(c.write||0)+(c.claim||0);
+  const other=evs.length-known; if(other>0) parts.push(plu(other,'ação','ações'));
+  return parts.join(' · ') || plu(evs.length,'ação','ações');
+}
+function actLine(evs){
+  const details=evs.slice(-10).map(e=>String(e.text||'').replace(/\s+/g,' ').slice(0,70)).join('\n');
+  return `<div class="cact cactsum" title="${escA(details)}"><span class="cg">${ACT_IC}</span><span class="ct">${esc(actSummary(evs))}</span></div>`;
+}
 function fwThreadHtml(t){
   const evs=fwEvents.length?fwEvents:eventsOf(t.id); // completos (fallback: snapshot)
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
   let lastWho='';
-  return evs.map(e=>{
+  const out=[]; let act=[];
+  const flush=()=>{ if(act.length){ out.push(actLine(act)); act=[]; } };
+  for(const e of evs){
     const tx=e.text||'';
-    if(e.agent==='Você' && tx.startsWith('💬')){ lastWho=''; return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`; }
-    if(tx.startsWith('humano respondeu:')){ lastWho=''; return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`; }
-    if(isMetaNote(tx)) return `<div class="csys">${esc(tx)}</div>`;
-    if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) return ''; // a pergunta já aparece no card destacado
+    if(e.agent==='Você' && tx.startsWith('💬')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
+    if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
+    if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; }
+    if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) continue; // a pergunta já aparece no card destacado
     // chamada de ferramenta (nome técnico cru) → chip de tool bonito
-    if(e.type==='note' && looksLikeTool(tx)){ lastWho=''; return toolChip(prettyTool(tx)); }
+    if(e.type==='note' && looksLikeTool(tx)){ flush(); lastWho=''; out.push(toolChip(prettyTool(tx))); continue; }
     // resultado de tool (📦 entregável / 🛠 …) → chip "concluído"
-    if(e.type==='note' && /^(📦|🛠)/.test(tx)){ lastWho=''; return toolChip(tx.replace(/^[📦🛠]\s*/,'').replace(/\s*\(ref\s+\w+\)\s*$/i,''), true); }
+    if(e.type==='note' && /^(📦|🛠)/.test(tx)){ flush(); lastWho=''; out.push(toolChip(tx.replace(/^[📦🛠]\s*/,'').replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
+      flush();
       const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';
       lastWho=e.agent;
-      return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`;
+      out.push(`<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
+      continue;
     }
-    if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`;
-    return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(tx)}</span></div>`;
-  }).join('')
+    if(e.type==='error'){ flush(); out.push(`<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`); continue; }
+    // atividade (ler/rodar/editar/…) — acumula pra virar UMA linha de raciocínio
+    act.push(e);
+  }
+  flush();
+  return out.join('')
   + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
   + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
 }

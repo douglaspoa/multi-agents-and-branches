@@ -80,3 +80,9 @@
   transform: translateX(-100%); animation: ctoolshine 1.1s ease-out .1s 1;
 }
 @keyframes ctoolshine { to { transform: translateX(100%); } }
+
+/* ---------- linha ÚNICA de atividade (várias ações colapsadas, tipo Claude) ---------- */
+.cact.cactsum { opacity: .9; align-items: center; padding-left: 40px; font-size: 11.5px; }
+.cact.cactsum .cg { color: var(--muted); display: inline-flex; align-items: center; width: 13px; height: 13px; }
+.cact.cactsum .cg svg { width: 13px; height: 13px; }
+.cact.cactsum .ct { color: var(--text-2); font-family: 'Instrument Sans', sans-serif; }
