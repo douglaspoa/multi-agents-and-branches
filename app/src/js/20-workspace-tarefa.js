@@ -505,6 +505,23 @@ function agentModelLabel(t, name){
   const k=Object.keys(M).find(k=>m.includes(k));
   return k?('Claude '+M[k]):'Claude';
 }
+// ---- chip de tool: nome técnico de ferramenta vira algo legível e bonito ----
+const TOOL_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.4 2.6a3 3 0 0 0 3.9 3.9l2.7 2.7a1.15 1.15 0 0 1-1.6 1.6L8.7 8.1A3 3 0 0 1 4.8 4.2l1.7 1.7 1.1-1.1z" stroke-linejoin="round"/></svg>';
+const TOOL_DONE_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.5 8.5l3 3 6-6.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// parece nome técnico de ferramenta? (um token só, com __ ou CamelCase interno)
+function looksLikeTool(tx){ const s=String(tx||'').trim(); return !/\s/.test(s) && s.length>1 && (s.includes('__') || /[a-z][A-Z]/.test(s)); }
+// nome técnico → rótulo amigável em PT
+function prettyTool(tx){
+  const raw=String(tx||'').replace(/^mcp__[a-z0-9]*__/i,'').replace(/^mcp__/i,'').trim();
+  const key=raw.toLowerCase().replace(/[_\s]/g,'');
+  const MAP={ toolsearch:'buscou uma ferramenta', addrequirement:'registrou um requisito', adddeliverable:'registrou um entregável', askhuman:'perguntou ao humano', claim:'reivindicou um arquivo', websearch:'buscou na web', webfetch:'abriu uma página', todowrite:'atualizou o plano', task:'delegou a um subagente', bash:'rodou um comando', read:'leu um arquivo', grep:'buscou no código', glob:'listou arquivos', edit:'editou um arquivo', write:'escreveu um arquivo' };
+  if(MAP[key]) return MAP[key];
+  // humaniza: separa camelCase, troca _ por espaço, minúsculo
+  return raw.replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/[_]+/g,' ').toLowerCase().trim();
+}
+function toolChip(label, done){
+  return `<div class="ctool${done?' done':''}"><span class="ctool-ic">${done?TOOL_DONE_IC:TOOL_IC}</span><span class="ctool-tx">${esc(label)}</span></div>`;
+}
 function fwThreadHtml(t){
   const evs=fwEvents.length?fwEvents:eventsOf(t.id); // completos (fallback: snapshot)
   const asking=pendingOf(t.id);
@@ -516,6 +533,10 @@ function fwThreadHtml(t){
     if(tx.startsWith('humano respondeu:')){ lastWho=''; return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`; }
     if(isMetaNote(tx)) return `<div class="csys">${esc(tx)}</div>`;
     if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) return ''; // a pergunta já aparece no card destacado
+    // chamada de ferramenta (nome técnico cru) → chip de tool bonito
+    if(e.type==='note' && looksLikeTool(tx)){ lastWho=''; return toolChip(prettyTool(tx)); }
+    // resultado de tool (📦 entregável / 🛠 …) → chip "concluído"
+    if(e.type==='note' && /^(📦|🛠)/.test(tx)){ lastWho=''; return toolChip(tx.replace(/^[📦🛠]\s*/,'').replace(/\s*\(ref\s+\w+\)\s*$/i,''), true); }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';
       lastWho=e.agent;
