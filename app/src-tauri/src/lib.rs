@@ -640,6 +640,8 @@ struct Cost {
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
     repo: Option<String>,
+    /// false = pasta aberta sem repositório git (sem branch/PR/worktree até criar um)
+    git: bool,
     tasks: Vec<Task>,
     events: Vec<Event>,
     claims: Vec<Claim>,
@@ -994,6 +996,61 @@ fn current_repo(state: State<AppState>) -> Option<String> {
         .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
 }
 
+/// Resolve o repo do projeto ativo (parent do .cardume/state.sqlite).
+fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
+    let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or_else(|| "repo inválido".to_string())
+}
+
+/// Métricas de coordenação (conflitos, colisões, reworks) — baseline do "caos".
+/// Proxy do CLI `cardume metrics --json`: a lógica mora no núcleo TS (fonte única).
+#[tauri::command(async)]
+fn coordination_metrics(state: State<AppState>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let out = Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning".to_string(),
+            cli_path(&repo),
+            "metrics".to_string(),
+            "--repo".to_string(),
+            repo.display().to_string(),
+            "--json".to_string(),
+        ])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Checa sobreposição de escopo de uma demanda nova contra tarefas ativas.
+/// `owns` = padrões separados por vírgula (ex.: "src/auth/**,src/api/*.ts").
+/// Proxy do CLI `cardume overlap --owns <...> --json`. Retorna JSON de ScopeOverlap[].
+#[tauri::command(async)]
+fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let out = Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning".to_string(),
+            cli_path(&repo),
+            "overlap".to_string(),
+            "--owns".to_string(),
+            owns,
+            "--repo".to_string(),
+            repo.display().to_string(),
+            "--json".to_string(),
+        ])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 // ---------- lista de projetos (switcher multi-projeto) ----------
 fn projects_file() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -1061,6 +1118,53 @@ fn open_project(state: State<AppState>, path: String) -> Result<String, String> 
     open_project_at(&state, &path)
 }
 
+/// A pasta é um repositório git? (pasta simples abre, mas sem branch/PR/worktree)
+fn repo_is_git(path: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Cria o repositório git numa pasta aberta sem git: `git init -b main`, garante
+/// `.cardume/` no .gitignore e faz o 1º commit (com identidade de fallback se o
+/// git local não tiver user.name/email). Depois disso tudo funciona como sempre.
+#[tauri::command(async)]
+fn git_init_repo(state: State<AppState>) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let rs = repo.display().to_string();
+    if repo_is_git(&rs) { return Ok("já é um repositório git".into()); }
+    let out = Command::new("git").args(["init", "-q", "-b", "main"]).arg(&repo).output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        // git antigo sem -b: init simples + renomeia
+        let o2 = Command::new("git").args(["init", "-q"]).arg(&repo).output().map_err(|e| e.to_string())?;
+        if !o2.status.success() { return Err(format!("git init falhou: {}", String::from_utf8_lossy(&o2.stderr))); }
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["symbolic-ref", "HEAD", "refs/heads/main"]).output();
+    }
+    // .gitignore com .cardume/ (workspace do app nunca entra no repo)
+    let gi = repo.join(".gitignore");
+    let cur = std::fs::read_to_string(&gi).unwrap_or_default();
+    if !cur.lines().any(|l| l.trim() == ".cardume/" || l.trim() == ".cardume") {
+        let prefix = if cur.is_empty() || cur.ends_with('\n') { cur.clone() } else { format!("{cur}\n") };
+        std::fs::write(&gi, format!("{prefix}.cardume/\n")).map_err(|e| e.to_string())?;
+    }
+    let _ = Command::new("git").arg("-C").arg(&repo).args(["add", "-A"]).output();
+    // identidade: usa a do git; sem ela, fallback só neste commit (não grava config)
+    let has_ident = Command::new("git").arg("-C").arg(&repo).args(["config", "user.email"]).output().map(|o| o.status.success() && !o.stdout.is_empty()).unwrap_or(false);
+    let mut c = Command::new("git");
+    c.arg("-C").arg(&repo);
+    if !has_ident { c.args(["-c", "user.name=Constellation", "-c", "user.email=constellation@local"]); }
+    let out = c.args(["commit", "-q", "-m", "chore: início do repositório (Constellation)"]).output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        if !err.contains("nothing to commit") { return Err(format!("commit inicial falhou: {err}")); }
+    }
+    Ok("repositório criado na branch main".into())
+}
+
 fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
     let repo = PathBuf::from(path);
     let is_git = Command::new("git")
@@ -1070,19 +1174,20 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    if !is_git {
-        return Err(format!("{} não é um repositório git", path));
-    }
+    // pasta SEM git abre normalmente (só navegar/conversar); as ações que precisam de
+    // branch ficam escondidas e o app oferece "criar repositório" (git_init_repo).
     let db = repo.join(".cardume").join("state.sqlite");
     if !db.exists() {
+        let mut args: Vec<String> = vec![
+            "--disable-warning=ExperimentalWarning".into(),
+            cli_path(&repo),
+            "init".into(),
+            "--repo".into(),
+            repo.display().to_string(),
+        ];
+        if !is_git { args.push("--no-git".into()); } // por último: o parser do CLI consome o próximo arg como valor
         let out = Command::new(node_bin())
-            .args([
-                "--disable-warning=ExperimentalWarning",
-                &cli_path(&repo),
-                "init",
-                "--repo",
-                &repo.display().to_string(),
-            ])
+            .args(&args)
             .current_dir(&repo)
             .output()
             .map_err(|e| format!("falha ao inicializar o workspace: {e}"))?;
@@ -1538,6 +1643,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         None => {
             return Ok(Snapshot {
                 repo: None,
+                git: true,
                 tasks: vec![],
                 events: vec![],
                 claims: vec![],
@@ -1710,7 +1816,8 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|d| d.parent())
         .map(|r| r.display().to_string());
 
-    Ok(Snapshot { repo, tasks, events, claims, diffs, reviews, pending, costs })
+    let git = repo.as_deref().map(repo_is_git).unwrap_or(true);
+    Ok(Snapshot { repo, git, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
@@ -1971,6 +2078,9 @@ fn new_task(
     models: Option<String>,
 ) -> Result<String, String> {
     let repo = repo_of(&state)?;
+    if !repo_is_git(&repo.display().to_string()) {
+        return Err("esta pasta não tem repositório git — cada demanda roda numa branch própria. Crie o repositório (botão \"criar repositório\" na barra lateral) e tente de novo.".into());
+    }
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
     // o processo desta tarefa e permitir pausar/abortar.
     // Se o id já existe (ex.: entrega criada a partir de um design com o MESMO
@@ -2654,7 +2764,7 @@ fn set_task_model(state: State<AppState>, task_id: String, model: String) -> Res
 #[tauri::command(async)]
 fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o ORQUESTRADOR do Constellation. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
+    let sys = "Você é o ORQUESTRADOR do Constellation. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -2759,6 +2869,47 @@ fn patch_task_spec(state: State<AppState>, task_id: String, patch: serde_json::V
     }
     conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Fase de INTEGRAÇÃO do orquestrador (a revisão final): a worktree nasce da base
+/// (main) e aqui recebe o merge de TODAS as branches das fases de build — assim o
+/// revisor testa tudo junto e o PR sai desta branch, com os merges. Cada merge é
+/// `--no-ff` (fica visível no histórico). Conflito NÃO aborta: fica na worktree e
+/// o agente resolve (a resposta lista o que conflitou).
+#[tauri::command(async)]
+fn orch_integrate(state: State<AppState>, task_id: String, branches: Vec<String>) -> Result<serde_json::Value, String> {
+    let (wt, base) = task_wt_base(&state, &task_id)?;
+    if !wt.is_dir() { return Err("worktree da fase de integração não existe".into()); }
+    let wts = wt.display().to_string();
+    // alinha com a ponta da base antes (só se a worktree ainda não tem nada próprio)
+    let ahead = Command::new("git").args(["-C", &wts, "rev-list", "--count", &format!("{base}..HEAD")]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<i64>().unwrap_or(1)).unwrap_or(1);
+    if ahead == 0 && !base.is_empty() {
+        let _ = Command::new("git").args(["-C", &wts, "reset", "--hard", &base]).output();
+    }
+    let mut merged: Vec<String> = vec![];
+    let mut conflicts: Vec<String> = vec![];
+    let mut skipped: Vec<String> = vec![];
+    for b in branches.iter().filter(|b| !b.trim().is_empty()) {
+        // já contida? (re-execução / branch vazia)
+        let contained = Command::new("git").args(["-C", &wts, "merge-base", "--is-ancestor", b, "HEAD"]).output()
+            .map(|o| o.status.success()).unwrap_or(false);
+        if contained { skipped.push(b.clone()); continue; }
+        let out = Command::new("git").args(["-C", &wts, "merge", "--no-ff", "--no-edit", "-m", &format!("merge: integra {b} (orquestrador)"), b]).output().map_err(|e| e.to_string())?;
+        if out.status.success() { merged.push(b.clone()); continue; }
+        let unmerged = Command::new("git").args(["-C", &wts, "diff", "--name-only", "--diff-filter=U"]).output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+        if unmerged.is_empty() {
+            // falhou por outro motivo (branch inexistente etc.) — segue com as outras
+            skipped.push(format!("{b} ({})", String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("falha")));
+            let _ = Command::new("git").args(["-C", &wts, "merge", "--abort"]).output();
+            continue;
+        }
+        conflicts.push(format!("{b}: {}", unmerged.replace('\n', ", ")));
+        break; // o agente resolve este conflito e faz os merges restantes
+    }
+    let remaining: Vec<String> = branches.iter().filter(|b| !merged.contains(b) && !skipped.iter().any(|s| s.starts_with(b.as_str())) && !conflicts.iter().any(|c| c.starts_with(&format!("{b}:")))).cloned().collect();
+    Ok(serde_json::json!({ "merged": merged, "conflicts": conflicts, "skipped": skipped, "remaining": remaining }))
 }
 
 /// Antes de uma fase dependente começar: alinha a worktree (ainda sem commits
@@ -5327,6 +5478,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_repo,
             current_repo,
+            coordination_metrics,
+            overlap_check,
             list_projects,
             projects_overview,
             repo_checks,
@@ -5353,6 +5506,7 @@ pub fn run() {
             fetch_task_ref,
             slack_send_artifact,
             open_project,
+            git_init_repo,
             create_project,
             ai_orchestrate,
             ai_orchestrate_chat,
@@ -5363,6 +5517,7 @@ pub fn run() {
             orch_delete,
             patch_task_spec,
             orch_sync_base,
+            orch_integrate,
             gh_accounts,
             gh_switch_account,
             gh_login_start,

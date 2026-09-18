@@ -51,6 +51,9 @@ export interface TaskScope {
 
 export type ApprovalMode = "auto" | "ask";
 
+/** Política do barramento ao colidir escopo (write × write). */
+export type BusPolicy = "first-claim-wins" | "human-tiebreak" | "sequential-lock";
+
 export interface TaskAutonomy {
   clarifications: ClarMode;
   commit: CommitMode;
@@ -59,6 +62,8 @@ export interface TaskAutonomy {
   approval: ApprovalMode;
   /** "review" = pausa após o planner para o humano aprovar o plano; "auto" = segue direto. */
   planApproval?: "auto" | "review";
+  /** Como o bus resolve colisão de escopo. Padrão: first-claim-wins. */
+  busPolicy?: BusPolicy;
 }
 
 /** O "briefing" declarativo de uma tarefa — vira o .cardume/TASK.yaml na worktree. */

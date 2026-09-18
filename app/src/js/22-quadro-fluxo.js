@@ -274,7 +274,7 @@ function renderFlowHead(){
     return;
   }
   el.innerHTML=`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
-    <span style="flex:1"></span>`;
+    <span style="flex:1"></span><span id="coordChip" class="mono" title="Coordenação (baseline): conflitos de merge · colisões do bus · reworks" style="font-size:11px;color:var(--muted);align-self:center"></span>`;
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){

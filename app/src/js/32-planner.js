@@ -384,6 +384,20 @@ async function submitNewTask(start=true){
     base: $id("ntBase").value.trim() || null,
     linkedTo: ntLinkedTo,
   };
+  // Detecção proativa de sobreposição de escopo (fosso): avisa ANTES de rodar,
+  // não no merge. Só ao iniciar de fato e com escopo declarado. Nunca bloqueia por erro.
+  if(start && payload.owns && window.Coordenacao){
+    try{
+      const ov = await Coordenacao.overlapCheck(payload.owns);
+      if(ov && ov.length){
+        const areas=[...new Set(ov.map(o=>`${o.theirs} — ${o.agent}`))].slice(0,4).map(s=>'  • '+s).join('\n');
+        const extra=ov.length>4?`\n  • …e mais ${ov.length-4}`:'';
+        if(!confirm(`⚠ Sobreposição de escopo com tarefa(s) ativa(s):\n\n${areas}${extra}\n\nDuas tarefas na mesma área tendem a dar conflito no merge.\nIniciar mesmo assim?  (Cancelar pra dividir o escopo ou rodar uma de cada vez.)`)){
+          return;
+        }
+      }
+    }catch(_){ /* checagem é best-effort — nunca impede a criação */ }
+  }
   const btn = $id(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   $id("ntCreate").disabled=true; $id("ntDraft").disabled=true;
   try{

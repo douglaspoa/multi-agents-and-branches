@@ -132,6 +132,7 @@ export class Orchestrator {
     this.store.createTask(spec, branch, worktree, base);
     this.store.addEvent(spec.id, spec.agent, "status", `worktree criada em ${branch}`, true);
 
+    this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     for (const path of spec.scope.owns) {
       this.bus.claim(spec.id, spec.agent, path, "write");
     }
@@ -459,6 +460,7 @@ export class Orchestrator {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
+    this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
     const startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
 
