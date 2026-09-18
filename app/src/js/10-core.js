@@ -1,5 +1,12 @@
 // Constellation — 10-core
-const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+const _invokeRaw = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+// Envelope de rastreabilidade: TODA falha de comando de backend (login, PR,
+// planner, qualquer um) é registrada (52-erros → Supabase) SEM parar de propagar
+// o erro pra quem chamou. web_log fica de fora (é o log local — evita ruído/recursão).
+const invoke = (cmd, args) => _invokeRaw(cmd, args).catch((err) => {
+  try { if (cmd !== "web_log" && window.logAppError) window.logAppError("invoke:" + cmd, err); } catch (_) {}
+  throw err;
+});
 // ícones SVG no estilo do app (linha, currentColor) — substituem emojis em botões/headers
 const _ICONS={
   chat:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>',
