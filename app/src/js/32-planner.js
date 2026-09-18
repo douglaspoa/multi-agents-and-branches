@@ -27,7 +27,11 @@ function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFie
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
 function plReady(){ return plHas('title')&&plHas('objective')&&plHas('deliverables'); }
 let plSaveTimer=null;
-function plAutoSave(){ clearTimeout(plSaveTimer); plSaveTimer=setTimeout(()=>{ try{ invoke('save_draft',{ json: JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40).map(m=>m.atts?{...m, atts:attLite(m.atts)}:m), chips:plChips, asking:plAsking, plan:plPlan, noEpic:plNoEpic }) }); }catch(_){} }, 400); }
+function plDraftJson(){ let input=''; try{ const i=document.getElementById('plInput'); input=i?i.value:''; }catch(_){} return JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40).map(m=>m.atts?{...m, atts:attLite(m.atts)}:m), chips:plChips, asking:plAsking, plan:plPlan, noEpic:plNoEpic, input }); }
+// immediate=true salva NA HORA (sem debounce) — usado quando o humano envia uma
+// mensagem: o raciocínio fica no disco ANTES da IA responder, então uma queda de
+// luz / fechamento no meio não perde o que você acabou de escrever.
+function plAutoSave(immediate){ clearTimeout(plSaveTimer); const save=()=>{ try{ invoke('save_draft',{ json: plDraftJson() }); }catch(_){} }; if(immediate){ save(); } else { plSaveTimer=setTimeout(save,400); } }
 async function openPlanner(){
   plReset();
   $id('plannerOverlay').style.display='flex';
@@ -36,6 +40,7 @@ async function openPlanner(){
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
       plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=d.plan||null; plNoEpic=!!d.noEpic;
       plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou "novo" no topo pra começar do zero).'});
+      try{ const inp=$id('plInput'); if(inp && d.input) inp.value=d.input; }catch(_){}
     }
   }catch(_){} }
   if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê? (se for grande e tiver várias frentes, eu proponho um épico com tarefas em paralelo pra você aprovar)'}); plMsgs.push({who:'bot', kind:'model'}); }
@@ -192,6 +197,7 @@ async function plSend(text){
   if(!text) return;
   const inp=$id('plInput'); if(inp) inp.value='';
   plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
+  plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
   try{
     const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts);
     const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
@@ -257,6 +263,7 @@ $id('plNew').onclick=plNew;
 plWireComposer();
 $id('plSend').onclick=()=>plSend($id('plInput').value);
 $id('plInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); plSend($id('plInput').value); } });
+$id('plInput').addEventListener('input',()=>plAutoSave()); // persiste o texto em digitação (sobrevive a queda antes de enviar)
 $id('plannerOverlay').addEventListener('click',e=>{ if(e.target.id==='plannerOverlay') closePlanner(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none') closePlanner(); });
 
