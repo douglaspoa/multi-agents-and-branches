@@ -185,15 +185,15 @@ function renderFlowFilters(){
   const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
     (isDone?`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`:`<div class="ffchips">${stChips}</div>`)+
     `<span style="flex:1"></span>`+
+    // busca por nome SEMPRE visível (antes ficava escondida nos filtros avançados)
+    `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
+    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa pelo nome…" value="${escA(flowQuery)}"></div>`+
     `<select class="sel" id="ffType" title="filtrar por tipo (feature/fix/docs/investigação…)">${tyOpts}</select></div>`;
-  // AVANÇADO (toggle): período, agente, agrupar, busca
+  // AVANÇADO (toggle): período, agente, agrupar
   const advHtml=`<div class="ffadv" style="display:${ffAdvOpen?'flex':'none'};flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">`+
     `<select class="sel" id="ffPeriod">${peOpts}</select>`+
     `<select class="sel" id="ffAgent">${agOpts}</select>`+
-    `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select>`+
-    `<span class="grow"></span>`+
-    `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
-    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div></div>`;
+    `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select></div>`;
   // chips de PROJETO (multi-projeto integrado) — só quando há mais de um
   const pl=projList();
   const projChips = pl.length>1 ? `<div class="pfrow">`+

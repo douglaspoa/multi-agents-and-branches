@@ -4769,11 +4769,26 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
             }
         }
     }
+    let pr_state = v["state"].as_str().unwrap_or("").to_string();
+    // Auto-sync: PR MERGEADO (inclusive fechado/mergeado no GitHub, fora do app)
+    // → a tarefa vira 'merged'. Sem isto ela fica presa em 'review' pra sempre
+    // depois de um merge externo. Não sobrescreve estado já terminal.
+    if pr_state == "MERGED" {
+        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
+                let _ = conn.execute(
+                    "UPDATE task SET status='merged' WHERE id=?1 AND status NOT IN ('merged','done')",
+                    params![task_id],
+                );
+            }
+        }
+    }
     Ok(PrInfo {
         exists: true,
         number,
         url,
-        state: v["state"].as_str().unwrap_or("").to_string(),
+        state: pr_state,
         decision: v["reviewDecision"].as_str().unwrap_or("").to_string(),
         mergeable: v["mergeable"].as_str().unwrap_or("").to_string(),
         body: v["body"].as_str().unwrap_or("").to_string(),
