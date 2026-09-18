@@ -100,6 +100,8 @@
 .sbnew { padding-top: 14px; }
 
 /* Sidebar informativa (tipo Claude): o cabeçalho do projeto é um RÓTULO, não
-   um botão de trocar de projeto. Só as demandas abrem ao clicar. */
+   um botão de trocar de projeto. Só as demandas abrem ao clicar.
+   Todos os projetos ficam IGUAIS — sem a caixa/destaque do "atual". */
 .rproj { cursor: default; }
 .rproj .rph { cursor: default; }
+.rproj.on, .rproj:hover { background: transparent; border-color: transparent; }
