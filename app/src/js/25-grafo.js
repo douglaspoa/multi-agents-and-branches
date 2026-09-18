@@ -190,33 +190,53 @@ function renderRail(){
   const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
   const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| (b.createdAt||b.created_at)-(a.createdAt||a.created_at)).slice(0,12);
   const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
-  // agrupado por PROJETO: o atual (com as sessões vivas e rascunhos) e depois os outros repos que têm algo rodando
-  const others=(projOv||[]).filter(p=>p.path!==curPath && (p.active+p.review>0));
-  let html='';
+  // rank de tarefa de OUTRO projeto (sem pendingOf): review/entregue e ativas em cima
+  const rankOther=(t)=> (t.status==='review'||t.status==='delivered')?3 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : t.status==='plan-review'?1 : 0;
+
+  // ---- NAV: skills · agentes · equipes · chat do projeto (sobem pra cá, junto dos projetos) ----
+  let html = `<div class="railnav">`+
+    `<button class="rnav" data-rnav="skills"><span class="rnavi">📚</span>Skills</button>`+
+    `<button class="rnav" data-rnav="agents"><span class="rnavi">🤖</span>Agentes</button>`+
+    `<button class="rnav" data-rnav="team"><span class="rnavi">👥</span>Equipes</button>`+
+    `<button class="rnav" data-rnav="chat"><span class="rnavi">💬</span>Chat do projeto</button>`+
+    `</div><div class="raildiv"></div>`;
+
+  // ---- PROJETO ATUAL (tarefas vivas do state, já priorizadas: pendência → plano → exec → review) ----
+  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div>${gitRailTag()}</div>`;
+  if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
-    html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div>${gitRailTag()}</div>`;
-    if(window.orqRailRows) html+=window.orqRailRows();
     html+=rows.map(t=>{ const [tg,tc]=tagOf(t);
       return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
     }).join('');
+  } else if(!(window.orqRailRows&&window.orqRailRows())){
+    html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:11px">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
   }
-  if(!rows.length && !others.length){
-    const pr=window.orqRailRows?window.orqRailRows():'';
-    html+=pr?`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">0</span></div>${gitRailTag()}</div>${pr}`:`<div class="railempty"><b>${esc(curName)}</b><span>${repoHasGit()?'nenhuma demanda rodando ou em rascunho':'pasta sem git — crie o repositório pra abrir demandas'}</span>${gitRailTag()}</div>`;
+
+  // ---- TODOS os OUTROS projetos com as últimas demandas (ativos primeiro; exec/review em cima) ----
+  const allOthers=(projOv||[]).filter(p=>p.path!==curPath)
+    .sort((a,b)=> (b.active+b.review)-(a.active+a.review) || String(a.name).localeCompare(String(b.name)));
+  for(const p of allOthers){
+    const act=p.active+p.review;
+    html+=`<div class="rproj" data-proj="${escA(p.path)}"><div class="rph"><b>${esc(p.name)}</b><span class="n">${act}</span></div></div>`;
+    const ptasks=(p.tasks||[]).slice().sort((x,y)=>rankOther(y)-rankOther(x)).slice(0,3);
+    if(ptasks.length){
+      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
+    } else {
+      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}"><span class="tt dim" style="font-size:11px">abrir projeto</span></div>`;
+    }
   }
-  for(const p of others){
-    html+=`<div class="rproj" data-proj="${escA(p.path)}"><div class="rph"><b>${esc(p.name)}</b><span class="n">${p.active+p.review}</span></div></div>`;
-    html+=(p.tasks||[]).slice(0,4).map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
-  }
-  const totalS=liveN+others.reduce((s,p)=>s+p.active+p.review,0);
-  const nProj=1+others.length;
+
+  const totalS=liveN+allOthers.reduce((s,p)=>s+p.active+p.review,0);
+  const nProj=1+allOthers.length;
   html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
     <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
   el.innerHTML = html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
+  const navAct={ skills:()=>openTab('skills'), agents:()=>{ if(window.openAgents) openAgents(); else openTab('agents'); }, team:()=>setView('team'), chat:()=>openTab('chat') };
+  el.querySelectorAll('[data-rnav]').forEach(b=>b.onclick=()=>{ const f=navAct[b.dataset.rnav]; if(f) f(); });
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
     if(r.classList.contains('other')){ switchProject(r.dataset.proj); return; }
-    openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
+    if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });
   el.querySelectorAll('.rproj[data-proj]').forEach(r=>r.onclick=()=>switchProject(r.dataset.proj));
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
