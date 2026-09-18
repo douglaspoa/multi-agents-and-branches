@@ -53,33 +53,19 @@
 /* cursor "digitando" mais suave */
 .blink { opacity: .7; }
 
-/* ---------- chip de ferramenta (no lugar do nome técnico cru) ---------- */
+/* ---------- resultado de tool: linha sutil (sem pill), estilo Claude ---------- */
 .ctool {
-  display: inline-flex; align-items: center; gap: 7px;
-  margin: 3px 0 3px 40px; padding: 4px 11px 4px 8px;
-  border: 1px solid var(--border); border-radius: 99px;
-  background: var(--surface-3); color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 2px 0 2px 40px; padding: 0;
+  border: none; background: transparent; box-shadow: none;
+  color: var(--good);
   font: 500 11.5px 'Instrument Sans', sans-serif;
   max-width: max-content;
-  animation: ctoolin .22s ease both;
+  animation: ctoolin .18s ease both;
 }
-.ctool-ic { width: 13px; height: 13px; color: var(--accent); flex: none; display: inline-flex; }
+.ctool-ic { width: 13px; height: 13px; color: var(--good); flex: none; display: inline-flex; }
 .ctool-ic svg { width: 13px; height: 13px; }
-.ctool.done {
-  color: var(--good);
-  border-color: color-mix(in srgb, var(--good) 32%, var(--border));
-  background: color-mix(in srgb, var(--good) 8%, var(--surface));
-}
-.ctool.done .ctool-ic { color: var(--good); }
-@keyframes ctoolin { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
-/* brilho sutil que percorre o chip da CHAMADA uma vez ao aparecer */
-.ctool:not(.done) { position: relative; overflow: hidden; }
-.ctool:not(.done)::after {
-  content: ""; position: absolute; inset: 0;
-  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--accent) 16%, transparent) 50%, transparent 70%);
-  transform: translateX(-100%); animation: ctoolshine 1.1s ease-out .1s 1;
-}
-@keyframes ctoolshine { to { transform: translateX(100%); } }
+@keyframes ctoolin { from { opacity: 0; } to { opacity: 1; } }
 
 /* ---------- linha ÚNICA de atividade (várias ações colapsadas, tipo Claude) ---------- */
 .cact.cactsum { opacity: .9; align-items: center; padding-left: 40px; font-size: 11.5px; }

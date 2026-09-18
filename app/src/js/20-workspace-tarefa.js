@@ -554,9 +554,10 @@ function fwThreadHtml(t){
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; }
     if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) continue; // a pergunta já aparece no card destacado
-    // chamada de ferramenta (nome técnico cru) → chip de tool bonito
-    if(e.type==='note' && looksLikeTool(tx)){ flush(); lastWho=''; out.push(toolChip(prettyTool(tx))); continue; }
-    // resultado de tool (📦 entregável / 🛠 …) → chip "concluído"
+    // chamada de ferramenta crua (ToolSearch, mcp__…): é ruído interno — o valor
+    // está no RESULTADO (📦/🛠 abaixo). Esconde a chamada, igual o Claude faz.
+    if(e.type==='note' && looksLikeTool(tx)) continue;
+    // resultado de tool (📦 entregável / 🛠 …) → linha sutil "concluído"
     if(e.type==='note' && /^(📦|🛠)/.test(tx)){ flush(); lastWho=''; out.push(toolChip(tx.replace(/^[📦🛠]\s*/,'').replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       flush();
