@@ -1081,6 +1081,30 @@ export class Orchestrator {
     await this.withTaskLock(taskId, "talk", { message, asReq, agent: agentName }, () => this.talkToAgentInner(taskId, message, asReq, agentName));
   }
 
+  /**
+   * E4 — resolução de conflito ASSISTIDA: o agente retoma a própria sessão e
+   * mergeia a base resolvendo os conflitos NA WORKTREE (sem push). O humano
+   * revisa o resultado e mergeia. Reusa o talk (uma rodada focada), então o
+   * agente já tem todo o contexto da tarefa.
+   */
+  async resolveConflict(taskId: string): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    if (task.status === "merged") throw new Error("tarefa já mergeada — nada a resolver");
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const base = (spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase()).replace(/^origin\//, "");
+    const msg =
+      `RESOLVER CONFLITO DE MERGE com a base "${base}", aqui na sua worktree:\n` +
+      `1) git fetch origin ${base}\n` +
+      `2) git merge origin/${base}  (vai conflitar)\n` +
+      `3) resolva CADA conflito preservando a INTENÇÃO desta tarefa E as mudanças da base — não descarte um lado sem motivo;\n` +
+      `4) git add -A && git commit  (sem --no-verify);\n` +
+      `5) NÃO faça push nem abra PR — o humano revisa e mergeia.\n` +
+      `No fim, confirme com "git status" limpo e resuma numa linha o que reconciliou.`;
+    this.store.addEvent(taskId, spec.agent, "note", `resolução de conflito com IA iniciada (base ${base})`, true);
+    await this.talkToAgent(taskId, msg, false);
+  }
+
   private async talkToAgentInner(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);

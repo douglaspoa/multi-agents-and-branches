@@ -5031,6 +5031,22 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
     Ok(())
 }
 
+/// E4 — resolução de conflito assistida por IA: dispara o agente pra mergear a
+/// base e resolver os conflitos na worktree (turno longo → spawn sem bloquear a UI).
+#[tauri::command(async)]
+fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    Command::new(node_bin())
+        .args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "resolve-conflict", &task_id, "--repo", &repo.display().to_string()])
+        .current_dir(&repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("falha ao iniciar a resolução de conflito: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
@@ -5495,6 +5511,7 @@ pub fn run() {
             current_repo,
             coordination_metrics,
             overlap_check,
+            resolve_conflict,
             list_projects,
             projects_overview,
             repo_checks,

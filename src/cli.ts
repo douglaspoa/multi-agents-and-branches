@@ -539,6 +539,25 @@ async function cmdStart(repo: string, taskId: string) {
   orch.close();
 }
 
+async function cmdResolveConflict(repo: string, taskId: string) {
+  const orch = new Orchestrator(repo);
+  if (!orch.store.getTask(taskId)) {
+    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    orch.close();
+    process.exit(1);
+  }
+  try {
+    console.log(c.dim(`→ pedindo pro agente resolver o conflito de merge …`));
+    await orch.resolveConflict(taskId);
+    console.log(c.green("✔") + ` conflito endereçado em ${taskId} — confira o diff e mergeie`);
+  } catch (err) {
+    console.error(c.red("✖ resolução falhou: " + (err as Error).message));
+    orch.close();
+    process.exit(1);
+  }
+  orch.close();
+}
+
 async function cmdRework(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   try {
@@ -719,6 +738,9 @@ async function main() {
       break;
     case "rework":
       await cmdRework(repo, a._[1]);
+      break;
+    case "resolve-conflict":
+      await cmdResolveConflict(repo, a._[1]);
       break;
     case "start":
       await cmdStart(repo, a._[1]);

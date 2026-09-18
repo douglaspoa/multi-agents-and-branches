@@ -552,6 +552,7 @@ function renderFlow(){
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); prPrepOpen(b.dataset.rowpr, lsGet('prBase:'+b.dataset.rowpr)||'main'); });
+  el.querySelectorAll('[data-resolveconf]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); if(!confirm('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return; b.disabled=true; b.textContent='resolvendo…'; try{ await invoke('resolve_conflict',{ taskId:b.dataset.resolveconf }); lastSig=''; await refresh(); }catch(err){ alert('Falhou: '+(err&&err.message||err)); b.disabled=false; } });
   el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke('set_task_flag',{taskId:b.dataset.arch,flag:'closed'}); lastSig=''; await refresh(); }catch(err){ alert('Falhou: '+err); } });
   el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
   // 📱 da home: cria o túnel pro celular (ou fecha, se já estiver aberto)

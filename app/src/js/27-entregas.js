@@ -41,7 +41,8 @@ function flowDemandCard(t){
   const nImg=arts.filter(a=>a.kind==='image').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
   const artOnly=['invest','design'].includes(ty);
-  const primary = t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.cright} iniciar</button>`
+  const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia">⚡ resolver conflito</button>`
+    : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.cright} iniciar</button>`
     : asking.length ? `<button class="btn primary sm" data-dcopen="${escA(t.id)}">responder</button>`
     : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-arch="${escA(t.id)}">✓ concluir</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
     : (done ? `<button class="btn sm" data-dcopen="${escA(t.id)}">ver entrega</button>` : '');
