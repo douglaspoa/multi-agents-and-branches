@@ -1,0 +1,54 @@
+/* Chat da tarefa — de "bolha de MSN" pro estilo chat de IA.
+   - Resposta do AGENTE lê como documento (sem caixa/sombra), largura de leitura.
+   - Sua fala fica numa bolha discreta à direita.
+   - Mais respiro, tipografia maior e legível.
+   Override carregado por último; reverter é só remover este arquivo. */
+
+.chatthread { padding: 16px 22px; gap: 4px; background: var(--surface); }
+
+/* ---------- agente (bot): resposta tipo documento ---------- */
+.cmsg.bot { max-width: 100%; align-self: stretch; gap: 12px; padding: 8px 0; }
+.cmsg.bot .cbub {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 2px 0;
+  font-size: 14px;
+  line-height: 1.68;
+  max-width: 74ch;
+}
+.cmsg.bot .cbub.think { background: transparent; }
+.cwho {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+/* ---------- você: bolha discreta à direita ---------- */
+.cmsg.you { max-width: 78%; }
+.cmsg.you .cbub {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  border-top-right-radius: 5px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: none;
+}
+.cmsg.you .cbub code { background: rgba(255,255,255,.08); }
+
+/* ---------- avatar: quadrado arredondado, um pouco maior ---------- */
+.cav { width: 28px; height: 28px; font-size: 10.5px; border-radius: 9px; margin-top: 1px; }
+
+/* ---------- respiro entre turnos + botão copiar discreto ---------- */
+.cmsg + .cmsg { margin-top: 4px; }
+.ccopy { top: 2px; right: 0; }
+.cmsg.bot .ccopy { background: var(--surface-2); }
+
+/* cursor "digitando" mais suave */
+.blink { opacity: .7; }
