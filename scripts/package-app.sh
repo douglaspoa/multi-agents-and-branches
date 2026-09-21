@@ -28,6 +28,10 @@ rm -rf "$PORT"
 cp -R dist/Constellation.app "$PORT"
 cp app/src-tauri/target/release/cardume-app "$PORT/Contents/MacOS/Constellation"
 mkdir -p "$PORT/Contents/Resources"
+# rm ANTES de copiar: o template dist/Constellation.app pode já trazer Resources/engine|mcp,
+# e `cp -R origem dest/engine` ANINHA (engine/engine/cli.mjs) deixando o motor ANTIGO em
+# engine/cli.mjs — que é justamente o que o app carrega. Sem isto, o rebuild ship motor velho.
+rm -rf "$PORT/Contents/Resources/engine" "$PORT/Contents/Resources/mcp"
 cp -R app/src-tauri/resources/engine "$PORT/Contents/Resources/engine"
 cp -R app/src-tauri/resources/mcp "$PORT/Contents/Resources/mcp"
 # Info.plist SEM caminhos de máquina: só um PATH genérico (homebrew/local)
