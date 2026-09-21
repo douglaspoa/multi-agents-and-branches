@@ -258,8 +258,8 @@ export class Orchestrator {
       const list = (Array.isArray(arr) ? arr : []).filter((s: any) => s && s.name);
       if (!list.length) return "";
       let out =
-        `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano escolheu; USE quando o gatilho bater\n` +
-        `Quando a situação corresponder à descrição de uma skill abaixo, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito — elas carregam o processo/estilo que o time espera:\n`;
+        `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano LIGOU estas skills; CONSULTE-AS EM TODA TAREFA\n` +
+        `Regra fixa deste projeto: ANTES de começar QUALQUER tarefa — e de novo a cada nova rodada/pedido — releia a lista abaixo e, se a descrição de alguma bater com o que você vai fazer, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito. Elas carregam o processo/estilo que o time espera; resolver "na mão" ignorando uma skill que se aplica é ERRO. Só siga sem skill quando NENHUMA da lista se aplicar de verdade:\n`;
       for (const s of list) out += `- **${s.name}**: ${String(s.description || "").replace(/\s+/g, " ").slice(0, 320)}\n`;
       return out;
     } catch {
@@ -904,6 +904,7 @@ export class Orchestrator {
           role: role.role,
           agentName: role.name,
           dbFile: this.ws.dbFile,
+          skillsRule: this.skillsContext(), // resume não reenvia system prompt → skills por turno
           resume: { sessionId, instruction },
         })) {
           if (ev.type === "session") {
@@ -1147,7 +1148,7 @@ export class Orchestrator {
     try {
       const chatRule =
         "\n\n[CONVERSA CONTÍNUA — NÃO FINALIZE SOZINHO] (1) Precisando de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (com options quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno; NUNCA finalize com pergunta em texto. (2) Ao CONCLUIR o pedido, também NÃO finalize: chame ask_human dizendo o que fez e perguntando se quero mais algum ajuste (ex.: options ['Está ótimo, pode finalizar','Quero ajustar algo']) e AGUARDE. (3) Só finalize de verdade quando eu mandar (ex.: 'pode finalizar') ou quando o sistema avisar que estou inativo — aí encerre com um resumo educado. (4) PEDIDO NOVO = REGISTRO OBRIGATÓRIO: se a minha mensagem pedir algo que ainda NÃO fazia parte da tarefa (não é correção/ajuste do que você já fez), registre PRIMEIRO com mcp__cardume__add_requirement (critério curto e verificável — ele entra na checklist X/Y que eu acompanho) e, sendo uma entrega nova, TAMBÉM com mcp__cardume__add_deliverable; só então implemente. 'Entender' o pedido sem registrar NÃO vale — pedido registrado só na conversa não conta na checklist.";
-      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20 };
+      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext() };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
         : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };

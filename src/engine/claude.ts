@@ -235,8 +235,12 @@ export class ClaudeEngine implements AgentEngine {
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e
     // entregáveis sob demanda) — sem elas os agentes adivinham e serializam.
+    // skillsRule: no resume o system prompt (com as skills ativas) NÃO é reenviado —
+    // reinjeta a lista por turno, como groundRule/doneRule. Fresh/promptOverride já a
+    // recebem via --append-system-prompt (systemContext), então aqui só o resume precisa.
+    const skillsRule = input.skillsRule ?? "";
     const prompt = input.resume
-      ? input.resume.instruction + groundRule + doneRule + parallelRule + browserRule
+      ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule
       : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule : baseline);
 
     // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
