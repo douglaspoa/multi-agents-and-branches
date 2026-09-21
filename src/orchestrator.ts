@@ -268,6 +268,38 @@ export class Orchestrator {
   }
 
   /**
+   * Issue do tracker desta demanda (.cardume/issue.json — config compartilhada por
+   * projeto+time, espelhada da nuvem pelo app). Dois casos:
+   *  - já existe issueUrl (humano colou na Nova demanda) → só REFERENCIAR, não recriar;
+   *  - projeto tem "criar issue ao abrir demanda" ligado e ainda não há issueUrl →
+   *    o agente CRIA a issue seguindo as instruções do projeto e registra via set_issue.
+   */
+  issueContext(spec: TaskSpec): string {
+    if (spec.issueUrl) {
+      return `\n\n## ISSUE DESTA DEMANDA (já criada) — ${spec.issueUrl}\n` +
+        `Esta demanda JÁ tem uma issue no tracker. NÃO crie outra. Referencie-a nos commits e no PR (ex.: "closes ${spec.issueUrl}") e trate-a como fonte do escopo.\n`;
+    }
+    try {
+      const raw = readFileSync(join(this.ws.dir, "issue.json"), "utf8");
+      const cfg = JSON.parse(raw);
+      const instr = String(cfg?.instructions || "").trim();
+      if (!cfg?.enabled || !instr) return "";
+      const titleTpl = String(cfg?.titleTemplate || "").trim();
+      const bodyTpl = String(cfg?.bodyTemplate || "").trim();
+      let out =
+        `\n\n## CRIAR ISSUE ANTES DE COMEÇAR — regra deste projeto (compartilhada com o time)\n` +
+        `Este projeto exige abrir uma issue no tracker ANTES do trabalho principal. Faça isto como PRIMEIRO passo:\n` +
+        `1) Crie a issue seguindo EXATAMENTE estas instruções do projeto:\n${instr}\n` +
+        `2) Título: ${titleTpl || "derive do título/objetivo do TASK.yaml"}. Corpo: ${bodyTpl || "objetivo + requisitos do TASK.yaml, em Markdown"}.\n` +
+        `3) Assim que tiver a URL, chame mcp__cardume__set_issue({ url }) pra registrar o link (o time vê a issue por ali) — e só então prossiga.\n` +
+        `Se a criação falhar (credencial/endpoint), NÃO invente link: chame mcp__cardume__ask_human explicando o erro literal e aguarde.\n`;
+      return out;
+    } catch {
+      return "";
+    }
+  }
+
+  /**
    * HISTÓRICO DE TAREFAS: índice pesquisável do que já foi feito no projeto
    * (.cardume/HISTORY.md). Agentes fazem grep nele antes de investigar do zero
    * — issue parecida pode já ter sido resolvida, com branch e arquivos citados.
@@ -572,7 +604,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -842,7 +874,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -1048,7 +1080,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -1139,7 +1171,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
     const prev = task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);

@@ -260,6 +260,8 @@ async function userRepoSync(){
   finally{ repoSyncBusy=false; }
   // preferências do TIME (project_prefs) → .cardume/PREFS.md local, pra os agentes
   try{ await prefsPull(); }catch(_){ }
+  // config de issue do TIME (project_issue_config) → .cardume/issue.json local
+  try{ await issueConfigPull(); }catch(_){ }
 }
 setTimeout(billingSync, 4000);
 setInterval(billingSync, 30*60*1000);

@@ -184,6 +184,7 @@ async function cmdNew(repo: string, a: Args) {
     artifacts: artifacts.length ? artifacts : undefined,
     branchType: a.flags["branch-type"] || undefined,
     issueCode: a.flags.issue || undefined,
+    issueUrl: a.flags["issue-url"] || undefined,
     base: a.flags.base || undefined,
     autoPr: (a.flags["auto-pr"] === "no" || a.flags["auto-pr"] === "auto" ? a.flags["auto-pr"] : "ask") as TaskSpec["autoPr"],
     prBase: a.flags["pr-base"] || undefined,

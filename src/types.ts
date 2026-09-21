@@ -94,6 +94,12 @@ export interface TaskSpec {
   /** Só para kind="review": link e número do PR sendo revisado. */
   prUrl?: string;
   prNumber?: number;
+  /**
+   * Link da ISSUE do tracker desta demanda (visível pro time). Preenchido pelo
+   * humano na Nova demanda (issue já existente) OU pelo agente via mcp__cardume__set_issue
+   * quando o projeto tem "criar issue ao abrir demanda" ligado. Espelha prUrl.
+   */
+  issueUrl?: string;
   /** Branch base da worktree. Se vazio, usa a default do repo (main). */
   base?: string;
   /** PR ao concluir: "no" (não abre), "ask" (avisa e pergunta — padrão), "auto" (abre sozinho se não houver pendências). */

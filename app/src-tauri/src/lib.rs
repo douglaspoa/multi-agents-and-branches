@@ -558,6 +558,7 @@ struct Task {
     refs: serde_json::Value,
     kind: String,
     pr_url: Option<String>,
+    issue_url: Option<String>,
     flag: Option<String>,
     auto_pr: Option<String>,
     linked_to: Option<String>,
@@ -1692,6 +1693,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 refs: spec.get("refs").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 kind: spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
                 pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                issue_url: spec.get("issueUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 flag: r.get::<_, Option<String>>(15).unwrap_or(None),
                 auto_pr: spec.get("autoPr").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 linked_to: spec.get("linkedTo").and_then(|v| v.as_str()).map(|s| s.to_string()),
@@ -2069,6 +2071,7 @@ fn new_task(
     refs: Option<Vec<String>>,
     branch_type: Option<String>,
     issue: Option<String>,
+    issue_url: Option<String>,
     base: Option<String>,
     tests: Option<bool>,
     auto_pr: Option<String>,
@@ -2176,6 +2179,7 @@ fn new_task(
     }
     push_opt(&mut args, "--branch-type", &branch_type);
     push_opt(&mut args, "--issue", &issue);
+    push_opt(&mut args, "--issue-url", &issue_url);
     push_opt(&mut args, "--base", &base);
     push_opt(&mut args, "--model", &model);
     push_opt(&mut args, "--models", &models);
@@ -3457,6 +3461,29 @@ fn scan_skills_dir(dir: &std::path::Path, source: &str, out: &mut Vec<(String, S
 
 fn skills_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
     Ok(repo_of(state)?.join(".cardume").join("skills.json"))
+}
+
+fn issue_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
+    Ok(repo_of(state)?.join(".cardume").join("issue.json"))
+}
+
+/// Config de "criar issue ao abrir demanda" deste repo (espelho local do que o
+/// time compartilha na nuvem). O motor lê esse arquivo em Orchestrator.issueContext.
+#[tauri::command]
+fn get_issue_config(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let p = issue_json_path(&state)?;
+    let txt = std::fs::read_to_string(&p)
+        .unwrap_or_else(|_| "{\"enabled\":false,\"instructions\":\"\",\"titleTemplate\":\"\",\"bodyTemplate\":\"\"}".into());
+    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!({ "enabled": false, "instructions": "", "titleTemplate": "", "bodyTemplate": "" })))
+}
+
+/// Grava a config de issue do repo (o app mantém isto sincronizado com a nuvem).
+#[tauri::command]
+fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
+    let p = issue_json_path(&state)?;
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Lista as skills disponíveis (pessoais em ~/.claude/skills + do projeto em
@@ -5534,6 +5561,8 @@ pub fn run() {
             list_skills,
             get_active_skills,
             set_active_skills,
+            get_issue_config,
+            set_issue_config,
             create_skill,
             import_skill_md,
             git_skills,

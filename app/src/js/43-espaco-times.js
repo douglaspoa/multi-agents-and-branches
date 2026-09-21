@@ -245,7 +245,7 @@ function openCloudTask(ct){
   const reqs=(sp.requirements||[]);
   const body=$id('ctBody');
   body.innerHTML=`
-    ${(ct.pr_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${linkChips({prUrl:ct.pr_url, branch:ct.branch, title:ct.title})}</div>`:''}
+    ${(ct.pr_url||ct.issue_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${linkChips({prUrl:ct.pr_url, issueUrl:ct.issue_url, branch:ct.branch, title:ct.title})}</div>`:''}
     <div class="imhint">criada por <b>${esc(tmName(ct.created_by))}</b> · ${esc(CT_ST_PT[ct.status]||ct.status)}${ct.assignee?' · com <b>'+esc(tmName(ct.assignee))+'</b>':''}${ct.claim_mode==='reserved'?' · <b>reservada pra si</b>':''}</div>
     <label style="margin-top:10px">Título</label><input class="in" id="ctTitle" value="${escA(ct.title)}" ${canEdit?'':'disabled'}>
     <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
@@ -457,7 +457,7 @@ window.switchProject = switchProject;
 window.pickFolder = pickFolder;
 try{ if(window.ndInjectFonts) window.ndInjectFonts(); }catch(_){}
 if(typeof projects!=='undefined') window.projectsList = ()=>projects;
-[['newTaskBtn','nova'],['projetosBtn','projetos'],['skillsBtn','skills'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
+[['newTaskBtn','nova'],['projetosBtn','projetos'],['skillsBtn','skills'],['issuesBtn','issues'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
   const b=$id(id); if(b) b.onclick=(e)=>{ if(e&&e.preventDefault)e.preventDefault(); window.openTab(kind); };
 });
 if(window.openTab) window.openTab('flow');
