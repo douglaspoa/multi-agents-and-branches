@@ -6,6 +6,22 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"
 
+# Motor bundlado tem que entrar no .app JUNTO do binário — senão o deploy troca só
+# o Rust e o app roda com o cli.mjs/server.mjs ANTIGOS (mudança de TS não chega).
+echo "→ bundle do motor (esbuild)"
+rm -rf app/src-tauri/resources
+mkdir -p app/src-tauri/resources/engine app/src-tauri/resources/mcp
+npx -y esbuild src/cli.ts --bundle --platform=node --format=esm \
+  --outfile=app/src-tauri/resources/engine/cli.mjs --log-level=error
+npx -y esbuild src/mcp/server.ts --bundle --platform=node --format=esm \
+  --outfile=app/src-tauri/resources/mcp/server.mjs --log-level=error
+# rm antes de copiar: o template dist/Constellation.app já traz Resources/engine, e
+# `cp -R origem dest/engine` ANINHA (engine/engine/cli.mjs) deixando o motor velho no lugar.
+rm -rf dist/Constellation.app/Contents/Resources/engine dist/Constellation.app/Contents/Resources/mcp
+mkdir -p dist/Constellation.app/Contents/Resources
+cp -R app/src-tauri/resources/engine dist/Constellation.app/Contents/Resources/engine
+cp -R app/src-tauri/resources/mcp dist/Constellation.app/Contents/Resources/mcp
+
 echo "→ build release"
 ( cd app/src-tauri && cargo build --release ) 2>&1 | tail -1
 
