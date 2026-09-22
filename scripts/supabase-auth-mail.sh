@@ -6,7 +6,7 @@
 #   scripts/supabase-auth-mail.sh smtp     # liga SMTP próprio (Resend etc.) — precisa das vars SMTP_* abaixo
 #
 # Precisa de SUPABASE_ACCESS_TOKEN de uma conta OWNER/ADMIN do projeto (https://supabase.com/dashboard/account/tokens).
-# A CLI desta máquina está logada em outra conta (Logcomex) e NÃO enxerga este projeto — por isso o token vai por env.
+# Sem a env, usa o token da CLI (`supabase login` com a conta dona do projeto).
 #
 # SMTP (só pro subcomando smtp):  SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM SMTP_NAME
 #   ex. Resend: SMTP_HOST=smtp.resend.com SMTP_PORT=465 SMTP_USER=resend SMTP_PASS=re_xxx SMTP_FROM=no-reply@seu-dominio.com
@@ -14,24 +14,30 @@ set -euo pipefail
 REF="${PROJECT_REF:-fivoakrhazlzcdoocgbg}"
 API="https://api.supabase.com/v1/projects/$REF/config/auth"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-: "${SUPABASE_ACCESS_TOKEN:?defina SUPABASE_ACCESS_TOKEN (token pessoal de uma conta owner do projeto $REF)}"
+# sem env, usa o token da CLI logada (`supabase login`) — o keychain guarda em base64 com prefixo go-keyring
+if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] && [ "$(uname)" = Darwin ]; then
+  SUPABASE_ACCESS_TOKEN=$(security find-generic-password -s "Supabase CLI" -w 2>/dev/null | python3 -c 'import sys,base64; r=sys.stdin.read().strip(); r=r.split(":",1)[1] if r.startswith("go-keyring-base64:") else r; print(base64.b64decode(r+"="*(-len(r)%4)).decode().strip())' 2>/dev/null || true)
+fi
+: "${SUPABASE_ACCESS_TOKEN:?defina SUPABASE_ACCESS_TOKEN (ou faça 'supabase login' com uma conta owner do projeto $REF)}"
 auth=(-H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json")
 
 check(){
-  curl -sf "${auth[@]}" "$API" | python3 -c '
+  local tmp; tmp=$(mktemp); curl -sf "${auth[@]}" "$API" -o "$tmp"
+  python3 - "$tmp" <<'PY2'
 import json,sys
-d=json.load(sys.stdin)
-def has(k,s): return s in (d.get(k) or "")
+d=json.load(open(sys.argv[1]))
 print("validade do código (mailer_otp_exp):", d.get("mailer_otp_exp"), "s  |  tamanho:", d.get("mailer_otp_length"))
 for k in ("recovery","confirmation","magic_link","invite"):
-    c=d.get(f"mailer_templates_{k}_content") or ""
-    print(f"{k:13}: {'COM' if '.Token' in c else 'SEM'} {{ .Token }}  | assunto: {d.get(f'mailer_subjects_{k}')!r}  | {len(c)} bytes")
+    c=d.get("mailer_templates_%s_content" % k) or ""
+    tok="COM" if ".Token" in c else "SEM"
+    print("%-13s: %s {{ .Token }}  | assunto: %r  | %d bytes" % (k, tok, d.get("mailer_subjects_%s" % k), len(c)))
 print("aviso de senha trocada:", d.get("mailer_notifications_password_changed_enabled"))
-print("SMTP próprio:", d.get("smtp_host") or "NÃO (usa o SMTP padrão do Supabase — só entrega pra membros do projeto, ~2 e-mails/h)")
+print("SMTP próprio:", d.get("smtp_host") or "NÃO (SMTP padrão do Supabase — só entrega pra membros do projeto, ~2 e-mails/h)")
 print("limite e-mails/h:", d.get("rate_limit_email_sent"), "| site_url:", d.get("site_url"))
 print("redirects:", d.get("uri_allow_list"))
 print("providers: google", d.get("external_google_enabled"), "| github", d.get("external_github_enabled"))
-'
+PY2
+  rm -f "$tmp"
 }
 
 apply(){
