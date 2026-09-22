@@ -233,7 +233,8 @@ async function renderCloud(){
     { const f=$id('sbForgot'); if(f) f.onclick=async()=>{
         if(!email() || !email().includes('@')){ cloudMsg='Digite seu e-mail acima primeiro — o link de recuperação vai pra ele.'; renderCloud(); $id('sbEmail').focus(); return; }
         f.textContent='enviando…';
-        try{ await sbAuth('recover', { email: email() }); lsSet('sb:email', email()); cloudMsg='✓ Se existe uma conta com <b>'+esc(email())+'</b>, enviamos um link de recuperação pro e-mail. Abra e defina uma nova senha.'; }
+        // mesmo fluxo do onboarding: código de 6 dígitos → nova senha (auRecover em 44-onboarding.js)
+        try{ await auRecover(email()); cloudMsg=''; }
         catch(e){ cloudMsg='Falhou ao enviar recuperação: '+esc(e&&e.message||String(e)); }
         renderCloud();
       }; }

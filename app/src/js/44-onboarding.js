@@ -6,6 +6,9 @@ const AU_STEPS_ORDER=['signup','confirm','plans','pay','ready'];
 // pra onde o LINK do e-mail leva (alternativa ao código): páginas do site
 const AU_SITE='https://constellation-ai-v1.lovable.app';
 const auRedir=path=>'?redirect_to='+encodeURIComponent(AU_SITE+path);
+// Esqueci a senha: pede o CÓDIGO de 6 dígitos e abre a tela pra digitá-lo. O link do e-mail não entra no fluxo —
+// a página /redefinir-senha do site não existe e clicar num link consumiria o código. Serve o login novo e o painel Conta.
+async function auRecover(email){ await sbAuth('recover'+auRedir('/redefinir-senha'),{ email }); lsSet('sb:email',email); au.email=email; au.confirmType='recovery'; au.resendAt=Date.now()+60000; au.msg=''; auShow('confirm'); }
 let au={ step:'login', email:lsGet('sb:email')||'', name:'', confirmType:'signup', msg:'', busy:false, resendAt:0, plan:{ key:'team', interval:'month', seats:5 }, fromGate:false, waiting:false, backTo:null };
 let _auTimer=null;
 function auEl(){ return $id('authOverlay'); }
@@ -85,7 +88,7 @@ function auRender(){
     bindClick('auGo', go); bindClick('auToSignup', ()=>auShow('signup'));
     bindClick('auGh', ()=>auOAuth('github')); bindClick('auGoogle', ()=>auOAuth('google'));
     bindClick('auForgot', async()=>{ au.email=$id('auEmail').value.trim(); if(!auValidEmail(au.email)){ au.msg='digite seu e-mail acima — o código de recuperação vai pra ele.'; auRender(); return; }
-      au.busy=true; auRender(); try{ await sbAuth('recover'+auRedir('/redefinir-senha'),{ email:au.email }); lsSet('sb:email',au.email); au.confirmType='recovery'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
+      au.busy=true; auRender(); try{ await auRecover(au.email); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
     bindClick('auMagic', async()=>{ au.email=$id('auEmail').value.trim(); if(!auValidEmail(au.email)){ au.msg='digite seu e-mail acima — o link mágico vai pra ele.'; auRender(); return; }
       au.busy=true; auRender(); try{ await sbAuth('otp'+auRedir('/confirmado'),{ email:au.email, create_user:false }); lsSet('sb:email',au.email); au.confirmType='magiclink'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
     { const p=$id('auPass'); if(p) p.onkeydown=e=>{ if(e.key==='Enter') go(); }; }
@@ -96,7 +99,7 @@ function auRender(){
     R.innerHTML=topbar+`<div class="au-form">${au.confirmType==='signup'?auProgress(2):''}<h2 class="au-h2">${au.confirmType==='recovery'?'Código de recuperação':'Confirme o e-mail'}</h2><p class="au-p">Mandamos um código de 6 dígitos de ${what} para <b class="mono">${esc(au.email)}</b></p>${auMsg()}
       <div class="au-code" id="auCode">${[0,1,2,3,4,5].map(i=>`<input inputmode="numeric" maxlength="1" data-ci="${i}"${dis}>`).join('')}</div>
       <div class="au-row"><button class="au-btn primary" id="auGo"${dis}>${au.busy?'confirmando…':'Confirmar'}</button><span class="au-hint">não chegou? ${left>0?`<span id="auResendIn">reenviar em 0:${String(left).padStart(2,'0')}</span>`:`<a id="auResend">reenviar código</a>`}</span></div>
-      <div class="au-legal">${au.confirmType==='signup'?'Confirmou pelo link do e-mail? <a id="auToLogin">entrar com a senha</a>.':'Prefere o link do e-mail? Ele também funciona — depois volte aqui e <a id="auToLogin">entre</a>.'}<br>Se o e-mail veio só com o link e sem código, peça pro admin incluir <code>{{ .Token }}</code> nos templates (Supabase → Auth → Email Templates).</div></div>`;
+      <div class="au-legal">${au.confirmType==='signup'?'Confirmou pelo link do e-mail? <a id="auToLogin">entrar com a senha</a>.':au.confirmType==='recovery'?'O código vale 10 minutos. Não chegou? Confira o spam ou toque em reenviar. Lembrou a senha? <a id="auToLogin">entrar</a>.':'Prefere o link do e-mail? Ele também funciona — depois volte aqui e <a id="auToLogin">entre</a>.'}${au.confirmType==='recovery'?'':'<br>Se o e-mail veio só com o link e sem código, peça pro admin incluir <code>{{ .Token }}</code> nos templates (Supabase → Auth → Email Templates).'}</div></div>`;
     const inputs=[...R.querySelectorAll('[data-ci]')];
     const code=()=>inputs.map(i=>i.value).join('');
     const go=async()=>{ const t=code(); if(t.length<6){ au.msg='digite os 6 dígitos.'; auRender(); return; }
