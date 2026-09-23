@@ -284,6 +284,8 @@ export class Orchestrator {
     const dw = (spec.epicDoneWhen ?? []).filter(Boolean);
     const checked = new Set((spec.epicChecks ?? []).map((c) => c.id));
     let out = `\n\n## ESTA TAREFA É PARTE DE UM ÉPICO\n`;
+    if ((spec.refs ?? []).some((r) => /^EPIC\.md$/i.test(r))) out += `LEIA PRIMEIRO .cardume/refs/EPIC.md: é o contexto compilado do épico (objetivo, requisitos, pronto quando, tarefas irmãs e o que cada uma prova). Não releia as irmãs: o arquivo já traz o que importa.\n`;
+    out += `As outras tarefas do épico rodam EM PARALELO em branches próprias: fique no seu escopo (owns) e não toque no das irmãs; o que precisar delas, assuma pela interface descrita, não implemente por elas.\n`;
     if (spec.verify) out += `O que ESTA tarefa tem que provar: ${spec.verify}\n`;
     if (spec.covers?.length) out += `Requisitos do épico que ela cobre: ${spec.covers.join(", ")}\n`;
     if (spec.boundaries?.length) out += `NÃO muda: ${spec.boundaries.join("; ")}\n`;

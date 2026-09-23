@@ -144,6 +144,56 @@ async function epicMarkInProgress(epicId){
   }catch(_){ }
 }
 window.epicMarkInProgress=epicMarkInProgress;
+// ---- Contexto compilado do épico (CAP-6): EPIC.md que vai como REFERÊNCIA da tarefa ao assumir ----
+// Regras (bmad-build/compile-epic-context): só o que quem faz qualquer tarefa do épico precisa, descrito por
+// propósito, sem copiar documentos; 800 a 1500 tokens. O motor não fala com a Supabase, então é o app que monta.
+const epCut=(s,n)=>{ s=String(s||'').replace(/\s+/g,' ').trim(); return s.length>n?s.slice(0,n-1)+'…':s; };
+async function epicCompileContext(epicId, forTask){
+  let ep=(teamEpics||[]).find(e=>e.id===epicId)||null;
+  try{ const f=(await sbGet('epics?select=id,name,status,spec,created_by&id=eq.'+epicId))[0]; if(f) ep={ ...(ep||{}), ...f }; }catch(_){ }
+  if(!ep||!ep.name) return '';
+  let sibs=null; try{ sibs=await sbGet('tasks?select=id,title,status,assignee,spec,created_at&epic_id=eq.'+epicId+'&order=created_at'); }catch(_){ sibs=null; }
+  if(!Array.isArray(sibs)||!sibs.length) sibs=(teamTasks||[]).filter(t=>t.epic_id===epicId);
+  const sp=ep.spec||{}; const dw=Array.isArray(sp.doneWhen)?sp.doneWhen:[], reqs=Array.isArray(sp.requirements)?sp.requirements:[], bounds=Array.isArray(sp.boundaries)?sp.boundaries:[];
+  const stPt=s=>(typeof CT_ST_PT!=='undefined'&&CT_ST_PT[s])||s;
+  const byId={}; sibs.forEach(t=>{ byId[t.id]=t; });
+  const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Constellation ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', ''];
+  L.push('## Objetivo', epCut(sp.outcome||sp.description||('Épico do time "'+ep.name+'".'),400)); if(sp.outcome&&sp.description) L.push(epCut(sp.description,300)); L.push('');
+  if(reqs.length){ L.push('## Requisitos do épico'); reqs.slice(0,12).forEach(r=>L.push('- '+(r.id||'R?')+': '+epCut(r.text,200))); L.push(''); }
+  if(dw.length){ L.push('## Pronto quando (o épico só fecha com tudo marcado)'); dw.slice(0,8).forEach((d,i)=>L.push('- '+(d.checkedBy?'☑':'☐')+' '+(d.id||('D'+(i+1)))+': '+epCut(d.text,200))); L.push(''); }
+  if(bounds.length){ L.push('## Não muda'); bounds.slice(0,8).forEach(b=>L.push('- '+epCut(b,160))); L.push(''); }
+  if(sibs.length){
+    L.push('## Tarefas do épico (as irmãs rodam em paralelo — fique no seu escopo)');
+    sibs.slice(0,15).forEach(t=>{ const s=t.spec||{}; const me=!!(forTask&&t.id===forTask.id);
+      const dep=(Array.isArray(s.after)?s.after:[]).map(a=>byId[a]?epCut(byId[a].title,40):'').filter(Boolean);
+      L.push('- '+(me?'**ESTA → **':'')+epCut(t.title,80)+' · onda '+(parseInt(s.wave,10)||1)+' · '+stPt(t.status)+(s.verify?' · prova: '+epCut(s.verify,120):'')+(Array.isArray(s.covers)&&s.covers.length?' · cobre '+s.covers.join(','):'')+(dep.length?' · depois de: '+dep.join('; '):'')+(s.owns?' · escopo: '+epCut(s.owns,60):'')); });
+    L.push('');
+  }
+  const notes=Array.isArray(sp.notes)?sp.notes:[]; if(notes.length){ L.push('## Decisões e pendências'); notes.slice(0,8).forEach(n=>L.push('- '+epCut((n&&n.kind?n.kind+': ':'')+(n&&n.text||n),200))); L.push(''); }
+  if(!reqs.length&&!dw.length&&!sp.outcome) L.push('_Épico antigo, sem envelope: só o nome e as tarefas acima._');
+  // orçamento (~1200 a 1600 tokens): corta por LINHA a partir do fim, nunca no meio de uma frase
+  const MAX=5200; let out=L.join('\n');
+  if(out.length>MAX){ const keep=[]; let n=0; for(const l of L){ if(n+l.length+1>MAX-90) break; keep.push(l); n+=l.length+1; }
+    while(keep.length && /^(## |$)/.test(keep[keep.length-1])) keep.pop(); // sem cabeçalho órfão no fim
+    out=keep.join('\n')+'\n\n_(contexto cortado por tamanho — o restante está no épico do time)_'; }
+  return out;
+}
+// grava o EPIC.md em .cardume/tmp/refs/ (Rust, nome exato) e devolve o caminho pra entrar em `refs` do new_task
+async function epicRefFor(epicId, forTask){
+  if(!epicId) return null;
+  try{
+    const md=await epicCompileContext(epicId, forTask); if(!md) return null;
+    const path=await invoke('write_ref_file',{ name:'EPIC.md', text:md }); // nome exato: o prompt cita .cardume/refs/EPIC.md
+    return path||null;
+  }catch(e){ console.warn('EPIC.md não gerado', e&&e.message||e); return null; }
+}
+// acrescenta o EPIC.md aos refs do payload (só caminhos absolutos entram; basenames do spec da nuvem não)
+async function epicAttachRef(payload, epicId, forTask){
+  const p=await epicRefFor(epicId, forTask); if(!p) return payload;
+  const refs=(Array.isArray(payload.refs)?payload.refs:[]).filter(r=>typeof r==='string'&&r.startsWith('/'));
+  payload.refs=[...refs, p]; return payload;
+}
+window.epicAttachRef=epicAttachRef;
 // Espelho local→nuvem das marcas do agente revisor (tool mcp__cardume__check_done_when grava em
 // tasks.spec.epicChecks; o snapshot expõe em t.epic.epicChecks). Cada marca vai UMA vez (localStorage),
 // com checkedBy = "agent:<tarefa local>"; com tudo marcado o épico fecha, igual ao clique humano.

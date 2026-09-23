@@ -163,6 +163,8 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     if (!task) return { text: "tarefa não encontrada", isError: true };
     try {
       const spec = JSON.parse(task.spec_json);
+      const norm = (x: string) => String(x).trim().toLowerCase().replace(/\s+/g, " ");
+      if ((spec.requirements ?? []).some((r: string) => norm(r) === norm(item))) return { text: `requisito já está na checklist: ${item}` };
       spec.requirements = [...(spec.requirements ?? []), item];
       store.updateSpec(TASK, JSON.stringify(spec));
       try {
