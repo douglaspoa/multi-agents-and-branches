@@ -49,6 +49,7 @@ async function cloudPublishSelf(localId, payload){
   const proj=await cloudEnsureProject();
   const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
   tmapSet(localId, rows[0].id);
+  if(rows[0].epic_id && window.epicMarkInProgress) epicMarkInProgress(rows[0].epic_id); // 1ª tarefa rodando → épico em andamento
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
   teamTasks=null;
 }
@@ -407,10 +408,13 @@ async function cloudRemoteStartTick(){
         objective:sp.objective||ct.title, deliverables:[], requirements:Array.isArray(sp.requirements)?sp.requirements:[],
         doc:sp.doc||null, proof:!!sp.proof, tests:!!sp.tests, autoPr:sp.autoPr||'ask', prBase:null, planApproval:'auto', refs:[],
         branchType:sp.branchType||'feat', issue:(sp.issueCode||'').trim()||null, base:null, linkedTo:null,
+        // tarefa de ÉPICO: os campos do cartão vão pro TASK.yaml (bloco epic)
+        epicId: ct.epic_id||null, verify:sp.verify||null, covers:sp.covers||null, after:sp.after||null, wave:sp.wave||null, risk:sp.risk||null, hitl:sp.hitl||null, boundaries:sp.boundaries||null,
         title: ct.title, start:true };
       const localId=await invoke('new_task', await trkBeforeNewTask(payload));
       tmapSet(localId, ct.id);
       await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
+      if(ct.epic_id && window.epicMarkInProgress) epicMarkInProgress(ct.epic_id);
       sbPost('task_activity',{ task_id:ct.id, user_id:me, kind:'started', body:'iniciada do celular' }).catch(()=>{});
       sbPost('task_feed',{ task_id:ct.id, agent:'Sistema', kind:'note', text:'▶ o Mac assumiu: criando worktree e iniciando o agente…' }).catch(()=>{});
       teamTasks=null; lastSig='';
@@ -506,7 +510,7 @@ async function teamFetchRun(){
     const [tasks, projs, eps, acts]=await Promise.all([
       sbGet('tasks?select=*&'+inq+'&order=updated_at.desc&limit='+(ids.length>1?600:200)),
       sbGet('projects?select=id,name,repo_remote&'+inq),
-      sbGet('epics?select=id,name,status,team_id&'+inq+'&status=neq.archived&order=created_at').catch(()=>[]),
+      sbGet('epics?select=id,name,status,team_id,spec,created_by,created_at,updated_at&'+inq+'&status=neq.archived&order=created_at').catch(()=>sbGet('epics?select=id,name,status,team_id&'+inq+'&status=neq.archived&order=created_at')).catch(()=>[]), // fallback: nuvem sem a 0025
       sbGet('task_activity?select=id,task_id,user_id,kind,body,at&order=id.desc&limit=60').catch(()=>[]),
     ]);
     teamEpics=eps||[]; teamActivity=acts||[];

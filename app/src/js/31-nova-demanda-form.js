@@ -420,12 +420,12 @@ async function openFromDesign(t){
 }
 
 // ---------- desdobrar tarefa em ÉPICO (a IA propõe as sub-tarefas) ----------
-let bdTask=null, bdItems=null;
+let bdTask=null, bdItems=null, bdRun=0; // bdRun: só a resposta da IA da ÚLTIMA abertura vale // bdItems: null = IA lendo · [] = sem proposta · 'plan' = card do épico (plPlan) na tela
+// Desdobrar = o MESMO card do planner (envelope + tarefas com verify/after/risk), hospedado no overlay do desdobrar.
 async function openBreakdown(t){
   if(!SB.sess() || !cloudTeamId()){ alert('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro (botão no topo).'); return; }
-  bdTask=t; bdItems=null;
+  bdTask=t; bdItems=null; const run=++bdRun;
   $id('bdOverlay').style.display='flex';
-  $id('bdName').value=t.title.replace(/^(design|por que|investigar|corrigir)[:\s—-]*/i,'').trim()||t.title;
   renderBd();
   // contexto: objetivo + docs da tarefa (INVESTIGATION/DESIGN/ARCHITECTURE)
   let ctx = 'TAREFA DE ORIGEM: '+t.title+'\nOBJETIVO: '+(t.objective||'')+'\n';
@@ -437,68 +437,35 @@ async function openBreakdown(t){
   }catch(_){ }
   try{
     const raw=await invoke('ai_decompose',{ text: ctx, guide:(typeof ntPolicy!=='undefined'&&ntPolicy.specGuide)||null });
-    const m=raw.match(/\[[\s\S]*\]/);
-    const arr=JSON.parse(m?m[0]:raw);
-    bdItems=(Array.isArray(arr)?arr:[]).filter(x=>x&&x.title).map(x=>({
-      title:String(x.title).slice(0,90),
-      objective:String(x.objective||''),
-      requirements:(Array.isArray(x.requirements)?x.requirements:[]).map(r=>String(r).trim()).filter(r=>r.length>=10).slice(0,5),
-      owns:String(x.owns||'').trim(),
-      wave:Math.max(1, parseInt(x.wave,10)||1),
-      on:true,
-    })).sort((a,b)=>a.wave-b.wave);
+    let obj=null;
+    try{ const m=raw.match(/\{[\s\S]*\}/); obj=JSON.parse(m?m[0]:raw); }catch(_){ obj=null; }
+    if(!obj||!Array.isArray(obj.tasks)){ // formato antigo: array de tarefas com wave → plPlanFrom sintetiza o after
+      let arr=[]; try{ const m2=raw.match(/\[[\s\S]*\]/); arr=JSON.parse(m2?m2[0]:'[]'); }catch(_){ arr=[]; }
+      obj={ epic:'', tasks:Array.isArray(arr)?arr:[] };
+    }
+    if(bdTask!==t || run!==bdRun) return; // o usuário fechou/abriu outro (ou o mesmo de novo) enquanto a IA pensava
+    if(!obj.epic) obj.epic=t.title.replace(/^(design|por que|investigar|corrigir)[:\s—-]*/i,'').trim()||t.title;
+    const plan=plPlanFrom(obj);
+    if(!plan.tasks.length){ bdItems=[]; renderBd(); return; }
+    bdPlan=plan; plPlanRender=renderBd;
+    plPlanCtx={ origin:t, description:('Desdobrado da tarefa "'+t.title+'". '+(t.objective||'')).trim().slice(0,600),
+      onDone:()=>{ bdItems=null; bdTask=null; $id('bdOverlay').style.display='none'; },
+      onDiscard:()=>bdClosePlan() };
+    bdItems='plan';
   }catch(e){ bdItems=[]; console.error('ai_decompose:', e); }
   renderBd();
 }
+// fechar o desdobrar solta o card (senão o plano apareceria no planner, que compartilha plPlan)
+function bdClosePlan(){
+  bdPlan=null; if(plPlanCtx&&plPlanCtx.origin){ plPlanRender=null; plPlanCtx={}; }
+  bdItems=null; bdTask=null; bdRun++;
+  const o=$id('bdOverlay'); if(o) o.style.display='none';
+}
 function renderBd(){
   const el=$id('bdList'); if(!el) return;
-  if(bdItems===null){ el.innerHTML='<div class="dim" style="padding:10px 2px">a IA está lendo a tarefa e os artefatos e propondo as sub-tarefas…</div>'; return; }
-  if(!bdItems.length){ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">não veio proposta — tente de novo ou crie as tarefas manualmente no backlog</div>'; return; }
-  let html='', lastWave=0;
-  bdItems.forEach((x,i)=>{
-    if(x.wave!==lastWave){
-      lastWave=x.wave;
-      const n=bdItems.filter(y=>y.wave===x.wave).length;
-      html+=`<div class="mono" style="font-size:10px;letter-spacing:.08em;color:${x.wave===1?'var(--accent)':'var(--muted)'};margin:${x.wave===1?'4px':'14px'} 0 2px">ONDA ${x.wave} ${x.wave===1?`· ${n>1?n+' agentes rodam EM PARALELO':'começa agora'}`:'· depois da onda '+(x.wave-1)}</div>`;
-    }
-    html+=`<label class="ckrow" style="align-items:flex-start"><input type="checkbox" data-bd="${i}" ${x.on?'checked':''}><span style="flex:1;min-width:0">
-      <b style="font-size:13px">${esc(x.title)}</b>
-      <div class="dim" style="font-size:12px;margin-top:2px">${esc(x.objective)}</div>
-      ${x.requirements.length?`<div class="dim" style="font-size:11px;margin-top:4px">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</div>`:''}
-      ${x.owns?`<div class="mono" style="font-size:10px;margin-top:4px;color:var(--accent)" title="escopo reivindicado — disjunto dos demais da onda">⛶ ${esc(x.owns)}</div>`:''}
-    </span></label>`;
-  });
-  el.innerHTML=html;
-  el.querySelectorAll('[data-bd]').forEach(c=>{ c.onchange=()=>{ bdItems[+c.dataset.bd].on=c.checked; renderBd(); }; });
-  const n=bdItems.filter(x=>x.on).length;
-  const btn=$id('bdCreate'); if(btn) btn.textContent=`criar épico + ${n} tarefa${n===1?'':'s'}`;
-}
-async function bdCreate(){
-  const name=$id('bdName').value.trim(); if(!name) return;
-  const picked=(bdItems||[]).filter(x=>x.on);
-  if(!picked.length){ alert('Marque pelo menos uma sub-tarefa.'); return; }
-  const btn=$id('bdCreate'); btn.disabled=true; btn.textContent='criando…';
-  try{
-    const proj=await cloudEnsureProject();
-    const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId() });
-    const created=[];
-    for(const x of picked){
-      const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
-        spec:{ title:x.title,
-          objective:x.objective+`\n\n(Onda ${x.wave} do épico "${name}" — origem: tarefa "${bdTask.title}"; os artefatos dela têm o contexto completo. NÃO toque em arquivos fora do seu escopo: outras tarefas do épico rodam em paralelo.)`,
-          requirements:x.requirements||[], owns:x.owns||null,
-          proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
-          wave:x.wave } });
-      if(rows&&rows[0]) created.push({ row:rows[0], wave:x.wave });
-    }
-    $id('bdOverlay').style.display='none';
-    teamTasks=null; teamPaintSig=''; lsSet('tmEpic', ep[0].id); setView('team');
-    // onda 1 pode começar JÁ — os escopos são disjuntos, os agentes rodam juntos
-    const w1=created.filter(c=>c.wave===1);
-    if(w1.length && confirm(`Iniciar AGORA as ${w1.length} tarefa${w1.length===1?'':'s'} da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo; as demais ondas ficam no backlog)`)){
-      for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
-    }
-  }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); btn.disabled=false; renderBd(); }
+  if(bdItems===null){ el.innerHTML='<div class="dim" style="padding:10px 2px">a IA está lendo a tarefa e os artefatos e propondo o épico…</div>'; return; }
+  if(bdItems==='plan' && bdPlan){ el.innerHTML=plPlanCardHtml(true); plWirePlanCard(); return; }
+  el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">não veio proposta — tente de novo ou crie as tarefas manualmente no backlog</div>';
 }
 async function openLinkedFix(t){
   const fromInvest=(t.branch||'').startsWith('invest/');

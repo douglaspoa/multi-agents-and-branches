@@ -507,15 +507,12 @@
 
 <!-- desdobrar tarefa em épico (IA propõe as sub-tarefas) -->
 <div class="overlay" id="bdOverlay" style="display:none">
-  <div class="modal" style="width:min(640px,100%)">
-    <div class="mhead"><b>◆ Desdobrar em épico</b><span style="flex:1"></span><button class="x" id="bdClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+  <div class="modal" style="width:min(680px,100%)">
+    <div class="mhead"><b>◆ Desdobrar em épico</b><span class="dim" style="font-weight:400;margin-left:8px">· a IA lê a tarefa e os artefatos e propõe o envelope e as tarefas; revise e aprove</span><span style="flex:1"></span><button class="x" id="bdClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <label>Nome do épico</label>
-      <input class="in" id="bdName" placeholder="ex.: Filtros avançados em todos os domínios">
-      <div class="seclbl2" style="margin-top:14px">Sub-tarefas propostas <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· em ONDAS: a 1ª roda em paralelo (escopos disjuntos), cada tarefa com seu entregável e requisitos</span></div>
       <div id="bdList"></div>
     </div>
-    <div class="mfoot"><span class="dim">onda 1 pode rodar em paralelo já (escopos disjuntos) — as demais esperam no backlog</span><span style="flex:1"></span><button class="btn" id="bdCancel">cancelar</button><button class="btn primary" id="bdCreate">criar épico</button></div>
+    <div class="mfoot"><span class="dim">onda 1 pode rodar em paralelo já (escopos disjuntos) — as demais esperam no backlog</span><span style="flex:1"></span><button class="btn" id="bdCancel">cancelar</button></div>
   </div>
 </div>
 
@@ -619,6 +616,19 @@
   </div>
 </div>
 
+<div class="overlay fwoverlay" id="epicOverlay" style="display:none">
+  <div class="fw">
+    <div class="fwhead" data-tauri-drag-region>
+      <b id="epicPageName">Épico</b>
+      <span class="fwsub" id="epicPageSub"></span>
+      <span style="flex:1"></span>
+      <button class="btn sm" id="epicPageRefresh" title="recarregar da nuvem">↻</button>
+      <button class="btn sm" id="epicPageClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
+    </div>
+    <div class="fwmain" id="epicPageMain"></div>
+  </div>
+</div>
+
 <div class="overlay" id="ctOverlay" style="display:none">
   <div class="modal" style="width:min(680px,100%)">
     <div class="mhead"><b id="ctHead">Tarefa do time</b><span style="flex:1"></span><button class="x" id="ctClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
@@ -661,6 +671,7 @@
 <script src="js/43-espaco-times.js"></script>
 <script src="js/44-onboarding.js"></script>
 <script src="js/45-entrega-time.js"></script>
+<script src="js/46-epico-time.js"></script>
 <script src="js/50-coordenacao.js"></script>
 <script src="js/52-erros.js"></script>
 </body>

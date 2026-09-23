@@ -112,7 +112,8 @@ function renderTeamBoard(){
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   const epicChips=(teamEpics.length?teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(B.done).length+ts.filter(B.review).length;
-    return `<button class="fchip${epSel===e.id?' on':''}" data-epsel="${escA(e.id)}">◆ ${esc(e.name)}<span class="n">${done}/${ts.length}</span></button>`; }).join(''):'')+
+    const dw=Array.isArray((e.spec||{}).doneWhen)?e.spec.doneWhen:[]; const dwOk=dw.filter(d=>d&&d.checkedBy).length;
+    return `<span class="fchipgrp"><button class="fchip${epSel===e.id?' on':''}" data-epsel="${escA(e.id)}" title="filtrar o quadro por este épico">◆ ${esc(e.name)}<span class="n">${done}/${ts.length}</span>${dw.length?`<span class="n" title="pronto quando">☑ ${dwOk}/${dw.length}</span>`:''}</button><button class="fchip fchip-open" data-epopen="${escA(e.id)}" title="abrir a página do épico">⤢</button></span>`; }).join(''):'')+
     `<button class="fchip" id="tbEpicAdd">+ épico</button>`;
   // ---------- main por vista ----------
   let main='';
@@ -198,6 +199,7 @@ function renderTeamBoard(){
   // ---------- wiring ----------
   el.querySelectorAll('[data-tsv]').forEach(b=>{ b.onclick=()=>{ tmView=b.dataset.tsv; lsSet('tmView',tmView); teamPaintSig=''; renderTeamBoard(); }; });
   el.querySelectorAll('[data-tscope]').forEach(b=>{ b.onclick=()=>tsSetScope(b.dataset.tscope); });
+  el.querySelectorAll('[data-epopen]').forEach(b=>{ b.onclick=()=>{ const e=teamEpics.find(x=>x.id===b.dataset.epopen); if(e&&window.openEpicPage) openEpicPage(e); }; });
   el.querySelectorAll('[data-epsel]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epsel?'':b.dataset.epsel); if(tmView!=='board'){ tmView='board'; lsSet('tmView','board'); } teamPaintSig=''; renderTeamBoard(); }; });
   { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=await askText('Novo épico','ex.: Filtros avançados'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
   { const s=el.querySelector('#tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
@@ -226,6 +228,7 @@ async function teamClaimStart(ct, btn){
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
+    if(ct.epic_id && window.epicMarkInProgress) epicMarkInProgress(ct.epic_id); // 1ª tarefa rodando → épico em andamento
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
     teamTasks=null; lastSig=''; await refresh(); setView('flow');
   }catch(e){ alert('Não deu pra assumir & iniciar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.textContent='assumir & iniciar'; } }
@@ -313,7 +316,7 @@ async function ntShareSync(){
   r.dataset.cloud=on?'1':'0';
   if(typeof wizShareApply==='function') wizShareApply(null); else r.style.display=on?'block':'none';
   if(!on) return;
-  try{ if(!teamEpics.length) teamEpics=await sbGet('epics?select=id,name,status&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at'); }catch(_){ }
+  try{ if(!teamEpics.length) teamEpics=await sbGet('epics?select=id,name,status,spec,created_by,created_at,updated_at&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at').catch(()=>sbGet('epics?select=id,name,status&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at')); }catch(_){ }
   const sel=$id('ntEpic'); if(!sel) return;
   const cur=sel.value;
   sel.innerHTML='<option value="">— sem épico —</option>'
