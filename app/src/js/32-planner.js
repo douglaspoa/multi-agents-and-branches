@@ -263,6 +263,8 @@ async function plCreateEpic(){
           hitl:x.hitl||undefined, boundaries:(x.boundaries&&x.boundaries.length)?x.boundaries:undefined } });
       if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; }
     }
+    // painel de issues ligado: épico vira issue pai + filhas com bloqueio (só se o conector tem pai; senão fica como hoje)
+    try{ if(window.trkPublishEpic) await trkPublishEpic(ep[0], created); }catch(e){ console.warn('publicar épico', e); }
     const ctx=plPlanCtx; if(ctx.origin) bdPlan=null; else plPlan=null; plPlanRender=null; plPlanCtx={};
     if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); }
     lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; setView('team');

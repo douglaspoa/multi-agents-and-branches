@@ -411,8 +411,9 @@ async function cloudRemoteStartTick(){
       const payload={ workflow:null, agents:null, engine:sp.engine||'claude', model:sp.model||null, approval:'auto', owns:null, off:null,
         objective:sp.objective||ct.title, deliverables:[], requirements:Array.isArray(sp.requirements)?sp.requirements:[],
         doc:sp.doc||null, proof:!!sp.proof, tests:!!sp.tests, autoPr:sp.autoPr||'ask', prBase:null, planApproval:'auto', refs:[],
-        branchType:sp.branchType||'feat', issue:(sp.issueCode||'').trim()||null, base:null, linkedTo:null,
+        branchType:sp.branchType||'feat', base:null, linkedTo:null,
         // tarefa de ÉPICO: os campos do cartão vão pro TASK.yaml (bloco epic)
+        issue:(sp.issueCode||'').trim()||null, issueUrl:sp.issueUrl||ct.issue_url||null,
         epicId: ct.epic_id||null, epicDoneWhen:(typeof epicDoneWhenOf==='function'?epicDoneWhenOf(ct.epic_id):null), verify:sp.verify||null, covers:sp.covers||null, after:sp.after||null, wave:sp.wave||null, risk:sp.risk||null, hitl:sp.hitl||null, boundaries:sp.boundaries||null,
         title: ct.title, start:true };
       if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct);
