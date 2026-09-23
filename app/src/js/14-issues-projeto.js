@@ -382,7 +382,7 @@ function trkConnWire(body){
   });
   body.querySelectorAll('[data-trkbind]').forEach(b=>b.onclick=async()=>{
     trkKeepForm(); const n=b.dataset.trkbind, h=trkHost();
-    if(!confirm('Liberar a sua chave '+n+' para ser enviada a '+h+'?\n\nSó confirme se este é o servidor oficial do painel.')) return;
+    if(!await askYes('Liberar a sua chave '+n+' para ser enviada a '+h+'?\n\nSó confirme se este é o servidor oficial do painel.')) return;
     await invoke('tracker_bind_secret',{ name:n, host:h }); await trkSecretsRefresh(); issRender();
   });
   on('trkJsonT', ()=>{ trkKeepForm(); trkJsonOpen=!trkJsonOpen; issRender(); });
@@ -684,7 +684,7 @@ function trkNIRender(){
   { const s=o.querySelector('#trkNIProj'); if(s) s.onchange=()=>{ trkNIKeep(); const p=n.projects[+s.value]; if(!p||p===n.project) return; n.project=p; n.sid=''; n.chips=[];
       n.msgs.push({ who:'sys', text:'projeto: '+p.name+' — a pesquisa recomeça neste repo' }); if(n.pendingText){ const t=n.pendingText; n.pendingText=''; trkNIRender(); trkNISend(t); return; } trkNIRender(); }; }
   const endConv=async()=>{ if(n.running) return; trkNIKeep();
-    const left=trkNITodo().length; if(left && !confirm('Há '+left+' issue'+(left===1?'':'s')+' montada'+(left===1?'':'s')+' que ainda NÃO foram criadas. Encerrar mesmo assim?')) return;
+    const left=trkNITodo().length; if(left && !await askYes('Há '+left+' issue'+(left===1?'':'s')+' montada'+(left===1?'':'s')+' que ainda NÃO foram criadas. Encerrar mesmo assim?')) return;
     if(n.busy){ n.stop=true; try{ await invoke('issue_chat_stop'); }catch(_){ } }
     const keep=n.project; trkNI=trkNIBlank(); await trkNIProjects();
     const p=keep&&trkNI.projects.find(x=>x.path===keep.path);

@@ -101,7 +101,7 @@ let cloudCfgOpen=false; // força a tela de backend mesmo com o default baked
 function openCloud(){ $id('cloudOverlay').style.display='flex'; renderCloud(); }
 // "sair" SEMPRE visível no cabeçalho quando logado (o do corpo ficava enterrado)
 { const b=$id('sbLogoutTop');
-  if(b) b.onclick=()=>{ if(!confirm('Sair da conta nesta máquina?')) return; SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+  if(b) b.onclick=async()=>{ if(!await askYes('Sair da conta nesta máquina?')) return; SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
   setInterval(()=>{ const e=$id('sbLogoutTop'); if(e) e.style.display=SB.sess()?'':'none'; }, 1500); }
 function closeCloud(){
   if(!SB.sess() && $id('cloudOverlay').dataset.lock==='1') return; // login é obrigatório
@@ -318,17 +318,17 @@ async function renderCloud(){
     try{
       if(act==='use'){ lsSet('sb:team', tid); cloudData=null; renderCloud(); cloudBtnSync(); return; }
       if(act==='add'){ const sel=$id('sbAdd-'+tid); if(!sel||!sel.value) return; await sbPost('team_members',{ team_id:tid, user_id:sel.value, role:'member' }); cloudMsg='✓ adicionado ao time'; }
-      if(act==='rm'){ const nm=pName(uid); if(!confirm('Remover '+nm+' deste time?')) return; await sbFetch('/rest/v1/team_members?team_id=eq.'+tid+'&user_id=eq.'+uid, { method:'DELETE' }); cloudMsg='✓ removido do time'; }
+      if(act==='rm'){ const nm=pName(uid); if(!await askYes('Remover '+nm+' deste time?')) return; await sbFetch('/rest/v1/team_members?team_id=eq.'+tid+'&user_id=eq.'+uid, { method:'DELETE' }); cloudMsg='✓ removido do time'; }
       if(act==='lead'){ const cur=(d.teamMembers[tid]||[]).find(m=>m.user_id===uid); await sbFetch('/rest/v1/team_members?team_id=eq.'+tid+'&user_id=eq.'+uid, { method:'PATCH', body: JSON.stringify({ role: cur&&cur.role==='lead'?'member':'lead' }) }); cloudMsg='✓ papel atualizado'; }
       if(act==='rename'){ const cur=(d.teams.find(x=>x.id===tid)||{}).name||''; const n=await askText('Renomear time',cur,cur); if(n===null||!n.trim()||n.trim()===cur){ return; } await sbFetch('/rest/v1/teams?id=eq.'+tid, { method:'PATCH', body: JSON.stringify({ name:n.trim() }) }); cloudMsg='✓ time renomeado'; }
-      if(act==='delteam'){ const tm=(d.teamMembers[tid]||[]).length; const nm=(d.teams.find(x=>x.id===tid)||{}).name||'time'; if(!confirm('Excluir o time "'+nm+'"?'+(tm?'\n\n'+tm+' membro(s) perdem o vínculo. As tarefas do time continuam no histórico.':''))) return; await sbFetch('/rest/v1/teams?id=eq.'+tid, { method:'DELETE' }); if(teamId===tid){ lsSet('sb:team',''); } cloudMsg='✓ time excluído'; }
+      if(act==='delteam'){ const tm=(d.teamMembers[tid]||[]).length; const nm=(d.teams.find(x=>x.id===tid)||{}).name||'time'; if(!await askYes('Excluir o time "'+nm+'"?'+(tm?'\n\n'+tm+' membro(s) perdem o vínculo. As tarefas do time continuam no histórico.':''))) return; await sbFetch('/rest/v1/teams?id=eq.'+tid, { method:'DELETE' }); if(teamId===tid){ lsSet('sb:team',''); } cloudMsg='✓ time excluído'; }
       cloudData=null; renderCloud(); cloudBtnSync();
     }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
   }; });
   // remover membro da ORG (admin): sai de todos os times + libera o assento
   body.querySelectorAll('[data-orgrm]').forEach(b=>{ b.onclick=async()=>{
     const uid=b.dataset.orgrm, nm=pName(uid);
-    if(!confirm('Remover '+nm+' da ORGANIZAÇÃO?\n\nSai de todos os times e libera o assento. As tarefas que a pessoa criou/assumiu continuam no histórico.')) return;
+    if(!await askYes('Remover '+nm+' da ORGANIZAÇÃO?\n\nSai de todos os times e libera o assento. As tarefas que a pessoa criou/assumiu continuam no histórico.')) return;
     cloudMsg='';
     try{
       for(const t of d.teams){ await sbFetch('/rest/v1/team_members?team_id=eq.'+t.id+'&user_id=eq.'+uid, { method:'DELETE' }).catch(()=>{}); }
@@ -342,7 +342,7 @@ async function renderCloud(){
   body.querySelectorAll('[data-iact]').forEach(b=>{ b.onclick=async()=>{
     const iv=(d.invites||[]).find(x=>x.id===b.dataset.iv); if(!iv) return;
     if(b.dataset.iact==='copy'){ navigator.clipboard.writeText(invMsg(iv)); b.textContent='copiado ✓'; return; }
-    if(!confirm('Revogar o convite de '+iv.email+'?')) return;
+    if(!await askYes('Revogar o convite de '+iv.email+'?')) return;
     cloudMsg='';
     try{ await sbFetch('/rest/v1/invites?id=eq.'+iv.id, { method:'DELETE' }); cloudData=null; cloudMsg='✓ convite revogado'; }catch(e){ cloudMsg='Falhou: '+e.message; }
     renderCloud();

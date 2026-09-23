@@ -109,7 +109,7 @@ $id('prefsSave').onclick=async()=>{
 $id('pcClose').onclick=()=>{ $id('pcOverlay').style.display='none'; };
 $id('pcSend').onclick=pcSend;
 $id('pcTask').onclick=pcToTask;
-$id('pcClear').onclick=()=>{ if(confirm('Começar uma conversa nova? (a atual some)')){ lsSet(pcKey(),''); lsSet('pcsid:'+(state.repo||''),''); pcRender(); } };
+$id('pcClear').onclick=async()=>{ if(await askYes('Começar uma conversa nova? (a atual some)')){ lsSet(pcKey(),''); lsSet('pcsid:'+(state.repo||''),''); pcRender(); } };
 $id('pcInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); pcSend(); } });
 $id('pcOverlay').addEventListener('click',e=>{ if(e.target.id==='pcOverlay') $id('pcOverlay').style.display='none'; });
 

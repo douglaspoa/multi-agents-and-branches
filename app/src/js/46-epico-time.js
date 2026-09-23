@@ -59,6 +59,7 @@ function epicPageRender(){
   const c=epCache[ep.id]||{ tasks:[], loaded:false };
   const sp=ep.spec||{};
   const dw=Array.isArray(sp.doneWhen)?sp.doneWhen:[], reqs=Array.isArray(sp.requirements)?sp.requirements:[], bounds=Array.isArray(sp.boundaries)?sp.boundaries:[];
+  const conv=Array.isArray(sp.conversation)?sp.conversation:[];
   const legacy=!sp.outcome && !dw.length && !reqs.length; // épico antigo (só nome): continua válido
   const okN=dw.filter(d=>d&&d.checkedBy).length;
   const tasks=c.tasks||[];
@@ -70,7 +71,7 @@ function epicPageRender(){
   const byWave={}; tasks.forEach(t=>{ const w=Math.max(1, parseInt((t.spec||{}).wave,10)||1); (byWave[w]=byWave[w]||[]).push(t); });
   const waves=Object.keys(byWave).map(Number).sort((a,b)=>a-b);
   const taskRow=t=>{ const s=t.spec||{}; return `<div class="ep-task" data-ept="${escA(t.id)}"><span class="reqst ${isDone(t)?'ok':isRev(t)?'blk':'na'}">${isDone(t)?IC.check:isRev(t)?'!':'·'}</span><div class="en-rt">
-      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${esc(stPt(t.status))}${t.assignee?' · '+esc(tmName(t.assignee)):''}</span></div>
+      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${ctWaiting(t)?'⏳ aguardando':esc(stPt(t.status))}${t.assignee?' · '+esc(tmName(t.assignee)):''}</span></div>
       ${s.verify?`<div class="ep-verify">✓ prova: ${esc(s.verify)}${(Array.isArray(s.covers)&&s.covers.length)?` <span class="mono dim">${esc(s.covers.join(' '))}</span>`:''}</div>`:''}
     </div></div>`; };
   const tasksHtml = tasks.length
@@ -103,15 +104,19 @@ function epicPageRender(){
         <div class="seclbl2">Pronto quando <span class="dim">· o épico só fecha com tudo marcado${can?'':' · só quem criou (ou admin) marca'}</span></div>${dwHtml}
         ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos</div>${reqs.map(r=>`<div class="en-del"><span class="mono dim">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
+        ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">⏳ próximas ondas começam sozinhas</button></div>`:''}
         ${!dw.length&&ep.status!=='done'&&can?`<div style="margin-top:14px"><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
       </section>
       <section class="en-sec"><div class="seclbl2">Tarefas <span class="dim">· por onda; clique pra abrir</span></div>${tasksHtml}</section>
     </div>
+    ${conv.length?`<details class="en-sec ep-conv"><summary class="seclbl2">Conversa que originou o épico <span class="dim">· ${conv.length} mensage${conv.length===1?'m':'ns'} do "montar conversando"</span></summary>
+      ${conv.map(m=>`<div class="plmsg ${m.who==='you'?'you':'bot'}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(String(m.text||'')):esc(m.text||'')}</div></div>`).join('')}</details>`:''}
   </div>`;
   main.querySelectorAll('[data-epdw]').forEach(cb=>cb.onchange=()=>epicToggleDone(ep, +cb.dataset.epdw, cb.checked));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-ept]').forEach(r=>r.onclick=()=>{ const t=(c.tasks||[]).find(x=>x.id===r.dataset.ept); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); });
   bindClick('epLegacyDone', ()=>epicSetStatus(ep,'done'));
+  bindClick('epAutoOn', ()=>epicAutoOn(ep));
   { const h=$id('epicPageName'); if(h) h.textContent=ep.name||'Épico'; const s=$id('epicPageSub'); if(s) s.textContent=EP_ST_PT[ep.status]||''; }
 }
 async function epicPatch(ep, body){
@@ -238,3 +243,56 @@ document.addEventListener('keydown', e=>{
   const o=$id('epicOverlay'); const cur=tabById(activeTab);
   if(o&&o.style.display!=='none'&&cur&&cur.kind==='epic'){ e.stopImmediatePropagation(); closeTabOfKind('epic'); }
 }, true);
+
+// ---- ONDAS SEGUINTES COMEÇAM SOZINHAS ----
+// Tarefa do épico com pré-requisitos (spec.after) e spec.autoStart fica AGUARDANDO no backlog; quando
+// TODOS os pré-requisitos estão mergeados (o código já está na base) ela é assumida e iniciada nesta
+// máquina. Só a máquina de quem CRIOU o cartão inicia (claim_task ainda protege de corrida).
+const EP_AUTO_READY=new Set(['merged','done']);
+let epAutoBusy=false; const epAutoWarned=new Set();
+async function epicAutoStartTick(){
+  if(epAutoBusy || !SB.sess() || !cloudTeamId()) return;
+  epAutoBusy=true;
+  try{
+    const rows=await sbGet('tasks?select=*&team_id=eq.'+cloudTeamId()+'&status=eq.backlog&created_by=eq.'+cloudUserId()+'&spec->>autoStart=eq.true')||[];
+    const waiting=rows.filter(ctWaiting);
+    if(!waiting.length) return;
+    const ids=[...new Set(waiting.flatMap(t=>t.spec.after))];
+    const deps=await sbGet('tasks?select=id,status&id=in.('+ids.join(',')+')')||[];
+    const stOf=Object.fromEntries(deps.map(d=>[d.id,d.status]));
+    // pré-requisito apagado do backlog não trava a fila; cancelado/abortado trava (alguém decide)
+    const ready=waiting.filter(t=>t.spec.after.every(a=>!(a in stOf) || EP_AUTO_READY.has(stOf[a])));
+    if(!ready.length) return;
+    // teamClaimStart roda no projeto ABERTO: cartão de outro repo espera (e avisa uma vez)
+    let here=''; try{ here=await invoke('repo_remote'); }catch(_){ }
+    const pids=[...new Set(ready.map(t=>t.project_id).filter(Boolean))];
+    const projs=pids.length?(await sbGet('projects?select=id,name,repo_remote&id=in.('+pids.join(',')+')')||[]):[];
+    const projOf=Object.fromEntries(projs.map(p=>[p.id,p]));
+    for(const ct of ready){
+      const pj=projOf[ct.project_id]||{};
+      if(pj.repo_remote && pj.repo_remote!==here){
+        if(!epAutoWarned.has(ct.id)){ epAutoWarned.add(ct.id); pushNotif('⏳ Pronta pra começar', ct.title+' — abra o projeto '+(pj.name||pj.repo_remote)+' que ela começa sozinha', null); }
+        continue;
+      }
+      const live=(state.tasks||[]).filter(x=>ACTIVE_ST.has(x.status)).length;
+      if(live>=slotMax) break; // respeita o limite de execuções; tenta de novo no próximo tick
+      try{
+        await teamClaimStart(ct, null, { silent:true });
+        pushNotif('▶ Começou sozinha', ct.title+' — os pré-requisitos foram mergeados', null);
+      }catch(e){ console.warn('início automático:', ct.title, e); }
+    }
+  }catch(e){ console.warn('epicAutoStartTick:', e); }
+  finally{ epAutoBusy=false; }
+}
+setInterval(()=>{ epicAutoStartTick(); }, 20000);
+// épico já criado (antes disto existir): liga o início automático nas tarefas com pré-requisito
+async function epicAutoOn(ep){
+  const c=epCache[ep.id]||{ tasks:[] };
+  const list=(c.tasks||[]).filter(t=>t.status==='backlog' && Array.isArray((t.spec||{}).after) && t.spec.after.length && !t.spec.autoStart);
+  if(!list.length) return;
+  if(!await askYes(list.length+' tarefa(s) vão ficar AGUARDANDO e começar sozinhas nesta máquina quando as anteriores forem mergeadas:\n\n'+list.map(t=>'• '+t.title).join('\n'))) return;
+  try{
+    for(const t of list){ await sbFetch('/rest/v1/tasks?id=eq.'+t.id, { method:'PATCH', body: JSON.stringify({ spec:{ ...(t.spec||{}), autoStart:true } }) }); t.spec={ ...(t.spec||{}), autoStart:true }; }
+    epicPageRender(); epicAutoStartTick();
+  }catch(e){ alert('Falhou: '+(e.message||e)); }
+}

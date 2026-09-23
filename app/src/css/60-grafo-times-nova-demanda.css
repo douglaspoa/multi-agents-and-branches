@@ -572,3 +572,9 @@ body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpe
 .trfproj{ color:var(--text-2); border:1px solid var(--border); border-radius:4px; padding:0 5px; }
 .trfempty{ padding:14px 10px; font-size:12px; color:var(--muted); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .trffoot{ font-size:10.5px; padding:6px 10px; border-top:1px solid var(--border); }
+
+/* conversa do planner guardada no épico (46-epico-time.js) */
+.ep-conv{ margin-top:14px; }
+.ep-conv summary{ cursor:pointer; list-style:none; }
+.ep-conv[open] summary{ margin-bottom:10px; }
+.ep-conv .plmsg{ margin:8px 0; }

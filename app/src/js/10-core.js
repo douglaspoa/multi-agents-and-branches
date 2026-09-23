@@ -120,7 +120,7 @@ function gitUiSync(){
 async function gitGate(){
   if(repoHasGit()) return true;
   const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
-  if(!confirm(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Constellation precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
+  if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Constellation precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
   try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
   catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
 }

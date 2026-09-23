@@ -170,7 +170,7 @@ async function reworkFromPr(taskId){
   catch(e){ alert('Falha ao mandar revisar:\n'+e); if(btn){ btn.disabled=false; btn.textContent='mandar o agente revisar'; } }
 }
 async function mergePr(taskId){
-  if(!confirm('Mergear o PR no GitHub (squash + apaga a branch remota)?')) return;
+  if(!await askYes('Mergear o PR no GitHub (squash + apaga a branch remota)?')) return;
   try{ await invoke('merge_pr',{ taskId, method:'squash' }); prCache[taskId]=undefined; lastSig=''; await refresh(); }
   catch(e){ alert('Merge do PR falhou:\n'+e); }
 }

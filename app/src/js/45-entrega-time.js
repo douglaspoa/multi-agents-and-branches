@@ -81,7 +81,7 @@ function ctPageRender(){
   main.innerHTML=`<div class="enpage">
     <div class="en-head">
       <div class="en-ht">
-        <span class="ndeyebrow">tarefa do time · ${esc(CT_ST_PT[ct.status]||ct.status)}${ep?' · ◆ '+esc(ep):''}</span>
+        <span class="ndeyebrow">tarefa do time · ${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''}</span>
         <h2 class="en-h1">${esc(ct.title)}</h2>
         ${sp.objective?`<p class="en-obj">${esc(sp.objective)}</p>`:''}
         <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button>`:''}</div>
