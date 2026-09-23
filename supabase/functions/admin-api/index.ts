@@ -180,9 +180,10 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
                 from teams t where t.org_id = o.id) as teams
       from orgs o order by o.created_at desc`;
     const invites = await sql`
-      select i.id, i.org_id, i.team_id, t.name as team, i.email, i.role, i.expires_at, i.created_at, pc.email as created_by
+      select i.id, i.org_id, i.team_id, t.name as team, i.email, i.role, i.expires_at,
+             (i.expires_at - interval '14 days') as created_at, pc.email as created_by
       from invites i left join teams t on t.id = i.team_id left join profiles pc on pc.user_id = i.created_by
-      where i.accepted_at is null order by i.created_at desc`;
+      where i.accepted_at is null order by i.expires_at desc`;
     return { orgs, invites };
   },
 
