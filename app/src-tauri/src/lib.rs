@@ -1,8 +1,74 @@
 use std::collections::HashMap;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+
+/// Sinais usados pra controlar a árvore de processos do agente (pausar/retomar/
+/// matar). No Unix são os SIGxxx reais entregues ao GRUPO. No Windows não existe
+/// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
+/// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
+mod procsig {
+    #[cfg(unix)]
+    pub const KILL: i32 = libc::SIGKILL;
+    #[cfg(unix)]
+    pub const TERM: i32 = libc::SIGTERM;
+    #[cfg(unix)]
+    pub const CONT: i32 = libc::SIGCONT;
+    #[cfg(unix)]
+    pub const STOP: i32 = libc::SIGSTOP;
+    #[cfg(windows)]
+    pub const KILL: i32 = 9;
+    #[cfg(windows)]
+    pub const TERM: i32 = 15;
+    #[cfg(windows)]
+    pub const CONT: i32 = 18;
+    #[cfg(windows)]
+    pub const STOP: i32 = 19;
+}
+
+/// Mata UM processo pelo pid (não o grupo — usado quando o processo não foi
+/// spawnado como líder de grupo próprio).
+#[cfg(unix)]
+fn kill_pid(pid: i32, sig: i32) {
+    unsafe { libc::kill(pid, sig); }
+}
+#[cfg(windows)]
+fn kill_pid(pid: i32, _sig: i32) {
+    let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+}
+
+/// PID ainda vivo? (Unix: kill(pid, 0); Windows: procura o PID na tasklist.)
+#[cfg(unix)]
+fn pid_alive(pid: i32) -> bool {
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+#[cfg(windows)]
+fn pid_alive(pid: i32) -> bool {
+    Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")))
+        .unwrap_or(false)
+}
+
+/// Deixa o processo pronto pra virar líder de um grupo próprio, ANTES do spawn
+/// (Unix: setsid via pre_exec; Windows: flag de criação equivalente).
+#[cfg(unix)]
+fn detach_new_group(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+}
+#[cfg(windows)]
+fn detach_new_group(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+}
 
 /// Repo explícito (quando a tela está PRESA a um projeto — ex.: plano do orquestrador
 /// criado num repo enquanto o usuário troca o projeto ativo na barra lateral) ou o ativo.
@@ -391,9 +457,16 @@ fn claude_friendly_error(msg: &str) -> String {
 #[cfg(test)]
 mod claude_json_tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
+    #[cfg(windows)]
+    use std::os::windows::process::ExitStatusExt;
     fn out(code: i32, stdout: &str, stderr: &str) -> std::process::Output {
-        std::process::Output { status: std::process::ExitStatus::from_raw(code << 8), stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() }
+        #[cfg(unix)]
+        let status = std::process::ExitStatus::from_raw(code << 8);
+        #[cfg(windows)]
+        let status = std::process::ExitStatus::from_raw(code as u32);
+        std::process::Output { status, stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() }
     }
     #[test]
     fn login_expirado_vira_mensagem_clara() {
@@ -463,7 +536,7 @@ fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, S
     let watch = std::thread::spawn(move || {
         // se o processo não avisar que terminou dentro do tempo, mata.
         if rx.recv_timeout(std::time::Duration::from_secs(secs)).is_err() {
-            unsafe { libc::kill(pid, libc::SIGKILL); }
+            kill_pid(pid, procsig::KILL);
         }
     });
     let out = child.wait_with_output();
@@ -476,10 +549,20 @@ fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, S
     }
 }
 
-/// Envia um sinal ao GRUPO de processos (pid negativo) — atinge node + claude.
+/// Envia um sinal ao GRUPO de processos — atinge node + claude.
+/// Unix: pid negativo (grupo criado via setsid em detach_new_group).
+/// Windows: sem grupo POSIX — CONT/STOP não têm equivalente (no-op); TERM/KILL
+/// derrubam a árvore inteira via `taskkill /T /F`.
+#[cfg(unix)]
 fn signal_group(pid: i32, sig: i32) {
     unsafe {
         libc::kill(-pid, sig);
+    }
+}
+#[cfg(windows)]
+fn signal_group(pid: i32, sig: i32) {
+    if sig == procsig::TERM || sig == procsig::KILL {
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
 }
 
@@ -493,13 +576,8 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     cmd.env("CARDUME_NOTIFY", "0");
     // intervalo (min) pra retomar sozinho quando bate o limite de uso da IA
     if let Some(m) = setting_get("limitRetryMin") { cmd.env("CARDUME_LIMIT_RETRY_MIN", m); }
-    unsafe {
-        cmd.pre_exec(|| {
-            // novo grupo/sessão: o node vira líder e o claude herda o grupo
-            libc::setsid();
-            Ok(())
-        });
-    }
+    // novo grupo/sessão: o node vira líder e o claude herda o grupo
+    detach_new_group(&mut cmd);
     // stdout/stderr ficam como o CHAMADOR configurou (ex.: new_task redireciona
     // pra .cardume/logs); quem não configura herda… nada: os callers setam null.
     let child = cmd
@@ -1702,7 +1780,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 busy: r
                     .get::<_, Option<i64>>(16)
                     .unwrap_or(None)
-                    .map(|pid| unsafe { libc::kill(pid as i32, 0) } == 0)
+                    .map(|pid| pid_alive(pid as i32))
                     .unwrap_or(false),
             })
         })
@@ -1872,8 +1950,8 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // 1) encerra o processo atual, se houver
     if let Some(p) = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() } {
-        signal_group(p, libc::SIGCONT);
-        signal_group(p, libc::SIGTERM);
+        signal_group(p, procsig::CONT);
+        signal_group(p, procsig::TERM);
         if let Ok(mut m) = state.procs.lock() { m.remove(&task_id); }
     }
     // 2) worktree + base
@@ -2374,13 +2452,13 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
     if status == "cancelled" {
         let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
         if let Some(p) = pid {
-            signal_group(p, libc::SIGCONT); // destrava se pausado
-            signal_group(p, libc::SIGTERM);
+            signal_group(p, procsig::CONT); // destrava se pausado
+            signal_group(p, procsig::TERM);
             let procs = state.procs.clone();
             let tid = task_id.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(1200));
-                signal_group(p, libc::SIGKILL);
+                signal_group(p, procsig::KILL);
                 if let Ok(mut m) = procs.lock() {
                     if m.get(&tid) == Some(&p) { m.remove(&tid); }
                 }
@@ -2461,7 +2539,7 @@ fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
     match pid {
         Some(p) => {
-            signal_group(p, libc::SIGSTOP);
+            signal_group(p, procsig::STOP);
             set_task_status(&state, &task_id, "paused")
         }
         None => Err("tarefa não está em execução".to_string()),
@@ -2475,7 +2553,7 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
     match pid {
         Some(p) => {
-            signal_group(p, libc::SIGCONT);
+            signal_group(p, procsig::CONT);
             set_task_status(&state, &task_id, "running")
         }
         None => Err("tarefa não está pausada".to_string()),
@@ -2500,7 +2578,7 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
                         })
                     {
                         let bp = bp as i32;
-                        if unsafe { libc::kill(bp, 0) } == 0 {
+                        if pid_alive(bp) {
                             pid = Some(bp);
                         }
                     }
@@ -2509,13 +2587,13 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         }
     }
     if let Some(p) = pid {
-        signal_group(p, libc::SIGCONT);
-        signal_group(p, libc::SIGTERM);
+        signal_group(p, procsig::CONT);
+        signal_group(p, procsig::TERM);
         let procs = state.procs.clone();
         let tid = task_id.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(1000));
-            signal_group(p, libc::SIGKILL);
+            signal_group(p, procsig::KILL);
             if let Ok(mut m) = procs.lock() {
                 if m.get(&tid) == Some(&p) {
                     m.remove(&tid);
@@ -2535,13 +2613,13 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
     if let Some(p) = pid {
-        signal_group(p, libc::SIGCONT); // caso esteja pausado, destrava pra poder morrer
-        signal_group(p, libc::SIGTERM);
+        signal_group(p, procsig::CONT); // caso esteja pausado, destrava pra poder morrer
+        signal_group(p, procsig::TERM);
         let procs = state.procs.clone();
         let tid = task_id.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(1200));
-            signal_group(p, libc::SIGKILL);
+            signal_group(p, procsig::KILL);
             if let Ok(mut m) = procs.lock() {
                 if m.get(&tid) == Some(&p) {
                     m.remove(&tid);
@@ -3653,14 +3731,14 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
     if let Some(sid) = &session_id { if !sid.is_empty() { args.push("--resume".to_string()); args.push(sid.clone()); } }
     let mut cmd = claude_cmd(&claude_bin());
     cmd.args(&args).current_dir(&repo);
-    cmd.process_group(0); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
+    detach_new_group(&mut cmd); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     let pid = child.id() as i32;
     ISSUE_CHAT_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     let watch = std::thread::spawn(move || {
-        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { signal_group(pid, libc::SIGKILL); }
+        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { signal_group(pid, procsig::KILL); }
     });
     let out = child.wait_with_output();
     let _ = tx.send(());
@@ -3679,7 +3757,7 @@ static ISSUE_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI
 #[tauri::command]
 fn issue_chat_stop() -> bool {
     let pid = ISSUE_CHAT_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, libc::SIGKILL); true } else { false }
+    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
 
 const ISSUE_CHAT_PROMPT: &str = r#"Você monta ISSUES pro painel do time conversando com o dev, em português, no projeto aberto nesta pasta. O dev manda UMA ideia ou uma LISTA (várias linhas = várias issues). Seu trabalho é FECHAR AS ARESTAS de cada uma antes de criar: PESQUISE o código de verdade (Read/Grep/Glob/LS, git log/show/grep) — onde isso mora, o que já existe, o que está faltando, qual a causa provável — com PARCIMÔNIA (poucas leituras direcionadas por issue, nunca varredura do repo). Você NÃO edita nada.
@@ -5827,7 +5905,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
         let key = format!("tunnel:{task_id}");
         if let Ok(mut m) = state.procs.lock() {
             if let Some(old) = m.remove(&key) {
-                signal_group(old, libc::SIGTERM);
+                signal_group(old, procsig::TERM);
             }
         }
     }
@@ -5842,12 +5920,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
     let mut cmd = Command::new(&bin);
     // http2: o transporte QUIC dá 530 intermitente em algumas redes
     cmd.args(["tunnel", "--no-autoupdate", "--protocol", "http2", "--http-host-header", &host_header, "--url", &origin]);
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
+    detach_new_group(&mut cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
@@ -5870,7 +5943,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
     let public = match rx.recv_timeout(std::time::Duration::from_secs(25)) {
         Ok(p) => p,
         Err(_) => {
-            signal_group(pid, libc::SIGKILL);
+            signal_group(pid, procsig::KILL);
             return Err("o túnel não respondeu em 25s (rede?) — tente de novo".to_string());
         }
     };
@@ -5891,7 +5964,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
     if !healthy {
-        signal_group(pid, libc::SIGKILL);
+        signal_group(pid, procsig::KILL);
         return Err("túnel criado mas não ficou acessível (530) — tente de novo".to_string());
     }
     if let Ok(mut m) = state.procs.lock() {
@@ -5906,7 +5979,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
 fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
     if let Ok(mut m) = state.procs.lock() {
         if let Some(pid) = m.remove(&format!("tunnel:{task_id}")) {
-            signal_group(pid, libc::SIGTERM);
+            signal_group(pid, procsig::TERM);
         }
     }
     Ok(())
