@@ -40,8 +40,8 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
              (select count(*) from auth.users where created_at > now() - interval '7 days') as users_7d,
              (select count(*) from auth.users where last_sign_in_at > now() - interval '24 hours') as active_24h,
              (select count(*) from auth.users where last_sign_in_at > now() - interval '7 days') as active_7d,
-             (select count(*) from auth.audit_log_entries where payload->>'action' = 'login' and created_at > now() - interval '24 hours') as logins_24h,
-             (select count(*) from auth.audit_log_entries where payload->>'action' = 'login' and created_at > now() - interval '7 days') as logins_7d,
+             (select count(*) from login_events where kind = 'login' and at > now() - interval '24 hours') as logins_24h,
+             (select count(*) from login_events where kind = 'login' and at > now() - interval '7 days') as logins_7d,
              (select count(*) from orgs) as orgs,
              (select count(*) from teams) as teams,
              (select count(*) from tasks) as tasks_total,
@@ -57,7 +57,7 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
       with d as (select generate_series((now() - interval '13 days')::date, now()::date, '1 day')::date as day)
       select to_char(d.day,'YYYY-MM-DD') as day,
         (select count(*) from auth.users u where u.created_at::date = d.day) as signups,
-        (select count(*) from auth.audit_log_entries a where a.payload->>'action'='login' and a.created_at::date = d.day) as logins,
+        (select count(*) from login_events e where e.kind='login' and e.at::date = d.day) as logins,
         (select count(*) from app_errors e where e.at::date = d.day) as errors,
         (select count(*) from tasks t where t.created_at::date = d.day) as tasks,
         (select coalesce(sum(cost_usd),0) from tasks t where t.created_at::date = d.day) as cost_usd
@@ -71,17 +71,18 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
     return { totals: tot, days, recentUsers, recentErrors };
   },
 
+  // Eventos de conta: tabela login_events (gatilho em auth.users — migration 0024). Mesmo formato que o audit log teria.
   async "auth.events"(sql, b) {
     const q = str(b, "q"), limit = Math.min(500, num(b, "limit", 200));
-    const acts = Array.isArray(b["actions"]) ? (b["actions"] as string[]) : [];
+    const acts = (Array.isArray(b["actions"]) ? (b["actions"] as unknown[]) : []).filter((a): a is string => typeof a === "string" && /^[a-z_]+$/.test(a));
+    const like = "%" + q + "%";
     return await sql`
-      select id, created_at, ip_address, payload->>'action' as action, payload->>'actor_username' as email,
-             payload->>'actor_id' as actor_id, payload->'traits'->>'provider' as provider,
-             coalesce(payload->'traits'->>'user_email', payload->>'actor_username') as target
-      from auth.audit_log_entries
-      where (${q} = '' or payload::text ilike ${"%" + q + "%"})
-        and (${acts.length === 0} or payload->>'action' = any(${acts}))
-      order by created_at desc limit ${limit}`;
+      select e.id, e.at as created_at, null::text as ip_address, e.kind as action, e.email, e.user_id::text as actor_id,
+             e.meta->>'provider' as provider, e.email as target, e.meta
+      from login_events e
+      where (${q === ""} or e.email ilike ${like} or e.kind ilike ${like})
+        and (${acts.length === 0} or e.kind in ${sql(acts.length ? acts : ["__none__"])})
+      order by e.at desc limit ${limit}`;
   },
 
   async "users.list"(sql, b) {
@@ -97,7 +98,7 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
              (select count(*) from tasks t where t.created_by = u.id) as tasks,
              (select coalesce(sum(cost_usd),0) from tasks t where t.created_by = u.id) as cost_usd,
              (select count(*) from app_errors e where e.user_id = u.id and e.at > now() - interval '7 days') as errors_7d,
-             (select max(created_at) from auth.audit_log_entries a where a.payload->>'action'='login' and a.payload->>'actor_id' = u.id::text) as last_login_event
+             (select max(at) from login_events e where e.kind='login' and e.user_id = u.id) as last_login_event
       from auth.users u
       left join profiles p on p.user_id = u.id
       left join billing bl on bl.user_id = u.id
