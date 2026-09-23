@@ -74,6 +74,35 @@ export interface ArtifactReq {
   desc?: string;
 }
 
+/** Um requisito do épico, citado pelas tarefas em `covers` (ex.: "R1"). */
+export interface EpicRequirement {
+  id: string;
+  text: string;
+}
+/** Um item do "Done when" do épico: checagem que uma pessoa roda sem abrir tarefa. */
+export interface DoneWhenItem {
+  id: string;
+  text: string;
+  /** uuid de quem marcou, ou "agent:<taskId>" quando foi o agente revisor. Ausente = em aberto. */
+  checkedBy?: string;
+  checkedAt?: string;
+  evidence?: string;
+}
+/** Envelope do épico — vive em epics.spec (jsonb) na nuvem. Épico antigo tem {}. */
+export interface EpicSpec {
+  description?: string;
+  outcome?: string;
+  requirements?: EpicRequirement[];
+  doneWhen?: DoneWhenItem[];
+  boundaries?: string[];
+}
+export type TaskRisk = "low" | "medium" | "high";
+/** Nota de uma tarefa: decisão tomada, suposição a confirmar ou pergunta em aberto. */
+export interface TaskNote {
+  kind: "decision" | "assumption" | "open";
+  text: string;
+}
+
 export interface TaskSpec {
   id: string;
   title: string;
@@ -110,6 +139,23 @@ export interface TaskSpec {
   linkedTo?: string;
   /** Faixa leve: pula linkar deps + setup.sh na worktree (mudança pequena). */
   light?: boolean;
+  // ---- Tarefa SOB ÉPICO. Todos opcionais: tarefa criada fora do planner não tem nenhum. ----
+  /** id do épico na nuvem (epics.id). */
+  epicId?: string;
+  /** Como se prova que esta tarefa entregou, em uma linha; o builder deriva os critérios daqui + Requirements do épico. */
+  verify?: string;
+  /** R-ids do épico que esta tarefa cobre (ex.: ["R1", "R3"]). */
+  covers?: string[];
+  /** Tarefas irmãs (ids) que precisam estar done antes desta começar. */
+  after?: string[];
+  /** Onda derivada de `after` ao aprovar o card (1 = sem pré-requisito). O motor só carrega. */
+  wave?: number;
+  /** O que NÃO pode mudar (comportamento, não arquivos). Entra em scope.off ao gerar o TASK.yaml. */
+  boundaries?: string[];
+  notes?: TaskNote[];
+  risk?: TaskRisk;
+  /** Parte do trabalho precisa de uma pessoa. */
+  hitl?: boolean;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)
