@@ -357,7 +357,8 @@ async function openNewTask(){
   const lock=(id,on)=>{ const e=$id(id); if(!e) return; if(on){ e.checked=true; e.disabled=true; e.closest('label')?.setAttribute('title','obrigatório pela política do repo (.cardume/policy.json)'); } else { e.disabled=false; } };
   lock('ntArtProof', !!ntPolicy.proofRequired); lock('ntArtTests', !!ntPolicy.testsRequired); lock('ntArtDoc', !!ntPolicy.docRequired);
   lock('ntFixArtProof', !!ntPolicy.proofRequired); lock('ntFixArtTests', !!ntPolicy.testsRequired);
-  wizN=1; wizRender();
+  // quem abre com a spec já pronta (ex.: tarefa a partir de uma issue) escolhe em que etapa cair
+  wizN=(typeof window.ntPresetStep==='function')?(window.ntPresetStep()||1):1; window.ntPresetStep=null; wizRender();
   ntGate();
   (ntMode==='review'?$id("ntPr"):ntMode==='design'?$id("ntDzTitle"):ntMode==='fix'?$id("ntFixTitle"):ntMode==='invest'?$id("ntInvTitle"):$id("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }

@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="css/70-orquestrador.css">
 <link rel="stylesheet" href="css/80-ajustes-cards.css">
 <link rel="stylesheet" href="css/81-chat.css">
+<link rel="stylesheet" href="css/82-issues.css">
 </head>
 <body>
 <div class="app">
@@ -27,7 +28,7 @@
       <button class="btn primary sbbig" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova demanda</button>
       <button class="btn sbitem sbproj" id="projetosBtn" title="Projetos — todos os repositórios (trocar, adicionar, remover)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Projetos</button>
       <button class="btn sbitem" id="skillsBtn" title="Skills — escolha quais skills do Claude Code os agentes deste projeto seguem"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1" stroke-linecap="round"/></svg>Skills</button>
-      <button class="btn sbitem" id="issuesBtn" title="Issues — criar uma issue no tracker quando a demanda começa (por projeto, compartilhado com o time)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg>Issues</button>
+      <button class="btn sbitem" id="issuesBtn" title="Issues — o painel de issues do time: conexão, projetos e quadro (kanban)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg>Issues</button>
       <button class="btn sbitem" id="agentsBtn" title="Agentes & Equipes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes &amp; Equipes</button>
       <button class="btn sbitem" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg>Chat do projeto</button>
       <button class="btn sbitem" id="dailyBtn" title="Daily — resumo do que você fez no dia"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke-linecap="round"/><path d="M5 9.5l1.6 1.6L11 7.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Daily</button>
@@ -544,9 +545,13 @@
     <div class="mbody" id="skBody"></div>
   </div>
 </div>
+<!-- Nova issue: montar conversando (uma ou várias) — mesmo padrão do planner -->
+<div class="overlay fwoverlay" id="issuesBulkOverlay" style="display:none">
+  <div class="fw" id="issuesBulkBody"></div>
+</div>
 <div class="overlay" id="issuesOverlay" style="display:none">
-  <div class="modal" style="width:min(640px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg><div><b>Issues</b><div class="dim" style="font-size:10.5px">crie uma issue no tracker quando a demanda começa — por projeto, compartilhado com o time</div></div><span style="flex:1"></span><button class="x" id="issuesClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+  <div class="modal" style="width:min(1100px,100%)">
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg><div><b>Issues</b><div class="dim" style="font-size:10.5px">o painel de issues do time — conexão, projetos e quadro</div></div><span style="flex:1"></span><button class="x" id="issuesClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="issuesBody"></div>
   </div>
 </div>

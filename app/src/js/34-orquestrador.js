@@ -518,7 +518,7 @@ async function orqCreatePhaseTask(p, ph, created){
     owns:null, off:null, objective:(ph.objective||ph.name)+ctx+intTxt, deliverables:[], requirements:(ph.objectives||[]).slice(), doc:kd.doc,
     proof:ph.kind==='build'||ph.kind==='review', tests:ph.kind==='build'||integrate, planApproval:'auto', refs:[], branchType:integrate?'integration':kd.branch, issue:null,
     autoPr:integrate?'ask':(ph.kind==='build'&&!orqHasIntegration(p)?'ask':'no'), prBase:null, base:integrate?null:(buildDep&&buildDep.branch?buildDep.branch:null) };
-  const id=await invoke('new_task', payload);
+  const id=await invoke('new_task', await trkBeforeNewTask(payload));
   created[ph.key]=id; ph.taskId=id; ph.startedAt=startNow?Date.now():null;
   await refresh();
   const depIds=deps.map(d=>created[d.key]||d.taskId).filter(Boolean);

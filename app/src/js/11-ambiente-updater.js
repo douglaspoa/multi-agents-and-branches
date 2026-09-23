@@ -57,35 +57,71 @@ $id('txClose').onclick=()=>txDone(null);
 $id('txInput').addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.target.value.trim()||null); if(e.key==='Escape') txDone(null); });
 
 // ---------- updater "tipo Claude": checa o canal de releases, badge, aplica ----------
+// Estado visível da última checagem — a tela de Configurações mostra e tem o
+// botão "verificar agora" (antes a checagem era muda: falhou, só de novo em 6h).
 let updInfo=null;
-async function checkUpdate(){
+let updLast={ at:0, ok:false, msg:'', dev:false, mine:0 };
+async function checkUpdate(manual){
+  updLast.at=Date.now();
   try{
-    if(!SB.sess()) return;                       // canal é autenticado
-    if(await invoke('is_dev_install')) return;   // instalação dev não se auto-atualiza
-    const r=await fetch(SB.url()+'/storage/v1/object/releases/latest.json', { headers:{ apikey:SB.key(), Authorization:'Bearer '+SB.sess().access_token }, cache:'no-store' });
-    if(!r.ok) return;
-    const j=await r.json();
+    if(!SB.sess()){ updLast.ok=false; updLast.msg='sem sessão — entre na conta pra receber atualizações'; return updLast; }
+    if(await invoke('is_dev_install')){ updLast.ok=true; updLast.dev=true; updLast.msg='instalação de desenvolvimento — não se auto-atualiza (use scripts/deploy-local.sh)'; return updLast; }
+    // sbFetch renova o token expirado sozinho (a checagem do boot caía no 401 e ficava muda por 6h)
+    const j=await sbFetch('/storage/v1/object/releases/latest.json', { headers:{ 'Cache-Control':'no-store' } });
     const mine=Number(await invoke('build_info'))||0;
-    if(j.buildMs && mine && j.buildMs > mine + 60000){
+    updLast.mine=mine;
+    if(j && j.buildMs && mine && j.buildMs > mine + 60000){
       updInfo=j;
       const b=$id('updBtn');
       b.style.display=''; b.innerHTML=ic('upload')+'atualizar'+(j.version?(' · '+esc(j.version)):'');
+      updLast.ok=true; updLast.msg='versão nova disponível'+(j.version?' · '+j.version:'');
+    }else{
+      updInfo=null; $id('updBtn').style.display='none';
+      updLast.ok=true; updLast.msg='você está na versão mais recente'+(j&&j.version?' (canal: '+j.version+')':'');
     }
-  }catch(_){ }
+  }catch(e){ updLast.ok=false; updLast.msg='não deu pra checar: '+(e&&e.message||e); }
+  if(manual && typeof updRenderCfg==='function') updRenderCfg();
+  return updLast;
 }
-$id('updBtn').onclick=async function(){
+async function applyUpdate(btn){
   if(!updInfo) return;
   if(!confirm('Atualizar o Constellation agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
-  this.disabled=true; this.textContent='baixando…';
+  btn.disabled=true; btn.textContent='baixando…';
   try{
     const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Constellation-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
-    this.textContent='instalando…';
+    btn.textContent='instalando…';
     await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });
-    this.textContent='reabrindo…';
-  }catch(e){ alert('Atualização falhou:\n'+(e.message||e)+'\n\nBaixe o zip novo manualmente.'); this.disabled=false; this.innerHTML=ic('upload')+'atualizar'; }
-};
-setTimeout(checkUpdate, 5000);
+    btn.textContent='reabrindo…';
+  }catch(e){ alert('Atualização falhou:\n'+(e.message||e)+'\n\nBaixe o zip novo manualmente.'); btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; }
+}
+$id('updBtn').onclick=function(){ applyUpdate(this); };
+// boot: tenta aos 5s e, enquanto não conseguir uma checagem válida (sessão ainda
+// carregando, rede fora), insiste a cada 60s por até 15 min; depois, de 6 em 6h
+// e sempre que a janela volta ao foco com a última checagem velha (>30 min).
+setTimeout(async()=>{
+  await checkUpdate();
+  let tries=0;
+  const t=setInterval(async()=>{ if(updLast.ok || ++tries>15){ clearInterval(t); return; } await checkUpdate(); }, 60e3);
+}, 5000);
 setInterval(checkUpdate, 6*3600e3);
+window.addEventListener('focus', ()=>{ if(Date.now()-updLast.at > 30*60e3) checkUpdate(); });
+// bloco "Versão" da tela de Configurações
+function updRenderCfg(){
+  const h=$id('updHost'); if(!h) return;
+  const fmt=ms=>{ const d=new Date(ms); return isNaN(d)?'':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
+  const ago=updLast.at?Math.round((Date.now()-updLast.at)/60e3):null;
+  const color= !updLast.at?'var(--text-dim)': updLast.ok?(updInfo?'var(--accent)':'var(--text)'):'var(--warn)';
+  h.innerHTML=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="mono dim" style="font-size:11.5px">build ${updLast.mine?esc(fmt(updLast.mine)):'—'}</span>
+      <span style="font-size:12.5px;color:${color}">${updLast.at?esc(updLast.msg):'ainda não verificou'}</span>
+      <span class="dim" style="font-size:11px">${ago!=null?(ago<1?'agora':'há '+ago+' min'):''}</span>
+      <span style="flex:1"></span>
+      ${updInfo?`<button class="btn sm primary" id="updApplyCfg">${ic('upload')}atualizar${updInfo.version?' · '+esc(updInfo.version):''}</button>`:''}
+      <button class="btn sm" id="updCheckCfg"${updLast.dev?' disabled':''}>${ic('pulse')}verificar agora</button>
+    </div>`;
+  bindClick('updCheckCfg', async()=>{ const b=$id('updCheckCfg'); if(b){ b.disabled=true; b.textContent='verificando…'; } await checkUpdate(true); });
+  bindClick('updApplyCfg', function(){ applyUpdate(this); });
+}
 
 // ---------- contas do GitHub (gh auth): listar, trocar, adicionar ----------
 let ghAccs=null, ghLogin=null, ghLoginT=null, ghMsg='';

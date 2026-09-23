@@ -54,7 +54,7 @@ async function attImportFiles(files, taskId){
 // idempotente (usa on* em vez de addEventListener) — pode ser chamado a cada render
 function attWireComposer(cfg){
   const input=$id(cfg.input), btn=$id(cfg.attach);
-  const add=async(atts)=>{ if(!atts||!atts.length) return; cfg.pend().push(...atts); if(cfg.afterAdd) cfg.afterAdd(atts); cfg.rerender(); const i=$id(cfg.input); if(i) i.focus(); };
+  const add=async(atts)=>{ atts=(atts||[]).filter(Boolean); if(!atts.length) return; cfg.pend().push(...atts); if(cfg.afterAdd) cfg.afterAdd(atts); cfg.rerender(); const i=$id(cfg.input); if(i) i.focus(); };
   if(btn) btn.onclick=async()=>add(await attPick(cfg.taskId()));
   if(!input) return;
   input.onpaste=async(e)=>{ const files=[...((e.clipboardData&&e.clipboardData.files)||[])]; if(!files.length) return; e.preventDefault(); add(await attImportFiles(files, cfg.taskId())); };

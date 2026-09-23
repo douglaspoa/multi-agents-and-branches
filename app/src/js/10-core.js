@@ -225,6 +225,7 @@ async function refresh(){
   connected = !!snap.repo;
   gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
+  if(typeof trkSyncTasks==='function') trkSyncTasks(); // painel de issues: status da issue acompanha a tarefa
   // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
   if(curView()==="graph"){ try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; } }
   else state.graph = prevGraph || [];

@@ -279,6 +279,11 @@ export class Orchestrator {
       return `\n\n## ISSUE DESTA DEMANDA (já criada) — ${spec.issueUrl}\n` +
         `Esta demanda JÁ tem uma issue no tracker. NÃO crie outra. Referencie-a nos commits e no PR (ex.: "closes ${spec.issueUrl}") e trate-a como fonte do escopo.\n`;
     }
+    if (spec.issueCode) {
+      // o painel de Issues do app já criou/vinculou a issue (trackers sem URL web: só o código)
+      return `\n\n## ISSUE DESTA DEMANDA (já criada) — ${spec.issueCode}\n` +
+        `Esta demanda JÁ tem a issue ${spec.issueCode} no painel do time. NÃO crie outra nem mude o status dela (o app sincroniza). Cite ${spec.issueCode} nos commits e no PR.\n`;
+    }
     try {
       const raw = readFileSync(join(this.ws.dir, "issue.json"), "utf8");
       const cfg = JSON.parse(raw);

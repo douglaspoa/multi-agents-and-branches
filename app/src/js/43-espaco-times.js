@@ -222,7 +222,7 @@ async function teamClaimStart(ct, btn){
     if(!j.ok) throw new Error(j.error||'não deu pra assumir');
     // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
     const payload={ workflow:null, agents:null, engine:'claude', approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), title: ct.spec?.title||ct.title, start:true };
-    const localId=await invoke('new_task', payload);
+    const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});

@@ -255,7 +255,7 @@ async function plCreate(){
     requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined };
-  try{ await invoke('new_task', payload); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
+  try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;
@@ -272,7 +272,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverla
 async function ntApplyShare(payload){
   const share=($id("ntShareRow").style.display!=='none')?$id("ntShare").value:'local';
   if(share==='team'){ await cloudShareTask(payload); return true; }
-  const localId=await invoke("new_task", payload);
+  const localId=await invoke('new_task', await trkBeforeNewTask(payload));
   if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
   return false;
 }
@@ -416,7 +416,7 @@ async function submitNewTask(start=true){
       closeNewTask(); resetNewTask(); lastSig="";
       if(t) setView('team'); else await refresh();
     } else {
-      await invoke("new_task", payload);
+      await invoke('new_task', await trkBeforeNewTask(payload));
       if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
       closeNewTask(); resetNewTask(); lastSig=""; await refresh();
     }

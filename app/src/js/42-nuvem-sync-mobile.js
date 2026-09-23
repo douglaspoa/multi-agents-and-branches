@@ -30,6 +30,7 @@ async function issueConfigPull(){
     const proj=await cloudEnsureProject();
     const rows=await sbGet('project_issue_config?select=enabled,instructions,title_template,body_template&project_id=eq.'+proj.id);
     const r=rows&&rows[0]; if(!r) return;
+    if(typeof trkReady==='function' && trkReady()) return; // o painel de issues (14) cria a issue — não religar a instrução antiga
     await invoke('set_issue_config', { config: { enabled:!!r.enabled, instructions:r.instructions||'', titleTemplate:r.title_template||'', bodyTemplate:r.body_template||'' } });
   }catch(_){ }
 }
@@ -407,7 +408,7 @@ async function cloudRemoteStartTick(){
         doc:sp.doc||null, proof:!!sp.proof, tests:!!sp.tests, autoPr:sp.autoPr||'ask', prBase:null, planApproval:'auto', refs:[],
         branchType:sp.branchType||'feat', issue:(sp.issueCode||'').trim()||null, base:null, linkedTo:null,
         title: ct.title, start:true };
-      const localId=await invoke('new_task', payload);
+      const localId=await invoke('new_task', await trkBeforeNewTask(payload));
       tmapSet(localId, ct.id);
       await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
       sbPost('task_activity',{ task_id:ct.id, user_id:me, kind:'started', body:'iniciada do celular' }).catch(()=>{});
