@@ -41,6 +41,13 @@ export interface RunInput {
   askTimeoutMin?: number;
   /** Route AI: força ESTE turno na IA alternativa (ex.: fallback após o Claude bater limite). */
   forceAlt?: boolean;
+  /**
+   * Skills ativadas pra este projeto (bloco pronto vindo de Orchestrator.skillsContext).
+   * Vai no PROMPT de todo turno de RESUME — no turno fresco/promptOverride as skills já
+   * chegam pelo systemContext (--append-system-prompt), mas o --resume NÃO reenvia o system
+   * prompt, então sem isto a continuação de uma tarefa "esquece" as skills. Igual groundRule.
+   */
+  skillsRule?: string;
 }
 
 /**

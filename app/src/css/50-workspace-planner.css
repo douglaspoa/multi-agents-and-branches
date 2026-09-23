@@ -100,7 +100,13 @@
 .fwfp{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fwadd{font-size:10px;color:var(--good);font-variant-numeric:tabular-nums}
 .fwtreehint{margin-top:auto;font-size:10.5px;color:var(--muted);line-height:1.5;padding:12px 4px 2px}
-.fwedit{flex:1;height:auto;border:0;border-radius:0}
+/* editor inline (gutter de linhas + textarea) — as regras .fv* foram removidas por engano junto com o
+   visualizador de arquivo antigo (abb6e15) e o editor ficou um textarea cru do tamanho padrão */
+.fveditwrap{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface-2);height:62vh}
+.fvgutter{font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--muted);text-align:right;padding:12px 8px;background:var(--surface-3);border-right:1px solid var(--border);user-select:none;overflow:hidden;white-space:pre;min-width:46px}
+.fvedit{flex:1;height:100%;min-width:0;font-family:var(--mono);font-size:12px;line-height:1.55;border:none;outline:none;background:var(--surface-2);color:var(--text);padding:12px;resize:none;white-space:pre;overflow:auto;tab-size:2}
+.fvedit:focus{background:var(--surface)}
+.fwedit{flex:1;height:auto;min-height:0;border:0;border-radius:0}
 .kbd{font-size:9.5px;font-family:var(--mono);background:var(--surface-3);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted);margin-left:2px}
 .fwmain{display:flex;flex-direction:column;min-width:0;overflow:hidden}
 .fwmhead{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border)}
@@ -173,7 +179,7 @@
 .plbub{background:var(--surface-2);border:1px solid var(--border);border-radius:4px 13px 13px 13px;padding:10px 13px;font-size:13px;line-height:1.6;box-shadow:var(--shadow-sm,0 1px 2px rgba(0,0,0,.15))}
 .plmsg.you .plbub{background:var(--accent);color:var(--on-accent);border-color:transparent;border-radius:13px 4px 13px 13px}
 .plmsg.sys{gap:0}
-.plmsg.sys .plbub{background:color-mix(in srgb,var(--warn) 8%,transparent);border:1px solid color-mix(in srgb,var(--warn) 22%,var(--border));color:var(--text-2);font-size:11.5px;border-radius:8px;text-align:center;box-shadow:none}
+.plmsg.sys .plbub{background:color-mix(in srgb,var(--warn) 8%,transparent);border:1px solid color-mix(in srgb,var(--warn) 22%,var(--border));color:var(--text-2);font-size:11.5px;border-radius:8px;text-align:center;box-shadow:none;white-space:pre-wrap}
 .plbub.think{color:var(--muted);padding:11px 14px}
 /* markdown dentro das bolhas do bot — fim dos ** literais */
 .plbub p{margin:0 0 7px} .plbub p:last-child{margin-bottom:0}

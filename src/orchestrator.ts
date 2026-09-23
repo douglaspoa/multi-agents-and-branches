@@ -2,11 +2,12 @@ import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
+import { globsOverlap } from "./glob.ts";
 import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
-import { ghBin, run } from "./util/run.ts";
+import { ghBin, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { MockEngine } from "./engine/mock.ts";
@@ -100,7 +101,7 @@ export class Orchestrator {
     // Semeia o ambiente: o `git worktree add` NÃO traz o que o git ignora
     // (.env, node_modules, .venv) — e sem isso o agente não consegue RODAR o
     // projeto e queima a sessão redescobrindo o óbvio a cada tarefa.
-    const seeded = await this.seedWorktreeEnv(worktree);
+    const seeded = await this.seedWorktreeEnv(worktree, spec.light === true);
     if (seeded.length) {
       await writeFile(
         join(taskDir, "AMBIENTE.md"),
@@ -132,6 +133,7 @@ export class Orchestrator {
     this.store.createTask(spec, branch, worktree, base);
     this.store.addEvent(spec.id, spec.agent, "status", `worktree criada em ${branch}`, true);
 
+    this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     for (const path of spec.scope.owns) {
       this.bus.claim(spec.id, spec.agent, path, "write");
     }
@@ -146,7 +148,7 @@ export class Orchestrator {
    * roda `.cardume/setup.sh` do repo se o projeto tiver necessidades próprias.
    * Retorna a lista do que foi semeado. Nunca derruba a criação da tarefa.
    */
-  private async seedWorktreeEnv(worktree: string): Promise<string[]> {
+  private async seedWorktreeEnv(worktree: string, light = false): Promise<string[]> {
     const seeded: string[] = [];
     const skip = new Set(["node_modules", ".git", ".venv", "venv", ".cardume", ".constellation", "dist", "build", "__pycache__", ".next", "target"]);
     const scan = async (rel: string, depth: number): Promise<void> => {
@@ -172,19 +174,25 @@ export class Orchestrator {
         seeded.push(`.cardume/${doc}`);
       } catch { /* ainda não existe no projeto */ }
     }
-    for (const d of ["node_modules", ".venv", "venv", "frontend/node_modules", "backend/node_modules", "backend/.venv", "backend/venv"]) {
+    // FAIXA LEVE: mudança pequena não vale o custo de linkar deps + rodar setup.sh
+    // (o VoC aponta: "não vale a pena pra uma correção que a IA faz em 10min").
+    if (!light) {
+      for (const d of ["node_modules", ".venv", "venv", "frontend/node_modules", "backend/node_modules", "backend/.venv", "backend/venv"]) {
+        try {
+          if (!(await stat(join(this.ws.repo, d))).isDirectory()) continue;
+          await symlink(join(this.ws.repo, d), join(worktree, d));
+          seeded.push(`${d} (link → repo principal)`);
+        } catch { /* não existe no repo, ou a worktree já tem */ }
+      }
       try {
-        if (!(await stat(join(this.ws.repo, d))).isDirectory()) continue;
-        await symlink(join(this.ws.repo, d), join(worktree, d));
-        seeded.push(`${d} (link → repo principal)`);
-      } catch { /* não existe no repo, ou a worktree já tem */ }
+        const hook = join(this.ws.dir, "setup.sh");
+        await stat(hook);
+        await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
+        seeded.push(".cardume/setup.sh executado");
+      } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
+    } else {
+      seeded.push("faixa leve (deps não linkadas)");
     }
-    try {
-      const hook = join(this.ws.dir, "setup.sh");
-      await stat(hook);
-      await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
-      seeded.push(".cardume/setup.sh executado");
-    } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
     return seeded;
   }
 
@@ -250,9 +258,46 @@ export class Orchestrator {
       const list = (Array.isArray(arr) ? arr : []).filter((s: any) => s && s.name);
       if (!list.length) return "";
       let out =
-        `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano escolheu; USE quando o gatilho bater\n` +
-        `Quando a situação corresponder à descrição de uma skill abaixo, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito — elas carregam o processo/estilo que o time espera:\n`;
+        `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano LIGOU estas skills; CONSULTE-AS EM TODA TAREFA\n` +
+        `Regra fixa deste projeto: ANTES de começar QUALQUER tarefa — e de novo a cada nova rodada/pedido — releia a lista abaixo e, se a descrição de alguma bater com o que você vai fazer, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito. Elas carregam o processo/estilo que o time espera; resolver "na mão" ignorando uma skill que se aplica é ERRO. Só siga sem skill quando NENHUMA da lista se aplicar de verdade:\n`;
       for (const s of list) out += `- **${s.name}**: ${String(s.description || "").replace(/\s+/g, " ").slice(0, 320)}\n`;
+      return out;
+    } catch {
+      return "";
+    }
+  }
+
+  /**
+   * Issue do tracker desta demanda (.cardume/issue.json — config compartilhada por
+   * projeto+time, espelhada da nuvem pelo app). Dois casos:
+   *  - já existe issueUrl (humano colou na Nova demanda) → só REFERENCIAR, não recriar;
+   *  - projeto tem "criar issue ao abrir demanda" ligado e ainda não há issueUrl →
+   *    o agente CRIA a issue seguindo as instruções do projeto e registra via set_issue.
+   */
+  issueContext(spec: TaskSpec): string {
+    if (spec.issueUrl) {
+      return `\n\n## ISSUE DESTA DEMANDA (já criada) — ${spec.issueUrl}\n` +
+        `Esta demanda JÁ tem uma issue no tracker. NÃO crie outra. Referencie-a nos commits e no PR (ex.: "closes ${spec.issueUrl}") e trate-a como fonte do escopo.\n`;
+    }
+    if (spec.issueCode) {
+      // o painel de Issues do app já criou/vinculou a issue (trackers sem URL web: só o código)
+      return `\n\n## ISSUE DESTA DEMANDA (já criada) — ${spec.issueCode}\n` +
+        `Esta demanda JÁ tem a issue ${spec.issueCode} no painel do time. NÃO crie outra nem mude o status dela (o app sincroniza). Cite ${spec.issueCode} nos commits e no PR.\n`;
+    }
+    try {
+      const raw = readFileSync(join(this.ws.dir, "issue.json"), "utf8");
+      const cfg = JSON.parse(raw);
+      const instr = String(cfg?.instructions || "").trim();
+      if (!cfg?.enabled || !instr) return "";
+      const titleTpl = String(cfg?.titleTemplate || "").trim();
+      const bodyTpl = String(cfg?.bodyTemplate || "").trim();
+      let out =
+        `\n\n## CRIAR ISSUE ANTES DE COMEÇAR — regra deste projeto (compartilhada com o time)\n` +
+        `Este projeto exige abrir uma issue no tracker ANTES do trabalho principal. Faça isto como PRIMEIRO passo:\n` +
+        `1) Crie a issue seguindo EXATAMENTE estas instruções do projeto:\n${instr}\n` +
+        `2) Título: ${titleTpl || "derive do título/objetivo do TASK.yaml"}. Corpo: ${bodyTpl || "objetivo + requisitos do TASK.yaml, em Markdown"}.\n` +
+        `3) Assim que tiver a URL, chame mcp__cardume__set_issue({ url }) pra registrar o link (o time vê a issue por ali) — e só então prossiga.\n` +
+        `Se a criação falhar (credencial/endpoint), NÃO invente link: chame mcp__cardume__ask_human explicando o erro literal e aguarde.\n`;
       return out;
     } catch {
       return "";
@@ -372,6 +417,100 @@ export class Orchestrator {
     return false;
   }
 
+  /**
+   * GATE MECÂNICO da entrega — não confia só no auto-relato do agente:
+   *  1) todo requisito precisa estar "done" (ou "deferred", decidido pelo humano);
+   *  2) todo requisito "done" precisa ter EVIDÊNCIA que EXISTE no disco;
+   *  3) se a tarefa pediu testes e há comando de teste no repo, os testes RODAM
+   *     de verdade e precisam passar.
+   * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
+   */
+  private async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
+    const reasons: string[] = [];
+    const artDir = join(task.worktree, ".cardume", "artifacts");
+    let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
+    let found = false;
+    for (const p of [join(artDir, "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
+      try {
+        const raw = JSON.parse(await readFile(p, "utf8"));
+        list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.list) ? raw.list : []);
+        found = true;
+        if (list.length) break;
+      } catch { /* sem arquivo aqui */ }
+    }
+    if (!found || list.length === 0) {
+      if ((spec.requirements ?? []).length) reasons.push("sem requirements.json comprovando os requisitos");
+      return { ok: reasons.length === 0, reasons };
+    }
+    for (const r of list) {
+      const label = String(r.req ?? "requisito").slice(0, 70);
+      if (r.status === "deferred") continue; // o humano decidiu adiar/dispensar
+      if (r.status !== "done") { reasons.push(`requisito não provado (${r.status ?? "?"}): ${label}`); continue; }
+      const ev = Array.isArray(r.evidence) ? r.evidence : [];
+      const hasReal = ev.some((e) => {
+        const name = String(e).replace(/^\.?\/?(\.cardume\/artifacts\/)?/, "");
+        return existsSync(join(artDir, name)) || existsSync(String(e));
+      });
+      if (!hasReal) reasons.push(`requisito "done" sem evidência real no disco: ${label}`);
+    }
+    const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
+    if (wantsTests) {
+      const t = await this.runRepoTests(task.worktree);
+      if (t.ran && !t.passed) reasons.push(`os testes falharam: ${t.detail}`);
+    }
+    return { ok: reasons.length === 0, reasons };
+  }
+
+  /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
+  private async runRepoTests(worktree: string): Promise<{ ran: boolean; passed: boolean; detail: string }> {
+    try {
+      const pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+      const testCmd = pkg.scripts?.test ?? "";
+      if (!testCmd || /no test specified/i.test(testCmd)) return { ran: false, passed: true, detail: "sem comando de teste" };
+      await run("npm", ["test", "--silent"], { cwd: worktree, timeout: 180000 });
+      return { ran: true, passed: true, detail: "npm test passou" };
+    } catch (err) {
+      const e = err as Error & { killed?: boolean; stderr?: string };
+      if (e.killed) return { ran: true, passed: false, detail: "npm test estourou o tempo (180s)" };
+      return { ran: true, passed: false, detail: String(e.stderr || e.message || "").slice(0, 160) };
+    }
+  }
+
+  /**
+   * SEQUENTIAL-LOCK honrado: se a política é sequential-lock e o escopo desta
+   * tarefa colide com o de outra que está EDITANDO agora (running/thinking) e é
+   * MAIS VELHA, espera ela liberar antes de começar — assim as duas rodam em
+   * sequência em vez de brigar no merge. Regra "mais novo espera o mais velho"
+   * evita deadlock (duas tarefas não ficam esperando uma à outra).
+   */
+  private async waitForScopeClear(taskId: string, spec: TaskSpec): Promise<void> {
+    if (this.bus.policy !== "sequential-lock") return;
+    const mine = (spec.scope?.owns ?? []).map((s) => s.trim()).filter(Boolean);
+    if (!mine.length) return;
+    const myCreated = this.store.getTask(taskId)?.created_at ?? Date.now();
+    const blockers = () =>
+      this.store.listTasks().filter((t) => {
+        if (t.id === taskId) return false;
+        if (!["running", "thinking"].includes(t.status)) return false; // só quem edita AGORA
+        if ((t.created_at ?? 0) >= myCreated) return false; // mais novo espera o mais velho
+        let owns: string[] = [];
+        try { owns = (JSON.parse(t.spec_json) as TaskSpec).scope?.owns ?? []; } catch { /* ignora */ }
+        return mine.some((m) => owns.some((o) => globsOverlap(m, o)));
+      });
+    const deadline = Date.now() + 30 * 60_000; // teto de 30min esperando
+    let announced = false;
+    while (Date.now() < deadline) {
+      const b = blockers();
+      if (!b.length) break;
+      if (!announced) {
+        announced = true;
+        this.store.addEvent(taskId, spec.agent, "blocked", `sequential-lock: aguardando ${b.map((x) => x.id).join(", ")} liberar o escopo`, false);
+      }
+      await sleep(3000);
+    }
+    if (announced) this.store.addEvent(taskId, spec.agent, "note", "escopo liberado — seguindo", true);
+  }
+
   /** O erro é o LIMITE DE USO/RATE da conta (não o contexto)? Esses resetam com o
    * tempo — a saída é ESPERAR e retomar, não recomeçar na hora. */
   private static usageLimitDeath(text: string): boolean {
@@ -459,6 +598,8 @@ export class Orchestrator {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
+    this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
+    await this.waitForScopeClear(taskId, spec); // sequential-lock: espera o escopo liberar antes de editar
     const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
     const startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
 
@@ -468,7 +609,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -664,21 +805,13 @@ export class Orchestrator {
       notify("Constellation", "Pronta — quer abrir o PR? (aba PR da tarefa)", task.title);
       return;
     }
-    // mode === "auto": checa pendências antes de abrir
-    try {
-      const raw = await readFile(join(task.worktree, ".cardume", "artifacts", "requirements.json"), "utf8");
-      const rj = JSON.parse(raw);
-      const blocked = Array.isArray(rj) ? rj.filter((r: { status?: string }) => r && r.status !== "done") : [];
-      if (blocked.length) {
-        this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto: ${blocked.length} requisito(s) pendente(s) — resolva ou abra manualmente`, false);
-        notify("Constellation", "PR não aberto — requisitos pendentes", task.title);
-        return;
-      }
-    } catch {
-      if ((spec.requirements ?? []).length) {
-        this.store.addEvent(taskId, spec.agent, "note", "PR NÃO aberto: sem requirements.json comprovando os requisitos — abra manualmente após conferir", false);
-        return;
-      }
+    // mode === "auto": GATE MECÂNICO antes de abrir (evidência existe + testes passam)
+    const gate = await this.verifyProofs(taskId, task, spec);
+    if (!gate.ok) {
+      const why = gate.reasons.slice(0, 3).join(" · ");
+      this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
+      notify("Constellation", "PR não aberto — verificação falhou", task.title);
+      return;
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
@@ -746,7 +879,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -808,6 +941,7 @@ export class Orchestrator {
           role: role.role,
           agentName: role.name,
           dbFile: this.ws.dbFile,
+          skillsRule: this.skillsContext(), // resume não reenvia system prompt → skills por turno
           resume: { sessionId, instruction },
         })) {
           if (ev.type === "session") {
@@ -951,7 +1085,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -991,6 +1125,30 @@ export class Orchestrator {
     await this.withTaskLock(taskId, "talk", { message, asReq, agent: agentName }, () => this.talkToAgentInner(taskId, message, asReq, agentName));
   }
 
+  /**
+   * E4 — resolução de conflito ASSISTIDA: o agente retoma a própria sessão e
+   * mergeia a base resolvendo os conflitos NA WORKTREE (sem push). O humano
+   * revisa o resultado e mergeia. Reusa o talk (uma rodada focada), então o
+   * agente já tem todo o contexto da tarefa.
+   */
+  async resolveConflict(taskId: string): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    if (task.status === "merged") throw new Error("tarefa já mergeada — nada a resolver");
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const base = (spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase()).replace(/^origin\//, "");
+    const msg =
+      `RESOLVER CONFLITO DE MERGE com a base "${base}", aqui na sua worktree:\n` +
+      `1) git fetch origin ${base}\n` +
+      `2) git merge origin/${base}  (vai conflitar)\n` +
+      `3) resolva CADA conflito preservando a INTENÇÃO desta tarefa E as mudanças da base — não descarte um lado sem motivo;\n` +
+      `4) git add -A && git commit  (sem --no-verify);\n` +
+      `5) NÃO faça push nem abra PR — o humano revisa e mergeia.\n` +
+      `No fim, confirme com "git status" limpo e resuma numa linha o que reconciliou.`;
+    this.store.addEvent(taskId, spec.agent, "note", `resolução de conflito com IA iniciada (base ${base})`, true);
+    await this.talkToAgent(taskId, msg, false);
+  }
+
   private async talkToAgentInner(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
@@ -1018,7 +1176,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext();
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
     const prev = task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
@@ -1027,7 +1185,7 @@ export class Orchestrator {
     try {
       const chatRule =
         "\n\n[CONVERSA CONTÍNUA — NÃO FINALIZE SOZINHO] (1) Precisando de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (com options quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno; NUNCA finalize com pergunta em texto. (2) Ao CONCLUIR o pedido, também NÃO finalize: chame ask_human dizendo o que fez e perguntando se quero mais algum ajuste (ex.: options ['Está ótimo, pode finalizar','Quero ajustar algo']) e AGUARDE. (3) Só finalize de verdade quando eu mandar (ex.: 'pode finalizar') ou quando o sistema avisar que estou inativo — aí encerre com um resumo educado. (4) PEDIDO NOVO = REGISTRO OBRIGATÓRIO: se a minha mensagem pedir algo que ainda NÃO fazia parte da tarefa (não é correção/ajuste do que você já fez), registre PRIMEIRO com mcp__cardume__add_requirement (critério curto e verificável — ele entra na checklist X/Y que eu acompanho) e, sendo uma entrega nova, TAMBÉM com mcp__cardume__add_deliverable; só então implemente. 'Entender' o pedido sem registrar NÃO vale — pedido registrado só na conversa não conta na checklist.";
-      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20 };
+      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext() };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
         : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };

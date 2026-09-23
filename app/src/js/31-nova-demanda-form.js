@@ -248,6 +248,7 @@ function howPopulate(){
   bindClick('howManage', ()=>{ closeHow(); openAgents(); });
   box.querySelectorAll('.howopt').forEach(l=>l.onclick=()=>{ box.querySelectorAll('.howopt').forEach(x=>x.classList.remove('on')); l.classList.add('on'); l.querySelector('input').checked=true; howAgentsRender(); });
   $id('howModel').value=($id('ntModel')||{}).value||'';
+  $id('howModel').onchange=howEstimateUpdate;
   howAgentsRender();
   $id('howCost').value=parseFloat(lsGet('costWarn')||'25');
   $id('howSlots').value=slotMax;
@@ -258,7 +259,21 @@ $id('howCancel').onclick=closeHow;
 $id('howOverlay').addEventListener('click',e=>{ if(e.target.id==='howOverlay') closeHow(); });
 // modelo POR AGENTE do fluxo escolhido (redesign p10) — vira --models no CLI
 let ntModels='';
+// estimativa GROSSA de custo pré-run: nº de agentes × faixa por modelo. Dá noção
+// de ordem de grandeza — o custo real depende do tamanho da tarefa.
+function howEstimateUpdate(){
+  const el=$id('howEstimate'); if(!el) return;
+  const pick=document.querySelector('input[name="howflow"]:checked');
+  const wid=pick?pick.value:'';
+  const wfs=(state.config&&state.config.workflows)||[];
+  const w=wfs.find(x=>x.id===wid);
+  const n=w?((w.steps||[]).length||1):1;
+  const model=(($id('howModel')||{}).value)||'';
+  const per=({opus:[0.40,1.60], sonnet:[0.12,0.50], haiku:[0.03,0.12]})[model]||[0.15,0.65];
+  el.innerHTML=`Estimativa grosseira: <b style="color:var(--text-2)">~${fmtUsd(per[0]*n)}–${fmtUsd(per[1]*n)}</b> · ${n} agente(s)${model?` · ${esc(model)}`:''} <span class="dim">(varia com o tamanho da tarefa)</span>`;
+}
 function howAgentsRender(){
+  howEstimateUpdate();
   const el=$id('howAgents'); if(!el) return;
   const pick=document.querySelector('input[name="howflow"]:checked');
   const wid=pick?pick.value:'';
@@ -268,7 +283,7 @@ function howAgentsRender(){
   const team=w?(w.steps||[]).map(s=>byId[s]).filter(Boolean):[];
   if(team.length<2){ el.innerHTML=''; return; }
   el.innerHTML=`<label>Modelo por agente <span class="dim" style="text-transform:none;letter-spacing:0">(sobrepõe o modelo geral)</span></label>`+
-    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" style="background:${agentColor(a.name)}">${esc((a.name||'?').slice(0,2).toUpperCase())}</span><span style="flex:1;font-size:12.5px">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
+    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" style="background:${agentColor(a.name)}">${agentBadge(a.name)}</span><span style="flex:1;font-size:12.5px">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
 }
 $id('howGo').onclick=()=>{
   const pick=document.querySelector('input[name="howflow"]:checked');
@@ -342,7 +357,8 @@ async function openNewTask(){
   const lock=(id,on)=>{ const e=$id(id); if(!e) return; if(on){ e.checked=true; e.disabled=true; e.closest('label')?.setAttribute('title','obrigatório pela política do repo (.cardume/policy.json)'); } else { e.disabled=false; } };
   lock('ntArtProof', !!ntPolicy.proofRequired); lock('ntArtTests', !!ntPolicy.testsRequired); lock('ntArtDoc', !!ntPolicy.docRequired);
   lock('ntFixArtProof', !!ntPolicy.proofRequired); lock('ntFixArtTests', !!ntPolicy.testsRequired);
-  wizN=1; wizRender();
+  // quem abre com a spec já pronta (ex.: tarefa a partir de uma issue) escolhe em que etapa cair
+  wizN=(typeof window.ntPresetStep==='function')?(window.ntPresetStep()||1):1; window.ntPresetStep=null; wizRender();
   ntGate();
   (ntMode==='review'?$id("ntPr"):ntMode==='design'?$id("ntDzTitle"):ntMode==='fix'?$id("ntFixTitle"):ntMode==='invest'?$id("ntInvTitle"):$id("ntTitle")).focus();
   try{ state.config = await invoke("config"); }catch(e){ state.config = {workflows:[],agents:[]}; }
@@ -548,7 +564,7 @@ window.TAB_STATE_form={
     ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; aiSid=st.aiSid||''; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
     renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
 };
-function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; $id("aiChat").innerHTML=""; $id("aiAssist").style.display="none"; }
+function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; $id("aiChat").innerHTML=""; $id("aiAssist").style.display="none"; }
 // ---------- assistente IA de spec ----------
 let aiSid="", aiBusy=false;
 function aiAppend(role, text){

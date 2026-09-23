@@ -1,0 +1,107 @@
+/* Ajustes de UI — padronização dos cards da Central (home).
+   Antes cada card tinha uma altura (objetivo/requisitos de tamanhos diferentes
+   deixavam a lista irregular). Aqui: altura mínima consistente, objetivo em 2
+   linhas com reticências e requisitos em 1 linha — o conteúdo completo abre ao
+   clicar no card (ou no % → resumo). Arquivo carregado por último = sobrepõe. */
+
+.dcard {
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* objetivo: no máximo 2 linhas, resto vira reticências */
+.dcard .dc-obj {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.45;
+  max-height: 2.9em;
+}
+
+/* requisitos: uma linha só (os chips já cortam em 4 + "+N") */
+.dcard .dc-reqs {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* rodapé sempre no fim → mesmo com menos conteúdo, os cards alinham */
+.dcard .dc-foot {
+  margin-top: auto;
+}
+
+/* dica sutil de que o card abre pra ver tudo */
+.dcard .dc-obj { cursor: pointer; }
+
+/* ============================================================
+   Grade (grid view): cards da MESMA LINHA com altura idêntica.
+   Antes o grid usava align-items:start → cada card na sua altura,
+   deixando orquestrador e demandas desalinhados lado a lado.
+   ============================================================ */
+#flow.gridview .secgrp { align-items: stretch; }
+#flow.gridview .orqcard,
+#flow.gridview .fcard {
+  height: 100%;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* empurra o rodapé pro fim → topo alinhado e alturas iguais */
+#flow.gridview .fcard .fclabel { margin-top: auto; }
+#flow.gridview .orqcard .orqc-bar { margin-top: auto; }
+
+/* ============================================================
+   Busca por nome — com vida (fundo, borda, ícone, foco).
+   Antes era um input "pelado" sem contorno.
+   ============================================================ */
+.ffbar .ffsearchwrap {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 0 12px 0 30px;
+  height: 30px;
+  transition: border-color .12s, box-shadow .12s;
+}
+.ffbar .ffsearchwrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+.ffbar .ffsearchwrap .ffic { left: 10px; color: var(--muted); }
+.ffbar .ffsearchwrap:focus-within .ffic { color: var(--accent); }
+.ffbar .ffsearch {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 12.5px;
+  height: 100%;
+  min-width: 190px;
+}
+.ffbar .ffsearch::placeholder { color: var(--muted); }
+
+/* linha vazia de projeto na sidebar (só um "abrir projeto" discreto) */
+.prow2.emptyrow { cursor: pointer; opacity: .75; }
+.prow2.emptyrow:hover { opacity: 1; }
+
+/* Nav do topo (Projetos/Skills/Agentes/Chat): linha LIMPA, sem caixa — igual ao
+   "Projetos" (que usa .sbproj). Vale só no grupo de cima (.sbnew); o Daily/Mais
+   de baixo (.sbnav) mantêm a caixa. */
+.sbnew .sbitem {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  padding: 7px 10px;
+}
+.sbnew .sbitem:hover { background: var(--surface-2); color: var(--text); }
+
+/* "Nova demanda" estava colado no topo — dá respiro abaixo da marca */
+.sbnew { padding-top: 14px; }
+
+/* Sidebar informativa (tipo Claude): o cabeçalho do projeto é um RÓTULO, não
+   um botão de trocar de projeto. Só as demandas abrem ao clicar.
+   Todos os projetos ficam IGUAIS — sem a caixa/destaque do "atual". */
+.rproj { cursor: default; }
+.rproj .rph { cursor: default; }
+.rproj.on, .rproj:hover { background: transparent; border-color: transparent; }

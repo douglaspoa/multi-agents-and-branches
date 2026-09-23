@@ -29,6 +29,8 @@ export function taskToYaml(t: TaskSpec): string {
     `engine: ${t.engine}`,
   ];
   if (t.model) lines.push(`model: ${t.model}`);
+  // issue_url: se já existe, o agente NÃO deve criar outra — só referenciar.
+  if (t.issueUrl) lines.push(`issue_url: ${t.issueUrl}`);
   lines.push("");
   return lines.join("\n");
 }

@@ -25,6 +25,8 @@ const COMMENT = /^\s*(?:\/\/+|#+|\/\*+|\*)\s?(.*\S)?/;
 export function buildReview(diff: string, byAgent: string): Review {
   const files: Record<string, { add: number; del: number }> = {};
   const functions: ReviewFunction[] = [];
+  const addedCode: string[] = [];            // linhas adicionadas (sem comentário) p/ scan de uso
+  const exportedNames = new Set<string>();   // definições exportadas (export/pub) — não flagra "não usada"
   let curFile = "";
   let pendingComment = "";
 
@@ -47,6 +49,7 @@ export function buildReview(diff: string, byAgent: string): Review {
         pendingComment = cm[1].replace(/\*\/\s*$/, "").trim();
         continue;
       }
+      addedCode.push(line);
       for (const p of PATTERNS) {
         const m = line.match(p.re);
         if (m) {
@@ -56,6 +59,7 @@ export function buildReview(diff: string, byAgent: string): Review {
             kind: p.kind,
             purpose: pendingComment || derivePurpose(m[p.group]),
           });
+          if (/\b(?:export|pub)\b/.test(line)) exportedNames.add(m[p.group]);
           break;
         }
       }
@@ -78,7 +82,7 @@ export function buildReview(diff: string, byAgent: string): Review {
       ? `Rode os testes: ${testFiles.map((f) => f.path).join(", ")}.`
       : "Sem testes automatizados detectados — revise manualmente os arquivos alterados e cubra o caminho principal.";
 
-  const summary =
+  const base =
     functions.length > 0
       ? `${functions.length} definição(ões) nova(s) em ${fileList.length} arquivo(s). Principais: ${functions
           .slice(0, 3)
@@ -86,7 +90,32 @@ export function buildReview(diff: string, byAgent: string): Review {
           .join(", ")}.`
       : `${fileList.length} arquivo(s) alterado(s), sem novas funções detectadas.`;
 
+  // --- redundância / código morto (heurística best-effort a partir do próprio diff) ---
+  const redundancy = findRedundancy(functions, exportedNames, addedCode);
+  const summary = base + (redundancy.length ? ` ⚠ Possível redundância: ${redundancy.slice(0, 5).join("; ")}.` : "");
+
   return { summary, functions, files: fileList, howToTest, byAgent };
+}
+
+/** Heurística de redundância a partir do diff: definições duplicadas e funções
+ * novas (não exportadas) que não são usadas em NENHUMA outra linha adicionada —
+ * o sinal de "código morto" que o VoC aponta (a IA deixa função obsoleta). */
+function findRedundancy(functions: ReviewFunction[], exported: Set<string>, addedCode: string[]): string[] {
+  const out: string[] = [];
+  // 1) mesmo nome definido 2+ vezes no diff → provável duplicação
+  const count = new Map<string, number>();
+  for (const f of functions) count.set(f.name, (count.get(f.name) ?? 0) + 1);
+  for (const [name, n] of count) if (n > 1) out.push(`"${name}" definida ${n}× no diff (duplicada?)`);
+  // 2) função nova não-exportada sem nenhum uso além da própria declaração
+  const blob = addedCode.join("\n");
+  const seen = new Set<string>();
+  for (const f of functions) {
+    if (exported.has(f.name) || seen.has(f.name) || (count.get(f.name) ?? 0) > 1) continue;
+    seen.add(f.name);
+    const rx = new RegExp("\\b" + f.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "g");
+    if ((blob.match(rx) || []).length <= 1) out.push(`"${f.name}" definida mas não usada no diff (código morto?)`);
+  }
+  return out;
 }
 
 function derivePurpose(name: string): string {

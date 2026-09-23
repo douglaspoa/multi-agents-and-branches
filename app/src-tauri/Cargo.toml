@@ -20,6 +20,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 libc = "0.2"
+
+# Notificação nativa com clique útil só existe no macOS (bundle + resposta do
+# clique). No Linux/Windows o tauri-plugin-notification cobre o envio.
+[target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"
 
 [profile.dev]

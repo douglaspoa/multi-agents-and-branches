@@ -1,9 +1,21 @@
 use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+/// Repo explícito (quando a tela está PRESA a um projeto — ex.: plano do orquestrador
+/// criado num repo enquanto o usuário troca o projeto ativo na barra lateral) ou o ativo.
+fn repo_or(state: &State<AppState>, repo: Option<String>) -> Result<PathBuf, String> {
+    if let Some(r) = repo {
+        let r = r.trim().to_string();
+        if !r.is_empty() {
+            let p = PathBuf::from(&r);
+            if p.is_dir() { return Ok(p); }
+        }
+    }
+    repo_of(state)
+}
 fn repo_of(state: &State<AppState>) -> Result<PathBuf, String> {
     state
         .db
@@ -14,12 +26,22 @@ fn repo_of(state: &State<AppState>) -> Result<PathBuf, String> {
         .ok_or_else(|| "repo não definido".to_string())
 }
 
-/// Motor: CARDUME_CLI (dev — TS ao vivo) → bundle dentro do app
-/// (Resources/engine/cli.mjs) → src/cli.ts do repo aberto (último recurso).
+/// Caminho do motor bundlado (engine/cli.mjs), resolvido UMA vez no setup do
+/// Tauri via `resource_dir()` — funciona no .app do macOS e no .deb/.AppImage do
+/// Linux, onde o layout de recursos é diferente e não dá pra deduzir do exe.
+static ENGINE_RESOURCE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+/// Motor: CARDUME_CLI (dev — TS ao vivo) → recurso bundlado (resource_dir) →
+/// heurística pelo exe (.app do macOS) → src/cli.ts do repo aberto (último recurso).
 fn cli_path(repo: &PathBuf) -> String {
     if let Ok(p) = std::env::var("CARDUME_CLI") {
         if !p.is_empty() && std::path::Path::new(&p).is_file() {
             return p;
+        }
+    }
+    if let Some(Some(p)) = ENGINE_RESOURCE.get() {
+        if p.is_file() {
+            return p.display().to_string();
         }
     }
     if let Ok(exe) = std::env::current_exe() {
@@ -41,7 +63,7 @@ fn node_bin() -> String {
             return n;
         }
     }
-    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"] {
         if std::path::Path::new(p).is_file() {
             return p.to_string();
         }
@@ -56,6 +78,15 @@ fn node_bin() -> String {
                 if n.is_file() {
                     return n.display().to_string();
                 }
+            }
+        }
+    }
+    // último recurso: resolve pelo PATH (Linux via pacote, ou node no PATH do usuário)
+    if let Ok(o) = Command::new("which").arg("node").output() {
+        if o.status.success() {
+            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !path.is_empty() && std::path::Path::new(&path).is_file() {
+                return path;
             }
         }
     }
@@ -310,6 +341,119 @@ mod slug_tests {
 /// Roda um comando com TETO de tempo; mata o processo se estourar. Evita que a
 /// UI trave quando a rede cai (gh/claude podem pendurar) ou que processos se
 /// acumulem. Best-effort — em caso de timeout retorna Err e o processo é morto.
+/// Lê a saída de `claude -p --output-format json`. O claude devolve erro de
+/// duas formas: exit≠0 com mensagem no stderr, OU exit 1 com stderr VAZIO e o
+/// erro dentro do JSON do stdout (`is_error:true`, texto em `result`) — é o
+/// caso de login expirado (401 OAuth), rate limit, etc. Só ler o stderr
+/// deixava o chat com um "⚠" sem texto nenhum.
+fn claude_json(out: &std::process::Output) -> Result<serde_json::Value, String> {
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let parsed: Option<serde_json::Value> = serde_json::from_str(stdout.trim()).ok();
+    if let Some(v) = &parsed {
+        if v["is_error"].as_bool().unwrap_or(false) {
+            let msg = v["result"].as_str().unwrap_or("").trim().to_string();
+            return Err(claude_friendly_error(&msg));
+        }
+    }
+    if !out.status.success() {
+        if !stderr.is_empty() {
+            return Err(claude_friendly_error(&stderr));
+        }
+        let snippet: String = stdout.trim().chars().take(200).collect();
+        return Err(format!(
+            "claude saiu com código {} sem mensagem{}",
+            out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
+            if snippet.is_empty() { String::new() } else { format!(": {snippet}") }
+        ));
+    }
+    parsed.ok_or_else(|| {
+        let snippet: String = stdout.trim().chars().take(200).collect();
+        format!("resposta inesperada do claude (não é JSON): {snippet}")
+    })
+}
+
+/// Traduz os erros mais comuns do claude headless pra uma ação concreta.
+fn claude_friendly_error(msg: &str) -> String {
+    let l = msg.to_lowercase();
+    if l.contains("oauth") || l.contains("authenticate") || l.contains("401") || l.contains("not logged in") || l.contains("invalid api key") {
+        return format!("Login do Claude Code expirou — abra um terminal, rode `claude` e digite /login (ou `claude auth login`), depois tente de novo aqui.\n\n({msg})");
+    }
+    if l.contains("rate limit") || l.contains("429") || l.contains("usage limit") || l.contains("overloaded") {
+        return format!("O Claude está sem cota/limite no momento — espere um pouco e tente de novo.\n\n({msg})");
+    }
+    if l.contains("no conversation found") || (l.contains("session") && l.contains("not found")) {
+        return format!("A sessão da conversa expirou no Claude — clique em '+ novo' pra recomeçar.\n\n({msg})");
+    }
+    msg.to_string()
+}
+
+#[cfg(test)]
+mod claude_json_tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+    fn out(code: i32, stdout: &str, stderr: &str) -> std::process::Output {
+        std::process::Output { status: std::process::ExitStatus::from_raw(code << 8), stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() }
+    }
+    #[test]
+    fn login_expirado_vira_mensagem_clara() {
+        // saída REAL do `claude -p --output-format json` com o OAuth vencido: exit 1, stderr vazio
+        let o = out(1, r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":401,"result":"Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.","session_id":"x"}"#, "");
+        let e = claude_json(&o).unwrap_err();
+        assert!(e.starts_with("Login do Claude Code expirou"), "{e}");
+        assert!(e.contains("401 OAuth"), "{e}");
+    }
+    #[test]
+    fn stderr_continua_valendo() {
+        let e = claude_json(&out(1, "", "boom")).unwrap_err();
+        assert_eq!(e, "boom");
+    }
+    #[test]
+    fn exit_sem_nada_nao_fica_vazio() {
+        let e = claude_json(&out(1, "", "")).unwrap_err();
+        assert!(e.contains("código 1"), "{e}");
+    }
+    #[test]
+    fn sucesso_passa_o_json() {
+        let v = claude_json(&out(0, r#"{"result":"oi","session_id":"s1"}"#, "")).unwrap();
+        assert_eq!(v["result"], "oi");
+    }
+}
+
+#[cfg(test)]
+mod artifact_tests {
+    use super::*;
+    #[test]
+    fn nome_com_subpasta_vale_mas_escape_nao() {
+        assert!(artifact_name_ok("relatorio.pdf"));
+        assert!(artifact_name_ok("entregaveis/relatorio.pdf"));
+        assert!(!artifact_name_ok("../x.pdf"));
+        assert!(!artifact_name_ok("a/../x.pdf"));
+        assert!(!artifact_name_ok("/etc/passwd"));
+        assert!(!artifact_name_ok("a\\b.pdf"));
+        assert!(!artifact_name_ok(""));
+    }
+    #[test]
+    fn varredura_acha_pdf_em_subpasta_e_achata_pasta_da_tarefa() {
+        let tmp = std::env::temp_dir().join(format!("cardume-art-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("entregaveis")).unwrap();
+        std::fs::create_dir_all(tmp.join("minha-tarefa")).unwrap();
+        std::fs::write(tmp.join("proof.md"), "x").unwrap();
+        std::fs::write(tmp.join("entregaveis/relatorio.pdf"), "%PDF").unwrap();
+        std::fs::write(tmp.join("minha-tarefa/diagnostico.pdf"), "%PDF").unwrap();
+        std::fs::write(tmp.join(".DS_Store"), "").unwrap();
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        scan_artifacts_dir(&tmp, "minha-tarefa", &mut out, &mut seen);
+        let mut names: Vec<String> = out.iter().map(|a| a.name.clone()).collect();
+        names.sort();
+        assert_eq!(names, vec!["diagnostico.pdf", "entregaveis/relatorio.pdf", "proof.md"]);
+        assert_eq!(out.iter().find(|a| a.name == "entregaveis/relatorio.pdf").unwrap().kind, "pdf");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
 fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, String> {
     use std::sync::mpsc;
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -414,6 +558,7 @@ struct Task {
     refs: serde_json::Value,
     kind: String,
     pr_url: Option<String>,
+    issue_url: Option<String>,
     flag: Option<String>,
     auto_pr: Option<String>,
     linked_to: Option<String>,
@@ -496,6 +641,8 @@ struct Cost {
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
     repo: Option<String>,
+    /// false = pasta aberta sem repositório git (sem branch/PR/worktree até criar um)
+    git: bool,
     tasks: Vec<Task>,
     events: Vec<Event>,
     claims: Vec<Claim>,
@@ -850,6 +997,61 @@ fn current_repo(state: State<AppState>) -> Option<String> {
         .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
 }
 
+/// Resolve o repo do projeto ativo (parent do .cardume/state.sqlite).
+fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
+    let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or_else(|| "repo inválido".to_string())
+}
+
+/// Métricas de coordenação (conflitos, colisões, reworks) — baseline do "caos".
+/// Proxy do CLI `cardume metrics --json`: a lógica mora no núcleo TS (fonte única).
+#[tauri::command(async)]
+fn coordination_metrics(state: State<AppState>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let out = Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning".to_string(),
+            cli_path(&repo),
+            "metrics".to_string(),
+            "--repo".to_string(),
+            repo.display().to_string(),
+            "--json".to_string(),
+        ])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Checa sobreposição de escopo de uma demanda nova contra tarefas ativas.
+/// `owns` = padrões separados por vírgula (ex.: "src/auth/**,src/api/*.ts").
+/// Proxy do CLI `cardume overlap --owns <...> --json`. Retorna JSON de ScopeOverlap[].
+#[tauri::command(async)]
+fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let out = Command::new(node_bin())
+        .args([
+            "--disable-warning=ExperimentalWarning".to_string(),
+            cli_path(&repo),
+            "overlap".to_string(),
+            "--owns".to_string(),
+            owns,
+            "--repo".to_string(),
+            repo.display().to_string(),
+            "--json".to_string(),
+        ])
+        .current_dir(&repo)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 // ---------- lista de projetos (switcher multi-projeto) ----------
 fn projects_file() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -917,6 +1119,53 @@ fn open_project(state: State<AppState>, path: String) -> Result<String, String> 
     open_project_at(&state, &path)
 }
 
+/// A pasta é um repositório git? (pasta simples abre, mas sem branch/PR/worktree)
+fn repo_is_git(path: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Cria o repositório git numa pasta aberta sem git: `git init -b main`, garante
+/// `.cardume/` no .gitignore e faz o 1º commit (com identidade de fallback se o
+/// git local não tiver user.name/email). Depois disso tudo funciona como sempre.
+#[tauri::command(async)]
+fn git_init_repo(state: State<AppState>) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let rs = repo.display().to_string();
+    if repo_is_git(&rs) { return Ok("já é um repositório git".into()); }
+    let out = Command::new("git").args(["init", "-q", "-b", "main"]).arg(&repo).output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        // git antigo sem -b: init simples + renomeia
+        let o2 = Command::new("git").args(["init", "-q"]).arg(&repo).output().map_err(|e| e.to_string())?;
+        if !o2.status.success() { return Err(format!("git init falhou: {}", String::from_utf8_lossy(&o2.stderr))); }
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["symbolic-ref", "HEAD", "refs/heads/main"]).output();
+    }
+    // .gitignore com .cardume/ (workspace do app nunca entra no repo)
+    let gi = repo.join(".gitignore");
+    let cur = std::fs::read_to_string(&gi).unwrap_or_default();
+    if !cur.lines().any(|l| l.trim() == ".cardume/" || l.trim() == ".cardume") {
+        let prefix = if cur.is_empty() || cur.ends_with('\n') { cur.clone() } else { format!("{cur}\n") };
+        std::fs::write(&gi, format!("{prefix}.cardume/\n")).map_err(|e| e.to_string())?;
+    }
+    let _ = Command::new("git").arg("-C").arg(&repo).args(["add", "-A"]).output();
+    // identidade: usa a do git; sem ela, fallback só neste commit (não grava config)
+    let has_ident = Command::new("git").arg("-C").arg(&repo).args(["config", "user.email"]).output().map(|o| o.status.success() && !o.stdout.is_empty()).unwrap_or(false);
+    let mut c = Command::new("git");
+    c.arg("-C").arg(&repo);
+    if !has_ident { c.args(["-c", "user.name=Constellation", "-c", "user.email=constellation@local"]); }
+    let out = c.args(["commit", "-q", "-m", "chore: início do repositório (Constellation)"]).output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        if !err.contains("nothing to commit") { return Err(format!("commit inicial falhou: {err}")); }
+    }
+    Ok("repositório criado na branch main".into())
+}
+
 fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
     let repo = PathBuf::from(path);
     let is_git = Command::new("git")
@@ -926,19 +1175,20 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    if !is_git {
-        return Err(format!("{} não é um repositório git", path));
-    }
+    // pasta SEM git abre normalmente (só navegar/conversar); as ações que precisam de
+    // branch ficam escondidas e o app oferece "criar repositório" (git_init_repo).
     let db = repo.join(".cardume").join("state.sqlite");
     if !db.exists() {
+        let mut args: Vec<String> = vec![
+            "--disable-warning=ExperimentalWarning".into(),
+            cli_path(&repo),
+            "init".into(),
+            "--repo".into(),
+            repo.display().to_string(),
+        ];
+        if !is_git { args.push("--no-git".into()); } // por último: o parser do CLI consome o próximo arg como valor
         let out = Command::new(node_bin())
-            .args([
-                "--disable-warning=ExperimentalWarning",
-                &cli_path(&repo),
-                "init",
-                "--repo",
-                &repo.display().to_string(),
-            ])
+            .args(&args)
             .current_dir(&repo)
             .output()
             .map_err(|e| format!("falha ao inicializar o workspace: {e}"))?;
@@ -1249,45 +1499,69 @@ fn artifact_kind(name: &str) -> &'static str {
     }
 }
 
+/// Nome de artefato válido: caminho RELATIVO dentro de .cardume/artifacts/
+/// (pode ter subpasta — o agente costuma salvar em `entregaveis/x.pdf` ou
+/// `<task-id>/x.pdf`), sem `..`, sem barra invertida e sem começar por `/`.
+fn artifact_name_ok(name: &str) -> bool {
+    let n = name.trim();
+    !n.is_empty()
+        && !n.contains('\\')
+        && !n.starts_with('/')
+        && n.split('/').all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+}
+
+/// Varre `.cardume/artifacts` RECURSIVAMENTE (até 4 níveis). O nome do artefato
+/// é o caminho relativo (`entregaveis/relatorio.pdf`). Uma subpasta com o
+/// próprio id da tarefa (`<task-id>/x.pdf`, erro comum do agente — e é assim
+/// que o coletor copia pro repo) é achatada pra `x.pdf`, igual ao que já era
+/// listado antes. Era aqui que o PDF "não ia pra aba Entregas": a varredura
+/// só olhava o primeiro nível.
+fn scan_artifacts_dir(dir: &std::path::Path, task_id: &str, out: &mut Vec<Artifact>, seen: &mut std::collections::HashSet<String>) {
+    fn walk(dir: &std::path::Path, prefix: &str, depth: u8, task_id: &str, out: &mut Vec<Artifact>, seen: &mut std::collections::HashSet<String>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            let fname = e.file_name().to_string_lossy().to_string();
+            if fname.starts_with('.') { continue; }
+            if p.is_dir() {
+                if depth >= 4 { continue; }
+                // subpasta com o id da tarefa → achata (mesmos nomes de antes)
+                let np = if prefix.is_empty() && fname == task_id { String::new() } else { format!("{prefix}{fname}/") };
+                walk(&p, &np, depth + 1, task_id, out, seen);
+            } else if p.is_file() {
+                let name = format!("{prefix}{fname}");
+                if !seen.insert(name.clone()) { continue; } // já visto (worktree tem prioridade)
+                let meta = e.metadata().ok();
+                let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                let created = meta
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                out.push(Artifact { kind: artifact_kind(&name).to_string(), name, size, created });
+            }
+        }
+    }
+    walk(dir, "", 0, task_id, out, seen);
+}
+
 #[tauri::command(async)]
 fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifact>, String> {
     let repo = repo_of(&state)?;
     let mut out: Vec<Artifact> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut scan = |dir: &std::path::Path| {
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.is_file() {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    if !seen.insert(name.clone()) { continue; } // já visto (worktree tem prioridade)
-                    let meta = e.metadata().ok();
-                    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                    let created = meta
-                        .and_then(|m| m.modified().ok())
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0);
-                    out.push(Artifact { kind: artifact_kind(&name).to_string(), name, size, created });
-                }
-            }
-        }
-    };
-    // 1) AO VIVO na worktree (aparece antes de a tarefa fechar o turno) — foi
-    //    o caso do PDF "sumido": criado na worktree, ainda não coletado.
+    // 1) AO VIVO na worktree (aparece antes de a tarefa fechar o turno)
     if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
                 if !wt.is_empty() {
-                    let art = PathBuf::from(&wt).join(".cardume").join("artifacts");
-                    scan(&art);                       // topo (convenção)
-                    scan(&art.join(&task_id));         // subpasta <task-id> (alguns agentes escrevem aqui)
+                    scan_artifacts_dir(&PathBuf::from(&wt).join(".cardume").join("artifacts"), &task_id, &mut out, &mut seen);
                 }
             }
         }
     }
     // 2) coletados no repo principal (persistem após merge/remoção da worktree)
-    scan(&repo.join(".cardume").join("artifacts").join(&task_id));
+    scan_artifacts_dir(&repo.join(".cardume").join("artifacts").join(&task_id), &task_id, &mut out, &mut seen);
     // mais recentes primeiro (data de criação/modificação)
     out.sort_by(|a, b| b.created.cmp(&a.created).then(a.name.cmp(&b.name)));
     Ok(out)
@@ -1303,28 +1577,7 @@ struct ArtifactContent {
 
 #[tauri::command(async)]
 fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err("nome de artefato inválido".to_string());
-    }
-    let repo = repo_of(&state)?;
-    // procura na worktree AO VIVO primeiro, depois na pasta coletada
-    let mut path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
-    if !path.is_file() {
-        if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-            if let Ok(conn) = open(&db) {
-                if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-                    let art = PathBuf::from(&wt).join(".cardume").join("artifacts");
-                    // topo (convenção) e subpasta <task-id> (alguns agentes escrevem lá)
-                    for wp in [art.join(&name), art.join(&task_id).join(&name)] {
-                        if wp.is_file() { path = wp; break; }
-                    }
-                }
-            }
-        }
-    }
-    if !path.is_file() {
-        return Err("artefato não encontrado".to_string());
-    }
+    let path = artifact_path(&state, &task_id, &name)?;
     let kind = artifact_kind(&name);
     if kind == "image" {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
@@ -1391,6 +1644,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         None => {
             return Ok(Snapshot {
                 repo: None,
+                git: true,
                 tasks: vec![],
                 events: vec![],
                 claims: vec![],
@@ -1439,6 +1693,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 refs: spec.get("refs").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 kind: spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
                 pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                issue_url: spec.get("issueUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 flag: r.get::<_, Option<String>>(15).unwrap_or(None),
                 auto_pr: spec.get("autoPr").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 linked_to: spec.get("linkedTo").and_then(|v| v.as_str()).map(|s| s.to_string()),
@@ -1563,7 +1818,8 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|d| d.parent())
         .map(|r| r.display().to_string());
 
-    Ok(Snapshot { repo, tasks, events, claims, diffs, reviews, pending, costs })
+    let git = repo.as_deref().map(repo_is_git).unwrap_or(true);
+    Ok(Snapshot { repo, git, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
@@ -1815,6 +2071,7 @@ fn new_task(
     refs: Option<Vec<String>>,
     branch_type: Option<String>,
     issue: Option<String>,
+    issue_url: Option<String>,
     base: Option<String>,
     tests: Option<bool>,
     auto_pr: Option<String>,
@@ -1822,8 +2079,12 @@ fn new_task(
     linked_to: Option<String>,
     model: Option<String>,
     models: Option<String>,
+    light: Option<bool>,
 ) -> Result<String, String> {
     let repo = repo_of(&state)?;
+    if !repo_is_git(&repo.display().to_string()) {
+        return Err("esta pasta não tem repositório git — cada demanda roda numa branch própria. Crie o repositório (botão \"criar repositório\" na barra lateral) e tente de novo.".into());
+    }
     // id determinado no Rust (idempotente sob o slugify do CLI) pra já rastrear
     // o processo desta tarefa e permitir pausar/abortar.
     // Se o id já existe (ex.: entrega criada a partir de um design com o MESMO
@@ -1918,6 +2179,7 @@ fn new_task(
     }
     push_opt(&mut args, "--branch-type", &branch_type);
     push_opt(&mut args, "--issue", &issue);
+    push_opt(&mut args, "--issue-url", &issue_url);
     push_opt(&mut args, "--base", &base);
     push_opt(&mut args, "--model", &model);
     push_opt(&mut args, "--models", &models);
@@ -1927,6 +2189,7 @@ fn new_task(
     push_opt(&mut args, "--auto-pr", &auto_pr);
     push_opt(&mut args, "--pr-base", &pr_base);
     push_opt(&mut args, "--linked-to", &linked_to);
+    if light.unwrap_or(false) { args.push("--light".to_string()); }
 
     let mut cmd = Command::new(node_bin());
     cmd.args(&args).current_dir(&repo);
@@ -1976,9 +2239,18 @@ fn new_task(
 /// identifica o "projeto" no time da nuvem, independente de https/ssh.
 #[tauri::command(async)]
 fn repo_remote(state: State<AppState>) -> Result<String, String> {
-    let repo = repo_of(&state)?;
+    remote_of_path(&repo_of(&state)?)
+}
+
+/// Mesma identidade, pra QUALQUER projeto da lista local (painel de Issues: conectar vários).
+#[tauri::command(async)]
+fn repo_remote_of(path: String) -> Result<String, String> {
+    remote_of_path(&PathBuf::from(path))
+}
+
+fn remote_of_path(repo: &PathBuf) -> Result<String, String> {
     let out = Command::new("git")
-        .arg("-C").arg(&repo)
+        .arg("-C").arg(repo)
         .args(["config", "--get", "remote.origin.url"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -2122,6 +2394,8 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
                 let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
                 let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
+                // mergeada: a worktree já não serve — cancelada fica (dá pra retomar/inspecionar; a limpeza manual tira)
+                if status == "merged" { if let Ok(repo) = repo_of(&state) { remove_task_worktree(&repo, &conn, &task_id); } }
             }
         }
     }
@@ -2507,7 +2781,7 @@ fn set_task_model(state: State<AppState>, task_id: String, model: String) -> Res
 #[tauri::command(async)]
 fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o ORQUESTRADOR do Constellation. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
+    let sys = "Você é o ORQUESTRADOR do Constellation. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -2526,10 +2800,7 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     let out = output_timeout(cmd, 300)?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    let v = claude_json(&out)?;
     Ok(v["result"].as_str().unwrap_or("").to_string())
 }
 
@@ -2544,25 +2815,42 @@ fn orch_ok_id(id: &str) -> bool {
 
 /// Salva/atualiza o plano (JSON inteiro) em .cardume/orchestrations/<id>.json
 #[tauri::command]
-fn orch_save(state: State<AppState>, id: String, data: serde_json::Value) -> Result<(), String> {
+fn orch_save(state: State<AppState>, id: String, data: serde_json::Value, repo: Option<String>) -> Result<(), String> {
     if !orch_ok_id(&id) { return Err("id inválido".into()); }
-    let repo = repo_of(&state)?;
+    let repo = repo_or(&state, repo)?;
     let s = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     std::fs::write(orch_dir(&repo).join(format!("{id}.json")), s).map_err(|e| e.to_string())
 }
 
+/// Planos de TODOS os projetos conhecidos (ativo primeiro). Cada plano sai com `repo`
+/// preenchido (o dele, ou a pasta de onde foi lido) — o plano é preso ao repo, então
+/// trocar o projeto ativo não pode "sumir" com ele da Central.
 #[tauri::command(async)]
 fn orch_list(state: State<AppState>) -> Vec<serde_json::Value> {
-    let Ok(repo) = repo_of(&state) else { return vec![] };
+    let active = repo_of(&state).ok();
+    let mut repos: Vec<PathBuf> = vec![];
+    if let Some(a) = &active { repos.push(a.clone()); }
+    for p in read_project_list() {
+        let pb = PathBuf::from(&p);
+        if !repos.contains(&pb) && pb.is_dir() { repos.push(pb); }
+    }
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out: Vec<serde_json::Value> = vec![];
-    if let Ok(rd) = std::fs::read_dir(orch_dir(&repo)) {
+    for repo in repos {
+        // só o ativo cria a pasta; nos outros apenas lê (sem efeito colateral)
+        let dir = if Some(&repo) == active.as_ref() { orch_dir(&repo) } else { repo.join(".cardume").join("orchestrations") };
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
         for e in rd.flatten() {
             let p = e.path();
-            if p.extension().map(|x| x == "json").unwrap_or(false) {
-                if let Ok(txt) = std::fs::read_to_string(&p) {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) { out.push(v); }
-                }
+            if !p.extension().map(|x| x == "json").unwrap_or(false) { continue; }
+            let Ok(txt) = std::fs::read_to_string(&p) else { continue };
+            let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&txt) else { continue };
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            if id.is_empty() || !seen.insert(id) { continue; }
+            if v.get("repo").and_then(|x| x.as_str()).map(|x| x.trim().is_empty()).unwrap_or(true) {
+                v["repo"] = serde_json::Value::String(repo.display().to_string());
             }
+            out.push(v);
         }
     }
     out.sort_by_key(|v| std::cmp::Reverse(v.get("createdAt").and_then(|x| x.as_i64()).unwrap_or(0)));
@@ -2570,9 +2858,9 @@ fn orch_list(state: State<AppState>) -> Vec<serde_json::Value> {
 }
 
 #[tauri::command]
-fn orch_delete(state: State<AppState>, id: String) -> Result<(), String> {
+fn orch_delete(state: State<AppState>, id: String, repo: Option<String>) -> Result<(), String> {
     if !orch_ok_id(&id) { return Err("id inválido".into()); }
-    let repo = repo_of(&state)?;
+    let repo = repo_or(&state, repo)?;
     let p = orch_dir(&repo).join(format!("{id}.json"));
     if p.exists() { std::fs::remove_file(p).map_err(|e| e.to_string())?; }
     Ok(())
@@ -2600,6 +2888,47 @@ fn patch_task_spec(state: State<AppState>, task_id: String, patch: serde_json::V
     Ok(())
 }
 
+/// Fase de INTEGRAÇÃO do orquestrador (a revisão final): a worktree nasce da base
+/// (main) e aqui recebe o merge de TODAS as branches das fases de build — assim o
+/// revisor testa tudo junto e o PR sai desta branch, com os merges. Cada merge é
+/// `--no-ff` (fica visível no histórico). Conflito NÃO aborta: fica na worktree e
+/// o agente resolve (a resposta lista o que conflitou).
+#[tauri::command(async)]
+fn orch_integrate(state: State<AppState>, task_id: String, branches: Vec<String>) -> Result<serde_json::Value, String> {
+    let (wt, base) = task_wt_base(&state, &task_id)?;
+    if !wt.is_dir() { return Err("worktree da fase de integração não existe".into()); }
+    let wts = wt.display().to_string();
+    // alinha com a ponta da base antes (só se a worktree ainda não tem nada próprio)
+    let ahead = Command::new("git").args(["-C", &wts, "rev-list", "--count", &format!("{base}..HEAD")]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<i64>().unwrap_or(1)).unwrap_or(1);
+    if ahead == 0 && !base.is_empty() {
+        let _ = Command::new("git").args(["-C", &wts, "reset", "--hard", &base]).output();
+    }
+    let mut merged: Vec<String> = vec![];
+    let mut conflicts: Vec<String> = vec![];
+    let mut skipped: Vec<String> = vec![];
+    for b in branches.iter().filter(|b| !b.trim().is_empty()) {
+        // já contida? (re-execução / branch vazia)
+        let contained = Command::new("git").args(["-C", &wts, "merge-base", "--is-ancestor", b, "HEAD"]).output()
+            .map(|o| o.status.success()).unwrap_or(false);
+        if contained { skipped.push(b.clone()); continue; }
+        let out = Command::new("git").args(["-C", &wts, "merge", "--no-ff", "--no-edit", "-m", &format!("merge: integra {b} (orquestrador)"), b]).output().map_err(|e| e.to_string())?;
+        if out.status.success() { merged.push(b.clone()); continue; }
+        let unmerged = Command::new("git").args(["-C", &wts, "diff", "--name-only", "--diff-filter=U"]).output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+        if unmerged.is_empty() {
+            // falhou por outro motivo (branch inexistente etc.) — segue com as outras
+            skipped.push(format!("{b} ({})", String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("falha")));
+            let _ = Command::new("git").args(["-C", &wts, "merge", "--abort"]).output();
+            continue;
+        }
+        conflicts.push(format!("{b}: {}", unmerged.replace('\n', ", ")));
+        break; // o agente resolve este conflito e faz os merges restantes
+    }
+    let remaining: Vec<String> = branches.iter().filter(|b| !merged.contains(b) && !skipped.iter().any(|s| s.starts_with(b.as_str())) && !conflicts.iter().any(|c| c.starts_with(&format!("{b}:")))).cloned().collect();
+    Ok(serde_json::json!({ "merged": merged, "conflicts": conflicts, "skipped": skipped, "remaining": remaining }))
+}
+
 /// Antes de uma fase dependente começar: alinha a worktree (ainda sem commits
 /// próprios) com a ponta atual da branch base — a fase anterior commitou depois
 /// que a worktree foi criada. Best-effort; nunca descarta trabalho da própria fase.
@@ -2624,12 +2953,28 @@ fn orch_sync_base(state: State<AppState>, task_id: String) -> Result<String, Str
 
 /// Google Chrome (ou similar) pra gerar PDF via headless.
 fn chrome_bin() -> Option<String> {
+    // caminhos absolutos conhecidos (macOS .app + instalações comuns de Linux)
     for p in [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Chromium.app/Contents/MacOS/Chromium",
         "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
     ] {
         if std::path::Path::new(p).is_file() { return Some(p.to_string()); }
+    }
+    // no Linux o binário costuma vir por pacote/symlink — resolve pelo PATH
+    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"] {
+        if let Ok(o) = Command::new("which").arg(name).output() {
+            if o.status.success() {
+                let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !path.is_empty() && std::path::Path::new(&path).is_file() {
+                    return Some(path);
+                }
+            }
+        }
     }
     None
 }
@@ -2642,7 +2987,10 @@ fn save_doc(name: String, content: String) -> Result<String, String> {
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.'|' ') { c } else { '-' }).collect();
     let p = dir.join(safe.trim());
     std::fs::write(&p, content).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
     let _ = Command::new("open").arg("-R").arg(&p).spawn();
+    #[cfg(not(target_os = "macos"))]
+    let _ = Command::new("xdg-open").arg(p.parent().unwrap_or(&p)).spawn();
     Ok(p.display().to_string())
 }
 
@@ -2668,7 +3016,10 @@ fn html_to_pdf(html: String, name: String) -> Result<String, String> {
         return Err(format!("Chrome não gerou o PDF: {}", String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()));
     }
     let _ = std::fs::remove_file(&html_path);
+    #[cfg(target_os = "macos")]
     let _ = Command::new("open").arg(&pdf_path).spawn(); // abre no Preview
+    #[cfg(not(target_os = "macos"))]
+    let _ = Command::new("xdg-open").arg(&pdf_path).spawn(); // abre no leitor de PDF padrão
     Ok(pdf_path.display().to_string())
 }
 
@@ -2738,7 +3089,7 @@ fn ai_title(text: String) -> Result<String, String> {
 #[tauri::command(async)]
 fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, UMA pergunta por vez, fechando só o que ainda falta. Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. ÉPICO: quando o pedido do usuário for GRANDE e envolver VÁRIAS FRENTES independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'refaz a tela de login, o backend de auth e a doc'), NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan` = {\"epic\":\"nome curto do épico\",\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\",\"wave\":1}]} com 2 a 6 tarefas. `wave` agrupa o que roda junto: tarefas da MESMA onda têm escopos DISJUNTOS (owns não se sobrepõem) e rodam ao mesmo tempo; ondas maiores dependem das anteriores. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Se o pedido for pequeno (uma frente só), siga o fluxo normal de tarefa única sem `plan`. Nada de texto fora do bloco json.";
+    let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. ÉPICO: quando o pedido do usuário for GRANDE e envolver VÁRIAS FRENTES independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'refaz a tela de login, o backend de auth e a doc'), NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan` = {\"epic\":\"nome curto do épico\",\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\",\"wave\":1}]} com 2 a 6 tarefas. `wave` agrupa o que roda junto: tarefas da MESMA onda têm escopos DISJUNTOS (owns não se sobrepõem) e rodam ao mesmo tempo; ondas maiores dependem das anteriores. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Se o pedido for pequeno (uma frente só), siga o fluxo normal de tarefa única sem `plan`. Nada de texto fora do bloco json.";
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -2747,6 +3098,9 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
         "json".to_string(),
         "--append-system-prompt".to_string(),
         sys.to_string(),
+        // read-only: o planner INVESTIGA o código (lê/grep/git) mas NÃO edita nada.
+        "--allowedTools".to_string(),
+        "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
         // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
         // — o planner precisa VER o print pra extrair o contexto.
         "--permission-mode".to_string(),
@@ -2760,11 +3114,61 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 90)?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    let out = output_timeout(cmd, 150)?; // investigar o código leva um pouco mais
+    let v = claude_json(&out)?;
+    Ok(AiChat {
+        text: v["result"].as_str().unwrap_or("").to_string(),
+        session_id: v["session_id"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+/// Conversa com o ORQUESTRADOR sobre o projeto e o plano montado: lê o repo de verdade
+/// (só leitura) e, enquanto o plano NÃO foi aprovado, pode devolver o plano ajustado
+/// (`plan.phases`) — a UI troca o grafo na hora. Sessão retomada a cada mensagem.
+#[tauri::command(async)]
+fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>, plan: String, repo: Option<String>) -> Result<AiChat, String> {
+    // a sessão do claude vive por PASTA (cwd): a conversa tem que rodar sempre no repo do plano,
+    // senão trocar o projeto ativo no meio dela dava "No conversation found".
+    let repo = repo_or(&state, repo)?;
+    let locked = plan.contains("\"status\":\"running\"") || plan.contains("\"status\":\"done\"");
+    let sys = format!(concat!(
+        "Você é o ORQUESTRADOR do Constellation conversando com o dev em português sobre o PROJETO aberto e o PLANO que você propôs. ",
+        "Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar. Você NÃO edita arquivos nem roda comandos que alterem estado. ",
+        "Seja direto e específico (arquivos/linhas quando útil). ",
+        "Responda SEMPRE com um bloco ```json com as chaves {{\"say\":\"sua resposta em markdown curto\"}}{}. Nada de texto fora do bloco.\n\nPLANO ATUAL (JSON):\n{}"),
+        if locked {
+            " — este plano JÁ FOI APROVADO e está rodando: as fases viraram tarefas e NÃO podem mais ser trocadas por aqui; responda dúvidas, explique decisões e sugira o que o dev pode fazer (ex.: adicionar um subagente pelo botão '+ subagente')".to_string()
+        } else {
+            concat!(" e, SOMENTE se o dev pedir uma mudança no plano (juntar/dividir/renomear fases, mudar objetivos, dependências, autonomia, ordem), inclua também \"plan\":{{\"phases\":[...]}} com a LISTA COMPLETA de fases já ajustada, no mesmo formato do plano atual ",
+                    "({{key,name,kind:invest|design|build|review,agent,objective,objectives:[criterios verificaveis],autonomy:ask|free,dependsOn:[keys]}}). Mantenha as keys das fases que não mudaram. Não inclua \"plan\" quando for só resposta").to_string()
+        },
+        plan
+    );
+    let claude = claude_bin();
+    let mut args: Vec<String> = vec![
+        "-p".to_string(),
+        prompt,
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--append-system-prompt".to_string(),
+        sys,
+        "--allowedTools".to_string(),
+        "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*)".to_string(),
+    ];
+    if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
+        args.push("--model".to_string());
+        args.push(m);
     }
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    if let Some(sid) = &session_id {
+        if !sid.is_empty() {
+            args.push("--resume".to_string());
+            args.push(sid.clone());
+        }
+    }
+    let mut cmd = claude_cmd(&claude);
+    cmd.args(&args).current_dir(&repo);
+    let out = output_timeout(cmd, 300)?;
+    let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
         session_id: v["session_id"].as_str().unwrap_or("").to_string(),
@@ -2884,21 +3288,29 @@ fn llm_env_get(key: &str) -> Option<String> {
 
 /// Resolve o caminho de um artefato (coletado no repo, ou AO VIVO na worktree).
 fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<PathBuf, String> {
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
+    if !artifact_name_ok(name) {
         return Err("nome de artefato inválido".into());
     }
-    let repo = repo_of(state)?;
-    let p = repo.join(".cardume").join("artifacts").join(task_id).join(name);
-    if p.is_file() { return Ok(p); }
+    let name = name.trim();
+    // worktree AO VIVO primeiro (é a versão mais nova), depois a cópia coletada
     if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-                let art = PathBuf::from(&wt).join(".cardume").join("artifacts");
-                for wp in [art.join(name), art.join(task_id).join(name)] {
-                    if wp.is_file() { return Ok(wp); }
+                if !wt.is_empty() {
+                    let art = PathBuf::from(&wt).join(".cardume").join("artifacts");
+                    for wp in [art.join(name), art.join(task_id).join(name)] {
+                        if wp.is_file() { return Ok(wp); }
+                    }
                 }
             }
         }
+    }
+    let repo = repo_of(state)?;
+    let col = repo.join(".cardume").join("artifacts").join(task_id);
+    // <task>/<task>/x: o agente escreveu em .cardume/artifacts/<task>/ na worktree
+    // e o coletor copiou a subpasta inteira — a lista achata, aqui resolve.
+    for p in [col.join(name), col.join(task_id).join(name)] {
+        if p.is_file() { return Ok(p); }
     }
     Err("artefato não encontrado".into())
 }
@@ -2909,6 +3321,8 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
 fn slack_send_artifact(state: State<AppState>, task_id: String, name: String, channel: String, comment: Option<String>) -> Result<String, String> {
     let token = llm_env_get("SLACK_BOT_TOKEN").ok_or("configure SLACK_BOT_TOKEN em Conta → Chaves de modelo (bot do Slack com files:write)")?;
     let path = artifact_path(&state, &task_id, &name)?;
+    // nome pode ter subpasta (entregaveis/x.pdf) — no Slack vai só o arquivo
+    let name = path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or(name);
     let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     // 1) pede a URL de upload
     let mut c1 = Command::new("curl");
@@ -3059,6 +3473,239 @@ fn scan_skills_dir(dir: &std::path::Path, source: &str, out: &mut Vec<(String, S
 fn skills_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
     Ok(repo_of(state)?.join(".cardume").join("skills.json"))
 }
+
+fn issue_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
+    Ok(repo_of(state)?.join(".cardume").join("issue.json"))
+}
+
+/// Config de "criar issue ao abrir demanda" deste repo (espelho local do que o
+/// time compartilha na nuvem). O motor lê esse arquivo em Orchestrator.issueContext.
+#[tauri::command]
+fn get_issue_config(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let p = issue_json_path(&state)?;
+    let txt = std::fs::read_to_string(&p)
+        .unwrap_or_else(|_| "{\"enabled\":false,\"instructions\":\"\",\"titleTemplate\":\"\",\"bodyTemplate\":\"\"}".into());
+    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!({ "enabled": false, "instructions": "", "titleTemplate": "", "bodyTemplate": "" })))
+}
+
+/// Grava a config de issue do repo (o app mantém isto sincronizado com a nuvem).
+#[tauri::command]
+fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
+    let p = issue_json_path(&state)?;
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ===== Painel de Issues: conexão genérica com um tracker (conector declarativo) =====
+fn constellation_home() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation")
+}
+
+/// Cache local do painel de issues do time (a nuvem — issue_trackers — é a fonte;
+/// sem nuvem, vale só nesta máquina). Nunca contém o VALOR de chaves.
+#[tauri::command]
+fn tracker_local_get() -> Result<serde_json::Value, String> {
+    let txt = std::fs::read_to_string(constellation_home().join("issue-tracker.json")).unwrap_or_else(|_| "null".into());
+    Ok(serde_json::from_str(&txt).unwrap_or(serde_json::Value::Null))
+}
+
+#[tauri::command]
+fn tracker_local_set(config: serde_json::Value) -> Result<(), String> {
+    let d = constellation_home();
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    std::fs::write(d.join("issue-tracker.json"), serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+fn tracker_binds_path() -> PathBuf { constellation_home().join("tracker-secrets.json") }
+
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split(|c| c == '/' || c == '?' || c == '#').next()?;
+    let host = authority.rsplit('@').next()?.split(':').next()?;
+    if host.is_empty() { None } else { Some(host.to_lowercase()) }
+}
+
+/// Vincula uma chave do cofre a UM host. O conector é compartilhado pelo time —
+/// sem este vínculo LOCAL, um conector adulterado poderia mandar a chave de
+/// alguém pra outro servidor. Só o humano desta máquina cria o vínculo (no painel).
+#[tauri::command]
+fn tracker_bind_secret(name: String, host: String) -> Result<(), String> {
+    let p = tracker_binds_path();
+    let mut m: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&p).ok()
+        .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    m.insert(name, serde_json::Value::String(host.to_lowercase()));
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, serde_json::to_string_pretty(&m).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// Quais chaves (só NOMES) existem no cofre local e a que host cada uma está vinculada.
+#[tauri::command]
+fn tracker_secret_status(names: Vec<String>) -> serde_json::Value {
+    let binds: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(tracker_binds_path()).ok()
+        .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let mut out = serde_json::Map::new();
+    for n in names {
+        out.insert(n.clone(), serde_json::json!({ "present": llm_env_get(&n).is_some(), "host": binds.get(&n).cloned().unwrap_or(serde_json::Value::Null) }));
+    }
+    serde_json::Value::Object(out)
+}
+
+/// Troca {{secret.NOME}} pelo valor do cofre — só se NOME estiver vinculado ao host do request.
+fn tracker_fill_secrets(text: &str, host: &str) -> Result<String, String> {
+    let binds: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(tracker_binds_path()).ok()
+        .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("{{secret.") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 9..];
+        let j = after.find("}}").ok_or("placeholder {{secret.…}} mal formado")?;
+        let name = after[..j].trim();
+        let bound = binds.get(name).and_then(|v| v.as_str()).unwrap_or("");
+        if bound != host {
+            return Err(format!("SECRET_UNBOUND:{name}:{host}"));
+        }
+        let val = llm_env_get(name).ok_or(format!("SECRET_MISSING:{name}"))?;
+        out.push_str(&val);
+        rest = &after[j + 2..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+fn curl_cfg_quote(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r").replace('\t', "\\t")
+}
+
+/// Executa UMA chamada HTTP do conector. A chave entra aqui (nunca no webview) e
+/// vai pro curl por stdin (--config -), então não aparece em `ps`.
+#[tauri::command(async)]
+fn tracker_http(method: String, url: String, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
+    use std::io::Write;
+    let host = url_host(&url).ok_or("URL inválida")?;
+    let local = host == "localhost" || host == "127.0.0.1";
+    if !url.starts_with("https://") && !local { return Err("o tracker precisa ser https".into()); }
+    let m = method.to_uppercase();
+    if !["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&m.as_str()) { return Err("método inválido".into()); }
+    let mut cfg = format!("url = \"{}\"\nrequest = \"{}\"\n", curl_cfg_quote(&tracker_fill_secrets(&url, &host)?), m);
+    for (k, v) in headers.unwrap_or_default() {
+        cfg.push_str(&format!("header = \"{}: {}\"\n", curl_cfg_quote(&k), curl_cfg_quote(&tracker_fill_secrets(&v, &host)?)));
+    }
+    if let Some(b) = body {
+        cfg.push_str(&format!("data-binary = \"{}\"\n", curl_cfg_quote(&tracker_fill_secrets(&b, &host)?)));
+    }
+    let mut child = Command::new("curl")
+        .args(["-sS", "--max-time", "30", "-w", "\n%{http_code}", "--config", "-"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().map_err(|e| format!("falha ao rodar curl: {e}"))?;
+    child.stdin.take().ok_or("sem stdin")?.write_all(cfg.as_bytes()).map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!("rede: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    let txt = String::from_utf8_lossy(&out.stdout).to_string();
+    let (resp, code) = txt.rsplit_once('\n').unwrap_or((txt.as_str(), "0"));
+    Ok(serde_json::json!({ "status": code.trim().parse::<u16>().unwrap_or(0), "body": resp }))
+}
+
+/// Lê a DOCUMENTAÇÃO do tracker (texto colado e/ou arquivo — PDF/MD) e devolve o
+/// CONECTOR declarativo (JSON) que o painel executa. Nunca inclui valor de chave.
+#[tauri::command(async)]
+fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, String> {
+    let docs: String = docs.chars().take(60000).collect();
+    let files: Vec<String> = files.unwrap_or_default().into_iter().filter(|f| !f.trim().is_empty()).collect();
+    if docs.trim().is_empty() && files.is_empty() { return Err("cole a documentação ou escolha um arquivo".into()); }
+    let mut prompt = String::from(TRACKER_AI_PROMPT);
+    if !files.is_empty() { prompt.push_str(&format!("\n\nLEIA também estes arquivos de documentação (use a tool Read em CADA um; eles se complementam — junte tudo num conector só):\n{}", files.join("\n"))); }
+    if !docs.trim().is_empty() { prompt.push_str(&format!("\n\nDOCUMENTAÇÃO:\n{docs}")); }
+    let mut c = claude_cmd(&claude_bin());
+    c.args(["-p", &prompt]);
+    if !files.is_empty() { c.args(["--allowedTools", "Read", "--permission-mode", "bypassPermissions"]); }
+    let out = c.stdin(Stdio::null()).output().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// "Nova issue" conversando (uma ou várias): roda no repo do PROJETO escolhido, PESQUISA o
+/// código (só leitura) pra fechar as arestas de cada issue e devolve os rascunhos em JSON.
+/// Sessão retomada a cada mensagem (mesmo padrão do planner / ai_orchestrate_chat).
+#[tauri::command(async)]
+fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>, repo: Option<String>, model: Option<String>, context: String) -> Result<AiChat, String> {
+    let repo = repo_or(&state, repo)?;
+    let sys = format!("{}\n\nCONTEXTO DO PAINEL (JSON):\n{}", ISSUE_CHAT_PROMPT, context);
+    let mut args: Vec<String> = vec![
+        "-p".to_string(), prompt,
+        "--output-format".to_string(), "json".to_string(),
+        "--append-system-prompt".to_string(), sys,
+        "--allowedTools".to_string(),
+        "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
+        "--permission-mode".to_string(), "bypassPermissions".to_string(),
+    ];
+    if let Some(m) = model.filter(|m| !m.trim().is_empty()) { args.push("--model".to_string()); args.push(m); }
+    if let Some(sid) = &session_id { if !sid.is_empty() { args.push("--resume".to_string()); args.push(sid.clone()); } }
+    let mut cmd = claude_cmd(&claude_bin());
+    cmd.args(&args).current_dir(&repo);
+    cmd.process_group(0); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    let pid = child.id() as i32;
+    ISSUE_CHAT_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let watch = std::thread::spawn(move || {
+        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { signal_group(pid, libc::SIGKILL); }
+    });
+    let out = child.wait_with_output();
+    let _ = tx.send(());
+    let _ = watch.join();
+    // só zera se ainda for o MEU pid (outra chamada pode ter começado)
+    let _ = ISSUE_CHAT_PID.compare_exchange(pid, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
+    let out = out.map_err(|e| e.to_string())?;
+    if out.status.code().is_none() { return Err("ISSUE_CHAT_STOPPED".into()); }
+    let v = claude_json(&out)?;
+    Ok(AiChat { text: v["result"].as_str().unwrap_or("").to_string(), session_id: v["session_id"].as_str().unwrap_or("").to_string() })
+}
+
+static ISSUE_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// PARA a pesquisa em andamento da aba "Nova issue" (mata o grupo do claude).
+#[tauri::command]
+fn issue_chat_stop() -> bool {
+    let pid = ISSUE_CHAT_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid > 0 { signal_group(pid, libc::SIGKILL); true } else { false }
+}
+
+const ISSUE_CHAT_PROMPT: &str = r#"Você monta ISSUES pro painel do time conversando com o dev, em português, no projeto aberto nesta pasta. O dev manda UMA ideia ou uma LISTA (várias linhas = várias issues). Seu trabalho é FECHAR AS ARESTAS de cada uma antes de criar: PESQUISE o código de verdade (Read/Grep/Glob/LS, git log/show/grep) — onde isso mora, o que já existe, o que está faltando, qual a causa provável — com PARCIMÔNIA (poucas leituras direcionadas por issue, nunca varredura do repo). Você NÃO edita nada.
+Para cada issue produza: title (verbo no infinitivo + objeto específico, máx 80 chars), description (2-5 frases: o problema/pedido, ONDE no código — cite arquivo:linha quando achar — e a abordagem provável), requirements (2-5 critérios de aceite VERIFICÁVEIS), goal (critério de pronto em 1 frase), assignee (SÓ se o dev disser quem é o responsável; use o nome/e-mail exatamente como ele disse ou como aparece em `people` do contexto; senão ""), priority (só se o dev disser; use um dos valores de `priorities` do contexto), type (um dos `types` do contexto — ex.: bug quando for defeito; "" se o painel não tiver tipos), open (perguntas que SÓ o dev sabe responder e que mudam o escopo; [] se fechou).
+Não invente: o que o código não responde vira pergunta em `open`. Pergunte POUCO e agrupado — no `say`, faça no máximo 1-3 perguntas por rodada, as que mais mudam o escopo, dizendo de qual issue é cada uma. Se a lista tiver itens duplicados ou que já existem no painel (veja `existing` no contexto), avise no `say` e marque `"skip": true` neles.
+Responda SEMPRE E SOMENTE com um bloco ```json: {"say":"sua fala curta em markdown","chips":["0 a 4 respostas rápidas"],"issues":[{"title":"","description":"","requirements":[""],"goal":"","assignee":"","priority":"","type":"","open":[""],"skip":false}],"done":false}. `issues` traz SEMPRE a lista COMPLETA e atualizada (não só o que mudou), na ordem do dev — EXCETO quando a mensagem vier marcada com [LOTE k/n]: aí devolva em `issues` SÓ as issues daquele lote (o app junta) e guarde as perguntas menos importantes em `open` em vez de encher o `say`. Lista grande = pesquisa mais enxuta por item (1-2 buscas direcionadas cada). `done` só vira true quando nenhuma issue tem `open` pendente E o dev confirmar que pode criar. Se a mensagem for saudação ou ainda não houver nada concreto, responda direto sem usar ferramentas e com "issues":[]. JSON ESTRITAMENTE VÁLIDO: dentro das strings use \\n pra quebra de linha, escape aspas, e NUNCA coloque cercas ``` dentro de `say`/`description` (pra citar caminho, label ou trecho use `crase simples`). Nada de texto fora do bloco json."#;
+
+const TRACKER_AI_PROMPT: &str = r#"Você configura a conexão do Constellation com um painel/tracker de issues a partir da DOCUMENTAÇÃO da API dele. Responda SOMENTE um JSON válido (sem markdown, sem comentários) neste formato:
+{
+ "name": "nome curto do painel",
+ "baseUrl": "https://…",
+ "headers": {"x-api-key": "{{secret.NOME_DA_CHAVE}}"},
+ "secrets": [{"name": "NOME_DA_CHAVE", "hint": "onde o humano acha essa chave"}],
+ "vars": [{"name": "team", "label": "Time", "value": "valor padrão da doc, se houver", "perUser": false}, {"name": "email", "label": "Seu e-mail no tracker", "value": "", "perUser": true}],
+ "ops": {
+  "list": {"method": "GET", "path": "/…", "query": {"team": "{{team}}", "limit": "{{limit}}", "offset": "{{offset}}"}, "body": null, "itemsPath": "caminho.ate.o.array", "totalPath": "total ou null", "pageSize": 100},
+  "create": {"method": "POST", "path": "/…", "body": {"title": "{{title}}", "description": "{{description}}"}, "resultPath": "objeto da issue criada ou vazio"},
+  "updateStatus": {"method": "POST", "path": "/…", "body": {"code": "{{code}}", "status": "{{status}}", "block_reason": "{{reason}}"}},
+  "assign": {"method": "POST", "path": "/…", "body": {"code": "{{code}}", "assignee_email": "{{assignee}}"}},
+  "comments": null,
+  "addComment": null
+ },
+ "fields": {"id": "id", "code": "code", "title": "title", "description": "description", "status": "status", "assignee": "campo com o ID de quem está com a issue ou null", "assigneeName": "campo com o NOME do responsável (ex.: assignee_name) ou null", "assigneeEmail": "campo com o e-mail do responsável ou null", "createdBy": "campo com o nome/e-mail de quem criou ou null", "priority": "priority ou null", "tags": "tags ou null", "createdAt": "created_at", "updatedAt": "updated_at", "url": "campo com link web ou null", "commentCount": "campo ou null"},
+ "urlTemplate": "https://…/{{code}} se a doc der um link web por issue, senão vazio",
+ "statuses": [{"id": "valor exato na API", "label": "rótulo em português", "kind": "todo|doing|blocked|done"}],
+ "assigneeFormat": "email|id|name — o que a API espera em {{assignee}}",
+ "priorities": ["valores aceitos em {{priority}}, na ordem da mais alta pra mais baixa; [] se a doc não listar"],
+ "types": ["valores aceitos em {{type}} (ex.: task, bug); [] se não houver"],
+ "notes": "1-3 frases: o que NÃO deu pra mapear (ex.: API não expõe comentários)"
+}
+Regras: (1) NUNCA escreva o valor real de uma chave, mesmo que apareça na doc — só {{secret.NOME}} (NOME em MAIÚSCULAS_COM_UNDERSCORE, use o nome que a doc usa). (2) Placeholders disponíveis: os "vars" que você declarar, e por operação — create: {{title}} {{description}} {{goal}} {{assignee}} {{priority}} {{type}} (use {{assignee}}/{{priority}}/{{type}} no body do create SÓ se a doc aceitar responsável/prioridade/tipo na criação; campo vazio é omitido do envio); updateStatus: {{code}} {{id}} {{status}} {{reason}} ({{reason}} = motivo do bloqueio, só se a doc tiver); assign (trocar o responsável de UMA issue — só se a doc permitir; senão null): {{code}} {{id}} {{assignee}}; comments/addComment: {{code}} {{id}} {{text}}; list: {{limit}} {{offset}} {{page}}. Em path/query/body. (3) "ops.comments" (listar comentários de UMA issue: itemsPath + "fields":{"author","text","createdAt"}) e "ops.addComment" só se a doc tiver; senão null. (4) statuses na ORDEM do fluxo; kind: todo=não iniciada, doing=em andamento, blocked=bloqueada, done=concluída. (5) vars perUser=true para o que muda por pessoa (e-mail, usuário). (6) Não invente endpoint: o que a doc não cobre fica null."#;
 
 /// Lista as skills disponíveis (pessoais em ~/.claude/skills + do projeto em
 /// <repo>/.claude/skills), marcando quais estão ATIVAS pra este repo.
@@ -3528,10 +4175,7 @@ fn project_chat(state: State<AppState>, prompt: String, session_id: Option<Strin
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     let out = output_timeout(cmd, 240)?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
         session_id: v["session_id"].as_str().unwrap_or("").to_string(),
@@ -4052,11 +4696,7 @@ struct ArtifactRaw {
 /// Bytes de um artefato (base64) — pro upload de provas pro time (Storage).
 #[tauri::command(async)]
 fn read_artifact_raw(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactRaw, String> {
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err("nome de artefato inválido".to_string());
-    }
-    let repo = repo_of(&state)?;
-    let path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
+    let path = artifact_path(&state, &task_id, &name)?;
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let l = name.to_lowercase();
     let mime = if l.ends_with(".png") { "image/png" }
@@ -4099,25 +4739,7 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
 /// Abre um artefato da tarefa no app padrão do sistema (ex.: mockup.html no navegador).
 #[tauri::command(async)]
 fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Result<(), String> {
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err("nome de artefato inválido".to_string());
-    }
-    let repo = repo_of(&state)?;
-    let mut path = repo.join(".cardume").join("artifacts").join(&task_id).join(&name);
-    if !path.is_file() {
-        // ao vivo na worktree (ainda não coletado)
-        if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-            if let Ok(conn) = open(&db) {
-                if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-                    let wp = PathBuf::from(&wt).join(".cardume").join("artifacts").join(&name);
-                    if wp.is_file() { path = wp; }
-                }
-            }
-        }
-    }
-    if !path.is_file() {
-        return Err("artefato não encontrado".to_string());
-    }
+    let path = artifact_path(&state, &task_id, &name)?;
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     Command::new(opener).arg(&path).spawn().map_err(|e| e.to_string())?;
     Ok(())
@@ -4400,11 +5022,28 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
             }
         }
     }
+    let pr_state = v["state"].as_str().unwrap_or("").to_string();
+    // Auto-sync: PR MERGEADO (inclusive fechado/mergeado no GitHub, fora do app)
+    // → a tarefa vira 'merged'. Sem isto ela fica presa em 'review' pra sempre
+    // depois de um merge externo. Não sobrescreve estado já terminal.
+    if pr_state == "MERGED" {
+        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
+                let flipped = conn.execute(
+                    "UPDATE task SET status='merged' WHERE id=?1 AND status NOT IN ('merged','done')",
+                    params![task_id],
+                ).unwrap_or(0);
+                // worktree mergeada não serve mais — libera o disco na hora
+                if flipped > 0 { if let Ok(repo) = repo_of(&state) { remove_task_worktree(&repo, &conn, &task_id); } }
+            }
+        }
+    }
     Ok(PrInfo {
         exists: true,
         number,
         url,
-        state: v["state"].as_str().unwrap_or("").to_string(),
+        state: pr_state,
         decision: v["reviewDecision"].as_str().unwrap_or("").to_string(),
         mergeable: v["mergeable"].as_str().unwrap_or("").to_string(),
         body: v["body"].as_str().unwrap_or("").to_string(),
@@ -4570,6 +5209,181 @@ fn list_all_tasks() -> Vec<AllTask> {
     out
 }
 
+// ---------- higiene do .cardume: aprendizados ficam, entregáveis são opcionais, o resto é lixo ----------
+// O que mora em <repo>/.cardume/:
+//   aprendizados/estado  MEMORY.md HISTORY.md RUNBOOK.md SPEC.md PREFS.md policy.json skills.json
+//                        issue.json orchestrations/ state.sqlite      → NUNCA são apagados aqui
+//   entregáveis          artifacts/<tarefa>/                          → limpeza opcional (tarefas finalizadas)
+//   worktrees            worktrees/<tarefa>/ reviews/<pr>/            → removidas ao mergear; as de
+//                        tarefas finalizadas (merged/cancelled/aborted) e as órfãs são lixo
+//   temporários          logs/ why/ tmp/                              → lixo
+const CARDUME_KEEP: [&str; 11] = ["MEMORY.md", "HISTORY.md", "RUNBOOK.md", "SPEC.md", "PREFS.md", "AMBIENTE.md", "policy.json", "skills.json", "issue.json", "setup.sh", "orchestrations"];
+const TASK_FINISHED: [&str; 3] = ["merged", "cancelled", "aborted"];
+
+/// Tamanho de uma pasta (não segue symlinks — node_modules de worktree tem vários).
+fn dir_size(p: &Path) -> u64 {
+    let md = match std::fs::symlink_metadata(p) { Ok(m) => m, Err(_) => return 0 };
+    if md.file_type().is_symlink() { return 0; }
+    if md.is_file() { return md.len(); }
+    let mut total = 0u64;
+    if let Ok(rd) = std::fs::read_dir(p) {
+        for e in rd.flatten() {
+            if let Ok(m) = e.metadata() {
+                if m.file_type().is_symlink() { continue; }
+                total += if m.is_dir() { dir_size(&e.path()) } else { m.len() };
+            }
+        }
+    }
+    total
+}
+
+/// Remove a worktree de uma tarefa do disco e do registro do git. Só aceita
+/// caminhos DENTRO de <repo>/.cardume/ (worktrees/ ou reviews/) — nunca o repo.
+fn remove_worktree_dir(repo: &Path, wt: &Path) -> bool {
+    let base = repo.join(".cardume");
+    if !(wt.starts_with(base.join("worktrees")) || wt.starts_with(base.join("reviews"))) || wt == repo {
+        return false;
+    }
+    let _ = Command::new("git").arg("-C").arg(repo).args(["worktree", "remove", "--force", "--force"]).arg(wt).output();
+    if wt.exists() { let _ = std::fs::remove_dir_all(wt); }
+    let _ = Command::new("git").arg("-C").arg(repo).args(["worktree", "prune"]).output();
+    !wt.exists()
+}
+
+/// Worktree da tarefa → fora. Chamado quando a tarefa vira `merged` por
+/// qualquer caminho (merge pelo app, merge externo detectado, marcação manual).
+fn remove_task_worktree(repo: &Path, conn: &Connection, task_id: &str) {
+    if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+        if !wt.is_empty() { remove_worktree_dir(repo, &PathBuf::from(wt)); }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageItem { id: String, title: String, status: String, path: String, bytes: u64, stale: bool }
+
+fn task_rows(state: &State<AppState>) -> Result<Vec<(String, String, String, String)>, String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let mut st = conn.prepare("SELECT id, title, status, worktree FROM task").map_err(|e| e.to_string())?;
+    let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(|e| e.to_string())?;
+    Ok(rows.flatten().collect())
+}
+
+/// Raio-x do .cardume do projeto ativo: quanto ocupa cada categoria e o que
+/// pode ir embora sem perder nada (worktrees/entregáveis de tarefa finalizada,
+/// órfãos, temporários).
+#[tauri::command(async)]
+fn workspace_usage(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let repo = repo_of(&state)?;
+    let d = repo.join(".cardume");
+    let tasks = task_rows(&state)?;
+    let by_wt: std::collections::HashMap<String, &(String, String, String, String)> = tasks.iter().map(|t| (t.3.clone(), t)).collect();
+    let by_id: std::collections::HashMap<String, &(String, String, String, String)> = tasks.iter().map(|t| (t.0.clone(), t)).collect();
+    let finished = |s: &str| TASK_FINISHED.contains(&s);
+
+    // aprendizados + estado (sempre mantidos)
+    let mut keep: u64 = CARDUME_KEEP.iter().map(|n| dir_size(&d.join(n))).sum();
+    for n in ["state.sqlite", "state.sqlite-wal", "state.sqlite-shm", "cardume.db"] { keep += dir_size(&d.join(n)); }
+
+    // worktrees + reviews
+    let mut wts: Vec<UsageItem> = Vec::new();
+    for sub in ["worktrees", "reviews"] {
+        if let Ok(rd) = std::fs::read_dir(d.join(sub)) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if !p.is_dir() { continue; }
+                let key = p.display().to_string();
+                let bytes = dir_size(&p);
+                match by_wt.get(&key) {
+                    Some(t) => wts.push(UsageItem { id: t.0.clone(), title: t.1.clone(), status: t.2.clone(), path: key, bytes, stale: finished(&t.2) }),
+                    None => wts.push(UsageItem { id: String::new(), title: p.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(), status: "órfã".into(), path: key, bytes, stale: true }),
+                }
+            }
+        }
+    }
+    // entregáveis
+    let mut arts: Vec<UsageItem> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(d.join("artifacts")) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let bytes = dir_size(&p);
+            let name = p.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+            match by_id.get(&name) {
+                Some(t) => arts.push(UsageItem { id: t.0.clone(), title: t.1.clone(), status: t.2.clone(), path: p.display().to_string(), bytes, stale: finished(&t.2) }),
+                None => arts.push(UsageItem { id: String::new(), title: name, status: "órfão".into(), path: p.display().to_string(), bytes, stale: true }),
+            }
+        }
+    }
+    // temporários
+    let temp: u64 = ["logs", "why", "tmp"].iter().map(|n| dir_size(&d.join(n))).sum();
+    let attachments = dir_size(&d.join("attachments"));
+
+    let sum = |v: &Vec<UsageItem>, only_stale: bool| v.iter().filter(|i| !only_stale || i.stale).map(|i| i.bytes).sum::<u64>();
+    let cnt = |v: &Vec<UsageItem>, only_stale: bool| v.iter().filter(|i| !only_stale || i.stale).count();
+    let total = keep + temp + attachments + sum(&wts, false) + sum(&arts, false);
+    Ok(serde_json::json!({
+        "dir": d.display().to_string(),
+        "total": total,
+        "keep": keep,
+        "temp": temp,
+        "attachments": attachments,
+        "worktrees": { "bytes": sum(&wts, false), "count": cnt(&wts, false), "staleBytes": sum(&wts, true), "staleCount": cnt(&wts, true), "items": wts },
+        "artifacts": { "bytes": sum(&arts, false), "count": cnt(&arts, false), "staleBytes": sum(&arts, true), "staleCount": cnt(&arts, true), "items": arts },
+    }))
+}
+
+/// Limpeza do .cardume: `worktrees` = worktrees/reviews de tarefa finalizada ou
+/// órfãs; `temp` = logs (com >2h), why/, tmp/; `artifacts` = entregáveis de
+/// tarefa finalizada ou órfãos. Aprendizados e estado NUNCA são tocados.
+#[tauri::command(async)]
+fn workspace_clean(state: State<AppState>, worktrees: bool, temp: bool, artifacts: bool) -> Result<serde_json::Value, String> {
+    let repo = repo_of(&state)?;
+    let d = repo.join(".cardume");
+    let usage = workspace_usage(state)?;
+    let mut freed: u64 = 0;
+    let mut removed: u64 = 0;
+    let mut errors: Vec<String> = Vec::new();
+    let items = |k: &str| -> Vec<serde_json::Value> { usage[k]["items"].as_array().cloned().unwrap_or_default() };
+    if worktrees {
+        for it in items("worktrees") {
+            if !it["stale"].as_bool().unwrap_or(false) { continue; }
+            let p = PathBuf::from(it["path"].as_str().unwrap_or(""));
+            if p.as_os_str().is_empty() { continue; }
+            let b = it["bytes"].as_u64().unwrap_or(0);
+            if remove_worktree_dir(&repo, &p) { freed += b; removed += 1; } else { errors.push(format!("worktree {}", p.display())); }
+        }
+    }
+    if artifacts {
+        for it in items("artifacts") {
+            if !it["stale"].as_bool().unwrap_or(false) { continue; }
+            let p = PathBuf::from(it["path"].as_str().unwrap_or(""));
+            if !p.starts_with(d.join("artifacts")) || p == d.join("artifacts") { continue; }
+            let b = it["bytes"].as_u64().unwrap_or(0);
+            match std::fs::remove_dir_all(&p) { Ok(_) => { freed += b; removed += 1; } Err(e) => errors.push(format!("{}: {e}", p.display())) }
+        }
+    }
+    if temp {
+        for n in ["why", "tmp"] {
+            let p = d.join(n);
+            if p.is_dir() { let b = dir_size(&p); if std::fs::remove_dir_all(&p).is_ok() { freed += b; removed += 1; } }
+        }
+        // logs: só os parados há mais de 2h (uma tarefa rodando ainda escreve no dela)
+        if let Ok(rd) = std::fs::read_dir(d.join("logs")) {
+            let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600);
+            for e in rd.flatten() {
+                let p = e.path();
+                let old = e.metadata().and_then(|m| m.modified()).map(|t| t < cutoff).unwrap_or(false);
+                if !old { continue; }
+                let b = dir_size(&p);
+                let ok = if p.is_dir() { std::fs::remove_dir_all(&p).is_ok() } else { std::fs::remove_file(&p).is_ok() };
+                if ok { freed += b; removed += 1; }
+            }
+        }
+    }
+    Ok(serde_json::json!({ "freed": freed, "removed": removed, "errors": errors }))
+}
+
 /// Mergeia o PR (gh) e marca a tarefa como merged localmente.
 #[tauri::command(async)]
 fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
@@ -4587,9 +5401,7 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
-            if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-                let _ = Command::new("git").arg("-C").arg(&repo).args(["worktree", "remove", "--force", &wt]).output();
-            }
+            remove_task_worktree(&repo, &conn, &task_id);
             let _ = conn.execute("UPDATE task SET status='merged' WHERE id=?1", params![task_id]);
         }
     }
@@ -4644,6 +5456,22 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("falha ao iniciar rework: {e}"))?;
+    Ok(())
+}
+
+/// E4 — resolução de conflito assistida por IA: dispara o agente pra mergear a
+/// base e resolver os conflitos na worktree (turno longo → spawn sem bloquear a UI).
+#[tauri::command(async)]
+fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), String> {
+    let repo = repo_of(&state)?;
+    Command::new(node_bin())
+        .args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "resolve-conflict", &task_id, "--repo", &repo.display().to_string()])
+        .current_dir(&repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("falha ao iniciar a resolução de conflito: {e}"))?;
     Ok(())
 }
 
@@ -4946,6 +5774,7 @@ fn web_log(line: String) {
 /// evento "notif-open" pro front abrir a tarefa certa.
 #[tauri::command(async)]
 fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) {
+    #[cfg(target_os = "macos")]
     std::thread::spawn(move || {
         use mac_notification_sys::{Notification, NotificationResponse};
         let sent = Notification::default()
@@ -4963,6 +5792,19 @@ fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Op
             let _ = app.emit("notif-open", task_id.unwrap_or_default());
         }
     });
+    // Linux/Windows: sem resposta de clique nativa — envia pelo tauri-plugin-notification
+    // (já registrado). Perde só o "clicar abre a tarefa", não a notificação.
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let _ = task_id;
+        let _ = app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show();
+    }
 }
 
 /// Túnel TLS do preview local pro CELULAR (cloudflared quick tunnel): URL
@@ -5068,6 +5910,7 @@ fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // registra o bundle nas notificações UMA vez (senão a lib cai no Editor de Script)
+    #[cfg(target_os = "macos")]
     let _ = mac_notification_sys::set_application("dev.constellation.app");
     web_log("[rust] app iniciou".to_string());
     // túneis órfãos de instâncias anteriores (setsid sobrevive ao app): limpa
@@ -5080,10 +5923,25 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .setup(|app| {
+            // resolve o motor bundlado pelo resolvedor de recursos do Tauri
+            // (Contents/Resources no macOS; /usr/lib/<app> no .deb/.AppImage)
+            use tauri::Manager;
+            if let Ok(dir) = app.path().resource_dir() {
+                let cand = dir.join("engine").join("cli.mjs");
+                let _ = ENGINE_RESOURCE.set(cand.is_file().then_some(cand));
+            }
+            Ok(())
+        })
         .manage(AppState::from_env())
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            workspace_usage,
+            workspace_clean,
             current_repo,
+            coordination_metrics,
+            overlap_check,
+            resolve_conflict,
             list_projects,
             projects_overview,
             repo_checks,
@@ -5101,6 +5959,17 @@ pub fn run() {
             list_skills,
             get_active_skills,
             set_active_skills,
+            get_issue_config,
+            set_issue_config,
+            repo_remote_of,
+            tracker_local_get,
+            tracker_local_set,
+            tracker_bind_secret,
+            tracker_secret_status,
+            tracker_http,
+            tracker_ai_build,
+            issue_chat,
+            issue_chat_stop,
             create_skill,
             import_skill_md,
             git_skills,
@@ -5110,8 +5979,10 @@ pub fn run() {
             fetch_task_ref,
             slack_send_artifact,
             open_project,
+            git_init_repo,
             create_project,
             ai_orchestrate,
+            ai_orchestrate_chat,
             ai_file_why,
             ai_file_why_reset,
             orch_save,
@@ -5119,6 +5990,7 @@ pub fn run() {
             orch_delete,
             patch_task_spec,
             orch_sync_base,
+            orch_integrate,
             gh_accounts,
             gh_switch_account,
             gh_login_start,
@@ -5210,4 +6082,43 @@ pub fn run() {
                 let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
             }
         });
+}
+
+#[cfg(test)]
+mod cardume_hygiene_tests {
+    use super::*;
+    fn sh(dir: &Path, args: &[&str]) -> String {
+        let o = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git");
+        String::from_utf8_lossy(&o.stdout).to_string()
+    }
+    #[test]
+    fn remove_worktree_dir_only_inside_cardume() {
+        let tmp = std::env::temp_dir().join(format!("cardume-hyg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        sh(&tmp, &["init", "-q", "-b", "main"]);
+        sh(&tmp, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base"]);
+        let wt = tmp.join(".cardume").join("worktrees").join("t1");
+        sh(&tmp, &["worktree", "add", "-q", "-b", "t1", wt.to_str().unwrap()]);
+        std::fs::write(wt.join("sujeira.txt"), "x").unwrap(); // worktree suja: --force cobre
+        std::fs::create_dir_all(wt.join(".cardume").join("tmp")).unwrap();
+        assert!(wt.exists());
+        assert!(dir_size(&wt) > 0);
+        // guardas: nunca o repo, nunca fora de .cardume/{worktrees,reviews}
+        assert!(!remove_worktree_dir(&tmp, &tmp));
+        assert!(!remove_worktree_dir(&tmp, &tmp.join("src")));
+        assert!(!remove_worktree_dir(&tmp, &tmp.join(".cardume").join("artifacts")));
+        assert!(tmp.exists());
+        // remoção real: some do disco e do registro do git
+        assert!(remove_worktree_dir(&tmp, &wt));
+        assert!(!wt.exists());
+        assert_eq!(sh(&tmp, &["worktree", "list"]).lines().count(), 1);
+        // órfã (pasta sem registro no git) também sai
+        let orphan = tmp.join(".cardume").join("worktrees").join("orfa");
+        std::fs::create_dir_all(orphan.join("node_modules")).unwrap();
+        std::fs::write(orphan.join("node_modules").join("a.js"), "1").unwrap();
+        assert!(remove_worktree_dir(&tmp, &orphan));
+        assert!(!orphan.exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

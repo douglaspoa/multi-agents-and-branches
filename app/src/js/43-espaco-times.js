@@ -49,8 +49,9 @@ function tsCardHtml(t, me, isAdmin){
   const isErr=t.status==='error'||t.status==='conflict';
   const obj=((t.spec||{}).objective||'').replace(/\s+/g,' ').slice(0,160);
   const reqs=((t.spec||{}).requirements||[]).filter(Boolean);
+  const teamTag=(typeof tsOrgScope==='function'&&tsOrgScope())?`<span class="tsteamtag" title="time">${esc(tsTeamName(t.team_id)||'?')}</span>`:'';
   return `<div class="tscard dcard-like" data-ct="${escA(t.id)}">
-    <div class="tt">${esc(t.title)}</div>
+    <div class="tt">${esc(t.title)}${teamTag}</div>
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
     ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?'✓':st==='blk'?'!':'○'}</i>${esc(r)}</span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
@@ -89,8 +90,13 @@ function renderTeamBoard(){
   let vis=all;
   if(epSel && teamEpics.some(e=>e.id===epSel)) vis=vis.filter(t=>t.epic_id===epSel);
   if(devSel) vis=vis.filter(t=>(t.assignee||t.created_by)===devSel);
-  const teamName=esc((((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())||{}).name||'Time');
-  const members=[...new Set([ ...(((cloudData&&cloudData.teamMembers)||{})[cloudTeamId()]||[]).map(m=>m.user_id), ...all.flatMap(t=>[t.assignee,t.created_by]).filter(Boolean) ])];
+  const orgScope=tsOrgScope();
+  const teamName=orgScope?'toda a organização':esc((((cloudData&&cloudData.teams)||[]).find(x=>x.id===cloudTeamId())||{}).name||'Time');
+  const scopeIds=tsScopeTeamIds();
+  const members=[...new Set([ ...scopeIds.flatMap(tid=>(((cloudData&&cloudData.teamMembers)||{})[tid]||[]).map(m=>m.user_id)), ...(orgScope?((cloudData&&cloudData.orgMembers)||[]).map(m=>m.user_id):[]), ...all.flatMap(t=>[t.assignee,t.created_by]).filter(Boolean) ])];
+  // times de cada pessoa (no escopo da org: etiquetas nos cartões de Pessoas)
+  const teamsOf=uid=>scopeIds.filter(tid=>(((cloudData&&cloudData.teamMembers)||{})[tid]||[]).some(m=>m.user_id===uid));
+  const roleOf=uid=>{ for(const tid of scopeIds){ const r=(((cloudData&&cloudData.teamMembers)||{})[tid]||[]).find(m=>m.user_id===uid); if(r&&r.role==='lead') return 'lead'; } return teamsOf(uid).length?'membro':'sem time'; };
   // reviews feitos pelo time (dedup): pr_url → quem revisou
   const tsRevBy={};
   all.forEach(t=>{ if(t.pr_url && (((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||''))) tsRevBy[t.pr_url]=t.assignee||t.created_by; });
@@ -102,7 +108,7 @@ function renderTeamBoard(){
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:10px;opacity:.8">${n}</span>`:''}</button>`).join('')+
-    `<span class="grow"></span><span class="dim mono" style="font-size:10.5px;align-self:center">time ${teamName}</span></div>`;
+    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido no topo e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono" style="font-size:10.5px;align-self:center">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   const epicChips=(teamEpics.length?teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(B.done).length+ts.filter(B.review).length;
@@ -164,8 +170,8 @@ function renderTeamBoard(){
         const mine=inP.filter(t=>(t.assignee||t.created_by)===uid);
         const d=mine.filter(t=>B.done(t)||B.review(t)).length, u=mine.reduce((s,t)=>s+(+t.cost_usd||0),0);
         const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
-        const role=(((cloudData&&cloudData.teamMembers)||{})[cloudTeamId()]||[]).find(m=>m.user_id===uid);
-        return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:13.5px">${esc(tmName(uid))}</b><div class="dim" style="font-size:10.5px">${role&&role.role==='lead'?'lead':'membro'} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}</div></div></div>
+        const teamTags=orgScope?teamsOf(uid).map(tid=>`<span class="tsteamtag">${esc(tsTeamName(tid))}</span>`).join(''):'';
+        return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:13.5px">${esc(tmName(uid))}</b><div class="dim" style="font-size:10.5px">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
           <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>rodando</span></div><div><b>${fmtUsd(u)}</b><span>custo</span></div></div>
           <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div>
           ${(()=>{ // tarefas da pessoa com badge de TIPO + progresso (redesign p7)
@@ -191,6 +197,7 @@ function renderTeamBoard(){
   teamPaintSig=html; el.innerHTML=html;
   // ---------- wiring ----------
   el.querySelectorAll('[data-tsv]').forEach(b=>{ b.onclick=()=>{ tmView=b.dataset.tsv; lsSet('tmView',tmView); teamPaintSig=''; renderTeamBoard(); }; });
+  el.querySelectorAll('[data-tscope]').forEach(b=>{ b.onclick=()=>tsSetScope(b.dataset.tscope); });
   el.querySelectorAll('[data-epsel]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epsel?'':b.dataset.epsel); if(tmView!=='board'){ tmView='board'; lsSet('tmView','board'); } teamPaintSig=''; renderTeamBoard(); }; });
   { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=await askText('Novo épico','ex.: Filtros avançados'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
   { const s=el.querySelector('#tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
@@ -203,7 +210,7 @@ function renderTeamBoard(){
     const done=await cloudPrReviewCheck(ct.pr_url).catch(()=>null);
     if(done && !confirm('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Constellation — o parecer está no cartão dele.\n\nRodar OUTRO review mesmo assim?')){ b.disabled=false; b.textContent='revisar com agente'; return; }
     invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ alert('Falha: '+err); b.disabled=false; b.textContent='revisar com agente'; }); }; });
-  el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTask(ct); }; });
+  el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;
     if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
 }
@@ -215,7 +222,7 @@ async function teamClaimStart(ct, btn){
     if(!j.ok) throw new Error(j.error||'não deu pra assumir');
     // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
     const payload={ workflow:null, agents:null, engine:'claude', approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), title: ct.spec?.title||ct.title, start:true };
-    const localId=await invoke('new_task', payload);
+    const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
@@ -238,7 +245,7 @@ function openCloudTask(ct){
   const reqs=(sp.requirements||[]);
   const body=$id('ctBody');
   body.innerHTML=`
-    ${(ct.pr_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${linkChips({prUrl:ct.pr_url, branch:ct.branch, title:ct.title})}</div>`:''}
+    ${(ct.pr_url||ct.issue_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${linkChips({prUrl:ct.pr_url, issueUrl:ct.issue_url, branch:ct.branch, title:ct.title})}</div>`:''}
     <div class="imhint">criada por <b>${esc(tmName(ct.created_by))}</b> · ${esc(CT_ST_PT[ct.status]||ct.status)}${ct.assignee?' · com <b>'+esc(tmName(ct.assignee))+'</b>':''}${ct.claim_mode==='reserved'?' · <b>reservada pra si</b>':''}</div>
     <label style="margin-top:10px">Título</label><input class="in" id="ctTitle" value="${escA(ct.title)}" ${canEdit?'':'disabled'}>
     <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
@@ -285,6 +292,7 @@ function openCloudTask(ct){
         await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ title, spec }) });
         sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'edited', body:'' }).catch(()=>{});
         teamTasks=null; $id('ctOverlay').style.display='none'; renderTeamBoard();
+        if(typeof ctpTask!=='undefined'&&ctpTask&&ctpTask.id===ct.id){ ctPageLoad(ct.id, true).then(()=>ctPageRender()); }
       }catch(e){ alert('Falhou: '+e.message); b.disabled=false; b.textContent='salvar alterações'; }
     }; }
   wireLinkChips(body);
@@ -449,7 +457,7 @@ window.switchProject = switchProject;
 window.pickFolder = pickFolder;
 try{ if(window.ndInjectFonts) window.ndInjectFonts(); }catch(_){}
 if(typeof projects!=='undefined') window.projectsList = ()=>projects;
-[['newTaskBtn','nova'],['projetosBtn','projetos'],['skillsBtn','skills'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
+[['newTaskBtn','nova'],['projetosBtn','projetos'],['skillsBtn','skills'],['issuesBtn','issues'],['cfgBtn','cfg'],['dailyBtn','daily'],['pcBtn','chat'],['envBtn','env'],['cloudBtn','conta'],['agentsBtn','agents']].forEach(([id,kind])=>{
   const b=$id(id); if(b) b.onclick=(e)=>{ if(e&&e.preventDefault)e.preventDefault(); window.openTab(kind); };
 });
 if(window.openTab) window.openTab('flow');

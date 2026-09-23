@@ -1,7 +1,15 @@
 // Constellation — 10-core
-const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+const _invokeRaw = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+// Envelope de rastreabilidade: TODA falha de comando de backend (login, PR,
+// planner, qualquer um) é registrada (52-erros → Supabase) SEM parar de propagar
+// o erro pra quem chamou. web_log fica de fora (é o log local — evita ruído/recursão).
+const invoke = (cmd, args) => _invokeRaw(cmd, args).catch((err) => {
+  try { if (cmd !== "web_log" && window.logAppError) window.logAppError("invoke:" + cmd, err); } catch (_) {}
+  throw err;
+});
 // ícones SVG no estilo do app (linha, currentColor) — substituem emojis em botões/headers
 const _ICONS={
+  chat:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>',
   upload:'<path d="M8 10.6V3.2m0 0L5.3 5.9M8 3.2l2.7 2.7"/><path d="M3.4 12.6h9.2"/>',
   book:'<path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/>',
   compass:'<circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/>',
@@ -17,6 +25,22 @@ const _ICONS={
 };
 function ic(n,sz){ sz=sz||12; return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:${sz}px;height:${sz}px;vertical-align:-1.5px;margin-right:5px;flex:none">${_ICONS[n]||''}</svg>`; }
 window.ic=ic; // pro bloco 1 (script separado) também usar
+// Chamada de IA COM sessão retomada. Se o Claude não achar a sessão (projeto trocado no meio,
+// sessão limpa, cwd diferente), refaz UMA vez sem sessão, com o histórico resumido dentro do
+// prompt — a conversa continua e o usuário nunca vê "sessão expirou". `fn(prompt, sid)` faz o invoke.
+// Devolve { ...resposta, recovered:true } quando teve que recomeçar (pra quem chama trocar o sid).
+async function aiCallResumeSafe(fn, sid, prompt, history){
+  try{ return await fn(prompt, sid||null); }
+  catch(e){
+    const msg=String(e&&e.message||e);
+    if(!sid || !/No conversation found|sessão da conversa expirou|session.*not found/i.test(msg)) throw e;
+    console.error('sessão perdida — recomeçando com histórico:', msg.slice(0,120));
+    const hist=(history||[]).filter(m=>m&&(m.text||'')).slice(-14).map(m=>{ const who=(m.who||m.role||''); const tag=who==='you'||who==='user'?'USUÁRIO':who==='bot'||who==='assistant'?'VOCÊ':'SISTEMA'; return tag+': '+String(m.text).replace(/\n*\[ANEXOS\][\s\S]*?\[\/ANEXOS\]/g,'').slice(0,1500); }).join('\n\n');
+    const p2=(hist?'[CONTEXTO — a sessão anterior desta conversa foi perdida; abaixo o histórico resumido pra você CONTINUAR de onde parou, sem recomeçar nem repetir o que já foi dito.]\n'+hist+'\n[/CONTEXTO]\n\n':'')+prompt;
+    const r=await fn(p2, null);
+    return Object.assign({}, r||{}, { recovered:true });
+  }
+}
 // console.error e erros não tratados vão pro /tmp/constellation-web.log —
 // bug silencioso em tick não existe mais.
 setTimeout(()=>{ try{ invoke('web_log',{ line:'[boot] webview vivo · sess='+(!!localStorage.getItem('sb:sess'))+' · team='+(localStorage.getItem('sb:team')||'—') }); }catch(_){ } }, 3000);
@@ -80,6 +104,28 @@ async function connect(repo){
   }
 }
 
+// ---- pasta aberta SEM git: o app abre, mas branch/PR/worktree só depois de criar o repositório ----
+function repoHasGit(){ return !state || !state.repo || state.git!==false; }
+function gitUiSync(){
+  const off=!repoHasGit();
+  document.body.classList.toggle('nogit', off);
+  const g=document.querySelector('#viewSeg button[data-v="graph"]'); if(g) g.style.display=off?'none':'';
+  if(off && curView()==='graph'){ const f=document.querySelector('#viewSeg button[data-v="flow"]'); if(f) f.click(); }
+}
+// Antes de qualquer ação que precise de branch (nova demanda, orquestrador…): oferece criar o repo.
+// Devolve true quando pode seguir.
+async function gitGate(){
+  if(repoHasGit()) return true;
+  const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
+  if(!confirm(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Constellation precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
+  try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
+  catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
+}
+// etiqueta na barra lateral: "sem git · criar repositório"
+function gitRailTag(){
+  if(repoHasGit()) return '';
+  return `<div class="nogitrow" title="esta pasta não tem repositório git — sem branch/PR até criar um"><span class="nogittag">sem git</span><button class="nogitbtn" onclick="gitGate()">criar repositório</button></div>`;
+}
 function curView(){ return (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow"; }
 // Assinatura barata do estado: se nada mudou, pulamos o render inteiro.
 function snapSig(){
@@ -156,7 +202,11 @@ function detectNotifs(snap){
   // guarda-custos: avisa UMA vez quando a tarefa cruza o limite (padrão $25)
   try{
     const lim=parseFloat(lsGet('costWarn')||'25');
-    if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id); pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); } } } }
+    const hardCap=lsGet('costHardCap')==='1';
+    if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id);
+      if(hardCap){ pushNotif('⛔ Teto de custo — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — PAUSADA automaticamente (teto rígido)'); try{ stopTask(t.id); }catch(_){ } }
+      else { pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); }
+    } } } }
   }catch(_){ }
   // eventos novos numa tarefa → a lista de commits pode estar defasada
   const top={};
@@ -173,7 +223,9 @@ async function refresh(){
   const prevGraph = state.graph;
   state = snap;
   connected = !!snap.repo;
+  gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
+  if(typeof trkSyncTasks==='function') trkSyncTasks(); // painel de issues: status da issue acompanha a tarefa
   // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
   if(curView()==="graph"){ try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; } }
   else state.graph = prevGraph || [];

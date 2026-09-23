@@ -6,6 +6,9 @@ const AU_STEPS_ORDER=['signup','confirm','plans','pay','ready'];
 // pra onde o LINK do e-mail leva (alternativa ao código): páginas do site
 const AU_SITE='https://constellation-ai-v1.lovable.app';
 const auRedir=path=>'?redirect_to='+encodeURIComponent(AU_SITE+path);
+// Esqueci a senha: pede o CÓDIGO de 6 dígitos e abre a tela pra digitá-lo. O link do e-mail não entra no fluxo —
+// a página /redefinir-senha do site não existe e clicar num link consumiria o código. Serve o login novo e o painel Conta.
+async function auRecover(email){ await sbAuth('recover'+auRedir('/redefinir-senha'),{ email }); lsSet('sb:email',email); au.email=email; au.confirmType='recovery'; au.resendAt=Date.now()+60000; au.msg=''; auShow('confirm'); }
 let au={ step:'login', email:lsGet('sb:email')||'', name:'', confirmType:'signup', msg:'', busy:false, resendAt:0, plan:{ key:'team', interval:'month', seats:5 }, fromGate:false, waiting:false, backTo:null };
 let _auTimer=null;
 function auEl(){ return $id('authOverlay'); }
@@ -85,7 +88,7 @@ function auRender(){
     bindClick('auGo', go); bindClick('auToSignup', ()=>auShow('signup'));
     bindClick('auGh', ()=>auOAuth('github')); bindClick('auGoogle', ()=>auOAuth('google'));
     bindClick('auForgot', async()=>{ au.email=$id('auEmail').value.trim(); if(!auValidEmail(au.email)){ au.msg='digite seu e-mail acima — o código de recuperação vai pra ele.'; auRender(); return; }
-      au.busy=true; auRender(); try{ await sbAuth('recover'+auRedir('/redefinir-senha'),{ email:au.email }); lsSet('sb:email',au.email); au.confirmType='recovery'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
+      au.busy=true; auRender(); try{ await auRecover(au.email); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
     bindClick('auMagic', async()=>{ au.email=$id('auEmail').value.trim(); if(!auValidEmail(au.email)){ au.msg='digite seu e-mail acima — o link mágico vai pra ele.'; auRender(); return; }
       au.busy=true; auRender(); try{ await sbAuth('otp'+auRedir('/confirmado'),{ email:au.email, create_user:false }); lsSet('sb:email',au.email); au.confirmType='magiclink'; au.resendAt=Date.now()+60000; auShow('confirm'); }catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } });
     { const p=$id('auPass'); if(p) p.onkeydown=e=>{ if(e.key==='Enter') go(); }; }
@@ -96,7 +99,7 @@ function auRender(){
     R.innerHTML=topbar+`<div class="au-form">${au.confirmType==='signup'?auProgress(2):''}<h2 class="au-h2">${au.confirmType==='recovery'?'Código de recuperação':'Confirme o e-mail'}</h2><p class="au-p">Mandamos um código de 6 dígitos de ${what} para <b class="mono">${esc(au.email)}</b></p>${auMsg()}
       <div class="au-code" id="auCode">${[0,1,2,3,4,5].map(i=>`<input inputmode="numeric" maxlength="1" data-ci="${i}"${dis}>`).join('')}</div>
       <div class="au-row"><button class="au-btn primary" id="auGo"${dis}>${au.busy?'confirmando…':'Confirmar'}</button><span class="au-hint">não chegou? ${left>0?`<span id="auResendIn">reenviar em 0:${String(left).padStart(2,'0')}</span>`:`<a id="auResend">reenviar código</a>`}</span></div>
-      <div class="au-legal">${au.confirmType==='signup'?'Confirmou pelo link do e-mail? <a id="auToLogin">entrar com a senha</a>.':'Prefere o link do e-mail? Ele também funciona — depois volte aqui e <a id="auToLogin">entre</a>.'}<br>Se o e-mail veio só com o link e sem código, peça pro admin incluir <code>{{ .Token }}</code> nos templates (Supabase → Auth → Email Templates).</div></div>`;
+      <div class="au-legal">${au.confirmType==='signup'?'Confirmou pelo link do e-mail? <a id="auToLogin">entrar com a senha</a>.':au.confirmType==='recovery'?'O código vale 10 minutos. Não chegou? Confira o spam ou toque em reenviar. Lembrou a senha? <a id="auToLogin">entrar</a>.':'Prefere o link do e-mail? Ele também funciona — depois volte aqui e <a id="auToLogin">entre</a>.'}${au.confirmType==='recovery'?'':'<br>Se o e-mail veio só com o link e sem código, peça pro admin incluir <code>{{ .Token }}</code> nos templates (Supabase → Auth → Email Templates).'}</div></div>`;
     const inputs=[...R.querySelectorAll('[data-ci]')];
     const code=()=>inputs.map(i=>i.value).join('');
     const go=async()=>{ const t=code(); if(t.length<6){ au.msg='digite os 6 dígitos.'; auRender(); return; }
@@ -179,6 +182,7 @@ function auRenderPlans(R, topbar){
   const trial=(auPlanRow(au.plan.key,iv)||{}).trial_days||14;
   R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>-20%</i></button></div></div>${auMsg()}
     <div class="au-plans">${cards}</div>
+    <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Constellation? <a id="auInvite">tenho um convite / verificar</a></span></div>
     <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por repo e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
       `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'cobrança ainda não ativada neste backend (BILLING-SETUP.md)'}</span></div>`}</div></div>`;
   R.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>{ au.plan.key=b.dataset.plan; auRender(); });
@@ -187,6 +191,18 @@ function auRenderPlans(R, topbar){
   bindClick('auSeatP', ()=>{ const cap=(auPlanRow('team',iv)||{}).seats||12; au.plan.seats=Math.min(cap,au.plan.seats+1); auRender(); });
   bindClick('auGo', ()=>auShow('pay'));
   bindClick('auSales', ()=>openExternal('mailto:vendas@constellation.ai?subject=Plano%20Organiza%C3%A7%C3%A3o%20Constellation'));
+  bindClick('auInvite', async()=>{
+    const tok=await askText('Convite do time','cole o token que o lead te mandou (se o convite foi pro seu e-mail, normalmente entra sozinho — deixe vazio pra só verificar)', '');
+    if(tok===null) return;
+    au.busy=true; au.msg=''; auRender();
+    try{
+      if(tok.trim()){ const j=await sbRpc('accept_invite',{ p_token:tok.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); }
+      cloudData=null; cloudAutoInvTried=false; await cloudLoad(); await billingSync();
+      if(billingActive()){ au.busy=false; auShow('ready'); return; }
+      au.msg=tok.trim()?'entrou no time, mas a organização não tem plano ativo — fale com o admin.':'nenhum convite pendente pro seu e-mail.';
+    }catch(e){ au.msg=auErr(e); }
+    au.busy=false; auRender();
+  });
 }
 function auRenderPay(R, topbar){
   const p=auPlanRow(au.plan.key, au.plan.interval); const iv=au.plan.interval; const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key);

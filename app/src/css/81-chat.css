@@ -1,0 +1,88 @@
+/* Chat da tarefa — de "bolha de MSN" pro estilo chat de IA.
+   - Resposta do AGENTE lê como documento (sem caixa/sombra), largura de leitura.
+   - Sua fala fica numa bolha discreta à direita.
+   - Mais respiro, tipografia maior e legível.
+   Override carregado por último; reverter é só remover este arquivo. */
+
+.chatthread { padding: 16px 22px; gap: 4px; background: var(--surface); }
+
+/* ---------- agente (bot): resposta tipo documento ---------- */
+.cmsg.bot { max-width: 100%; align-self: stretch; gap: 12px; padding: 8px 0; }
+.cmsg.bot .cbub {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 2px 0;
+  font-size: 14px;
+  line-height: 1.68;
+  max-width: 74ch;
+}
+.cmsg.bot .cbub.think { background: transparent; }
+.cwho {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+/* ---------- você: bolha discreta à direita ---------- */
+.cmsg.you { max-width: 78%; }
+.cmsg.you .cbub {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  border-top-right-radius: 5px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: none;
+}
+.cmsg.you .cbub code { background: rgba(255,255,255,.08); }
+
+/* ---------- avatar: quadrado arredondado, um pouco maior ---------- */
+.cav { width: 28px; height: 28px; font-size: 10.5px; border-radius: 9px; margin-top: 1px; }
+
+/* ---------- respiro entre turnos + botão copiar discreto ---------- */
+.cmsg + .cmsg { margin-top: 4px; }
+.ccopy { top: 2px; right: 0; }
+.cmsg.bot .ccopy { background: var(--surface-2); }
+
+/* cursor "digitando" mais suave */
+.blink { opacity: .7; }
+
+/* ---------- SELEÇÃO DE TEXTO no chat ----------
+   O body tem -webkit-user-select:none (pra não selecionar a UI). As bolhas só
+   reabilitavam com `user-select:text` — SEM o prefixo `-webkit-`, que é o que o
+   WebKit do macOS (Tauri) respeita — então dava pra ver mas não copiar.
+   Aqui reabilita de verdade (com prefixo) no conteúdo dos 3 chats. */
+.cbub, .cbub *,
+.plbub, .plbub *,
+.pc-bub, .pc-bub *,
+.csys, .cact, .ctool {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.cbub, .plbub, .pc-bub { cursor: text; }
+
+/* ---------- resultado de tool: linha sutil (sem pill), estilo Claude ---------- */
+.ctool {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 2px 0 2px 40px; padding: 0;
+  border: none; background: transparent; box-shadow: none;
+  color: var(--good);
+  font: 500 11.5px 'Instrument Sans', sans-serif;
+  max-width: max-content;
+  animation: ctoolin .18s ease both;
+}
+.ctool-ic { width: 13px; height: 13px; color: var(--good); flex: none; display: inline-flex; }
+.ctool-ic svg { width: 13px; height: 13px; }
+@keyframes ctoolin { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---------- linha ÚNICA de atividade (várias ações colapsadas, tipo Claude) ---------- */
+.cact.cactsum { opacity: .9; align-items: center; padding-left: 40px; font-size: 11.5px; }
+.cact.cactsum .cg { color: var(--muted); display: inline-flex; align-items: center; width: 13px; height: 13px; }
+.cact.cactsum .cg svg { width: 13px; height: 13px; }
+.cact.cactsum .ct { color: var(--text-2); font-family: 'Instrument Sans', sans-serif; }

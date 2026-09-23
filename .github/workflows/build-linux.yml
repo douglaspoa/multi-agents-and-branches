@@ -1,0 +1,70 @@
+name: build-linux
+
+# Gera o Constellation pro Linux (.AppImage + .deb). O Tauri NÃO faz
+# cross-compile a partir do macOS, então o build precisa rodar num Linux de
+# verdade — é o que esta runner ubuntu-22.04 faz. Dispare pela aba Actions
+# (workflow_dispatch) ou empurrando uma tag v*.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # WebKitGTK 4.1 (webview do Tauri v2) + libs de bundle (rsvg pra ícones,
+      # patchelf pro AppImage, appindicator pro tray/notificação).
+      - name: Dependências do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential curl wget file \
+            libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache do cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      # Mesmo passo do package-app.sh: bundla o motor (cli.mjs) e o MCP
+      # (server.mjs) pra dentro de app/src-tauri/resources — é o que o
+      # tauri.conf.json declara em bundle.resources e o app lê via resource_dir().
+      - name: Bundle do motor (esbuild)
+        run: |
+          rm -rf app/src-tauri/resources
+          mkdir -p app/src-tauri/resources/engine app/src-tauri/resources/mcp
+          npx -y esbuild src/cli.ts --bundle --platform=node --format=esm \
+            --outfile=app/src-tauri/resources/engine/cli.mjs --log-level=error
+          npx -y esbuild src/mcp/server.ts --bundle --platform=node --format=esm \
+            --outfile=app/src-tauri/resources/mcp/server.mjs --log-level=error
+
+      - name: Tauri build (deb + appimage)
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: app
+          args: --bundles deb,appimage
+
+      - name: Publica os pacotes como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: constellation-linux
+          path: |
+            app/src-tauri/target/release/bundle/deb/*.deb
+            app/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error

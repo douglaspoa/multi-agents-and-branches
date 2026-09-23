@@ -9,7 +9,8 @@ function pcRender(){
   const th=$id('pcThread'); if(!th) return;
   const ms=pcMsgs();
   const repo=esc((state.repo||'o projeto').split('/').pop());
-  const head=`<div class="pc-head"><div><h1 class="as-h1" style="font-size:24px">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:rgba(255,255,255,.42)">limpar</button></div></div>`;
+  const projOpts=(typeof projList==='function'?projList():[]).map(([path,name])=>`<option value="${escA(path)}"${path===state.repo?' selected':''}>${esc(name)}</option>`).join('');
+  const head=`<div class="pc-head"><div><h1 class="as-h1" style="font-size:24px">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:rgba(255,255,255,.42)">limpar</button></div></div>`;
   let bodyHtml;
   if(ms.length){
     bodyHtml=`<div class="pc-thread">${ms.map(m=>m.role==='user'?`<div class="pc-msg you"><div class="pc-bub">${esc(m.text)}${attRowHtml(m.atts)}</div></div>`:`<div class="pc-msg"><div class="pc-bub">${mdToHtml(m.text)}</div></div>`).join('')}${pcBusy?'<div class="pc-msg"><div class="pc-bub" style="padding:0;min-width:280px;overflow:hidden">'+cosmosHtml('lendo o projeto…','inline')+'</div></div>':''}</div>`;
@@ -20,6 +21,7 @@ function pcRender(){
   th.innerHTML=`<div class="appscreen" style="padding:24px 34px 16px">${head}${bodyHtml}</div>`;
   { const b=th.querySelector('#pcTask2'); if(b) b.onclick=()=>{ const o=$id('pcTask'); if(o) o.click(); }; }
   { const b=th.querySelector('#pcClear2'); if(b) b.onclick=()=>{ const o=$id('pcClear'); if(o) o.click(); }; }
+  { const s=th.querySelector('#pcProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p&&p!==state.repo&&window.switchProject){ await switchProject(p); } pcRender(); }; }
   th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=$id('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
   attRenderPend('pcPend', pcPend, pcRender);
   th.scrollTop=th.scrollHeight;
@@ -33,7 +35,7 @@ async function pcSend(){
   if(!text) return;
   const ms=pcMsgs(); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms); inp.value=''; pcBusy=true; pcRender();
   try{
-    const r=await invoke('project_chat',{ prompt:text+attPromptBlock(atts), sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'' }), lsGet('pcsid:'+(state.repo||''))||'', text+attPromptBlock(atts), pcMsgs().slice(0,-1));
     if(r.sessionId) lsSet('pcsid:'+(state.repo||''), r.sessionId);
     const ms2=pcMsgs(); ms2.push({role:'assistant',text:r.text||'(sem resposta)'}); pcSave(ms2);
   }catch(e){ const ms2=pcMsgs(); ms2.push({role:'assistant',text:'⚠ Falhou: '+(e.message||e)}); pcSave(ms2); }

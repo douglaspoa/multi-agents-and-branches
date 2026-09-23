@@ -51,7 +51,7 @@ async function pickFolder(){
     await refresh(); await loadProjects();
   }catch(err){ projErr=String(err); openProjMenu(); }
 }
-$id("newTaskBtn").onclick = openNewTask;
+$id("newTaskBtn").onclick = async()=>{ if(await gitGate()) openNewTask(); };
 // menu "mais" do topo (redesign: topbar enxuta)
 { const mb=$id('moreBtn'), mm=$id('moreMenu');
   if(mb&&mm){

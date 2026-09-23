@@ -108,8 +108,16 @@ function closeCloud(){
   $id('cloudOverlay').style.display='none'; cloudMsg='';
 }
 
+let cloudAutoInvTried=false;
 async function cloudLoad(){
-  const orgs = await sbGet('orgs?select=*');
+  let orgs = await sbGet('orgs?select=*');
+  // sem org: se existe convite pendente pro MEU e-mail, entra sozinho (sem token) — era isso
+  // que deixava o convidado de uma org enterprise preso na tela de planos antes de poder aceitar
+  if((!orgs || !orgs.length) && !cloudAutoInvTried){
+    cloudAutoInvTried=true;
+    try{ const j=await sbRpc('accept_pending_invites',{}); const joined=(j&&j.ok&&Array.isArray(j.joined))?j.joined:[];
+      if(joined.length){ lsSet('sb:team', joined[0].team_id); orgs = await sbGet('orgs?select=*'); } }catch(_){ }
+  }
   if(!orgs || !orgs.length){ cloudData = { org:null, teams:[], members:[], teamMembers:{}, orgMembers:[], invites:[], profileByUser:{}, meRole:'member' }; try{ billingSync(); }catch(_){} return; }
   const org = orgs[0]; // v1: uma org por usuário
   const [teams, myOrg, orgMembers] = await Promise.all([
@@ -225,7 +233,8 @@ async function renderCloud(){
     { const f=$id('sbForgot'); if(f) f.onclick=async()=>{
         if(!email() || !email().includes('@')){ cloudMsg='Digite seu e-mail acima primeiro — o link de recuperação vai pra ele.'; renderCloud(); $id('sbEmail').focus(); return; }
         f.textContent='enviando…';
-        try{ await sbAuth('recover', { email: email() }); lsSet('sb:email', email()); cloudMsg='✓ Se existe uma conta com <b>'+esc(email())+'</b>, enviamos um link de recuperação pro e-mail. Abra e defina uma nova senha.'; }
+        // mesmo fluxo do onboarding: código de 6 dígitos → nova senha (auRecover em 44-onboarding.js)
+        try{ await auRecover(email()); cloudMsg=''; }
         catch(e){ cloudMsg='Falhou ao enviar recuperação: '+esc(e&&e.message||String(e)); }
         renderCloud();
       }; }

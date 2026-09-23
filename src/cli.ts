@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Orchestrator, branchName } from "./orchestrator.ts";
 import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
+import { detectScopeOverlap, type ScopeOverlap } from "./bus.ts";
 import { Workspace } from "./workspace.ts";
 import { run } from "./util/run.ts";
 import { c, statusColor, eventGlyph } from "./util/ansi.ts";
@@ -54,12 +55,36 @@ function renderList(store: Store): string {
   return rows.join("\n") + "\n";
 }
 
+function renderOverlaps(overlaps: ScopeOverlap[], selfId: string): string {
+  const lines = [
+    c.yellow("⚠ sobreposição de escopo") +
+      c.dim(` — "${selfId}" toca área de tarefa(s) ativa(s):`),
+  ];
+  for (const o of overlaps) {
+    const via = o.kind === "claim" ? c.dim("(claim em vigor)") : c.dim("(owns)");
+    lines.push(
+      `  ${c.bold(o.taskId)} ${c.dim("·")} ${o.agent}: ${c.cyan(o.yours)} ✕ ${c.cyan(o.theirs)} ${via}`
+    );
+  }
+  lines.push(
+    c.dim("  → considere ") +
+      c.green("dividir") +
+      c.dim(" o escopo (owns) ou ") +
+      c.green("sequenciar") +
+      c.dim(" (rode uma, depois a outra). Use --no-overlap-check p/ silenciar.")
+  );
+  return lines.join("\n") + "\n";
+}
+
 // ---------- comandos ----------
-async function cmdInit(repo: string) {
+async function cmdInit(repo: string, noGit = false) {
   const git = new GitService(repo);
   if (!(await git.isRepo())) {
-    console.error(c.red(`✖ ${repo} não é um repositório git.`));
-    process.exit(1);
+    if (!noGit) {
+      console.error(c.red(`✖ ${repo} não é um repositório git.`) + c.dim(" (use --no-git pra abrir a pasta mesmo assim)"));
+      process.exit(1);
+    }
+    console.log(c.yellow("!") + ` ${repo} não é um repositório git — workspace criado sem branches (crie o repositório quando quiser)`);
   }
   const ws = new Workspace(repo);
   ws.ensure();
@@ -159,10 +184,12 @@ async function cmdNew(repo: string, a: Args) {
     artifacts: artifacts.length ? artifacts : undefined,
     branchType: a.flags["branch-type"] || undefined,
     issueCode: a.flags.issue || undefined,
+    issueUrl: a.flags["issue-url"] || undefined,
     base: a.flags.base || undefined,
     autoPr: (a.flags["auto-pr"] === "no" || a.flags["auto-pr"] === "auto" ? a.flags["auto-pr"] : "ask") as TaskSpec["autoPr"],
     prBase: a.flags["pr-base"] || undefined,
     linkedTo: a.flags["linked-to"] || undefined,
+    light: a.flags.light === "true" || undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",
@@ -170,6 +197,9 @@ async function cmdNew(repo: string, a: Args) {
       runTests: a.flags["no-tests"] ? false : true,
       approval: (a.flags.approve as TaskSpec["autonomy"]["approval"]) ?? "ask",
       planApproval: a.flags["plan-approval"] === "review" ? "review" : "auto",
+      busPolicy: (["first-claim-wins", "human-tiebreak", "sequential-lock"].includes(a.flags["bus-policy"])
+        ? a.flags["bus-policy"]
+        : undefined) as TaskSpec["autonomy"]["busPolicy"],
     },
     engine: a.flags.engine ?? "mock",
     model: a.flags.model,
@@ -178,6 +208,12 @@ async function cmdNew(repo: string, a: Args) {
 
   const refSources = a.multi.ref ?? [];
   const orch = new Orchestrator(repo);
+  // Detecção proativa de sobreposição de escopo: avisa (não bloqueia) se esta
+  // demanda pisa na área de outra tarefa ainda ativa. Silenciável com --no-overlap-check.
+  if (!a.flags["no-overlap-check"]) {
+    const overlaps = detectScopeOverlap(orch.store, spec);
+    if (overlaps.length) console.log(renderOverlaps(overlaps, spec.id));
+  }
   console.log(c.dim(`→ criando worktree ${branchName(spec)} · equipe: ${roles.map((r) => r.role + ":" + r.name).join(" → ")}`));
   await orch.createTask(spec, refSources);
   if (a.flags["no-start"]) {
@@ -201,6 +237,65 @@ function openStore(repo: string): Store {
     process.exit(1);
   }
   return new Store(ws.dbFile);
+}
+
+function cmdMetrics(repo: string, json = false) {
+  const store = openStore(repo);
+  const m = store.coordinationMetrics();
+  if (json) {
+    console.log(JSON.stringify(m));
+    store.close();
+    return;
+  }
+  console.log("\n" + c.bold(c.green("🐙 Coordenação")) + c.dim(`  ${repo}\n`));
+  console.log(`  ${c.bold("tarefas")}            ${m.totalTasks}`);
+  const st = Object.entries(m.byStatus)
+    .map(([k, v]) => `${statusColor(k)(k)}:${v}`)
+    .join("  ");
+  if (st) console.log(`  ${c.dim("por status")}         ${st}`);
+  console.log(
+    `  ${c.bold("conflitos")}          ${m.conflictTasks ? c.red(String(m.conflictTasks)) : c.green("0")} ${c.dim("(tarefas que caíram em merge manual)")}`
+  );
+  console.log(
+    `  ${c.bold("colisões (bus)")}     ${m.collisionEvents ? c.yellow(String(m.collisionEvents)) : c.green("0")} ${c.dim("(agente cedeu a vez em first-claim-wins)")}`
+  );
+  console.log(
+    `  ${c.bold("reworks")}            ${m.reworkCount ? c.yellow(String(m.reworkCount)) : c.green("0")} ${c.dim("(re-execuções pedidas pelo humano)")}`
+  );
+  console.log(c.dim("\n  baseline p/ o POC de overlap — compare antes/depois de ligar a detecção.\n"));
+  store.close();
+}
+
+function cmdOverlap(repo: string, a: Args) {
+  const store = openStore(repo);
+  const owns = list(a.flags.owns);
+  const json = !!a.flags.json;
+  if (owns.length === 0) {
+    if (json) {
+      console.log("[]");
+      store.close();
+      return;
+    }
+    console.error(c.red('✖ use --owns "src/auth/**,src/api/*.ts" (padrões de escopo a checar)'));
+    process.exit(1);
+  }
+  const probe = {
+    id: a.flags.id ? slugify(a.flags.id) : "(nova)",
+    scope: { owns, offLimits: list(a.flags.off) },
+  } as unknown as TaskSpec;
+  const overlaps = detectScopeOverlap(store, probe);
+  if (json) {
+    console.log(JSON.stringify(overlaps));
+    store.close();
+    return;
+  }
+  console.log("");
+  if (overlaps.length === 0) {
+    console.log(c.green("✔") + ` sem sobreposição com tarefas ativas para: ${c.cyan(owns.join(", "))}\n`);
+  } else {
+    console.log(renderOverlaps(overlaps, probe.id));
+  }
+  store.close();
 }
 
 function cmdListCmd(repo: string) {
@@ -446,6 +541,25 @@ async function cmdStart(repo: string, taskId: string) {
   orch.close();
 }
 
+async function cmdResolveConflict(repo: string, taskId: string) {
+  const orch = new Orchestrator(repo);
+  if (!orch.store.getTask(taskId)) {
+    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    orch.close();
+    process.exit(1);
+  }
+  try {
+    console.log(c.dim(`→ pedindo pro agente resolver o conflito de merge …`));
+    await orch.resolveConflict(taskId);
+    console.log(c.green("✔") + ` conflito endereçado em ${taskId} — confira o diff e mergeie`);
+  } catch (err) {
+    console.error(c.red("✖ resolução falhou: " + (err as Error).message));
+    orch.close();
+    process.exit(1);
+  }
+  orch.close();
+}
+
 async function cmdRework(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   try {
@@ -586,13 +700,19 @@ async function main() {
 
   switch (cmd) {
     case "init":
-      await cmdInit(a._[1] ?? repo);
+      await cmdInit(a._[1] ?? repo, a.flags["no-git"] === "true");
       break;
     case "new":
       await cmdNew(repo, a);
       break;
     case "list":
       cmdListCmd(repo);
+      break;
+    case "metrics":
+      cmdMetrics(repo, !!a.flags.json);
+      break;
+    case "overlap":
+      cmdOverlap(repo, a);
       break;
     case "agents":
       cmdAgents(repo);
@@ -621,6 +741,9 @@ async function main() {
     case "rework":
       await cmdRework(repo, a._[1]);
       break;
+    case "resolve-conflict":
+      await cmdResolveConflict(repo, a._[1]);
+      break;
     case "start":
       await cmdStart(repo, a._[1]);
       break;
@@ -638,19 +761,35 @@ async function main() {
       break;
     default:
       console.log(`
-${c.bold(c.green("🐙 Cardume"))} ${c.dim("— Fase 0 (núcleo)")}
+${c.bold(c.green("🐙 Cardume"))} ${c.dim("— orquestra múltiplos agentes em branches paralelas")}
 
+${c.dim("criar & rodar")}
   ${c.green("cardume demo")}                        loop completo, 2 agentes em paralelo (mock)
   ${c.green("cardume init")} ${c.dim("[--repo <p>]")}            prepara .cardume/ num repo
-  ${c.green("cardume new")}  ${c.dim('--title "..." --workflow <id>  (ou --agents vega,iris,nyx) [--engine claude --approve auto]')}
-  ${c.green("cardume agents")} ${c.dim("[--repo <p>]")}          catálogo de agentes (review, design, testes…)
-  ${c.green("cardume workflows")} ${c.dim("[--repo <p>]")}       workflows prontos (feature, design-first, …)
+  ${c.green("cardume new")}  ${c.dim('--title "..." --workflow <id>  (ou --agents vega,iris,nyx) [--engine claude --approve auto] [--no-start] [--no-overlap-check]')}
+  ${c.green("cardume start")} ${c.dim("<taskId>")}               inicia uma tarefa em rascunho (--no-start)
+  ${c.green("cardume rework")} ${c.dim("<taskId>")}              re-roda a equipe aplicando os ajustes do humano
+
+${c.dim("acompanhar")}
   ${c.green("cardume list")} ${c.dim("[--repo <p>]")}            estado das tarefas
   ${c.green("cardume watch")} ${c.dim("[--repo <p>]")}           acompanha ao vivo (lê o SQLite)
-  ${c.green("cardume logs")} ${c.dim("<taskId> [--repo <p>]")}   eventos de uma tarefa
-  ${c.green("cardume review")} ${c.dim("<taskId> [--repo <p>]")} review humano (funções criadas, arquivos, como testar)
-  ${c.green("cardume export")} ${c.dim("<taskId> [--repo <p>] [--out <arquivo.md>]")} relatório Markdown p/ descrição de PR
-  ${c.green("cardume rm")}   ${c.dim("<taskId> [--repo <p>]")}   remove worktree + branch + registros
+  ${c.green("cardume metrics")} ${c.dim("[--repo <p>]")}         coordenação: conflitos, colisões e reworks (baseline)
+  ${c.green("cardume overlap")} ${c.dim('--owns "src/**"')}      checa sobreposição de escopo com tarefas ativas
+  ${c.green("cardume logs")} ${c.dim("<taskId>")}                eventos de uma tarefa
+  ${c.green("cardume review")} ${c.dim("<taskId>")}              review humano (funções criadas, arquivos, como testar)
+
+${c.dim("entregar & integrar")}
+  ${c.green("cardume deliver")} ${c.dim("<taskId> --kind doc|tests|proof|all")}  gera artefato sob demanda
+  ${c.green("cardume talk")} ${c.dim('<taskId> --msg "..." [--as-req] [--agent <nome>]')}  conversa com o agente (retoma a sessão)
+  ${c.green("cardume export")} ${c.dim("<taskId> [--out <arquivo.md>]")}  relatório Markdown p/ descrição de PR
+  ${c.green("cardume review-pr")} ${c.dim("--pr <url|nº>")}      revisa um PR do GitHub (sem branch/worktree)
+  ${c.green("cardume merge")} ${c.dim("<taskId>")}               faz merge da branch na base e remove a worktree
+  ${c.green("cardume rm")}   ${c.dim("<taskId>")}                remove worktree + branch + registros
+
+${c.dim("catálogo")}
+  ${c.green("cardume agents")} ${c.dim("[--repo <p>]")}          catálogo de agentes (review, design, testes…)
+  ${c.green("cardume workflows")} ${c.dim("[--repo <p>]")}       workflows prontos (feature, design-first, …)
+${c.dim("  (todos aceitam --repo <p>)")}
 `);
   }
 }

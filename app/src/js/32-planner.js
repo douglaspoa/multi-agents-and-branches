@@ -27,7 +27,11 @@ function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFie
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
 function plReady(){ return plHas('title')&&plHas('objective')&&plHas('deliverables'); }
 let plSaveTimer=null;
-function plAutoSave(){ clearTimeout(plSaveTimer); plSaveTimer=setTimeout(()=>{ try{ invoke('save_draft',{ json: JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40).map(m=>m.atts?{...m, atts:attLite(m.atts)}:m), chips:plChips, asking:plAsking, plan:plPlan, noEpic:plNoEpic }) }); }catch(_){} }, 400); }
+function plDraftJson(){ let input=''; try{ const i=document.getElementById('plInput'); input=i?i.value:''; }catch(_){} return JSON.stringify({ fields:plFields, sid:plSid, refs:plRefs, msgs:plMsgs.filter(m=>m.who!=='sys').slice(-40).map(m=>m.atts?{...m, atts:attLite(m.atts)}:m), chips:plChips, asking:plAsking, plan:plPlan, noEpic:plNoEpic, input }); }
+// immediate=true salva NA HORA (sem debounce) — usado quando o humano envia uma
+// mensagem: o raciocínio fica no disco ANTES da IA responder, então uma queda de
+// luz / fechamento no meio não perde o que você acabou de escrever.
+function plAutoSave(immediate){ clearTimeout(plSaveTimer); const save=()=>{ try{ invoke('save_draft',{ json: plDraftJson() }); }catch(_){} }; if(immediate){ save(); } else { plSaveTimer=setTimeout(save,400); } }
 async function openPlanner(){
   plReset();
   $id('plannerOverlay').style.display='flex';
@@ -36,6 +40,7 @@ async function openPlanner(){
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
       plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=d.plan||null; plNoEpic=!!d.noEpic;
       plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou "novo" no topo pra começar do zero).'});
+      try{ const inp=$id('plInput'); if(inp && d.input) inp.value=d.input; }catch(_){}
     }
   }catch(_){} }
   if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê? (se for grande e tiver várias frentes, eu proponho um épico com tarefas em paralelo pra você aprovar)'}); plMsgs.push({who:'bot', kind:'model'}); }
@@ -192,10 +197,12 @@ async function plSend(text){
   if(!text) return;
   const inp=$id('plInput'); if(inp) inp.value='';
   plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
+  plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
   try{
     const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts);
-    const r=await invoke('ai_chat',{ prompt, sessionId:plSid });
-    plSid=r.sessionId||plSid;
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
+    if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
+    plSid=r.sessionId||(r&&r.recovered?'':plSid);
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
     plBusy=false;
     if(obj){
@@ -225,7 +232,7 @@ async function plSend(text){
     } else {
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }
-  }catch(e){ plBusy=false; plMsgs.push({who:'sys', text:'⚠ '+String(e)}); }
+  }catch(e){ plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim(); if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.'; plMsgs.push({who:'sys', text:'⚠ '+(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true); }
   renderPlanner(); plAutoSave();
 }
 async function plCreate(){
@@ -247,8 +254,8 @@ async function plCreate(){
     // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova
     requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
-    refs:plRefs.slice(), branchType:'feat', issue:null };
-  try{ await invoke('new_task', payload); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
+    refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined };
+  try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;
@@ -256,6 +263,7 @@ $id('plNew').onclick=plNew;
 plWireComposer();
 $id('plSend').onclick=()=>plSend($id('plInput').value);
 $id('plInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); plSend($id('plInput').value); } });
+$id('plInput').addEventListener('input',()=>plAutoSave()); // persiste o texto em digitação (sobrevive a queda antes de enviar)
 $id('plannerOverlay').addEventListener('click',e=>{ if(e.target.id==='plannerOverlay') closePlanner(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none') closePlanner(); });
 
@@ -264,7 +272,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverla
 async function ntApplyShare(payload){
   const share=($id("ntShareRow").style.display!=='none')?$id("ntShare").value:'local';
   if(share==='team'){ await cloudShareTask(payload); return true; }
-  const localId=await invoke("new_task", payload);
+  const localId=await invoke('new_task', await trkBeforeNewTask(payload));
   if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
   return false;
 }
@@ -299,7 +307,7 @@ async function submitNewTask(start=true){
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
     const team=$id('ntFixTeam').value;
-    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ alert("Falha ao criar o fix:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -325,7 +333,7 @@ async function submitNewTask(start=true){
       ...(docCk?['DESIGN.md com fluxo, hierarquia e estados (vazio/carregando/erro) e o porquê das decisões']:[]),
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
-    const payload={ start:true, title:dt, workflow:null, agents:$id('ntDzAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, base:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:dt, workflow:null, agents:$id('ntDzAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ alert("Falha ao criar o design:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -349,7 +357,7 @@ async function submitNewTask(start=true){
       'INVESTIGATION.md com causa raiz (arquivo:linha), evidências, hipóteses descartadas e recomendação de correção',
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="investigando…";
-    const payload={ start:true, title:it, workflow:null, agents:$id('ntInvAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, base:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:it, workflow:null, agents:$id('ntInvAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ alert("Falha ao criar a investigação:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -380,9 +388,25 @@ async function submitNewTask(start=true){
     refs: ntRefs.slice(),
     branchType: $id("ntBranchType").value,
     issue: $id("ntIssue").value.trim() || null,
+    issueUrl: ($id("ntIssueUrl").value||'').trim() || undefined,
     base: $id("ntBase").value.trim() || null,
     linkedTo: ntLinkedTo,
+    light: (($id("ntLight")||{}).checked) || false,
   };
+  // Detecção proativa de sobreposição de escopo (fosso): avisa ANTES de rodar,
+  // não no merge. Só ao iniciar de fato e com escopo declarado. Nunca bloqueia por erro.
+  if(start && payload.owns && window.Coordenacao){
+    try{
+      const ov = await Coordenacao.overlapCheck(payload.owns);
+      if(ov && ov.length){
+        const areas=[...new Set(ov.map(o=>`${o.theirs} — ${o.agent}`))].slice(0,4).map(s=>'  • '+s).join('\n');
+        const extra=ov.length>4?`\n  • …e mais ${ov.length-4}`:'';
+        if(!confirm(`⚠ Sobreposição de escopo com tarefa(s) ativa(s):\n\n${areas}${extra}\n\nDuas tarefas na mesma área tendem a dar conflito no merge.\nIniciar mesmo assim?  (Cancelar pra dividir o escopo ou rodar uma de cada vez.)`)){
+          return;
+        }
+      }
+    }catch(_){ /* checagem é best-effort — nunca impede a criação */ }
+  }
   const btn = $id(start?"ntCreate":"ntDraft"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent=start?"iniciando…":"salvando…";
   $id("ntCreate").disabled=true; $id("ntDraft").disabled=true;
   try{
@@ -392,7 +416,7 @@ async function submitNewTask(start=true){
       closeNewTask(); resetNewTask(); lastSig="";
       if(t) setView('team'); else await refresh();
     } else {
-      await invoke("new_task", payload);
+      await invoke('new_task', await trkBeforeNewTask(payload));
       if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
       closeNewTask(); resetNewTask(); lastSig=""; await refresh();
     }

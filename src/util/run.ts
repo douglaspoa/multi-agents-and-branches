@@ -9,13 +9,13 @@ export interface RunResult {
 export function run(
   cmd: string,
   args: string[],
-  opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number } = {}
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     execFile(
       cmd,
       args,
-      { cwd: opts.cwd, env: opts.env, maxBuffer: 1024 * 1024 * 64 },
+      { cwd: opts.cwd, env: opts.env, timeout: opts.timeout, maxBuffer: 1024 * 1024 * 64 },
       (err, stdout, stderr) => {
         if (err) {
           (err as Error & { stderr?: string }).stderr = stderr;

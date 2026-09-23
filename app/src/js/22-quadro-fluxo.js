@@ -113,8 +113,8 @@ function linkChips(t, small){
   const cls=small?'btn sm':'btn sm';
   let h='';
   if(t.prUrl) h+=`<button class="${cls}" data-lk="${escA(t.prUrl)}" title="abrir o Pull Request" style="padding:3px 9px;font-size:10.5px;color:var(--accent)">PR ↗</button>`;
-  const iu=issueUrlOf(t), ic=issueCodeOf(t);
-  if(iu) h+=`<button class="${cls} mono" data-lk="${escA(iu)}" title="abrir a issue" style="padding:3px 9px;font-size:10.5px">${esc(ic)} ↗</button>`;
+  const iu=t.issueUrl||issueUrlOf(t), ic=issueCodeOf(t);
+  if(iu) h+=`<button class="${cls} mono" data-lk="${escA(iu)}" title="abrir a issue" style="padding:3px 9px;font-size:10.5px">${esc(ic||'issue')} ↗</button>`;
   else if(ic) h+=`<button class="${cls} mono" data-lkcfg="1" title="configure a URL base das issues em ⚙ pra este código virar link" style="padding:3px 9px;font-size:10.5px;color:var(--muted)">${esc(ic)}</button>`;
   return h;
 }
@@ -185,15 +185,15 @@ function renderFlowFilters(){
   const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
     (isDone?`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`:`<div class="ffchips">${stChips}</div>`)+
     `<span style="flex:1"></span>`+
+    // busca por nome SEMPRE visível (antes ficava escondida nos filtros avançados)
+    `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
+    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa pelo nome…" value="${escA(flowQuery)}"></div>`+
     `<select class="sel" id="ffType" title="filtrar por tipo (feature/fix/docs/investigação…)">${tyOpts}</select></div>`;
-  // AVANÇADO (toggle): período, agente, agrupar, busca
+  // AVANÇADO (toggle): período, agente, agrupar
   const advHtml=`<div class="ffadv" style="display:${ffAdvOpen?'flex':'none'};flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">`+
     `<select class="sel" id="ffPeriod">${peOpts}</select>`+
     `<select class="sel" id="ffAgent">${agOpts}</select>`+
-    `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select>`+
-    `<span class="grow"></span>`+
-    `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
-    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa…" value="${escA(flowQuery)}"></div></div>`;
+    `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select></div>`;
   // chips de PROJETO (multi-projeto integrado) — só quando há mais de um
   const pl=projList();
   const projChips = pl.length>1 ? `<div class="pfrow">`+
@@ -274,7 +274,7 @@ function renderFlowHead(){
     return;
   }
   el.innerHTML=`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
-    <span style="flex:1"></span>`;
+    <span style="flex:1"></span><span id="coordChip" class="mono" title="Coordenação (baseline): conflitos de merge · colisões do bus · reworks" style="font-size:11px;color:var(--muted);align-self:center"></span>`;
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -393,7 +393,7 @@ function flowTaskRow(t){
     <span class="pctwrap" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><i style="width:${pct}%;background:${asking.length?'var(--warn)':'var(--good)'}"></i></span><span class="pctn mono" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito">${pct}%</span>
     <span class="msg">${msg}</span>
     ${pvChip}${quick}${linkChips(t)}
-    <span class="ini2" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>
+    <span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
     <span class="tm">${tm}</span>
     <button class="btn sm" data-tmenu="${escA(t.id)}" title="mudar status / encerrar" style="padding:2px 7px;font-size:11px;flex:none">⋯</button>
   </div>`;
@@ -552,6 +552,7 @@ function renderFlow(){
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); prPrepOpen(b.dataset.rowpr, lsGet('prBase:'+b.dataset.rowpr)||'main'); });
+  el.querySelectorAll('[data-resolveconf]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); if(!confirm('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return; b.disabled=true; b.textContent='resolvendo…'; try{ await invoke('resolve_conflict',{ taskId:b.dataset.resolveconf }); lastSig=''; await refresh(); }catch(err){ alert('Falhou: '+(err&&err.message||err)); b.disabled=false; } });
   el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke('set_task_flag',{taskId:b.dataset.arch,flag:'closed'}); lastSig=''; await refresh(); }catch(err){ alert('Falhou: '+err); } });
   el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
   // 📱 da home: cria o túnel pro celular (ou fecha, se já estiver aberto)

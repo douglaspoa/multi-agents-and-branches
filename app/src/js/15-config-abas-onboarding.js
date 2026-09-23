@@ -5,6 +5,7 @@ function openCfg(){
   body.innerHTML=`
     <label>Limite de custo por tarefa <span class="dim" style="text-transform:none;letter-spacing:0">(notifica ao cruzar — 0 desliga)</span></label>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}" style="width:110px"></div>
+    <label class="cfgck" style="display:flex;gap:9px;align-items:center;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgHardCap"${lsGet('costHardCap')==='1'?' checked':''}><span>Teto rígido <span class="dim">— ao cruzar o limite, PAUSA a tarefa automaticamente (não só avisa)</span></span></label>
     <label style="margin-top:16px">URL base das issues <span class="dim" style="text-transform:none;letter-spacing:0">(o código FND-853 vira link: base/FND-853)</span></label>
     <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/logcomex/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
     <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
@@ -16,6 +17,12 @@ function openCfg(){
     <div id="raHost"></div>
     <div class="seclbl2" style="margin-top:20px">GitHub <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· a conta ativa abre os PRs e faz o push — troque ao mudar de empresa/conta</span></div>
     <div id="ghHost" style="margin-top:8px"></div>
+    <div class="seclbl2" style="margin-top:20px">Navegador dos agentes</div>
+    <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
+    <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app checa o canal do time no boot e a cada 6h — ou agora, aqui</span></div>
+    <div id="updHost" style="margin-top:8px"></div>
+    <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· <span class="mono">.cardume/</span> deste projeto — aprendizados ficam, o resto pode ir</span></div>
+    <div id="wsHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn sm" id="cfgEnv">${ic('pulse')}verificar ambiente</button>
@@ -24,9 +31,10 @@ function openCfg(){
     </div>
     <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
-  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); }catch(_){} }).catch(()=>{});
-  $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
+  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); }catch(_){} }).catch(()=>{});
+  $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); { const hc=$id('cfgHardCap'); lsSet('costHardCap', hc&&hc.checked?'1':'0'); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
     { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
+    { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
     lastSig=''; $id('cfgOverlay').style.display='none'; };
   $id('cfgEnv').onclick=()=>{ $id('cfgOverlay').style.display='none'; openEnv(); };
   $id('cfgBackend').onclick=()=>{ $id('cfgOverlay').style.display='none'; cloudCfgOpen=true; openCloud(); };
@@ -34,10 +42,62 @@ function openCfg(){
   // Route AI vive no bloco 1 (onde secretsCache/secretSet moram); monta via window
   if(window.routeAiMount) window.routeAiMount();
   if(typeof ghMount==='function') ghMount();
+  if(typeof updRenderCfg==='function') updRenderCfg();
+  wsMount();
   if(typeof aiPickRender==='function' && typeof AI_TARGET_CFG!=='undefined') aiPickRender(AI_TARGET_CFG);
   $id('cfgOverlay').style.display='flex';
 }
 $id('cfgBtn').onclick=openCfg;
+
+// ---------- espaço em disco do .cardume (raio-x + limpeza) ----------
+// Regra: aprendizados/estado (MEMORY, HISTORY, RUNBOOK, SPEC, PREFS, policy,
+// skills, issue, orchestrations, state.sqlite) NUNCA saem daqui. Worktrees e
+// entregáveis de tarefas finalizadas + temporários (logs/why/tmp) podem ir.
+let wsUsage=null, wsMsg='';
+function fmtBytes(n){ n=Number(n)||0; if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(0)+' KB'; if(n<1073741824) return (n/1048576).toFixed(n<10485760?1:0)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
+async function wsMount(){
+  const h=$id('wsHost'); if(!h) return;
+  if(!state.repo){ h.innerHTML='<div class="dim" style="font-size:12px">abra um projeto pra ver o espaço usado.</div>'; return; }
+  h.innerHTML='<div class="dim" style="font-size:12px">medindo o .cardume… (worktrees grandes levam alguns segundos)</div>';
+  try{ wsUsage=await invoke('workspace_usage'); }catch(e){ wsUsage=null; wsMsg='Falhou medir: '+(e&&e.message||e); }
+  wsRender();
+}
+function wsRender(){
+  const h=$id('wsHost'); if(!h) return;
+  if(!wsUsage){ h.innerHTML=`<div style="font-size:12px;color:var(--warn)">${esc(wsMsg||'sem dados')}</div>`; return; }
+  const u=wsUsage, wt=u.worktrees, ar=u.artifacts;
+  const trash = (wt.staleBytes||0) + (u.temp||0);
+  const row=(label, val, hint, keep)=>`<div style="display:flex;align-items:baseline;gap:10px;padding:7px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)">
+      <span style="font-size:12.5px;${keep?'':''}">${label}</span><span class="dim" style="font-size:11px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hint}</span><b class="mono" style="font-size:12px;${keep?'color:var(--accent)':''}">${fmtBytes(val)}</b></div>`;
+  const stale=(wt.items||[]).filter(i=>i.stale).sort((a,b)=>b.bytes-a.bytes).slice(0,6);
+  h.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px">
+      ${row('Aprendizados e estado', u.keep, 'MEMORY · HISTORY · RUNBOOK · SPEC · PREFS · política · skills · issue · planos · banco — <b>sempre mantidos</b>', true)}
+      ${row('Entregáveis', ar.bytes, `${ar.count} tarefa${ar.count===1?'':'s'} · ${fmtBytes(ar.staleBytes)} em ${ar.staleCount} finalizada${ar.staleCount===1?'':'s'} (mergeadas/canceladas)`)}
+      ${row('Worktrees', wt.bytes, `${wt.count} pasta${wt.count===1?'':'s'} · ${fmtBytes(wt.staleBytes)} em ${wt.staleCount} de tarefa finalizada ou órfã — só lixo`)}
+      ${row('Temporários', u.temp, 'logs · cache de explicações (why) · scripts descartáveis (tmp)')}
+      ${u.attachments?row('Anexos do chat', u.attachments, '.cardume/attachments — referências que você importou; ficam'):''}
+      <div style="display:flex;align-items:center;gap:10px;padding:2px 12px 0"><span class="dim" style="font-size:11.5px">total ${fmtBytes(u.total)} · liberável agora: <b style="color:var(--text)">${fmtBytes(trash)}</b> sem perder nada${ar.staleBytes?' · +'+fmtBytes(ar.staleBytes)+' se limpar os entregáveis finalizados':''}</span></div>
+      ${stale.length?`<div class="dim mono" style="font-size:10.5px;padding:0 12px;line-height:1.6">${stale.map(i=>esc((i.title||i.id||'').slice(0,48))+' · '+esc(i.status)+' · '+fmtBytes(i.bytes)).join('<br>')}${wt.staleCount>stale.length?'<br>… e mais '+(wt.staleCount-stale.length):''}</div>`:''}
+      ${wsMsg?`<div style="font-size:12px;color:${/^✓/.test(wsMsg)?'var(--accent)':'var(--warn)'};padding:0 12px">${esc(wsMsg)}</div>`:''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <button class="btn sm" id="wsCleanTrash"${trash?'':' disabled'}>${ic('folder')}liberar ${fmtBytes(trash)} — worktrees finalizadas + temporários</button>
+        <button class="btn sm" id="wsCleanArts"${ar.staleBytes?'':' disabled'}>limpar entregáveis de tarefas finalizadas (${fmtBytes(ar.staleBytes)})</button>
+        <button class="btn sm" id="wsRefresh" title="medir de novo">${ic('pulse')}</button>
+      </div></div>`;
+  bindClick('wsRefresh', wsMount);
+  bindClick('wsCleanTrash', ()=>wsClean({ worktrees:true, temp:true, artifacts:false },
+    `Liberar ${fmtBytes(trash)}?\n\nRemove ${wt.staleCount} worktree${wt.staleCount===1?'':'s'} de tarefas mergeadas/canceladas/abortadas (ou órfãs) e os temporários (logs parados, cache, tmp).\n\nAprendizados, planos, banco e entregáveis NÃO são tocados. Tarefas em andamento, em review ou com erro ficam intactas.`));
+  bindClick('wsCleanArts', ()=>wsClean({ worktrees:false, temp:false, artifacts:true },
+    `Apagar os entregáveis de ${ar.staleCount} tarefa${ar.staleCount===1?'':'s'} finalizada${ar.staleCount===1?'':'s'} (${fmtBytes(ar.staleBytes)})?\n\nSão os prints de prova, testes e documentos gerados em .cardume/artifacts — a tela de Entregas deixa de mostrá-los. O código mergeado e os aprendizados ficam.`));
+}
+async function wsClean(what, question){
+  if(!confirm(question)) return;
+  const h=$id('wsHost'); if(h) h.innerHTML='<div class="dim" style="font-size:12px">limpando…</div>';
+  wsMsg='';
+  try{ const r=await invoke('workspace_clean', what); wsMsg=`✓ ${fmtBytes(r.freed)} liberados (${r.removed} ${r.removed===1?'item':'itens'})`+((r.errors||[]).length?` · não deu em ${r.errors.length}: ${r.errors.slice(0,2).join('; ')}`:''); }
+  catch(e){ wsMsg='Falhou limpar: '+(e&&e.message||e); }
+  await wsMount();
+}
 
 /* ===== MOTOR DE ABAS (Chrome-style): as views que eram janela viram aba ===== */
 const VIEW_META={
@@ -48,7 +108,10 @@ const VIEW_META={
   form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   prefs:{title:'Preferências',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
+  cttask:{title:'Entrega do time',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.2 8.2l1.6 1.6 2.4-2.8"/>'},
   skills:{title:'Skills',icon:'<rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1"/>'},
+  issues:{title:'Issues',icon:'<circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/>'},
+  issuesbulk:{title:'Nova issue',icon:'<path d="M5.5 4.5h8M5.5 8h8M5.5 11.5h8" stroke-linecap="round"/><path d="M2.6 4.5h.05M2.6 8h.05M2.6 11.5h.05" stroke-linecap="round" stroke-width="1.8"/>'},
   cfg:{title:'Configurações',icon:'<circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8"/>'},
   daily:{title:'Daily',icon:'<rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5"/>'},
   chat:{title:'Chat do projeto',icon:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>'},
@@ -56,7 +119,7 @@ const VIEW_META={
   agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay' };
+const VIEW_OVERLAY={ orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', cttask:'ctPageOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
 // e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
@@ -72,9 +135,10 @@ function viewOpen(kind, tab){
             projetos:()=>openProjetos(), nova:()=>openNovaStart(),
             planner:()=>{ if(fresh||!window.plShow) openPlanner(); else window.plShow(); },
             form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
-            skills:()=>openSkills(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+            skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
-            task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); } }[kind];
+            task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); },
+            cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); } }[kind];
   if(f) f();
 }
 // cada aba tem um id único: 'flow', o próprio kind (views únicas), 'task:<id>' (uma por tarefa)
@@ -90,6 +154,8 @@ function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); a
 // ou opts.reuse (função que escolhe uma aba já aberta do mesmo kind).
 function openTab(kind, opts){
   opts=opts||{};
+  // criar demanda/plano exige branch: pasta sem git passa pelo "criar repositório" antes
+  if(['nova','form','planner','orq'].includes(kind) && typeof repoHasGit==='function' && !repoHasGit()){ gitGate().then(ok=>{ if(ok) openTab(kind, opts); }); return; }
   if(kind==='flow'){ activateTab('flow'); return; }
   let tab=null;
   if(MULTI_KINDS.has(kind)){
@@ -283,7 +349,7 @@ function activityBlock(t){
   // O QUÊ ele está fazendo: a própria narração do agente (último "pensamento")
   // + as últimas ações concretas — não só quem/contadores.
   const lastThink=[...evs].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
-  const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${esc((lastThink.agent||'?').slice(0,2).toUpperCase())}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
+  const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
   const feed=evs.filter(e=>['bash','edit','write','read'].includes(e.type)).slice(-4)
     .map(e=>`<div class="nowact"><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="mono">${esc(e.text||'')}</span></div>`).join('');
   return `<div class="progbox">

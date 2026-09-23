@@ -141,7 +141,7 @@ function fwNowHtml(t){
   if(ACTIVE_ST.has(t.status)){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
-    const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${esc((lastThink.agent||'?').slice(0,2).toUpperCase())}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
+    const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
     return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
@@ -339,7 +339,7 @@ function renderWorkspace(){
       ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela`
       : `<div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique e <b>arraste</b> pra selecionar várias linhas (ou shift+clique) e pergunte no chat'}</div>`;
     main.innerHTML = `
-      <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
+      <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
       ${whyBand}
       ${body}
       ${bar}`;
@@ -347,7 +347,7 @@ function renderWorkspace(){
   if(fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'){ /* wiring próprio nas funções de página */ }
   else if(fwEditing){
     const ta=$id('fwText'), gut=$id('fwGutter');
-    if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); ta.focus(); }
+    if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); try{ ta.setSelectionRange(0,0); }catch(_){ } ta.focus({preventScroll:true}); requestAnimationFrame(()=>{ ta.scrollTop=0; ta.scrollLeft=0; gut.scrollTop=0; }); } // abre no TOPO: o caret ia pro fim e o focus rolava o texto todo
     const sv=$id('fwSave'); if(sv) sv.onclick=fwSaveFile;
     const cc=$id('fwCancel'); if(cc) cc.onclick=()=>{ fwEditing=false; renderWorkspace(); };
   } else {
@@ -369,7 +369,7 @@ function renderWorkspace(){
   const workingW=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !askingW.length;
   const sel2=fwSelRange();
   chat.innerHTML=`
-    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${esc(((fwAgentSel||t.agent)||'?').slice(0,2).toUpperCase())}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwMode==='conversa'?'recolher — voltar à visão de código':'expandir o chat — só a barra de arquivos fica ao lado'}">${fwMode==='conversa'?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
+    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwMode==='conversa'?'recolher — voltar à visão de código':'expandir o chat — só a barra de arquivos fica ao lado'}">${fwMode==='conversa'?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
@@ -505,27 +505,75 @@ function agentModelLabel(t, name){
   const k=Object.keys(M).find(k=>m.includes(k));
   return k?('Claude '+M[k]):'Claude';
 }
+// ---- chip de tool: nome técnico de ferramenta vira algo legível e bonito ----
+const TOOL_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.4 2.6a3 3 0 0 0 3.9 3.9l2.7 2.7a1.15 1.15 0 0 1-1.6 1.6L8.7 8.1A3 3 0 0 1 4.8 4.2l1.7 1.7 1.1-1.1z" stroke-linejoin="round"/></svg>';
+const TOOL_DONE_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.5 8.5l3 3 6-6.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// parece nome técnico de ferramenta? (um token só, com __ ou CamelCase interno)
+function looksLikeTool(tx){ const s=String(tx||'').trim(); return !/\s/.test(s) && s.length>1 && (s.includes('__') || /[a-z][A-Z]/.test(s)); }
+// nome técnico → rótulo amigável em PT
+function prettyTool(tx){
+  const raw=String(tx||'').replace(/^mcp__[a-z0-9]*__/i,'').replace(/^mcp__/i,'').trim();
+  const key=raw.toLowerCase().replace(/[_\s]/g,'');
+  const MAP={ toolsearch:'buscou uma ferramenta', addrequirement:'registrou um requisito', adddeliverable:'registrou um entregável', askhuman:'perguntou ao humano', claim:'reivindicou um arquivo', websearch:'buscou na web', webfetch:'abriu uma página', todowrite:'atualizou o plano', task:'delegou a um subagente', bash:'rodou um comando', read:'leu um arquivo', grep:'buscou no código', glob:'listou arquivos', edit:'editou um arquivo', write:'escreveu um arquivo' };
+  if(MAP[key]) return MAP[key];
+  // humaniza: separa camelCase, troca _ por espaço, minúsculo
+  return raw.replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/[_]+/g,' ').toLowerCase().trim();
+}
+function toolChip(label, done){
+  return `<div class="ctool${done?' done':''}"><span class="ctool-ic">${done?TOOL_DONE_IC:TOOL_IC}</span><span class="ctool-tx">${esc(label)}</span></div>`;
+}
+// ---- várias ações seguidas (ler/rodar/editar) viram UMA linha, tipo Claude ----
+const ACT_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5.2l2.2 1.8L3 8.8M7.3 9.2h5.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function actSummary(evs){
+  const c={}; for(const e of evs) c[e.type]=(c[e.type]||0)+1;
+  const plu=(n,s,p)=>`${n} ${n>1?(p||s+'s'):s}`;
+  const parts=[];
+  if(c.read) parts.push(plu(c.read,'arquivo lido','arquivos lidos'));
+  if(c.bash) parts.push(plu(c.bash,'comando','comandos'));
+  if(c.edit) parts.push(plu(c.edit,'edição','edições'));
+  if(c.write) parts.push(plu(c.write,'arquivo criado','arquivos criados'));
+  if(c.claim) parts.push(plu(c.claim,'reivindicação','reivindicações'));
+  const known=(c.read||0)+(c.bash||0)+(c.edit||0)+(c.write||0)+(c.claim||0);
+  const other=evs.length-known; if(other>0) parts.push(plu(other,'ação','ações'));
+  return parts.join(' · ') || plu(evs.length,'ação','ações');
+}
+function actLine(evs){
+  const details=evs.slice(-10).map(e=>String(e.text||'').replace(/\s+/g,' ').slice(0,70)).join('\n');
+  return `<div class="cact cactsum" title="${escA(details)}"><span class="cg">${ACT_IC}</span><span class="ct">${esc(actSummary(evs))}</span></div>`;
+}
 function fwThreadHtml(t){
   const evs=fwEvents.length?fwEvents:eventsOf(t.id); // completos (fallback: snapshot)
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
   let lastWho='';
-  return evs.map(e=>{
+  const out=[]; let act=[];
+  const flush=()=>{ if(act.length){ out.push(actLine(act)); act=[]; } };
+  for(const e of evs){
     const tx=e.text||'';
-    if(e.agent==='Você' && tx.startsWith('💬')){ lastWho=''; return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`; }
-    if(tx.startsWith('humano respondeu:')){ lastWho=''; return `<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`; }
-    if(isMetaNote(tx)) return `<div class="csys">${esc(tx)}</div>`;
-    if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) return ''; // a pergunta já aparece no card destacado
+    if(e.agent==='Você' && tx.startsWith('💬')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
+    if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
+    if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; }
+    if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) continue; // a pergunta já aparece no card destacado
+    // chamada de ferramenta crua (ToolSearch, mcp__…): é ruído interno — o valor
+    // está no RESULTADO (📦/🛠 abaixo). Esconde a chamada, igual o Claude faz.
+    if(e.type==='note' && looksLikeTool(tx)) continue;
+    // resultado de tool (📦 entregável / 🛠 …) → linha sutil "concluído"
+    if(e.type==='note' && /^(📦|🛠)/.test(tx)){ flush(); lastWho=''; out.push(toolChip(tx.replace(/^[📦🛠]\s*/,'').replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
+      flush();
       const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';
       lastWho=e.agent;
-      return `<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${esc((e.agent||'?').slice(0,2).toUpperCase())}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`;
+      out.push(`<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
+      continue;
     }
-    if(e.type==='error') return `<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`;
-    return `<div class="cact"><span class="cg" style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="ct mono">${esc(tx)}</span></div>`;
-  }).join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${esc(((asking[0].agent||t.agent)||'?').slice(0,2).toUpperCase())}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
-  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
+    if(e.type==='error'){ flush(); out.push(`<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`); continue; }
+    // atividade (ler/rodar/editar/…) — acumula pra virar UMA linha de raciocínio
+    act.push(e);
+  }
+  flush();
+  return out.join('')
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
+  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
 }
 // requisitos com status ao vivo (o "no que ele está trabalhando")
 function fwReqsHtml(t){

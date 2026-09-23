@@ -11,7 +11,7 @@ function kanbanCol(t){
 }
 function kCard(t){
   const roles=t.roles||[]; const curIdx=roles.findIndex(r=>r.role===t.stage);
-  const crew=roles.map((r,i)=>`<span class="kav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name)}">${esc((r.name||'?').slice(0,2).toUpperCase())}</span>`).join('');
+  const crew=roles.map((r,i)=>`<span class="kav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name)}">${agentBadge(r.name)}</span>`).join('');
   const ev=lastEventOf(t.id);
   const amber = t.status==='plan-review'||pendingOf(t.id).length||t.status==='aborted';
   const note = t.status==='plan-review'?'plano pronto · aprove pra continuar'

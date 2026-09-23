@@ -51,6 +51,9 @@ export interface TaskScope {
 
 export type ApprovalMode = "auto" | "ask";
 
+/** Política do barramento ao colidir escopo (write × write). */
+export type BusPolicy = "first-claim-wins" | "human-tiebreak" | "sequential-lock";
+
 export interface TaskAutonomy {
   clarifications: ClarMode;
   commit: CommitMode;
@@ -59,6 +62,8 @@ export interface TaskAutonomy {
   approval: ApprovalMode;
   /** "review" = pausa após o planner para o humano aprovar o plano; "auto" = segue direto. */
   planApproval?: "auto" | "review";
+  /** Como o bus resolve colisão de escopo. Padrão: first-claim-wins. */
+  busPolicy?: BusPolicy;
 }
 
 /** O "briefing" declarativo de uma tarefa — vira o .cardume/TASK.yaml na worktree. */
@@ -89,6 +94,12 @@ export interface TaskSpec {
   /** Só para kind="review": link e número do PR sendo revisado. */
   prUrl?: string;
   prNumber?: number;
+  /**
+   * Link da ISSUE do tracker desta demanda (visível pro time). Preenchido pelo
+   * humano na Nova demanda (issue já existente) OU pelo agente via mcp__cardume__set_issue
+   * quando o projeto tem "criar issue ao abrir demanda" ligado. Espelha prUrl.
+   */
+  issueUrl?: string;
   /** Branch base da worktree. Se vazio, usa a default do repo (main). */
   base?: string;
   /** PR ao concluir: "no" (não abre), "ask" (avisa e pergunta — padrão), "auto" (abre sozinho se não houver pendências). */
@@ -97,6 +108,8 @@ export interface TaskSpec {
   prBase?: string;
   /** Tarefa de ORIGEM quando esta é uma correção/continuação linkada. */
   linkedTo?: string;
+  /** Faixa leve: pula linkar deps + setup.sh na worktree (mudança pequena). */
+  light?: boolean;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

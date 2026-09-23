@@ -62,6 +62,18 @@ const TOOLS = [
     },
   },
   {
+    name: "set_issue",
+    description:
+      "Registre o LINK da issue desta demanda no tracker do projeto. Use quando o projeto tem 'criar issue ao abrir demanda' ligado E o TASK.yaml ainda NÃO traz issueUrl: crie a issue seguindo as INSTRUÇÕES DE ISSUE do projeto (título/corpo a partir do TASK.yaml) e chame esta tool com a URL resultante. O link fica na tarefa e é compartilhado com o time. Se o TASK.yaml já trouxer issueUrl, NÃO crie outra nem chame esta tool.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL completa da issue criada (ex.: https://github.com/org/repo/issues/123)." },
+      },
+      required: ["url"],
+    },
+  },
+  {
     name: "claim",
     description:
       "Reivindique um caminho antes de editá-lo, para não colidir com outros agentes. Retorna se você tem a posse (write) ou se cedeu a vez (read).",
@@ -148,6 +160,29 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
       return { text: `requisito registrado (${spec.requirements.length} na checklist): ${item}` };
     } catch (e) {
       return { text: `falha registrando requisito: ${(e as Error).message}`, isError: true };
+    }
+  }
+
+  if (name === "set_issue") {
+    const url = String(args?.url ?? "").trim();
+    if (!/^https?:\/\//i.test(url)) return { text: "url de issue inválida (precisa começar com http/https)", isError: true };
+    const task = store.getTask(TASK);
+    if (!task) return { text: "tarefa não encontrada", isError: true };
+    try {
+      const spec = JSON.parse(task.spec_json);
+      spec.issueUrl = url;
+      store.updateSpec(TASK, JSON.stringify(spec));
+      // TASK.yaml da worktree acompanha (o agente relê dali e não recria)
+      try {
+        const { taskToYaml } = await import("../util/yaml.ts");
+        const { writeFile } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      } catch { /* worktree pode não existir */ }
+      store.addEvent(TASK, AGENT, "note", `🔗 issue registrada: ${url}`, true);
+      return { text: `issue registrada e compartilhada com o time: ${url}` };
+    } catch (e) {
+      return { text: `falha registrando issue: ${(e as Error).message}`, isError: true };
     }
   }
 

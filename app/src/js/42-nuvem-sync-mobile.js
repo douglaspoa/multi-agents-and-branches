@@ -22,6 +22,18 @@ async function cloudEnsureProject(){
   const ins=await sbPost('projects',{ team_id:teamId, name, repo_remote:remote });
   return ins[0];
 }
+// nuvem → .cardume/issue.json local: todo mundo do time pega a última config
+// de "criar issue ao abrir demanda" do projeto (espelha prefsPull)
+async function issueConfigPull(){
+  if(!SB.sess() || !cloudTeamId()) return;
+  try{
+    const proj=await cloudEnsureProject();
+    const rows=await sbGet('project_issue_config?select=enabled,instructions,title_template,body_template&project_id=eq.'+proj.id);
+    const r=rows&&rows[0]; if(!r) return;
+    if(typeof trkReady==='function' && trkReady()) return; // o painel de issues (14) cria a issue — não religar a instrução antiga
+    await invoke('set_issue_config', { config: { enabled:!!r.enabled, instructions:r.instructions||'', titleTemplate:r.title_template||'', bodyTemplate:r.body_template||'' } });
+  }catch(_){ }
+}
 // compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
 async function cloudShareTask(payload){
   if(!SB.sess()) throw new Error('entre na sua conta (botão no topo)');
@@ -55,7 +67,7 @@ async function cloudBackfill(btn){
       if(btn) btn.textContent=`publicando ${++n}/${list.length}…`;
       try{
         const cost=taskCost(t.id);
-        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build' } }) });
+        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build' } }) });
         const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
         if(rows[0]) tmapSet(t.id, rows[0].id);
       }catch(e){ console.error('backfill', t.id, e.message); }
@@ -76,7 +88,7 @@ async function cloudAutoPublish(){
   try{
     const proj=await cloudEnsureProject();
     const cost=taskCost(t.id);
-    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build' } }) });
+    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build' } }) });
     const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
     if(rows[0]){
       tmapSet(t.id, rows[0].id); teamTasks=null;
@@ -261,7 +273,7 @@ async function cloudSyncTick(){
   for(const lid of ids){
     const t=(state.tasks||[]).find(x=>x.id===lid); if(!t) continue;
     const cost=taskCost(lid);
-    const body={ status:t.status, stage:t.stage||null, branch:t.branch||null, pr_url:t.prUrl||null, flag:t.flag||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0 };
+    const body={ status:t.status, stage:t.stage||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, flag:t.flag||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0 };
     const proofs=reqProofCache[lid]; if(proofs) body.requirements_proof=proofs;
     const sig=JSON.stringify(body);
     const prev=cloudSyncSigs[lid];
@@ -396,7 +408,7 @@ async function cloudRemoteStartTick(){
         doc:sp.doc||null, proof:!!sp.proof, tests:!!sp.tests, autoPr:sp.autoPr||'ask', prBase:null, planApproval:'auto', refs:[],
         branchType:sp.branchType||'feat', issue:(sp.issueCode||'').trim()||null, base:null, linkedTo:null,
         title: ct.title, start:true };
-      const localId=await invoke('new_task', payload);
+      const localId=await invoke('new_task', await trkBeforeNewTask(payload));
       tmapSet(localId, ct.id);
       await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
       sbPost('task_activity',{ task_id:ct.id, user_id:me, kind:'started', body:'iniciada do celular' }).catch(()=>{});
@@ -468,6 +480,14 @@ setInterval(()=>{ cloudMsgTick().catch(()=>{}); }, 5000);
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
 let tmView=lsGet('tmView')||'overview';
+// escopo da aba Time: 'team' (o time escolhido no topo) ou 'org' (TODOS os times — só owner/admin,
+// que já enxergam tudo pela RLS; é a visão de super usuário da empresa)
+let tmScope=lsGet('tmScope')||'team';
+function tsIsOrgAdmin(){ return !!(cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin')); }
+function tsOrgScope(){ return tmScope==='org' && tsIsOrgAdmin() && !!(cloudData&&cloudData.teams&&cloudData.teams.length); }
+function tsScopeTeamIds(){ return tsOrgScope() ? cloudData.teams.map(t=>t.id) : (cloudTeamId()?[cloudTeamId()]:[]); }
+function tsTeamName(id){ return ((((cloudData&&cloudData.teams)||[]).find(x=>x.id===id))||{}).name||''; }
+function tsSetScope(s){ tmScope=s==='org'?'org':'team'; lsSet('tmScope',tmScope); teamTasks=null; teamPaintSig=''; if(typeof renderTeamBoard==='function') renderTeamBoard(); }
 // presença: marca "estou online" a cada 60s (profiles.last_seen_at)
 setInterval(()=>{ if(SB.sess()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
 let teamFetchP=null; // promise compartilhada: chamadas concorrentes esperam o MESMO fetch
@@ -481,17 +501,20 @@ async function teamFetchRun(){
   teamFetching=true;
   try{
     const teamId=cloudTeamId(); if(!teamId) return;
+    const ids=tsScopeTeamIds(); if(!ids.length) return;
+    const inq='team_id=in.('+ids.map(i=>'"'+i+'"').join(',')+')';
     const [tasks, projs, eps, acts]=await Promise.all([
-      sbGet('tasks?select=*&team_id=eq.'+teamId+'&order=updated_at.desc&limit=200'),
-      sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId),
-      sbGet('epics?select=id,name,status&team_id=eq.'+teamId+'&status=neq.archived&order=created_at').catch(()=>[]),
+      sbGet('tasks?select=*&'+inq+'&order=updated_at.desc&limit='+(ids.length>1?600:200)),
+      sbGet('projects?select=id,name,repo_remote&'+inq),
+      sbGet('epics?select=id,name,status,team_id&'+inq+'&status=neq.archived&order=created_at').catch(()=>[]),
       sbGet('task_activity?select=id,task_id,user_id,kind,body,at&order=id.desc&limit=60').catch(()=>[]),
     ]);
     teamEpics=eps||[]; teamActivity=acts||[];
     teamProj={}; projs.forEach(p=>teamProj[p.id]=p);
     const uids=new Set(); tasks.forEach(t=>{ uids.add(t.created_by); if(t.assignee) uids.add(t.assignee); });
     (teamActivity||[]).forEach(a=>uids.add(a.user_id));
-    ((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[teamId])||[]).forEach(m=>uids.add(m.user_id));
+    ids.forEach(tid=>((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[tid])||[]).forEach(m=>uids.add(m.user_id)));
+    if(tsOrgScope()) ((cloudData&&cloudData.orgMembers)||[]).forEach(m=>uids.add(m.user_id)); // membro da org sem time também aparece
     if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
     try{ teamRepoRemote=await invoke('repo_remote'); }catch(_){ teamRepoRemote=''; }
     teamTasks=tasks; teamFetchedAt=Date.now();

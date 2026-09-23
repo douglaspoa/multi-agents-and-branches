@@ -383,6 +383,38 @@ export class Store {
     this.db.prepare(`UPDATE instruction SET status = 'applied', applied_at = ? WHERE id = ?`).run(Date.now(), id);
   }
 
+  // ---------- métricas de coordenação (baseline do "caos") ----------
+  /** Números crus que medem o quanto o paralelismo está custando hoje: quantas
+   * tarefas caíram em conflito, quantas colisões o bus registrou, quantos
+   * reworks foram pedidos. É o baseline que o POC de overlap precisa comparar. */
+  coordinationMetrics(): {
+    totalTasks: number;
+    byStatus: Record<string, number>;
+    conflictTasks: number;
+    collisionEvents: number;
+    reworkCount: number;
+  } {
+    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM task`).get() as { n: number }).n;
+    const statusRows = this.db
+      .prepare(`SELECT status, COUNT(*) AS n FROM task GROUP BY status`)
+      .all() as { status: string; n: number }[];
+    const byStatus: Record<string, number> = {};
+    for (const r of statusRows) byStatus[r.status] = r.n;
+    const collisions = (
+      this.db.prepare(`SELECT COUNT(*) AS n FROM event WHERE type = 'collision'`).get() as { n: number }
+    ).n;
+    const reworks = (
+      this.db.prepare(`SELECT COUNT(*) AS n FROM work_queue WHERE kind = 'rework'`).get() as { n: number }
+    ).n;
+    return {
+      totalTasks: total,
+      byStatus,
+      conflictTasks: byStatus["conflict"] ?? 0,
+      collisionEvents: collisions,
+      reworkCount: reworks,
+    };
+  }
+
   // ---------- custo/tokens por turno de agente ----------
   addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number): void {
     this.db

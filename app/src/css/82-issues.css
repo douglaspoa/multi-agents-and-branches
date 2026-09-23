@@ -1,0 +1,92 @@
+/* Constellation — 82-issues: painel de Issues (conexão → projetos e regras → quadro) */
+#issuesOverlay.astab .mbody{max-width:none;margin:0;padding:0}
+#issuesOverlay.astab .mhead{display:none} /* a tela tem H1 próprio */
+.sk-screen.trk{width:100%;min-width:0}
+.trk label{text-transform:none;letter-spacing:0;margin:0}
+.trk-name{font-weight:400;color:rgba(255,255,255,.45)}
+.trk-steps{margin-left:auto;display:flex;gap:4px;padding:4px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:#0e1110}
+.trk-step{display:flex;align-items:center;gap:8px;font:500 12.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.55);background:none;border:0;padding:7px 12px;border-radius:8px;cursor:pointer}
+.trk-step i{font:600 10px 'JetBrains Mono',monospace;font-style:normal;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.2)}
+.trk-step.on{background:rgba(63,214,138,.1);color:#eaf2ee}
+.trk-step.on i{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.trk-step:disabled{opacity:.35;cursor:not-allowed}
+.trk-msg{margin:14px 0 0;padding-left:10px}
+#trkView{margin-top:20px;padding-top:20px;border-top:1px solid rgba(255,255,255,.07)}
+.trk-card{border:1px solid rgba(255,255,255,.08);border-radius:12px;background:#0e1110;padding:18px 20px;margin-bottom:14px}
+.trk-ct{font:600 13px 'Instrument Sans',sans-serif;color:#eaf2ee;margin-bottom:10px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.trk-rs{font:400 12px/1.5 'Instrument Sans',sans-serif;color:rgba(234,242,238,.5);margin:0}
+.trk-rt{font:500 13.5px 'Instrument Sans',sans-serif;color:#eaf2ee}
+.trk-row{display:flex;align-items:flex-start;gap:12px;padding:9px 0}
+.trk-row .sw{margin-top:1px}
+.trk-sep{height:1px;background:rgba(255,255,255,.07);margin:6px 0}
+.trk .trk-f{display:block;font:500 11.5px 'Instrument Sans',sans-serif;color:rgba(234,242,238,.6);margin-top:12px}
+.trk-f .in{margin-top:6px}
+.trk-bar{display:flex;align-items:center;gap:8px;margin-top:12px}
+.trk-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.trk-grid2 .trk-card{margin-bottom:0}
+.trk-grid2 .trk-f{margin-top:0}
+.trk-key{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12.5px}
+.trk-key:last-of-type{border-bottom:0}
+.trk-ops{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.trk-op,.trk-st{font:500 11.5px 'Instrument Sans',sans-serif;color:#eaf2ee;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:5px 9px;display:inline-flex;align-items:center;gap:6px}
+.trk-op em{font:400 10.5px 'JetBrains Mono',monospace;font-style:normal;color:rgba(255,255,255,.4)}
+.trk-op.off{color:rgba(255,255,255,.35);border-style:dashed}
+.trk-st i,.trk-colh i{width:7px;height:7px;border-radius:50%;flex:none}
+/* quadro */
+.trk-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.trk-chip{font:500 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.1);background:none;border-radius:999px;padding:7px 12px;cursor:pointer}
+.trk-chip em{font-style:normal;font-family:'JetBrains Mono',monospace;font-size:10.5px;opacity:.7}
+.trk-chip.on{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:rgba(63,214,138,.07)}
+.trk-boardwrap{display:flex;gap:14px;align-items:flex-start}
+.trk-board{flex:1;min-width:0;display:grid;gap:12px;overflow-x:auto;padding-bottom:6px}
+.trk-col{border:1px solid rgba(255,255,255,.07);border-radius:12px;background:#0c0f0e;min-width:0;transition:border-color .12s}
+.trk-col.over{border-color:var(--accent)}
+.trk-colh{display:flex;align-items:center;gap:8px;padding:12px 13px 8px;font:600 12px 'Instrument Sans',sans-serif;color:#eaf2ee;position:sticky;top:0}
+.trk-colh em{margin-left:auto;font:500 11px 'JetBrains Mono',monospace;font-style:normal;color:rgba(255,255,255,.35)}
+.trk-colb{padding:4px 8px 8px;max-height:calc(100vh - 330px);overflow-y:auto}
+.trk-empty{padding:16px 0;text-align:center;color:rgba(255,255,255,.2)}
+.trk-issue{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#12161a;padding:10px 11px;margin-bottom:7px;cursor:grab;transition:border-color .12s}
+.trk-issue:hover,.trk-issue.sel{border-color:rgba(255,255,255,.22)}
+.trk-issue.sel{box-shadow:var(--ring)}
+.trk-issue.unseen{border-left:2px solid var(--warn)}
+.trk-ih{display:flex;align-items:center;gap:7px}
+.trk-code{font-size:10.5px;color:var(--accent)}
+.trk-pri{font:500 9.5px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.06em;color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:1px 5px}
+.trk-new{font:500 10px 'Instrument Sans',sans-serif;color:var(--warn)}
+.trk-it{font:500 12.5px/1.4 'Instrument Sans',sans-serif;color:#eaf2ee;margin:6px 0 9px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.trk-if{display:flex;align-items:center;gap:6px;font:400 10.5px 'Instrument Sans',sans-serif;color:rgba(234,242,238,.55)}
+.trk-av{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:600 8.5px 'JetBrains Mono',monospace;background:rgba(91,157,249,.18);color:var(--info);flex:none}
+.trk-task{font:500 10px 'JetBrains Mono',monospace;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:5px;padding:1px 6px;white-space:nowrap}
+.trk-more{width:100%;font:500 11.5px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.5);background:none;border:1px dashed rgba(255,255,255,.12);border-radius:8px;padding:8px;cursor:pointer}
+.trk-detail{width:380px;flex:none;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:#0e1110;padding:16px 18px;position:sticky;top:12px;max-height:calc(100vh - 250px);overflow-y:auto;-webkit-user-select:text;user-select:text}
+.trk-dt{font:600 17px/1.3 'Instrument Sans',sans-serif;margin:10px 0 14px!important}
+.trk-desc{font:400 12.5px/1.55 'Instrument Sans',sans-serif;color:rgba(234,242,238,.7);white-space:pre-wrap;margin-top:12px;max-height:220px;overflow-y:auto}
+.trk-cm{font-size:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.trk-dot{margin-left:auto;font:600 9.5px 'JetBrains Mono',monospace;background:var(--warn);color:#1b1300;border-radius:999px;padding:1px 6px}
+.trk-toast{position:fixed;right:20px;bottom:20px;z-index:9999;max-width:420px;background:#1b2024;border:1px solid var(--border-strong);border-left:2px solid var(--warn);border-radius:10px;padding:11px 14px;font-size:12.5px;box-shadow:var(--shadow);display:none}
+@media(max-width:1000px){.trk-grid2{grid-template-columns:1fr}.trk-boardwrap{flex-direction:column}.trk-detail{width:100%;position:static}}
+.trk-step,.trk-bar .btn,.trk-chip{white-space:nowrap}
+.trk-steps{flex-wrap:nowrap;overflow-x:auto;max-width:100%}
+/* aba "Nova issue" (montar conversando) — reaproveita .pl* do planner */
+#issuesBulkBody .plcols{grid-template-columns:1fr 440px}
+.trk-ni{display:flex;flex-direction:column;gap:6px}
+.trk-ni .plfhead{margin-bottom:0}
+.trk-ni textarea{resize:vertical;font-size:12px}
+.trk-nix{background:none;border:0;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px}
+.trk-nix:hover{color:var(--text)}
+.trk-niwho{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.trk-niwho .in{flex:1;min-width:120px;font-size:12px;padding:4px 8px}
+.trk-niopen{font-size:11.5px;line-height:1.5;color:var(--warn);border-left:2px solid var(--warn);padding-left:8px}
+.trk-rs{font:400 12px/1.5 'Instrument Sans',system-ui,sans-serif;color:rgba(234,242,238,.5)}
+.trk-rt{font-weight:500;color:#eaf2ee}
+@media(max-width:1100px){#issuesBulkBody .plcols{grid-template-columns:1fr 340px}}
+#issuesBulkBody .plmsg.you .plbub{white-space:pre-wrap}
+.trk-stop{border-color:color-mix(in srgb,var(--crit) 55%,transparent);color:var(--crit);white-space:nowrap}
+.trk-stop:hover{background:color-mix(in srgb,var(--crit) 12%,transparent)}
+.trk-nidone{font:600 12.5px 'Instrument Sans',system-ui,sans-serif;color:var(--accent);margin-bottom:8px}
+/* texto longo/código no chat não pode empurrar a coluna das issues pra fora da tela */
+#issuesBulkBody .plcols{grid-template-columns:minmax(0,1fr) 440px}
+#issuesBulkBody .plmsg,#issuesBulkBody .plbub{min-width:0}
+#issuesBulkBody .plbub{overflow-wrap:anywhere}
+#issuesBulkBody .plbub pre,#issuesBulkBody .plbub code{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:1100px){#issuesBulkBody .plcols{grid-template-columns:minmax(0,1fr) 340px}}
