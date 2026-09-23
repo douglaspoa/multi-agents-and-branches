@@ -205,19 +205,40 @@
 .plplan .ppwave{font:inherit;font-size:9.5px;letter-spacing:.09em;font-weight:700;color:var(--accent);margin:8px 0 2px}
 .plplan .ppwave:first-child{margin-top:0}
 .plplan .ppwave span{color:var(--muted);font-weight:600;letter-spacing:0}
-.plplan .pptask{display:flex;gap:8px;align-items:flex-start;padding:5px 6px;border-radius:7px;cursor:pointer}
+.plplan .pptask{display:flex;gap:8px;align-items:flex-start;padding:5px 6px;border-radius:7px}
 .plplan .pptask:hover{background:var(--surface-3)}
 .plplan .pptask input{margin-top:2px;flex:none}
-.plplan .pptask b{font-size:12.5px;display:block}
+
 .plplan .ppobj{display:block;color:var(--muted);font-size:11.5px;margin-top:2px;line-height:1.45}
 .plplan .ppreq{display:block;color:var(--dim,var(--muted));font-size:10.5px;margin-top:3px;line-height:1.5}
 .plplan .ppowns{display:block;color:var(--accent);font-size:10px;margin-top:3px}
 .plplan .ppout{color:var(--text);font-size:12px;line-height:1.5;margin:-3px 0 9px;padding-left:8px;border-left:2px solid color-mix(in srgb,var(--accent) 45%,transparent)}
+/* campos editáveis do card: parecem texto até receber foco */
+.plplan .ppedit{background:transparent;border:1px solid transparent;border-radius:5px;color:inherit;font:inherit;font-size:inherit;line-height:inherit;padding:1px 5px;margin:-1px -5px;width:calc(100% + 10px);box-sizing:border-box;resize:none}
+.plplan .ppedit:hover{border-color:var(--border)}
+.plplan .ppedit:focus{outline:none;border-color:var(--accent);background:var(--surface)}
+.plplan textarea.ppout{display:block;width:100%;margin:-3px 0 9px;padding:2px 8px;border-left:2px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:0 5px 5px 0}
+.plplan textarea.ppout:focus{border-left-color:var(--accent)}
+.plplan .ppdwrow{display:flex;align-items:center;gap:6px}
+.plplan .ppdwrow .ppedit{flex:1;width:auto;margin:0}
+.plplan .ppx{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:11px;padding:0 3px;opacity:0}
+.plplan .ppdwrow:hover .ppx{opacity:1}
+.plplan .ppx:hover{color:var(--crit)}
+.plplan .ppadd{border:1px dashed var(--border-strong);background:transparent;color:var(--muted);border-radius:6px;padding:2px 8px;font:inherit;font-size:10.5px;cursor:pointer;margin-top:4px}
+.plplan .ppadd:hover{color:var(--accent);border-color:var(--accent)}
+.plplan .ppverify .ppedit{display:inline-block;width:auto;flex:1;min-width:120px;margin:0;padding:0 4px}
+.plplan .ppchip{border:1px solid var(--border-strong);background:transparent;color:var(--muted);border-radius:10px;padding:0 7px;font:inherit;font-size:10px;line-height:16px;cursor:pointer;margin:1px 3px 1px 0}
+.plplan .ppchip.on{color:var(--accent);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.plplan .ppchip.nope{color:var(--crit);border-color:var(--crit)}
+.plplan select.ppsel{appearance:none;-webkit-appearance:none;background:transparent;font-family:inherit;cursor:pointer}
+.plplan .pptitle{display:block;font-size:12.5px;font-weight:600}
+.plplan .pptitle label{cursor:pointer}
+.plplan select.ppsel:focus{outline:none;border-color:var(--accent)}
 .plplan .ppdone{background:var(--surface);border:1px dashed var(--border-strong);border-radius:8px;padding:7px 10px;margin-bottom:9px;font-size:11.5px;line-height:1.6}
 .plplan .ppdh{font-size:9.5px;letter-spacing:.09em;font-weight:700;color:var(--accent);margin-bottom:2px}
 .plplan .ppdh span{color:var(--muted);font-weight:600;letter-spacing:0}
 .plplan .ppdone .mono{color:var(--muted);font-size:10px}
-.plplan .ppverify{display:block;color:var(--good);font-size:11px;margin-top:3px;line-height:1.45}
+.plplan .ppverify{display:flex;align-items:center;gap:4px;flex-wrap:wrap;color:var(--good);font-size:11px;margin-top:3px;line-height:1.45}
 .plplan .ppcov{color:var(--muted);font-size:10px}
 .plplan .ppafter{display:block;color:var(--muted);font-size:10.5px;margin-top:2px}
 .plplan .pprisk{display:inline-block;font-size:9.5px;font-weight:600;letter-spacing:.04em;padding:1px 6px;border-radius:9px;margin-left:5px;vertical-align:1px;color:var(--muted);border:1px solid var(--border-strong)}
