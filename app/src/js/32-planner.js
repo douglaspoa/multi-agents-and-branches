@@ -38,7 +38,7 @@ async function openPlanner(){
   let draft=null; try{ draft=await invoke('load_draft'); }catch(_){}
   if(draft){ try{ const d=JSON.parse(draft);
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
-      plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=d.plan||null; plNoEpic=!!d.noEpic;
+      plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=plPlanRestore(d.plan); plNoEpic=!!d.noEpic;
       plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou "novo" no topo pra começar do zero).'});
       try{ const inp=$id('plInput'); if(inp && d.input) inp.value=d.input; }catch(_){}
     }
@@ -58,7 +58,7 @@ function plShow(){ $id('plannerOverlay').style.display='flex'; renderPlanner(); 
 window.plShow=plShow;
 window.TAB_STATE_planner={
   get:()=>({ _title:(plFields&&plFields.title)||'', plFields, plSid, plMsgs, plChips, plAsking, plDone, plRefs, plPlan, plNoEpic, plPend }),
-  set:(st)=>{ plFields=st.plFields||{}; plSid=st.plSid||''; plMsgs=st.plMsgs||[]; plChips=st.plChips||[]; plAsking=st.plAsking||''; plDone=!!st.plDone; plBusy=false; plRefs=st.plRefs||[]; plPlan=st.plPlan||null; plNoEpic=!!st.plNoEpic; plPend=st.plPend||[]; }
+  set:(st)=>{ plFields=st.plFields||{}; plSid=st.plSid||''; plMsgs=st.plMsgs||[]; plChips=st.plChips||[]; plAsking=st.plAsking||''; plDone=!!st.plDone; plBusy=false; plRefs=st.plRefs||[]; plPlan=plPlanRestore(st.plPlan); plNoEpic=!!st.plNoEpic; plPend=st.plPend||[]; }
 };
 function plApplyPatch(patch){
   if(!patch||typeof patch!=='object') return;
@@ -134,8 +134,12 @@ function plPlanFrom(p){
     verify:String(x.verify||'').trim().slice(0,240), covers:plStrs(x.covers,8),
     after:(Array.isArray(x.after)?x.after:[]).map(n=>parseInt(n,10)).filter(n=>Number.isInteger(n)&&n>=0&&n<all.length&&n!==i),
     risk:/^(low|medium|high)$/.test(x.risk||'')?x.risk:'',
-    wave:Math.max(1, parseInt(x.wave,10)||1), on:true }:null).filter(Boolean);
+    wave:Math.max(1, parseInt(x.wave,10)||1), on:x.on!==false }:null).filter(Boolean);
   const alive=new Set(tasks.map(t=>t.idx)); tasks.forEach(t=>{ t.after=t.after.filter(a=>alive.has(a)); });
+  // plano no formato ANTIGO (wave da IA, sem after): sintetiza `after` = todas as tarefas da onda anterior, e daí em diante só `after` manda
+  if(!tasks.some(t=>t.after.length) && tasks.some(t=>t.wave>1)){
+    tasks.forEach(t=>{ const prev=tasks.filter(o=>o.wave<t.wave).map(o=>o.wave); if(prev.length){ const w=Math.max(...prev); t.after=tasks.filter(o=>o.wave===w).map(o=>o.idx); } });
+  }
   plWaves(tasks);
   // requisitos do épico: id do modelo quando veio; senão R1..Rn numerado DEPOIS de filtrar (covers cita esses ids)
   const reqs=(Array.isArray(p.requirements)?p.requirements:[]).map(r=>(r&&typeof r==='object')?{ id:String(r.id||'').trim(), text:String(r.text||'').trim() }:{ id:'', text:String(r).trim() }).filter(r=>r.text).slice(0,12);
@@ -143,10 +147,9 @@ function plPlanFrom(p){
   return { epic:String(p.epic||plFields.title||'Épico').slice(0,80), outcome:String(p.outcome||'').trim().slice(0,300),
     requirements:reqs, doneWhen:plStrs(p.doneWhen,6), boundaries:plStrs(p.boundaries,6), tasks:plSortWaves(tasks) };
 }
-// onda = 1 + maior onda dos pré-requisitos MARCADOS (pré-requisito desmarcado no card não conta). Sem nenhum `after`
-// no plano (IA antiga) fica a wave que veio; ciclo mantém a wave da tarefa. Roda de novo a cada (des)marcação e ao aprovar.
+// onda = 1 + maior onda dos pré-requisitos MARCADOS (pré-requisito desmarcado no card não conta); sem `after`, onda 1.
+// Ciclo mantém a wave da tarefa. Roda de novo a cada edição estrutural do card e ao aprovar.
 function plWaves(tasks){
-  if(!tasks.some(t=>t.after&&t.after.length)) return;
   const byIdx={}; tasks.forEach(t=>{ byIdx[t.idx]=t; });
   const memo={}, onStack={};
   const lvl=t=>{ if(memo[t.idx]) return memo[t.idx]; if(onStack[t.idx]) return t.wave; onStack[t.idx]=true;
@@ -154,45 +157,72 @@ function plWaves(tasks){
   tasks.forEach(t=>{ t.wave=lvl(t); });
 }
 function plSortWaves(tasks){ return tasks.sort((a,b)=>a.wave-b.wave||(a.idx??0)-(b.idx??0)); }
+// rascunho/aba restaurados: plano salvo antes do formato novo (sem idx/after) passa pelo mesmo parser
+function plPlanRestore(p){ if(!p||!Array.isArray(p.tasks)) return p||null; const r=p.tasks.some(t=>t&&t.idx==null)?plPlanFrom(p):p; r.locked=false; return r; } // nunca volta travado de um rascunho
 // pré-requisitos que valem de fato: marcados no card
 function plAfterOn(x){ return (x.after||[]).filter(a=>{ const t=plPlan.tasks.find(y=>y.idx===a); return t&&t.on; }); }
+// a tarefa `idx` depende (direta ou transitivamente) de `target`? — evita ciclo ao ligar um chip de "depois de"
+function plDependsOn(idx, target, seen){
+  seen=seen||new Set(); if(seen.has(idx)) return false; seen.add(idx);
+  const t=plPlan.tasks.find(y=>y.idx===idx); if(!t) return false;
+  return (t.after||[]).some(a=>a===target || plDependsOn(a, target, seen));
+}
 const plRiskLabel={ low:'risco baixo', medium:'risco médio', high:'risco alto' };
 
 // ---- preview aprovável de ÉPICO dentro do chat do planner ----
 function plPlanCardHtml(){
   if(!plPlan) return '';
   const noTeam = !(SB.sess() && cloudTeamId());
-  const titleOf=a=>{ const t=plPlan.tasks.find(y=>y.idx===a); return t?t.title:'#'+(a+1); };
+  const dis=plPlan.locked?' disabled':''; // gravando na nuvem: tudo travado
   let rows='', lastWave=0;
   plPlan.tasks.forEach((x,i)=>{
     if(x.wave!==lastWave){ lastWave=x.wave;
       rows+=`<div class="ppwave">ONDA ${x.wave} <span>${x.wave===1?'· começam já, em paralelo':'· depois da onda '+(x.wave-1)}</span></div>`; }
-    const after=plAfterOn(x);
-    rows+=`<label class="pptask"><input type="checkbox" data-pptask="${i}" ${x.on?'checked':''}><span style="flex:1;min-width:0">
-      <b>${esc(x.title)}${x.risk?` <span class="pprisk ${x.risk}">${plRiskLabel[x.risk]}</span>`:''}</b>${x.objective?`<span class="ppobj">${esc(x.objective)}</span>`:''}
-      ${x.verify?`<span class="ppverify">✓ prova: ${esc(x.verify)}${(x.covers&&x.covers.length)?` <span class="mono ppcov">${esc(x.covers.join(' '))}</span>`:''}</span>`:''}
-      ${after.length?`<span class="ppafter">↳ depois de: ${esc(after.map(titleOf).join(' · '))}</span>`:''}
+    const after=plAfterOn(x), others=plPlan.tasks.filter(o=>o!==x && o.on);
+    // tudo editável antes de aprovar: prova (verify), pré-requisitos (chips das irmãs) e risco; a onda recalcula na hora
+    // div, não label: só o checkbox e o título (des)marcam a tarefa; clique entre os controles não faz nada
+    rows+=`<div class="pptask"><input type="checkbox" id="pptask-${i}" data-pptask="${i}" ${x.on?'checked':''}${dis}><span style="flex:1;min-width:0">
+      <span class="pptitle"><label for="pptask-${i}">${esc(x.title)}</label><select class="ppsel pprisk ${x.risk||''}" data-pprisk="${i}" title="risco"${dis}>${['','low','medium','high'].map(r=>`<option value="${r}"${(x.risk||'')===r?' selected':''}>${r?plRiskLabel[r]:'risco ?'}</option>`).join('')}</select></span>${x.objective?`<span class="ppobj">${esc(x.objective)}</span>`:''}
+      <span class="ppverify">✓ prova: <input class="ppedit" data-ppverify="${i}" maxlength="240" value="${escA(x.verify||'')}" placeholder="como alguém checa que esta tarefa entregou (1 linha)"${dis}>${(x.covers&&x.covers.length)?` <span class="mono ppcov">${esc(x.covers.join(' '))}</span>`:''}</span>
+      ${others.length?`<span class="ppafter">↳ depois de: ${others.map(o=>`<button type="button" class="ppchip${after.includes(o.idx)?' on':''}" data-ppafter="${i}:${o.idx}" title="${escA(o.title)}"${dis}>${esc(o.title.length>28?o.title.slice(0,27)+'…':o.title)}</button>`).join('')}</span>`:''}
       ${(x.requirements&&x.requirements.length)?`<span class="ppreq">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</span>`:''}
-      ${x.owns?`<span class="ppowns mono">⛶ ${esc(x.owns)}</span>`:''}</span></label>`;
+      ${x.owns?`<span class="ppowns mono">⛶ ${esc(x.owns)}</span>`:''}</span></div>`;
   });
   const n=plPlan.tasks.filter(x=>x.on).length;
   const dw=plPlan.doneWhen||[], rq=plPlan.requirements||[];
   return `<div class="plmsg bot"><span class="plav">◆</span><div class="plplan" id="plPlanCard">
     <div class="pphead">◆ Épico proposto — revise e aprove</div>
-    <input class="ppname" id="ppName" value="${escA(plPlan.epic)}" placeholder="nome do épico">
-    ${plPlan.outcome?`<div class="ppout">${esc(plPlan.outcome)}</div>`:''}
+    <input class="ppname" id="ppName" value="${escA(plPlan.epic)}" placeholder="nome do épico"${dis}>
+    <textarea class="ppedit ppout" id="ppOutcome" rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(plPlan.outcome||'')}</textarea>
     ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">REQUISITOS <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${esc(r.text)}</div>`).join('')}</div>`:''}
-    ${dw.length?`<div class="ppdone"><div class="ppdh">PRONTO QUANDO <span>· o épico só fecha com tudo marcado</span></div>${dw.map((d,i)=>`<div>☐ <span class="mono">D${i+1}</span> ${esc(d)}</div>`).join('')}</div>`:''}
+    <div class="ppdone"><div class="ppdh">PRONTO QUANDO <span>· o épico só fecha com tudo marcado</span></div>
+      ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>✕</button></div>`).join('')}
+      <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
     ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time no topo pra aprovar.</div>`:''}
-    <div class="ppfoot"><button class="btn sm" id="ppDiscard">descartar</button><button class="btn primary sm" id="ppApprove"${noTeam?' disabled':''}>✓ Aprovar e criar${n?' · '+n+' tarefa'+(n===1?'':'s'):''}</button></div>
+    <div class="ppfoot"><button class="btn sm" id="ppDiscard"${plPlan.locked?' disabled':''}>descartar</button><button class="btn primary sm" id="ppApprove"${(noTeam||plPlan.locked)?' disabled':''}>${plPlan.locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
   </div></div>`;
 }
 function plWirePlanCard(){
-  const card=$id('plPlanCard'); if(!card) return;
+  const card=$id('plPlanCard'); if(!card || plPlan.locked) return; // enquanto grava na nuvem, nada muda
   // (des)marcar recalcula as ondas: quem dependia de uma tarefa desmarcada sobe de onda
-  card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ plPlan.tasks[+c.dataset.pptask].on=c.checked; plWaves(plPlan.tasks); plSortWaves(plPlan.tasks); renderPlanner(); });
-  const nm=$id('ppName'); if(nm) nm.oninput=()=>{ plPlan.epic=nm.value; };
+  const rewave=()=>{ plWaves(plPlan.tasks); plSortWaves(plPlan.tasks); renderPlanner(); plAutoSave(); };
+  card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ plPlan.tasks[+c.dataset.pptask].on=c.checked; rewave(); });
+  const nm=$id('ppName'); if(nm) nm.oninput=()=>{ plPlan.epic=nm.value; plAutoSave(); };
+  // edição do envelope e das tarefas (texto: só atualiza o modelo; estrutura: recalcula ondas e re-renderiza)
+  const oc=$id('ppOutcome'); if(oc) oc.oninput=()=>{ plPlan.outcome=oc.value; plAutoSave(); };
+  card.querySelectorAll('[data-ppdw]').forEach(inp=>inp.oninput=()=>{ plPlan.doneWhen[+inp.dataset.ppdw]=inp.value; plAutoSave(); });
+  card.querySelectorAll('[data-ppdwx]').forEach(b=>b.onclick=()=>{ plPlan.doneWhen.splice(+b.dataset.ppdwx,1); renderPlanner(); plAutoSave(); });
+  { const b=$id('ppDwAdd'); if(b) b.onclick=()=>{ (plPlan.doneWhen=plPlan.doneWhen||[]).push(''); renderPlanner(); plAutoSave(); const ins=document.querySelectorAll('[data-ppdw]'); if(ins.length) ins[ins.length-1].focus(); }; }
+  card.querySelectorAll('[data-ppverify]').forEach(inp=>inp.oninput=()=>{ plPlan.tasks[+inp.dataset.ppverify].verify=inp.value.slice(0,240); plAutoSave(); });
+  card.querySelectorAll('[data-pprisk]').forEach(sel=>sel.onchange=()=>{ plPlan.tasks[+sel.dataset.pprisk].risk=sel.value; renderPlanner(); plAutoSave(); });
+  card.querySelectorAll('[data-ppafter]').forEach(b=>b.onclick=()=>{
+    const [i,a]=b.dataset.ppafter.split(':').map(Number); const t=plPlan.tasks[i]; t.after=t.after||[];
+    if(t.after.includes(a)) t.after=t.after.filter(v=>v!==a);
+    else if(plDependsOn(a, t.idx)){ b.classList.add('nope'); setTimeout(()=>b.classList.remove('nope'),600); return; } // ciclo: a irmã já depende desta
+    else t.after.push(a);
+    rewave();
+  });
   const dc=$id('ppDiscard'); if(dc) dc.onclick=()=>{ plPlan=null; plNoEpic=true; plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
   const ap=$id('ppApprove'); if(ap) ap.onclick=plCreateEpic;
 }
@@ -203,12 +233,12 @@ async function plCreateEpic(){
   const picked=plPlan.tasks.filter(x=>x.on);
   if(!picked.length){ alert('Marque pelo menos uma tarefa do épico.'); return; }
   const name=(plPlan.epic||'').trim()||'Épico';
-  const ap=$id('ppApprove'); if(ap){ ap.disabled=true; ap.textContent='criando…'; }
+  plPlan.locked=true; renderPlanner(); // trava o card: nenhuma edição nem segundo clique enquanto os inserts rodam
   try{
     const proj=await cloudEnsureProject();
     // envelope do épico (0025: epics.spec) — Done when vira checklist D1..Dn, marcado depois pelo criador ou pelo agente revisor
     const spec={ description:(plFields.objective||'').trim()||undefined, outcome:plPlan.outcome||'', requirements:plPlan.requirements||[],
-      doneWhen:(plPlan.doneWhen||[]).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:plPlan.boundaries||[] };
+      doneWhen:(plPlan.doneWhen||[]).map(t=>String(t).trim()).filter(Boolean).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:plPlan.boundaries||[] };
     const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId(), spec });
     const created=[], idOf={}; // idx no plano → id na nuvem: `after` das tarefas vira ids reais (picked está em ordem de onda, então o pré-requisito já existe)
     for(const x of picked){
@@ -220,7 +250,7 @@ async function plCreateEpic(){
           requirements:x.requirements||[], owns:x.owns||null,
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           wave:x.wave,
-          verify:x.verify||undefined, covers:(x.covers&&x.covers.length)?x.covers:undefined, after:after.length?after:undefined, risk:x.risk||undefined } });
+          verify:(x.verify||'').trim()||undefined, covers:(x.covers&&x.covers.length)?x.covers:undefined, after:after.length?after:undefined, risk:x.risk||undefined } });
       if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; }
     }
     plPlan=null;
@@ -231,7 +261,7 @@ async function plCreateEpic(){
     if(w1.length && confirm(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo; as demais ondas ficam no backlog)`)){
       for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
     }
-  }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); if(ap){ ap.disabled=false; ap.textContent='✓ Aprovar e criar'; } }
+  }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); if(plPlan){ plPlan.locked=false; renderPlanner(); } }
 }
 // atualiza só o medidor/estado sem re-render pesado (ao editar campo à mão)
 function renderPlannerMeterOnly(){
@@ -250,6 +280,11 @@ async function plSend(text){
   plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
   plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
   try{
+    // "vira épico" depois de ter descartado: o usuário sobrescreve — a recusa cai e a IA pode propor de novo
+    // (sem \b antes de "épico": em JS \b é só ASCII e não casa com o "é"); "não vira épico" não conta
+    { const V='(vira|virar|quebra|quebrar|faz|fazer|prop[õo]e|proponha|monta|montar)';
+      const pede=new RegExp('\\b'+V+'\\b[^.]{0,20}épico','i').test(text), nega=new RegExp('\\b(n[ãa]o|nem|sem)\\b[^.]{0,12}\\b'+V+'\\b','i').test(text);
+      if(plNoEpic && pede && !nega) plNoEpic=false; }
     const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts);
     const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
