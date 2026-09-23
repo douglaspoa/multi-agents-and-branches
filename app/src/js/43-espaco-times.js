@@ -221,7 +221,8 @@ async function teamClaimStart(ct, btn){
     const j=await sbRpc('claim_task',{ p_task: ct.id });
     if(!j.ok) throw new Error(j.error||'não deu pra assumir');
     // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
-    const payload={ workflow:null, agents:null, engine:'claude', approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), title: ct.spec?.title||ct.title, start:true };
+    // ...(ct.spec) traz verify/covers/after/wave/risk/hitl quando o cartão veio de um épico; epic_id é coluna, não spec
+    const payload={ workflow:null, agents:null, engine:'claude', approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), epicId: ct.epic_id||null, title: ct.spec?.title||ct.title, start:true };
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });

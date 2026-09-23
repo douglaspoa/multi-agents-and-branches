@@ -190,6 +190,15 @@ async function cmdNew(repo: string, a: Args) {
     prBase: a.flags["pr-base"] || undefined,
     linkedTo: a.flags["linked-to"] || undefined,
     light: a.flags.light === "true" || undefined,
+    // tarefa SOB ÉPICO (cartão aprovado no planner) — ausentes numa tarefa comum
+    epicId: a.flags["epic-id"] || undefined,
+    verify: a.flags.verify || undefined,
+    covers: a.multi.cover?.length ? a.multi.cover : undefined,
+    after: a.multi.after?.length ? a.multi.after : undefined,
+    wave: a.flags.wave && Number(a.flags.wave) > 0 ? Number(a.flags.wave) : undefined,
+    boundaries: a.multi.boundary?.length ? a.multi.boundary : undefined,
+    risk: (["low", "medium", "high"].includes(a.flags.risk) ? a.flags.risk : undefined) as TaskSpec["risk"],
+    hitl: a.flags.hitl === "true" || undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",
