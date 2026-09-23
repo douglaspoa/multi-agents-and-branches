@@ -187,7 +187,8 @@ struct AIModel: Identifiable, Hashable {
     let hint: String
     var recommended = false
     static let all: [AIModel] = [
-        AIModel(id: "claude-opus-4-8", name: "Opus 4.8", tag: "opus", hint: "o mais capaz pra código — recomendado", recommended: true),
+        AIModel(id: "claude-opus-5-5", name: "Opus 5.5", tag: "opus", hint: "o mais capaz pra código — recomendado", recommended: true),
+        AIModel(id: "claude-opus-4-8", name: "Opus 4.8", tag: "opus", hint: "geração anterior do Opus"),
         AIModel(id: "claude-sonnet-5", name: "Sonnet 5", tag: "sonnet", hint: "equilíbrio entre custo e qualidade"),
         AIModel(id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", tag: "haiku", hint: "o mais veloz e barato — tarefas simples"),
         AIModel(id: "claude-fable-5-1", name: "Fable 5.1", tag: "fable", hint: "topo de linha — investigações difíceis"),

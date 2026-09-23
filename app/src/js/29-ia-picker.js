@@ -1,12 +1,12 @@
 // Constellation — 29-ia-picker: "Com qual IA?" — motor + versão do modelo com ícones e recomendação pela demanda.
 // Fonte da verdade continua sendo os selects escondidos #ntEngine e #ntModel (o CLI recebe --engine/--model).
 // Como as versões chegam ao modelo: o Claude Code aceita um ALIAS (opus/sonnet/haiku = a versão mais nova do seu
-// plano) ou o id COMPLETO (ex.: claude-opus-4-8). O app não descobre a lista sozinho — ela é curada aqui e
+// plano) ou o id COMPLETO (ex.: claude-opus-5-5). O app não descobre a lista sozinho — ela é curada aqui e
 // qualquer id pode ser digitado em "outro id…". O gateway vem da config da conta (Configurações → Gateway próprio).
 const AI_CLAUDE_MODELS=[
   {id:'',name:'Padrão da assinatura',tag:'auto'},
   {id:'opus',name:'Opus',tag:'alias · mais capaz'}, {id:'sonnet',name:'Sonnet',tag:'alias · equilíbrio'}, {id:'haiku',name:'Haiku',tag:'alias · mais veloz'},
-  {id:'claude-fable-5-1',name:'Fable 5.1',tag:'id fixo'}, {id:'claude-opus-5',name:'Opus 5',tag:'id fixo'}, {id:'claude-sonnet-5',name:'Sonnet 5',tag:'id fixo'},
+  {id:'claude-fable-5-1',name:'Fable 5.1',tag:'id fixo'}, {id:'claude-opus-5-5',name:'Opus 5.5',tag:'id fixo · mais novo'}, {id:'claude-opus-5',name:'Opus 5',tag:'id fixo'}, {id:'claude-sonnet-5',name:'Sonnet 5',tag:'id fixo'},
   {id:'claude-opus-4-8',name:'Opus 4.8',tag:'id fixo'}, {id:'claude-haiku-4-5-20251001',name:'Haiku 4.5',tag:'id fixo'},
 ];
 const AI_ENGINES=[
@@ -97,7 +97,7 @@ function aiPickRender(target){
     `<div class="aidesc">${esc(e.desc)}${e.id==='gateway'&&!gw.configured?` <a data-aicfg>configurar agora</a>`:''}</div>`+
     (models.length||e.custom?`<div class="aimodels">${models.map(m=>{ const r=rec.engine===e.id&&rec.model===m.id; return `<button type="button" class="aimodel${m.id===model?' on':''}${r?' rec':''}" data-aimodel="${escA(m.id)}"><b>${esc(m.name)}</b>${m.tag?`<span>${esc(m.tag)}</span>`:''}${r?'<i>recomendado</i>':''}</button>`; }).join('')}`+
       (e.custom?`<button type="button" class="aimodel${(!known&&model)?' on':''}" data-aicustom><b>${(!known&&model)?esc(model):'outro id…'}</b><span>${(!known&&model)?'id digitado':'digite o id exato'}</span></button>`:'')+`</div>`:'')+
-    (_aiCustomOpen?`<div class="aicustom"><input class="in mono" id="aiCustomId" placeholder="${e.id==='claude'?'ex.: claude-opus-4-8':e.id==='codex'?'ex.: gpt-5-codex':'id do modelo no gateway'}" value="${escA((!known&&model)?model:'')}"><button type="button" class="btn sm" data-aicustomok>usar</button></div>`:'')+
+    (_aiCustomOpen?`<div class="aicustom"><input class="in mono" id="aiCustomId" placeholder="${e.id==='claude'?'ex.: claude-opus-5-5':e.id==='codex'?'ex.: gpt-5-codex':'id do modelo no gateway'}" value="${escA((!known&&model)?model:'')}"><button type="button" class="btn sm" data-aicustomok>usar</button></div>`:'')+
     (target.cfg?`<div class="airec">✓ padrão pra toda demanda nova — pelo formulário ou pelo chat. A recomendação por demanda continua sendo só uma sugestão.</div>`:`<div class="airec">${isRecSel?'✓ ':'✦ '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`);
   hosts.forEach(h=>{
     h.innerHTML=html;
@@ -123,7 +123,7 @@ function openModelMenu(taskId, anchor){
   AI_CLAUDE_MODELS.forEach(m=>item(m.name+(m.tag?'  · '+m.tag:''), m.id, m.id===cur));
   if(cur && !AI_CLAUDE_MODELS.some(m=>m.id===cur)) item(cur+'  · id atual', cur, true);
   item('outro id…', '__custom', false);
-  pop.querySelector('button:last-child').onclick=async()=>{ pop.remove(); const v=await askText('Id do modelo','ex.: claude-opus-4-8', cur); if(v!=null && v.trim()) apply(v.trim()); };
+  pop.querySelector('button:last-child').onclick=async()=>{ pop.remove(); const v=await askText('Id do modelo','ex.: claude-opus-5-5', cur); if(v!=null && v.trim()) apply(v.trim()); };
   const note=document.createElement('div'); note.className='dim'; note.style.cssText='font-size:10.5px;padding:6px 10px 4px;line-height:1.4'; note.textContent='vale a partir do próximo turno do agente'; pop.appendChild(note);
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect(); pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-8, r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
