@@ -433,7 +433,7 @@ export class ClaudeEngine implements AgentEngine {
 }
 
 /** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[]. */
-function mapLine(line: string): AgentEvent[] {
+export function mapLine(line: string): AgentEvent[] {
   const t = line.trim();
   if (!t) return [];
   let o: any;
@@ -475,13 +475,14 @@ function mapLine(line: string): AgentEvent[] {
     const u = o.usage || {};
     const inTok = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0);
     const outTok = Number(u.output_tokens) || 0;
+    const ms = Number(o.duration_ms) || 0;
     return [
       {
         type: "done",
         text: (o.result ? String(o.result).slice(0, 4000) : "concluído") + cost + denials,
         status: ok ? "review" : "error",
         ok,
-        cost: { usd, inTok, outTok },
+        cost: { usd, inTok, outTok, ms },
       },
     ];
   }

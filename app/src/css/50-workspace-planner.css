@@ -328,6 +328,20 @@ textarea.plfv{resize:vertical;line-height:1.5}
 .fwreqtoggle input{accent-color:var(--accent)}
 .plmeshfoot{margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 .plmeshfoot .btn{width:100%}
+/* previsão de tempo e tokens (33-previsao) — pele terminal: mono, linhas, sem pill */
+.plest{margin-bottom:8px;font-size:11px}
+.plest:empty{display:none}
+.plestd summary{list-style:none;cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface)}
+.plestd summary::-webkit-details-marker{display:none}
+.plestd summary:hover{background:var(--surface-2)}
+.plesth{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.07em;color:var(--muted)}
+.plestv{color:var(--text);font-variant-numeric:tabular-nums}
+.plestb{border:1px solid var(--border);border-top:0;padding:4px 8px 6px;background:var(--surface);max-height:180px;overflow:auto}
+.plestsec{font-size:9.5px;font-weight:700;letter-spacing:.07em;color:var(--muted);margin:6px 0 2px}
+.plestr{display:grid;grid-template-columns:30px minmax(0,1fr) auto auto;gap:8px;align-items:baseline;padding:1px 0;color:var(--text-2);font-variant-numeric:tabular-nums}
+.plestsz{color:var(--accent)}
+.plesttx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plestn{font-size:10.5px;margin-top:4px}
 /* pull request */
 .prbox{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);padding:11px;min-width:0}
 /* modal "Preparando o PR" (redesign p13) */

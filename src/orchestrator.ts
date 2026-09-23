@@ -675,7 +675,7 @@ export class Orchestrator {
             if (ev.type === "done" && ev.ok === false) deathText = ev.text;
             this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role);
             if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-              this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+              this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
             }
             if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
           }
@@ -908,7 +908,7 @@ export class Orchestrator {
           if (ev.type === "claim") continue; // sem repo pra reivindicar num review de PR
           this.store.addEvent(spec.id, r.name, ev.type, ev.text, ev.ok, r.role);
           if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-            this.store.addCost(spec.id, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+            this.store.addCost(spec.id, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
           }
         }
       } catch (err) {
@@ -977,7 +977,7 @@ export class Orchestrator {
           }
           this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
           if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-            this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+            this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
           }
           if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
         }
@@ -1120,7 +1120,7 @@ export class Orchestrator {
         if (ev.type === "error") failed = true;
         this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
         }
       }
     } catch (err) {
@@ -1219,7 +1219,7 @@ export class Orchestrator {
         if (ev.type === "done" && ev.ok === false) deathText = ev.text;
         this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
         }
       }
       // sessão do chat estourou os tokens → recomeça SOZINHO com sessão nova

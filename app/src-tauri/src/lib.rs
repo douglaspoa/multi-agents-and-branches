@@ -638,6 +638,8 @@ struct Cost {
     usd: f64,
     in_tok: i64,
     out_tok: i64,
+    /// duração somada dos turnos (ms) — base da previsão de tempo
+    ms: i64,
 }
 
 #[derive(Serialize)]
@@ -676,6 +678,13 @@ fn ensure_app_schema(db: &PathBuf) {
         }
         let _ = conn.execute(
             "CREATE TABLE IF NOT EXISTS cost (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, agent TEXT NOT NULL, role TEXT, usd REAL NOT NULL, in_tok INTEGER NOT NULL, out_tok INTEGER NOT NULL, created_at INTEGER NOT NULL)",
+            [],
+        );
+        // duração por turno (previsão de tempo) — idempotente
+        let _ = conn.execute("ALTER TABLE cost ADD COLUMN ms INTEGER NOT NULL DEFAULT 0", []);
+        // previsão de tempo/tokens gravada ao criar a tarefa (previsto × real)
+        let _ = conn.execute(
+            "CREATE TABLE IF NOT EXISTS estimate (task_id TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL)",
             [],
         );
         let _ = conn.execute(
@@ -1807,9 +1816,12 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
 
-    let costs = conn
-        .prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok) FROM cost GROUP BY task_id, agent, role")
-        .map_err(|e| e.to_string())?
+    // DB sem a coluna ms (migração não rodou) → cai pro 0, nunca derruba o snapshot
+    let mut cost_stmt = conn
+        .prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok), COALESCE(SUM(ms),0) FROM cost GROUP BY task_id, agent, role")
+        .or_else(|_| conn.prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok), 0 FROM cost GROUP BY task_id, agent, role"))
+        .map_err(|e| e.to_string())?;
+    let costs = cost_stmt
         .query_map([], |r| {
             Ok(Cost {
                 task_id: r.get(0)?,
@@ -1818,6 +1830,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 usd: r.get(3)?,
                 in_tok: r.get(4)?,
                 out_tok: r.get(5)?,
+                ms: r.get(6)?,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -4129,6 +4142,121 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
     }))
 }
 
+// ---------- previsão de tempo e tokens (montar conversando) ----------
+/// Haiku classifica cada requisito/entregável em P/M/G. Devolve UM item por
+/// entrada, na mesma ordem; tamanho inválido/ausente → M. Falha → Err (o front
+/// trata tudo como M e segue — nunca bloqueia criar a tarefa).
+#[tauri::command(async)]
+fn ai_estimate(state: State<AppState>, title: String, objective: String, items: Vec<String>, model: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = repo_of(&state)?;
+    if items.is_empty() {
+        return Ok(serde_json::json!([]));
+    }
+    let list = items.iter().enumerate().map(|(i, t)| format!("{}. {}", i + 1, t.chars().take(300).collect::<String>())).collect::<Vec<_>>().join("\n");
+    let prompt = format!(
+        "Você estima o TAMANHO de trabalho de cada item de uma tarefa de engenharia que um agente de código (modelo {}) vai executar neste repositório. Responda só pelo texto abaixo, sem abrir arquivos.\n\
+         Tamanhos: P = pequeno (1 arquivo, mudança localizada), M = médio (poucos arquivos, lógica nova moderada), G = grande (vários arquivos/camadas, lógica nova extensa ou migração).\n\
+         Responda SOMENTE um objeto JSON (sem cerca de código, sem texto fora):\n\
+         {{\"items\": [{{\"size\": \"P\"|\"M\"|\"G\", \"files\": number, \"why\": string}}]}}\n\
+         com EXATAMENTE {} itens, na MESMA ordem da lista. files = estimativa de arquivos tocados. why = até 12 palavras em pt-BR.\n\n\
+         Título: {title}\nObjetivo: {objective}\nItens:\n{list}",
+        model.unwrap_or_else(|| "padrão".into()),
+        items.len()
+    );
+    let mut cmd = claude_cmd(&claude_bin());
+    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]).current_dir(&repo);
+    let out = output_timeout(cmd, 45)?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let s = raw.find('{').and_then(|a| raw.rfind('}').map(|b| &raw[a..=b])).ok_or("resposta sem JSON")?;
+    let v: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("JSON inválido da IA: {e}"))?;
+    let arr = v["items"].as_array().cloned().unwrap_or_default();
+    let res: Vec<serde_json::Value> = (0..items.len())
+        .map(|i| {
+            let x = arr.get(i).cloned().unwrap_or(serde_json::Value::Null);
+            let size = x["size"].as_str().map(|s| s.trim().to_uppercase()).filter(|s| s == "P" || s == "M" || s == "G").unwrap_or_else(|| "M".into());
+            let files = x["files"].as_i64().unwrap_or(0).clamp(0, 200);
+            let why = x["why"].as_str().unwrap_or("").chars().take(160).collect::<String>();
+            serde_json::json!({ "size": size, "files": files, "why": why })
+        })
+        .collect();
+    Ok(serde_json::Value::Array(res))
+}
+
+/// Histórico real do repo pra calibrar a previsão: uma linha por tarefa com custo>0,
+/// com quebra por papel. `points` vem da previsão salva (soma P=1/M=3/G=8), se houver.
+#[tauri::command(async)]
+fn estimate_history(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let mut stmt = conn
+        .prepare("SELECT t.id, t.model, t.status, t.spec_json, c.role, SUM(c.usd), SUM(c.in_tok), SUM(c.out_tok), COALESCE(SUM(c.ms),0) FROM cost c JOIN task t ON t.id=c.task_id GROUP BY t.id, c.role")
+        .or_else(|_| conn.prepare("SELECT t.id, t.model, t.status, t.spec_json, c.role, SUM(c.usd), SUM(c.in_tok), SUM(c.out_tok), 0 FROM cost c JOIN task t ON t.id=c.task_id GROUP BY t.id, c.role"))
+        .map_err(|e| e.to_string())?;
+    type Row = (String, Option<String>, String, Option<String>, Option<String>, f64, i64, i64, i64);
+    let rows: Vec<Row> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)))
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| e.to_string())?;
+    let mut order: Vec<String> = Vec::new();
+    let mut by: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+    for (id, model, status, spec, role, usd, inp, outp, ms) in rows {
+        let e = by.entry(id.clone()).or_insert_with(|| {
+            order.push(id.clone());
+            let sp: serde_json::Value = spec.as_deref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or(serde_json::Value::Null);
+            let n = sp["requirements"].as_array().map(|a| a.len()).unwrap_or(0) + sp["deliverables"].as_array().map(|a| a.len()).unwrap_or(0);
+            let points = conn
+                .query_row("SELECT json FROM estimate WHERE task_id=?1", params![id], |r| r.get::<_, String>(0))
+                .ok()
+                .and_then(|j| serde_json::from_str::<serde_json::Value>(&j).ok())
+                .and_then(|j| j["points"].as_f64())
+                .map(|p| serde_json::json!(p))
+                .unwrap_or(serde_json::Value::Null);
+            serde_json::json!({ "taskId": id, "model": model, "status": status, "nReq": n.max(1), "points": points, "usd": 0.0, "inTok": 0, "outTok": 0, "ms": 0, "roles": [] })
+        });
+        e["usd"] = serde_json::json!(e["usd"].as_f64().unwrap_or(0.0) + usd);
+        e["inTok"] = serde_json::json!(e["inTok"].as_i64().unwrap_or(0) + inp);
+        e["outTok"] = serde_json::json!(e["outTok"].as_i64().unwrap_or(0) + outp);
+        e["ms"] = serde_json::json!(e["ms"].as_i64().unwrap_or(0) + ms);
+        if let Some(a) = e["roles"].as_array_mut() {
+            a.push(serde_json::json!({ "role": role.unwrap_or_else(|| "builder".into()), "usd": usd, "inTok": inp, "outTok": outp, "ms": ms }));
+        }
+    }
+    let out: Vec<serde_json::Value> = order
+        .into_iter()
+        .filter_map(|id| by.remove(&id))
+        .filter(|t| t["usd"].as_f64().unwrap_or(0.0) > 0.0)
+        .collect();
+    Ok(serde_json::Value::Array(out))
+}
+
+/// Grava a previsão exibida no planner junto da tarefa recém-criada.
+#[tauri::command(async)]
+fn save_estimate(state: State<AppState>, task_id: String, json: String) -> Result<(), String> {
+    serde_json::from_str::<serde_json::Value>(&json).map_err(|e| format!("previsão inválida: {e}"))?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    let _ = conn.execute("CREATE TABLE IF NOT EXISTS estimate (task_id TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL)", []);
+    conn.execute(
+        "INSERT INTO estimate(task_id,json,created_at) VALUES(?1,?2,?3) ON CONFLICT(task_id) DO UPDATE SET json=?2, created_at=?3",
+        params![task_id, json, now_ms()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Previsão salva da tarefa (ou None — tarefa sem previsão → sem chip).
+#[tauri::command(async)]
+fn get_estimate(state: State<AppState>, task_id: String) -> Result<Option<String>, String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let r = conn.query_row("SELECT json FROM estimate WHERE task_id=?1", params![task_id], |row| row.get::<_, String>(0));
+    Ok(r.ok())
+}
+
 // ---------- APNs: push REAL pro iPhone (app fechado) ----------
 // JWT ES256 assinado com a key .p8 da conta Apple (openssl faz a assinatura;
 // aqui só convertemos DER→JOSE). Token cacheado por ~40min como a Apple pede.
@@ -6101,6 +6229,10 @@ pub fn run() {
             file_diff,
             pr_body_ai,
             ai_spec,
+            ai_estimate,
+            estimate_history,
+            save_estimate,
+            get_estimate,
             apns_push,
             read_policy,
             publish_release,

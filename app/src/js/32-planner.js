@@ -94,10 +94,11 @@ function renderPlanner(){
         : `<input class="plfv in ${f.k==='id'?'mono':''}" data-fk="${f.k}" value="${escA(disp)}" placeholder="…">`;
       return `<div class="plfield ${st}"><div class="plfhead"><span class="pldot"></span><span class="plfk mono">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`;
     }).join('')+
-    `<div class="plmeshfoot"><button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
+    `<div class="plmeshfoot">${typeof estPlannerHtml==='function'?estPlannerHtml():''}<button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
   mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
-  mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
+  mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); if(typeof estSchedule==='function') estSchedule(); }));
   bindClick('plCreate', plCreate);
+  if(typeof estSchedule==='function'){ estPaint(); estSchedule(); } // previsão: recalcula com debounce (cache pelo conteúdo)
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
 }
 // ---- "Com qual IA?" no começo da conversa: usa o padrão do usuário ou escolhe (e pode salvar como padrão) ----
@@ -351,7 +352,7 @@ async function plCreate(){
     requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined };
-  try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
+  try{ const tid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof estSaveFor==='function') await estSaveFor(tid); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;

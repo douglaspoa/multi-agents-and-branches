@@ -134,6 +134,7 @@ export class Store {
       "ALTER TABLE task ADD COLUMN done_roles INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE event ADD COLUMN role TEXT",
       "ALTER TABLE task ADD COLUMN busy_pid INTEGER",
+      "ALTER TABLE cost ADD COLUMN ms INTEGER NOT NULL DEFAULT 0",
     ]) {
       try {
         this.db.exec(stmt);
@@ -416,10 +417,10 @@ export class Store {
   }
 
   // ---------- custo/tokens por turno de agente ----------
-  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number): void {
+  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0): void {
     this.db
-      .prepare(`INSERT INTO cost (task_id, agent, role, usd, in_tok, out_tok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(taskId, agent, role ?? null, usd, inTok, outTok, Date.now());
+      .prepare(`INSERT INTO cost (task_id, agent, role, usd, in_tok, out_tok, ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(taskId, agent, role ?? null, usd, inTok, outTok, Math.round(ms) || 0, Date.now());
   }
 
   close(): void {
