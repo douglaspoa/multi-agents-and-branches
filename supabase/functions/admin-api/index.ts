@@ -5,6 +5,7 @@
 // Env opcional: ADMIN_EMAILS="a@x.com,b@y.com"  SITE_URL="https://constellation-ai-v1.lovable.app"
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3";
+import { MIGRATIONS } from "./migrations.ts";
 
 const ALLOWED = new Set(
   ["douglas.sobreira@logcomex.com", "dodosobreira@gmail.com",
@@ -285,6 +286,34 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
       from tasks where created_at > now() - interval '12 months' group by 1 order by 1`;
     const byStatus = await sql`select status, count(*) as n from tasks group by status order by n desc`;
     return { byOrg, byUser, byMonth, byStatus };
+  },
+
+  // Banco: lista tabelas e aplica as migrations FIXAS do repo (migrations.ts) — sem SQL livre.
+  async "db.tables"(sql) {
+    return await sql`
+      select t.table_name,
+             (select count(*) from information_schema.columns c where c.table_schema='public' and c.table_name=t.table_name) as columns,
+             pg_total_relation_size(('public.'||quote_ident(t.table_name))::regclass) as bytes
+      from information_schema.tables t where t.table_schema='public' and t.table_type='BASE TABLE' order by 1`;
+  },
+
+  async "db.migrations"(sql) {
+    const existing = new Set((await sql`select table_name from information_schema.tables where table_schema='public'`).map((r) => r.table_name as string));
+    return MIGRATIONS.map((m) => {
+      const tables = [...m.sql.matchAll(/create table if not exists (\w+)/gi)].map((x) => x[1]!);
+      return { name: m.name, tables, applied: tables.length > 0 && tables.every((t) => existing.has(t)) };
+    });
+  },
+
+  async "db.migrate"(sql, b) {
+    const only = str(b, "name");
+    const done: string[] = [];
+    for (const m of MIGRATIONS) {
+      if (only && m.name !== only) continue;
+      await sql.unsafe(m.sql);
+      done.push(m.name);
+    }
+    return { ok: true, applied: done };
   },
 
   async "billing.list"(sql) {
