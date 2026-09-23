@@ -150,7 +150,7 @@ export interface TaskSpec {
   after?: string[];
   /** Onda derivada de `after` ao aprovar o card (1 = sem pré-requisito). O motor só carrega. */
   wave?: number;
-  /** O que NÃO pode mudar (comportamento, não arquivos). Entra em scope.off ao gerar o TASK.yaml. */
+  /** O que NÃO pode mudar (comportamento, não arquivos). Vai no bloco `epic:` do TASK.yaml; scope.off continua só com caminhos. */
   boundaries?: string[];
   notes?: TaskNote[];
   risk?: TaskRisk;

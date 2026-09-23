@@ -134,6 +134,7 @@ function plPlanFrom(p){
     verify:String(x.verify||'').trim().slice(0,240), covers:plStrs(x.covers,8),
     after:(Array.isArray(x.after)?x.after:[]).map(n=>parseInt(n,10)).filter(n=>Number.isInteger(n)&&n>=0&&n<all.length&&n!==i),
     risk:/^(low|medium|high)$/.test(x.risk||'')?x.risk:'',
+    hitl:x.hitl===true, boundaries:plStrs(x.boundaries,6),
     wave:Math.max(1, parseInt(x.wave,10)||1), on:x.on!==false }:null).filter(Boolean);
   const alive=new Set(tasks.map(t=>t.idx)); tasks.forEach(t=>{ t.after=t.after.filter(a=>alive.has(a)); });
   // plano no formato ANTIGO (wave da IA, sem after): sintetiza `after` = todas as tarefas da onda anterior, e daí em diante só `after` manda
@@ -185,6 +186,7 @@ function plPlanCardHtml(){
       <span class="pptitle"><label for="pptask-${i}">${esc(x.title)}</label><select class="ppsel pprisk ${x.risk||''}" data-pprisk="${i}" title="risco"${dis}>${['','low','medium','high'].map(r=>`<option value="${r}"${(x.risk||'')===r?' selected':''}>${r?plRiskLabel[r]:'risco ?'}</option>`).join('')}</select></span>${x.objective?`<span class="ppobj">${esc(x.objective)}</span>`:''}
       <span class="ppverify">✓ prova: <input class="ppedit" data-ppverify="${i}" maxlength="240" value="${escA(x.verify||'')}" placeholder="como alguém checa que esta tarefa entregou (1 linha)"${dis}>${(x.covers&&x.covers.length)?` <span class="mono ppcov">${esc(x.covers.join(' '))}</span>`:''}</span>
       ${others.length?`<span class="ppafter">↳ depois de: ${others.map(o=>`<button type="button" class="ppchip${after.includes(o.idx)?' on':''}" data-ppafter="${i}:${o.idx}" title="${escA(o.title)}"${dis}>${esc(o.title.length>28?o.title.slice(0,27)+'…':o.title)}</button>`).join('')}</span>`:''}
+      ${(x.boundaries&&x.boundaries.length)?`<span class="ppafter">⊘ não muda: ${esc(x.boundaries.join(' · '))}</span>`:''}${x.hitl?`<span class="ppafter">👤 parte precisa de uma pessoa</span>`:''}
       ${(x.requirements&&x.requirements.length)?`<span class="ppreq">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</span>`:''}
       ${x.owns?`<span class="ppowns mono">⛶ ${esc(x.owns)}</span>`:''}</span></div>`;
   });
@@ -250,7 +252,8 @@ async function plCreateEpic(){
           requirements:x.requirements||[], owns:x.owns||null,
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           wave:x.wave,
-          verify:(x.verify||'').trim()||undefined, covers:(x.covers&&x.covers.length)?x.covers:undefined, after:after.length?after:undefined, risk:x.risk||undefined } });
+          verify:(x.verify||'').trim()||undefined, covers:(x.covers&&x.covers.length)?x.covers:undefined, after:after.length?after:undefined, risk:x.risk||undefined,
+          hitl:x.hitl||undefined, boundaries:(x.boundaries&&x.boundaries.length)?x.boundaries:undefined } });
       if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; }
     }
     plPlan=null;
