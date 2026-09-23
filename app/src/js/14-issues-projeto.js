@@ -8,6 +8,7 @@
 let trk=null, trkView='board', trkMsg='', trkBusy='', trkDocFiles=[], trkLoadedFor=null;
 let trkIssues=[], trkIssuesAt=0, trkErr='', trkQ='', trkFilter='all', trkSel=null, trkComments=null, trkMoreDone=false, trkNI=null; // trkNI: a aba "Nova issue" (conversa + rascunhos)
 let trkProjects=[], trkRemote='', trkRemoteFor=null, trkTimer=null, trkSyncAt=0, trkMine={}; // trkMine: mudanças que EU fiz (não viram aviso)
+let trkBg=false, trkBackoffMs=0, trkNextAt=0; // observador: chamadas em segundo plano não registram erro; falha → recuo exponencial
 const TRK_RULES={ createOnTask:true, syncStatus:true, watch:true };
 const TRK_KINDS={ todo:'var(--muted)', doing:'var(--info)', blocked:'var(--warn)', done:'var(--good)' };
 
@@ -94,7 +95,7 @@ async function trkCall(opName, extra){
   const headers=Object.assign({}, c.headers||{}, op.headers||{});
   let body=null;
   if(op.body && method!=='GET'){ body=JSON.stringify(trkFill(op.body,ctx)); if(!Object.keys(headers).some(h=>h.toLowerCase()==='content-type')) headers['Content-Type']='application/json'; }
-  const r=await invoke('tracker_http',{ method, url, headers, body });
+  const r=await (trkBg?invokeQuiet:invoke)('tracker_http',{ method, url, headers, body });
   let data=null; try{ data=JSON.parse(r.body); }catch(_){ data=r.body; }
   if(r.status<200||r.status>=300) throw new Error('HTTP '+r.status+' — '+String(typeof data==='string'?data:JSON.stringify(data)).slice(0,240));
   return data;
@@ -241,6 +242,8 @@ const trkSw=(id,on,label,sub)=>`<div class="trk-row"><label class="sw"><input ty
 function issRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const body=$id('issuesBody'); if(!body||!trk) return;
+  // estado das chaves desta máquina (pro aviso no quadro): carrega uma vez e re-renderiza
+  if(trkSecretNames().length && !Object.keys(trkSecretSt).length){ trkSecretsRefresh().then(()=>{ if(Object.keys(trkSecretSt).length) issRender(); }); }
   const ready=trkReady();
   const step=(k,n,l,dis)=>`<button class="trk-step${trkView===k?' on':''}" data-trkview="${k}"${dis?' disabled':''}><i>${n}</i>${l}</button>`;
   const shared=trkCloudOn()?'Compartilhado com o time.':'<span style="color:var(--warn)">Sem nuvem — vale só nesta máquina.</span>';
@@ -284,6 +287,11 @@ function trkConnHtml(){
     <div class="trk-bar"><span style="flex:1"></span><button class="btn primary" id="trkConnSave">salvar e continuar →</button></div>`:''}`;
 }
 function trkHost(){ try{ return new URL(trk.connector.baseUrl).hostname.toLowerCase(); }catch(_){ return ''; } }
+// as chaves que o conector cita estão NESTA máquina e liberadas pro host dele?
+function trkSecretNames(){ return ((trk&&trk.connector||{}).secrets||[]).map(s=>s.name); }
+function trkSecretsMissing(){ const h=trkHost(); return trkSecretNames().filter(n=>{ const st=trkSecretSt[n]; return !(st&&st.present&&st.host===h); }); }
+function trkSecretsHint(){ const m=trkSecretsMissing(); if(!m.length) return '';
+  return `<div class="imhint" style="border-left:2px solid var(--warn)">A chave <b>${esc(m.join(', '))}</b> não está nesta máquina (ou não foi liberada pra <b>${esc(trkHost())}</b>). O painel é do time, mas cada máquina guarda a própria chave — vá em <a class="lnk" data-trkview="conn">Conexão</a>.</div>`; }
 async function trkSecretsRefresh(){
   const names=((trk.connector||{}).secrets||[]).map(s=>s.name); if(!names.length){ trkSecretSt={}; return; }
   try{ trkSecretSt=await invoke('tracker_secret_status',{ names }); }catch(_){ trkSecretSt={}; }
@@ -431,7 +439,7 @@ function trkBoardHtml(){
     const cap=(s.kind==='done'&&!trkMoreDone)?25:400, shown=items.slice(0,cap);
     return `<div class="trk-col" data-trkcol="${escA(s.id)}"><div class="trk-colh"><i style="background:${TRK_KINDS[s.kind]||'var(--muted)'}"></i>${esc(s.label||s.id)}<em>${items.length}</em></div>
       <div class="trk-colb">${shown.map(trkCardHtml).join('')||'<div class="trk-empty">—</div>'}${items.length>shown.length?`<button class="trk-more" id="trkMoreDone">mostrar mais ${items.length-shown.length}</button>`:''}</div></div>`; }).join('');
-  return `<div class="trk-tools">
+  return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar por código, título ou pessoa"></div>
       ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa')}${chip('unseen','mudaram',Object.keys(un).length)}
       <span style="flex:1"></span><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
@@ -747,11 +755,19 @@ function trkBoardWire(body){
 function trkWatchStart(){
   if(trkTimer) return;
   trkTimer=setInterval(async()=>{
+    if(Date.now()<trkNextAt) return; // em recuo depois de uma falha (rede/VPN/servidor lento)
+    trkBg=true;
     try{
       await trkLoad(); if(!trkReady()||!trk.rules.watch||!(await trkProjectOn())) return;
-      await trkFetchIssues();
+      // chave ausente ou não liberada nesta máquina: não adianta bater no servidor (era 1 erro a cada 2 min por usuário)
+      if(trkSecretNames().length){ await trkSecretsRefresh(); if(trkSecretsMissing().length) return; }
+      await trkFetchIssues(); trkBackoffMs=0;
       if($id('issuesOverlay').style.display!=='none' && trkView==='board' && document.activeElement.id!=='trkQ' && document.activeElement.id!=='trkCmIn') issRender();
-    }catch(_){ }
+    }catch(_){
+      trkBackoffMs=Math.min(Math.max(trkBackoffMs*2, 4*60000), 30*60000); // 4 → 8 → 16 → 30 min
+      trkNextAt=Date.now()+trkBackoffMs;
+    }
+    finally{ trkBg=false; }
   }, 120000);
 }
 setTimeout(()=>{ trkLoad().then(()=>{ trkBadge(); if(trkReady()) trkWatchStart(); }).catch(()=>{}); }, 6000);

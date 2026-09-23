@@ -7,6 +7,9 @@ const invoke = (cmd, args) => _invokeRaw(cmd, args).catch((err) => {
   try { if (cmd !== "web_log" && window.logAppError) window.logAppError("invoke:" + cmd, err); } catch (_) {}
   throw err;
 });
+// Versão SEM registro na nuvem: pra tarefas em segundo plano que repetem sozinhas (observador de
+// issues a cada 2 min etc.). Falha ali é esperada de vez em quando (rede, VPN) e vira ruído em app_errors.
+const invokeQuiet = (cmd, args) => _invokeRaw(cmd, args);
 // ícones SVG no estilo do app (linha, currentColor) — substituem emojis em botões/headers
 const _ICONS={
   chat:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>',
