@@ -415,6 +415,7 @@ async function cloudRemoteStartTick(){
         // tarefa de ÉPICO: os campos do cartão vão pro TASK.yaml (bloco epic)
         epicId: ct.epic_id||null, epicDoneWhen:(typeof epicDoneWhenOf==='function'?epicDoneWhenOf(ct.epic_id):null), verify:sp.verify||null, covers:sp.covers||null, after:sp.after||null, wave:sp.wave||null, risk:sp.risk||null, hitl:sp.hitl||null, boundaries:sp.boundaries||null,
         title: ct.title, start:true };
+      if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct);
       const localId=await invoke('new_task', await trkBeforeNewTask(payload));
       tmapSet(localId, ct.id);
       await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });

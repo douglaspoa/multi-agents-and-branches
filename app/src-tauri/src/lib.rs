@@ -5688,6 +5688,22 @@ fn import_attachment(state: State<AppState>, path: String, task_id: Option<Strin
     describe_attachment(&dest, name.clone(), format!("{rel_dir}/{name}"))
 }
 
+/// Grava um arquivo de REFERÊNCIA gerado pelo app (ex.: EPIC.md compilado) com o nome exato, numa pasta
+/// própria em .cardume/tmp/refs/ (ignorada pelo git), e devolve o caminho absoluto pra ir em `refs` do new_task.
+/// Diferente dos anexos, o nome não é slugificado — o prompt cita ".cardume/refs/EPIC.md" literalmente.
+#[tauri::command]
+fn write_ref_file(state: State<AppState>, name: String, text: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let safe: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')).collect();
+    if safe.is_empty() || safe.starts_with('.') { return Err("nome de referência inválido".into()); }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let dir = repo.join(".cardume").join("tmp").join("refs").join(stamp.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(&safe);
+    std::fs::write(&dest, text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(dest.display().to_string())
+}
+
 /// Anexo a partir de BYTES (Ctrl+V de um print, arrastar um arquivo pro chat) —
 /// o webview não tem o caminho, manda o conteúdo em base64.
 #[tauri::command(async)]
@@ -6103,6 +6119,7 @@ pub fn run() {
             pick_ref_files,
             import_attachment,
             import_attachment_data,
+            write_ref_file,
             ai_task_report,
             set_task_model,
             write_artifact,

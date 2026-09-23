@@ -31,6 +31,8 @@ export function taskToYaml(t: TaskSpec): string {
   if (t.model) lines.push(`model: ${t.model}`);
   // issue_url: se já existe, o agente NÃO deve criar outra — só referenciar.
   if (t.issueUrl) lines.push(`issue_url: ${t.issueUrl}`);
+  // referências anexadas em .cardume/refs/ (specs, prints, EPIC.md compilado do épico)
+  if (t.refs?.length) lines.push(`refs:${list(t.refs)}`);
   // Tarefa SOB ÉPICO: o que ela prova (verify), quais requisitos do épico cobre, de quem depende,
   // a onda, o risco e se parte é de uma pessoa. Tarefa comum não tem o bloco.
   const epic = epicBlock(t);

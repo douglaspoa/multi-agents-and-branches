@@ -255,7 +255,7 @@ async function plCreateEpic(){
       if(after.length<wanted.length) console.warn('épico: pré-requisito sem id na nuvem, dependência perdida', x.title, wanted);
       const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
         spec:{ title:x.title,
-          objective:(x.objective||'')+`\n\n(Onda ${x.wave} do épico "${name}"${plPlanCtx.origin?` — origem: tarefa "${plPlanCtx.origin.title}"; os artefatos dela têm o contexto completo`:''}. NÃO toque em arquivos fora do seu escopo: outras tarefas do épico rodam em paralelo.)`,
+          objective:(x.objective||'')+(plPlanCtx.origin?`\n\n(Origem: tarefa "${plPlanCtx.origin.title}" — os artefatos dela têm o contexto completo.)`:''), // o contexto do épico vai no EPIC.md ao assumir
           requirements:x.requirements||[], owns:x.owns||null,
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           wave:x.wave,

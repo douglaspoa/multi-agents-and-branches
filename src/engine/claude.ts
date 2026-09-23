@@ -150,7 +150,7 @@ export class ClaudeEngine implements AgentEngine {
       investigator: "Seu papel é INVESTIGADOR: ache a CAUSA RAIZ do problema com evidência — NÃO implemente a correção. Reproduza o caso no ambiente/telemetria reais, prove a causa com experimento e entregue um diagnóstico.",
       builder: "Seu papel é BUILDER: implemente a tarefa descrita.",
     };
-    const roleInstr = ROLE_INSTR[input.role] ?? ROLE_INSTR.builder;
+    const roleInstr = (ROLE_INSTR[input.role] ?? ROLE_INSTR.builder) + epicPlanRule(input);
     const askRule =
       this.approval === "ask"
         ? " IMPORTANTE: em QUALQUER decisão de requisito não trivial, chame mcp__cardume__ask_human e AGUARDE a resposta antes de prosseguir."
@@ -504,4 +504,20 @@ function mapTool(name: string | undefined, inp: any): AgentEvent {
 
 function fileOf(inp: any): string {
   return String(inp?.file_path ?? inp?.path ?? inp?.filename ?? "");
+}
+
+/**
+ * Tarefa SOB ÉPICO no papel PLANNER (CAP-5, refinamento tardio): os critérios de aceite nascem aqui, dos
+ * requisitos do épico que a tarefa cobre (EPIC.md) e do `verify` da tarefa — não vieram prontos do card.
+ * Tarefa comum, ou de épico no formato antigo (sem verify/covers), segue o fluxo de sempre.
+ */
+function epicPlanRule(input: { role: string; spec: { epicId?: string; verify?: string; covers?: string[]; refs?: string[] } }): string {
+  if (input.role !== "planner" || !input.spec.epicId || !(input.spec.verify || input.spec.covers?.length)) return "";
+  const hasEpicMd = (input.spec.refs ?? []).some((r) => /^EPIC\.md$/i.test(r));
+  return (
+    ` TAREFA DE ÉPICO — CRITÉRIOS DE ACEITE NASCEM AGORA: leia ${hasEpicMd ? ".cardume/refs/EPIC.md e " : ""}o bloco \`epic:\` do TASK.yaml.` +
+    ` Derive de 2 a 5 critérios de aceite VERIFICÁVEIS a partir dos requisitos do épico que esta tarefa cobre (${(input.spec.covers ?? []).join(", ") || "os citados em covers"}) e da prova da tarefa (verify: "${input.spec.verify ?? ""}").` +
+    " Cada critério cita o requisito (ex.: 'R2: …') e diz como alguém checa; NUNCA enfraqueça o verify — ele é o mínimo. Registre CADA critério com mcp__cardume__add_requirement (só os que ainda não estão no TASK.yaml), e liste-os no PLAN.md numa seção 'Critérios de aceite'." +
+    " Não escreva Dado/Quando/Então completo: isso é só pra bug, tarefa sem épico ou marcada refine."
+  );
 }
