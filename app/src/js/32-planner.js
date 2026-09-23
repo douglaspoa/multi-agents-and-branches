@@ -303,7 +303,7 @@ async function plSend(text){
     { const V='(vira|virar|quebra|quebrar|faz|fazer|prop[õo]e|proponha|monta|montar)';
       const pede=new RegExp('\\b'+V+'\\b[^.]{0,20}épico','i').test(text), nega=new RegExp('\\b(n[ãa]o|nem|sem)\\b[^.]{0,12}\\b'+V+'\\b','i').test(text);
       if(plNoEpic && pede && !nega) plNoEpic=false; }
-    const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts);
+    const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts) + (window.trfPromptBlock ? await trfPromptBlock(text) : '');
     const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     plSid=r.sessionId||(r&&r.recovered?'':plSid);
@@ -351,6 +351,8 @@ async function plCreate(){
     requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined };
+  // tarefas referenciadas com "/" em qualquer mensagem sua viram contexto da tarefa criada
+  if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n'));
   try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
@@ -367,6 +369,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverla
 // aplica o destino Time (local/self/team) a QUALQUER modo de criação;
 // devolve true quando virou cartão do time (não roda nesta máquina)
 async function ntApplyShare(payload){
+  if(window.trfApply) await trfApply(payload); // "/" tarefa de referência → contexto + docs anexados
   const share=($id("ntShareRow").style.display!=='none')?$id("ntShare").value:'local';
   if(share==='team'){ await cloudShareTask(payload); return true; }
   const localId=await invoke('new_task', await trkBeforeNewTask(payload));
@@ -513,6 +516,7 @@ async function submitNewTask(start=true){
       closeNewTask(); resetNewTask(); lastSig="";
       if(t) setView('team'); else await refresh();
     } else {
+      if(window.trfApply) await trfApply(payload);
       await invoke('new_task', await trkBeforeNewTask(payload));
       if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
       closeNewTask(); resetNewTask(); lastSig=""; await refresh();

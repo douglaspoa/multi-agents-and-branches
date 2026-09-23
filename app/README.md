@@ -107,3 +107,4 @@ vivo, claims, diff, log e as colisões do barramento — atualizando em tempo re
   reimplementando no Rust.
 - Trocar o poll por **push** (o Rust observa o arquivo e emite evento pro webview).
 - **Empacotar** (`npm run build`) com ícones `.icns` completos e assinatura.
+      35-ref-tarefa.js        "/" na descrição da Nova demanda/planner referencia tarefa JÁ FEITA (busca, projeto) → contexto + docs no spec
