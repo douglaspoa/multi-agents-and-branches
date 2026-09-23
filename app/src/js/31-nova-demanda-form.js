@@ -564,7 +564,7 @@ async function sendAiMsg(){
     } else {
       aiAppend('assistant', r.text||'(sem resposta)');
     }
-  }catch(e){ thinking.remove(); aiAppend('assistant','⚠ '+String(e)); }
+  }catch(e){ thinking.remove(); const m=String(e&&e.message||e); aiAppend('assistant', /PLANNER_STOPPED/.test(m)?'Parado.':'⚠ '+m); }
   finally{ aiBusy=false; send.disabled=false; const i=$id('aiInput'); if(i) i.focus(); }
 }
 function fillFromSpec(spec){

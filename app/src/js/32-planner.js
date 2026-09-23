@@ -13,6 +13,7 @@ const PL_MESH=[
   {k:'engine',  label:'engine',          src:'padrão'},
 ];
 let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plBusy=false, plRefs=[], plPlan=null, plNoEpic=false;
+let plActs=[], plStopping=false; // plActs: o que a IA está fazendo agora (uma linha por ação), vindo do evento planner-activity
 let plPend=[]; // anexos importados, ainda não enviados
 function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; }
 function plRenderRefs(){
@@ -73,7 +74,8 @@ function renderPlanner(){
   // chat
   const th=$id('plThread');
   const ci=document.activeElement, keep=(ci&&ci.id==='plInput'), iv=$id('plInput')?$id('plInput').value:null;
-  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span></div></div>':'')+(plPlanCtx.origin?'':plPlanCardHtml());
+  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span><div class="placts" id="plActs">'+plActsHtml()+'</div></div></div>':'')+(plPlanCtx.origin?'':plPlanCardHtml());
+  { const st=$id('plStop'); if(st) st.style.display=plBusy?'':'none'; const sd=$id('plSend'); if(sd) sd.disabled=!!plBusy; }
   if(!plPlanCtx.origin) plWirePlanCard(); plWireModelCard(th);
   attRenderPend('plPend', plPend, renderPlanner);
   th.scrollTop=th.scrollHeight;
@@ -282,13 +284,18 @@ function renderPlannerMeterOnly(){
   const c=$id('plCreate'); if(c) c.disabled=!plReady();
   const hint=document.querySelector('.plmeshfoot .dim'); if(hint) hint.textContent=plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ');
 }
+// ---- o que a IA está fazendo (uma linha por ação) + parar ----
+function plActsHtml(){ return plActs.slice(-6).map((l,i,a)=>`<div class="${i===a.length-1?'cur':''}">${esc(l)}</div>`).join(''); }
+function plActsPaint(){ const el=$id('plActs'); if(el) el.innerHTML=plActsHtml(); }
+try{ window.__TAURI__.event.listen('planner-activity', ev=>{ if(!plBusy) return; const l=String((ev&&ev.payload&&ev.payload.line)||'').trim(); if(!l) return; plActs.push(l); if(plActs.length>40) plActs.shift(); plActsPaint(); }); }catch(_){ }
+async function plStop(){ if(!plBusy) return; plStopping=true; plActs.push('parando…'); plActsPaint(); try{ await invoke('ai_chat_stop'); }catch(_){ } }
 async function plSend(text){
   if(plBusy) return; text=(text||'').trim();
   const atts=plPend.splice(0);
   if(!text && atts.length) text='Anexei estes arquivos — leia e extraia o contexto (spec, print do bug, etc.).';
   if(!text) return;
   const inp=$id('plInput'); if(inp) inp.value='';
-  plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
+  plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; plActs=[]; plStopping=false; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
   plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
   try{
     // "vira épico" depois de ter descartado: o usuário sobrescreve — a recusa cai e a IA pode propor de novo
@@ -320,7 +327,8 @@ async function plSend(text){
     } else {
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }
-  }catch(e){ plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim(); if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.'; plMsgs.push({who:'sys', text:'⚠ '+(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true); }
+  }catch(e){ plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim();
+    if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; plMsgs.pop(); plMsgs.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'}); const i=$id('plInput'); if(i&&!i.value) i.value=text; renderPlanner(); plAutoSave(true); return; } if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.'; plMsgs.push({who:'sys', text:'⚠ '+(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true); }
   renderPlanner(); plAutoSave();
 }
 async function plCreate(){
@@ -347,6 +355,7 @@ async function plCreate(){
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;
+{ const st=$id('plStop'); if(st) st.onclick=plStop; }
 $id('plNew').onclick=plNew;
 plWireComposer();
 $id('plSend').onclick=()=>plSend($id('plInput').value);

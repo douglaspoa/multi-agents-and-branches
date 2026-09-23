@@ -193,6 +193,11 @@
 .pltyping{display:inline-flex;gap:4px;align-items:center;height:8px}
 .pltyping i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:pltype 1.2s infinite ease-in-out}
 .pltyping i:nth-child(2){animation-delay:.18s} .pltyping i:nth-child(3){animation-delay:.36s}
+/* o que a IA está fazendo, uma linha por ação (evento planner-activity) */
+.placts{margin-top:7px;font-family:var(--mono,ui-monospace,monospace);font-size:10.5px;line-height:1.6;color:var(--muted);max-width:560px}
+.placts div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.55}
+.placts div.cur{opacity:1;color:var(--text-2)}
+.placts div::before{content:'· '}
 @keyframes pltype{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
 .plchips{display:flex;flex-wrap:wrap;gap:7px;padding:0 18px 6px}
 .plchip{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);border-radius:14px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
