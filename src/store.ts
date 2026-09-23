@@ -236,15 +236,15 @@ export class Store {
   }
 
   claimsForPath(path: string): ClaimRow[] {
-    return this.db.prepare(`SELECT * FROM claim WHERE path = ? ORDER BY created_at`).all(path) as ClaimRow[];
+    return this.db.prepare(`SELECT * FROM claim WHERE path = ? ORDER BY created_at`).all(path) as unknown as ClaimRow[];
   }
 
   claimsForTask(taskId: string): ClaimRow[] {
-    return this.db.prepare(`SELECT * FROM claim WHERE task_id = ? ORDER BY created_at`).all(taskId) as ClaimRow[];
+    return this.db.prepare(`SELECT * FROM claim WHERE task_id = ? ORDER BY created_at`).all(taskId) as unknown as ClaimRow[];
   }
 
   allClaims(): ClaimRow[] {
-    return this.db.prepare(`SELECT * FROM claim ORDER BY created_at`).all() as ClaimRow[];
+    return this.db.prepare(`SELECT * FROM claim ORDER BY created_at`).all() as unknown as ClaimRow[];
   }
 
   /** Libera os claims de uma tarefa (ela terminou de editar). */
@@ -267,7 +267,7 @@ export class Store {
   }
 
   listTasks(): TaskRow[] {
-    return this.db.prepare(`SELECT * FROM task ORDER BY created_at`).all() as TaskRow[];
+    return this.db.prepare(`SELECT * FROM task ORDER BY created_at`).all() as unknown as TaskRow[];
   }
 
   getTask(taskId: string): TaskRow | undefined {
@@ -277,11 +277,11 @@ export class Store {
   eventsForTask(taskId: string, afterId = 0): EventRow[] {
     return this.db
       .prepare(`SELECT * FROM event WHERE task_id = ? AND id > ? ORDER BY id`)
-      .all(taskId, afterId) as EventRow[];
+      .all(taskId, afterId) as unknown as EventRow[];
   }
 
   recentEvents(limit = 8): EventRow[] {
-    return this.db.prepare(`SELECT * FROM event ORDER BY id DESC LIMIT ?`).all(limit) as EventRow[];
+    return this.db.prepare(`SELECT * FROM event ORDER BY id DESC LIMIT ?`).all(limit) as unknown as EventRow[];
   }
 
   deleteTask(taskId: string): void {

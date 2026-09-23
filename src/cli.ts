@@ -10,7 +10,7 @@ import { run } from "./util/run.ts";
 import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
-import type { AgentRole, Role, TaskSpec } from "./types.ts";
+import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 
 // ---------- parse de flags simples ----------
 interface Args {

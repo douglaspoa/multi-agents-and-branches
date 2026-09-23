@@ -1,11 +1,13 @@
 // Tipos compartilhados do núcleo do Cardume.
 
-export type ClarMode = "ask" | "assume" | "strict";
+export type ClarMode = "ask" | "assume" | "strict" | "auto"; // "auto" = decide sozinho (planner/CLI já gravam)
 export type CommitMode = "per-step" | "at-end" | "never";
 export type ClaimMode = "read" | "write";
 export type AgentStatus =
+  | "draft" // rascunho: criada sem iniciar (--no-start)
   | "queued"
   | "running"
+  | "plan-review" // pausa após o planner até o humano aprovar o plano
   | "thinking"
   | "review"
   | "conflict"
