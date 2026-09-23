@@ -3595,8 +3595,13 @@ fn tracker_http(method: String, url: String, headers: Option<std::collections::H
     if let Some(b) = body {
         cfg.push_str(&format!("data-binary = \"{}\"\n", curl_cfg_quote(&tracker_fill_secrets(&b, &host)?)));
     }
+    // GET é idempotente: repete 1x em falha transitória (DNS/VPN trocando, conexão caindo).
+    // Escrita (POST/PUT/PATCH/DELETE) nunca repete — criaria issue/comentário em dobro.
+    // --compressed: as listas de issues vinham a 100 KB+ e estouravam os 30 s antigos.
+    let mut args: Vec<&str> = vec!["-sS", "--compressed", "--connect-timeout", "10", "--max-time", "60", "-w", "\n%{http_code}", "--config", "-"];
+    if m == "GET" { args.extend(["--retry", "1", "--retry-delay", "2", "--retry-all-errors"]); }
     let mut child = Command::new("curl")
-        .args(["-sS", "--max-time", "30", "-w", "\n%{http_code}", "--config", "-"])
+        .args(&args)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().map_err(|e| format!("falha ao rodar curl: {e}"))?;
     child.stdin.take().ok_or("sem stdin")?.write_all(cfg.as_bytes()).map_err(|e| e.to_string())?;

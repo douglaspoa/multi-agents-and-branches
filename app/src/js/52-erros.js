@@ -66,6 +66,9 @@
     try {
       const n = normalize(err);
       const src = String(source || n.source || "app").slice(0, 60);
+      // chave do painel de issues ausente/não liberada NESTA máquina: é configuração local
+      // (a tela Conexão já orienta), não erro do produto — não vai pra nuvem
+      if (/^SECRET_(UNBOUND|MISSING):/.test(n.message)) return;
       if (!n.message || n.message === "(erro sem mensagem)") { if (!extra || !extra.force) { /* segue: registra mesmo assim */ } }
       // anti-flood: mesma origem+mensagem no mesmo minuto → ignora
       const k = src + "|" + n.message;
