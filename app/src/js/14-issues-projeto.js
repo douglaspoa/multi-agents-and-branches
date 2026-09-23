@@ -205,6 +205,56 @@ async function trkCreateIssue(title, description, goal, extra){
   if(i.code){ trkIssues.unshift(i); const s=trkSeen()||{}; s[i.code]=trkSig(i); lsSet('trk:seen',JSON.stringify(s)); }
   return i;
 }
+// ---------- ÉPICO no tracker (CAP-8): pai + filhas com bloqueio, genérico pro conector cadastrado ----------
+// Suporte a pai = {{parent}} no body do create OU op addChild. Sem isso o aprovar não publica (as tarefas
+// seguem ganhando issue ao serem assumidas, como sempre).
+function trkCreateBodyHas(ph){ const op=trkOp('create')||{}; return JSON.stringify({ p:op.path||'', q:op.query||{}, b:op.body||{}, h:op.headers||{} }).includes('{{'+ph+'}}'); } // placeholder vale em path/query/body
+function trkParentSupport(){ return trkReady() && !!trk.connector.ops.create && (trkCreateBodyHas('parent') || !!trk.connector.ops.addChild); }
+function trkTypePick(re){ return ((trk.connector||{}).types||[]).find(t=>re.test(String(t)))||''; }
+function trkEpicType(){ return trkTypePick(/epic|épico|initiative|iniciativa/i); } // reconhece pelo NOME do tipo; sem match, vai sem tipo
+function trkStoryType(){ const t=trkTypePick(/^(story|task|tarefa|issue|história|historia)$/i)||trkTypePick(/story|task|tarefa/i); return t&&t!==trkEpicType()?t:''; }
+// Publica o épico aprovado no card: 1 pai + N filhas em ordem de onda, com pai e bloqueio (ou "Bloqueada por" no corpo).
+// `created`: [{ row (linha de tasks na nuvem, com spec.after em ids da nuvem), wave }]. Grava os links na nuvem.
+async function trkPublishEpic(ep, created){
+  try{
+    await trkLoad();
+    if(!trkReady()||!trk.rules.createOnTask||!(await trkProjectOn())||!trkParentSupport()) return null;
+    const sp=(ep&&ep.spec)||{};
+    const li=(arr,f)=>(Array.isArray(arr)&&arr.length)?arr.map(f).join('\n'):'';
+    const desc=[ sp.outcome||'', li(sp.requirements,r=>'- '+(r.id||'R?')+': '+(r.text||''))&&('Requisitos:\n'+li(sp.requirements,r=>'- '+(r.id||'R?')+': '+(r.text||''))),
+      li(sp.doneWhen,d=>'- [ ] '+(d.id||'D?')+': '+(d.text||''))&&('Pronto quando:\n'+li(sp.doneWhen,d=>'- [ ] '+(d.id||'D?')+': '+(d.text||''))),
+      li(sp.boundaries,b=>'- '+b)&&('Não muda:\n'+li(sp.boundaries,b=>'- '+b)) ].filter(Boolean).join('\n\n');
+    const parent=await trkCreateIssue(ep.name, desc, sp.outcome||'', { type:trkEpicType() });
+    if(!parent||!parent.code){ trkToast('O painel não devolveu o código da issue-mãe — as filhas não foram publicadas'); return null; }
+    const inCreateParent=trkCreateBodyHas('parent'), inCreateBlock=trkCreateBodyHas('blockedBy'), opBlock=!!trk.connector.ops.addBlockedBy, opChild=!!trk.connector.ops.addChild;
+    const codeOf={}, idOf={}, out=[];
+    for(const c of created){
+      const row=c.row||{}, s=row.spec||{};
+      const blockers=(Array.isArray(s.after)?s.after:[]).map(a=>codeOf[a]).filter(Boolean);
+      const body=[ s.objective||'', s.verify?'Prova: '+s.verify:'', (Array.isArray(s.covers)&&s.covers.length)?'Cobre: '+s.covers.join(', '):'',
+        (Array.isArray(s.requirements)&&s.requirements.length)?'Requisitos:\n'+s.requirements.map(r=>'- '+r).join('\n'):'',
+        (!inCreateBlock&&!opBlock&&blockers.length)?'Bloqueada por: '+blockers.join(', '):'', 'Épico: '+parent.code ].filter(Boolean).join('\n\n');
+      let i=null;
+      try{ i=await trkCreateIssue(row.title, body, s.verify||'', { type:trkStoryType(), parent:parent.code, parentId:parent.id||'', blockedBy:inCreateBlock?blockers.join(','):'' }); }
+      catch(e){ console.warn('filha não criada', row.title, e); continue; }
+      if(!i||!i.code) continue;
+      codeOf[row.id]=i.code; idOf[row.id]=i.id||'';
+      if(!inCreateParent && opChild){ try{ await trkCall('addChild',{ parent:parent.code, parentId:parent.id||'', child:i.code, childId:i.id||'' }); }catch(e){ console.warn('addChild', e); } }
+      if(opBlock && !inCreateBlock){ for(const a of (Array.isArray(s.after)?s.after:[])){ if(!codeOf[a]) continue; try{ await trkCall('addBlockedBy',{ code:i.code, id:i.id||'', blocker:codeOf[a], blockerId:idOf[a]||'' }); }catch(e){ console.warn('addBlockedBy', e); } } }
+      out.push({ rowId:row.id, spec:s, code:i.code, url:i.url||'' });
+    }
+    // links na nuvem (sem clique): épico e tarefas — assumir a tarefa depois NÃO cria outra issue
+    try{ await sbFetch('/rest/v1/epics?id=eq.'+ep.id,{ method:'PATCH', body: JSON.stringify({ spec:{ ...sp, issue:{ code:parent.code, url:parent.url||'' } }, updated_at:new Date().toISOString() }) }); }catch(e){ console.warn('link do épico', e); }
+    for(const o of out){
+      const spec={ ...o.spec, issueCode:o.code, issueUrl:o.url||undefined };
+      const c=created.find(x=>x.row&&x.row.id===o.rowId); if(c){ c.row.issue_url=o.url||null; c.row.spec=spec; } // a onda 1 pode ser assumida logo em seguida: a linha em memória já leva o link (senão nasceria uma 2ª issue)
+      try{ await sbFetch('/rest/v1/tasks?id=eq.'+o.rowId,{ method:'PATCH', body: JSON.stringify({ issue_url:o.url||null, spec }) }); }catch(e){ console.warn('link da tarefa', e); }
+    }
+    trkToast('Épico publicado no painel: '+parent.code+' + '+out.length+' filha'+(out.length===1?'':'s'));
+    return parent;
+  }catch(e){ trkToast('Não publiquei o épico no painel: '+trkErrText(e)); return null; }
+}
+window.trkPublishEpic=trkPublishEpic;
 function trkToast(msg){
   let el=$id('trkToast'); if(!el){ el=document.createElement('div'); el.id='trkToast'; el.className='trk-toast'; document.body.appendChild(el); }
   el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.display='none'; },5200);
@@ -462,7 +512,7 @@ function trkParseJson(text){
 // ----- ABA "Nova issue": mesmo padrão do "Montar conversando" -----
 // Chat à esquerda (a IA PESQUISA o projeto escolhido pra fechar as arestas), rascunhos das issues à
 // direita (uma ou várias) pra revisar — título, descrição, requisitos, responsável. Nada é criado sem confirmar.
-function trkNIBlank(){ return { project:null, projects:[], sid:'', msgs:[], chips:[], items:[], busy:false, running:false, pendingText:'', stop:false, prog:'', redirect:'', notes:[], pend:[] }; } // pend: anexos importados, ainda não enviados
+function trkNIBlank(){ return { project:null, projects:[], sid:'', msgs:[], chips:[], items:[], epic:null, busy:false, running:false, pendingText:'', stop:false, prog:'', redirect:'', notes:[], pend:[] }; } // epic: {title, outcome, doneWhen[]} quando a IA agrupou a lista num épico // pend: anexos importados, ainda não enviados
 function trkNIOpen(){ openTab('issuesbulk'); }
 async function openIssuesBulk(){
   $id('issuesBulkOverlay').style.display='flex';
@@ -491,6 +541,7 @@ function trkNIPickProject(name){
 function trkNIContext(){
   return JSON.stringify({ painel:trk.name||'', projeto:trkNI.project?{ name:trkNI.project.name, remote:trkNI.project.remote }:null,
     statuses:(trk.connector.statuses||[]).map(s=>s.id), priorities:trk.connector.priorities||[], types:trk.connector.types||[], assigneeFormat:trk.connector.assigneeFormat||'', people:trkPeopleList().slice(0,40),
+    epicSupport:trkParentSupport(),
     existing:trkIssues.filter(i=>(trkStatus(i.status)||{}).kind!=='done').slice(0,60).map(i=>i.code+' '+i.title) });
 }
 async function trkNISend(text, silent){
@@ -543,7 +594,7 @@ async function trkNISend(text, silent){
         rest=lots.slice(k).flat().join('\n'); // se parar aqui, só o que FALTA volta pra caixa
         n.prog=`lote ${k+1} de ${lots.length} · ${n.items.length} de ${lines.length} issues prontas`; trkNIRender();
         const { obj, text:raw }=await call(`[LOTE ${k+1}/${lots.length}] Monte as issues destas linhas (a lista inteira tem ${lines.length}; responda só este lote):\n`+lots[k].join('\n'));
-        if(obj){ n.items=n.items.concat(toItems(obj.issues)); if(obj.say) n.msgs.push({ who:'bot', text:String(obj.say) }); n.chips=Array.isArray(obj.chips)?obj.chips.slice(0,4).map(String):[]; }
+        if(obj){ n.items=n.items.concat(toItems(obj.issues)); trkNIEpicFrom(obj); if(obj.say) n.msgs.push({ who:'bot', text:String(obj.say) }); n.chips=Array.isArray(obj.chips)?obj.chips.slice(0,4).map(String):[]; }
         else n.msgs.push({ who:'bot', text:raw||'(sem resposta)' });
       }
     } else {
@@ -551,6 +602,7 @@ async function trkNISend(text, silent){
       const { obj, text:raw }=await call(text+edited+attPromptBlock(atts));
       if(obj){
         if(Array.isArray(obj.issues)&&obj.issues.length) n.items=n.items.filter(i=>i.state==='ok').concat(toItems(obj.issues));
+        trkNIEpicFrom(obj);
         n.chips=Array.isArray(obj.chips)?obj.chips.slice(0,4).map(String):[];
         if(obj.say) n.msgs.push({ who:'bot', text:String(obj.say) });
         if(obj.done && trkNIReady()){ n.busy=false; n.prog=''; n.msgs.push({ who:'sys', text:'Confirmado — criando…' }); trkNIRender(); await trkNICreate(); return; }
@@ -567,6 +619,11 @@ async function trkNISend(text, silent){
 }
 async function trkNIStop(){ const n=trkNI; if(!n||!n.busy) return; n.stop=true; try{ await invoke('issue_chat_stop'); }catch(_){ } }
 function trkNITodo(){ return trkNI.items.filter(i=>i.state!=='ok'&&!i.skip&&i.title.trim()); }
+// `epic` da resposta: objeto com title → agrupa; null explícito → desagrupa; ausente → mantém o que já tinha
+function trkNIEpicFrom(obj){ const n=trkNI; if(!obj||!('epic' in obj)) return; const e=obj.epic;
+  n.epic=(e&&typeof e==='object'&&e.title)?{ title:String(e.title).slice(0,90), outcome:String(e.outcome||'').slice(0,300), doneWhen:(Array.isArray(e.doneWhen)?e.doneWhen:[]).map(String).filter(Boolean).slice(0,6) }:null; }
+function trkNIEpicOff(){ if(trkNI){ trkNI.epic=null; trkNI.msgs.push({ who:'sys', text:'Sem épico — as issues saem soltas.' }); trkNIRender(); } }
+window.trkNIEpicOff=trkNIEpicOff;
 function trkNIReady(){ return !!trkNI.project && trkNITodo().length>0; }
 function trkNIKeep(){
   const o=$id('issuesBulkBody'); if(!o||!trkNI) return;
@@ -607,7 +664,7 @@ function trkNIRender(){
         <div class="plchips">${n.chips.map((c,k)=>`<button class="plchip" data-nichip="${k}">${esc(c)}</button>`).join('')}</div>
         <div class="attrow attpend" id="trkNIPend" style="display:none"></div>
         <div class="plinput"><button class="btn sm" id="trkNIAttach" title="anexar print/PDF/doc (⌘V cola um print)"${n.running?' disabled':''}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="width:14px;height:14px"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in plta" id="trkNIInput" rows="2" placeholder="${n.busy?'quer mudar o rumo ou acrescentar uma info? escreva e envie — eu interrompo e sigo com isso':n.project?'descreva a issue — ou cole uma lista, uma por linha · ⌘V cola um print · enter envia, shift+enter quebra linha':'diga o projeto (ou escolha acima)…'}"${n.running?' disabled':''}></textarea>${n.busy?`<button class="btn trk-stop" id="trkNIStop">■ parar</button>`:''}<button class="btn primary" id="trkNISend"${n.running?' disabled':''}>${n.busy?'redirecionar':'enviar'}</button></div></div>
-      <div class="plmesh"><div class="plmeshh">issues <span class="plmesht">${n.items.length?`${todo.length} pra criar${made?' · '+made+' criadas':''}${openQ?' · '+openQ+' perguntas em aberto':''}`:'aparecem aqui conforme a conversa'}</span></div>
+      <div class="plmesh"><div class="plmeshh">issues <span class="plmesht">${n.items.length?`${todo.length} pra criar${made?' · '+made+' criadas':''}${openQ?' · '+openQ+' perguntas em aberto':''}`:'aparecem aqui conforme a conversa'}</span></div>${n.epic?`<div class="trk-niepic"><span class="mono" style="color:var(--accent)">◆ ÉPICO</span> <b>${esc(n.epic.title)}</b>${n.epic.outcome?` <span class="dim">· ${esc(n.epic.outcome)}</span>`:''}${trkParentSupport()?'':' <span class="dim">· este painel não tem issue-mãe: o épico vai citado no corpo</span>'}${n.running?'':` <button class="trk-nix" onclick="trkNIEpicOff()" title="não agrupar">✕</button>`}</div>`:''}
         ${cards||'<div class="trk-rs" style="padding:8px 2px">Mande uma issue ou uma lista. Eu pesquiso o projeto, preencho descrição e requisitos e pergunto só o que o código não responde.</div>'}
         <datalist id="trkNIPeople">${people.map(p=>`<option value="${escA(p.id)}">${esc(p.name)}</option>`).join('')}</datalist>
         <div class="plmeshfoot">${(!todo.length&&made&&!n.running&&!n.busy)
@@ -642,13 +699,25 @@ async function trkNICreate(){
   const n=trkNI; if(n.running) return; trkNIKeep(); if(!trkNIReady()) return;
   const canAssign=JSON.stringify((trkOp('create')||{}).body||{}).includes('{{assignee}}');
   n.running=true; trkNIRender();
+  // épico agrupado pela IA: issue-mãe primeiro (quando o painel tem pai); as filhas nascem vinculadas
+  let parent=null; const withParent=!!(n.epic&&trkParentSupport());
+  if(n.epic&&!n.epicCode){
+    try{
+      const d=[n.epic.outcome||'', n.epic.doneWhen.length?'Pronto quando:\n'+n.epic.doneWhen.map((t,i)=>'- [ ] D'+(i+1)+': '+t).join('\n'):'', 'Projeto: '+n.project.name].filter(Boolean).join('\n\n');
+      if(withParent){ parent=await trkCreateIssue(n.epic.title, d, n.epic.outcome||'', { type:trkEpicType() }); if(parent&&parent.code) n.epicCode=parent.code; }
+    }catch(e){ n.msgs.push({ who:'sys', text:'Não criei a issue-mãe do épico: '+trkErrText(e)+' — as filhas saem soltas.' }); }
+  }
+  if(!parent&&n.epicCode) parent=trkIssues.find(i=>i.code===n.epicCode)||{ code:n.epicCode };
+  const inCreateParent=trkCreateBodyHas('parent'), opChild=!!trk.connector.ops.addChild;
   for(const it of n.items){ // em série: preserva a ordem dos códigos e não estoura rate limit
     if(it.state==='ok'||it.skip||!it.title.trim()) continue;
     it.state='run'; it.err=''; trkNIRender();
     try{
       const description=[it.description, it.reqs.length?'Requisitos:\n'+it.reqs.map(r=>'- '+r).join('\n'):'', 'Projeto: '+n.project.name+(n.project.remote?' ('+n.project.remote+')':''),
-        (it.assignee&&!canAssign)?'Responsável: '+((trkPerson(it.assignee)||{}).label||it.assignee):''].filter(Boolean).join('\n\n');
-      const i=await trkCreateIssue(it.title, description, it.goal, { assignee:it.assignee||'', priority:it.priority||'', type:it.type||'' });
+        (it.assignee&&!canAssign)?'Responsável: '+((trkPerson(it.assignee)||{}).label||it.assignee):'',
+        n.epic?('Épico: '+(parent&&parent.code?parent.code+' — ':'')+n.epic.title):''].filter(Boolean).join('\n\n');
+      const i=await trkCreateIssue(it.title, description, it.goal, { assignee:it.assignee||'', priority:it.priority||'', type:it.type||(withParent?trkStoryType():''), parent:(withParent&&parent)?parent.code:'', parentId:(withParent&&parent)?(parent.id||''):'' });
+      if(withParent&&parent&&i&&i.code&&!inCreateParent&&opChild){ try{ await trkCall('addChild',{ parent:parent.code, parentId:parent.id||'', child:i.code, childId:i.id||'' }); }catch(e){ console.warn('addChild', e); } }
       if(!i.code) throw new Error('o painel não devolveu o código da issue'); it.code=i.code; it.state='ok'; it.open=[];
     }catch(e){ it.state='fail'; it.err=trkErrText(e); }
     trkNIRender();

@@ -92,6 +92,7 @@ function epicPageRender(){
         <div class="ctp-who">${tsAv(ep.created_by, tsOnline(ep.created_by))}<span>criado por <b>${esc(tmName(ep.created_by))}</b>${ep.created_at?' · há '+agoTx(ep.created_at):''}</span></div>
       </div>
       <div class="en-kpis">
+        ${sp.issue&&sp.issue.code?`<button class="en-kpi" ${sp.issue.url?`data-lk="${escA(sp.issue.url)}"`:'disabled'}><b>${esc(sp.issue.code)}</b><span>issue do épico${sp.issue.url?' ↗':''}</span></button>`:''}
         <div class="en-kpi"><b>${okN}/${dw.length}</b><span>pronto quando</span></div>
         <div class="en-kpi"><b>${doneN}/${tasks.length}</b><span>tarefas entregues</span></div>
         <div class="en-kpi"><b>${esc(EP_ST_PT[ep.status]||ep.status||'')}</b><span>status</span></div>
@@ -108,6 +109,7 @@ function epicPageRender(){
     </div>
   </div>`;
   main.querySelectorAll('[data-epdw]').forEach(cb=>cb.onchange=()=>epicToggleDone(ep, +cb.dataset.epdw, cb.checked));
+  main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-ept]').forEach(r=>r.onclick=()=>{ const t=(c.tasks||[]).find(x=>x.id===r.dataset.ept); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); });
   bindClick('epLegacyDone', ()=>epicSetStatus(ep,'done'));
   { const h=$id('epicPageName'); if(h) h.textContent=ep.name||'Épico'; const s=$id('epicPageSub'); if(s) s.textContent=EP_ST_PT[ep.status]||''; }

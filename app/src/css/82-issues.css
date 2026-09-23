@@ -90,3 +90,7 @@
 #issuesBulkBody .plbub{overflow-wrap:anywhere}
 #issuesBulkBody .plbub pre,#issuesBulkBody .plbub code{white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:1100px){#issuesBulkBody .plcols{grid-template-columns:minmax(0,1fr) 340px}}
+
+/* Nova issue: faixa do épico agrupado pela IA */
+.trk-niepic{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;padding:7px 10px;margin:6px 0 8px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:8px;background:var(--surface-2)}
+.trk-niepic .dim{font-size:11px}
