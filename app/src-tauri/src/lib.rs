@@ -3122,8 +3122,37 @@ fn ai_title(text: String) -> Result<String, String> {
     Ok(title)
 }
 
+/// Uma linha em português do que a IA está fazendo (tool_use do stream-json) — vai pro chat do planner.
+fn tool_line(name: &str, input: &serde_json::Value) -> String {
+    let n = name.to_ascii_lowercase();
+    let s = |k: &str| input.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let short = |t: String, max: usize| -> String { let t = t.replace('\n', " "); if t.chars().count() > max { format!("{}…", t.chars().take(max).collect::<String>()) } else { t } };
+    let rel = |p: String| -> String { p.rsplit('/').take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("/") };
+    if n == "read" { format!("lendo {}", rel(s("file_path"))) }
+    else if n == "grep" { let pat = short(s("pattern"), 60); let path = s("path"); if path.is_empty() { format!("procurando \"{pat}\"") } else { format!("procurando \"{pat}\" em {}", rel(path)) } }
+    else if n == "glob" { format!("listando {}", short(s("pattern"), 60)) }
+    else if n == "ls" { format!("listando {}", rel(s("path"))) }
+    else if n == "bash" { format!("rodando {}", short(s("command"), 90)) }
+    else if n.contains("task") { format!("subagente: {}", short(s("description"), 80)) }
+    else if n.contains("webfetch") || n.contains("websearch") { format!("consultando {}", short(if s("url").is_empty() { s("query") } else { s("url") }, 80)) }
+    else { short(name.to_string(), 40) }
+}
+
+static PLANNER_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// PARA a resposta em andamento do planner ("montar conversando"): mata o grupo do claude.
+#[tauri::command]
+fn ai_chat_stop() -> bool {
+    let pid = PLANNER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid > 0 { signal_group(pid, libc::SIGKILL); true } else { false }
+}
+
+/// Planner conversando. Roda o claude em stream-json e, a cada tool_use, emite `planner-activity`
+/// ({ line }) pro chat mostrar o que a IA está fazendo; `ai_chat_stop` derruba o processo (PLANNER_STOPPED).
 #[tauri::command(async)]
-fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+    use std::io::BufRead;
+    use tauri::Emitter;
     let repo = repo_of(&state)?;
     let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
     let claude = claude_bin();
@@ -3131,14 +3160,14 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
         "-p".to_string(),
         prompt,
         "--output-format".to_string(),
-        "json".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
         "--append-system-prompt".to_string(),
         sys.to_string(),
         // read-only: o planner INVESTIGA o código (lê/grep/git) mas NÃO edita nada.
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
         // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
-        // — o planner precisa VER o print pra extrair o contexto.
         "--permission-mode".to_string(),
         "bypassPermissions".to_string(),
     ];
@@ -3150,12 +3179,76 @@ fn ai_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 150)?; // investigar o código leva um pouco mais
-    let v = claude_json(&out)?;
-    Ok(AiChat {
-        text: v["result"].as_str().unwrap_or("").to_string(),
-        session_id: v["session_id"].as_str().unwrap_or("").to_string(),
-    })
+    cmd.process_group(0); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    let pid = child.id() as i32;
+    PLANNER_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
+    // watchdog: investigar o código leva tempo, mas não pra sempre — com "parar" na tela, 10 min é o teto
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let timed_out2 = timed_out.clone();
+    let watch = std::thread::spawn(move || {
+        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { timed_out2.store(true, std::sync::atomic::Ordering::SeqCst); signal_group(pid, libc::SIGKILL); }
+    });
+    // lê o stream linha a linha: tool_use → evento pro chat; result → resposta final
+    let stdout = child.stdout.take().ok_or("sem stdout do claude")?;
+    let stderr = child.stderr.take();
+    let app2 = app.clone();
+    let reader = std::thread::spawn(move || -> (String, String, String, bool) {
+        let mut result = String::new(); let mut sid = String::new(); let mut last_text = String::new(); let mut is_error = false;
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            let v: serde_json::Value = match serde_json::from_str(&line) { Ok(v) => v, Err(_) => continue };
+            match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+                "assistant" => {
+                    if let Some(parts) = v.pointer("/message/content").and_then(|c| c.as_array()) {
+                        for p in parts {
+                            if p.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                                let name = p.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
+                                let inp = p.get("input").cloned().unwrap_or(serde_json::Value::Null);
+                                let _ = app2.emit("planner-activity", serde_json::json!({ "line": tool_line(name, &inp) }));
+                            } else if p.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                if let Some(t) = p.get("text").and_then(|t| t.as_str()) { last_text = t.to_string(); }
+                            }
+                        }
+                    }
+                }
+                "result" => {
+                    result = v.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string();
+                    sid = v.get("session_id").and_then(|r| r.as_str()).unwrap_or("").to_string();
+                    is_error = v.get("is_error").and_then(|b| b.as_bool()).unwrap_or(false) || v.get("subtype").and_then(|t| t.as_str()).map(|t| t.starts_with("error")).unwrap_or(false);
+                }
+                _ => {}
+            }
+        }
+        (result, sid, last_text, is_error)
+    });
+    let err_txt = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(e) = stderr { for l in std::io::BufReader::new(e).lines().map_while(Result::ok) { s.push_str(&l); s.push('\n'); } }
+        s
+    });
+    let status = child.wait();
+    let _ = tx.send(());
+    let _ = watch.join();
+    let _ = PLANNER_PID.compare_exchange(pid, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
+    let (result, sid, last_text, is_error) = reader.join().unwrap_or_default();
+    let err_txt = err_txt.join().unwrap_or_default();
+    let status = status.map_err(|e| e.to_string())?;
+    if status.code().is_none() {
+        return Err(if timed_out.load(std::sync::atomic::Ordering::SeqCst) { "comando expirou após 600s (a IA não terminou de investigar)".to_string() } else { "PLANNER_STOPPED".to_string() });
+    }
+    // mesmo tratamento do claude_json antigo: is_error (login expirado, limite de uso…) vira erro AMIGÁVEL, não fala do bot
+    if is_error {
+        let msg = if result.trim().is_empty() { err_txt.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n") } else { result.clone() };
+        return Err(claude_friendly_error(msg.trim()));
+    }
+    if !status.success() && result.is_empty() {
+        let tail: String = err_txt.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        return Err(if tail.trim().is_empty() { format!("claude saiu com código {}", status.code().unwrap_or(-1)) } else { tail });
+    }
+    // `result` vazio (ex.: erro de API no fim) → fica com o último texto do assistente, se houver
+    Ok(AiChat { text: if result.is_empty() { last_text } else { result }, session_id: sid })
 }
 
 /// Conversa com o ORQUESTRADOR sobre o projeto e o plano montado: lê o repo de verdade
@@ -6084,6 +6177,7 @@ pub fn run() {
             reorder_tasks,
             repo_remote,
             ai_chat,
+            ai_chat_stop,
             ai_title,
             project_chat,
             is_dev_install,
