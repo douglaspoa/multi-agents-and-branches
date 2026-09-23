@@ -156,6 +156,10 @@ export interface TaskSpec {
   risk?: TaskRisk;
   /** Parte do trabalho precisa de uma pessoa. */
   hitl?: boolean;
+  /** Itens do "pronto quando" do épico ("D1: texto"), copiados ao assumir a tarefa — é o que o revisor lê pra julgar. */
+  epicDoneWhen?: string[];
+  /** Itens do "pronto quando" que o agente revisor marcou via mcp__cardume__check_done_when; o app espelha em epics.spec. */
+  epicChecks?: { id: string; evidence: string; at: string }[];
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

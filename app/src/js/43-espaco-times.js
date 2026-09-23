@@ -217,6 +217,13 @@ function renderTeamBoard(){
     if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
 }
 
+// itens do "pronto quando" do épico ("D1: texto") — vão no TASK.yaml pra o revisor saber o que julgar
+function epicDoneWhenOf(epicId){
+  if(!epicId) return null;
+  const e=(teamEpics||[]).find(x=>x.id===epicId); const dw=e&&e.spec&&Array.isArray(e.spec.doneWhen)?e.spec.doneWhen:[];
+  const out=dw.map((d,i)=>(d.id||('D'+(i+1)))+': '+String(d.text||'').trim()).filter(x=>!/: $/.test(x));
+  return out.length?out:null;
+}
 async function teamClaimStart(ct, btn){
   if(btn){ btn.disabled=true; btn.textContent='assumindo…'; }
   try{
@@ -224,7 +231,7 @@ async function teamClaimStart(ct, btn){
     if(!j.ok) throw new Error(j.error||'não deu pra assumir');
     // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
     // ...(ct.spec) traz verify/covers/after/wave/risk/hitl quando o cartão veio de um épico; epic_id é coluna, não spec
-    const payload={ workflow:null, agents:null, engine:'claude', approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), epicId: ct.epic_id||null, title: ct.spec?.title||ct.title, start:true };
+    const payload={ workflow:null, agents:null, engine:'claude', approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), epicId: ct.epic_id||null, epicDoneWhen: epicDoneWhenOf(ct.epic_id)||(ct.spec&&ct.spec.epicDoneWhen)||null, title: ct.spec?.title||ct.title, start:true };
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });

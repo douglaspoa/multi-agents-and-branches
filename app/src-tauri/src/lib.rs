@@ -1703,7 +1703,7 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                 orchestration: spec.get("orchestration").filter(|v| v.is_object()).cloned(),
                 epic: {
                     let mut m = serde_json::Map::new();
-                    for k in ["epicId", "verify", "covers", "after", "wave", "risk", "hitl", "boundaries"] {
+                    for k in ["epicId", "verify", "covers", "after", "wave", "risk", "hitl", "boundaries", "epicDoneWhen", "epicChecks"] {
                         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
                     }
                     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
@@ -2101,6 +2101,7 @@ fn new_task(
     boundaries: Option<serde_json::Value>,
     risk: Option<String>,
     hitl: Option<serde_json::Value>,
+    epic_done_when: Option<serde_json::Value>,
 ) -> Result<String, String> {
     // tolerante: lista de strings (números viram texto), wave numérica ou "2", hitl true/"true"
     let strs = |v: &Option<serde_json::Value>| -> Vec<String> {
@@ -2110,7 +2111,7 @@ fn new_task(
             _ => None,
         }).filter(|s| !s.trim().is_empty()).collect()).unwrap_or_default()
     };
-    let (covers, after, boundaries) = (strs(&covers), strs(&after), strs(&boundaries));
+    let (covers, after, boundaries, done_when) = (strs(&covers), strs(&after), strs(&boundaries), strs(&epic_done_when));
     let wave: u32 = match &wave { Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) as u32, Some(serde_json::Value::String(s)) => s.trim().parse().unwrap_or(0), _ => 0 };
     let hitl = matches!(&hitl, Some(serde_json::Value::Bool(true))) || matches!(&hitl, Some(serde_json::Value::String(s)) if s == "true");
     let repo = repo_of(&state)?;
@@ -2225,7 +2226,7 @@ fn new_task(
     // campos de épico → flags do CLI (um flag por item nas listas, como --requirement)
     push_opt(&mut args, "--epic-id", &epic_id);
     push_opt(&mut args, "--verify", &verify);
-    for (flag, xs) in [("--cover", &covers), ("--after", &after), ("--boundary", &boundaries)] {
+    for (flag, xs) in [("--cover", &covers), ("--after", &after), ("--boundary", &boundaries), ("--done-when", &done_when)] {
         for x in xs { args.push(flag.to_string()); args.push(x.clone()); }
     }
     if wave > 0 { args.push("--wave".to_string()); args.push(wave.to_string()); }

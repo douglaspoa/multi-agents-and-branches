@@ -4,6 +4,7 @@
 //   claim(path, mode)             — reivindica um caminho no barramento.
 //
 // Só escreve JSON-RPC no stdout; qualquer log vai pro stderr.
+import type { TaskSpec } from "../types.ts";
 import { createInterface } from "node:readline";
 import { Store } from "../store.ts";
 import { CoordinationBus } from "../bus.ts";
@@ -12,6 +13,7 @@ import { notify } from "../util/notify.ts";
 const DB = process.env.CARDUME_DB;
 const TASK = process.env.CARDUME_TASK ?? "";
 const AGENT = process.env.CARDUME_AGENT ?? "agente";
+const ROLE = process.env.CARDUME_ROLE ?? ""; // builder | planner | reviewer | … (vazio em motor antigo)
 
 if (!DB) {
   process.stderr.write("cardume-mcp: falta CARDUME_DB\n");
@@ -71,6 +73,19 @@ const TOOLS = [
         url: { type: "string", description: "URL completa da issue criada (ex.: https://github.com/org/repo/issues/123)." },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "check_done_when",
+    description:
+      "SÓ PARA O PAPEL REVISOR, e só quando a tarefa pertence a um ÉPICO (bloco `epic:` no TASK.yaml, com `done_when`). Marque UM item do 'pronto quando' do épico que a sua revisão PROVOU (a evidência tem que ser algo que você viu: teste rodado, tela, comando). O app espelha a marca no épico do time e, se era o último item, fecha o épico. NUNCA marque por suposição; item que a tarefa só ajuda mas não prova fica pra quem revisar o restante.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Id do item em `epic.done_when` do TASK.yaml (ex.: 'D2')." },
+        evidence: { type: "string", description: "O que prova o item, em 1 frase concreta (ex.: 'suíte e2e cart-total passou em CI #412')." },
+      },
+      required: ["id", "evidence"],
     },
   },
   {
@@ -183,6 +198,37 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
       return { text: `issue registrada e compartilhada com o time: ${url}` };
     } catch (e) {
       return { text: `falha registrando issue: ${(e as Error).message}`, isError: true };
+    }
+  }
+
+  if (name === "check_done_when") {
+    const id = String(args?.id ?? "").trim().toUpperCase();
+    const evidence = String(args?.evidence ?? "").trim().slice(0, 300);
+    if (ROLE && ROLE !== "reviewer") return { text: `só o papel revisor marca o "pronto quando" (você é ${ROLE}) — deixe a prova pra revisão`, isError: true };
+    if (!/^D\d+$/.test(id)) return { text: "id inválido — use o id do item em epic.done_when (ex.: 'D2')", isError: true };
+    if (evidence.length < 8) return { text: "evidência curta demais — diga o que você viu (teste, tela, comando)", isError: true };
+    const task = store.getTask(TASK);
+    if (!task) return { text: "tarefa não encontrada", isError: true };
+    try {
+      const spec = JSON.parse(task.spec_json) as TaskSpec;
+      if (!spec.epicId) return { text: "esta tarefa não pertence a um épico — nada a marcar", isError: true };
+      const known = (spec.epicDoneWhen ?? []).map((d) => String(d).split(":")[0].trim().toUpperCase());
+      if (!known.length) return { text: "esta tarefa não trouxe o \"pronto quando\" do épico (epic.done_when vazio) — nada a marcar por aqui", isError: true };
+      if (!known.includes(id)) return { text: `o épico não tem o item ${id}; os itens são ${known.join(", ")}`, isError: true };
+      const checks = (spec.epicChecks ?? []).filter((c) => c.id !== id);
+      checks.push({ id, evidence, at: new Date().toISOString() });
+      spec.epicChecks = checks;
+      store.updateSpec(TASK, JSON.stringify(spec));
+      try {
+        const { taskToYaml } = await import("../util/yaml.ts");
+        const { writeFile } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      } catch { /* worktree pode não existir */ }
+      store.addEvent(TASK, AGENT, "note", `☑ pronto quando ${id} — ${evidence}`, true);
+      return { text: `${id} marcado como provado (${evidence}). O app espelha no épico do time.` };
+    } catch (e) {
+      return { text: `falha marcando o item: ${(e as Error).message}`, isError: true };
     }
   }
 

@@ -199,6 +199,7 @@ async function cmdNew(repo: string, a: Args) {
     boundaries: a.multi.boundary?.length ? a.multi.boundary : undefined,
     risk: (["low", "medium", "high"].includes(a.flags.risk) ? a.flags.risk : undefined) as TaskSpec["risk"],
     hitl: a.flags.hitl === "true" || undefined,
+    epicDoneWhen: a.multi["done-when"]?.length ? a.multi["done-when"] : undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
       clarifications: (a.flags.clarifications as TaskSpec["autonomy"]["clarifications"]) ?? "ask",
