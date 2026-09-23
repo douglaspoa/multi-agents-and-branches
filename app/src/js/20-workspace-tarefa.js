@@ -227,7 +227,7 @@ function renderWorkspace(){
     if(rb){
       const cost=taskCost(t.id);
       const modelChip=(t.status!=='draft')?`<button class="btn sm" id="fwModel" title="trocar o modelo desta demanda (vale a partir do próximo turno)" style="font-family:var(--mono);font-size:11px">⚙ ${esc(typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão'))}</button>`:'';
-      const costChip=modelChip+(cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'');
+      const costChip=modelChip+(cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'')+(typeof estChipHtml==='function'?estChipHtml(t):''); // previsto × real
       // site local que o agente subiu (🌐 preview) — abrir aqui ou no celular (túnel)
       const pv=taskPreviewUrl(t.id);
       const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;

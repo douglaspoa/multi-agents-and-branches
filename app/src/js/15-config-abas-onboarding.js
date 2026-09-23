@@ -19,6 +19,8 @@ function openCfg(){
     <div id="ghHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Navegador dos agentes</div>
     <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
+    <div class="seclbl2" style="margin-top:20px">Previsão</div>
+    <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgEstimate" checked style="margin-top:3px"><span>Previsão de tempo e tokens antes de rodar <span class="dim">— no "montar conversando", a IA dimensiona cada requisito e o histórico do repo converte em minutos, tokens e US$. Desligado: nenhuma chamada extra de IA.</span></span></label>
     <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app checa o canal do time no boot e a cada 6h — ou agora, aqui</span></div>
     <div id="updHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· <span class="mono">.cardume/</span> deste projeto — aprendizados ficam, o resto pode ir</span></div>
@@ -31,10 +33,11 @@ function openCfg(){
     </div>
     <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
-  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); }catch(_){} }).catch(()=>{});
+  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); }catch(_){} }).catch(()=>{});
   $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); { const hc=$id('cfgHardCap'); lsSet('costHardCap', hc&&hc.checked?'1':'0'); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
     { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
     { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
+    { const es=$id('cfgEstimate'); if(es){ invoke('write_setting',{ key:'estimateEnabled', value:es.checked?'1':'0' }).catch(()=>{}); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); } }
     lastSig=''; $id('cfgOverlay').style.display='none'; };
   $id('cfgEnv').onclick=()=>{ $id('cfgOverlay').style.display='none'; openEnv(); };
   $id('cfgBackend').onclick=()=>{ $id('cfgOverlay').style.display='none'; cloudCfgOpen=true; openCloud(); };

@@ -73,6 +73,7 @@ app/
       30-anexos.js            anexos importados (chips, bloco [ANEXOS], composer: anexar/colar/arrastar)
       31-nova-demanda-form.js formulário por etapas, política do repo, épico, spec com IA
       32-planner.js           "Montar conversando" (chat + TASK.yaml ao vivo)
+      33-previsao.js          previsão de tempo/tokens antes de rodar (P/M/G + histórico do repo) e chip previsto × real
       33-switcher-projetos, 34-orquestrador (briefing → plano em grafo → tarefas por fase + coordenação por prova).js troca de projeto
       40-nuvem-conta.js       Supabase: login, org, times
       41-assinatura-chaves.js Stripe + chaves de modelo da conta
