@@ -326,7 +326,7 @@ function orqWire(body,pos){
   body.querySelectorAll('[data-orqtask]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); openWorkspace(b.dataset.orqtask); const m=b.dataset.orqmode; if(m){ setTimeout(()=>{ try{ if(fwTask===b.dataset.orqtask){ fwMode=m; renderWorkspace(); } }catch(_){ } }, 250); } });
   bindClick('orqAdd', ()=>{ orq.addOpen=!orq.addOpen; orqRender(); });
   bindClick('orqChatBtn', orqChatFocus);
-  bindClick('orqRedo', ()=>{ if(orq.plan.status!=='planned' && !confirm('Começar um plano novo? As tarefas já criadas continuam existindo.')) return; if(orq.plan.status==='planned') invoke('orch_delete',{ id:orq.plan.id, repo:orq.plan.repo||null }).catch(()=>{}); orq.plan=null; orq.step='brief'; orqListAt=0; orqRender(); });
+  bindClick('orqRedo', async()=>{ if(orq.plan.status!=='planned' && !await askYes('Começar um plano novo? As tarefas já criadas continuam existindo.')) return; if(orq.plan.status==='planned') invoke('orch_delete',{ id:orq.plan.id, repo:orq.plan.repo||null }).catch(()=>{}); orq.plan=null; orq.step='brief'; orqListAt=0; orqRender(); });
   bindClick('orqApprove', orqApprove);
   orqWireInsp(body);
 }
@@ -463,7 +463,7 @@ function orqWireInsp(body){
   body.querySelectorAll('[data-orqdep]').forEach(i=>i.onchange=()=>{ const k=i.dataset.orqdep; ph.dependsOn=(ph.dependsOn||[]).filter(x=>x!==k); if(i.checked){ if(orqWouldCycle(ph.key,k)){ alert('isso criaria um ciclo de dependência.'); i.checked=false; return; } ph.dependsOn.push(k); } orqSave(); orqRender(); });
   bindClick('orqRelease', ()=>{ ph.released=true; ph.releasedAt=Date.now(); orqSave(); orqRender(); orqTick().catch(()=>{}); });
   bindClick('orqUnrelease', ()=>{ delete ph.released; orqSave(); orqRender(); });
-  bindClick('orqRmPhase', ()=>{ if(!confirm('Remover a fase "'+ph.name+'" do plano?')) return; p.phases=p.phases.filter(x=>x!==ph); p.phases.forEach(x=>{ x.dependsOn=(x.dependsOn||[]).filter(k=>k!==ph.key); }); orq.sel=p.phases[0]?p.phases[0].key:'__orq'; orqSave(); orqRender(); });
+  bindClick('orqRmPhase', async()=>{ if(!await askYes('Remover a fase "'+ph.name+'" do plano?')) return; p.phases=p.phases.filter(x=>x!==ph); p.phases.forEach(x=>{ x.dependsOn=(x.dependsOn||[]).filter(k=>k!==ph.key); }); orq.sel=p.phases[0]?p.phases[0].key:'__orq'; orqSave(); orqRender(); });
 }
 function orqWouldCycle(from, to){ // adicionar from→to fecha ciclo se to alcança from
   const byKey=Object.fromEntries(orq.plan.phases.map(x=>[x.key,x])); const seen=new Set(); const st=[to];
@@ -530,7 +530,7 @@ async function orqApprove(){
   // as tarefas nascem no projeto ATIVO — se o plano é de outro repo, trocar antes (senão as fases iriam pro lugar errado)
   if(p.repo && state.repo && p.repo!==state.repo){ alert('Este plano é do projeto '+p.repo.split('/').pop()+' — o projeto ativo agora é '+state.repo.split('/').pop()+'.\n\nTroque pro projeto do plano na barra lateral antes de aprovar, senão as tarefas seriam criadas no repo errado.'); return; }
   const bad=p.phases.filter(x=>!(x.objectives||[]).length);
-  if(bad.length && !confirm(`${bad.length} fase(s) sem objetivos verificáveis (${bad.map(x=>x.name).join(', ')}). Criar mesmo assim? Sem objetivos, a fase seguinte começa assim que esta entregar.`)) return;
+  if(bad.length && !await askYes(`${bad.length} fase(s) sem objetivos verificáveis (${bad.map(x=>x.name).join(', ')}). Criar mesmo assim? Sem objetivos, a fase seguinte começa assim que esta entregar.`)) return;
   orq.busy=true; orqRender();
   const order=orqTopo(p.phases); const created={}; p.phases.forEach(x=>{ if(x.taskId) created[x.key]=x.taskId; });
   try{

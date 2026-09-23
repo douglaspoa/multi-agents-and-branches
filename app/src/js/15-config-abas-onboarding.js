@@ -91,7 +91,7 @@ function wsRender(){
     `Apagar os entregáveis de ${ar.staleCount} tarefa${ar.staleCount===1?'':'s'} finalizada${ar.staleCount===1?'':'s'} (${fmtBytes(ar.staleBytes)})?\n\nSão os prints de prova, testes e documentos gerados em .cardume/artifacts — a tela de Entregas deixa de mostrá-los. O código mergeado e os aprendizados ficam.`));
 }
 async function wsClean(what, question){
-  if(!confirm(question)) return;
+  if(!await askYes(question)) return;
   const h=$id('wsHost'); if(h) h.innerHTML='<div class="dim" style="font-size:12px">limpando…</div>';
   wsMsg='';
   try{ const r=await invoke('workspace_clean', what); wsMsg=`✓ ${fmtBytes(r.freed)} liberados (${r.removed} ${r.removed===1?'item':'itens'})`+((r.errors||[]).length?` · não deu em ${r.errors.length}: ${r.errors.slice(0,2).join('; ')}`:''); }

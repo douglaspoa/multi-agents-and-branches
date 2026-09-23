@@ -121,7 +121,10 @@ export class Orchestrator {
       const names: string[] = [];
       for (const src of refSources) {
         try {
-          const name = src.split("/").pop() || "ref";
+          // mesmo nome de 2 origens (ex.: ARCHITECTURE.md de 2 tarefas referenciadas) → prefixa a pasta
+          const parts = src.split("/");
+          let name = parts.pop() || "ref";
+          if (names.includes(name)) name = `${parts.pop() || names.length}-${name}`;
           await cp(src, join(refDir, name), { recursive: true });
           names.push(name);
         } catch { /* ignora arquivo inacessível */ }

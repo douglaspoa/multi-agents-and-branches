@@ -149,7 +149,7 @@ function secretsRenderCloud(){
     await secretSet(b.dataset.sedit, v.trim()); renderCloud();
   });
   el.querySelectorAll('[data-sdel]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('Remover '+b.dataset.sdel+' da sua conta (e desta máquina)?')) return;
+    if(!await askYes('Remover '+b.dataset.sdel+' da sua conta (e desta máquina)?')) return;
     await secretDel(b.dataset.sdel); renderCloud();
   });
   { const b=el.querySelector('#sbSecretAdd'); if(b) b.onclick=async()=>{

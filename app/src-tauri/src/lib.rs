@@ -5346,6 +5346,86 @@ fn list_all_tasks() -> Vec<AllTask> {
     out
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DoneTask {
+    id: String,
+    title: String,
+    objective: String,
+    status: String,
+    flag: Option<String>,
+    branch: String,
+    kind: String,
+    pr_url: Option<String>,
+    summary: Option<String>,
+    docs: Vec<String>,
+    created_at: i64,
+    finished_at: i64,
+    repo: String,
+    proj: String,
+}
+
+/// Tarefas JÁ FEITAS de todos os projetos (entregues/mergeadas/finalizadas) — alimenta o
+/// "/" da Nova demanda pra referenciar trabalho anterior. `finished_at` = último evento.
+/// Best-effort como o list_all_tasks: projeto ilegível é pulado.
+#[tauri::command(async)]
+fn list_done_tasks() -> Vec<DoneTask> {
+    let clip = |s: String, n: usize| if s.chars().count() > n { s.chars().take(n).collect::<String>() + "…" } else { s };
+    let mut out: Vec<DoneTask> = Vec::new();
+    for p in read_project_list() {
+        let name = PathBuf::from(&p).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
+        let db = PathBuf::from(&p).join(".cardume").join("state.sqlite");
+        let conn = match Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
+        let sql = "SELECT t.id,t.title,t.objective,t.status,t.flag,t.branch,t.spec_json,t.created_at, \
+                   (SELECT MAX(e.ts) FROM event e WHERE e.task_id=t.id), \
+                   (SELECT r.summary FROM review r WHERE r.task_id=t.id) \
+                   FROM task t WHERE (t.status IN ('merged','done','review') OR t.flag='closed') \
+                   AND t.status NOT IN ('cancelled','aborted')";
+        let mut st = match conn.prepare(sql) { Ok(s) => s, Err(_) => continue };
+        let rows = st.query_map([], |r| {
+            let spec: serde_json::Value = serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or_default();
+            let created: i64 = r.get::<_, Option<i64>>(7)?.unwrap_or(0);
+            Ok(DoneTask {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                objective: clip(r.get::<_, Option<String>>(2)?.unwrap_or_default(), 1200),
+                status: r.get(3)?,
+                flag: r.get::<_, Option<String>>(4)?.filter(|s| !s.is_empty()),
+                branch: r.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                kind: spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
+                pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                summary: r.get::<_, Option<String>>(9)?.map(|s| clip(s, 800)),
+                docs: vec![],
+                created_at: created,
+                finished_at: r.get::<_, Option<i64>>(8)?.unwrap_or(created),
+                repo: p.clone(),
+                proj: name.clone(),
+            })
+        });
+        if let Ok(rows) = rows {
+            for mut t in rows.flatten() {
+                // docs da entrega (ARCHITECTURE/DESIGN/INVESTIGATION…) viram anexo da tarefa nova
+                let dir = PathBuf::from(&p).join(".cardume").join("artifacts").join(&t.id);
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    let mut md: Vec<String> = rd.flatten().map(|e| e.path())
+                        .filter(|x| x.extension().map(|e| e.eq_ignore_ascii_case("md")).unwrap_or(false))
+                        .map(|x| x.to_string_lossy().to_string()).collect();
+                    md.sort();
+                    md.truncate(4);
+                    t.docs = md;
+                }
+                out.push(t);
+            }
+        }
+    }
+    out.sort_by(|a, b| b.finished_at.cmp(&a.finished_at));
+    out
+}
+
 // ---------- higiene do .cardume: aprendizados ficam, entregáveis são opcionais, o resto é lixo ----------
 // O que mora em <repo>/.cardume/:
 //   aprendizados/estado  MEMORY.md HISTORY.md RUNBOOK.md SPEC.md PREFS.md policy.json skills.json
@@ -6127,6 +6207,7 @@ pub fn run() {
             import_skill_md,
             git_skills,
             list_all_tasks,
+            list_done_tasks,
             read_settings,
             write_setting,
             fetch_task_ref,

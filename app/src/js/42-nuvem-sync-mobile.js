@@ -11,6 +11,9 @@ function tmap(){ try{ return JSON.parse(lsGet('sb:tmap')||'{}'); }catch(_){ retu
 function tmapSet(localId, cloudId){ const m=tmap(); m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
 function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
 const CT_ST_PT={ backlog:'backlog', queued:'na fila', running:'rodando', thinking:'pensando', 'plan-review':'plano em revisão', review:'pronta pra review', delivered:'entregue', done:'concluída', merged:'mergeada', error:'erro', conflict:'conflito', aborted:'abortada', cancelled:'cancelada' };
+// backlog + autoStart + pré-requisitos = AGUARDANDO (começa sozinha — 46-epico-time: epicAutoStartTick)
+function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
+function ctStLabel(ct){ return ctWaiting(ct)?'aguardando':(CT_ST_PT[ct.status]||ct.status); }
 function ctStColor(st){ return st==='backlog'?'var(--muted)':(st==='review'||st==='delivered'||st==='done')?'var(--good)':(st==='merged')?'var(--accent)':(st==='error'||st==='conflict')?'var(--bad, #e5534b)':'var(--warn)'; }
 
 async function cloudEnsureProject(){
@@ -59,7 +62,7 @@ async function cloudPublishSelf(localId, payload){
 async function cloudBackfill(btn){
   const list=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft');
   if(!list.length) return;
-  if(!confirm('Publicar/vincular '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas), com status, flag e datas reais. Cartão que já existe só é vinculado — nada é sobrescrito.')) return;
+  if(!await askYes('Publicar/vincular '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas), com status, flag e datas reais. Cartão que já existe só é vinculado — nada é sobrescrito.')) return;
   if(btn){ btn.disabled=true; }
   let n=0;
   try{

@@ -43,7 +43,7 @@ async function editDraft(t){
 async function startTask(taskId){
   // slots: aviso leve quando já há muita coisa em paralelo (não bloqueia).
   const live = state.tasks.filter(x=>ACTIVE_ST.has(x.status)||x.status==='paused').length;
-  if(live>=slotMax && !confirm(`Já há ${live} execuções em andamento (limite ${slotMax}).\nIniciar mesmo assim?`)) return;
+  if(live>=slotMax && !await askYes(`Já há ${live} execuções em andamento (limite ${slotMax}).\nIniciar mesmo assim?`)) return;
   try{ await invoke("start_task",{taskId}); lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao iniciar:\n"+e); }
 }
@@ -57,7 +57,7 @@ async function resumeTask(taskId){
 }
 async function abortTask(taskId){
   const t=state.tasks.find(x=>x.id===taskId);
-  if(!confirm(`Abortar a tarefa de ${t?t.agent:'agente'}?\nO processo do agente é encerrado; a branch/worktree é preservada pra inspeção.`)) return;
+  if(!await askYes(`Abortar a tarefa de ${t?t.agent:'agente'}?\nO processo do agente é encerrado; a branch/worktree é preservada pra inspeção.`)) return;
   try{ await invoke("abort_task",{taskId}); await refresh(); }
   catch(e){ alert("Falha ao abortar:\n"+e); }
 }
@@ -128,7 +128,7 @@ function deliverBlock(t){
 }
 async function rerunTask(taskId){
   const t=state.tasks.find(x=>x.id===taskId);
-  if(!confirm(`Re-rodar "${t?t.title:taskId}" do zero?\n\nDescarta o trabalho parcial na worktree (reset pra base) e roda o time inteiro de novo. O plano/spec são mantidos.`)) return;
+  if(!await askYes(`Re-rodar "${t?t.title:taskId}" do zero?\n\nDescarta o trabalho parcial na worktree (reset pra base) e roda o time inteiro de novo. O plano/spec são mantidos.`)) return;
   try{ await invoke("rerun_task",{taskId}); lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao re-rodar:\n"+e); }
 }

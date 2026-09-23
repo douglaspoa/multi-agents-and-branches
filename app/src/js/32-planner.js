@@ -249,7 +249,9 @@ async function plCreateEpic(){
     const proj=await cloudEnsureProject();
     // envelope do épico (0025: epics.spec) — Done when vira checklist D1..Dn, marcado depois pelo criador ou pelo agente revisor
     const spec={ description:(plPlanCtx.description||plFields.objective||'').trim()||undefined, outcome:PLP().outcome||'', requirements:PLP().requirements||[],
-      doneWhen:(PLP().doneWhen||[]).map(t=>String(t).trim()).filter(Boolean).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:PLP().boundaries||[] };
+      doneWhen:(PLP().doneWhen||[]).map(t=>String(t).trim()).filter(Boolean).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:PLP().boundaries||[],
+      // a CONVERSA do "montar conversando" viaja com o épico: o rascunho é apagado ao criar, e sem isto o raciocínio sumia
+      conversation: plPlanCtx.origin ? undefined : plMsgs.filter(m=>(m.who==='you'||m.who==='bot') && m.text).slice(-60).map(m=>({ who:m.who, text:String(m.text).slice(0,4000) })) };
     const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId(), spec });
     const created=[], idOf={}; // idx no plano → id na nuvem: `after` das tarefas vira ids reais (picked está em ordem de onda, então o pré-requisito já existe)
     for(const x of picked){
@@ -262,7 +264,9 @@ async function plCreateEpic(){
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           wave:x.wave,
           verify:(x.verify||'').trim()||undefined, covers:(x.covers&&x.covers.length)?x.covers:undefined, after:after.length?after:undefined, risk:x.risk||undefined,
-          hitl:x.hitl||undefined, boundaries:(x.boundaries&&x.boundaries.length)?x.boundaries:undefined } });
+          hitl:x.hitl||undefined, boundaries:(x.boundaries&&x.boundaries.length)?x.boundaries:undefined,
+          // onda 2+: fica AGUARDANDO e começa sozinha quando os pré-requisitos mergearem (epicAutoStartTick)
+          autoStart:after.length?true:undefined } });
       if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; }
     }
     // painel de issues ligado: épico vira issue pai + filhas com bloqueio (só se o conector tem pai; senão fica como hoje)
@@ -271,7 +275,8 @@ async function plCreateEpic(){
     if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); }
     lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; setView('team');
     const w1=created.filter(c=>c.wave===1);
-    if(w1.length && confirm(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo; as demais ondas ficam no backlog)`)){
+    const nLater=created.length-w1.length;
+    if(w1.length && await askYes(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo)`+(nLater?`\n\nAs outras ${nLater} ficam AGUARDANDO e começam sozinhas aqui quando as anteriores forem mergeadas.`:''))){
       for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
     }
   }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); { const P=PLP(); if(P){ P.locked=false; plPlanRerender(); } } }
@@ -303,7 +308,7 @@ async function plSend(text){
     { const V='(vira|virar|quebra|quebrar|faz|fazer|prop[õo]e|proponha|monta|montar)';
       const pede=new RegExp('\\b'+V+'\\b[^.]{0,20}épico','i').test(text), nega=new RegExp('\\b(n[ãa]o|nem|sem)\\b[^.]{0,12}\\b'+V+'\\b','i').test(text);
       if(plNoEpic && pede && !nega) plNoEpic=false; }
-    const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts);
+    const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts) + (window.trfPromptBlock ? await trfPromptBlock(text) : '');
     const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     plSid=r.sessionId||(r&&r.recovered?'':plSid);
@@ -351,6 +356,8 @@ async function plCreate(){
     requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined };
+  // tarefas referenciadas com "/" em qualquer mensagem sua viram contexto da tarefa criada
+  if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n'));
   try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
@@ -367,6 +374,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverla
 // aplica o destino Time (local/self/team) a QUALQUER modo de criação;
 // devolve true quando virou cartão do time (não roda nesta máquina)
 async function ntApplyShare(payload){
+  if(window.trfApply) await trfApply(payload); // "/" tarefa de referência → contexto + docs anexados
   const share=($id("ntShareRow").style.display!=='none')?$id("ntShare").value:'local';
   if(share==='team'){ await cloudShareTask(payload); return true; }
   const localId=await invoke('new_task', await trkBeforeNewTask(payload));
@@ -392,7 +400,7 @@ async function submitNewTask(start=true){
     const agents = $id("ntReviewer").value || null;
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="revisando…";
     const done=await cloudPrReviewCheck(pr).catch(()=>null);
-    if(done && !confirm('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Constellation — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
+    if(done && !await askYes('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Constellation — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
     try{ await invoke("review_pr", { prUrl: pr, agents }); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao iniciar o review:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -498,7 +506,7 @@ async function submitNewTask(start=true){
       if(ov && ov.length){
         const areas=[...new Set(ov.map(o=>`${o.theirs} — ${o.agent}`))].slice(0,4).map(s=>'  • '+s).join('\n');
         const extra=ov.length>4?`\n  • …e mais ${ov.length-4}`:'';
-        if(!confirm(`⚠ Sobreposição de escopo com tarefa(s) ativa(s):\n\n${areas}${extra}\n\nDuas tarefas na mesma área tendem a dar conflito no merge.\nIniciar mesmo assim?  (Cancelar pra dividir o escopo ou rodar uma de cada vez.)`)){
+        if(!await askYes(`⚠ Sobreposição de escopo com tarefa(s) ativa(s):\n\n${areas}${extra}\n\nDuas tarefas na mesma área tendem a dar conflito no merge.\nIniciar mesmo assim?  (Cancelar pra dividir o escopo ou rodar uma de cada vez.)`)){
           return;
         }
       }
@@ -513,6 +521,7 @@ async function submitNewTask(start=true){
       closeNewTask(); resetNewTask(); lastSig="";
       if(t) setView('team'); else await refresh();
     } else {
+      if(window.trfApply) await trfApply(payload);
       await invoke('new_task', await trkBeforeNewTask(payload));
       if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
       closeNewTask(); resetNewTask(); lastSig=""; await refresh();
