@@ -301,9 +301,13 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
 
   async "db.migrations"(sql) {
     const existing = new Set((await sql`select table_name from information_schema.tables where table_schema='public'`).map((r) => r.table_name as string));
+    // colunas "tabela.coluna": uma migration só de `alter table … add column if not exists` (ex.: 0025) também precisa ler como aplicada
+    const cols = new Set((await sql`select table_name||'.'||column_name as c from information_schema.columns where table_schema='public'`).map((r) => r.c as string));
     return MIGRATIONS.map((m) => {
       const tables = [...m.sql.matchAll(/create table if not exists (\w+)/gi)].map((x) => x[1]!);
-      return { name: m.name, tables, applied: tables.length > 0 && tables.every((t) => existing.has(t)) };
+      const columns = [...m.sql.matchAll(/alter table (\w+) add column if not exists (\w+)/gi)].map((x) => `${x[1]}.${x[2]}`);
+      const applied = tables.length + columns.length > 0 && tables.every((t) => existing.has(t)) && columns.every((c) => cols.has(c));
+      return { name: m.name, tables, columns, applied };
     });
   },
 
