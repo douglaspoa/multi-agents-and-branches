@@ -212,6 +212,17 @@
 .plplan .ppobj{display:block;color:var(--muted);font-size:11.5px;margin-top:2px;line-height:1.45}
 .plplan .ppreq{display:block;color:var(--dim,var(--muted));font-size:10.5px;margin-top:3px;line-height:1.5}
 .plplan .ppowns{display:block;color:var(--accent);font-size:10px;margin-top:3px}
+.plplan .ppout{color:var(--text);font-size:12px;line-height:1.5;margin:-3px 0 9px;padding-left:8px;border-left:2px solid color-mix(in srgb,var(--accent) 45%,transparent)}
+.plplan .ppdone{background:var(--surface);border:1px dashed var(--border-strong);border-radius:8px;padding:7px 10px;margin-bottom:9px;font-size:11.5px;line-height:1.6}
+.plplan .ppdh{font-size:9.5px;letter-spacing:.09em;font-weight:700;color:var(--accent);margin-bottom:2px}
+.plplan .ppdh span{color:var(--muted);font-weight:600;letter-spacing:0}
+.plplan .ppdone .mono{color:var(--muted);font-size:10px}
+.plplan .ppverify{display:block;color:var(--good);font-size:11px;margin-top:3px;line-height:1.45}
+.plplan .ppcov{color:var(--muted);font-size:10px}
+.plplan .ppafter{display:block;color:var(--muted);font-size:10.5px;margin-top:2px}
+.plplan .pprisk{display:inline-block;font-size:9.5px;font-weight:600;letter-spacing:.04em;padding:1px 6px;border-radius:9px;margin-left:5px;vertical-align:1px;color:var(--muted);border:1px solid var(--border-strong)}
+.plplan .pprisk.medium{color:var(--warn);border-color:var(--warn)}
+.plplan .pprisk.high{color:var(--crit);border-color:var(--crit)}
 .plplan .ppwarn{margin-top:9px;font-size:11px;color:var(--warn);border-left:2px solid var(--warn);padding:4px 8px;line-height:1.45}
 .plplan .ppfoot{display:flex;gap:8px;justify-content:flex-end;margin-top:11px}
 .plmsg:has(.plplan) .plav{background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--accent)}

@@ -123,23 +123,66 @@ function plWireModelCard(th){
   card.querySelectorAll('[data-plm="change"]').forEach(a=>a.onclick=()=>{ m.choice=null; m.open=false; renderPlanner(); });
   if(m.open) aiPickRender();
 }
+// ---- plano da IA → plPlan: envelope do épico (outcome, requirements, doneWhen, boundaries) + tarefas
+//      com verify/covers/after/risk. A ONDA é DERIVADA de `after` (nível topológico) — a IA não manda wave.
+const plStrs=(a,n)=>(Array.isArray(a)?a:[]).map(s=>String((s&&typeof s==='object')?(s.text||s.id||''):s).trim()).filter(Boolean).slice(0,n);
+function plPlanFrom(p){
+  // idx = posição ORIGINAL em p.tasks (é a referência que `after` usa); tarefa sem título cai fora, mas os índices das outras não deslocam
+  const all=(Array.isArray(p.tasks)?p.tasks:[]).slice(0,8);
+  const tasks=all.map((x,i)=>(x&&x.title)?{ idx:i, title:String(x.title).slice(0,90), objective:String(x.objective||''),
+    requirements:plStrs(x.requirements,6), owns:String(x.owns||'').trim(),
+    verify:String(x.verify||'').trim().slice(0,240), covers:plStrs(x.covers,8),
+    after:(Array.isArray(x.after)?x.after:[]).map(n=>parseInt(n,10)).filter(n=>Number.isInteger(n)&&n>=0&&n<all.length&&n!==i),
+    risk:/^(low|medium|high)$/.test(x.risk||'')?x.risk:'',
+    wave:Math.max(1, parseInt(x.wave,10)||1), on:true }:null).filter(Boolean);
+  const alive=new Set(tasks.map(t=>t.idx)); tasks.forEach(t=>{ t.after=t.after.filter(a=>alive.has(a)); });
+  plWaves(tasks);
+  // requisitos do épico: id do modelo quando veio; senão R1..Rn numerado DEPOIS de filtrar (covers cita esses ids)
+  const reqs=(Array.isArray(p.requirements)?p.requirements:[]).map(r=>(r&&typeof r==='object')?{ id:String(r.id||'').trim(), text:String(r.text||'').trim() }:{ id:'', text:String(r).trim() }).filter(r=>r.text).slice(0,12);
+  reqs.forEach((r,i)=>{ if(!r.id || reqs.some((o,j)=>j<i&&o.id===r.id)) r.id='R'+(i+1); });
+  return { epic:String(p.epic||plFields.title||'Épico').slice(0,80), outcome:String(p.outcome||'').trim().slice(0,300),
+    requirements:reqs, doneWhen:plStrs(p.doneWhen,6), boundaries:plStrs(p.boundaries,6), tasks:plSortWaves(tasks) };
+}
+// onda = 1 + maior onda dos pré-requisitos MARCADOS (pré-requisito desmarcado no card não conta). Sem nenhum `after`
+// no plano (IA antiga) fica a wave que veio; ciclo mantém a wave da tarefa. Roda de novo a cada (des)marcação e ao aprovar.
+function plWaves(tasks){
+  if(!tasks.some(t=>t.after&&t.after.length)) return;
+  const byIdx={}; tasks.forEach(t=>{ byIdx[t.idx]=t; });
+  const memo={}, onStack={};
+  const lvl=t=>{ if(memo[t.idx]) return memo[t.idx]; if(onStack[t.idx]) return t.wave; onStack[t.idx]=true;
+    const w=1+Math.max(0, ...(t.after||[]).map(a=>(byIdx[a]&&byIdx[a].on!==false)?lvl(byIdx[a]):0)); onStack[t.idx]=false; memo[t.idx]=w; return w; };
+  tasks.forEach(t=>{ t.wave=lvl(t); });
+}
+function plSortWaves(tasks){ return tasks.sort((a,b)=>a.wave-b.wave||(a.idx??0)-(b.idx??0)); }
+// pré-requisitos que valem de fato: marcados no card
+function plAfterOn(x){ return (x.after||[]).filter(a=>{ const t=plPlan.tasks.find(y=>y.idx===a); return t&&t.on; }); }
+const plRiskLabel={ low:'risco baixo', medium:'risco médio', high:'risco alto' };
+
 // ---- preview aprovável de ÉPICO dentro do chat do planner ----
 function plPlanCardHtml(){
   if(!plPlan) return '';
   const noTeam = !(SB.sess() && cloudTeamId());
+  const titleOf=a=>{ const t=plPlan.tasks.find(y=>y.idx===a); return t?t.title:'#'+(a+1); };
   let rows='', lastWave=0;
   plPlan.tasks.forEach((x,i)=>{
     if(x.wave!==lastWave){ lastWave=x.wave;
       rows+=`<div class="ppwave">ONDA ${x.wave} <span>${x.wave===1?'· começam já, em paralelo':'· depois da onda '+(x.wave-1)}</span></div>`; }
+    const after=plAfterOn(x);
     rows+=`<label class="pptask"><input type="checkbox" data-pptask="${i}" ${x.on?'checked':''}><span style="flex:1;min-width:0">
-      <b>${esc(x.title)}</b>${x.objective?`<span class="ppobj">${esc(x.objective)}</span>`:''}
+      <b>${esc(x.title)}${x.risk?` <span class="pprisk ${x.risk}">${plRiskLabel[x.risk]}</span>`:''}</b>${x.objective?`<span class="ppobj">${esc(x.objective)}</span>`:''}
+      ${x.verify?`<span class="ppverify">✓ prova: ${esc(x.verify)}${(x.covers&&x.covers.length)?` <span class="mono ppcov">${esc(x.covers.join(' '))}</span>`:''}</span>`:''}
+      ${after.length?`<span class="ppafter">↳ depois de: ${esc(after.map(titleOf).join(' · '))}</span>`:''}
       ${(x.requirements&&x.requirements.length)?`<span class="ppreq">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</span>`:''}
       ${x.owns?`<span class="ppowns mono">⛶ ${esc(x.owns)}</span>`:''}</span></label>`;
   });
   const n=plPlan.tasks.filter(x=>x.on).length;
+  const dw=plPlan.doneWhen||[], rq=plPlan.requirements||[];
   return `<div class="plmsg bot"><span class="plav">◆</span><div class="plplan" id="plPlanCard">
     <div class="pphead">◆ Épico proposto — revise e aprove</div>
     <input class="ppname" id="ppName" value="${escA(plPlan.epic)}" placeholder="nome do épico">
+    ${plPlan.outcome?`<div class="ppout">${esc(plPlan.outcome)}</div>`:''}
+    ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">REQUISITOS <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${esc(r.text)}</div>`).join('')}</div>`:''}
+    ${dw.length?`<div class="ppdone"><div class="ppdh">PRONTO QUANDO <span>· o épico só fecha com tudo marcado</span></div>${dw.map((d,i)=>`<div>☐ <span class="mono">D${i+1}</span> ${esc(d)}</div>`).join('')}</div>`:''}
     <div class="pplist">${rows}</div>
     ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time no topo pra aprovar.</div>`:''}
     <div class="ppfoot"><button class="btn sm" id="ppDiscard">descartar</button><button class="btn primary sm" id="ppApprove"${noTeam?' disabled':''}>✓ Aprovar e criar${n?' · '+n+' tarefa'+(n===1?'':'s'):''}</button></div>
@@ -147,7 +190,8 @@ function plPlanCardHtml(){
 }
 function plWirePlanCard(){
   const card=$id('plPlanCard'); if(!card) return;
-  card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ plPlan.tasks[+c.dataset.pptask].on=c.checked; renderPlanner(); });
+  // (des)marcar recalcula as ondas: quem dependia de uma tarefa desmarcada sobe de onda
+  card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ plPlan.tasks[+c.dataset.pptask].on=c.checked; plWaves(plPlan.tasks); plSortWaves(plPlan.tasks); renderPlanner(); });
   const nm=$id('ppName'); if(nm) nm.oninput=()=>{ plPlan.epic=nm.value; };
   const dc=$id('ppDiscard'); if(dc) dc.onclick=()=>{ plPlan=null; plNoEpic=true; plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
   const ap=$id('ppApprove'); if(ap) ap.onclick=plCreateEpic;
@@ -155,22 +199,29 @@ function plWirePlanCard(){
 async function plCreateEpic(){
   if(!plPlan) return;
   if(!(SB.sess() && cloudTeamId())){ alert('Épico usa o backlog do time — entre na conta e escolha um time primeiro (botão no topo).'); return; }
+  plWaves(plPlan.tasks); plSortWaves(plPlan.tasks); // ondas finais só com o que está marcado
   const picked=plPlan.tasks.filter(x=>x.on);
   if(!picked.length){ alert('Marque pelo menos uma tarefa do épico.'); return; }
   const name=(plPlan.epic||'').trim()||'Épico';
   const ap=$id('ppApprove'); if(ap){ ap.disabled=true; ap.textContent='criando…'; }
   try{
     const proj=await cloudEnsureProject();
-    const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId() });
-    const created=[];
+    // envelope do épico (0025: epics.spec) — Done when vira checklist D1..Dn, marcado depois pelo criador ou pelo agente revisor
+    const spec={ description:(plFields.objective||'').trim()||undefined, outcome:plPlan.outcome||'', requirements:plPlan.requirements||[],
+      doneWhen:(plPlan.doneWhen||[]).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:plPlan.boundaries||[] };
+    const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId(), spec });
+    const created=[], idOf={}; // idx no plano → id na nuvem: `after` das tarefas vira ids reais (picked está em ordem de onda, então o pré-requisito já existe)
     for(const x of picked){
+      const wanted=plAfterOn(x), after=wanted.map(a=>idOf[a]).filter(Boolean);
+      if(after.length<wanted.length) console.warn('épico: pré-requisito sem id na nuvem, dependência perdida', x.title, wanted);
       const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
         spec:{ title:x.title,
           objective:(x.objective||'')+`\n\n(Onda ${x.wave} do épico "${name}". NÃO toque em arquivos fora do seu escopo: outras tarefas do épico rodam em paralelo.)`,
           requirements:x.requirements||[], owns:x.owns||null,
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
-          wave:x.wave } });
-      if(rows&&rows[0]) created.push({ row:rows[0], wave:x.wave });
+          wave:x.wave,
+          verify:x.verify||undefined, covers:(x.covers&&x.covers.length)?x.covers:undefined, after:after.length?after:undefined, risk:x.risk||undefined } });
+      if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; }
     }
     plPlan=null;
     try{ await invoke('clear_draft'); }catch(_){}
@@ -211,16 +262,7 @@ async function plSend(text){
       plDone=!!obj.done;
       plChips=Array.isArray(obj.chips)?obj.chips.slice(0,4):[];
       // a IA propôs um ÉPICO (várias tarefas paralelas) → vira preview aprovável no chat
-      if(!plNoEpic && obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length){
-        plPlan={ epic:String(obj.plan.epic||plFields.title||'Épico').slice(0,80),
-          tasks:obj.plan.tasks.filter(x=>x&&x.title).slice(0,8).map(x=>({
-            title:String(x.title).slice(0,90),
-            objective:String(x.objective||''),
-            requirements:(Array.isArray(x.requirements)?x.requirements:[]).map(r=>String(r).trim()).filter(Boolean).slice(0,6),
-            owns:String(x.owns||'').trim(),
-            wave:Math.max(1, parseInt(x.wave,10)||1),
-            on:true })).sort((a,b)=>a.wave-b.wave) };
-      }
+      if(!plNoEpic && obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length) plPlan=plPlanFrom(obj.plan);
       if(obj.say) plMsgs.push({who:'bot', text:String(obj.say)});
       // você confirmou (done) e os obrigatórios fecharam → cria automaticamente
       if(plDone && plReady()){
