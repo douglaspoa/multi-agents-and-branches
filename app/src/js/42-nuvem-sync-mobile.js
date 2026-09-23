@@ -68,7 +68,7 @@ async function cloudBackfill(btn){
       if(btn) btn.textContent=`publicando ${++n}/${list.length}…`;
       try{
         const cost=taskCost(t.id);
-        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...(t.epic||{}) }, epic_id:(t.epic&&t.epic.epicId)||null }) });
+        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...epicPubFields(t.epic) }, epic_id:(t.epic&&t.epic.epicId)||null }) });
         const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
         if(rows[0]) tmapSet(t.id, rows[0].id);
       }catch(e){ console.error('backfill', t.id, e.message); }
@@ -77,6 +77,8 @@ async function cloudBackfill(btn){
   }finally{ if(btn){ btn.disabled=false; } }
 }
 
+// campos de épico que vão pro spec do cartão — sem epicChecks/epicDoneWhen (cópias estáticas; a fonte é epics.spec)
+function epicPubFields(ep){ const { epicChecks, epicDoneWhen, ...rest }=(ep||{}); return rest; }
 // ---- auto-publicação: tarefa local sem cartão VIRA cartão sozinha ----
 // O time tem que ver o quadro real sem ninguém clicar nada (o stream do agente
 // continua só nesta máquina; provas continuam opt-in). Uma por tick.
@@ -89,7 +91,7 @@ async function cloudAutoPublish(){
   try{
     const proj=await cloudEnsureProject();
     const cost=taskCost(t.id);
-    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...(t.epic||{}) }, epic_id:(t.epic&&t.epic.epicId)||null }) });
+    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...epicPubFields(t.epic) }, epic_id:(t.epic&&t.epic.epicId)||null }) });
     const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
     if(rows[0]){
       tmapSet(t.id, rows[0].id); teamTasks=null;
@@ -273,6 +275,8 @@ async function cloudSyncTick(){
   if(probe){ prProbed.add(probe); invoke('pr_status',{ taskId: probe }).catch(()=>{}); }
   for(const lid of ids){
     const t=(state.tasks||[]).find(x=>x.id===lid); if(!t) continue;
+    // itens do "pronto quando" que o agente revisor marcou (tool check_done_when) → espelho no épico do time
+    if(t.epic&&Array.isArray(t.epic.epicChecks)&&t.epic.epicChecks.length&&window.epicMirrorChecks) epicMirrorChecks(t).catch(()=>{});
     const cost=taskCost(lid);
     const body={ status:t.status, stage:t.stage||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, flag:t.flag||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0 };
     const proofs=reqProofCache[lid]; if(proofs) body.requirements_proof=proofs;
@@ -409,7 +413,7 @@ async function cloudRemoteStartTick(){
         doc:sp.doc||null, proof:!!sp.proof, tests:!!sp.tests, autoPr:sp.autoPr||'ask', prBase:null, planApproval:'auto', refs:[],
         branchType:sp.branchType||'feat', issue:(sp.issueCode||'').trim()||null, base:null, linkedTo:null,
         // tarefa de ÉPICO: os campos do cartão vão pro TASK.yaml (bloco epic)
-        epicId: ct.epic_id||null, verify:sp.verify||null, covers:sp.covers||null, after:sp.after||null, wave:sp.wave||null, risk:sp.risk||null, hitl:sp.hitl||null, boundaries:sp.boundaries||null,
+        epicId: ct.epic_id||null, epicDoneWhen:(typeof epicDoneWhenOf==='function'?epicDoneWhenOf(ct.epic_id):null), verify:sp.verify||null, covers:sp.covers||null, after:sp.after||null, wave:sp.wave||null, risk:sp.risk||null, hitl:sp.hitl||null, boundaries:sp.boundaries||null,
         title: ct.title, start:true };
       const localId=await invoke('new_task', await trkBeforeNewTask(payload));
       tmapSet(localId, ct.id);

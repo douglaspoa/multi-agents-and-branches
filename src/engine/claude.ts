@@ -265,6 +265,7 @@ export class ClaudeEngine implements AgentEngine {
             env: {
               CARDUME_DB: input.dbFile,
               CARDUME_TASK: input.spec.id,
+              CARDUME_ROLE: String(input.role ?? ""), // só o revisor pode marcar o "pronto quando" (check_done_when)
               CARDUME_AGENT: input.agentName,
               CARDUME_ASK_TIMEOUT_MIN: String(input.askTimeoutMin ?? 0),
             },

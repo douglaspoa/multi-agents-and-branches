@@ -54,5 +54,7 @@ function epicBlock(t: TaskSpec): string[] {
   if (t.risk) out.push(`  risk: ${t.risk}`);
   if (t.hitl) out.push(`  hitl: true`);
   if (t.boundaries?.length) out.push(`  boundaries:`, ...t.boundaries.map((b) => `    - ${yv(b)}`));
+  if (t.epicDoneWhen?.length) out.push(`  done_when:`, ...t.epicDoneWhen.map((d) => `    - ${yv(d)}`));
+  if (t.epicChecks?.length) out.push(`  checks:`, ...t.epicChecks.map((c) => `    - ${yv(`${c.id}: ${c.evidence}`)}`));
   return out;
 }

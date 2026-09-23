@@ -144,6 +144,41 @@ async function epicMarkInProgress(epicId){
   }catch(_){ }
 }
 window.epicMarkInProgress=epicMarkInProgress;
+// Espelho local→nuvem das marcas do agente revisor (tool mcp__cardume__check_done_when grava em
+// tasks.spec.epicChecks; o snapshot expõe em t.epic.epicChecks). Cada marca vai UMA vez (localStorage),
+// com checkedBy = "agent:<tarefa local>"; com tudo marcado o épico fecha, igual ao clique humano.
+const epMirrorInFlight=new Set();
+function epMirroredSet(){ try{ return new Set(JSON.parse(lsGet('ep:mirrored')||'[]')); }catch(_){ return new Set(); } }
+async function epicMirrorChecks(t){
+  const ep=t.epic||{}; const epicId=ep.epicId; const checks=Array.isArray(ep.epicChecks)?ep.epicChecks:[];
+  if(!epicId||!checks.length||epMirrorInFlight.has(t.id)) return;
+  const done=epMirroredSet(); const pend=checks.filter(c=>c&&c.id&&!done.has(t.id+'|'+c.id));
+  if(!pend.length) return;
+  epMirrorInFlight.add(t.id);
+  try{
+    const fresh=(await sbGet('epics?select=id,spec,status&id=eq.'+epicId))[0];
+    if(!fresh){ pend.forEach(c=>done.add(t.id+'|'+c.id)); lsSet('ep:mirrored', JSON.stringify([...done].slice(-500))); return; } // épico apagado: não fica tentando pra sempre
+    const spec={ ...(fresh.spec||{}) }; const dw=(Array.isArray(spec.doneWhen)?spec.doneWhen:[]).map(d=>({ ...d }));
+    let changed=false;
+    for(const c of pend){
+      const i=dw.findIndex((d,k)=>String(d.id||('D'+(k+1))).toUpperCase()===String(c.id).toUpperCase());
+      if(i<0) continue; // item que não existe mais no épico: ignora
+      if(!dw[i].checkedBy){ dw[i].checkedBy='agent:'+t.id; dw[i].checkedAt=c.at||new Date().toISOString(); dw[i].evidence=String(c.evidence||'').slice(0,300); changed=true; }
+      else if(!dw[i].evidence && c.evidence){ dw[i].evidence=String(c.evidence).slice(0,300); changed=true; } // humano marcou antes: guarda a prova do agente
+    }
+    if(changed){
+      spec.doneWhen=dw;
+      const all=dw.length>0 && dw.every(d=>d.checkedBy);
+      const body={ spec, updated_at:new Date().toISOString() }; if(all) body.status='done';
+      await sbFetch('/rest/v1/epics?id=eq.'+epicId,{ method:'PATCH', body: JSON.stringify(body) });
+      if(epTab&&epTab.id===epicId){ await epicPageLoad(epicId); epicPageRender(); }
+      teamTasks=null; teamPaintSig='';
+    }
+    pend.forEach(c=>done.add(t.id+'|'+c.id)); lsSet('ep:mirrored', JSON.stringify([...done].slice(-500)));
+  }catch(e){ console.warn('espelho do pronto quando falhou', e&&e.message||e); }
+  finally{ epMirrorInFlight.delete(t.id); }
+}
+window.epicMirrorChecks=epicMirrorChecks;
 bindClick('epicPageClose', ()=>closeTabOfKind('epic'));
 bindClick('epicPageRefresh', ()=>{ if(epTab){ const b=$id('epicPageRefresh'); if(b) b.disabled=true; epicPageLoad(epTab.id).then(()=>{ epicPageRender(); if(b) b.disabled=false; }); } });
 document.addEventListener('keydown', e=>{

@@ -274,6 +274,26 @@ export class Orchestrator {
    *  - projeto tem "criar issue ao abrir demanda" ligado e ainda não há issueUrl →
    *    o agente CRIA a issue seguindo as instruções do projeto e registra via set_issue.
    */
+  /**
+   * Tarefa SOB ÉPICO: o que ela prova (verify), o "pronto quando" do épico e a tool que o REVISOR usa pra
+   * marcar um item provado. O contexto compilado do épico (goal, irmãs, decisões) é do épico 2 — aqui é só o
+   * mínimo pra o revisor saber julgar e o builder não inventar escopo.
+   */
+  epicContext(spec: TaskSpec): string {
+    if (!spec.epicId) return "";
+    const dw = (spec.epicDoneWhen ?? []).filter(Boolean);
+    const checked = new Set((spec.epicChecks ?? []).map((c) => c.id));
+    let out = `\n\n## ESTA TAREFA É PARTE DE UM ÉPICO\n`;
+    if (spec.verify) out += `O que ESTA tarefa tem que provar: ${spec.verify}\n`;
+    if (spec.covers?.length) out += `Requisitos do épico que ela cobre: ${spec.covers.join(", ")}\n`;
+    if (spec.boundaries?.length) out += `NÃO muda: ${spec.boundaries.join("; ")}\n`;
+    if (dw.length) {
+      out += `"Pronto quando" do épico (o épico só fecha com tudo marcado):\n` + dw.map((d) => `- ${checked.has(String(d).split(":")[0].trim().toUpperCase()) ? "☑" : "☐"} ${d}`).join("\n") + "\n";
+      out += `PAPEL REVISOR: ao terminar a revisão, se a sua evidência PROVA um desses itens (teste rodado, tela vista, comando executado), chame mcp__cardume__check_done_when({ id: "D<n>", evidence }) — um chamado por item, só com prova real. Builder e outros papéis NÃO chamam essa tool.\n`;
+    }
+    return out;
+  }
+
   issueContext(spec: TaskSpec): string {
     if (spec.issueUrl) {
       return `\n\n## ISSUE DESTA DEMANDA (já criada) — ${spec.issueUrl}\n` +
@@ -609,7 +629,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -879,7 +899,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
+      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -1085,7 +1105,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -1176,7 +1196,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     const prev = task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
