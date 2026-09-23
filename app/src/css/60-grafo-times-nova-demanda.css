@@ -537,3 +537,20 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .nogitbtn{font:500 11px 'Instrument Sans',sans-serif;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline dotted}
 .nogitbtn:hover{color:var(--text)}
 body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpen{display:none!important}
+
+/* página do ÉPICO (46-epico-time) */
+.fchipgrp{display:inline-flex;align-items:stretch}
+.fchipgrp .fchip{border-radius:14px 0 0 14px}
+.fchipgrp .fchip-open{border-radius:0 14px 14px 0;border-left:0;padding:0 8px;opacity:.7}
+.fchipgrp .fchip-open:hover{opacity:1;color:var(--accent)}
+.ep-dw{display:flex;gap:9px;align-items:flex-start;padding:7px 4px;border-bottom:1px dashed var(--border);cursor:pointer}
+.ep-dw:last-of-type{border-bottom:0}
+.ep-dw input{margin-top:3px;flex:none}
+.ep-dw input:disabled{cursor:default}
+.ep-dw.ok .en-rt>div:first-child{color:var(--good)}
+.ep-dwby{font-size:11px;color:var(--muted);margin-top:2px}
+.ep-wave{font-size:9.5px;letter-spacing:.09em;font-weight:700;color:var(--accent);margin:10px 0 3px}
+.ep-wave:first-child{margin-top:0}
+.ep-task{display:flex;gap:9px;align-items:flex-start;padding:6px 8px;border-radius:7px;cursor:pointer}
+.ep-task:hover{background:var(--surface-3)}
+.ep-verify{color:var(--good);font-size:11px;margin-top:2px;line-height:1.45}

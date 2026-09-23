@@ -117,9 +117,10 @@ const VIEW_META={
   chat:{title:'Chat do projeto',icon:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>'},
   conta:{title:'Conta',icon:'<path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/>'},
   agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
+  epic:{title:'Épico',icon:'<path d="M8 2.6l5.2 5.4L8 13.4 2.8 8z" stroke-linejoin="round"/><path d="M5.6 8l1.7 1.7 3.1-3.4"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', cttask:'ctPageOverlay' };
+const VIEW_OVERLAY={ orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', cttask:'ctPageOverlay', epic:'epicOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
 // e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
@@ -138,7 +139,8 @@ function viewOpen(kind, tab){
             skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); },
-            cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); } }[kind];
+            cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); },
+            epic:()=>{ if(window.epicPageOpenInner) window.epicPageOpenInner(tab); } }[kind];
   if(f) f();
 }
 // cada aba tem um id único: 'flow', o próprio kind (views únicas), 'task:<id>' (uma por tarefa)
@@ -216,10 +218,9 @@ function renderTabs(){
   { const u=$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
   requestAnimationFrame(syncChromeH);
 }
-$id('bdClose').onclick=()=>{ $id('bdOverlay').style.display='none'; };
-$id('bdCancel').onclick=()=>{ $id('bdOverlay').style.display='none'; };
-$id('bdCreate').onclick=()=>bdCreate();
-$id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') $id('bdOverlay').style.display='none'; });
+$id('bdClose').onclick=()=>bdClosePlan();
+$id('bdCancel').onclick=()=>bdClosePlan();
+$id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdClosePlan(); });
 $id('cfgClose').onclick=()=>{ $id('cfgOverlay').style.display='none'; };
 $id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') $id('cfgOverlay').style.display='none'; });
 

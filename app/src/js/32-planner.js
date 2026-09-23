@@ -73,8 +73,8 @@ function renderPlanner(){
   // chat
   const th=$id('plThread');
   const ci=document.activeElement, keep=(ci&&ci.id==='plInput'), iv=$id('plInput')?$id('plInput').value:null;
-  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span></div></div>':'')+plPlanCardHtml();
-  plWirePlanCard(); plWireModelCard(th);
+  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span></div></div>':'')+(plPlanCtx.origin?'':plPlanCardHtml());
+  if(!plPlanCtx.origin) plWirePlanCard(); plWireModelCard(th);
   attRenderPend('plPend', plPend, renderPlanner);
   th.scrollTop=th.scrollHeight;
   // chips
@@ -161,25 +161,31 @@ function plSortWaves(tasks){ return tasks.sort((a,b)=>a.wave-b.wave||(a.idx??0)-
 // rascunho/aba restaurados: plano salvo antes do formato novo (sem idx/after) passa pelo mesmo parser
 function plPlanRestore(p){ if(!p||!Array.isArray(p.tasks)) return p||null; const r=p.tasks.some(t=>t&&t.idx==null)?plPlanFrom(p):p; r.locked=false; return r; } // nunca volta travado de um rascunho
 // pré-requisitos que valem de fato: marcados no card
-function plAfterOn(x){ return (x.after||[]).filter(a=>{ const t=plPlan.tasks.find(y=>y.idx===a); return t&&t.on; }); }
+function plAfterOn(x){ return (x.after||[]).filter(a=>{ const t=PLP().tasks.find(y=>y.idx===a); return t&&t.on; }); }
 // a tarefa `idx` depende (direta ou transitivamente) de `target`? — evita ciclo ao ligar um chip de "depois de"
 function plDependsOn(idx, target, seen){
   seen=seen||new Set(); if(seen.has(idx)) return false; seen.add(idx);
-  const t=plPlan.tasks.find(y=>y.idx===idx); if(!t) return false;
+  const t=PLP().tasks.find(y=>y.idx===idx); if(!t) return false;
   return (t.after||[]).some(a=>a===target || plDependsOn(a, target, seen));
 }
 const plRiskLabel={ low:'risco baixo', medium:'risco médio', high:'risco alto' };
+// O card do épico também serve ao DESDOBRAR (31-nova-demanda-form): quem hospeda define o render e o contexto
+let plPlanRender=null, plPlanCtx={}; // ctx: { origin: tarefa de origem, description, onDone(ep), onDiscard() }
+let bdPlan=null; // plano do DESDOBRAR — separado do PLP() do planner, que segue vivo (rascunho, aba, resposta da IA)
+function PLP(){ return plPlanCtx.origin ? bdPlan : plPlan; } // o plano que o card está mostrando
+function plPlanRerender(){ (plPlanRender||renderPlanner)(); }
+function plPlanSave(){ if(!plPlanCtx.origin) plAutoSave(); } // rascunho é só do planner
 
 // ---- preview aprovável de ÉPICO dentro do chat do planner ----
-function plPlanCardHtml(){
-  if(!plPlan) return '';
+function plPlanCardHtml(bare){
+  if(!PLP()) return '';
   const noTeam = !(SB.sess() && cloudTeamId());
-  const dis=plPlan.locked?' disabled':''; // gravando na nuvem: tudo travado
+  const dis=PLP().locked?' disabled':''; // gravando na nuvem: tudo travado
   let rows='', lastWave=0;
-  plPlan.tasks.forEach((x,i)=>{
+  PLP().tasks.forEach((x,i)=>{
     if(x.wave!==lastWave){ lastWave=x.wave;
       rows+=`<div class="ppwave">ONDA ${x.wave} <span>${x.wave===1?'· começam já, em paralelo':'· depois da onda '+(x.wave-1)}</span></div>`; }
-    const after=plAfterOn(x), others=plPlan.tasks.filter(o=>o!==x && o.on);
+    const after=plAfterOn(x), others=PLP().tasks.filter(o=>o!==x && o.on);
     // tudo editável antes de aprovar: prova (verify), pré-requisitos (chips das irmãs) e risco; a onda recalcula na hora
     // div, não label: só o checkbox e o título (des)marcam a tarefa; clique entre os controles não faz nada
     rows+=`<div class="pptask"><input type="checkbox" id="pptask-${i}" data-pptask="${i}" ${x.on?'checked':''}${dis}><span style="flex:1;min-width:0">
@@ -190,57 +196,58 @@ function plPlanCardHtml(){
       ${(x.requirements&&x.requirements.length)?`<span class="ppreq">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</span>`:''}
       ${x.owns?`<span class="ppowns mono">⛶ ${esc(x.owns)}</span>`:''}</span></div>`;
   });
-  const n=plPlan.tasks.filter(x=>x.on).length;
-  const dw=plPlan.doneWhen||[], rq=plPlan.requirements||[];
-  return `<div class="plmsg bot"><span class="plav">◆</span><div class="plplan" id="plPlanCard">
+  const n=PLP().tasks.filter(x=>x.on).length;
+  const dw=PLP().doneWhen||[], rq=PLP().requirements||[];
+  const inner=`<div class="plplan" id="plPlanCard">
     <div class="pphead">◆ Épico proposto — revise e aprove</div>
-    <input class="ppname" id="ppName" value="${escA(plPlan.epic)}" placeholder="nome do épico"${dis}>
-    <textarea class="ppedit ppout" id="ppOutcome" rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(plPlan.outcome||'')}</textarea>
+    <input class="ppname" id="ppName" value="${escA(PLP().epic)}" placeholder="nome do épico"${dis}>
+    <textarea class="ppedit ppout" id="ppOutcome" rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(PLP().outcome||'')}</textarea>
     ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">REQUISITOS <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${esc(r.text)}</div>`).join('')}</div>`:''}
     <div class="ppdone"><div class="ppdh">PRONTO QUANDO <span>· o épico só fecha com tudo marcado</span></div>
       ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>✕</button></div>`).join('')}
       <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
     ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time no topo pra aprovar.</div>`:''}
-    <div class="ppfoot"><button class="btn sm" id="ppDiscard"${plPlan.locked?' disabled':''}>descartar</button><button class="btn primary sm" id="ppApprove"${(noTeam||plPlan.locked)?' disabled':''}>${plPlan.locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
-  </div></div>`;
+    <div class="ppfoot"><button class="btn sm" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'descartar'}</button><button class="btn primary sm" id="ppApprove"${(noTeam||PLP().locked)?' disabled':''}>${PLP().locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
+  </div>`;
+  return bare?inner:`<div class="plmsg bot"><span class="plav">◆</span>${inner}</div>`;
 }
 function plWirePlanCard(){
-  const card=$id('plPlanCard'); if(!card || plPlan.locked) return; // enquanto grava na nuvem, nada muda
+  const card=$id('plPlanCard'); if(!card || PLP().locked) return; // enquanto grava na nuvem, nada muda
   // (des)marcar recalcula as ondas: quem dependia de uma tarefa desmarcada sobe de onda
-  const rewave=()=>{ plWaves(plPlan.tasks); plSortWaves(plPlan.tasks); renderPlanner(); plAutoSave(); };
-  card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ plPlan.tasks[+c.dataset.pptask].on=c.checked; rewave(); });
-  const nm=$id('ppName'); if(nm) nm.oninput=()=>{ plPlan.epic=nm.value; plAutoSave(); };
+  const rewave=()=>{ plWaves(PLP().tasks); plSortWaves(PLP().tasks); plPlanRerender(); plPlanSave(); };
+  card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ PLP().tasks[+c.dataset.pptask].on=c.checked; rewave(); });
+  const nm=$id('ppName'); if(nm) nm.oninput=()=>{ PLP().epic=nm.value; plPlanSave(); };
   // edição do envelope e das tarefas (texto: só atualiza o modelo; estrutura: recalcula ondas e re-renderiza)
-  const oc=$id('ppOutcome'); if(oc) oc.oninput=()=>{ plPlan.outcome=oc.value; plAutoSave(); };
-  card.querySelectorAll('[data-ppdw]').forEach(inp=>inp.oninput=()=>{ plPlan.doneWhen[+inp.dataset.ppdw]=inp.value; plAutoSave(); });
-  card.querySelectorAll('[data-ppdwx]').forEach(b=>b.onclick=()=>{ plPlan.doneWhen.splice(+b.dataset.ppdwx,1); renderPlanner(); plAutoSave(); });
-  { const b=$id('ppDwAdd'); if(b) b.onclick=()=>{ (plPlan.doneWhen=plPlan.doneWhen||[]).push(''); renderPlanner(); plAutoSave(); const ins=document.querySelectorAll('[data-ppdw]'); if(ins.length) ins[ins.length-1].focus(); }; }
-  card.querySelectorAll('[data-ppverify]').forEach(inp=>inp.oninput=()=>{ plPlan.tasks[+inp.dataset.ppverify].verify=inp.value.slice(0,240); plAutoSave(); });
-  card.querySelectorAll('[data-pprisk]').forEach(sel=>sel.onchange=()=>{ plPlan.tasks[+sel.dataset.pprisk].risk=sel.value; renderPlanner(); plAutoSave(); });
+  const oc=$id('ppOutcome'); if(oc) oc.oninput=()=>{ PLP().outcome=oc.value; plPlanSave(); };
+  card.querySelectorAll('[data-ppdw]').forEach(inp=>inp.oninput=()=>{ PLP().doneWhen[+inp.dataset.ppdw]=inp.value; plPlanSave(); });
+  card.querySelectorAll('[data-ppdwx]').forEach(b=>b.onclick=()=>{ PLP().doneWhen.splice(+b.dataset.ppdwx,1); plPlanRerender(); plPlanSave(); });
+  { const b=$id('ppDwAdd'); if(b) b.onclick=()=>{ (PLP().doneWhen=PLP().doneWhen||[]).push(''); plPlanRerender(); plPlanSave(); const ins=document.querySelectorAll('[data-ppdw]'); if(ins.length) ins[ins.length-1].focus(); }; }
+  card.querySelectorAll('[data-ppverify]').forEach(inp=>inp.oninput=()=>{ PLP().tasks[+inp.dataset.ppverify].verify=inp.value.slice(0,240); plPlanSave(); });
+  card.querySelectorAll('[data-pprisk]').forEach(sel=>sel.onchange=()=>{ PLP().tasks[+sel.dataset.pprisk].risk=sel.value; plPlanRerender(); plPlanSave(); });
   card.querySelectorAll('[data-ppafter]').forEach(b=>b.onclick=()=>{
-    const [i,a]=b.dataset.ppafter.split(':').map(Number); const t=plPlan.tasks[i]; t.after=t.after||[];
+    const [i,a]=b.dataset.ppafter.split(':').map(Number); const t=PLP().tasks[i]; t.after=t.after||[];
     if(t.after.includes(a)) t.after=t.after.filter(v=>v!==a);
     else if(plDependsOn(a, t.idx)){ b.classList.add('nope'); setTimeout(()=>b.classList.remove('nope'),600); return; } // ciclo: a irmã já depende desta
     else t.after.push(a);
     rewave();
   });
-  const dc=$id('ppDiscard'); if(dc) dc.onclick=()=>{ plPlan=null; plNoEpic=true; plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
+  const dc=$id('ppDiscard'); if(dc) dc.onclick=()=>{ if(plPlanCtx.onDiscard){ plPlanCtx.onDiscard(); return; } plPlan=null; plNoEpic=true; plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
   const ap=$id('ppApprove'); if(ap) ap.onclick=plCreateEpic;
 }
 async function plCreateEpic(){
-  if(!plPlan) return;
+  if(!PLP()) return;
   if(!(SB.sess() && cloudTeamId())){ alert('Épico usa o backlog do time — entre na conta e escolha um time primeiro (botão no topo).'); return; }
-  plWaves(plPlan.tasks); plSortWaves(plPlan.tasks); // ondas finais só com o que está marcado
-  const picked=plPlan.tasks.filter(x=>x.on);
+  plWaves(PLP().tasks); plSortWaves(PLP().tasks); // ondas finais só com o que está marcado
+  const picked=PLP().tasks.filter(x=>x.on);
   if(!picked.length){ alert('Marque pelo menos uma tarefa do épico.'); return; }
-  const name=(plPlan.epic||'').trim()||'Épico';
-  plPlan.locked=true; renderPlanner(); // trava o card: nenhuma edição nem segundo clique enquanto os inserts rodam
+  const name=(PLP().epic||'').trim()||'Épico';
+  PLP().locked=true; plPlanRerender(); // trava o card: nenhuma edição nem segundo clique enquanto os inserts rodam
   try{
     const proj=await cloudEnsureProject();
     // envelope do épico (0025: epics.spec) — Done when vira checklist D1..Dn, marcado depois pelo criador ou pelo agente revisor
-    const spec={ description:(plFields.objective||'').trim()||undefined, outcome:plPlan.outcome||'', requirements:plPlan.requirements||[],
-      doneWhen:(plPlan.doneWhen||[]).map(t=>String(t).trim()).filter(Boolean).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:plPlan.boundaries||[] };
+    const spec={ description:(plPlanCtx.description||plFields.objective||'').trim()||undefined, outcome:PLP().outcome||'', requirements:PLP().requirements||[],
+      doneWhen:(PLP().doneWhen||[]).map(t=>String(t).trim()).filter(Boolean).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:PLP().boundaries||[] };
     const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId(), spec });
     const created=[], idOf={}; // idx no plano → id na nuvem: `after` das tarefas vira ids reais (picked está em ordem de onda, então o pré-requisito já existe)
     for(const x of picked){
@@ -248,7 +255,7 @@ async function plCreateEpic(){
       if(after.length<wanted.length) console.warn('épico: pré-requisito sem id na nuvem, dependência perdida', x.title, wanted);
       const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
         spec:{ title:x.title,
-          objective:(x.objective||'')+`\n\n(Onda ${x.wave} do épico "${name}". NÃO toque em arquivos fora do seu escopo: outras tarefas do épico rodam em paralelo.)`,
+          objective:(x.objective||'')+`\n\n(Onda ${x.wave} do épico "${name}"${plPlanCtx.origin?` — origem: tarefa "${plPlanCtx.origin.title}"; os artefatos dela têm o contexto completo`:''}. NÃO toque em arquivos fora do seu escopo: outras tarefas do épico rodam em paralelo.)`,
           requirements:x.requirements||[], owns:x.owns||null,
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           wave:x.wave,
@@ -256,15 +263,14 @@ async function plCreateEpic(){
           hitl:x.hitl||undefined, boundaries:(x.boundaries&&x.boundaries.length)?x.boundaries:undefined } });
       if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; }
     }
-    plPlan=null;
-    try{ await invoke('clear_draft'); }catch(_){}
-    closePlanner(); closeNewTask();
+    const ctx=plPlanCtx; if(ctx.origin) bdPlan=null; else plPlan=null; plPlanRender=null; plPlanCtx={};
+    if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); }
     lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; setView('team');
     const w1=created.filter(c=>c.wave===1);
     if(w1.length && confirm(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo; as demais ondas ficam no backlog)`)){
       for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
     }
-  }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); if(plPlan){ plPlan.locked=false; renderPlanner(); } }
+  }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); { const P=PLP(); if(P){ P.locked=false; plPlanRerender(); } } }
 }
 // atualiza só o medidor/estado sem re-render pesado (ao editar campo à mão)
 function renderPlannerMeterOnly(){
