@@ -1554,7 +1554,9 @@ fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifac
     let mut out: Vec<Artifact> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     // 1) AO VIVO na worktree (aparece antes de a tarefa fechar o turno)
-    if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(db) = db_path_now {
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
                 if !wt.is_empty() {
@@ -2439,7 +2441,9 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
     }
     set_task_status(&state, &task_id, &status)?;
     if status == "merged" || status == "cancelled" {
-        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db_path_now {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
                 let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
@@ -2541,8 +2545,9 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
     // vivo (setsid) — fallback: o lock busy_pid do banco diz quem matar.
     if pid.is_none() {
-        if let Ok(db) = state.db.lock() {
-            if let Some(path) = db.clone() {
+        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone(); // trava solta já aqui
+        {
+            if let Some(path) = db_path_now {
                 if let Ok(conn) = open(&path) {
                     if let Ok(Some(bp)) = conn
                         .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| {
@@ -2601,7 +2606,9 @@ fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     }
     set_task_status(&state, &task_id, "aborted")?;
     // libera claims de arquivo + perguntas pendentes desta tarefa (best-effort)
-    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(path) = db_path_now {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
@@ -3430,7 +3437,9 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
     }
     let name = name.trim();
     // worktree AO VIVO primeiro (é a versão mais nova), depois a cópia coletada
-    if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(db) = db_path_now {
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
                 if !wt.is_empty() {
@@ -4645,7 +4654,9 @@ fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Resul
     if !out.status.success() {
         return Err(format!("git branch -m: {}", String::from_utf8_lossy(&out.stderr)));
     }
-    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(path) = db_path_now {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             let _ = conn.execute("UPDATE task SET branch=?1 WHERE id=?2", params![clean, task_id]);
@@ -5152,7 +5163,9 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     // PERSISTE o PR na tarefa (spec.prUrl): sem isso o link só existia "ao
     // vivo" via gh — snapshot/sync do time ficavam com pr_url nulo pra sempre.
     if !url.is_empty() {
-        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db_path_now {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
                 if let Ok(spec_str) = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
@@ -5172,7 +5185,9 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     // → a tarefa vira 'merged'. Sem isto ela fica presa em 'review' pra sempre
     // depois de um merge externo. Não sobrescreve estado já terminal.
     if pr_state == "MERGED" {
-        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db_path_now {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
                 let flipped = conn.execute(
@@ -5623,7 +5638,9 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
         return Err(String::from_utf8_lossy(&out.stderr).to_string());
     }
     // marca merged localmente + remove a worktree
-    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(path) = db_path_now {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             remove_task_worktree(&repo, &conn, &task_id);
