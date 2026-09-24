@@ -158,6 +158,7 @@ function fwNowHtml(t){
   return fwPlan(t);
 }
 let fwLiveSig='';
+let fwPvShown=null; // preview (🌐) que o cabeçalho da tarefa está mostrando
 async function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
   if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
@@ -166,6 +167,9 @@ async function fwLiveUpdate(){
   const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
   fwLiveSig=sig;
+  // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
+  // no renderWorkspace → o botão 🌐 nunca aparecia com a aba aberta
+  if((taskPreviewUrl(t.id)||null)!==fwPvShown){ renderWorkspace(); return; }
   const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
   const th=$id('fwThread');
@@ -240,7 +244,7 @@ function renderWorkspace(){
       const modelChip=(t.status!=='draft')?`<button class="btn sm" id="fwModel" title="trocar o modelo desta demanda (vale a partir do próximo turno)" style="font-family:var(--mono);font-size:11px">⚙ ${esc(typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão'))}</button>`:'';
       const costChip=modelChip+(cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'');
       // site local que o agente subiu (🌐 preview) — abrir aqui ou no celular (túnel)
-      const pv=taskPreviewUrl(t.id);
+      const pv=taskPreviewUrl(t.id); fwPvShown=pv||null;
       const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
       const pctHtml=`<button class="btn sm" id="fwSum" title="resumo de tudo que já foi feito + o que falta" style="display:flex;gap:7px;align-items:center"><span style="width:52px;height:4px;border-radius:99px;background:var(--border-strong);overflow:hidden;display:inline-block"><i style="display:block;height:100%;width:${taskPct(t)}%;background:var(--good)"></i></span><span class="mono" style="font-size:10.5px">${taskPct(t)}%</span></button>`;
       const pvHtml=pctHtml+(pv?`<button class="btn sm" id="fwPv" data-url="${escA(pv)}" title="${escA(pv)}" style="color:var(--accent)">${IC.globe} ${esc(pv.replace(/^https?:\/\//,'').slice(0,26))}</button>`+
