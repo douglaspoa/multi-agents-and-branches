@@ -8,7 +8,7 @@ window.addEventListener('unhandledrejection', e=>{ if(window.__earlyErrs) window
 // falha de tick em segundo plano: rede instável é esperada (não polui app_errors); bug de verdade vai pro console.error → tabela
 function tickErr(name, e){
   const m=String((e&&e.message)||e||'');
-  if(/load failed|failed to fetch|networkerror|network|timeout|timed out|expirou|offline|abort/i.test(m)) return;
+  if(/load failed|failed to fetch|networkerror|network|timeout|timed out|expirou|offline|abort|sem conex[ãa]o/i.test(m)) return;
   console.error('tick '+name+':', e);
 }
 function bindClick(id, fn, ev){ const el=$id(id); if(el) el[ev||'onclick']=fn; return el; }
