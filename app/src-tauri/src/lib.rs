@@ -1769,19 +1769,20 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
 
+    // SÓ o que a tela usa (summary + como testar, cortados). functions_json/files_json chegam a 700 KB por
+    // revisão (4.851 funções numa só) e a tela nunca lê — iam INTEIROS a cada 1s: ~3,5 MB de JSON por poll no
+    // logcomex-ai-v2, a página parseando isso sem parar = app travando e snapshot > 8s.
     let reviews = conn
-        .prepare("SELECT task_id,summary,functions_json,files_json,how_to_test,by_agent FROM review")
+        .prepare("SELECT task_id,substr(summary,1,2000),substr(how_to_test,1,4000),by_agent FROM review")
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
-            let fj: String = r.get(2)?;
-            let flj: String = r.get(3)?;
             Ok(Review {
                 task_id: r.get(0)?,
                 summary: r.get(1)?,
-                functions: serde_json::from_str(&fj).unwrap_or(serde_json::Value::Array(vec![])),
-                files: serde_json::from_str(&flj).unwrap_or(serde_json::Value::Array(vec![])),
-                how_to_test: r.get(4)?,
-                by_agent: r.get(5)?,
+                functions: serde_json::Value::Array(vec![]),
+                files: serde_json::Value::Array(vec![]),
+                how_to_test: r.get(2)?,
+                by_agent: r.get(3)?,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
