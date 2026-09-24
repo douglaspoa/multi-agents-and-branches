@@ -1,5 +1,17 @@
 // Constellation — 10-core
-const _invokeRaw = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+// DIAGNÓSTICO de travamento: comandos em voo, comando > 3s e thread da página bloqueada > 1,5s vão pro
+// /tmp/constellation-web.log com o que estava rodando — a causa fica registrada em vez de suposta
+const __inflight=new Map(); let __invSeq=0;
+const __diagLog=(line)=>{ try{ window.__TAURI__.core.invoke('web_log',{ line }); }catch(_){ } };
+const __inflightTx=()=>[...__inflight.values()].map(x=>x.cmd+'('+Math.round((Date.now()-x.t0)/100)/10+'s)').join(', ')||'nenhum';
+const _invokeRaw = (cmd, args) => {
+  if(cmd==='web_log') return window.__TAURI__.core.invoke(cmd, args);
+  const id=++__invSeq, t0=Date.now(); __inflight.set(id,{cmd,t0});
+  const done=()=>{ __inflight.delete(id); const ms=Date.now()-t0; if(ms>3000) __diagLog('[lento] '+cmd+' '+ms+'ms · em voo: '+__inflightTx()); };
+  return window.__TAURI__.core.invoke(cmd, args).then(r=>{ done(); return r; }, e=>{ done(); throw e; });
+};
+{ let last=Date.now(); setInterval(()=>{ const now=Date.now(), lag=now-last-500; last=now;
+    if(lag>1500) __diagLog('[lag] página bloqueada '+lag+'ms · em voo: '+__inflightTx()+' · aba: '+((typeof activeTab!=='undefined'&&activeTab)||'?')); }, 500); }
 // Envelope de rastreabilidade: TODA falha de comando de backend (login, PR,
 // planner, qualquer um) é registrada (52-erros → Supabase) SEM parar de propagar
 // o erro pra quem chamou. web_log fica de fora (é o log local — evita ruído/recursão).

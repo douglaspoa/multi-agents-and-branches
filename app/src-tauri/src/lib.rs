@@ -1641,6 +1641,13 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[tauri::command(async)]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
+    let __t0 = std::time::Instant::now();
+    let r = snapshot_inner(state);
+    let ms = __t0.elapsed().as_millis();
+    if ms > 1000 { web_log(format!("[rust] snapshot interno {ms}ms")); }
+    r
+}
+fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let path = match path {
         Some(p) => p,
@@ -6147,6 +6154,17 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let _ = mac_notification_sys::set_application("dev.constellation.app");
     web_log("[rust] app iniciou".to_string());
+    // DIAGNÓSTICO: a cada 2s agenda uma tarefa vazia no runtime e mede quanto ela espera pra rodar.
+    // Espera alta = threads do runtime todas ocupadas por comandos bloqueantes (o snapshot fica na fila).
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let t0 = std::time::Instant::now();
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        tauri::async_runtime::spawn(async move { let _ = tx.send(()); });
+        if rx.recv_timeout(std::time::Duration::from_secs(60)).is_err() { web_log("[rust] runtime SATURADO: tarefa não rodou em 60s".to_string()); continue; }
+        let ms = t0.elapsed().as_millis();
+        if ms > 500 { web_log(format!("[rust] runtime ocupado: tarefa esperou {ms}ms pra rodar")); }
+    });
     // túneis órfãos de instâncias anteriores (setsid sobrevive ao app): limpa
     let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
     // Mac acordado enquanto o app estiver aberto: este Mac é quem atende os
