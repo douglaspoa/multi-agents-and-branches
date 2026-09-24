@@ -1,5 +1,7 @@
 // Constellation — 15-config-abas-onboarding
 // ---------- configurações (⌘,) ----------
+// fecha Configurações: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
+function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab')) closeTabOfKind('cfg'); else if(o) o.style.display='none'; }
 function openCfg(){
   const body=$id('cfgBody');
   body.innerHTML=`
@@ -35,10 +37,10 @@ function openCfg(){
   $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); { const hc=$id('cfgHardCap'); lsSet('costHardCap', hc&&hc.checked?'1':'0'); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
     { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
     { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
-    lastSig=''; $id('cfgOverlay').style.display='none'; };
-  $id('cfgEnv').onclick=()=>{ $id('cfgOverlay').style.display='none'; openEnv(); };
-  $id('cfgBackend').onclick=()=>{ $id('cfgOverlay').style.display='none'; cloudCfgOpen=true; openCloud(); };
-  $id('cfgTour').onclick=()=>{ $id('cfgOverlay').style.display='none'; openOnboarding(); };
+    lastSig=''; cfgHide(); };
+  $id('cfgEnv').onclick=()=>{ cfgHide(); if(window.openTab) openTab('env'); else openEnv(); };
+  $id('cfgBackend').onclick=()=>{ cfgHide(); cloudCfgOpen=true; if(window.openTab) openTab('conta'); else openCloud(); };
+  $id('cfgTour').onclick=()=>{ cfgHide(); openOnboarding(); };
   // Route AI vive no bloco 1 (onde secretsCache/secretSet moram); monta via window
   if(window.routeAiMount) window.routeAiMount();
   if(typeof ghMount==='function') ghMount();
@@ -125,6 +127,9 @@ let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
 // e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
 const MULTI_KINDS=new Set(['nova','planner','form','orq']);
+// views únicas que guardam trabalho em andamento na própria tela: voltar pela ABA só mostra (não reabre —
+// reabrir zerava a seleção de Issues e as edições não salvas de Agentes/Configurações); o menu/openTab recarrega
+const KEEP_ON_SWITCH=new Set(['issues','issuesbulk','agents','cfg','skills','projetos','prefs','conta','env','daily']);
 let tabSeq=0;
 function tabStateApi(kind){ return window['TAB_STATE_'+kind]||null; }
 function saveTabState(tab){ if(!tab||!MULTI_KINDS.has(tab.kind)) return; const api=tabStateApi(tab.kind); if(!api||!api.get) return; try{ tab.state=api.get(); if(tab.state&&tab.state._title) tab.title=String(tab.state._title).slice(0,28); }catch(e){ console.error('saveTabState',e); } }
@@ -138,7 +143,13 @@ function viewOpen(kind, tab){
             form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
             skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
-            task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); },
+            task:()=>{ if(tabTaskId==null) return; const path=(tab&&tab.path)||null;
+              // aba de tarefa de OUTRO projeto (você trocou de projeto depois de abrir): volta pro projeto dela antes
+              if(tab && tab.repo && state.repo && tab.repo!==state.repo && window.switchProject){
+                const tr=tab.repo, id=tab.id, tid=tabTaskId;
+                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); });
+                return; }
+              fwOpenInner(tabTaskId, path); },
             cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); },
             epic:()=>{ if(window.epicPageOpenInner) window.epicPageOpenInner(tab); } }[kind];
   if(f) f();
@@ -148,6 +159,23 @@ function viewOpen(kind, tab){
 let TABS=[{id:'flow',kind:'flow',title:'Tarefas',pin:true}];
 let activeTab='flow';
 function tabById(id){ return TABS.find(t=>t.id===id); }
+// fecha uma tela: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
+function ovHide(o){
+  if(typeof o==='string') o=$id(o); if(!o) return;
+  const kind=Object.keys(VIEW_OVERLAY).find(k=>VIEW_OVERLAY[k]===o.id);
+  if(kind && o.classList.contains('astab')){ closeTabOfKind(kind); return; }
+  o.style.display='none';
+}
+window.ovHide=ovHide;
+// mostra um overlay DEPOIS de um await sem quebrar o modo aba: como aba fica 'block' (o 'flex' inline vencia o
+// .astab e a tela virava modal); se o usuário já saiu da aba dela enquanto carregava, não aparece por cima de outra
+function ovShow(o){
+  if(typeof o==='string') o=$id(o); if(!o) return;
+  if(o.classList.contains('astab')){ o.style.display='block'; return; }
+  const kind=Object.keys(VIEW_OVERLAY).find(k=>VIEW_OVERLAY[k]===o.id), cur=tabById(activeTab);
+  if(kind && tabsOfKind(kind).length && cur && cur.kind!==kind) return;
+  o.style.display='flex';
+}
 function tabsOfKind(kind){ return TABS.filter(t=>t.kind===kind); }
 function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11" height="10" rx="1.4"/><path d="M2.5 6h11"/>'; return (VIEW_META[kind]||{}).icon||''; }
 function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id; renderTabs(); showActiveView(); }
@@ -167,6 +195,7 @@ function openTab(kind, opts){
     if(!tab){ tab={id:kind+':'+(++tabSeq), kind, title:(VIEW_META[kind]||{}).title||kind, fresh:true, state:null}; TABS.push(tab); }
   } else {
     tab=tabById(kind); if(!tab){ tab={id:kind, kind, title:(VIEW_META[kind]||{}).title||kind}; TABS.push(tab); }
+    tab.loaded=false; // aberto pelo menu/atalho: recarrega a tela
   }
   activateTab(tab.id);
 }
@@ -177,7 +206,10 @@ function closeTab(id){
   TABS.splice(i,1);
   // esconde o overlay do kind se nenhuma OUTRA aba do mesmo kind sobrou
   if(!TABS.some(t=>t.kind===kind)){ const o=$id(VIEW_OVERLAY[kind]); if(o){ o.classList.remove('astab'); o.style.display='none'; } }
-  if(activeTab===id) activeTab=(TABS[i-1]||TABS[0]).id;
+  // fechou uma aba de FUNDO: a ativa continua como está (showActiveView restaurava nela o estado velho
+  // guardado ao sair — ex.: o "Montar conversando" ativo perdia as mensagens mais recentes)
+  if(activeTab!==id){ renderTabs(); return; }
+  activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView();
 }
 // fecha a aba ATIVA desse kind (ou a última aberta) — usado pelos botões "fechar" das views
@@ -185,17 +217,17 @@ function closeTabOfKind(kind){ const cur=tabById(activeTab); const t=(cur&&cur.k
 window.closeTabOfKind=closeTabOfKind;
 function showActiveView(){
   const t=tabById(activeTab)||TABS[0];
-  Object.keys(VIEW_OVERLAY).forEach(k=>{ const o=$id(VIEW_OVERLAY[k]); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
+  const target=t.kind==='flow'?null:VIEW_OVERLAY[t.kind];
+  // esconde as OUTRAS telas; a do destino fica como está (esconder e mostrar a mesma = piscada)
+  Object.keys(VIEW_OVERLAY).forEach(k=>{ const id=VIEW_OVERLAY[k]; if(id===target) return; const o=$id(id); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
   if(t.kind==='flow') return; // o quadro (.body) já aparece
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
   loadTabState(t);      // devolve o estado guardado desta aba (views múltiplas)
-  viewOpen(t.kind, t);  // popula + mostra (pode setar display='flex')
-  const o=$id(VIEW_OVERLAY[t.kind]);
-  if(o){ requestAnimationFrame(()=>{
-    // mede a base da barra de abas AGORA (layout já assentado) e fixa o topo do overlay
-    syncChromeH();
-    o.classList.add('astab'); o.style.display='block';
-  }); }
+  if(!(KEEP_ON_SWITCH.has(t.kind) && t.loaded)){ viewOpen(t.kind, t); t.loaded=true; }  // popula + mostra (os abridores setam display='flex' = layout de MODAL)
+  const o=$id(target);
+  // vira ABA no MESMO quadro: antes era num requestAnimationFrame e a tela pintava 1 quadro como
+  // modal (flex, sem .astab) a cada troca de aba — a "piscada"
+  if(o){ syncChromeH(); o.classList.add('astab'); o.style.display='block'; requestAnimationFrame(syncChromeH); }
 }
 function renderTabs(){
   const bar=$id('tabBar'); if(!bar) return;
@@ -221,7 +253,7 @@ function renderTabs(){
 $id('bdClose').onclick=()=>bdClosePlan();
 $id('bdCancel').onclick=()=>bdClosePlan();
 $id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdClosePlan(); });
-$id('cfgClose').onclick=()=>{ $id('cfgOverlay').style.display='none'; };
+$id('cfgClose').onclick=cfgHide;
 $id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') $id('cfgOverlay').style.display='none'; });
 
 // ---------- onboarding de 60 segundos (primeiro boot) ----------

@@ -173,7 +173,7 @@ async function cloudAutoTunnelTick(){
     }
   }catch(_){ }
 }
-setInterval(()=>{ cloudAutoTunnelTick().catch(()=>{}); }, 9000);
+setInterval(()=>{ cloudAutoTunnelTick().catch(e=>tickErr('cloudAutoTunnelTick',e)); }, 9000);
 
 // ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
 const cloudSyncSigs={}, prProbed=new Set();
@@ -267,8 +267,8 @@ async function cloudPrStatTick(){
     }catch(_){ }
   }
 }
-setInterval(()=>{ cloudIntentTick().catch(()=>{}); }, 6000);
-setInterval(()=>{ cloudPrStatTick().catch(()=>{}); }, 30000);
+setInterval(()=>{ cloudIntentTick().catch(e=>tickErr('cloudIntentTick',e)); }, 6000);
+setInterval(()=>{ cloudPrStatTick().catch(e=>tickErr('cloudPrStatTick',e)); }, 30000);
 async function cloudSyncTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   await cloudAutoPublish().catch(()=>{});
@@ -314,9 +314,9 @@ async function cloudSyncTick(){
     catch(e){ console.error('sync '+lid+':', e.message); }
   }
 }
-setInterval(()=>{ cloudSyncTick().catch(()=>{}); }, 6000);
-setInterval(()=>{ railProjTick().catch(()=>{}); }, 15000);
-setTimeout(()=>{ railProjTick().catch(()=>{}); }, 2500);
+setInterval(()=>{ cloudSyncTick().catch(e=>tickErr('cloudSyncTick',e)); }, 6000);
+setInterval(()=>{ railProjTick().catch(e=>tickErr('railProjTick',e)); }, 15000);
+setTimeout(()=>{ railProjTick().catch(e=>tickErr('railProjTick',e)); }, 2500);
 
 // ---- PONTE DE PERGUNTAS (mobile): pergunta aberta sobe, resposta desce ----
 // O agente pergunta (ask_human) → o Mac publica no cartão; o dev responde do
@@ -352,7 +352,7 @@ async function pushReadyTick(){
   }
 }
 const bootAt=Date.now();
-setInterval(()=>{ pushReadyTick().catch(()=>{}); }, 6000);
+setInterval(()=>{ pushReadyTick().catch(e=>tickErr('pushReadyTick',e)); }, 6000);
 async function cloudQuestionsTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
@@ -394,7 +394,7 @@ async function cloudQuestionsTick(){
     }catch(_){ }
   }
 }
-setInterval(()=>{ cloudQuestionsTick().catch(()=>{}); }, 7000);
+setInterval(()=>{ cloudQuestionsTick().catch(e=>tickErr('cloudQuestionsTick',e)); }, 7000);
 
 // ---- MOBILE AO VIVO: o celular escreve intenções, ESTE Mac executa ----
 // 1) tarefa pedida do celular (status='requested', minha) → cria e RODA aqui
@@ -430,7 +430,7 @@ async function cloudRemoteStartTick(){
     }catch(e){ remoteStartFails[ct.id]=(remoteStartFails[ct.id]||0)+1; console.error('remoteStart', e.message); }
   }
 }
-setInterval(()=>{ cloudRemoteStartTick().catch(()=>{}); }, 6000);
+setInterval(()=>{ cloudRemoteStartTick().catch(e=>tickErr('cloudRemoteStartTick',e)); }, 6000);
 
 // 2) feed condensado ao vivo: eventos novos das MINHAS tarefas mapeadas → task_feed
 function feedPos(){ try{ return JSON.parse(lsGet('sb:feedpos')||'{}'); }catch(_){ return {}; } }
@@ -457,7 +457,7 @@ async function cloudFeedTick(){
     }
   }
 }
-setInterval(()=>{ cloudFeedTick().catch(()=>{}); }, 4000);
+setInterval(()=>{ cloudFeedTick().catch(e=>tickErr('cloudFeedTick',e)); }, 4000);
 
 // 3) chat do celular → entrega ao agente (fila do motor cuida do turno ocupado)
 const msgDelivering=new Set();
@@ -488,7 +488,7 @@ async function cloudMsgTick(){
     }catch(e){ console.error('msg', e.message); }
   }
 }
-setInterval(()=>{ cloudMsgTick().catch(()=>{}); }, 5000);
+setInterval(()=>{ cloudMsgTick().catch(e=>tickErr('cloudMsgTick',e)); }, 5000);
 
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];

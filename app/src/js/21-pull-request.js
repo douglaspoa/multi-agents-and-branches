@@ -226,10 +226,20 @@ function render(){
 function safe(fn){ try{ fn(); }catch(e){ console.error("render "+(fn.name||"?")+":", e); } }
 function activeIs(x){ return ((((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v)===x; }
 const commitsCache={};
+// commitsStale: evento novo na tarefa → recarrega MOSTRANDO o valor antigo (antes zerava o cache e o
+// card piscava "carregando…" a cada evento); commitsLoading: 1 carga por tarefa (cada render disparava outra)
+const commitsStale={}, commitsLoading={};
+function commitsNeedLoad(taskId){ return commitsCache[taskId]===undefined || !!commitsStale[taskId]; }
 async function loadCommits(taskId, force){
-  if(commitsCache[taskId]!==undefined && !force) return commitsCache[taskId];
-  try{ commitsCache[taskId]=await invoke("task_commits",{taskId}); }catch(e){ commitsCache[taskId]=[]; }
-  return commitsCache[taskId];
+  if(!force && !commitsNeedLoad(taskId)) return commitsCache[taskId];
+  if(commitsLoading[taskId]) return commitsLoading[taskId];
+  delete commitsStale[taskId];
+  commitsLoading[taskId]=(async()=>{
+    try{ commitsCache[taskId]=await invoke("task_commits",{taskId}); }catch(e){ if(commitsCache[taskId]===undefined) commitsCache[taskId]=[]; }
+    finally{ delete commitsLoading[taskId]; }
+    return commitsCache[taskId];
+  })();
+  return commitsLoading[taskId];
 }
 async function loadAllCommits(){ for(const t of (state.tasks||[])) await loadCommits(t.id); render(); }
 function commitChip(x, agent){

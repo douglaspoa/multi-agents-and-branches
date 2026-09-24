@@ -187,7 +187,7 @@ function detectNotifs(snap){
       const prev=prevStatus[t.id];
       if(prev!==undefined && prev!==t.status){
         // status mudou → commits/PR podem ter mudado (fim de turno commita)
-        commitsCache[t.id]=undefined; prCache[t.id]=undefined;
+        commitsStale[t.id]=true; prCache[t.id]=undefined;
         if(t.status==='review') pushNotif('Pronta para review ✓', t.title, t.id);
         else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title, t.id);
         else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title, t.id);
@@ -214,7 +214,7 @@ function detectNotifs(snap){
   // eventos novos numa tarefa → a lista de commits pode estar defasada
   const top={};
   for(const e of (snap.events||[])){ const k=e.taskId||e.task_id; if(k && e.id>(top[k]||0)) top[k]=e.id; }
-  for(const k in top){ if(prevEvTop[k]!==undefined && prevEvTop[k]!==top[k]) commitsCache[k]=undefined; prevEvTop[k]=top[k]; }
+  for(const k in top){ if(prevEvTop[k]!==undefined && prevEvTop[k]!==top[k]) commitsStale[k]=true; prevEvTop[k]=top[k]; }
 }
 const prevEvTop={};
 const costWarned=new Set();

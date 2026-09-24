@@ -32,7 +32,7 @@ function plDraftJson(){ let input=''; try{ const i=document.getElementById('plIn
 // immediate=true salva NA HORA (sem debounce) — usado quando o humano envia uma
 // mensagem: o raciocínio fica no disco ANTES da IA responder, então uma queda de
 // luz / fechamento no meio não perde o que você acabou de escrever.
-function plAutoSave(immediate){ clearTimeout(plSaveTimer); const save=()=>{ try{ invoke('save_draft',{ json: plDraftJson() }); }catch(_){} }; if(immediate){ save(); } else { plSaveTimer=setTimeout(save,400); } }
+function plAutoSave(immediate){ if(plQuiet) return; clearTimeout(plSaveTimer); const save=()=>{ try{ invoke('save_draft',{ json: plDraftJson() }); }catch(_){} }; if(immediate){ save(); } else { plSaveTimer=setTimeout(save,400); } }
 async function openPlanner(){
   plReset();
   $id('plannerOverlay').style.display='flex';
@@ -68,6 +68,7 @@ function plApplyPatch(patch){
   if(Array.isArray(patch.artifacts)) plFields.artifacts={doc:patch.artifacts.includes('doc'),proof:patch.artifacts.includes('proof'),tests:patch.artifacts.includes('tests')};
 }
 function renderPlanner(){
+  if(plQuiet) return; // aplicando resposta noutra aba (plInTab): não pinta a aba que está na tela
   // medidor
   const okCount=PL_MESH.filter(f=>plState(f.k)==='ok').length;
   $id('plMeter').textContent=`${okCount} de ${PL_MESH.length} campos`;
@@ -294,14 +295,28 @@ function plActsHtml(){ return plActs.slice(-6).map((l,i,a)=>`<div class="${i===a
 function plActsPaint(){ const el=$id('plActs'); if(el) el.innerHTML=plActsHtml(); }
 try{ window.__TAURI__.event.listen('planner-activity', ev=>{ if(!plBusy) return; const l=String((ev&&ev.payload&&ev.payload.line)||'').trim(); if(!l) return; plActs.push(l); if(plActs.length>40) plActs.shift(); plActsPaint(); }); }catch(_){ }
 async function plStop(){ if(!plBusy) return; plStopping=true; plActs.push('parando…'); plActsPaint(); try{ await invoke('ai_chat_stop'); }catch(_){ } }
+// Resposta da IA volta pra ABA QUE PERGUNTOU: com 2 "Montar conversando", trocar de aba enquanto a IA pensava
+// fazia a resposta cair na outra conversa (plMsgs/plSid/plAsking são globais que a troca de aba reatribui).
+// plInTab carrega o estado daquela aba nos globais, roda fn sem pintar a tela (plQuiet) e devolve tudo ao lugar.
+let plQuiet=false;
+async function plInTab(tabId, fn){
+  const api=window.TAB_STATE_planner, t=(typeof tabById==='function')?tabById(tabId):null;
+  if(!api || !t || activeTab===tabId) return fn(true);
+  const curSt=api.get(), busy=plBusy;
+  api.set(t.state||{}); plQuiet=true;
+  try{ await fn(false); }
+  finally{ t.state=api.get(); api.set(curSt); plBusy=busy; plQuiet=false; }
+}
 async function plSend(text){
   if(plBusy) return; text=(text||'').trim();
   const atts=plPend.splice(0);
   if(!text && atts.length) text='Anexei estes arquivos — leia e extraia o contexto (spec, print do bug, etc.).';
   if(!text) return;
+  const myTab=activeTab; // a aba que perguntou
   const inp=$id('plInput'); if(inp) inp.value='';
   plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; plActs=[]; plStopping=false; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
   plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
+  let r=null, err=null;
   try{
     // "vira épico" depois de ter descartado: o usuário sobrescreve — a recusa cai e a IA pode propor de novo
     // (sem \b antes de "épico": em JS \b é só ASCII e não casa com o "é"); "não vira épico" não conta
@@ -309,7 +324,14 @@ async function plSend(text){
       const pede=new RegExp('\\b'+V+'\\b[^.]{0,20}épico','i').test(text), nega=new RegExp('\\b(n[ãa]o|nem|sem)\\b[^.]{0,12}\\b'+V+'\\b','i').test(text);
       if(plNoEpic && pede && !nega) plNoEpic=false; }
     const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts) + (window.trfPromptBlock ? await trfPromptBlock(text) : '');
-    const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
+    r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
+  }catch(e){ err=e; }
+  await plInTab(myTab, async(here)=>{
+    if(err){ const e=err; plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim();
+      if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; plMsgs.pop(); plMsgs.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'}); if(here){ const i=$id('plInput'); if(i&&!i.value) i.value=text; } renderPlanner(); plAutoSave(true); return; }
+      if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.';
+      plMsgs.push({who:'sys', text:'⚠ '+(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true);
+      renderPlanner(); plAutoSave(); return; }
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     plSid=r.sessionId||(r&&r.recovered?'':plSid);
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
@@ -322,19 +344,17 @@ async function plSend(text){
       // a IA propôs um ÉPICO (várias tarefas paralelas) → vira preview aprovável no chat
       if(!plNoEpic && obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length) plPlan=plPlanFrom(obj.plan);
       if(obj.say) plMsgs.push({who:'bot', text:String(obj.say)});
-      // você confirmou (done) e os obrigatórios fecharam → cria automaticamente
+      // você confirmou (done) e os obrigatórios fecharam → cria automaticamente (só com a aba NA TELA:
+      // criar fecha abas — não pode rodar por baixo da aba que você está usando)
       if(plDone && plReady()){
-        plMsgs.push({who:'sys', text:'Confirmado — criando a tarefa e iniciando…'});
-        renderPlanner();
-        await plCreate();
-        return;
+        if(here){ plMsgs.push({who:'sys', text:'Confirmado — criando a tarefa e iniciando…'}); renderPlanner(); await plCreate(); return; }
+        plMsgs.push({who:'sys', text:'Confirmado — volte nesta aba e toque em "criar e rodar".'});
       }
     } else {
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }
-  }catch(e){ plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim();
-    if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; plMsgs.pop(); plMsgs.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'}); const i=$id('plInput'); if(i&&!i.value) i.value=text; renderPlanner(); plAutoSave(true); return; } if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.'; plMsgs.push({who:'sys', text:'⚠ '+(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true); }
-  renderPlanner(); plAutoSave();
+    renderPlanner(); plAutoSave();
+  });
 }
 async function plCreate(){
   if(!plReady()) return;
