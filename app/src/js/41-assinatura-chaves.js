@@ -11,13 +11,13 @@ async function billingSync(){
     billingPlans=await sbGet('billing_plans?select=*&active=eq.true');
     billingOn=billingPlans.length>0;
     if(!billingOn){ payHide(); return; }
-    // enquanto os dados da conta não carregaram, NÃO trave (senão o paywall pisca
-    // pra quem tem plano/enterprise) — um sync posterior (pós-cloudLoad) decide.
-    if(!cloudData){ payHide(); return; }
-    // licença ENTERPRISE da org cobre TODOS os membros — lê direto do cloudData.org
-    // (já vem com plan/paid_until via select=*), sem query extra nem corrida.
-    const org=cloudData.org;
-    const orgOk=!!(org && org.plan==='enterprise' && (!org.paid_until || new Date(org.paid_until)>new Date()));
+    // licença ENTERPRISE da org cobre TODOS os membros. Pergunta ao banco DIRETO (a RLS devolve só as
+    // orgs de que sou membro) em vez de depender do cloudData: antes, com a conta ainda carregando (ou
+    // falhando), o sync saía sem decidir, myBilling ficava vazio e o login mandava o membro enterprise
+    // pra tela de planos (24/09: Arllon, da Logcomex, preso na cobrança).
+    let orgs=(cloudData&&cloudData.org)?[cloudData.org]:null;
+    if(!orgs){ try{ orgs=await sbGet('orgs?select=plan,paid_until'); }catch(_){ payHide(); return; } }
+    const orgOk=(orgs||[]).some(o=>o && o.plan==='enterprise' && (!o.paid_until || new Date(o.paid_until)>new Date()));
     if(orgOk){ myBilling={ plan:'enterprise', status:'active', org:true }; payHide(); return; }
     const rows=await sbGet('billing?select=*');
     const mine=rows.find(r=>r.user_id===cloudUserId());
