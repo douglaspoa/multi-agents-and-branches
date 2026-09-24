@@ -200,7 +200,7 @@ function renderFlowFilters(){
     `<button class="pfchip${projFilter==='all'?' on':''}" data-pf="all">Todos os projetos</button>`+
     pl.map(([path,name])=>`<button class="pfchip${projFilter===path?' on':''}" data-pf="${escA(path)}"><span class="pfd" style="background:${projColor(path)}"></span>${esc(name)}</button>`).join('')+
     `</div>` : '';
-  el.innerHTML = tabsHtml + projChips + filterRow + advHtml;
+  { const h=tabsHtml + projChips + filterRow + advHtml; if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
   el.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>{ projFilter=b.dataset.pf; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
@@ -264,17 +264,19 @@ const FLOW_SECS=[
 let flowView=lsGet('flowView')||'list';   // list | grid (redesign p1/p2)
 function renderFlowHead(){
   const el=$id('flowHead'); if(!el) return;
+  // só troca o DOM se mudou: reescrever a cada render piscava e zerava o #coordChip (preenchido a cada 2s)
+  const put=h=>{ if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; };
   const vis=(state.tasks||[]).filter(t=>notHidden(t));
   const andamento=vis.filter(t=>['andamento','prontas','praberto'].includes(flowBucket(t))).length;
   const aguardando=vis.filter(t=>flowBucket(t)==='aguardando').length;
   if(flowScope==='done'){
     let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
     const done=flowVisible(src); const prs=done.filter(t=>t.prUrl).length;
-    el.innerHTML=`<h1>Entregas concluídas</h1><div class="sub">${done.length} demanda${done.length===1?'':'s'}${prs?` · ${prs} PR${prs===1?'':'s'}`:''} · objetivos, provas e documentos de cada uma</div><span style="flex:1"></span>`;
+    put(`<h1>Entregas concluídas</h1><div class="sub">${done.length} demanda${done.length===1?'':'s'}${prs?` · ${prs} PR${prs===1?'':'s'}`:''} · objetivos, provas e documentos de cada uma</div><span style="flex:1"></span>`);
     return;
   }
-  el.innerHTML=`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
-    <span style="flex:1"></span><span id="coordChip" class="mono" title="Coordenação (baseline): conflitos de merge · colisões do bus · reworks" style="font-size:11px;color:var(--muted);align-self:center"></span>`;
+  put(`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
+    <span style="flex:1"></span><span id="coordChip" class="mono" title="Coordenação (baseline): conflitos de merge · colisões do bus · reworks" style="font-size:11px;color:var(--muted);align-self:center"></span>`);
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -590,5 +592,6 @@ function renderFlow(){
   });
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
   el.querySelectorAll('[data-ctog]').forEach(h=>h.onclick=(e)=>{ e.stopPropagation(); const id=h.dataset.ctog; if(flowCommitsOpen.has(id)) flowCommitsOpen.delete(id); else flowCommitsOpen.add(id); lastSig=''; renderFlow(); });
-  for(const t of tasks){ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('flow')) renderFlow(); }); }
+  // resultado chega depois: só marca sujo — o refresh redesenha respeitando a trava de clique (uiHoldUntil)
+  for(const t of tasks){ if(commitsNeedLoad(t.id) && !commitsLoading[t.id]){ const before=JSON.stringify(commitsCache[t.id]||null); loadCommits(t.id).then(c=>{ if(JSON.stringify(c||null)!==before) lastSig=''; }); } }
 }

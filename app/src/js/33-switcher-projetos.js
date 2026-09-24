@@ -140,7 +140,16 @@ $id("artOverlay").addEventListener("click", e=>{ if(e.target.id==="artOverlay") 
 $id("cmClose").onclick = closeCommit;
 $id("cmOverlay").addEventListener("click", e=>{ if(e.target.id==="cmOverlay") closeCommit(); });
 document.addEventListener("keydown", e=>{
-  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); return; }
+  if(e.key==="Escape"){
+    // um modal por vez (o de cima primeiro)
+    if($id('artOverlay').style.display!=='none'){ closeArtifact(); return; }
+    if($id('cmOverlay').style.display!=='none'){ closeCommit(); return; }
+    // antes fechava SEMPRE o formulário e os Agentes: com outra aba ativa, matava o formulário de fundo
+    // (rascunho perdido) e deixava a aba Agentes em branco. Agora só o que é MODAL (não aba) fecha aqui.
+    const nt=$id('ntOverlay'), ag=$id('agOverlay');
+    if(nt && nt.style.display!=='none' && !nt.classList.contains('astab') && !escBusy(e)){ closeNewTask(); return; }
+    if(ag && ag.style.display!=='none' && !ag.classList.contains('astab') && !escBusy(e)){ closeAgents(); return; }
+    return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
     if(k==="n"){ e.preventDefault(); if(connected){ if(window.openTab) window.openTab('nova'); else openNewTask(); } }
@@ -158,9 +167,9 @@ async function openAgents(){
   cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
   agOpen = -1;
   renderAg(); renderWf();
-  $id("agOverlay").style.display="flex";
+  ovShow('agOverlay'); // depois do await: respeita o modo aba
 }
-function closeAgents(){ const o=$id("agOverlay"); if(o) o.style.display="none"; }
+function closeAgents(){ ovHide("agOverlay"); } // aba: fecha a aba (não deixa em branco)
 const ROLES=["planner","builder","reviewer","designer","tester","docs","security"];
 const PALETTE=["#1e9e4a","#e6b53c","#0a72e0","#a05cff","#e5484d","#12a3a3","#e07b39","#ec4899"];
 const GLYPHS=["🦊","🦉","🐙","🐢","🦋","🐝","🦁","🐬","🧠","⚡","🛠️","🔍","🎨","🧪","📝","🛡️"];

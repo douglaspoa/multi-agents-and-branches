@@ -80,7 +80,7 @@ async function openPrefs(){
   const k=await prefsKey(); if(!k){ alert('Abra um projeto (repositório com git remote) primeiro.'); return; }
   $id('prefsRepo').textContent=k.repo.replace(/^https?:\/\/[^/]+\//,'').replace(/\.git$/,'');
   $id('prefsMeta').textContent='carregando…';
-  ov.style.display='flex';
+  ovShow(ov); // depois do await: respeita o modo aba
   mountEditor($id('prefsText'), { markdown:true });
   try{
     const rows=await sbGet('project_prefs?select=content,updated_by,updated_at&org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo));
@@ -91,9 +91,9 @@ async function openPrefs(){
   }catch(e){ $id('prefsMeta').textContent='falhou: '+(e.message||e); }
 }
 bindClick('prefsBtn', ()=>{ if(window.openTab) window.openTab('prefs'); else openPrefs(); });
-$id('prefsClose').onclick=()=>{ $id('prefsOverlay').style.display='none'; };
-$id('prefsCancel').onclick=()=>{ $id('prefsOverlay').style.display='none'; };
-$id('prefsOverlay').addEventListener('click',e=>{ if(e.target.id==='prefsOverlay') $id('prefsOverlay').style.display='none'; });
+$id('prefsClose').onclick=()=>{ ovHide('prefsOverlay'); };
+$id('prefsCancel').onclick=()=>{ ovHide('prefsOverlay'); };
+$id('prefsOverlay').addEventListener('click',e=>{ if(e.target.id==='prefsOverlay') ovHide('prefsOverlay'); });
 $id('prefsSave').onclick=async()=>{
   const k=await prefsKey(); if(!k) return;
   const b=$id('prefsSave'); b.disabled=true; b.textContent='salvando…';
@@ -106,12 +106,12 @@ $id('prefsSave').onclick=async()=>{
   }catch(e){ $id('prefsMeta').textContent='falhou: '+(e.message||e); }
   finally{ b.disabled=false; b.textContent='salvar pro time'; }
 };
-$id('pcClose').onclick=()=>{ $id('pcOverlay').style.display='none'; };
+$id('pcClose').onclick=()=>{ ovHide('pcOverlay'); };
 $id('pcSend').onclick=pcSend;
 $id('pcTask').onclick=pcToTask;
 $id('pcClear').onclick=async()=>{ if(await askYes('Começar uma conversa nova? (a atual some)')){ lsSet(pcKey(),''); lsSet('pcsid:'+(state.repo||''),''); pcRender(); } };
 $id('pcInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); pcSend(); } });
-$id('pcOverlay').addEventListener('click',e=>{ if(e.target.id==='pcOverlay') $id('pcOverlay').style.display='none'; });
+$id('pcOverlay').addEventListener('click',e=>{ if(e.target.id==='pcOverlay') ovHide('pcOverlay'); });
 
 // ---------- daily do dev ----------
 let dailyData=null, dailyCommits={};

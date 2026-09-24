@@ -32,7 +32,10 @@ function renderKanban(){
   const el=$id('kanban');
   const byCol={}; KCOLS.forEach(([k])=>byCol[k]=[]);
   for(const t of (state.tasks||[]).filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
-  el.innerHTML = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
+  if(kDragId) return; // arrastando: reconstruir destruía o card no meio do arrasto (o drop nunca vinha)
+  const html = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
+  if(el.__html===html && el.firstChild) return; // nada visível mudou: sem piscar, sem perder clique
+  el.__html=html; el.innerHTML=html;
   el.querySelectorAll('.kcard').forEach(card=>{
     card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; openTaskById(card.dataset.id); };
     card.addEventListener('dragstart',e=>{ kDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });

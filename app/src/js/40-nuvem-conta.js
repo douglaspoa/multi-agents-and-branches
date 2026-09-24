@@ -105,7 +105,9 @@ function openCloud(){ $id('cloudOverlay').style.display='flex'; renderCloud(); }
   setInterval(()=>{ const e=$id('sbLogoutTop'); if(e) e.style.display=SB.sess()?'':'none'; }, 1500); }
 function closeCloud(){
   if(!SB.sess() && $id('cloudOverlay').dataset.lock==='1') return; // login é obrigatório
-  $id('cloudOverlay').style.display='none'; cloudMsg='';
+  const o=$id('cloudOverlay'); cloudMsg='';
+  if(o.classList.contains('astab') && window.closeTabOfKind){ closeTabOfKind('conta'); return; } // aba: fecha a aba (não deixa em branco)
+  o.style.display='none';
 }
 
 let cloudAutoInvTried=false;

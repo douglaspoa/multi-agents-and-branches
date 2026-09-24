@@ -840,5 +840,5 @@ function trkWatchStart(){
   }, 120000);
 }
 setTimeout(()=>{ trkLoad().then(()=>{ trkBadge(); if(trkReady()) trkWatchStart(); }).catch(()=>{}); }, 6000);
-bindClick('issuesClose', ()=>{ $id('issuesOverlay').style.display='none'; });
-$id('issuesOverlay').addEventListener('click',e=>{ if(e.target.id==='issuesOverlay') $id('issuesOverlay').style.display='none'; });
+bindClick('issuesClose', ()=>{ ovHide('issuesOverlay'); });
+$id('issuesOverlay').addEventListener('click',e=>{ if(e.target.id==='issuesOverlay') ovHide('issuesOverlay'); });

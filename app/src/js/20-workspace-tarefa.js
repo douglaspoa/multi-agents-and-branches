@@ -180,6 +180,7 @@ async function fwLiveUpdate(){
   if(!fwFilesAt || Date.now()-fwFilesAt>4000){
     fwFilesAt=Date.now();
     invoke('task_files',{ taskId:t.id }).then(f=>{
+      if(fwTask!==t.id) return; // trocou de tarefa enquanto buscava: não pinta os arquivos da outra
       f=f||[];
       const s=f.map(x=>x.path+':'+x.add+':'+x.del).join('|');
       if(s!==fwFilesSig){ fwFilesSig=s; fwFiles=f; renderWorkspace(); }
@@ -700,6 +701,9 @@ $id('fwPush').onclick=async function(){
 };
 $id('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
 $id('sumOverlay').addEventListener('click', e=>{ if(e.target.id==='sumOverlay') e.target.style.display='none'; });
-document.addEventListener('keydown', e=>{ if(e.key==='Escape' && $id('fwOverlay').style.display!=='none'){ if(fwEditing){ fwEditing=false; renderWorkspace(); } else closeWorkspace(); } });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && $id('fwOverlay').style.display!=='none'){
+  if(fwEditing){ fwEditing=false; renderWorkspace(); return; }
+  if(escBusy(e)) return; // digitando no chat ou com modal por cima: o Esc não fecha a aba da tarefa
+  closeWorkspace(); } });
 // atualiza SÓ o "O que estou fazendo agora" ao vivo (não mexe no código/input)
 // (o refresh de 1s chama fwLiveUpdate quando o workspace está aberto — sem timer duplicado)

@@ -33,9 +33,9 @@ function renderEnv(){
 }
 async function openEnv(){ $id('envOverlay').style.display='flex'; renderEnv(); await runEnvCheck(); renderEnv(); }
 $id('envBtn').onclick=openEnv;
-$id('envClose').onclick=()=>{ $id('envOverlay').style.display='none'; };
+$id('envClose').onclick=()=>{ ovHide('envOverlay'); };
 $id('envRecheck').onclick=async()=>{ envChecks=null; renderEnv(); await runEnvCheck(); renderEnv(); };
-$id('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') $id('envOverlay').style.display='none'; });
+$id('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') ovHide('envOverlay'); });
 // boot: valida em background; problema → abre a tela sozinho (1x por sessão)
 setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')) openEnv(); }, 2500);
 

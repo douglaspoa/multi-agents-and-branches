@@ -54,12 +54,18 @@
   }
 
   function enqueue(rec) { try { const q = JSON.parse(lsGet(QKEY) || "[]"); q.push(rec); lsSet(QKEY, JSON.stringify(q.slice(-80))); } catch (_) {} }
+  // um flush por vez; ao terminar, RELÊ a fila (o que entrou durante os awaits não é sobrescrito)
+  let flushing = false;
   async function flush() {
-    let q; try { q = JSON.parse(lsGet(QKEY) || "[]"); } catch (_) { q = []; }
-    if (!q.length) return;
-    const keep = [];
-    for (const rec of q) { const ok = await sendRaw(rec); if (!ok) { keep.push(rec); } }
-    try { lsSet(QKEY, JSON.stringify(keep)); } catch (_) {}
+    if (flushing) return; flushing = true;
+    try {
+      let q; try { q = JSON.parse(lsGet(QKEY) || "[]"); } catch (_) { q = []; }
+      if (!q.length) return;
+      const sent = new Set();
+      for (const rec of q) { if (await sendRaw(rec)) sent.add(rec.at + "|" + rec.source + "|" + rec.message); }
+      let now; try { now = JSON.parse(lsGet(QKEY) || "[]"); } catch (_) { now = []; }
+      try { lsSet(QKEY, JSON.stringify(now.filter((r) => !sent.has(r.at + "|" + r.source + "|" + r.message)).slice(-80))); } catch (_) {}
+    } finally { flushing = false; }
   }
 
   async function logAppError(source, err, extra) {
@@ -92,6 +98,8 @@
     } catch (_) { /* o logger NUNCA pode derrubar o app */ }
   }
   window.logAppError = logAppError;
+  // erros do boot (antes deste arquivo carregar) guardados pelo 00-util
+  try { const early = window.__earlyErrs || []; window.__earlyErrs = null; early.forEach((a) => logAppError(a[0], a[1], a[2])); } catch (_) {}
 
   // ---- captura GLOBAL (além do envelope no invoke, que fica em 10-core) ----
   window.addEventListener("error", (e) => { try { logAppError("window.error", e.error || e.message, { at: (e.filename || "") + ":" + (e.lineno || 0) }); } catch (_) {} });

@@ -183,6 +183,7 @@ function orqRender(){
 }
 function orqRenderBrief(body){
   const prev=(orq.list||[]).slice(0,6);
+  body.__html=null; // o brief troca o conteúdo: a guarda do plano não pode achar que ainda está lá
   body.innerHTML=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${orqStatusPill()}</div>
   <div class="orq-brief"><div class="orq-briefin">
     <div class="ndeyebrow" style="color:var(--accent)">orquestrador</div>
@@ -274,7 +275,7 @@ function orqRenderPlan(body){
   const runN=stKeys.filter(k=>k==='running'||k==='queued').length, doneN=stKeys.filter(k=>k==='done').length, askN=stKeys.filter(k=>k==='asking').length, revN=stKeys.filter(k=>k==='review').length, errN=stKeys.filter(k=>k==='error').length;
   const footTx=[runN?`<span style="color:${ORQ_ST.running}">${runN} rodando</span>`:'', askN?`<span style="color:${ORQ_ST.asking}">${askN} esperando sua resposta</span>`:'', revN?`<span style="color:${ORQ_ST.review}">${revN} pra revisar</span>`:'', errN?`<span style="color:${ORQ_ST.error}">${errN} com erro</span>`:'', `<span style="color:${ORQ_ST.done}">${doneN}/${p.phases.length} prontas</span>`].filter(Boolean).join(' <span class="dim">·</span> ');
   const otherRepo=p.repo&&state.repo&&p.repo!==state.repo;
-  body.innerHTML=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${otherRepo?`<span class="mono" style="font-size:11px;color:var(--warn);margin-right:12px" title="${escA(p.repo)}">plano do projeto ${esc(p.repo.split('/').pop())}</span>`:''}${orqStatusPill()}</div>
+  const html=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${otherRepo?`<span class="mono" style="font-size:11px;color:var(--warn);margin-right:12px" title="${escA(p.repo)}">plano do projeto ${esc(p.repo.split('/').pop())}</span>`:''}${orqStatusPill()}</div>
   <div class="orq-main">
     <div class="orq-canvaswrap">
       <div class="orq-tools"><button class="as-btn" id="orqAdd">+ subagente</button>
@@ -290,6 +291,9 @@ function orqRenderPlan(body){
     <button class="as-btn orq-chatbtn" id="orqChatBtn" title="pergunte sobre o projeto ou peça ajustes no plano">${ic('chat',13)}conversar</button>
     <button class="as-btn" id="orqRedo">${running?'novo plano':'refazer'}</button>
     ${running?`<button class="as-btn" disabled>${doneN===p.phases.length?'plano concluído':'plano rodando'}</button>`:`<button class="as-btn primary big" id="orqApprove" ${orq.busy?'disabled':''}>${orq.busy?'criando as tarefas…':'aprovar plano e rodar'}</button>`}</div>`;
+  // tick de 7s: nada visível mudou → mantém o DOM (o céu animado reiniciava e o clique se perdia a cada tick)
+  if(body.__html===html && body.firstChild) return;
+  body.__html=html; body.innerHTML=html;
   orqWire(body, pos);
 }
 // eventos por tarefa via task_events (incremental) — o snapshot só carrega os 1200 últimos do projeto
@@ -573,7 +577,7 @@ async function orqTick(){
     if(live.phases.every(ph=>{ const t=orqTaskOf(ph); return orqPhaseState(ph).key==='done' && t && (t.flag==='closed'||['merged','done','review','delivered'].includes(t.status)); })){ live.status='done'; live.doneAt=Date.now(); changed=true; }
     if(changed){ invoke('orch_save',{ id:live.id, data:live, repo:live.repo||null }).catch(()=>{}); if(live!==p) Object.assign(p, live); lastSig=''; }
   }
-  if(orqOpen()&&orq.step==='plan'&&orq.plan&&orq.plan.status!=='planned'&&!orqDrag&&!document.activeElement.closest?.('#orqInsp input, #orqInsp textarea')) orqRender();
+  if(orqOpen()&&orq.step==='plan'&&orq.plan&&orq.plan.status!=='planned'&&!orqDrag&&Date.now()>=uiHoldUntil&&!document.activeElement.closest?.('#orqInsp input, #orqInsp textarea')) orqRender();
 }
 orqTickT=setInterval(()=>{ orqTick().catch(e=>console.error('orqTick',e)); }, 7000);
 

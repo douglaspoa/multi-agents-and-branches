@@ -15,7 +15,7 @@ function renderGraph(){
   const ORDER={running:0,thinking:0,queued:1,'plan-review':1,paused:1,error:2,conflict:2,review:3,aborted:4,merged:5};
   tasks.sort((a,b)=>(ORDER[a.status]??3)-(ORDER[b.status]??3) || b.created_at-a.created_at);
   // garante os commits de cada tarefa (lazy — re-renderiza quando chegar)
-  tasks.forEach(t=>{ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('graph')) renderGraph(); }); });
+  tasks.forEach(t=>{ if(commitsNeedLoad(t.id) && !commitsLoading[t.id]){ const before=JSON.stringify(commitsCache[t.id]||null); loadCommits(t.id).then(c=>{ if(JSON.stringify(c||null)!==before) lastSig=''; }); } });
   const railW=520;
   const rail=(t)=>{
     const cs=(commitsCache[t.id]||[]).slice().reverse(); // antigo → novo

@@ -241,7 +241,7 @@ bindClick('epicPageRefresh', ()=>{ if(epTab){ const b=$id('epicPageRefresh'); if
 document.addEventListener('keydown', e=>{
   if(e.key!=='Escape') return;
   const o=$id('epicOverlay'); const cur=tabById(activeTab);
-  if(o&&o.style.display!=='none'&&cur&&cur.kind==='epic'){ e.stopImmediatePropagation(); closeTabOfKind('epic'); }
+  if(o&&o.style.display!=='none'&&cur&&cur.kind==='epic'&&!escBusy(e)){ e.stopImmediatePropagation(); closeTabOfKind('epic'); }
 }, true);
 
 // ---- FILA DOS ÉPICOS: aparece no quadro de Tarefas + ondas seguintes começam sozinhas ----
@@ -283,9 +283,9 @@ async function epicAutoStartTick(){
       try{
         await teamClaimStart(ct, null, { silent:true });
         pushNotif('▶ Começou sozinha', ct.title+' — os pré-requisitos foram mergeados', null);
-      }catch(e){ console.warn('início automático:', ct.title, e); }
+      }catch(e){ console.error('início automático do épico:', e); }
     }
-  }catch(e){ console.warn('epicAutoStartTick:', e); }
+  }catch(e){ tickErr('epicAutoStart', e); }
   finally{ epAutoBusy=false; }
 }
 setInterval(()=>{ epicAutoStartTick(); }, 20000);

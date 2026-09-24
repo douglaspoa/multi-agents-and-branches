@@ -364,8 +364,8 @@ async function teamNotifTick(){
   teamNotifReady=true;
   if(activeIs('team')) renderTeamBoard();
 }
-setInterval(()=>{ teamNotifTick().catch(()=>{}); }, 30000);
-setTimeout(()=>{ teamNotifTick().catch(()=>{}); }, 4000);
+setInterval(()=>{ teamNotifTick().catch(e=>tickErr('teamNotifTick',e)); }, 30000);
+setTimeout(()=>{ teamNotifTick().catch(e=>tickErr('teamNotifTick',e)); }, 4000);
 
 /* ---- provas pro time: o DEV escolhe publicar (decisão Q2) ---- */
 const cloudPubCache={}; // cloudTaskId -> [{name,size}]

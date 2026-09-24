@@ -46,8 +46,8 @@ function ndRenderStart(){
   { const b=body.querySelector('#ndGo'); if(b) b.onclick=go; }
   { const b=body.querySelector('#ndImport'); if(b) b.onclick=()=>{ window.ntPresetType=ndType; if(window.openTab) window.openTab('form', { replace:true }); setTimeout(()=>{ const im=$id('ntImport'); if(im) im.click(); }, 300); }; }
 }
-$id('dailyClose').onclick=()=>{ $id('dailyOverlay').style.display='none'; };
+$id('dailyClose').onclick=()=>{ ovHide('dailyOverlay'); };
 $id('dailyDate').onchange=loadDaily;
 $id('dailyAI').onclick=dailyAISummary;
 $id('dailyDoc').onclick=dailyGenDoc;
-$id('dailyOverlay').addEventListener('click',e=>{ if(e.target.id==='dailyOverlay') $id('dailyOverlay').style.display='none'; });
+$id('dailyOverlay').addEventListener('click',e=>{ if(e.target.id==='dailyOverlay') ovHide('dailyOverlay'); });

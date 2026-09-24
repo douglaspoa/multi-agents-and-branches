@@ -112,8 +112,8 @@ async function skDoImport(){
   catch(e){ alert('Falhou importar: '+(e&&e.message||e)); }
 }
 bindClick('skillsBtn', openSkills);
-bindClick('skClose', ()=>{ $id('skOverlay').style.display='none'; });
-$id('skOverlay').addEventListener('click',e=>{ if(e.target.id==='skOverlay') $id('skOverlay').style.display='none'; });
+bindClick('skClose', ()=>{ ovHide('skOverlay'); });
+$id('skOverlay').addEventListener('click',e=>{ if(e.target.id==='skOverlay') ovHide('skOverlay'); });
 // ===== Hub de Projetos =====
 async function openProjetos(){
   const body=$id('projetosBody');
@@ -193,5 +193,5 @@ function projNewWire(ov){
     }catch(e){ projNewBusy=false; projNewMsg='Falhou: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); }
   });
 }
-bindClick('projetosClose', ()=>{ $id('projetosOverlay').style.display='none'; });
-$id('projetosOverlay').addEventListener('click',e=>{ if(e.target.id==='projetosOverlay') $id('projetosOverlay').style.display='none'; });
+bindClick('projetosClose', ()=>{ ovHide('projetosOverlay'); });
+$id('projetosOverlay').addEventListener('click',e=>{ if(e.target.id==='projetosOverlay') ovHide('projetosOverlay'); });
