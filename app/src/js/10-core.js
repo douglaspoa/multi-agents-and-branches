@@ -268,6 +268,8 @@ async function refresh(){
     .some(id=>{ const el=$id(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
+    // as telas hoje são ABAS: a barra lateral continua à mostra ao lado — mantém ela viva (só troca o que mudou)
+    if(typeof renderRail==='function') safe(renderRail);
     const fw=$id('fwOverlay');
     if(fw && fw.style.display!=='none' && fwTask){ try{ fwLiveUpdate(); }catch(_){} }
     return;
