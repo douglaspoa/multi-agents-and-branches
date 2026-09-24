@@ -6154,6 +6154,20 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let _ = mac_notification_sys::set_application("dev.constellation.app");
     web_log("[rust] app iniciou".to_string());
+    // RUNTIME PRÓPRIO COM FOLGA: o padrão do Tauri tem 1 thread por núcleo (10 aqui) e os comandos
+    // `#[tauri::command(async)]` síncronos rodam DIRETO nessas threads. Comandos que esperam algo externo
+    // (IA, OAuth, processos) ocupavam as 10 e o snapshot nem executava — sonda registrou "runtime SATURADO:
+    // tarefa não rodou em 60s" logo após os "snapshot demorou >8s" (24/09). 64 threads = sem fila.
+    {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(64)
+            .thread_name("constellation-rt")
+            .enable_all()
+            .build()
+            .expect("runtime do app");
+        tauri::async_runtime::set(rt.handle().clone());
+        std::mem::forget(rt); // vive o app inteiro
+    }
     // DIAGNÓSTICO: a cada 2s agenda uma tarefa vazia no runtime e mede quanto ela espera pra rodar.
     // Espera alta = threads do runtime todas ocupadas por comandos bloqueantes (o snapshot fica na fila).
     std::thread::spawn(|| loop {
