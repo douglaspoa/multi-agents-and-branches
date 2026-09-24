@@ -138,7 +138,13 @@ function viewOpen(kind, tab){
             form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
             skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
-            task:()=>{ if(tabTaskId!=null) fwOpenInner(tabTaskId, tabTaskPath); },
+            task:()=>{ if(tabTaskId==null) return; const path=(tab&&tab.path)||null;
+              // aba de tarefa de OUTRO projeto (você trocou de projeto depois de abrir): volta pro projeto dela antes
+              if(tab && tab.repo && state.repo && tab.repo!==state.repo && window.switchProject){
+                const tr=tab.repo, id=tab.id, tid=tabTaskId;
+                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); });
+                return; }
+              fwOpenInner(tabTaskId, path); },
             cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); },
             epic:()=>{ if(window.epicPageOpenInner) window.epicPageOpenInner(tab); } }[kind];
   if(f) f();
@@ -185,17 +191,17 @@ function closeTabOfKind(kind){ const cur=tabById(activeTab); const t=(cur&&cur.k
 window.closeTabOfKind=closeTabOfKind;
 function showActiveView(){
   const t=tabById(activeTab)||TABS[0];
-  Object.keys(VIEW_OVERLAY).forEach(k=>{ const o=$id(VIEW_OVERLAY[k]); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
+  const target=t.kind==='flow'?null:VIEW_OVERLAY[t.kind];
+  // esconde as OUTRAS telas; a do destino fica como está (esconder e mostrar a mesma = piscada)
+  Object.keys(VIEW_OVERLAY).forEach(k=>{ const id=VIEW_OVERLAY[k]; if(id===target) return; const o=$id(id); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
   if(t.kind==='flow') return; // o quadro (.body) já aparece
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
   loadTabState(t);      // devolve o estado guardado desta aba (views múltiplas)
-  viewOpen(t.kind, t);  // popula + mostra (pode setar display='flex')
-  const o=$id(VIEW_OVERLAY[t.kind]);
-  if(o){ requestAnimationFrame(()=>{
-    // mede a base da barra de abas AGORA (layout já assentado) e fixa o topo do overlay
-    syncChromeH();
-    o.classList.add('astab'); o.style.display='block';
-  }); }
+  viewOpen(t.kind, t);  // popula + mostra (os abridores setam display='flex' = layout de MODAL)
+  const o=$id(target);
+  // vira ABA no MESMO quadro: antes era num requestAnimationFrame e a tela pintava 1 quadro como
+  // modal (flex, sem .astab) a cada troca de aba — a "piscada"
+  if(o){ syncChromeH(); o.classList.add('astab'); o.style.display='block'; requestAnimationFrame(syncChromeH); }
 }
 function renderTabs(){
   const bar=$id('tabBar'); if(!bar) return;

@@ -532,11 +532,14 @@ function renderFlow(){
     }
   }
   // planos do orquestrador entram no topo em QUALQUER ordenação/agrupamento (sem busca ativa)
+  // cartões de épico no backlog do time (só nuvem): aguardando pré-requisito / prontos pra assumir
+  if(window.epBoardHtml && !flowQuery.trim()) html=window.epBoardHtml(flowScope)+html;
   if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
+  if(window.epWireBoard) window.epWireBoard(el);
   bindClick('ghostNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
   wireLinkChips(el);

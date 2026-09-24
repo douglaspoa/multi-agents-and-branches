@@ -66,8 +66,10 @@ function openWorkspace(taskId, path){
   tabTaskPath=path||null;
   const id='task:'+taskId;
   const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
-  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, title:(t.title||'Tarefa').slice(0,26)}; TABS.push(tab); }
-  else if(t.title) tab.title=t.title.slice(0,26);
+  // cada aba lembra o PRÓPRIO arquivo e o PROJETO (antes: um tabTaskPath global — a aba B abria o arquivo da A,
+  // e depois de trocar de projeto a aba velha abria uma tarefa que não existe no projeto atual)
+  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(t.title||'Tarefa').slice(0,26)}; TABS.push(tab); }
+  else { if(t.title) tab.title=t.title.slice(0,26); tab.path=path||null; if(!tab.repo) tab.repo=state.repo; }
   activateTab(id);
 }
 async function fwOpenInner(taskId, path){
@@ -80,24 +82,32 @@ async function fwOpenInner(taskId, path){
   { const sc=$id('fwStepChip'); if(sc) sc.innerHTML=''; } // popover não vaza entre tarefas
   $id('fwOverlay').style.display='flex';
   renderWorkspace(); // abre NA HORA (skeleton); os dados chegam em paralelo
-  const pFiles = invoke('task_files',{ taskId }).then(f=>{ fwFiles=f||[]; }).catch(()=>{ fwFiles=[]; });
+  const pFiles = invoke('task_files',{ taskId }).then(f=>{ if(fwTask===taskId) fwFiles=f||[]; }).catch(()=>{ if(fwTask===taskId) fwFiles=[]; });
   const pEvs = fwFetchEvents();
   await pFiles;
+  if(fwTask!==taskId) return; // trocou de tarefa/aba enquanto carregava: esta resposta já não vale
   if(fwPath && !fwFiles.some(f=>f.path===fwPath)) fwFiles.unshift({ path:fwPath, add:0, del:0, doc:true });
   if(!fwPath && fwFiles.length) fwPath=fwFiles[0].path;
   await Promise.all([fwLoadFile(), pEvs]);
+  if(fwTask!==taskId) return;
   renderWorkspace();
 }
 // busca só o que é NOVO (id > último) — payload minúsculo por tick
 async function fwFetchEvents(){
   if(!fwTask) return;
-  try{ const rows=(await invoke('task_events',{ taskId:fwTask, sinceId:fwEvLast })||[]).filter(e=>e.id>fwEvLast);
+  const tk=fwTask;
+  try{ const rows=(await invoke('task_events',{ taskId:tk, sinceId:fwEvLast })||[]).filter(e=>e.id>fwEvLast);
+    if(fwTask!==tk) return; // trocou de tarefa no meio: não mistura os eventos
     if(rows.length){ fwEvents.push(...rows); fwEvLast=rows[rows.length-1].id; } }catch(_){ }
 }
 async function fwLoadFile(){
   if(!fwPath){ fwContent=''; fwAdded=[]; renderWorkspace(); return; }
-  try{ const r=await invoke('read_file',{ taskId:fwTask, path:fwPath }); fwContent=r.content||''; fwAdded=r.addedLines||[]; }
-  catch(e){ fwContent='// não consegui abrir: '+String(e); fwAdded=[]; }
+  const tk=fwTask, pth=fwPath; // arquivo/tarefa trocados enquanto lia → descarta a resposta velha
+  let content, added;
+  try{ const r=await invoke('read_file',{ taskId:tk, path:pth }); content=r.content||''; added=r.addedLines||[]; }
+  catch(e){ content='// não consegui abrir: '+String(e); added=[]; }
+  if(fwTask!==tk || fwPath!==pth) return;
+  fwContent=content; fwAdded=added;
   fwSelA=0; fwSelB=0; renderWorkspace();
 }
 function closeWorkspace(){ const o=$id('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }

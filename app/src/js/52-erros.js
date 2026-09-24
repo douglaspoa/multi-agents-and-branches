@@ -96,6 +96,24 @@
   // ---- captura GLOBAL (além do envelope no invoke, que fica em 10-core) ----
   window.addEventListener("error", (e) => { try { logAppError("window.error", e.error || e.message, { at: (e.filename || "") + ":" + (e.lineno || 0) }); } catch (_) {} });
   window.addEventListener("unhandledrejection", (e) => { try { logAppError("unhandledrejection", e); } catch (_) {} });
+  // Erro TRATADO também é erro: render() roda em safe() e os catch fazem console.error ou
+  // alert('Falha…') — nada disso virava error/unhandledrejection, então painel quebrado, clique
+  // morto e "Falha ao criar…" nunca chegavam em app_errors. Agora chegam (mesmo anti-flood).
+  const _ce = console.error;
+  console.error = function (...a) {
+    _ce.apply(console, a);
+    try {
+      if (a[0] === "promise sem catch:") return; // já vai pelo listener de unhandledrejection
+      const err = a.find((x) => x instanceof Error) || a.find((x) => x && x.message) || a.map((x) => String(x)).join(" ");
+      const lbl = typeof a[0] === "string" ? a[0].replace(/[:\s]+$/, "").slice(0, 50) : "";
+      logAppError(lbl ? "console:" + lbl : "console.error", err, err !== a[0] && a.length > 1 ? { args: a.map((x) => String((x && x.message) || x)).join(" ").slice(0, 500) } : undefined);
+    } catch (_) {}
+  };
+  const _al = window.alert;
+  window.alert = function (m) {
+    try { if (/^\s*(⚠|✕|falh|n[ãa]o (deu|consegui|foi|d[áa])|erro)/i.test(String(m))) logAppError("alert", String(m)); } catch (_) {}
+    return _al.apply(this, arguments);
+  };
 
   // esvazia a fila ao voltar a ter rede / periodicamente
   window.addEventListener("online", () => { flush(); });

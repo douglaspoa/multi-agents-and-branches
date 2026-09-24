@@ -308,4 +308,5 @@ window.addEventListener("unhandledrejection", e=>{ console.error("promise sem ca
 initNotifs();
 refresh().then(loadProjects).catch(e=>console.error("boot:", e));
 // poll blindado: uma volta que falhe não derruba o ciclo
-setInterval(()=>{ refresh().catch(e=>console.error("refresh:", e)); }, 1000);
+let refreshBusy=false; // snapshot lento (vários agentes) + tick de 1s empilhava refresh em paralelo, cada um renderizando
+setInterval(()=>{ if(refreshBusy) return; refreshBusy=true; refresh().catch(e=>console.error("refresh:", e)).finally(()=>{ refreshBusy=false; }); }, 1000);

@@ -578,3 +578,13 @@ body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpe
 .ep-conv summary{ cursor:pointer; list-style:none; }
 .ep-conv[open] summary{ margin-bottom:10px; }
 .ep-conv .plmsg{ margin:8px 0; }
+
+/* fila dos épicos no quadro de Tarefas (46-epico-time.js: epBoardHtml) */
+.epq{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px dashed var(--border-strong); border-radius:var(--r-sm); margin-bottom:6px; cursor:pointer; background:var(--surface-2); }
+.epq:hover{ border-color:color-mix(in srgb, var(--accent) 45%, transparent); }
+.epq-dot{ width:8px; height:8px; border-radius:99px; margin-top:5px; background:var(--warn); flex:none; }
+.epq-dot.ok{ background:var(--accent); }
+.epq-body{ min-width:0; flex:1; }
+.epq-t{ font-size:13px; color:var(--text); }
+.epq-m{ display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; margin-top:3px; font-size:11px; color:var(--muted); }
+.epq-st b{ color:var(--text-2); font-weight:500; }
