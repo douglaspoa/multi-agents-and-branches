@@ -220,8 +220,8 @@ const prevEvTop={};
 const costWarned=new Set();
 async function refresh(){
   let snap;
-  try{ snap = await invoke("snapshot"); }
-  catch(e){ return; }
+  try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
+  catch(e){ if(/demorou/.test(String(e&&e.message))) console.error('refresh: snapshot', e); return; }
   detectNotifs(snap);
   const prevGraph = state.graph;
   state = snap;

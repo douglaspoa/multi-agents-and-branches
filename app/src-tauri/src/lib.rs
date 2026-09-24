@@ -700,7 +700,7 @@ fn open(path: &PathBuf) -> Result<Connection, String> {
     Ok(c)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_repo(state: State<AppState>, repo: String) -> Result<String, String> {
     let db = PathBuf::from(&repo).join(".cardume").join("state.sqlite");
     if !db.exists() {
@@ -1117,7 +1117,7 @@ fn list_projects(state: State<AppState>) -> Vec<Project> {
 
 /// Abre um projeto: valida git, inicializa o workspace Cardume se preciso,
 /// torna-o o projeto ativo e adiciona ao topo da lista.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_project(state: State<AppState>, path: String) -> Result<String, String> {
     open_project_at(&state, &path)
 }
@@ -1453,7 +1453,7 @@ fn gh_owners() -> Vec<String> {
 }
 
 /// Troca o projeto ativo para um já existente na lista.
-#[tauri::command]
+#[tauri::command(async)]
 fn switch_project(state: State<AppState>, path: String) -> Result<String, String> {
     let db = PathBuf::from(&path).join(".cardume").join("state.sqlite");
     if !db.exists() {
@@ -1470,7 +1470,7 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
 }
 
 /// Remove um projeto da lista (não apaga nada do repo em disco).
-#[tauri::command]
+#[tauri::command(async)]
 fn remove_project(path: String) -> Vec<String> {
     let mut list = read_project_list();
     list.retain(|p| p != &path);
@@ -1849,7 +1849,7 @@ fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<()
 
 /// Pede um AJUSTE (rework) sobre um commit/etapa de uma tarefa já concluída:
 /// enfileira o feedback e dispara `cardume rework <taskId>` (aplica via --resume).
-#[tauri::command]
+#[tauri::command(async)]
 fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<(), String> {
     let t = text.trim();
     if t.is_empty() {
@@ -1877,7 +1877,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
 /// worktree pro estado da base (descarta o trabalho parcial, preserva .cardume),
 /// limpa os registros (eventos/claims/review/pendências/custo/diff) e re-executa
 /// o time inteiro. Usado quando uma execução deu ruim (ex.: timeout sem implementar).
-#[tauri::command]
+#[tauri::command(async)]
 fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // 1) encerra o processo atual, se houver
@@ -1918,7 +1918,7 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// Pede um ENTREGÁVEL sob demanda numa tarefa já pronta: doc de arquitetura,
 /// testes comprovando, ou prova (prints). Roda um agente que lê o código e
 /// produz o artefato — sem reimplementar. kind: "doc" | "tests" | "proof".
-#[tauri::command]
+#[tauri::command(async)]
 fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
@@ -1941,7 +1941,7 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
 
 /// Conversa com o agente numa tarefa pronta: retoma a sessão (--resume) por um
 /// turno pra corrigir/entregar o que faltou (ex.: "teste na UI real e me dê os prints").
-#[tauri::command]
+#[tauri::command(async)]
 fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: Option<bool>, agent: Option<String>) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let m = message.trim().to_string();
@@ -2050,7 +2050,7 @@ fn merge_global_catalog(mut cfg: serde_json::Value) -> serde_json::Value {
 }
 
 /// Salva o catálogo (agentes + workflows) editado na UI em cardume.config.json.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let s = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
@@ -2327,7 +2327,7 @@ fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String>
 }
 
 /// Inicia uma tarefa em rascunho (roda a equipe). Detached, como new_task.
-#[tauri::command]
+#[tauri::command(async)]
 fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let mut cmd = Command::new(node_bin());
@@ -2347,7 +2347,7 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 
 /// Revisa um PR por link/número — SEM criar branch. Roda `review-pr` (detached,
 /// rastreado como as demais tarefas: aparece na trilha/Kanban, com pausar/abortar).
-#[tauri::command]
+#[tauri::command(async)]
 fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // id amigável: pr-<número> quando dá pra extrair; senão, slug do link.
@@ -2407,7 +2407,7 @@ fn build_info() -> String {
 /// Marca o STATUS da tarefa manualmente (ex.: PR mergeado direto no GitHub →
 /// "marcar como mergeada"; erro resolvido à mão → "voltar pra review").
 /// Whitelist de estados seguros; merged também libera claims/pendências.
-#[tauri::command]
+#[tauri::command(async)]
 fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> Result<(), String> {
     if !["review", "merged", "draft", "running", "cancelled"].contains(&status.as_str()) {
         return Err(format!("status inválido: {status}"));
@@ -2498,7 +2498,7 @@ fn task_events(state: State<AppState>, task_id: String, since_id: Option<i64>) -
 // ---------- controles por execução (pausar / retomar / abortar) ----------
 
 /// Congela a árvore de processos do agente (SIGSTOP no grupo) e marca 'paused'.
-#[tauri::command]
+#[tauri::command(async)]
 fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
     match pid {
@@ -2512,7 +2512,7 @@ fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 
 /// Retoma a árvore congelada (SIGCONT) e volta pra 'running' — o orquestrador
 /// segue e atualiza o status conforme avança nas etapas.
-#[tauri::command]
+#[tauri::command(async)]
 fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
     match pid {
@@ -2527,7 +2527,7 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// PARA o turno atual do agente (ex.: no chat, pra intervir) sem "abortar" a
 /// tarefa: mata o processo em execução e volta o status pra 'review', deixando a
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let mut pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
@@ -2573,7 +2573,7 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// Aborta a tarefa: mata a árvore de processos (SIGCONT p/ destravar + SIGTERM,
 /// e SIGKILL após um respiro), marca 'aborted' e libera os claims de arquivo
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
-#[tauri::command]
+#[tauri::command(async)]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
     if let Some(p) = pid {
@@ -2856,7 +2856,7 @@ fn orch_ok_id(id: &str) -> bool {
 }
 
 /// Salva/atualiza o plano (JSON inteiro) em .cardume/orchestrations/<id>.json
-#[tauri::command]
+#[tauri::command(async)]
 fn orch_save(state: State<AppState>, id: String, data: serde_json::Value, repo: Option<String>) -> Result<(), String> {
     if !orch_ok_id(&id) { return Err("id inválido".into()); }
     let repo = repo_or(&state, repo)?;
@@ -2899,7 +2899,7 @@ fn orch_list(state: State<AppState>) -> Vec<serde_json::Value> {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn orch_delete(state: State<AppState>, id: String, repo: Option<String>) -> Result<(), String> {
     if !orch_ok_id(&id) { return Err("id inválido".into()); }
     let repo = repo_or(&state, repo)?;
@@ -2910,7 +2910,7 @@ fn orch_delete(state: State<AppState>, id: String, repo: Option<String>) -> Resu
 
 /// Funde chaves no spec_json da tarefa (ex.: orchestration, dependsOn) e,
 /// se vier `base`, troca a branch base da worktree (fase que parte da anterior).
-#[tauri::command]
+#[tauri::command(async)]
 fn patch_task_spec(state: State<AppState>, task_id: String, patch: serde_json::Value, base: Option<String>) -> Result<(), String> {
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open(&db).map_err(|e| e.to_string())?;
@@ -3022,7 +3022,7 @@ fn chrome_bin() -> Option<String> {
 }
 
 /// Salva um documento (.md) em ~/Documents/Constellation/ e revela no Finder.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_doc(name: String, content: String) -> Result<String, String> {
     let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Documents").join("Constellation");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -3374,7 +3374,7 @@ fn chrono_iso_now() -> String {
 /// Memória do repo (.cardume) que SEGUE a conta do usuário — o JS sincroniza
 /// com user_repo_docs na nuvem (mais novo vence, dos dois lados).
 const REPO_DOCS: [&str; 5] = ["RUNBOOK.md", "HISTORY.md", "SPEC.md", "PREFS.md", "policy.json"];
-#[tauri::command]
+#[tauri::command(async)]
 fn repo_docs(state: State<AppState>) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;
     let name = PathBuf::from(&repo).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -3390,7 +3390,7 @@ fn repo_docs(state: State<AppState>) -> Result<serde_json::Value, String> {
     }
     Ok(serde_json::json!({ "repo": name, "path": repo, "docs": docs }))
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn repo_doc_write(state: State<AppState>, doc: String, content: String) -> Result<(), String> {
     if !REPO_DOCS.contains(&doc.as_str()) { return Err("doc desconhecido".into()); }
     let repo = repo_of(&state)?;
@@ -3497,11 +3497,11 @@ fn slack_send_artifact(state: State<AppState>, task_id: String, name: String, ch
 fn llm_env_path() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("llm.env")
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn read_llm_env() -> Result<String, String> {
     Ok(std::fs::read_to_string(llm_env_path()).unwrap_or_default())
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn write_llm_env(content: String) -> Result<(), String> {
     let p = llm_env_path();
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -3609,7 +3609,7 @@ fn issue_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
 
 /// Config de "criar issue ao abrir demanda" deste repo (espelho local do que o
 /// time compartilha na nuvem). O motor lê esse arquivo em Orchestrator.issueContext.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_issue_config(state: State<AppState>) -> Result<serde_json::Value, String> {
     let p = issue_json_path(&state)?;
     let txt = std::fs::read_to_string(&p)
@@ -3618,7 +3618,7 @@ fn get_issue_config(state: State<AppState>) -> Result<serde_json::Value, String>
 }
 
 /// Grava a config de issue do repo (o app mantém isto sincronizado com a nuvem).
-#[tauri::command]
+#[tauri::command(async)]
 fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
     let p = issue_json_path(&state)?;
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -3633,13 +3633,13 @@ fn constellation_home() -> PathBuf {
 
 /// Cache local do painel de issues do time (a nuvem — issue_trackers — é a fonte;
 /// sem nuvem, vale só nesta máquina). Nunca contém o VALOR de chaves.
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_local_get() -> Result<serde_json::Value, String> {
     let txt = std::fs::read_to_string(constellation_home().join("issue-tracker.json")).unwrap_or_else(|_| "null".into());
     Ok(serde_json::from_str(&txt).unwrap_or(serde_json::Value::Null))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_local_set(config: serde_json::Value) -> Result<(), String> {
     let d = constellation_home();
     std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
@@ -3658,7 +3658,7 @@ fn url_host(url: &str) -> Option<String> {
 /// Vincula uma chave do cofre a UM host. O conector é compartilhado pelo time —
 /// sem este vínculo LOCAL, um conector adulterado poderia mandar a chave de
 /// alguém pra outro servidor. Só o humano desta máquina cria o vínculo (no painel).
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_bind_secret(name: String, host: String) -> Result<(), String> {
     let p = tracker_binds_path();
     let mut m: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&p).ok()
@@ -3669,7 +3669,7 @@ fn tracker_bind_secret(name: String, host: String) -> Result<(), String> {
 }
 
 /// Quais chaves (só NOMES) existem no cofre local e a que host cada uma está vinculada.
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_secret_status(names: Vec<String>) -> serde_json::Value {
     let binds: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(tracker_binds_path()).ok()
         .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
@@ -3846,7 +3846,7 @@ Regras: (1) NUNCA escreva o valor real de uma chave, mesmo que apareça na doc �
 
 /// Lista as skills disponíveis (pessoais em ~/.claude/skills + do projeto em
 /// <repo>/.claude/skills), marcando quais estão ATIVAS pra este repo.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut items: Vec<(String, String, String)> = Vec::new();
@@ -3872,7 +3872,7 @@ fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
 }
 
 /// Skills ATIVAS pra este repo (array de {name, description}).
-#[tauri::command]
+#[tauri::command(async)]
 fn get_active_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
     let p = skills_json_path(&state)?;
     let txt = std::fs::read_to_string(&p).unwrap_or_else(|_| "[]".into());
@@ -3880,7 +3880,7 @@ fn get_active_skills(state: State<AppState>) -> Result<serde_json::Value, String
 }
 
 /// Grava as skills ativas do repo (o motor injeta no contexto do agente).
-#[tauri::command]
+#[tauri::command(async)]
 fn set_active_skills(state: State<AppState>, skills: serde_json::Value) -> Result<(), String> {
     let p = skills_json_path(&state)?;
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -3915,7 +3915,7 @@ fn skills_root() -> PathBuf {
 }
 
 /// Cria uma skill nova na biblioteca pessoal (~/.claude/skills/<nome>/SKILL.md).
-#[tauri::command]
+#[tauri::command(async)]
 fn create_skill(name: String, description: String, body: String) -> Result<String, String> {
     let n = name.trim().to_lowercase().replace(' ', "-");
     if !skill_name_ok(&n) { return Err("nome inválido — use letras, números e hífen".into()); }
@@ -3928,7 +3928,7 @@ fn create_skill(name: String, description: String, body: String) -> Result<Strin
 }
 
 /// Importa uma skill colando o conteúdo do SKILL.md (o nome sai do frontmatter).
-#[tauri::command]
+#[tauri::command(async)]
 fn import_skill_md(content: String) -> Result<String, String> {
     let tmp = std::env::temp_dir().join("cardume-import-skill.md");
     std::fs::write(&tmp, &content).map_err(|e| e.to_string())?;
@@ -4003,11 +4003,11 @@ fn setting_get(key: &str) -> Option<String> {
         other => Some(other.to_string()),
     }
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn read_settings() -> Result<String, String> {
     Ok(std::fs::read_to_string(settings_path()).unwrap_or_else(|_| "{}".into()))
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn write_setting(key: String, value: String) -> Result<(), String> {
     let p = settings_path();
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -4612,7 +4612,7 @@ fn ai_file_why(state: State<AppState>, task_id: String, path: String) -> Result<
 }
 
 /// Apaga a explicação em cache de um arquivo (botão ↻ "gerar de novo").
-#[tauri::command]
+#[tauri::command(async)]
 fn ai_file_why_reset(state: State<AppState>, task_id: String, path: String) -> Result<(), String> {
     use std::hash::{Hash, Hasher};
     safe_rel(&path)?;
@@ -4626,7 +4626,7 @@ fn ai_file_why_reset(state: State<AppState>, task_id: String, path: String) -> R
 }
 
 /// Renomeia a branch de uma tarefa existente (git branch -m) + atualiza o DB.
-#[tauri::command]
+#[tauri::command(async)]
 fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
     let clean: String = name.trim().replace(' ', "-").chars().filter(|c| c.is_ascii_alphanumeric() || "/_.-".contains(*c)).collect();
     if clean.is_empty() || clean.contains("..") || clean.starts_with('/') || clean.ends_with('/') {
@@ -4883,7 +4883,7 @@ fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
 }
 
 /// Revela o artefato no gerenciador de arquivos (Finder no macOS), selecionando-o.
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal_artifact(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
     let path = artifact_path(&state, &task_id, &name)?;
     if cfg!(target_os = "macos") {
@@ -4983,7 +4983,7 @@ fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
 
 /// URL pra criar o PR no NAVEGADOR (a branch já foi empurrada). Fallback quando o
 /// `gh` do dev não enxerga o repo (sem convite/SSO) mas o navegador dele SIM.
-#[tauri::command]
+#[tauri::command(async)]
 fn pr_compare_url(state: State<AppState>, task_id: String, base: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let out = Command::new("git").arg("-C").arg(&repo)
@@ -5692,7 +5692,7 @@ fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), Strin
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let out = Command::new(node_bin())
@@ -5867,7 +5867,7 @@ fn import_attachment(state: State<AppState>, path: String, task_id: Option<Strin
 /// Grava um arquivo de REFERÊNCIA gerado pelo app (ex.: EPIC.md compilado) com o nome exato, numa pasta
 /// própria em .cardume/tmp/refs/ (ignorada pelo git), e devolve o caminho absoluto pra ir em `refs` do new_task.
 /// Diferente dos anexos, o nome não é slugificado — o prompt cita ".cardume/refs/EPIC.md" literalmente.
-#[tauri::command]
+#[tauri::command(async)]
 fn write_ref_file(state: State<AppState>, name: String, text: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let safe: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')).collect();
@@ -5972,7 +5972,7 @@ async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     Command::new(node_bin())
@@ -5992,7 +5992,7 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 
 /// Espelha o console do webview em /tmp/constellation-web.log — sem isso,
 /// erro de JS nos ticks é invisível e vira caça às cegas.
-#[tauri::command]
+#[tauri::command(async)]
 fn web_log(line: String) {
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/constellation-web.log") {
@@ -6130,7 +6130,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
 }
 
 /// Derruba o túnel da tarefa (se houver).
-#[tauri::command]
+#[tauri::command(async)]
 fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
     if let Ok(mut m) = state.procs.lock() {
         if let Some(pid) = m.remove(&format!("tunnel:{task_id}")) {

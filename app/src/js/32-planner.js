@@ -326,6 +326,7 @@ async function plSend(text){
     const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts) + (window.trfPromptBlock ? await trfPromptBlock(text) : '');
     r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
   }catch(e){ err=e; }
+  if(!err && !r) err=new Error('a IA não respondeu'); // resposta vazia não pode travar o planner (plBusy preso = "mando e não vai")
   await plInTab(myTab, async(here)=>{
     if(err){ const e=err; plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim();
       if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; plMsgs.pop(); plMsgs.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'}); if(here){ const i=$id('plInput'); if(i&&!i.value) i.value=text; } renderPlanner(); plAutoSave(true); return; }
@@ -354,7 +355,7 @@ async function plSend(text){
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }
     renderPlanner(); plAutoSave();
-  });
+  }).catch(e=>{ console.error('planner: aplicar resposta', e); plBusy=false; plMsgs.push({who:'sys', text:'⚠ algo falhou ao mostrar a resposta — envie de novo.'}); renderPlanner(); });
 }
 async function plCreate(){
   if(!plReady()) return;
