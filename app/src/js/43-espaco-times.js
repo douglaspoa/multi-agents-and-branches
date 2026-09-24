@@ -243,9 +243,9 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
   }catch(e){ if(opts.silent) throw e; alert('Não deu pra assumir & iniciar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.textContent='assumir & iniciar'; } }
 }
 async function teamDeleteCard(ct){
-  if(!await askYes('Remover "'+ct.title+'" do backlog do time?')) return;
-  try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'DELETE' }); teamTasks=null; renderTeamBoard(); }
-  catch(e){ alert('Falhou: '+e.message); }
+  if(!await askYes('Remover "'+ct.title+'" do backlog do time?')) return false;
+  try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'DELETE' }); teamTasks=null; renderTeamBoard(); return true; }
+  catch(e){ alert('Falhou: '+e.message); return false; }
 }
 
 // ---- detalhe/edição do cartão ----

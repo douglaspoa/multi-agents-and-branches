@@ -251,23 +251,26 @@ document.addEventListener('keydown', e=>{
 // estão TODOS mergeados — só na máquina de quem CRIOU o cartão (claim_task ainda protege de corrida).
 const EP_AUTO_READY=new Set(['merged','done']);
 let epAutoBusy=false; const epAutoWarned=new Set();
-let epQueue={ rows:[], stOf:{}, titleOf:{}, epicOf:{}, projOf:{}, here:'', at:0 };
-function epDepsLeft(ct){ const q=epQueue; return ((ct.spec||{}).after||[]).filter(a=>(a in q.stOf) && !EP_AUTO_READY.has(q.stOf[a])); }
+let epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, here:'', at:0 };
+// pronta = mergeada/concluída OU FINALIZADA (flag closed): finalizar é o "terminei" do usuário — antes só merged/done
+// contava e a onda seguinte nunca começava depois de você finalizar a anterior (24/09)
+function epDepDone(a){ const q=epQueue; return EP_AUTO_READY.has(q.stOf[a]) || q.flagOf[a]==='closed'; }
+function epDepsLeft(ct){ const q=epQueue; return ((ct.spec||{}).after||[]).filter(a=>(a in q.stOf) && !epDepDone(a)); }
 async function epicAutoStartTick(){
   if(epAutoBusy || !SB.sess() || !cloudTeamId()) return;
   epAutoBusy=true;
   try{
     const rows=await sbGet('tasks?select=*&team_id=eq.'+cloudTeamId()+'&status=eq.backlog&epic_id=not.is.null&order=created_at.asc')||[];
     const dep=[...new Set(rows.flatMap(t=>Array.isArray((t.spec||{}).after)?t.spec.after:[]))];
-    const deps=dep.length?(await sbGet('tasks?select=id,title,status&id=in.('+dep.join(',')+')')||[]):[];
+    const deps=dep.length?(await sbGet('tasks?select=id,title,status,flag&id=in.('+dep.join(',')+')')||[]):[];
     const eids=[...new Set(rows.map(t=>t.epic_id))], pids=[...new Set(rows.map(t=>t.project_id).filter(Boolean))];
     const eps=eids.length?(await sbGet('epics?select=id,name&id=in.('+eids.join(',')+')')||[]):[];
     const projs=pids.length?(await sbGet('projects?select=id,name,repo_remote&id=in.('+pids.join(',')+')')||[]):[];
     let here=''; try{ here=await invoke('repo_remote'); }catch(_){ }
-    const sig=JSON.stringify([rows.map(r=>r.id+(r.spec&&r.spec.autoStart?'a':'')), deps.map(d=>d.id+d.status), here]);
+    const sig=JSON.stringify([rows.map(r=>r.id+(r.spec&&r.spec.autoStart?'a':'')), deps.map(d=>d.id+d.status+(d.flag||'')), here]);
     const changed=sig!==epQueue.sig;
     epQueue={ rows, here, sig, at:Date.now(),
-      stOf:Object.fromEntries(deps.map(d=>[d.id,d.status])), titleOf:Object.fromEntries(deps.map(d=>[d.id,d.title])),
+      stOf:Object.fromEntries(deps.map(d=>[d.id,d.status])), flagOf:Object.fromEntries(deps.map(d=>[d.id,d.flag||null])), titleOf:Object.fromEntries(deps.map(d=>[d.id,d.title])),
       epicOf:Object.fromEntries(eps.map(e=>[e.id,e.name])), projOf:Object.fromEntries(projs.map(p=>[p.id,p])) };
     if(changed) lastSig=''; // o refresh (com a trava de clique) redesenha — nunca renderFlow direto daqui
     // pré-requisito apagado do backlog não trava a fila; cancelado/abortado trava (alguém decide)
@@ -282,7 +285,7 @@ async function epicAutoStartTick(){
       if(live>=slotMax) break; // respeita o limite de execuções; tenta de novo no próximo tick
       try{
         await teamClaimStart(ct, null, { silent:true });
-        pushNotif('▶ Começou sozinha', ct.title+' — os pré-requisitos foram mergeados', null);
+        pushNotif('▶ Começou sozinha', ct.title+' — os pré-requisitos foram finalizados', null);
       }catch(e){ console.error('início automático do épico:', e); }
     }
   }catch(e){ tickErr('epicAutoStart', e); }
@@ -299,13 +302,39 @@ function epBoardHtml(scope){
   const rows=list.map(ct=>{
     const left=epDepsLeft(ct), auto=ctWaiting(ct), pj=q.projOf[ct.project_id]||{};
     const st=left.length
-      ? `⏳ aguarda ${left.map(a=>`<b>${esc(String(q.titleOf[a]||'tarefa').slice(0,40))}</b> (${esc((typeof CT_ST_PT!=='undefined'&&CT_ST_PT[q.stOf[a]])||q.stOf[a])})`).join(', ')}${auto?' · começa sozinha ao mergear':''}`
-      : (auto?'▶ pré-requisitos mergeados — começando…':'pronta pra assumir');
-    return `<div class="epq" data-epq="${escA(ct.id)}"><span class="epq-dot${left.length?'':' ok'}"></span><div class="epq-body"><div class="epq-t">${esc(ct.title)}</div><div class="epq-m"><span class="tsepc">◆ ${esc(q.epicOf[ct.epic_id]||'épico')}</span>${all&&pj.name?`<span class="mono">${esc(pj.name)}</span>`:''}<span>onda ${esc(String((ct.spec||{}).wave||1))}</span><span class="epq-st">${st}</span></div></div></div>`;
+      ? `⏳ aguarda ${left.map(a=>`<b>${esc(String(q.titleOf[a]||'tarefa').slice(0,40))}</b> (${esc(q.flagOf[a]==='closed'?'finalizada':((typeof CT_ST_PT!=='undefined'&&CT_ST_PT[q.stOf[a]])||q.stOf[a]))})`).join(', ')}${auto?' · começa sozinha quando elas forem finalizadas ou mergeadas':''}`
+      : (auto?'▶ pré-requisitos prontos — começando…':'pronta pra assumir');
+    return `<div class="epq" data-epq="${escA(ct.id)}"><span class="epq-dot${left.length?'':' ok'}"></span><div class="epq-body"><div class="epq-t">${esc(ct.title)}</div><div class="epq-m"><span class="tsepc">◆ ${esc(q.epicOf[ct.epic_id]||'épico')}</span>${all&&pj.name?`<span class="mono">${esc(pj.name)}</span>`:''}<span>onda ${esc(String((ct.spec||{}).wave||1))}</span><span class="epq-st">${st}</span></div></div><div class="epq-acts"><button class="btn sm primary" data-epqgo="${escA(ct.id)}" title="assumir e iniciar agora nesta máquina">▶ iniciar</button><button class="btn sm" data-epqx="${escA(ct.id)}" title="remover do backlog do time">✕</button></div></div>`;
   }).join('');
   return `<div class="secgrp epqgrp"><div class="sech">◆ Na fila dos épicos <span class="n">${list.length}</span></div>${rows}</div>`;
 }
-function epWireBoard(root){ (root||document).querySelectorAll('[data-epq]').forEach(r=>{ r.onclick=(e)=>{ e.stopPropagation(); const ct=epQueue.rows.find(x=>x.id===r.dataset.epq); if(ct&&window.openCloudTaskPage) openCloudTaskPage(ct); }; }); }
+function epWireBoard(root){
+  const R=root||document;
+  R.querySelectorAll('[data-epq]').forEach(r=>{ r.onclick=(e)=>{ if(e.target.closest('[data-epqgo],[data-epqx]')) return; e.stopPropagation(); const ct=epQueue.rows.find(x=>x.id===r.dataset.epq); if(ct&&window.openCloudTaskPage) openCloudTaskPage(ct); }; });
+  R.querySelectorAll('[data-epqgo]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const ct=epQueue.rows.find(x=>x.id===b.dataset.epqgo); if(ct) epCardStart(ct, b); });
+  R.querySelectorAll('[data-epqx]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const ct=epQueue.rows.find(x=>x.id===b.dataset.epqx); if(ct) epCardCancel(ct); });
+}
+// ▶ iniciar um cartão do épico NA MÃO (fila do quadro / página do cartão): confere o projeto aberto e avisa se
+// ainda há pré-requisito pendente — antes só dava pela aba Time, e pelo épico não havia como
+async function epCardStart(ct, btn){
+  try{
+    const pj=(typeof teamProj!=='undefined'&&teamProj&&teamProj[ct.project_id])||(ct.project_id?((await sbGet('projects?select=name,repo_remote&id=eq.'+ct.project_id))[0]||{}):{});
+    let here=''; try{ here=await invoke('repo_remote'); }catch(_){ }
+    if(pj.repo_remote && here && pj.repo_remote!==here){ alert('Esta tarefa é do projeto '+(pj.name||pj.repo_remote)+'. Abra esse projeto e clique em iniciar de novo.'); return; }
+    const left=((ct.spec||{}).after||[]).filter(a=>(a in epQueue.stOf) && !epDepDone(a));
+    if(left.length && !await askYes('Ainda depende de: '+left.map(a=>epQueue.titleOf[a]||a).join(', ')+' (não finalizada).\n\nIniciar mesmo assim?')) return;
+    await teamClaimStart(ct, btn||null);
+    epicAutoStartTick();
+  }catch(e){ alert('Não deu pra iniciar:\n'+(e.message||e)); }
+}
+// ✕ cancelar = tirar do backlog do time (as que dependiam dela deixam de esperar por ela)
+async function epCardCancel(ct){
+  if(typeof teamDeleteCard!=='function') return;
+  if(!await teamDeleteCard(ct)) return; // pergunta antes (askYes); desistiu/falhou = nada muda
+  if(window.closeTabOfKind && typeof ctpTask!=='undefined' && ctpTask && ctpTask.id===ct.id) closeTabOfKind('cttask');
+  lastSig=''; epicAutoStartTick();
+}
+window.epCardStart=epCardStart; window.epCardCancel=epCardCancel;
 window.epBoardHtml=epBoardHtml; window.epWireBoard=epWireBoard;
 // épico já criado (antes disto existir): liga o início automático nas tarefas com pré-requisito
 async function epicAutoOn(ep){

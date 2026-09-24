@@ -84,7 +84,7 @@ function ctPageRender(){
         <span class="ndeyebrow">tarefa do time · ${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''}</span>
         <h2 class="en-h1">${esc(ct.title)}</h2>
         ${sp.objective?`<p class="en-obj">${esc(sp.objective)}</p>`:''}
-        <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button>`:''}</div>
+        <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${ct.status==='backlog'?`<button class="btn sm primary" id="ctpStart" title="assumir e iniciar agora nesta máquina">▶ iniciar</button>`:''}${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
       </div>
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(ct.pr_url)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
@@ -105,6 +105,8 @@ function ctPageRender(){
   main.querySelectorAll('[data-cart]').forEach(b=>b.onclick=()=>openCloudArtifact(b.dataset.cart, b.dataset.cname));
   main.querySelectorAll('[data-cdl]').forEach(b=>b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.cdl)); }catch(e){ alert('Falha ao abrir: '+(e.message||e)); } });
   bindClick('ctpEdit', ()=>openCloudTask(ct));
+  bindClick('ctpStart', ()=>{ if(window.epCardStart) epCardStart(ct, $id('ctpStart')); else teamClaimStart(ct, $id('ctpStart')); });
+  bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
   { const h=$id('ctPageName'); if(h) h.textContent=ct.title; const s=$id('ctPageSub'); if(s) s.textContent=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||''; }
 }
 // Abre um artefato PUBLICADO (Storage) no mesmo visualizador dos artefatos locais.
