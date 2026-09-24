@@ -588,3 +588,5 @@ body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpe
 .epq-t{ font-size:13px; color:var(--text); }
 .epq-m{ display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; margin-top:3px; font-size:11px; color:var(--muted); }
 .epq-st b{ color:var(--text-2); font-weight:500; }
+.epq-acts{ display:flex; gap:6px; align-items:center; flex:none; }
+.epq-acts .btn{ padding:3px 9px; font-size:10.5px; }
