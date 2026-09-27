@@ -41,18 +41,9 @@ body{
 .conn .d{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .conn.live .d{background:var(--good);animation:pulse 1.6s infinite}
 @keyframes pulse{50%{opacity:.35}}
-.pubspin{width:15px;height:15px;border-radius:99px;border:2px solid var(--border-strong);border-top-color:var(--accent);animation:pubrot .8s linear infinite;flex:none}
+.pubspin{width:15px;height:15px;border-radius:var(--r-pill);border:2px solid var(--border-strong);border-top-color:var(--accent);animation:pubrot .8s linear infinite;flex:none}
 @keyframes pubrot{to{transform:rotate(360deg)}}
 
-/* switcher de projetos */
-.projsw{position:relative}
-.projbtn{display:inline-flex;align-items:center;gap:8px;max-width:280px}
-.projbtn b{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.projbtn .pdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
-.projbtn .pdot.live{background:var(--good);animation:pulse 1.6s infinite}
-.projbtn .chev{width:9px;height:7px;color:var(--muted);flex:none}
-.projmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:50;min-width:300px;max-width:420px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-sm);box-shadow:var(--shadow,0 12px 32px rgba(0,0,0,.28));padding:5px;max-height:60vh;overflow:auto}
-.projmenu .phead{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:6px 9px 4px}
 .prow{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:7px 9px;border-radius:var(--r-xs);cursor:pointer}
 .prow:hover{background:var(--surface-2)}
 .prow .pd{width:8px;height:8px;border-radius:50%;background:var(--border-strong)}
@@ -64,7 +55,6 @@ body{
 .prow .px{opacity:0;color:var(--muted);border:none;background:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:5px}
 .prow:hover .px{opacity:.7}
 .prow .px:hover{opacity:1;background:var(--surface-3);color:var(--crit)}
-.projmenu .psep{height:1px;background:var(--border);margin:5px 4px}
 .projadd{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:var(--r-xs);cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent)}
 .projadd svg{width:15px;height:15px;flex:none}
 .projadd:hover{background:var(--surface-2)}
@@ -74,10 +64,6 @@ body{
 
 /* barra de perguntas do agente */
 .askbar{background:color-mix(in srgb, var(--warn) 20%, var(--surface));border-bottom:1px solid var(--warn);padding:9px 14px;display:flex;flex-direction:column;gap:8px;flex:none}
-.askrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.askrow .q{font-size:12.5px;color:var(--text)}
-.askrow .q b{color:var(--warn)}
-.askrow .ac{margin-left:auto;display:flex;gap:6px;align-items:center}
 .askinput{background:var(--surface);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:5px 9px;min-width:220px}
 .askinput:focus{outline:2px solid var(--warn);outline-offset:-1px}
 .askopt,.asksend{border:1px solid var(--warn);background:var(--surface);color:var(--text);font:inherit;font-weight:600;font-size:12px;padding:5px 11px;cursor:pointer}
@@ -126,14 +112,12 @@ body{
 .cact .ct{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* chip de estado final + etapas (sem check gigante) */
 .fwnow svg{width:13px;height:13px;flex:none}
-.fwdone{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:99px;text-transform:uppercase;letter-spacing:.04em}
+.fwdone{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:var(--r-pill);text-transform:uppercase;letter-spacing:.04em}
 .fwdone svg{width:12px;height:12px}
 /* expandir o chat */
 .fwexp{margin-left:auto;width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-3);color:var(--muted);border-radius:7px;cursor:pointer;font-size:13px}
 .fwexp:hover{color:var(--text);border-color:var(--border-strong)}
 /* chat expandido: BEM grande, mas arquivos e código continuam visíveis/clicáveis */
-.fwcols.chatwide{grid-template-columns:210px minmax(250px,.55fr) minmax(520px,1.1fr)}
-@media(max-width:1100px){ .fwcols.chatwide{grid-template-columns:180px minmax(220px,.5fr) minmax(440px,1fr)} }
 .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border);position:relative}
 .cbub.asknow{border-color:color-mix(in srgb,var(--warn) 50%,var(--border));background:color-mix(in srgb,var(--warn) 8%,var(--surface))}
 .asknote{font-size:10.5px;color:var(--warn);margin-top:7px;font-family:var(--mono)}
@@ -144,14 +128,6 @@ body{
 .atit .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .atit .atk{font-size:9.5px;color:var(--muted);font-family:var(--mono)}
 .chatinput textarea{flex:1;resize:none;min-height:42px;line-height:1.45}
-/* modal de resposta ao agente */
-.askmodal{width:min(680px,100%)}
-.askq{font-size:14px;line-height:1.62;color:var(--text);white-space:pre-wrap;max-height:46vh;overflow:auto;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:13px 15px}
-.askoptlbl{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 7px}
-.askoptgrid{display:flex;flex-direction:column;gap:6px}
-.askoptbtn{text-align:left;border:1px solid var(--border);background:var(--surface-2);color:var(--text);border-radius:8px;padding:9px 12px;font:inherit;font-size:12.5px;line-height:1.5;cursor:pointer}
-.askoptbtn:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface-2))}
-.askta{min-height:88px;line-height:1.5}
 .clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .ntmode{display:flex;gap:6px;background:var(--surface-2);border:1px solid var(--border);padding:4px;border-radius:8px;margin-bottom:4px}
 .ntmodebtn{flex:1;border:1px solid transparent;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;padding:7px 10px;border-radius:6px;cursor:pointer}
@@ -183,11 +159,6 @@ body{
 .mergedtag{display:inline-block;margin-top:12px;font-size:11px;font-weight:700;color:var(--good);border:1px solid var(--good);padding:3px 9px}
 .top .grow{flex:1}
 .repoinput{width:210px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:6px 9px}
-/* busca central do topo (redesign p2) */
-.topsearchwrap{display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;min-width:230px}
-.topsearchwrap:focus-within{border-color:var(--accent)}
-.topsearch{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:12px}
-@media (max-width:1180px){ .topsearchwrap{min-width:150px} }
 /* menu "mais" do topo — os botões secundários viram linhas de menu */
 .moremenu{position:absolute;top:calc(100% + 6px);right:0;z-index:70;min-width:230px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:6px;display:flex;flex-direction:column;gap:2px}
 .moremenu .btn{width:100%;justify-content:flex-start;border:0;background:transparent;padding:8px 10px}
@@ -222,3 +193,22 @@ body{
 .foundh{font-size:11.5px;color:var(--accent);font-weight:600;margin-bottom:7px}
 .foundit{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0;cursor:pointer}
 .foundit b{font-family:var(--mono)}
+
+/* ===== tokens de status (fonte única — ver STATUS_META em js/00-util.js) ===== */
+:root{
+  --st-run:var(--good); --st-ask:#c79bff; --st-review:var(--warn); --st-done:var(--info); --st-err:var(--crit);
+  --text-3:rgba(233,237,239,.52); --r-pill:999px; --card-bg:#101312;
+  --display:'Instrument Sans',var(--ui); --code:'JetBrains Mono',var(--mono);
+  /* aliases de nomes que o código já usava sem existir */
+  --ok:var(--good); --err:var(--crit); --bad:var(--crit); --text-dim:var(--muted); --dim:var(--muted); --dim2:var(--text-3);
+}
+.stbadge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--stc);background:color-mix(in srgb,var(--stc) 13%,transparent);border:1px solid color-mix(in srgb,var(--stc) 32%,transparent);border-radius:var(--r-pill);padding:1px 8px 1px 7px;white-space:nowrap;line-height:1.6}
+.stbadge i{font-style:normal;font-size:10px}
+/* toast global */
+.apptoast{position:fixed;right:20px;bottom:44px;z-index:9999;max-width:440px;background:var(--surface-3);border:1px solid var(--border-strong);border-left:3px solid var(--info);border-radius:10px;padding:11px 14px;font-size:12.5px;color:var(--text);box-shadow:var(--shadow);display:none}
+.apptoast.ok{border-left-color:var(--good)} .apptoast.warn{border-left-color:var(--warn)} .apptoast.err{border-left-color:var(--crit)}
+/* estados que faltavam: desabilitado parece desabilitado; foco por teclado visível */
+.btn:disabled,.btn[disabled],.iconbtn:disabled,.as-btn:disabled,.au-btn:disabled{opacity:.45;cursor:not-allowed;filter:none;box-shadow:none}
+:where(button,.btn,.iconbtn,[role=tab],[tabindex]):focus-visible{outline:none;box-shadow:var(--ring)}
+/* arrastar arquivo pra qualquer caixa de chat mostra onde vai soltar */
+.dropping{outline:2px dashed color-mix(in srgb,var(--accent) 60%,transparent)!important;outline-offset:2px;background:color-mix(in srgb,var(--accent) 6%,transparent)!important}

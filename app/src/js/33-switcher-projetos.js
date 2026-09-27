@@ -23,7 +23,7 @@ function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos 
   const rows = projects.length ? projects.map(p=>`<div class="prow${p.active?' on':''}" data-path="${escA(p.path)}">
       <span class="pd"></span>
       <div class="pn"><div class="pnm">${esc(p.name)}</div><div class="pp">${esc(p.path)}</div></div>
-      <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">✕</button>
+      <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">${IC.x}</button>
     </div>`).join("") : '<div class="projerr" style="color:var(--muted)">nenhum projeto ainda</div>';
   m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr">${esc(projErr)}</div>`:""}<div class="psep"></div>`+
     `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`+
@@ -72,7 +72,7 @@ function pubSetState(s){ // 'form' | 'prog' | done html
 function closePub(){ $id('pubOverlay').style.display='none'; }
 { const b=$id('pubRelBtn');
   if(b) b.onclick=()=>{
-    if(!SB.sess()){ alert('Entre na sua conta primeiro (botão do topo).'); return; }
+    if(!SB.sess()){ toast('Entre na sua conta primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     pubSetState('form');
     $id('pubOverlay').style.display='flex';
     $id('pubNotes').focus();
@@ -112,9 +112,8 @@ $id('ntOverlay').addEventListener('input', ntGate);
 $id("ntDraft").onclick = ()=>submitNewTask(false);
 document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMode(b.dataset.mode));
 $id("ntAI").onclick = openPlanner;
-$id("aiSend").onclick = sendAiMsg;
-$id("aiInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendAiMsg(); });
 $id("emAbrir").onclick = pickFolder;
+bindClick("emNovo", ()=>openNewProject());
 $id("ntImport").onclick = importTaskMd;
 $id("ntRefAdd").onclick = pickRefs;
 $id("ntDzRefAdd").onclick = ()=>pickRefsInto(ntDzRefs, renderDzRefs);
@@ -196,11 +195,14 @@ function agEditor(i){
     <datalist id="catList">${allCats().map(c=>`<option value="${escA(c)}"></option>`).join("")}</datalist>
   </div>`;
 }
+// papel do agente em PT (o id técnico em inglês fica no tooltip)
+const AG_ROLE_PT={ planner:'Planejador', builder:'Construtor', reviewer:'Revisor', docs:'Documentador', tester:'Testador', investigator:'Investigador', designer:'Designer', coder:'Construtor' };
+function roleLabel(r){ const k=String(r||'').toLowerCase(); return AG_ROLE_PT[k]||r||''; }
 function renderAg(){
   const el=$id("agList");
   const tiles = cfgEdit.agents.map((a,i)=>`<button class="agtile${i===agOpen?' sel':''}" data-open="${i}" data-agtile="${i}" draggable="true" title="arraste pra dentro de uma equipe →">
     <span class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</span>
-    <span class="tn">${esc(a.name||'—')}</span><span class="tc">${esc(a.role||'')}</span>
+    <span class="tn">${esc(a.name||'—')}</span><span class="tc" title="${escA(a.role||'')}">${esc(roleLabel(a.role))}</span>
   </button>`).join("");
   const add = `<button class="agtile new" data-add><span class="plus">+</span><span class="tc">novo agente</span></button>`;
   el.innerHTML = `<div class="aggrid">${tiles}${add}</div>${agOpen>=0&&cfgEdit.agents[agOpen]?agEditor(agOpen):''}`;
@@ -236,7 +238,7 @@ function renderWf(){
   const el=$id("wfList");
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
   el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow" data-drop="${i}">
-    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:10px">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
+    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome da equipe (ex.: planejar → construir → revisar)"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:10px">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
     <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente do grid pra cá →</span>'}</div>
   </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
@@ -245,7 +247,7 @@ function renderWf(){
   el.querySelectorAll("[data-wshare]").forEach(b=>b.onclick=async()=>{
     const w=cfgEdit.workflows[+b.dataset.wshare]; if(!w) return;
     const orgId=cloudData&&cloudData.org&&cloudData.org.id;
-    if(!SB.sess()||!orgId){ alert('Entre na sua conta e numa organização primeiro (botão do topo).'); return; }
+    if(!SB.sess()||!orgId){ toast('Entre na sua conta e numa organização primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     b.disabled=true; const o=b.textContent; b.textContent='publicando…';
     try{
       if(!w.id) w.id=agSlug(w.name);
@@ -295,7 +297,7 @@ async function saveConfig(){
   cfgEdit.agents.forEach(a=>{ if(!a.id) a.id=uniqueId(agSlug(a.name)); });
   cfgEdit.workflows.forEach(w=>{ if(!w.id) w.id=agSlug(w.name); if(!w.steps) w.steps=[]; });
   const btn=$id("agSave"); btn.disabled=true; btn.textContent="salvando…";
-  try{ await invoke("save_config",{config:cfgEdit}); closeAgents(); }
+  try{ await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); lastSig=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
   catch(e){ alert("Falha ao salvar catálogo:\n"+e); }
   finally{ btn.disabled=false; btn.textContent="salvar catálogo"; }
 }
@@ -305,7 +307,7 @@ $id("agCancel").onclick = closeAgents;
 $id("agSave").onclick = saveConfig;
 $id("agAdd").onclick = addAgent;
 $id("agImport").onclick = importAgents;
-$id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Novo workflow", steps:[] }); renderWf(); };
+$id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Nova equipe", steps:[] }); renderWf(); };
 $id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
 
 // rede de segurança global: um erro solto (ex.: invoke que rejeitou sem catch,
@@ -315,7 +317,7 @@ window.addEventListener("unhandledrejection", e=>{ console.error("promise sem ca
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 initNotifs();
-refresh().then(loadProjects).catch(e=>console.error("boot:", e));
+refresh().then(loadProjects).then(restoreMainView).catch(e=>console.error("boot:", e));
 // poll blindado: uma volta que falhe não derruba o ciclo
 // um refresh por vez (o tick de 1s empilhava vários em paralelo), mas a trava NUNCA fica presa: se um refresh
 // não voltar em 6s (IPC perdido, SQLite ocupado), o próximo tick segue — antes a tela parava de atualizar pra sempre

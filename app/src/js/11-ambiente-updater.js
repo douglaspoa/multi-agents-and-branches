@@ -1,8 +1,11 @@
 // Starfork — 11-ambiente-updater
 // ---------- preflight de ambiente ----------
-let envChecks=null;
+let envChecks=null, envCheckedAt=0, envChecking=false;
 async function runEnvCheck(){
+  envChecking=true;
   try{ envChecks=await invoke('env_check'); }catch(e){ envChecks=[{name:'Verificação', ok:false, detail:String(e), fix:''}]; }
+  finally{ envChecking=false; }
+  envCheckedAt=Date.now();
   const bad=envChecks.some(c=>!c.ok);
   const dot=$id('envDot'); if(dot) dot.style.display=bad?'block':'none';
   return bad;
@@ -13,31 +16,33 @@ function renderEnv(){
   if(!envChecks){ el.innerHTML='<div class="appscreen">'+cosmosHtml('verificando o ambiente…')+'</div>'; return; }
   const okN=envChecks.filter(c=>c.ok).length, tot=envChecks.length, bad=tot-okN;
   const banner = bad
-    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px 'Instrument Sans',sans-serif">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} ok</span></div>`
-    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px 'Instrument Sans',sans-serif">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} checagens ok</span></div>`;
+    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} ok</span></div>`
+    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} checagens ok</span></div>`;
   const cards=envChecks.map(c=>`<div class="as-card" style="display:flex;gap:13px;align-items:flex-start">
     <span class="as-chk" style="background:${c.ok?'var(--accent)':'var(--warn)'}">${c.ok?'✓':'!'}</span>
     <div style="min-width:0;flex:1">
-      <div style="font:600 14.5px 'Instrument Sans',sans-serif">${esc(c.name)}</div>
-      <div style="margin-top:6px;font:400 11.5px/1.5 'JetBrains Mono',monospace;color:rgba(255,255,255,.4);word-break:break-all">${esc(c.detail||'')}</div>
-      ${c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:9px"><code class="as-mono" style="font-size:11.5px;background:#141817;border:1px solid rgba(255,255,255,.1);padding:5px 9px;border-radius:6px;color:#eaf2ee">${esc(c.fix)}</code><button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}
+      <div style="font:600 14.5px var(--display)">${esc(c.name)}</div>
+      <div style="margin-top:6px;font:400 11.5px/1.5 var(--code);color:var(--text-3);word-break:break-all">${esc(c.detail||'')}</div>
+      ${c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:9px"><code class="as-mono" style="font-size:11.5px;background:#141817;border:1px solid rgba(255,255,255,.1);padding:5px 9px;border-radius:6px;color:var(--text)">${esc(c.fix)}</code><button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}
     </div></div>`).join('');
   el.innerHTML=`<div class="appscreen">
     <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>
-      <div class="as-actions"><span class="as-note">última checagem: agora</span><button class="as-btn" id="envRecheck2">verificar de novo</button></div></div>
+      <div class="as-actions"><span class="as-note" title="${envCheckedAt?escA(new Date(envCheckedAt).toLocaleString('pt-BR')):''}">${envChecking?'verificando de novo…':'última checagem: '+envAgo()}</span><button class="as-btn" id="envRecheck2">verificar de novo</button></div></div>
     ${banner}
     <div class="as-grid" style="grid-template-columns:repeat(auto-fill,minmax(400px,1fr))">${cards}</div>
   </div>`;
   el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>{ navigator.clipboard.writeText(b.dataset.envfix); b.textContent='copiado ✓'; }; });
   { const b=el.querySelector('#envRecheck2'); if(b) b.onclick=async()=>{ envChecks=null; renderEnv(); await runEnvCheck(); renderEnv(); }; }
 }
-async function openEnv(){ $id('envOverlay').style.display='flex'; renderEnv(); await runEnvCheck(); renderEnv(); }
+// quanto tempo faz a última checagem ("agora" só quando foi mesmo agora — antes mostrava "agora" com resultado velho)
+function envAgo(){ if(!envCheckedAt) return '—'; const s=Math.round((Date.now()-envCheckedAt)/1000); if(s<60) return 'agora'; const m=Math.round(s/60); if(m<60) return 'há '+m+' min'; const h=Math.round(m/60); return h<24?'há '+h+' h':new Date(envCheckedAt).toLocaleDateString('pt-BR'); }
+async function openEnv(){ $id('envOverlay').style.display='flex'; const p=runEnvCheck(); renderEnv(); await p; renderEnv(); }
 $id('envBtn').onclick=openEnv;
 $id('envClose').onclick=()=>{ ovHide('envOverlay'); };
 $id('envRecheck').onclick=async()=>{ envChecks=null; renderEnv(); await runEnvCheck(); renderEnv(); };
 $id('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') ovHide('envOverlay'); });
 // boot: valida em background; problema → abre a tela sozinho (1x por sessão)
-setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')) openEnv(); }, 2500);
+setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')){ if(window.openTab) window.openTab('env'); else openEnv(); } }, 2500);
 
 // prompt() do WebView do Tauri é mudo — modal próprio, promise-based
 let txResolve=null;

@@ -60,12 +60,71 @@
    Aqui reabilita de verdade (com prefixo) no conteúdo dos 3 chats. */
 .cbub, .cbub *,
 .plbub, .plbub *,
-.pc-bub, .pc-bub *,
 .csys, .cact, .ctool {
   -webkit-user-select: text;
   user-select: text;
 }
-.cbub, .plbub, .pc-bub { cursor: text; }
+.cbub, .plbub { cursor: text; }
+/* conversa com o orquestrador: dava pra ver mas não copiar */
+.orq-cm, .orq-cm *, .orq-chat .plbub, .orq-chat .plbub * { -webkit-user-select: text; user-select: text; }
+
+/* ---------- CHAT ÚNICO: planner, chat do projeto, nova issue e orquestrador usam a MESMA bolha ----------
+   (chatMsgHtml em js/30-anexos.js). Você = bolha discreta igual à do chat da tarefa; IA = ✦ + markdown + copiar. */
+.plbub { position: relative; }
+.plmsg.bot .plbub:not(.think):not(.plmodel) { padding-right: 30px; }
+.plbub:hover .ccopy { opacity: .85; }
+.plmsg.bot .ccopy { background: var(--surface-3); }
+.plmsg.you .plbub {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px 5px 16px 16px;
+  box-shadow: none;
+  white-space: pre-wrap;
+}
+.plmsg.you .plbub strong { color: var(--text); }
+.plmsg.you .attchip { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+.plmsg.you .attsz, .plmsg.you .attic { color: var(--muted); opacity: 1; }
+/* mesmas bolhas dentro de cada tela */
+.pc-thread .plmsg { max-width: 86%; }
+.pc-thread .plmsg.sys { max-width: 92%; }
+.orq-chat .plmsg { max-width: 100%; gap: 8px; }
+.orq-chat .plmsg.you { max-width: 92%; }
+.orq-chat .plbub { font-size: 12.5px; padding: 8px 11px; }
+.orq-chat .plmsg.bot .plbub:not(.think) { padding-right: 28px; }
+.orq-chat .plav { width: 20px; height: 20px; font-size: 10.5px; }
+
+/* ---------- COMPOSER ÚNICO (chatComposerHtml / chatNormalize em js/30-anexos.js) ----------
+   Referência = chat da tarefa (.fwinput): caixa de texto em cima; embaixo UMA linha
+   📎 · extras · espaço · [■ parar] [enviar]; dica com as teclas em .kbd.
+   `.cc.cc` (0-2-0) vence .plinput/.chatinput/.orq-chatin antigos em 10/50/70/82. */
+.cc.cc { display: block; position: relative; padding: 10px 13px; border-top: 1px solid var(--border); background: var(--bg); }
+.cc.cc .cc-ta { display: block; width: 100%; flex: none; resize: none; min-height: 40px; line-height: 1.45; font-size: 13px; overflow-y: hidden; }
+.cc.cc .cc-row { display: flex; gap: 7px; align-items: center; margin-top: 6px; min-width: 0; }
+.cc.cc .cc-row > * { flex: none; }
+.cc.cc .cc-row .btn { white-space: nowrap; }
+.cc.cc .cc-sp { flex: 1; min-width: 0; }
+.cc.cc .cc-clip { display: inline-grid; place-items: center; }
+.cc.cc .cc-clip svg { width: 14px; height: 14px; }
+.cc.cc .cc-row .btn svg { width: 13px; height: 13px; }
+.cc.cc .cc-row .dim { font-size: 11px; }
+.chathint { font-size: 10.5px; color: var(--muted); line-height: 1.4; letter-spacing: .01em; }
+.cc .chathint { margin-top: 6px; padding: 0; background: transparent; }
+.chathint .kbd { margin-left: 0; }
+.chathint.busy { color: var(--text-2); }
+
+/* chat do projeto: o composer acompanha a coluna da página (mesma largura do cabeçalho) */
+#pcOverlay.astab .cc.cc { max-width: var(--page-max, 1240px); width: 100%; margin: 0 auto; padding: 10px var(--page-pad, 34px) 14px; border-top: 1px solid var(--border); border-radius: 0; background: var(--bg); font-family: inherit; }
+#pcOverlay.astab .pcpend { max-width: var(--page-max, 1240px); width: 100%; padding: 0 var(--page-pad, 34px) 8px; }
+/* planner e nova issue: mesma caixa */
+.plinput.cc.cc { padding: 10px 18px 12px; }
+/* conversa com o orquestrador (painel da direita): sem faixa, a coluna já tem moldura */
+.orq-chatin.cc.cc { padding: 8px 0 0; border-top: 0; background: transparent; margin-top: 0; }
+/* briefing do orquestrador: mesma estrutura, caixa maior (é a descrição do problema inteiro) */
+.orq-briefcc.cc.cc { padding: 0; border-top: 0; background: transparent; }
+.orq-briefcc.cc.cc .cc-ta { min-height: 132px; font: 400 14px/1.6 var(--display); padding: 12px 14px; border-radius: 10px; }
+.orq-briefcc.cc.cc .cc-row { margin-top: 10px; }
+.orq-briefcc .orq-model { font-size: 11px; margin-right: 4px; }
 
 /* ---------- resultado de tool: linha sutil (sem pill), estilo Claude ---------- */
 .ctool {
@@ -73,7 +132,7 @@
   margin: 2px 0 2px 40px; padding: 0;
   border: none; background: transparent; box-shadow: none;
   color: var(--good);
-  font: 500 11.5px 'Instrument Sans', sans-serif;
+  font: 500 11.5px var(--display);
   max-width: max-content;
   animation: ctoolin .18s ease both;
 }
@@ -85,4 +144,4 @@
 .cact.cactsum { opacity: .9; align-items: center; padding-left: 40px; font-size: 11.5px; }
 .cact.cactsum .cg { color: var(--muted); display: inline-flex; align-items: center; width: 13px; height: 13px; }
 .cact.cactsum .cg svg { width: 13px; height: 13px; }
-.cact.cactsum .ct { color: var(--text-2); font-family: 'Instrument Sans', sans-serif; }
+.cact.cactsum .ct { color: var(--text-2); font-family: var(--display); }

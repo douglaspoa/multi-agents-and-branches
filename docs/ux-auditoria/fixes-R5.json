@@ -1,0 +1,157 @@
+[
+ {
+  "id": "R5-1",
+  "area": "Status de tarefa",
+  "titulo": "PR aberto aparece como \"PR aberto\" em todas as telas",
+  "antes": "Barra lateral/Central diziam \"PR aberto\", mas a fila do épico (\"na espera de … (pronta pra revisar)\"), a página do épico (\"pronta pra revisar\" + botão \"revisar\"), o chip de tarefa das Issues, Projetos (\"em revisão\"), a referência de tarefa e o cabeçalho do chat da tarefa usavam o status cru.",
+  "depois": "Tudo usa o status efetivo (taskSt; pra cartão da nuvem, tsSt/epEffSt com a tarefa local quando existe) + stLabel: \"PR aberto\" com botão \"ver o PR\"; Projetos mostra \"N pronta(s) pra revisar · N PR aberto\" como a Central; fila do épico diz \"com PR aberto\"/\"pronta(s) pra revisar\".",
+  "motivo": "Mesmo objeto com dois nomes em telas vizinhas quebra a confiança no painel.",
+  "arquivos": [
+   "app/src/js/46-epico-time.js",
+   "app/src/js/14-issues-projeto.js",
+   "app/src/js/13-skills-projetos.js",
+   "app/src/js/35-ref-tarefa.js",
+   "app/src/js/42-nuvem-sync-mobile.js",
+   "app/src/js/43-espaco-times.js",
+   "app/src/js/20-workspace-tarefa.js"
+  ],
+  "como_ver": "Abra o épico Checkout novo: \"Pagamento via Pix no checkout\" = \"PR aberto\" + \"ver o PR\"; Issues → LOJ-14 chip \"tarefa PR aberto\"; fila dos épicos: Painel de conversão \"na espera de … (PR aberto)\".",
+  "estado_mock": "t-pr (PR #42 aberto) + cartões da nuvem do ep1"
+ },
+ {
+  "id": "R5-2",
+  "area": "Time / Épicos",
+  "titulo": "Uma régua só pra \"entregue\" e contagem do Time igual à Central",
+  "antes": "\"Épicos ativos: Checkout 14%\" contra 0/7 na página; \"ONDA 2 · 1/3\" com nada mergeado; \"Agora no time\" listava tarefa com plano pra aprovar como \"rodando\"; o espelho da nuvem achatava plan-review em running.",
+  "depois": "epDelivered(t) = mergeada/concluída/finalizada (revisão e PR NÃO contam) usado na página (KPI, ondas), na fila (progOf), nos chips e no KPI do Time (\"Checkout 0/7 · Login 1/4\"). Onda: \"ONDA 2 · 0/3 entregues · 1 em revisão\" (a onda atual continua avançando com revisão). tsNorm usa o status da tarefa LOCAL quando o cartão é desta máquina — Time conta com flowBucket igual à Central e o plano pra aprovar sai de \"Agora no time\".",
+  "motivo": "Três porcentagens diferentes pro mesmo épico.",
+  "arquivos": [
+   "app/src/js/46-epico-time.js",
+   "app/src/js/43-espaco-times.js"
+  ],
+  "como_ver": "Central → Time → Visão geral: \"Épicos ativos: Checkout 0/7 · Login 1/4\", \"Agora no time\" sem Cupom (plano); página do épico: ondas com \"x/y entregues · z em revisão\".",
+  "estado_mock": "ep1/ep2 na nuvem; t-plan (plan-review) espelhado como running no shim. Obs.: \"aguardando alguém\" do Time (4) ainda difere da Central (5) porque a Central conta tarefas de outros projetos que não estão no time — escopos diferentes, mesma regra."
+ },
+ {
+  "id": "R5-3",
+  "area": "Vocabulário",
+  "titulo": "thinking = rodando; aguardando você; pra revisar",
+  "antes": "\"pensando\" no grafo/daily vs \"rodando\" na barra; barra lateral \"pergunta\" e \"revisar\".",
+  "depois": "STATUS_META: thinking.pt='rodando'; asking.short='aguardando'; review/delivered.short='pra revisar'.",
+  "motivo": "Mesmo status, palavras diferentes.",
+  "arquivos": [
+   "app/src/js/00-util.js"
+  ],
+  "como_ver": "Barra lateral: \"Login com Apple · aguardando\", \"Corrigir total… · pra revisar\"; grafo: Investigar lentidão = \"rodando\".",
+  "estado_mock": "t-thinking, t-asking, t-review"
+ },
+ {
+  "id": "R5-4",
+  "area": "Orquestrador",
+  "titulo": "\"rodando\" verde como no resto do app",
+  "antes": "Pílula \"1 subagente rodando\", legenda, chip RODANDO e borda do nó em âmbar (--warn); revisão azul.",
+  "depois": "ORQ_ST.running = var(--st-run), review = var(--st-review), erro = var(--st-err); CSS da pílula/nó/chip e o spinner no mesmo token.",
+  "motivo": "Âmbar é \"pronta pra revisar\" no resto do app.",
+  "arquivos": [
+   "app/src/js/34-orquestrador.js",
+   "app/src/css/70-orquestrador.css"
+  ],
+  "como_ver": "Cena orq-chat: pílula e chip RODANDO verdes.",
+  "estado_mock": "plano orq-carrinho"
+ },
+ {
+  "id": "R5-5",
+  "area": "Agentes",
+  "titulo": "Cor do agente = a do catálogo em todo lugar",
+  "antes": "Lyra roxa em Agentes e coral no chat/kanban; Íris rosa vs verde. Causa: o catálogo (config) só era lido ao abrir Nova demanda e cada refresh (state = snapshot) o apagava → cor por hash; no kanban quem estava na vez virava verde (accent).",
+  "depois": "agentCat carrega o catálogo sozinho (1x por repo) e o refresh preserva state.config; salvar o catálogo atualiza na hora. Kanban mantém a cor do agente e marca quem está na vez com um anel.",
+  "motivo": "Identidade do agente precisa ser estável.",
+  "arquivos": [
+   "app/src/js/21-pull-request.js",
+   "app/src/js/10-core.js",
+   "app/src/js/33-switcher-projetos.js",
+   "app/src/js/23-kanban-artefatos-editor.js",
+   "app/src/css/40-sidebar-quadro.css"
+  ],
+  "como_ver": "Kanban: LY roxo, ÍR rosa, AT âmbar (iguais aos cartões de Agentes & Equipes); chat da tarefa idem.",
+  "estado_mock": "config.agents do shim com cores"
+ },
+ {
+  "id": "R5-6",
+  "area": "Tarefa (workspace)",
+  "titulo": "Um \"parar\" só + composer com as classes do composer compartilhado",
+  "antes": "3 controles de parar (cabeçalho, cabeçalho do chat, \"parar e enviar\"), com visuais diferentes (âmbar ❚❚).",
+  "depois": "Removido o \"parar\" do cabeçalho do chat. Cabeçalho \"■ parar\" e composer \"■ parar e enviar\" no mesmo estilo vermelho do stop compartilhado (.trk-stop). O composer da tarefa agora usa .cc/.cc-ta/.cc-row/.cc-clip/.cc-sp/.cc-send/.chathint (mesmo clipe SVG) mantendo vira requisito, na fila, parar e enviar e os menus / e @.",
+  "motivo": "Controles duplicados e composers com cara diferente.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Cena workspace-conversa (rodando): só \"■ parar\" no topo e \"■ parar e enviar\" + \"na fila\" no composer.",
+  "estado_mock": "t-running"
+ },
+ {
+  "id": "R5-7",
+  "area": "Épicos",
+  "titulo": "Selo do épico no título da tarefa, kanban, grafo e barra lateral",
+  "antes": "Selo \"◆ épico · onda N\" só na Central.",
+  "depois": "epTaskBadge no cabeçalho da tarefa (#fwTaskEpic), nos cartões do kanban e nas linhas do grafo (clique abre o épico); na barra lateral um ◆ pequeno na cor do épico com o nome no tooltip (sbEpDot).",
+  "motivo": "Saber de que épico a tarefa é em qualquer tela.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/23-kanban-artefatos-editor.js",
+   "app/src/js/25-grafo.js",
+   "app/src/index.html",
+   "app/src/css/40-sidebar-quadro.css"
+  ],
+  "como_ver": "Checkout em uma página: selo \"◆ Checkout novo · onda 1\" ao lado do título; kanban/grafo com o selo; barra lateral com ◆ ciano/rosa.",
+  "estado_mock": "t-running (ep1), t-asking (ep2), t-pr, t-conflict"
+ },
+ {
+  "id": "R5-8",
+  "area": "Layout",
+  "titulo": "Central e Time no mesmo x de título das outras telas",
+  "antes": "Central x=264, Visão geral x=277, demais telas 284.",
+  "depois": "#flowPane, .chead e .tmain usam --page-pad: Central h1 em 284, Visão geral em 284, abas Execução/Concluídas/Time alinhadas.",
+  "motivo": "Títulos pulando de posição ao trocar de aba.",
+  "arquivos": [
+   "app/src/css/80-ajustes-cards.css"
+  ],
+  "como_ver": "Cenas home e time: título começa em x=284 como Agentes/Projetos.",
+  "estado_mock": "—"
+ },
+ {
+  "id": "R5-9",
+  "area": "Modelos",
+  "titulo": "Nome amigável do modelo (id cru no tooltip)",
+  "antes": "Menu ⋯ da tarefa \"modelo · claude-sonnet-4-5\"; chat do orquestrador \"claude-opus-4-1\".",
+  "depois": "modelFriendly(id) (boardModelName com fallback): \"modelo · Sonnet 4.5\" (id no title), \"comandando · Opus 4.1\"; menu \"trocar modelo\" do quadro idem.",
+  "motivo": "Id técnico não diz nada pra vibe coder.",
+  "arquivos": [
+   "app/src/js/27-entregas.js",
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/22-quadro-fluxo.js",
+   "app/src/js/34-orquestrador.js"
+  ],
+  "como_ver": "Menu ⋯ da tarefa; cena orq-chat.",
+  "estado_mock": "t-running (claude-sonnet-4-5), plano (claude-opus-4-1)"
+ },
+ {
+  "id": "R5-10",
+  "area": "Acabamento",
+  "titulo": "Sobras visuais",
+  "antes": "Barra de status cortada com \"…\"; \"0 prontos\" vs \"0/4 prontas\"; cartão do orquestrador cortado na borda do chat; conversa colada sob a pílula CONSTRUINDO; textos \"workflow\" em inglês; identificador \"programa-de-pontos-na-lo\"; bolinha de online em cima das iniciais.",
+  "depois": "#busSummary ocupa só o que precisa (custo e arquivo disputado voltam; sem …); pílula \"1 subagente rodando · 0/4 prontas\"; canvas reajusta quando o chat abre (ResizeObserver) e tem fade na borda direita, cartões legíveis; thread com respiro + fade no topo; \"Equipes (fluxos de trabalho)\", \"+ nova equipe\", explicação com \"planejar → construir → revisar\", onboarding/planos sem \"Workflows\"; identificador com … e tooltip explicando que é o id técnico encurtado; bolinha online fora das iniciais.",
+  "motivo": "Detalhes que parecem bug.",
+  "arquivos": [
+   "app/src/css/80-ajustes-cards.css",
+   "app/src/js/34-orquestrador.js",
+   "app/src/index.html",
+   "app/src/js/33-switcher-projetos.js",
+   "app/src/js/44-onboarding.js",
+   "app/src/js/32-planner.js"
+  ],
+  "como_ver": "Cenas statusbar, orq-chat, workspace-codigo, agents, planner, time.",
+  "estado_mock": "O nome \"Plano → build → review\" é DADO do catálogo do usuário (shim), não texto do app — não foi renomeado."
+ }
+]

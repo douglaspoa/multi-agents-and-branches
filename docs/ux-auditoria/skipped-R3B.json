@@ -1,0 +1,20 @@
+[
+  {
+    "id": "R3-B4b",
+    "area": "Workspace · cabeçalho",
+    "titulo": "\"abrir no editor\" no menu ⋯",
+    "motivo": "Não existe comando Tauri pra abrir a worktree num editor (só open_url/reveal_artifact); criar um exigiria Rust fora das funções de PR deste pacote. O resto do ⋯ foi feito."
+  },
+  {
+    "id": "R3-B4c",
+    "area": "Workspace · cabeçalho",
+    "titulo": "Aba \"PR\" nos modos só aparece com prUrl",
+    "motivo": "fwModesHtml mora em js/27-entregas.js (fora dos meus arquivos). O atalho \"ver PR #n\"/\"PR #n ↗\" na ação principal cobre o acesso rápido."
+  },
+  {
+    "id": "R3-B10b",
+    "area": "Celular",
+    "titulo": "Reviews \"pediu mudanças\" no snapshot do celular",
+    "motivo": "O snapshot (e o app iOS) só tratam comentários; mandar reviews exigiria mudar o Swift (CentralView/Models), fora do escopo."
+  }
+]

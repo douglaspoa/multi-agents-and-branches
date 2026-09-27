@@ -92,11 +92,16 @@ const IC = {
   hand:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M5.2 8.2V4.6a1 1 0 0 1 2 0v3m0-.4V3.6a1 1 0 0 1 2 0V7.2m0-.2V4.7a1 1 0 0 1 2 0v4.5c0 2.1-1.6 3.9-4 3.9-1.6 0-2.6-.7-3.3-1.7L3 9.6a1 1 0 0 1 1.4-1.4z" stroke-linejoin="round"/></svg>',
   clip:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
+// ícones em 1em (herdam o font-size do botão/selo): fechar/remover e check de status —
+// substituem os glifos soltos ✕ × ✖ ✓ ✔ ☑, que cada fonte desenha de um jeito
+const icEm = s => s.replace('<svg ', '<svg width="1em" height="1em" style="vertical-align:-.125em;flex:none" aria-hidden="true" ');
+IC.x = icEm(IC.xs); IC.ok = icEm(IC.check);
 // helper: ícone + rótulo num botão (substitui os emojis por SVG da biblioteca)
 async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
-const STATUS_COLOR = { draft:"var(--muted)", "plan-review":"var(--warn)", running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)", paused:"var(--info)", aborted:"var(--muted)", cancelled:"var(--crit)" };
+// cores de status vêm do dicionário único (STATUS_META em 00-util.js)
+const STATUS_COLOR = Object.fromEntries(Object.entries(STATUS_META).map(([k,v])=>[k,v.c]));
 const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
 const GCOLOR = { collision:"var(--crit)", error:"var(--crit)", claim:"var(--info)", done:"var(--good)", edit:"var(--good)", write:"var(--good)" };
 
@@ -119,6 +124,13 @@ async function connect(repo){
   }
 }
 
+// ---- ferramentas de dev/admin (publicar release, trocar o backend): só pra instalação de desenvolvimento
+// ou owner/admin da organização — pro usuário comum são botões que só confundem ----
+let devInstall=false;
+function isOrgAdmin(){ try{ return typeof cloudData!=='undefined' && !!cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin'); }catch(_){ return false; } }
+function canSeeDevTools(){ return devInstall || isOrgAdmin(); }
+function devUiSync(){ const b=$id('pubRelBtn'); if(b) b.style.display=canSeeDevTools()?'':'none'; }
+setTimeout(()=>{ invokeQuiet('is_dev_install').then(v=>{ devInstall=!!v; devUiSync(); }).catch(()=>{}); }, 0);
 // ---- pasta aberta SEM git: o app abre, mas branch/PR/worktree só depois de criar o repositório ----
 function repoHasGit(){ return !state || !state.repo || state.git!==false; }
 function gitUiSync(){
@@ -132,7 +144,7 @@ function gitUiSync(){
 async function gitGate(){
   if(repoHasGit()) return true;
   const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
-  if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Starfork precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
+  if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Starfork precisa de um repositório. Criar agora?\n\n(cria o repositório na branch main, deixa a pasta de trabalho do Starfork fora do versionamento e faz o 1º commit com o conteúdo atual)`)) return false;
   try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
   catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
 }
@@ -184,10 +196,12 @@ try{ window.__TAURI__.event.listen('notif-open', (ev)=>{ lastNotif=null; notifRo
 window.addEventListener('focus', ()=>{
   if(lastNotif && Date.now()-lastNotif.ts<180000){ const id=lastNotif.id; lastNotif=null; notifRoute(id); }
 });
-// ⌘K — busca global (redesign): vai pra Central de execuções e foca a busca
+// ⌘K — busca global (redesign): vai pra Central de execuções e foca a busca.
+// Com outra aba na frente (Skills, Conta…) a busca ficava escondida atrás dela: ativa a aba Central antes.
 window.addEventListener('keydown', e=>{
   if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){
     e.preventDefault();
+    if(window.openTab && typeof activeTab!=='undefined' && activeTab!=='flow') window.openTab('flow');
     const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
     setTimeout(()=>{ const s=$id('ffSearch'); if(s){ s.focus(); s.select(); } }, 60);
   }
@@ -235,8 +249,10 @@ async function refresh(){
   try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
   catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); } return; }
   detectNotifs(snap);
-  const prevGraph = state.graph;
+  const prevGraph = state.graph, prevCfg = state.config, prevRepo = state.repo;
   state = snap;
+  // R5-5: o snapshot não traz o catálogo (config) — antes cada refresh o apagava e as cores dos agentes caíam no hash
+  if(prevCfg && !state.config && prevRepo===snap.repo) state.config = prevCfg;
   connected = !!snap.repo;
   gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
@@ -264,7 +280,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
     .some(id=>{ const el=$id(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo

@@ -199,7 +199,7 @@ function renderSide(){
       <h2>${esc(t.agent)}</h2>
       <div class="sub"><span id="brnText">${esc(t.branch)}</span>${t.status!=='merged'?` <button class="brnedit" data-act="renbranch" title="renomear branch">${IC.pencil}</button>`:''} · ${esc(effEngine(t))}${t.model?(" · "+esc(t.model)):""}</div>
       ${(t.prUrl||issueCodeOf(t))?`<div style="display:flex;gap:6px;margin-top:7px">${linkChips(t)}</div>`:''}
-      <span class="stwrap"><button class="pill stpill" id="stPill" style="color:${col};background:color-mix(in srgb,${col} 15%,transparent)">${esc(t.status)}${t.flag?' · '+(t.flag==='blocked'?'bloqueada':'encerrada'):''} <span class="stchev">▾</span></button>${stMenuOpen?`<div class="stmenu">${statusMenuItems(t).map((it,i)=>`<button class="stitem${it.danger?' danger':''}" data-sti="${i}">${it.l}</button>`).join('')}</div>`:''}</span>
+      <span class="stwrap"><button class="pill stpill" id="stPill" style="color:${stColor(taskSt(t))};background:color-mix(in srgb,${stColor(taskSt(t))} 15%,transparent)">${esc(stLabel(taskSt(t)))}${t.flag==='blocked'?' · bloqueada':''} <span class="stchev">▾</span></button>${stMenuOpen?`<div class="stmenu">${statusMenuItems(t).map((it,i)=>`<button class="stitem${it.danger?' danger':''}" data-sti="${i}">${it.l}</button>`).join('')}</div>`:''}</span>
     </div>
     <div class="sidestats"><div class="ss"><span class="ssv">${dur}</span><span class="ssl">tempo</span></div><div class="ss"><span class="ssv">${tc.usd?fmtUsd(tc.usd):'—'}</span><span class="ssl">custo</span></div><div class="ss"><span class="ssv">${files.length||(d?d.files:0)||0}</span><span class="ssl">arquivos</span></div></div>
     <div class="sidetabs">${TABS.map(([k,l])=>`<button class="sidetab${sideTab===k?' on':''}" data-tab="${k}">${l}</button>`).join("")}</div>
@@ -250,12 +250,12 @@ function renderSide(){
   { const b=el.querySelector('#prRefresh'); if(b) b.onclick=async()=>{ await loadPr(t.id,true); renderSide(); }; }
   { const b=el.querySelector('#prRework'); if(b) b.onclick=()=>reworkFromPr(t.id); }
   { const b=el.querySelector('#prMerge'); if(b) b.onclick=()=>mergePr(t.id); }
-  el.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; try{ await prFixOne(t.id, +b.dataset.prfix); }finally{ renderSide(); } });
+  el.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; try{ await prFixOne(t.id, b.dataset.prfix); }finally{ renderSide(); } });
   el.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id, b.dataset.prign); renderSide(); });
   const iSend=el.querySelector('#instrSend'); if(iSend) iSend.onclick=()=>sendInstruction(t.id);
   const iInput=el.querySelector('#instrInput'); if(iInput) iInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendInstruction(t.id); });
   { const b=el.querySelector('#openChatBtn'); if(b) b.onclick=()=>openChat(t.id); }
-  { const a=el.querySelector('#rwFull'); if(a) a.onclick=()=>{ const txt=prompt('Ajuste completo (passa pelo time inteiro — planeja → coda → revisa → docs):'); if(txt&&txt.trim()){ invoke('rework_task',{taskId:t.id, text:txt.trim()}).then(()=>{ lastSig=''; refresh(); }).catch(e=>alert('Falha:\n'+e)); } }; }
+  { const a=el.querySelector('#rwFull'); if(a) a.onclick=async()=>{ const txt=await askText('Ajuste completo — passa pelo time inteiro (planeja → coda → revisa → docs)','o que precisa mudar?'); if(txt&&txt.trim()){ invoke('rework_task',{taskId:t.id, text:txt.trim()}).then(()=>{ lastSig=''; refresh(); toast('Ajuste enviado pro time','ok'); }).catch(e=>toast('Não consegui enviar o ajuste: '+e,'err')); } }; }
   // clicar numa etapa: planner/designer abrem o doc produzido (ver/editar);
   // as demais miram o "pedir ajuste" naquela etapa.
   const stageDoc={ planner:'.cardume/PLAN.md', designer:'.cardume/DESIGN.md' };
@@ -274,21 +274,39 @@ function renderSide(){
   if(sideTab==='stream'){ const s=el.querySelector('.stream'); if(s) s.scrollTop=s.scrollHeight; }
 }
 
+// Barra de status "Agora": o que importa num relance — quantas tarefas estão rodando, quantas esperam
+// você e quanto já custou. Antes: "N agentes" (= TODAS as tarefas já criadas), "reivindicações" e
+// "1670683k tok". O detalhe técnico (arquivos reservados/cedidos entre agentes) foi pro tooltip.
 function renderBus(){
-  const yields = state.claims.filter(c=>c.yieldedTo);
-  const totalClaims = state.claims.length;
-  const el = $id("busSummary");
-  if(state.tasks.length===0){ el.innerHTML = '<span class="dim">—</span>'; return; }
-  const parts = [`${state.tasks.length} agentes · ${totalClaims} reivindicações`];
+  const el = $id("busSummary"); if(!el) return;
+  const tasks=state.tasks||[];
+  if(tasks.length===0){ el.innerHTML = '<span class="dim">nenhuma tarefa neste projeto ainda</span>'; el.title=''; return; }
+  // MESMA contagem da Central/Kanban/chips (flowCounts sobre boardSource) — antes contava por conta própria
+  // ("3 rodando · 4 esperando você" contra "5 em andamento · 5 aguardando você" no cabeçalho)
+  const live=flowLiveTasks();
+  const fc=flowCounts(live);
+  const allProj=projFilter==='all' && projList().length>1;
   const totUsd=(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0);
   const totTok=(state.costs||[]).reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0);
-  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">Σ ${fmtUsd(totUsd)} · ${fmtTok(totTok)} tok</span>`);
-  // cessões: dedup (o mesmo arquivo pode ceder N vezes) + só o basename + cap
+  const parts=[];
+  parts.push(fc.aguardando?`<b style="color:var(--st-ask,var(--warn))">${fc.aguardando} aguardando você</b>`:'0 aguardando você');
+  parts.push(`<b style="color:${fc.andamento?'var(--st-run,var(--good))':'var(--text-2)'}">${fc.andamento} em andamento</b>`);
+  if(fc.prontas) parts.push(`${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar`);
+  if(fc.praberto) parts.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
+  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">${fmtUsd(totUsd)} no total</span>`);
+  // conflitos de arquivo entre agentes: resumo curto na barra, explicação no tooltip
+  const claims=state.claims||[], yields=claims.filter(c=>c.yieldedTo);
   const seen=new Set(); const uniq=[];
   for(const c of yields){ const k=c.agent+'|'+c.path+'|'+c.yieldedTo; if(!seen.has(k)){ seen.add(k); uniq.push(c); } }
-  for(const c of uniq.slice(0,2)) parts.push(`<span class="warn">⚠ ${esc(c.agent)} cedeu ${esc((c.path||'').split('/').pop())} → ${esc(c.yieldedTo)}</span>`);
-  if(uniq.length>2) parts.push(`<span class="warn">+${uniq.length-2} cessões</span>`);
+  if(uniq.length) parts.push(`<span class="warn">⚠ ${uniq.length} arquivo${uniq.length===1?'':'s'} disputado${uniq.length===1?'':'s'}</span>`);
   el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+  const tip=[
+    `${nPl(live.length,'tarefa viva','tarefas vivas')} ${allProj?'em todos os projetos':'neste projeto'} (mesma contagem da Central): ${fc.aguardando} aguardando você · ${fc.andamento} em andamento (${fc.rodando} executando agora) · ${fc.prontas} prontas pra revisar · ${fc.praberto} com PR aberto · ${fc.rascunho} rascunho${fc.rascunho===1?'':'s'}`,
+    (totUsd||totTok)?`Custo somado das tarefas deste projeto: ${fmtUsd(totUsd)} (${fmtTok(totTok)} tokens de IA)`:'',
+    claims.length?`${claims.length} arquivo${claims.length===1?'':'s'} reservado${claims.length===1?'':'s'} por agentes agora (evita dois agentes editarem o mesmo arquivo ao mesmo tempo)`:'',
+    ...uniq.slice(0,5).map(c=>`${c.agent} cedeu ${(c.path||'').split('/').pop()} para ${c.yieldedTo} — esperou o outro terminar em vez de sobrescrever`),
+  ].filter(Boolean).join('\n');
+  el.title=tip;
 }
 
 $id("connectBtn").onclick = ()=>{
@@ -300,6 +318,7 @@ $id("repoInput").addEventListener("keydown", e=>{ if(e.key==="Enter") $id("conne
 $id("viewSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   const v=b.dataset.v;
   $id("viewSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  lsSet('mainView', v); // reabre na mesma visão (Fluxo/Kanban/Grafo/Atividade/Time) no próximo boot
   $id("chint").textContent = v==="flow"?"quem fez o quê · commits por tarefa":v==="kanban"?"arraste entre colunas · play no card":v==="graph"?"branches · agentes nas pontas":v==="team"?"backlog compartilhado do time · assumir & iniciar":"eventos ao vivo de todos os agentes";
   if(v==="flow") loadAllCommits();
   if(v==="graph"){ refresh(); return; }   // busca o grafo (git log) só ao abrir a aba
@@ -307,4 +326,10 @@ $id("viewSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   lastSig = snapSig();   // marca o estado já renderizado (evita render duplicado no próximo tick)
 });
 
+// boot: volta pra visão principal que você usou por último (Grafo some em pasta sem git — gitUiSync cuida)
+function restoreMainView(){
+  const v=lsGet('mainView'); if(!v || v==='flow' || curView()===v) return;
+  const b=document.querySelector('#viewSeg button[data-v="'+v+'"]');
+  if(b && b.style.display!=='none') b.click();
+}
 let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[], ntDzRefs=[], ntFixRefs=[], ntInvRefs=[];

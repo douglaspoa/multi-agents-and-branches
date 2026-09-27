@@ -6,6 +6,47 @@ let fwEvents=[], fwEvLast=0, fwFetching=false; // conversa com texto COMPLETO (i
 let fwAgentSel=null; // com quem estou falando (null = agente padrão da tarefa)
 const fwChat={}; // taskId -> [{who:'you'|'sys', text}]
 const fwCollapsed=new Set(); // pastas recolhidas na árvore
+const fwDraft={};   // taskId → rascunho do chat (cada tarefa tem o SEU — antes o texto vazava de uma aba pra outra)
+const fwAsReqOn={}; // taskId → checkbox "vira requisito" (sobrevive aos re-renders do poll)
+const fwArtLoading={}; // taskId → carga de artefatos em voo (1 por vez)
+let fwFilesLoading=false; // task_files ainda não respondeu (≠ "nada ainda")
+let fwFileLoading='';     // 'taskId|path' do read_file em voo (sem "editar" enquanto não chegou)
+let fwReadErr='';         // read_file falhou → mostra o erro e NÃO deixa editar (salvaria o texto do erro no arquivo)
+// árvore de arquivos recolhível (« / » / ⌘B). Sem escolha salva: recolhida em janela estreita.
+function fwTreeHidden(){ const v=lsGet('fwTreeOff'); if(v==='1') return true; if(v==='0') return false; return window.innerWidth<1100; }
+function fwToggleTree(){ lsSet('fwTreeOff', fwTreeHidden()?'0':'1'); renderWorkspace(); }
+// árvore recolhida: um "»" de 18px sem rótulo não dizia nada e escondia também artefatos e custo →
+// pílula clara "» Arquivos (N) · M artefatos" (mesmo atalho ⌘B)
+function fwTreeOpenBtn(){
+  if(!fwTreeHidden()) return '';
+  const n=fwFiles.filter(f=>!f.doc).length;
+  const ac=(typeof artifactsCache!=='undefined'&&fwTask)?artifactsCache[fwTask]:null;
+  const na=ac&&Array.isArray(ac.list)?ac.list.filter(a=>a.name!=='requirements.json').length:0;
+  return `<button class="fwtreepill" data-fwtree="on" title="mostrar arquivos, artefatos e custo (⌘B)"><span class="fwtpch">»</span>Arquivos${fwFilesLoading?'':` (${n})`}${na?` <span class="fwtpart">· ${na} artefato${na===1?'':'s'}</span>`:''}</button>`;
+}
+// guarda o arquivo/modo na ABA (voltar pra aba reabre onde você estava)
+function fwRememberTab(){ if(!fwTask||typeof tabById!=='function') return; const tab=tabById('task:'+fwTask); if(tab){ tab.path=fwPath||null; tab.mode=fwMode; } }
+function fwIsWorking(t){ return (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !pendingOf(t.id).length; }
+function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'].includes(taskType(t)); }
+// subtítulo do chat conforme o ESTADO (antes dizia "ele lembra o que fez" até em erro)
+function fwChatSubText(t){
+  if(pendingOf(t.id).length) return 'aguardando sua resposta';
+  if(fwIsWorking(t)) return 'trabalhando…';
+  if(t.status==='error') return 'parou com erro — mande uma mensagem pra ele tentar seguir, ou rode de novo';
+  if(t.status==='aborted') return 'abortada — mande uma mensagem pra retomar, ou rode de novo';
+  if(t.status==='conflict') return 'conflito com a base — resolva o conflito pra seguir';
+  if(t.status==='paused') return 'pausada — clique em continuar';
+  if(t.status==='draft') return 'rascunho — ainda não começou';
+  return 'mesma sessão — ele lembra o que fez';
+}
+// "resolver conflito": o mesmo fluxo do botão do card (a IA mergeia a base e resolve na worktree)
+async function fwResolveConflict(taskId, btn){
+  if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return;
+  if(btn){ btn.disabled=true; btn.textContent='resolvendo…'; }
+  try{ await invoke('resolve_conflict',{ taskId }); lastSig=''; await refresh(); }
+  catch(err){ alert('Falhou: '+(err&&err.message||err)); if(btn) btn.disabled=false; }
+  renderWorkspace();
+}
 // pinta a seleção de linhas durante o arraste sem re-render completo (leve)
 function fwPaintSel(){
   const sel=fwSelRange(); const code=$id('fwCode'); if(!code) return;
@@ -16,8 +57,15 @@ function fwPaintSel(){
 async function fwSaveFile(){
   const ta=$id('fwText'); if(!ta) return; const v=ta.value; const b=$id('fwSave'); if(b) b.disabled=true;
   try{ await invoke('write_file',{ taskId:fwTask, path:fwPath, content:v }); fwContent=v; fwEditing=false; fileCache[fwTask]=undefined; lastSig=''; await refresh(); }
-  catch(e){ alert('Falha ao salvar:\n'+e); }
+  catch(e){ alert('Falha ao salvar:\n'+e); if(b) b.disabled=false; return; } // falhou: o editor (e o texto) ficam
   renderWorkspace();
+}
+// sair do editor: se há alteração não salva, PERGUNTA antes de descartar
+async function fwLeaveEditor(){
+  if(!fwEditing) return true;
+  const ta=$id('fwText');
+  if(ta && ta.value!==fwContent && !await askYes('Descartar as alterações não salvas neste arquivo?')) return false;
+  fwEditing=false; return true;
 }
 window.addEventListener('mouseup', ()=>{ if(fwDrag){ fwDrag=false; renderWorkspace(); } });
 function fwTaskObj(){ return (state.tasks||[]).find(t=>t.id===fwTask); }
@@ -36,11 +84,12 @@ function fwDelivHtml(files, dels){
   if(!groups.length) return '<div class="dim" style="padding:8px;font-size:11.5px">nenhum arquivo alterado</div>';
   return `<div class="fwtreebody">`+groups.map(g=>{
     const rows=g.files.slice().sort((a,b)=>a.path.localeCompare(b.path)).map(f=>{ const tag=f.doc?'·':((f.del===0&&f.add>0)?'A':'M');
-      return `<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" style="padding-left:20px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span><span class="fwadd">+${f.add}</span></button>`;
+      return `<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" title="${escA(f.path)}" style="padding-left:20px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}" title="${fwTagTitle(f,tag)}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span><span class="fwadd">+${f.add}</span></button>`;
     }).join('');
     return `<div class="fwdgrp${g.other?' other':''}"><span class="fwdmark">${g.other?'•':'✓'}</span><span class="fwdlabel">${esc(g.label)}</span><span class="fwdn">${g.files.length}</span></div>${rows}`;
   }).join('')+`</div>`;
 }
+function fwTagTitle(f,tag){ return f.doc?'anexo/documento (não é alteração de código)':tag==='A'?'adicionado nesta tarefa':'modificado nesta tarefa'; }
 function fwBuildTree(files){
   const root={dirs:{},files:[]};
   for(const f of files){ const parts=f.path.split('/'); let node=root;
@@ -55,7 +104,7 @@ function fwTreeHtml(node, depth){
     if(!col) h+=fwTreeHtml(dir, depth+1);
   }
   for(const f of node.files.slice().sort((a,b)=>a.path.localeCompare(b.path))){ const tag=f.doc?'·':((f.del===0&&f.add>0)?'A':'M');
-    h+=`<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" style="padding-left:${depth*13+8}px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span>${f.doc?'':`<span class="fwadd">+${f.add}</span>`}</button>`;
+    h+=`<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" title="${escA(f.path)}" style="padding-left:${depth*13+8}px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}" title="${fwTagTitle(f,tag)}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span>${f.doc?'':`<span class="fwadd">+${f.add}</span>`}</button>`;
   }
   return h;
 }
@@ -69,20 +118,30 @@ function openWorkspace(taskId, path){
   // cada aba lembra o PRÓPRIO arquivo e o PROJETO (antes: um tabTaskPath global — a aba B abria o arquivo da A,
   // e depois de trocar de projeto a aba velha abria uma tarefa que não existe no projeto atual)
   let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(t.title||'Tarefa').slice(0,26)}; TABS.push(tab); }
-  else { if(t.title) tab.title=t.title.slice(0,26); tab.path=path||null; if(!tab.repo) tab.repo=state.repo; }
+  else { if(t.title) tab.title=t.title.slice(0,26); if(path){ tab.path=path; tab.mode='codigo'; } if(!tab.repo) tab.repo=state.repo; }
   activateTab(id);
 }
 async function fwOpenInner(taskId, path){
-  fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false;
-  fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig=''; fwAgentSel=null;
-  // modo inicial pela FASE da tarefa: PR aberto → página do PR; pronta → revisão; senão conversa
+  // voltando pra MESMA tarefa com o editor aberto: não joga fora o que está sendo editado
+  if(fwTask===taskId && fwEditing && (path||null)===(fwPath||null) && $id('fwText')){ $id('fwOverlay').style.display='flex'; renderWorkspace(); return; }
+  fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false; fwReadErr='';
+  fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig=''; fwAgentSel=null; fwFilesSig=''; fwFilesAt=0;
+  fwFileLoading = path ? taskId+'|'+path : '';
+  // modo inicial: o que a ABA lembra (voltou pra ela) › senão pela FASE da tarefa
   { const t=(state.tasks||[]).find(x=>x.id===taskId);
-    // pronta pra revisar ou concluída → aba ENTREGA (objetivo, provas, docs); rodando → código/conversa
-    fwMode = path ? 'codigo' : (t&&(taskIsDone(t)||['review','delivered'].includes(t.status))) ? 'entrega' : (t&&t.prUrl&&t.status!=='draft') ? 'pr' : 'codigo'; }
-  { const sc=$id('fwStepChip'); if(sc) sc.innerHTML=''; } // popover não vaza entre tarefas
+    const tab=(typeof tabById==='function')?tabById('task:'+taskId):null;
+    const working=t&&((ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy)||pendingOf(t.id).length);
+    // pronta pra revisar ou concluída → aba ENTREGA; rodando/perguntando → CONVERSA (é onde a ação está)
+    fwMode = (tab&&tab.mode) ? tab.mode
+      : path ? 'codigo'
+      : (t&&pendingOf(t.id).length) ? 'conversa' // pergunta aberta: a resposta é na conversa
+      : (t&&(taskIsDone(t)||['review','delivered'].includes(t.status))) ? 'entrega'
+      : (t&&t.prUrl&&t.status!=='draft') ? 'pr'
+      : working ? 'conversa' : 'codigo'; }
   $id('fwOverlay').style.display='flex';
+  fwFilesLoading=true;
   renderWorkspace(); // abre NA HORA (skeleton); os dados chegam em paralelo
-  const pFiles = invoke('task_files',{ taskId }).then(f=>{ if(fwTask===taskId) fwFiles=f||[]; }).catch(()=>{ if(fwTask===taskId) fwFiles=[]; });
+  const pFiles = invoke('task_files',{ taskId }).then(f=>{ if(fwTask===taskId) fwFiles=f||[]; }).catch(()=>{ if(fwTask===taskId) fwFiles=[]; }).finally(()=>{ if(fwTask===taskId) fwFilesLoading=false; });
   const pEvs = fwFetchEvents();
   await pFiles;
   if(fwTask!==taskId) return; // trocou de tarefa/aba enquanto carregava: esta resposta já não vale
@@ -101,13 +160,15 @@ async function fwFetchEvents(){
     if(rows.length){ fwEvents.push(...rows); fwEvLast=rows[rows.length-1].id; } }catch(_){ }
 }
 async function fwLoadFile(){
-  if(!fwPath){ fwContent=''; fwAdded=[]; renderWorkspace(); return; }
+  if(!fwPath){ fwContent=''; fwAdded=[]; fwReadErr=''; renderWorkspace(); return; }
   const tk=fwTask, pth=fwPath; // arquivo/tarefa trocados enquanto lia → descarta a resposta velha
-  let content, added;
+  let content, added, err='';
+  fwFileLoading=tk+'|'+pth; fwReadErr='';
   try{ const r=await invoke('read_file',{ taskId:tk, path:pth }); content=r.content||''; added=r.addedLines||[]; }
-  catch(e){ content='// não consegui abrir: '+String(e); added=[]; }
+  catch(e){ content=''; added=[]; err=String(e&&e.message||e)||'erro desconhecido'; }
+  if(fwFileLoading===tk+'|'+pth) fwFileLoading='';
   if(fwTask!==tk || fwPath!==pth) return;
-  fwContent=content; fwAdded=added;
+  fwContent=content; fwAdded=added; fwReadErr=err;
   fwSelA=0; fwSelB=0; renderWorkspace();
 }
 function closeWorkspace(){ const o=$id('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }
@@ -119,18 +180,20 @@ function fwPlan(t){
   return `<div class="fwplan">`+roles.map((r,i)=>{
     let cls = fin||i<cur?'done':(i===cur&&ACTIVE_ST.has(t.status)?'cur':'wait');
     const mark = cls==='done'?IC.check:cls==='cur'?'<span class="spin"></span>':(i+1);
-    return `<div class="fwstep ${cls}"><span class="fwmark">${mark}</span><span class="fwsteptx">${ROLE_PT[r.role]||r.role} · ${esc(r.name)}</span></div>`;
+    return `<div class="fwpstep ${cls}"><span class="fwmark">${mark}</span><span class="fwsteptx">${ROLE_PT[r.role]||r.role} · ${esc(r.name)}</span></div>`;
   }).join('')+`</div>`;
 }
 let fwCtxOpen=(lsGet('fwCtxOpen')==='1');
+// papel da etapa em andamento, em PT e como ação (antes aparecia "BUILD" — o id do papel em inglês)
+const ROLE_DOING={ planner:'planejando', builder:'construindo', reviewer:'revisando', tester:'testando', designer:'desenhando', investigator:'investigando' };
 // barra compacta: estado da tarefa + progresso dos requisitos (expande no clique)
 function fwCtxBarHtml(t){
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
-  const col=STATUS_COLOR[t.status]||'var(--muted)';
-  const st = asking.length?`<span class="fwctxst" style="color:var(--warn)"><span class="pulse" style="--pc:var(--warn)"></span>esperando você</span>`
-    : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(ROLE_PT[t.stage]||t.stage||'trabalhando')}</span>`
-    : `<span class="fwctxst" style="color:${col}">${IC.checkc} ${esc(t.status==='review'?'pronta pra review':t.status==='merged'?'mergeada':t.status)}</span>`;
+  // estado final: selo padrão (PT + ícone certo) — antes era "✓ error" em inglês, com ✓ até em falha
+  const st = asking.length?`<span class="fwctxst" style="color:var(--st-ask)"><span class="pulse" style="--pc:var(--st-ask)"></span>aguardando você</span>`
+    : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(ROLE_DOING[t.stage]||'trabalhando')}</span>`
+    : `<span class="fwctxst">${stBadge(taskSt(t))}</span>`; // R5-1: status efetivo (PR aberto igual à Central)
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   let reqPart='';
   if(reqs.length){
@@ -141,7 +204,8 @@ function fwCtxBarHtml(t){
       const pct=reqs.length?Math.round(done/reqs.length*100):0;
       reqPart=`<span class="fwctxreq">requisitos <b>${done}/${reqs.length}</b><span class="minibar"><i style="width:${pct}%"></i></span></span>`;
     } else {
-      reqPart=`<span class="fwctxreq">requisitos <b>${reqs.length}</b> · <span style="color:var(--warn)">sem provas — verificar ›</span></span>`;
+      // rodando: as provas ainda vão chegar — aviso só depois que o agente parou
+      reqPart=`<span class="fwctxreq">requisitos <b>${reqs.length}</b>${working||asking.length?'':' · <span style="color:var(--warn)">sem provas — verificar ›</span>'}</span>`;
     }
   }
   return `${st}${reqPart}<span class="fwchev">${fwCtxOpen?'▾':'▸'}</span>`;
@@ -152,12 +216,13 @@ function fwNowHtml(t){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
     const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
-    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
   return fwPlan(t);
 }
 let fwLiveSig='';
+let fwPrimShown=''; // id da ação principal que o topo está mostrando
 let fwPvShown=null; // preview (🌐) que o cabeçalho da tarefa está mostrando
 async function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
@@ -165,11 +230,16 @@ async function fwLiveUpdate(){
   const evs0=fwEvents.length?fwEvents:eventsOf(t.id);
   const rp=reqProofCache[t.id];
   const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
+  // PR na tela e dados velhos (>60s) → busca de novo em segundo plano
+  if(fwMode==='pr' && typeof prIsStale==='function' && prIsStale(t.id)){ loadPr(t.id,true).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); }); }
+  { const ag=$id('prAge'); const pi=prCache[t.id]; if(ag&&pi&&pi._at&&typeof prAgoTx==='function') ag.textContent=prAgoTx(pi._at); }
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
   fwLiveSig=sig;
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
   // no renderWorkspace → o botão 🌐 nunca aparecia com a aba aberta
   if((taskPreviewUrl(t.id)||null)!==fwPvShown){ renderWorkspace(); return; }
+  // a fase mudou (rodando → revisão, pergunta chegou…): a ação principal do topo muda junto
+  if(((fwPrimaryAction(t)||{}).id||'')!==fwPrimShown){ renderWorkspace(); return; }
   const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
   const th=$id('fwThread');
@@ -177,9 +247,9 @@ async function fwLiveUpdate(){
   const rq=$id('fwReqs'); if(rq) rq.innerHTML=fwReqsHtml(t);
   const cb=$id('fwCtxBar'); if(cb) cb.innerHTML=fwCtxBarHtml(t);
   const sub=$id('fwChatSub');
-  const asking=pendingOf(t.id); const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
-  if(sub) sub.textContent=asking.length?'esperando sua resposta':working?'trabalhando…':'mesma sessão — ele lembra o que fez';
-  const send=$id('fwSend'); if(send) send.textContent=asking.length?'responder':working?'parar e enviar':'enviar';
+  if(sub) sub.textContent=fwChatSubText(t);
+  // botões de envio + dica mudam com o estado (trabalhando → "na fila" vira o principal)
+  fwPaintSendRow(t);
   // árvore de arquivos AO VIVO: o agente cria/edita → aparece sem fechar o editor
   if(!fwFilesAt || Date.now()-fwFilesAt>4000){
     fwFilesAt=Date.now();
@@ -187,12 +257,11 @@ async function fwLiveUpdate(){
       if(fwTask!==t.id) return; // trocou de tarefa enquanto buscava: não pinta os arquivos da outra
       f=f||[];
       const s=f.map(x=>x.path+':'+x.add+':'+x.del).join('|');
-      if(s!==fwFilesSig){ fwFilesSig=s; fwFiles=f; renderWorkspace(); }
+      if(s!==fwFilesSig){ fwFilesSig=s; fwFiles=f; fwFilesLoading=false; renderWorkspace(); }
     }).catch(()=>{});
   }
 }
 let fwFilesAt=0, fwFilesSig='';
-let fwChatWide=(lsGet('fwChatWide')==='1');
 // fase da tarefa no funil do redesign: Descoberta→Despacho→Execução→Revisão→PR
 const PHASES=['Descoberta','Despacho','Execução','Revisão','PR'];
 function taskPhase(t){
@@ -206,165 +275,271 @@ function phasesHtml(t){
   const ph=taskPhase(t);
   return PHASES.map((p,i)=>`<span class="pd${i+1<ph?' done':i+1===ph?' cur':''}" title="${escA(p)}"></span>`).join('')+`<span class="plabel">${esc(PHASES[ph-1])}</span>`;
 }
-// abas de sessão: alterna entre as tarefas vivas sem sair do workspace
-function renderFwTabs(){
-  const el=$id('fwTabs'); if(!el) return;
-  el.style.display='none'; el.innerHTML=''; return; // tarefas abertas agora vivem na barra de abas do topo
-  // abas = sessões RODANDO ou ESPERANDO REVIEW (fechadas/mergeadas não poluem o topo)
-  let open=(state.tasks||[]).filter(t=>t.flag!=='closed'&&(ACTIVE_ST.has(t.status)||['thinking','plan-review','review','delivered'].includes(t.status)))
-    .sort((a,b)=>b.created_at-a.created_at).slice(0,7);
-  const cur=(state.tasks||[]).find(t=>t.id===fwTask);
-  if(cur && !open.some(t=>t.id===cur.id)) open=[cur,...open].slice(0,6);
-  // a barra fica SEMPRE visível: dá o recuo dos semáforos do macOS e é a área de arrastar a janela
-  el.style.display='flex';
-  el.innerHTML=open.map(t=>{
-    const col=pendingOf(t.id).length?'var(--warn)':(ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)':['review','delivered'].includes(t.status)?'var(--warn)':'var(--muted)';
-    return `<span class="fwtab${t.id===fwTask?' on':''}" data-tab="${escA(t.id)}"><span class="td" style="background:${col}"></span>${esc(t.title.slice(0,26))}</span>`;
-  }).join('');
-  el.querySelectorAll('.fwtab').forEach(b=>b.onclick=()=>{ if(b.dataset.tab!==fwTask) openWorkspace(b.dataset.tab); });
+// barra de envio do chat: os botões e a dica mudam com o estado. Trabalhando, Enter põe NA FILA
+// (não interrompe); "parar e enviar" é ⌘Enter / botão secundário — antes o Enter era destrutivo.
+function fwSendRowHtml(t){
+  const asking=pendingOf(t.id).length>0, working=fwIsWorking(t);
+  const btns = asking ? `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">responder</button>`
+    : working ? `<button class="btn sm trk-stop" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">■ parar e enviar</button><button class="btn primary sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
+    : `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">enviar</button>`;
+  const hint = asking ? '<span class="kbd">Enter</span> responde · <span class="kbd">⇧Enter</span> quebra linha'
+    : working ? '<span class="kbd">Enter</span> põe na fila (não interrompe) · <span class="kbd">⌘Enter</span> para e envia já'
+    : '<span class="kbd">Enter</span> envia · <span class="kbd">⇧Enter</span> quebra linha';
+  return { btns, hint, key:asking?'a':working?'w':'i' };
+}
+function fwPaintSendRow(t){
+  const box=$id('fwSendBtns'); if(!box) return;
+  const r=fwSendRowHtml(t);
+  if(box.dataset.k===r.key) return; // nada mudou → não mexe no DOM
+  box.dataset.k=r.key; box.innerHTML=r.btns;
+  const h=$id('fwHint'); if(h) h.innerHTML=r.hint;
+  bindClick('fwSend', ()=>fwSendMsg(false));
+  bindClick('fwQueue', ()=>fwSendMsg(true));
+}
+// ---- cabeçalho FIXO da tarefa: título (…) · modos · UMA ação principal por fase · menu ⋯ ----
+// antes eram até 7 controles que quebravam linha/cortavam o título conforme o modo; no PR o
+// "commit & push" ficava ao lado de "aprovar e abrir PR" e o vibe coder não sabia qual apertar.
+function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
+function fwPrimaryAction(t){
+  if(t.status==='draft') return null;
+  if(pendingOf(t.id).length) return { id:'fwAnswer', html:'✋ responder', title:'o agente fez uma pergunta — a resposta vai na conversa' };
+  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`■ parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
+  if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
+  if(t.status==='conflict') return { id:'fwResolve', html:'⚡ resolver conflito', title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
+  if(t.status==='paused') return { id:'fwResume', html:'▶ continuar', title:'retoma a tarefa de onde parou' };
+  if(t.status==='plan-review') return { id:'fwApprovePlan', html:'▶ aprovar plano', title:'o plano está pronto — aprovar deixa o time começar a construir' };
+  // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
+  if(t.prUrl){ const n=fwPrNum(t);
+    return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n} ↗`, title:'abrir o PR no GitHub' }
+      : { id:'fwPrGo', html:`${IC.merge} ver PR #${n}`, title:'comentários, checagens e merge do PR' }; }
+  if(taskIsDone(t)) return null;
+  if(['review','delivered'].includes(t.status)){
+    const rev=reviewOf(t.id);
+    return fwArtOnly(t) ? { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' }
+      : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo → commit & push → cria o PR' };
+  }
+  return null;
+}
+function fwActionHtml(t){
+  const a=fwPrimaryAction(t); if(!a) return '';
+  return `<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}">${a.html}</button>`;
+}
+// itens do ⋯ (secundários) — só o que faz sentido na fase atual
+function fwMoreItems(t){
+  const it=[], done=taskIsDone(t), nogit=document.body.classList.contains('nogit');
+  const prim=(fwPrimaryAction(t)||{}).id;
+  const pv=taskPreviewUrl(t.id), tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+  it.push({ k:'sum', label:`resumo e progresso · ${taskPct(t)}%`, hint:'tudo que já foi feito + o que falta' });
+  if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
+  if(t.prUrl){ const n=fwPrNum(t);
+    if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
+    if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub ↗` });
+    it.push({ k:'prcopy', label:'copiar link do PR' });
+  } else if(!done && !nogit && !fwArtOnly(t) && t.status!=='draft' && !['review','delivered'].includes(t.status)){
+    it.push({ k:'propen', label:'abrir PR', hint:'checagens do repo → commit & push → cria o PR' });
+  }
+  if(pv){ it.push({ k:'pv', label:'abrir o preview', hint:pv.replace(/^https?:\/\//,'').slice(0,40) });
+    it.push(tun?{ k:'pvoff', label:'fechar o acesso do celular', warn:true }:{ k:'pvmob', label:'abrir o preview no celular', hint:'túnel criptografado' }); }
+  if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
+  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${modelFriendly(t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
+  const cost=taskCost(t.id);
+  it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtUsd(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}`, info:true });
+  if(fwTreeHidden()) it.push({ k:'tree', label:'mostrar arquivos e artefatos', hint:'⌘B' });
+  it.push({ k:'close', label:'fechar a aba', hint:'esc' });
+  return it;
+}
+function fwOpenMore(t, anchor){
+  const old=$id('fwMorePop'); if(old){ old.remove(); return; }
+  const pop=document.createElement('div'); pop.id='fwMorePop'; pop.className='fwmenu';
+  pop.innerHTML=fwMoreItems(t).map(i=>i.info?`<div class="fwmi info">${esc(i.label)}</div>`
+    :`<button class="fwmi${i.warn?' warn':''}" data-fwm="${i.k}"${i.tip?` title="${escA(i.tip)}"`:''}><span>${esc(i.label)}</span>${i.hint?`<span class="fwmh">${esc(i.hint)}</span>`:''}</button>`).join('');
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.right-pop.offsetWidth))+'px';
+  const close=()=>{ pop.remove(); document.removeEventListener('mousedown', out, true); };
+  const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor) close(); };
+  setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
+  pop.querySelectorAll('[data-fwm]').forEach(b=>b.onclick=async()=>{ const k=b.dataset.fwm; close(); await fwMoreDo(t, k, anchor); });
+}
+async function fwMoreDo(t, k, anchor){
+  const pv=taskPreviewUrl(t.id);
+  if(k==='sum') openTaskSummary(t.id);
+  else if(k==='askfix') fwAskFix();
+  else if(k==='prgo'){ fwMode='pr'; fwRememberTab(); renderWorkspace(); }
+  else if(k==='prgh') openExternal(t.prUrl);
+  else if(k==='prcopy') copyLink(t.prUrl);
+  else if(k==='propen') prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
+  else if(k==='pv' && pv) invoke('open_url',{ url:pv }).catch(()=>{});
+  else if(k==='pvmob' && pv){ toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); }
+  else if(k==='pvoff') await fwTunnelOff(t);
+  else if(k==='push') await fwPushTask();
+  else if(k==='model') openModelMenu(t.id, anchor);
+  else if(k==='tree') fwToggleTree();
+  else if(k==='close'){ if(await fwLeaveEditor()) closeWorkspace(); }
+}
+function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
+  const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
+async function fwTunnelOff(t){
+  try{ await invoke('tunnel_stop',{ taskId:t.id }); }catch(_){ }
+  if(typeof tunnelUp!=='undefined') delete tunnelUp[t.id];
+  if(typeof autoTunneled!=='undefined') delete autoTunneled[t.id];
+  try{ const cid=tmap()[t.id]; if(cid){ const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{}; await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null,tunnelClose:null}})}); } }catch(_){ }
+  toast('acesso do celular fechado','ok'); renderWorkspace();
+}
+// commit & push (manutenção: mora no ⋯)
+async function fwPushTask(){
+  const t=fwTaskObj(); if(!t) return;
+  toast('commitando e enviando a branch…');
+  try{ const msg=await invoke('push_task',{ taskId:t.id }); prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig=''; toast('✓ '+msg,'ok'); }
+  catch(e){ toast('Commit & push falhou: '+e,'err'); }
+}
+const FW_SCROLLERS=['#fwCode','.fwdiff','.prleft','.prright','.fwwhyt'];
+function fwGrabScroll(root){ const o={ _:root.scrollTop }; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el) o[s]=[el.scrollTop, el.scrollLeft]; }); return o; }
+function fwPutScroll(root, o){ if(!o) return; root.scrollTop=o._||0; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el&&o[s]){ el.scrollTop=o[s][0]; el.scrollLeft=o[s][1]; } }); }
+function fwHasDraft(){ return !!(fwTask && (String(fwDraft[fwTask]||'').trim() || (fwPend[fwTask]||[]).length)); }
+// "por que este arquivo" (IA, custa créditos): SÓ sob demanda — antes rodava sozinho a cada arquivo aberto
+function fwAskWhy(taskId, path){
+  if(!path) return;
+  const k=taskId+'|'+path; fwWhyCache[k]=null; fwWhyOpen=true;
+  invoke('ai_file_why',{ taskId, path }).then(md=>{ fwWhyCache[k]={ md:md||'' }; if(fwTask===taskId) renderWorkspace(); })
+    .catch(e=>{ fwWhyCache[k]={ err:String(e&&e.message||e) }; if(fwTask===taskId) renderWorkspace(); });
+  renderWorkspace();
 }
 function renderWorkspace(){
-  renderFwTabs();
-  { const t=fwTaskObj(); const p=$id('fwPhases'); if(p&&t) p.innerHTML=phasesHtml(t); }
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
-  { const cols=document.querySelector('#fwOverlay .fwcols'); if(cols) cols.classList.remove('chatwide'); }
-  // modo da tela (conversa · código · revisão · PR) — layout muda junto
-  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega'); cols.classList.add('m-'+fwMode); } }
-  { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=()=>{ fwMode=b.dataset.fwmode; renderWorkspace(); }); } }
-  // stepper flutuante de fases removido (pouco útil) — não renderiza mais
-  // preserva o que está sendo digitado no chat entre re-renders
-  const ai=document.activeElement, keepInput=(ai&&ai.id==='fwInput'), inEl=$id('fwInput'), inVal=inEl?inEl.value:null, inCaret=(inEl&&inEl.selectionStart!=null)?inEl.selectionStart:null;
-  $id('fwTaskName').textContent=t.title;
+  { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
+  // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
+  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
+  { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=async()=>{ const nm=b.dataset.fwmode; if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }); } }
+  { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
+  // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
+  { const te=$id('fwTaskEpic'); if(te){ const h=(typeof epTaskBadge==='function')?epTaskBadge(t):''; if(te.innerHTML!==h) te.innerHTML=h;
+      te.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); } }
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
   if(typeof orqTaskChips==='function') orqTaskChips(t);
-  // barra de REVISÃO (redesign p12): entrega pronta → aprovar/pedir ajuste dali mesmo
+  // barra do topo: [🌐 preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
   { const rb=$id('fwReviewBar');
     if(rb){
-      const cost=taskCost(t.id);
-      const modelChip=(t.status!=='draft')?`<button class="btn sm" id="fwModel" title="trocar o modelo desta demanda (vale a partir do próximo turno)" style="font-family:var(--mono);font-size:11px">⚙ ${esc(typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão'))}</button>`:'';
-      const costChip=modelChip+(cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'');
-      // site local que o agente subiu (🌐 preview) — abrir aqui ou no celular (túnel)
       const pv=taskPreviewUrl(t.id); fwPvShown=pv||null;
-      const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
-      const pctHtml=`<button class="btn sm" id="fwSum" title="resumo de tudo que já foi feito + o que falta" style="display:flex;gap:7px;align-items:center"><span style="width:52px;height:4px;border-radius:99px;background:var(--border-strong);overflow:hidden;display:inline-block"><i style="display:block;height:100%;width:${taskPct(t)}%;background:var(--good)"></i></span><span class="mono" style="font-size:10.5px">${taskPct(t)}%</span></button>`;
-      const pvHtml=pctHtml+(pv?`<button class="btn sm" id="fwPv" data-url="${escA(pv)}" title="${escA(pv)}" style="color:var(--accent)">${IC.globe} ${esc(pv.replace(/^https?:\/\//,'').slice(0,26))}</button>`+
-        (tun?`<button class="btn sm" id="fwPvOff" title="fecha o túnel do celular agora (${escA(tun)})" style="color:var(--warn)">${IC.phone} fechar acesso</button>`
-            :`<button class="btn sm" id="fwPvMob" data-url="${escA(pv)}" title="túnel criptografado pra abrir este preview no seu celular">${IC.phone}</button>`):'');
-      // PR SEMPRE à mão: existe → página do PR; não existe → preparar e abrir
-      const prN2=(String(t.prUrl||'').match(/\/pull\/(\d+)/)||[])[1];
-      const prBtn = t.status==='draft' ? '' : (t.prUrl
-        ? `<button class="btn sm" id="fwPrGo" title="página do PR — corpo, comentários, merge" style="color:var(--accent)">${IC.merge} PR${prN2?' #'+prN2:''}</button>`
-        : `<button class="btn sm" id="fwPrOpen" title="checagens do repo → commit & push → cria o PR">${IC.merge} abrir PR</button>`);
-      if(['review','delivered'].includes(t.status) && !t.prUrl){
-        const rev=reviewOf(t.id);
-        rb.innerHTML=`${pvHtml}${costChip}<button class="btn sm" id="fwAskFix" title="${rev?escA((rev.summary||'').slice(0,120)):'a entrega está pronta pra revisar'}">pedir ajuste</button><button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`;
-        const af=$id('fwAskFix'); if(af) af.onclick=()=>{ const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } };
-        const ap=$id('fwApprove'); if(ap) ap.onclick=()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
-      } else rb.innerHTML=pvHtml+costChip+prBtn;
-      bindClick('fwPrGo', ()=>{ fwMode='pr'; renderWorkspace(); });
-      bindClick('fwPrOpen', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
-      bindClick('fwSum', ()=>openTaskSummary(t.id));
-      bindClick('fwModel', (e)=>{ e.stopPropagation(); openModelMenu(t.id, e.currentTarget); });
-      bindClick('fwPv', ()=>invoke('open_url',{ url:b.dataset.url }).catch(()=>{}));
-      { const b=$id('fwPvMob'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='criando túnel…';
-          const pub=await mobilePreview(t.id, b.dataset.url);
-          if(pub && typeof tunnelUp!=='undefined'){ tunnelUp[t.id]=pub; }
-          renderWorkspace(); }; }
-      { const b=$id('fwPvOff'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='fechando…';
-          try{ await invoke('tunnel_stop',{ taskId:t.id }); }catch(_){ }
-          if(typeof tunnelUp!=='undefined') delete tunnelUp[t.id];
-          if(typeof autoTunneled!=='undefined') delete autoTunneled[t.id];
-          try{ const cid=tmap()[t.id]; if(cid){ const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{}; await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null,tunnelClose:null}})}); } }catch(_){ }
-          renderWorkspace(); }; }
+      const pvBtn=pv?`<button class="btn sm fwpvic" id="fwPv" data-url="${escA(pv)}" title="abrir o site que o agente subiu — ${escA(pv)} (celular: no ⋯)">${IC.globe}</button>`:'';
+      rb.innerHTML=pvBtn+fwActionHtml(t);
+      fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
+      bindClick('fwAnswer', ()=>fwAskFix());
+      bindClick('fwStopTop', ()=>stopTask(t.id));
+      bindClick('fwApprove', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
+      bindClick('fwArchive', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); b.disabled=false; } renderWorkspace(); });
+      bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
+      bindClick('fwResume', async()=>{ await resumeTask(t.id); renderWorkspace(); });
+      bindClick('fwApprovePlan', async()=>{ await startTask(t.id); renderWorkspace(); });
+      bindClick('fwResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
+      bindClick('fwPrGo', ()=>{ fwMode='pr'; fwRememberTab(); renderWorkspace(); });
+      bindClick('fwPrGh', ()=>openExternal(t.prUrl));
+      bindClick('fwPv', (e)=>invoke('open_url',{ url:e.currentTarget.dataset.url }).catch(()=>{}));
     }
+    const mb=$id('fwMore'); if(mb) mb.onclick=(e)=>{ e.stopPropagation(); const tt=fwTaskObj(); if(tt) fwOpenMore(tt, mb); };
   }
   // ---- coluna 1: árvore de arquivos ----
   const tree=$id('fwTree');
+  const treeTop = tree.dataset.tk===t.id ? tree.scrollTop : 0;
   const dels=Array.isArray(t.deliverables)?t.deliverables.filter(Boolean):[];
   const canDeliv=dels.length>0;
   const body = fwFiles.length
     ? (fwGroupMode==='deliverable'&&canDeliv ? fwDelivHtml(fwFiles, dels) : `<div class="fwtreebody">${fwTreeHtml(fwBuildTree(fwFiles),0)}</div>`)
-    : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos (.cardume/refs) e os artefatos aparecem aqui ao vivo</div>';
+    : fwFilesLoading ? '<div class="dim" style="padding:8px;font-size:11.5px"><span class="spin"></span> carregando os arquivos…</div>'
+    : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const tActive=ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy;
   const cost=taskCost(t.id);
-  const liveAll=(state.tasks||[]).filter(x=>ACTIVE_ST.has(x.status)||x.status==='thinking').length;
-  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>slots em paralelo</span><b>${liveAll}/${slotMax}</b></div><div class="r"><span>custo até agora</span><b>${cost.usd>0?fmtUsd(cost.usd):'—'}</b></div></div>`;
-  // Entregas & provas (artefatos) — sempre à mão, como no painel antigo
+  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtUsd(cost.usd):'—'}</b></div></div>`;
+  // Entregas & provas (artefatos) — sempre à mão (1 carga em voo por tarefa: antes cada render disparava outra)
   const artC=artifactsCache[t.id];
-  if(!artC || artC.status!==t.status){ loadArtifacts(t.id, t.status).then(()=>{ if(fwTask===t.id) renderWorkspace(); }); }
+  if((!artC || artC.status!==t.status) && !fwArtLoading[t.id]){ fwArtLoading[t.id]=1; loadArtifacts(t.id, t.status).finally(()=>{ delete fwArtLoading[t.id]; if(fwTask===t.id) renderWorkspace(); }); }
   const artsHtml=artC?artListHtml(artC.list):'';
-  tree.innerHTML=`<div class="fwtreeh">${fwMode==='revisao'?'Arquivos alterados':tActive?'Arquivos sendo alterados':'Arquivos desta tarefa'}</div>`+
+  tree.innerHTML=`<div class="fwtreeh"><span>${fwMode==='revisao'?'Arquivos alterados':tActive?'Arquivos sendo alterados':'Arquivos desta tarefa'}</span><button class="fwtreebtn" data-fwtree="off" title="recolher os arquivos (⌘B)">«</button></div>`+
     (canDeliv?`<div class="fwgtoggle"><button class="fwgbtn${fwGroupMode==='folder'?' on':''}" data-fwg="folder">Pastas</button><button class="fwgbtn${fwGroupMode==='deliverable'?' on':''}" data-fwg="deliverable">Entregáveis</button></div>`:'')+
     body+
-    (fwMode==='conversa'?'':`<div class="fwtreehint">${fwGroupMode==='deliverable'?'Vínculo por palavra-chave — o arquivo aparece sob o entregável que ele parece atender.':'Selecione linhas no código e pergunte ao agente que escreveu.'}</div>`)+
+    // dica de "selecionar linhas" saiu daqui: fica junto do código (barra sob o código / faixa da Revisão)
+    (fwGroupMode==='deliverable'&&canDeliv?'<div class="fwtreehint">Vínculo por palavra-chave — o arquivo aparece sob o entregável que ele parece atender.</div>':'')+
     (artsHtml?`<div class="fwarts">${artsHtml}</div>`:'')+
     treeFoot;
-  tree.querySelectorAll('[data-art]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openArtifact(t.id, b.dataset.art); });
+  tree.dataset.tk=t.id; tree.scrollTop=treeTop;
+  tree.querySelectorAll('[data-art]').forEach(b=>{ if(!b.title) b.title=b.dataset.art; b.onclick=(e)=>{ e.stopPropagation(); openArtifact(t.id, b.dataset.art); }; }); // nome inteiro no tooltip ("print-tot…")
   tree.querySelectorAll('[data-fwg]').forEach(b=>b.onclick=()=>{ fwGroupMode=b.dataset.fwg; renderWorkspace(); });
-  // status por arquivo (redesign p6): tocado há <3min = EDITANDO; resto = CONCLUÍDO
+  // status por arquivo enquanto a tarefa roda: só "editando" (tocado há <3 min) ganha texto; o resto é um
+  // pontinho discreto com o detalhe no tooltip — antes um selo "CONCLUÍDO" em CADA arquivo comia a largura
+  // (nomes viravam "checkou…") e mentia com a tarefa ainda rodando
   if(fwFiles.length && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy)){
-    const hot=new Set(); const now=Date.now();
-    for(const e of eventsOf(t.id).slice(-80)){
+    const touched=new Map(); const now=Date.now(); // arquivo → último edit/write (ms)
+    for(const e of eventsOf(t.id).slice(-120)){
       if(!['edit','write'].includes(e.type)) continue;
-      if(now-(+new Date(e.ts)||0)>180000) continue;
+      const at=+new Date(e.ts)||0;
       const m=String(e.text||'').match(/[\w@./-]+\.[A-Za-z]{1,8}/g)||[];
-      m.forEach(x=>hot.add(x.replace(/^\.\//,'')));
+      m.forEach(x=>{ const k=x.replace(/^\.\//,''); if(at>(touched.get(k)||0)) touched.set(k, at); });
     }
+    const agoTx=ms=>{ const s=Math.max(0,Math.round(ms/1000)); return s<60?`${s}s`:`${Math.round(s/60)} min`; };
     tree.querySelectorAll('[data-fwf]').forEach(b=>{
       const p=b.dataset.fwf||'';
-      const isHot=[...hot].some(h=>p.endsWith(h)||h.endsWith(p));
-      b.insertAdjacentHTML('beforeend', `<span class="fwst ${isHot?'ed':'ok'}">${isHot?'editando':'concluído'}</span>`);
+      let last=0; touched.forEach((at,h)=>{ if((p.endsWith(h)||h.endsWith(p)) && at>last) last=at; });
+      const isHot=last && now-last<=180000;
+      b.insertAdjacentHTML('beforeend', isHot
+        ? `<span class="fwst ed" title="o agente editou este arquivo há ${agoTx(now-last)}">editando</span>`
+        : `<span class="fwdot" title="${escA(last?`alterado nesta tarefa — última edição do agente há ${agoTx(now-last)}`:'alterado nesta tarefa — sem edição do agente nos últimos minutos')}"></span>`);
     });
   }
-  tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=()=>{ fwPath=b.dataset.fwf; fwEditing=false; if(fwMode==='conversa'||fwMode==='pr') fwMode='codigo'; fwLoadFile(); renderWorkspace(); });
+  tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=async()=>{ if(b.dataset.fwf!==fwPath && !await fwLeaveEditor()) return; fwPath=b.dataset.fwf; fwEditing=false; if(fwMode==='conversa'||fwMode==='pr'||fwMode==='entrega') fwMode='codigo'; fwRememberTab(); fwLoadFile(); renderWorkspace(); });
   tree.querySelectorAll('[data-fwdir]').forEach(b=>b.onclick=()=>{ const p=b.dataset.fwdir; if(fwCollapsed.has(p)) fwCollapsed.delete(p); else fwCollapsed.add(p); renderWorkspace(); });
   // ---- coluna 2: código (visualizar + editar inline) ----
   const main=$id('fwMain');
+  // editando: o poll NÃO recria o editor (antes o re-render a cada 4s apagava o que você digitou)
+  const edEl=$id('fwText');
+  const keepEditor = !!(fwEditing && fwMode==='codigo' && edEl && edEl.dataset.fk===(t.id+'|'+fwPath));
+  const mk=t.id+'|'+fwMode+'|'+(fwPath||'');
+  const mainMem = (!keepEditor && main.dataset.mk===mk) ? fwGrabScroll(main) : null; // mesma tela → mantém a rolagem
   const added=new Set(fwAdded); const sel=fwSelRange();
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
   const lines=fwContent.split('\n');
-  // "Por que este arquivo": explicação REAL do diff deste arquivo (IA, cache por versão do diff),
-  // recolhível; enquanto carrega, mostra o objetivo da tarefa (sem o bloco de contexto do orquestrador)
+  // "Por que este arquivo": explicação REAL do diff (IA) — sob demanda, cache por versão do diff
   const objShort=String(t.objective||'').split('[PLANO DO ORQUESTRADOR')[0].trim();
   const whyKey=t.id+'|'+(fwPath||'');
-  if(fwPath && fwWhyCache[whyKey]===undefined && !fwEditing){
-    fwWhyCache[whyKey]=null;
-    invoke('ai_file_why',{ taskId:t.id, path:fwPath }).then(md=>{ fwWhyCache[whyKey]={ md:md||'' }; if(fwTask===t.id) renderWorkspace(); })
-      .catch(e=>{ fwWhyCache[whyKey]={ err:String(e&&e.message||e) }; if(fwTask===t.id) renderWorkspace(); });
-  }
-  const w=fwPath?fwWhyCache[whyKey]:null;
+  const w=fwPath?fwWhyCache[whyKey]:undefined;
   const whyInner = !fwPath ? esc(objShort)
+    : w===undefined ? `${esc(objShort)}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai||'✨'} explicar este arquivo com IA</button></div>`
     : w===null ? `<span class="dim">lendo o diff deste arquivo e escrevendo a explicação…</span>`
     : (w&&w.md) ? mdToHtml(w.md)
     : (w&&w.err) ? `<span style="color:var(--warn)">não consegui explicar este arquivo: ${esc(w.err)}</span> <a class="lnk" id="fwWhyRetry">tentar de novo</a>`
     : `<span class="dim">sem alterações neste arquivo nesta branch.</span> ${esc(objShort)}`;
-  const whyBand = `<div class="fwwhy${fwWhyOpen?' open':''}"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div class="fwwhyb"><div class="fwwhyh"><span class="fwwhyl">${fwPath?'O que foi feito neste arquivo e por quê':'Objetivo da tarefa'}</span><span style="flex:1"></span>${fwPath&&w&&w.md?`<button class="fwwhyre" id="fwWhyRedo" title="gerar de novo">↻</button>`:''}<button class="fwwhytg" id="fwWhyTg">${fwWhyOpen?'▴ menos':'▾ mais'}</button></div><div class="fwwhyt">${whyInner}</div></div></div>`;
-  if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
+  const whyBand = `<div class="fwwhy${fwWhyOpen?' open':''}"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div class="fwwhyb"><div class="fwwhyh"><span class="fwwhyl">${fwPath&&w!==undefined?'O que foi feito neste arquivo e por quê':'Objetivo da tarefa'}</span><span style="flex:1"></span>${fwPath&&w&&w.md?`<button class="fwwhyre" id="fwWhyRedo" title="gerar de novo">↻</button>`:''}<button class="fwwhytg" id="fwWhyTg">${fwWhyOpen?'▴ menos':'▾ mais'}</button></div><div class="fwwhyt">${whyInner}</div></div></div>`;
+  if(keepEditor){ /* editor aberto: fica como está (texto, cursor, rolagem) */ }
+  else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
-  else if(!fwPath){ main.innerHTML='<div class="empty">selecione um arquivo à esquerda</div>'; }
+  else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:12px">código</span></div><div class="empty">${fwFilesLoading?'<span class="spin"></span> carregando os arquivos…':fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
   else {
+    const loadingFile = fwFileLoading===(t.id+'|'+fwPath);
     const headBtns = fwEditing
       ? `<button class="btn primary sm" id="fwSave">${IC.check} salvar</button><button class="btn sm" id="fwCancel">cancelar</button>`
+      : (fwReadErr||loadingFile) ? '' // sem conteúdo real → sem "editar" (salvaria o erro/vazio por cima do arquivo)
       : `<button class="btn sm" id="fwEditBtn">${IC.pencil||'✎'} editar</button>`;
     const body = fwEditing
-      ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off"></textarea></div>`
+      ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
+      : loadingFile ? `<div class="empty"><span class="spin"></span> abrindo o arquivo…</div>`
+      : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(fwReadErr.slice(0,400))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`
       : `<div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>`;
     const bar = fwEditing
-      ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela`
+      ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela</div>`
       : `<div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique e <b>arraste</b> pra selecionar várias linhas (ou shift+clique) e pergunte no chat'}</div>`;
     main.innerHTML = `
-      <div class="fwmhead"><span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
+      <div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
       ${whyBand}
       ${body}
       ${bar}`;
   }
-  if(fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'){ /* wiring próprio nas funções de página */ }
+  if(!keepEditor){ main.dataset.mk=mk; fwPutScroll(main, mainMem); }
+  if(keepEditor||fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'){ /* wiring próprio nas funções de página (ou editor intacto) */ }
   else if(fwEditing){
     const ta=$id('fwText'), gut=$id('fwGutter');
     if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); try{ ta.setSelectionRange(0,0); }catch(_){ } ta.focus({preventScroll:true}); requestAnimationFrame(()=>{ ta.scrollTop=0; ta.scrollLeft=0; gut.scrollTop=0; }); } // abre no TOPO: o caret ia pro fim e o focus rolava o texto todo
     const sv=$id('fwSave'); if(sv) sv.onclick=fwSaveFile;
-    const cc=$id('fwCancel'); if(cc) cc.onclick=()=>{ fwEditing=false; renderWorkspace(); };
+    const cc=$id('fwCancel'); if(cc) cc.onclick=async()=>{ if(await fwLeaveEditor()) renderWorkspace(); };
   } else {
     const codeEl=$id('fwCode');
     if(codeEl){
@@ -373,33 +548,42 @@ function renderWorkspace(){
       codeEl.addEventListener('mouseover',e=>{ if(!fwDrag)return; const ln=e.target.closest('.fwln'); if(!ln)return; fwSelB=+ln.dataset.ln; fwPaintSel(); });
     }
     const eb=$id('fwEditBtn'); if(eb) eb.onclick=()=>{ fwEditing=true; renderWorkspace(); };
+    bindClick('fwReload', ()=>fwLoadFile());
     bindClick('fwWhyTg', ()=>{ fwWhyOpen=!fwWhyOpen; renderWorkspace(); });
-    bindClick('fwWhyRedo', async()=>{ const k=t.id+'|'+fwPath; try{ await invoke('ai_file_why_reset',{ taskId:t.id, path:fwPath }); }catch(_){ } fwWhyCache[k]=undefined; renderWorkspace(); });
-    bindClick('fwWhyRetry', ()=>{ fwWhyCache[t.id+'|'+fwPath]=undefined; renderWorkspace(); });
+    bindClick('fwWhyAsk', ()=>fwAskWhy(t.id, fwPath));
+    bindClick('fwWhyRedo', async()=>{ try{ await invoke('ai_file_why_reset',{ taskId:t.id, path:fwPath }); }catch(_){ } fwAskWhy(t.id, fwPath); });
+    bindClick('fwWhyRetry', ()=>fwAskWhy(t.id, fwPath));
   }
   // ---- coluna 3: chat com o agente (estilo Cursor: requisitos + conversa real) ----
   const chat=$id('fwChatCol');
+  // antes de recriar: guarda o rascunho (da tarefa DONA do input), o checkbox e a rolagem da conversa
+  const ai=document.activeElement, inEl=$id('fwInput');
+  if(inEl && inEl.dataset.tk) fwDraft[inEl.dataset.tk]=inEl.value;
+  const keepInput=!!(ai&&ai===inEl&&inEl.dataset.tk===t.id), inCaret=(keepInput&&inEl.selectionStart!=null)?inEl.selectionStart:null;
+  { const ar=$id('fwAsReq'); if(ar&&ar.dataset.tk) fwAsReqOn[ar.dataset.tk]=ar.checked; }
+  const th0=$id('fwThread');
+  const thMem=(th0 && chat.dataset.tk===t.id) ? { top:th0.scrollTop, bottom:(th0.scrollHeight-th0.scrollTop-th0.clientHeight<80) } : null;
   const nowBox = `<div class="fwnow${ACTIVE_ST.has(t.status)?'':' done'}" id="fwNow">${fwNowHtml(t)}</div>`;
   const askingW=pendingOf(t.id);
-  const workingW=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !askingW.length;
+  const workingW=fwIsWorking(t);
   const sel2=fwSelRange();
+  const sr=fwSendRowHtml(t);
   chat.innerHTML=`
-    <div class="fwchath"><span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${askingW.length?'esperando sua resposta':workingW?'trabalhando…':'mesma sessão — ele lembra o que fez'}</div></div><button class="fwexp" id="fwExpand" title="${fwMode==='conversa'?'recolher — voltar à visão de código':'expandir o chat — só a barra de arquivos fica ao lado'}">${fwMode==='conversa'?'⇥':'⇤'}</button>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
+    <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
-    <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">✕</button></div>`:''}
+    <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
-      <textarea class="in fwta" id="fwInput" rows="2" style="width:100%" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
-      <div class="fwinrow" style="margin-top:6px"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq"><span>vira <b>requisito</b></span></label><span style="flex:1"></span>${workingW&&!askingW.length?'<button class="btn sm" id="fwQueue" title="não interrompe: o agente executa quando terminar o turno atual">na fila</button>':''}<button class="btn primary sm" id="fwSend" style="white-space:nowrap">${askingW.length?'responder':workingW?'parar e enviar':'enviar'}</button></div></div>`;
+      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
+      <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
+      <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
+  chat.dataset.tk=t.id;
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
-  bindClick('fwStop', ()=>stopTask(t.id));
-  // expandir o chat = visão do PDF: conversa em quase toda a tela, SÓ a barra de
-  // arquivos ao lado (clicar num arquivo volta pra visão de código)
-  bindClick('fwExpand', ()=>{ fwMode = fwMode==='conversa' ? 'codigo' : 'conversa'; renderWorkspace(); });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
   bindClick('fwSend', ()=>fwSendMsg(false));
   bindClick('fwQueue', ()=>fwSendMsg(true));
+  { const ar=$id('fwAsReq'); if(ar) ar.onchange=()=>{ fwAsReqOn[t.id]=ar.checked; }; }
   attWireComposer({ input:'fwInput', attach:'fwAttach', pend:()=>(fwPend[t.id]=fwPend[t.id]||[]), taskId:()=>t.id, rerender:renderWorkspace });
   { const pp=$id('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
@@ -410,44 +594,47 @@ function renderWorkspace(){
     const a=e.target.closest('[data-art]'); if(a){ openArtifact(t.id, a.dataset.art); return; }
     if(e.target.closest('#fwReqCheck')){ fwSendText(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json. Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); return; }
   };
-  { const i=$id('fwInput'); if(i){ i.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('fwMenu').style.display!=='none'){ e.stopPropagation(); fwHideMenu(); return; } if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); fwHideMenu(); fwSendMsg(); } });
-    i.addEventListener('input',()=>{ const v=i.value, last=v.slice(-1), ws=(v.length===1||/\s/.test(v.slice(-2,-1)));
-      if(last==='/'&&ws) fwShowMenu(t,'req'); else if(last==='@'&&ws) fwShowMenu(t,'ref'); else fwHideMenu(); }); if(inVal!=null){ i.value=inVal; if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } } }
-  const th=$id('fwThread'); if(th) th.scrollTop=th.scrollHeight;
-}
-// ---- stepper flutuante da tela de execução (redesign p11) ----
-function renderFwStep(t){
-  const el=$id('fwStepChip'); if(!el||!t) return;
-  const ph=taskPhase(t);
-  const dots=PHASES.map((_,i)=>`<span class="pd2${i+1<ph?' done':i+1===ph?' cur':''}"></span>`).join('');
-  const wasOpen=($id('fwStepPop')||{}).style?.display==='block';
-  el.innerHTML=`<div class="pop" id="fwStepPop" style="display:${wasOpen?'block':'none'}">${PHASES.map((n,i)=>`<div class="pi${i+1<ph?' done':''}${i+1===ph?' cur':''}" data-ph="${i+1}"><span class="pd2${i+1<ph?' done':i+1===ph?' cur':''}"></span>${esc(n)}</div>`).join('')}</div>
-    <div class="chip" id="fwStepBtn">${dots}<span>${esc(PHASES[ph-1])}</span></div>`;
-  const pop=$id('fwStepPop');
-  $id('fwStepBtn').onclick=(e)=>{ e.stopPropagation(); pop.style.display=pop.style.display==='none'?'block':'none'; };
-  el.querySelectorAll('.pi').forEach(p=>p.onclick=()=>{
-    const n=+p.dataset.ph; pop.style.display='none';
-    if(n===4) fwMode='revisao';
-    else if(n===5) fwMode='pr'; // sem PR ainda? a página oferece "preparar e abrir"
-    else fwMode='codigo';
-    renderWorkspace();
-  });
+  { const i=$id('fwInput'); if(i){
+    i.addEventListener('keydown',e=>{
+      if(e.key==='Escape'&&$id('fwMenu').style.display!=='none'){ e.stopPropagation(); fwHideMenu(); return; }
+      if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); fwHideMenu();
+        // trabalhando: Enter = NA FILA (não interrompe); ⌘/Ctrl+Enter = parar e enviar
+        const tt=fwTaskObj(); const busy=!!(tt&&fwIsWorking(tt));
+        fwSendMsg(busy && !(e.metaKey||e.ctrlKey)); } });
+    i.addEventListener('input',()=>{ fwDraft[t.id]=i.value; const v=i.value, last=v.slice(-1), ws=(v.length===1||/\s/.test(v.slice(-2,-1)));
+      if(last==='/'&&ws) fwShowMenu(t,'req'); else if(last==='@'&&ws) fwShowMenu(t,'ref'); else fwHideMenu(); });
+    i.value=fwDraft[t.id]||'';
+    if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } }
+  // conversa: só gruda no fim se você JÁ estava no fim (lendo lá em cima, a rolagem fica onde está)
+  const th=$id('fwThread'); if(th){ if(!thMem||thMem.bottom) th.scrollTop=th.scrollHeight; else th.scrollTop=thMem.top; }
+  // abrir/recolher a árvore (« no cabeçalho dela, » na coluna ao lado)
+  document.querySelectorAll('#fwOverlay [data-fwtree]').forEach(b=>b.onclick=()=>fwToggleTree());
 }
 // ---- Revisão: diff de verdade por arquivo (redesign p12) ----
+let fwRevOpen=false; // explicação da revisão expandida
 function fwRenderDiff(t, main){
   if(!fwPath && fwFiles.length) fwPath=fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
   const key=t.id+':'+fwPath;
   if(fwPath && fwDiffCache[key]===undefined){
     fwDiffCache[key]=null;
-    invoke('file_diff',{ taskId:t.id, path:fwPath }).then(d=>{ fwDiffCache[key]=d||''; if(fwTask===t.id&&fwMode==='revisao') renderWorkspace(); }).catch(()=>{ fwDiffCache[key]=''; });
+    // erro também re-renderiza (antes o spinner ficava girando pra sempre)
+    invoke('file_diff',{ taskId:t.id, path:fwPath }).then(d=>{ fwDiffCache[key]=d||''; }).catch(e=>{ fwDiffCache[key]={ err:String(e&&e.message||e) }; })
+      .finally(()=>{ if(fwTask===t.id&&fwMode==='revisao') renderWorkspace(); });
   }
   const rev=reviewOf(t.id);
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
-  const band=`<div class="fwrevband">${rev?`<b>${esc((rev.summary||'').slice(0,90))}</b>`:'<b>revisão da entrega</b>'}${rev&&rev.howToTest?`<span class="dim" style="margin-left:4px">· como testar: ${esc(rev.howToTest.slice(0,120))}</span>`:''}<span style="flex:1"></span><button class="btn sm" id="fwBackConv">← conversa</button></div>`;
+  // explicação inteira (antes cortava no meio da palavra: "Movi a soma d") — 2 linhas + "ver mais"
+  const revTx=rev?`<b>${esc(rev.summary||'')}</b>${rev.howToTest?`<span class="dim"> · como testar: ${esc(rev.howToTest)}</span>`:''}`:'<b>revisão da entrega</b>';
+  const revLong=!!(rev && ((rev.summary||'').length+(rev.howToTest||'').length)>160);
+  const band=`<div class="fwrevband"><div class="fwrevtx${fwRevOpen?' open':''}">${revTx}</div>${revLong?`<button class="lnk fwrevmore" id="fwRevMore">${fwRevOpen?'ver menos':'ver mais'}</button>`:''}<button class="btn sm" id="fwBackConv">← conversa</button></div>`;
+  // perguntar sobre linhas é no modo Código — a dica mora aqui, junto do código (antes ficava no painel de arquivos)
+  const askHint=fwPath?`<div class="fwrevask">quer perguntar sobre um trecho? <button class="lnk" id="fwRevToCode">abra em Código</button> e selecione as linhas — a pergunta vai pro agente que escreveu</div>`:'';
   let rows='';
   const diff=fwPath?fwDiffCache[key]:'';
   if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
   else if(diff==null) rows=cosmosHtml('carregando o diff…','inline');
+  else if(typeof diff==='object') rows=`<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(String(diff.err||'').slice(0,400))}</div><button class="btn sm" id="fwDiffRetry">tentar de novo</button></div>`;
+  else if(!diff.trim()) rows='<div class="empty">sem diferenças neste arquivo em relação à base</div>';
   else {
     let oldLn=0, newLn=0;
     rows=diff.split('\n').map(l=>{
@@ -463,46 +650,53 @@ function fwRenderDiff(t, main){
       return `<div class="dl"><span class="dn">${n}</span><span class="dtx">${esc(l)||' '}</span></div>`;
     }).join('');
   }
-  main.innerHTML=`<div class="fwmhead"><span class="fwmpath mono">${esc(fwPath||'')}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff">${rows}</div>`;
-  bindClick('fwBackConv', ()=>{ fwMode='conversa'; renderWorkspace(); });
+  main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath||'')}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff">${rows}</div>${askHint}`;
+  bindClick('fwBackConv', ()=>{ fwMode='conversa'; fwRememberTab(); renderWorkspace(); });
+  bindClick('fwRevMore', ()=>{ fwRevOpen=!fwRevOpen; renderWorkspace(); });
+  bindClick('fwRevToCode', ()=>{ fwMode='codigo'; fwRememberTab(); fwLoadFile(); renderWorkspace(); });
+  bindClick('fwDiffRetry', ()=>{ fwDiffCache[key]=undefined; renderWorkspace(); });
 }
 // ---- página do PR dentro da execução (redesign p14) ----
 function fwRenderPrPage(t, main){
   const info=prCache[t.id];
-  if(info===undefined){ loadPr(t.id).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); }); main.innerHTML='<div class="empty">carregando o PR…</div>'; return; }
-  if(!info||!info.exists){
-    main.innerHTML=`<div class="empty" style="flex-direction:column;gap:14px"><div>nenhum PR aberto ainda pra <b>${esc(t.branch)}</b></div><button class="btn primary" id="prPgCreate">${IC.merge} preparar e abrir o PR</button><div class="dim" style="font-size:11.5px">roda as checagens do repo, faz commit &amp; push e cria o PR</div></div>`;
+  if(info===undefined||info===null){
+    if(info===undefined) loadPr(t.id).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); });
+    main.innerHTML='<div class="empty"><span class="spin"></span> carregando o PR…</div>'; return; }
+  if(!info.exists && info.error){
+    // gh/rede falhou ≠ "não tem PR" — antes caía em "nenhum PR" e oferecia abrir OUTRO
+    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">não consegui falar com o GitHub</div><div class="mono dim" style="font-size:11px;max-width:560px;white-space:pre-wrap">${esc(String(info.error).slice(0,300))}</div><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button></div>`;
+    bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='tentando…'; await loadPr(t.id,true); renderWorkspace(); });
+    return;
+  }
+  if(!info.exists){
+    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:14px;align-items:center"><div>nenhum PR aberto ainda pra <b>${esc(t.branch)}</b></div><button class="btn primary" id="prPgCreate">${IC.merge} preparar e abrir o PR</button><div class="dim" style="font-size:11.5px">roda as checagens do repo, faz commit &amp; push e cria o PR</div></div>`;
     bindClick('prPgCreate', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
     return;
   }
-  const ign=prIgnSet(t.id);
-  const cKey=c=>String(c.id ?? ((c.author||'')+':'+(c.body||'').slice(0,40)));
-  const cmts=(info.comments||[]).filter(c=>!c.inReplyTo);
-  const openCmts=cmts.filter(c=>!c.answered && !ign.has(cKey(c)));
-  const dec=info.decision||'';
-  const decBadge=dec==='APPROVED'?'<span class="prbadge ok">✓ aprovado</span>':dec==='CHANGES_REQUESTED'?'<span class="prbadge chg">mudanças pedidas</span>':'<span class="prbadge">aguardando review</span>';
-  const cmHtml=cmts.length?cmts.map((c,ci)=>{ const done=c.answered, skip=!done&&ign.has(cKey(c));
-    return `<div class="prcmt${c.isBot?' bot':''}${done?' ok':''}"><div class="prcmt-h"><span class="prau">${esc(c.author)}${c.isBot?' <span class="botag">bot</span>':''}</span>${c.path?`<span class="prloc mono">${esc(c.path)}${c.line?':'+c.line:''}</span>`:'<span class="prloc">conversa</span>'}${done?'<span class="prbadge ok">✔ respondido</span>':skip?'<span class="prbadge">ignorado</span>':''}</div><div class="prcmt-b"${(done||skip)?' style="opacity:.55"':''}>${chatMd((c.body||'').slice(0,700))}</div>${(!done&&!skip)?`<div class="prcmt-acts"><button class="btn primary sm" data-prfix="${ci}" style="padding:4px 10px;font-size:11px">${IC.ai} aplicar correção</button><button class="btn sm" data-prign="${escA(cKey(c))}" style="padding:4px 10px;font-size:11px">ignorar</button></div>`:''}</div>`;
-  }).join(''):'<div class="dim" style="font-size:12px">sem comentários ainda — o link já está com o time.</div>';
+  const cm=prCommentsHtml(t, info, {});
+  const base=info.baseRefName||lsGet('prBase:'+t.id)||'main';
   main.innerHTML=`<div class="prpage">
     <div class="prleft">
       <div style="display:flex;align-items:baseline;gap:10px"><span class="mono" style="color:var(--accent);font-size:15px">#${info.number}</span><b style="font-size:17px">${esc(t.title)}</b></div>
-      <div class="mono dim" style="font-size:11px;margin-top:5px">${esc(t.branch)} → ${esc(lsGet('prBase:'+t.id)||'main')} · ${esc((info.state||'').toLowerCase())} ${decBadge}</div>
+      <div class="prbadges" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:7px"><span class="mono dim" style="font-size:11px">${esc(t.branch)} → ${esc(base)}</span>${prStateBadge(info)}${prDecisionBadge(info)}${prChecksBadges(info)}</div>
+      <div class="dim" style="font-size:11px;margin-top:6px"><span id="prAge">${prAgoTx(info._at)}</span>${info.staleErr?' · <span style="color:var(--warn)">não consegui atualizar agora (sem conexão com o GitHub)</span>':''}</div>
       <div style="margin-top:14px;font-size:13px;line-height:1.6" class="prbody">${chatMd(info.body||'_sem descrição_')}</div>
-      <div style="display:flex;gap:8px;margin-top:18px"><button class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button class="btn sm" id="prPgCopy">copiar link</button><button class="btn sm" id="prPgRefresh">atualizar</button></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px"><button class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button class="btn sm" id="prPgCopy">copiar link</button><button class="btn sm" id="prPgRefresh">atualizar</button></div>
     </div>
     <div class="prright">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span class="mono" style="font-size:11px;letter-spacing:.08em;color:var(--muted)">COMENTÁRIOS · ${cmts.length}</span><span style="flex:1"></span><button class="btn primary" id="prPgMerge" style="background:var(--accent);font-weight:700">${IC.merge} Merge PR</button></div>
-      ${cmHtml}
-      ${openCmts.length>1?`<button class="btn primary sm" id="prPgAll" style="margin-top:6px">${IC.ai} corrigir todos os ${openCmts.length} em aberto</button>`:''}
+      ${info.state==='OPEN'?`<div class="prpgmerge">${prMergeBtnHtml(info,'prPgMerge','primary','font-weight:700')}${prMergeWhyHtml(info)}</div>`:''}
+      <div class="prcmtsh"><span class="prcmtsn mono">COMENTÁRIOS · ${cm.countTx}</span>${cm.toggle}</div>
+      <div style="margin-top:8px">${cm.html}</div>
+      ${cm.open>1?`<button class="btn primary sm" id="prPgAll" style="margin-top:6px">${IC.ai} corrigir todos os ${cm.open} em aberto</button>`:''}
     </div>
   </div>`;
   bindClick('prPgOpen', ()=>openExternal(info.url));
-  bindClick('prPgCopy', ()=>copyLink(info.url,b));
-  bindClick('prPgRefresh', async()=>{ await loadPr(t.id,true); renderWorkspace(); });
-  bindClick('prPgMerge', ()=>mergePr(t.id));
-  bindClick('prPgAll', ()=>{ reworkFromPr(t.id); fwMode='conversa'; renderWorkspace(); });
-  main.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; try{ await prFixOne(t.id,+b.dataset.prfix); fwMode='conversa'; }finally{ renderWorkspace(); } });
+  bindClick('prPgCopy', (e)=>copyLink(info.url, e.currentTarget));
+  bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='atualizando…'; await loadPr(t.id,true); renderWorkspace(); });
+  bindClick('prPgMerge', async()=>{ if(await mergePr(t.id)) renderWorkspace(); });
+  // só troca pra conversa se o envio deu certo (antes trocava na hora e o erro sumia)
+  bindClick('prPgAll', async(e)=>{ if(await reworkFromPr(t.id, e.currentTarget)){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } });
+  main.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; try{ await prFixOne(t.id, b.dataset.prfix); fwMode='conversa'; fwRememberTab(); }finally{ renderWorkspace(); } });
   main.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id,b.dataset.prign); renderWorkspace(); });
 }
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
@@ -664,7 +858,7 @@ async function fwSendText(taskId, text){
 const fwPend={}; // taskId → anexos importados ainda não enviados
 async function fwSendMsg(queueOnly){
   const t=fwTaskObj(); if(!t) return;
-  const inp=$id('fwInput'); let v=inp.value.trim();
+  const inp=$id('fwInput'); if(!inp) return; const typed=inp.value; let v=typed.trim();
   const atts=(fwPend[t.id]||[]).splice(0);
   if(!v && atts.length) v='Anexei estes arquivos — leia e considere.';
   if(!v) return;
@@ -673,7 +867,7 @@ async function fwSendMsg(queueOnly){
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';
   const asReq=!!($id('fwAsReq')&&$id('fwAsReq').checked);
   const full = ctx+v+attPromptBlock(atts);
-  inp.value=''; inp.disabled=true;
+  inp.value=''; inp.disabled=true; fwDraft[t.id]='';
   try{
     const pend=pendingOf(t.id);
     if(pend.length){
@@ -687,27 +881,34 @@ async function fwSendMsg(queueOnly){
       // livre, ou o usuário escolheu "na fila" → o motor enfileira se ocupado
       await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     }
-    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined;
+    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; fwAsReqOn[t.id]=false;
     lastSig=''; await refresh();
-  }catch(e){ alert('Falha ao enviar:\n'+e); }
+  }catch(e){
+    // falhou: o texto e os anexos VOLTAM pro composer (antes a mensagem sumia)
+    fwDraft[t.id]=typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
+    alert('Falha ao enviar:\n'+e); }
   finally{ inp.disabled=false; renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); }
 }
-$id('fwClose').onclick=closeWorkspace;
-$id('fwPush').onclick=async function(){
-  const b=this, t=fwTaskObj(); if(!t) return;
-  b.disabled=true; const o=b.innerHTML; b.textContent='enviando…';
-  try{
-    const msg=await invoke('push_task',{ taskId:t.id });
-    b.textContent='✓ '+msg;
-    prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig='';
-    setTimeout(()=>{ b.disabled=false; b.innerHTML=o; }, 4000);
-  }catch(e){ alert('Commit & push falhou:\n'+e); b.disabled=false; b.innerHTML=o; }
-};
+// fechar pelo botão: pergunta antes de jogar fora uma edição não salva
+$id('fwClose').onclick=async()=>{ if(!await fwLeaveEditor()) return; closeWorkspace(); };
 $id('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
 $id('sumOverlay').addEventListener('click', e=>{ if(e.target.id==='sumOverlay') e.target.style.display='none'; });
-document.addEventListener('keydown', e=>{ if(e.key==='Escape' && $id('fwOverlay').style.display!=='none'){
-  if(fwEditing){ fwEditing=false; renderWorkspace(); return; }
+function fwVisible(){ const o=$id('fwOverlay'); return !!(o && o.style.display!=='none'); }
+// Esc: no editor → cancela a edição (perguntando se há alteração); fora dele só fecha a aba se
+// NADA está sendo digitado e não há rascunho/anexo pendente (antes um Esc perdido fechava a tarefa)
+document.addEventListener('keydown', async e=>{ if(e.key==='Escape' && fwVisible()){
+  if(fwEditing){ e.preventDefault(); if(await fwLeaveEditor()) renderWorkspace(); return; }
   if(escBusy(e)) return; // digitando no chat ou com modal por cima: o Esc não fecha a aba da tarefa
+  if(fwHasDraft()) return;
   closeWorkspace(); } });
+// ⌘B / Ctrl+B com a tarefa na tela: recolhe/mostra a árvore de arquivos (captura: não deixa o atalho
+// global de recolher a barra lateral agir junto)
+document.addEventListener('keydown', e=>{
+  if(!(e.metaKey||e.ctrlKey) || e.shiftKey || e.altKey || String(e.key).toLowerCase()!=='b' || !fwVisible()) return;
+  e.preventDefault(); e.stopPropagation(); fwToggleTree();
+}, true);
+// sem escolha salva, a árvore acompanha a largura da janela (recolhe abaixo de ~1100px)
+{ let last=fwTreeHidden(), tmr=null;
+  window.addEventListener('resize', ()=>{ clearTimeout(tmr); tmr=setTimeout(()=>{ const now=fwTreeHidden(); if(now!==last){ last=now; if(fwVisible()&&fwTask) renderWorkspace(); } }, 150); }); }
 // atualiza SÓ o "O que estou fazendo agora" ao vivo (não mexe no código/input)
 // (o refresh de 1s chama fwLiveUpdate quando o workspace está aberto — sem timer duplicado)

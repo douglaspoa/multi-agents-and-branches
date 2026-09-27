@@ -16,17 +16,19 @@ function auShow(step, opts){
   Object.assign(au, opts||{}); if(step) au.step=step; au.msg=''; au.busy=false;
   const o=auEl(); if(!o) return; o.style.display='flex'; auRender(); try{ cosmosStart(o); }catch(_){ }
 }
-function auHide(){ const o=auEl(); if(o) o.style.display='none'; au.waiting=false; if(_auTimer){ clearInterval(_auTimer); _auTimer=null; } }
+function auHide(){ const o=auEl(); if(o) o.style.display='none'; au.waiting=false; if(_auTimer){ clearInterval(_auTimer); _auTimer=null; }
+  // 1º uso: o tour de boas-vindas só começa DEPOIS da entrada (antes ele abria por baixo do gate de login)
+  setTimeout(()=>{ if(window.obMaybeStart) window.obMaybeStart(); }, 350); }
 function auOpen(){ return !!auEl() && auEl().style.display!=='none'; }
 // ---- copy da coluna esquerda por tela (do design) ----
 const AU_LEFT={
-  signup:{ h:'Sua equipe de agentes, rodando na sua máquina', s:'Cada tarefa ganha branch e worktree isoladas. Nada some, nada colide.', b:[['g','Escreva a demanda com requisitos claros'],['c','Agentes em paralelo, um por branch'],['p','Aprove a entrega e o PR abre sozinho']], f:'pareado com este Mac' },
+  signup:{ h:'Sua equipe de agentes, rodando na sua máquina', s:'Cada tarefa roda numa cópia isolada do seu código. Nada some, nada colide.', b:[['g','Escreva a demanda com requisitos claros'],['c','Vários agentes em paralelo, cada um na sua cópia'],['p','Aprove a entrega e o PR abre sozinho']], f:'pareado com este Mac' },
   login:{ h:'Bem-vindo de volta ao cockpit', s:'Suas demandas continuam aqui — entre pra ver o que rodou enquanto você esteve fora.', b:[['g','Tarefas em órbita ficam visíveis pro time'],['c','Custo por tarefa, sempre à vista'],['p','PRs prontos pra merge num clique']], f:'sessão local · nada sai da sua máquina' },
   confirm:{ h:'Um passo e a sua estrela acende', s:'O código confirma que o e-mail é seu e liga sua conta à organização certa.', b:[['g','O link do e-mail também funciona'],['c','Você entra como membro; o lead aprova'],['p','Dá pra trocar de time depois']], f:'código expira em 10 minutos' },
   newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres'],['c','Vale em todos os seus Macs'],['p','Sessões antigas continuam válidas']], f:'a senha nunca sai da sua máquina em texto' },
-  ready:{ h:'Tudo pronto — falta só o repo', s:'Sua conta está ativa nesta máquina. Conecte o repositório e escreva a primeira demanda.', b:[['g','Ambiente checado automaticamente'],['c','Workflows do time já sincronizados'],['p','Companion mobile pareado']], f:'teste em andamento' },
+  ready:{ h:'Tudo pronto — falta só o repo', s:'Sua conta está ativa nesta máquina. Conecte o repositório e escreva a primeira demanda.', b:[['g','Ambiente checado automaticamente'],['c','Equipes de agentes do time já sincronizadas'],['p','Companion mobile pareado']], f:'teste em andamento' },
 };
-const AU_DOT={ g:'#3fdd8a', c:'#5ec8c8', p:'#c493bb' };
+const AU_DOT={ g:'var(--accent)', c:'#5ec8c8', p:'#c493bb' };
 function auLeftHtml(step){
   const L=AU_LEFT[step]||AU_LEFT.signup;
   return `<canvas class="cosmos-c au-sky"></canvas><div class="au-lin">
@@ -127,7 +129,7 @@ function auRender(){
       <div class="au-row"><button class="au-btn primary" id="auGo"${dis}>${au.busy?'salvando…':'Salvar senha'}</button>${au.backTo?'':'<button class="au-link" id="auToLogin">voltar pra entrar</button>'}</div></div>`;
     const go=async()=>{ const a=$id('auPass').value, b=$id('auPass2').value; if(a.length<8){ au.msg='a senha precisa de 8+ caracteres.'; auRender(); return; } if(a!==b){ au.msg='as senhas não conferem.'; auRender(); return; }
       au.busy=true; auRender();
-      try{ await sbFetch('/auth/v1/user',{ method:'PUT', body: JSON.stringify({ password:a }) }); au.msg=''; if(au.backTo){ const b2=au.backTo; au.backTo=null; auHide(); if(typeof b2==='function') b2(); else alert('✓ senha alterada'); return; } await auAfterSession(); }
+      try{ await sbFetch('/auth/v1/user',{ method:'PUT', body: JSON.stringify({ password:a }) }); au.msg=''; if(au.backTo){ const b2=au.backTo; au.backTo=null; auHide(); if(typeof b2==='function') b2(); else toast('Senha alterada','ok'); return; } await auAfterSession(); }
       catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } };
     bindClick('auGo', go); bindClick('auToLogin', ()=>auShow('login'));
   }
@@ -138,7 +140,7 @@ function auRender(){
     const trial=(myBilling&&myBilling.status==='trialing'&&myBilling.trial_end)?Math.max(0,Math.ceil((new Date(myBilling.trial_end)-Date.now())/864e5)):0;
     const hasRepo=!!(state&&state.repo);
     R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos neste Mac.`:'Sua conta está ativa neste Mac.'}</p>
-      <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:#3fdd8a">1</span><span>Conectar o repositório que os agentes vão trabalhar</span>${hasRepo?'<span class="au-tdone">✓ conectado</span>':'<button class="au-link" id="auRepo">conectar</button>'}</div>
+      <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:var(--accent)">1</span><span>Conectar o repositório que os agentes vão trabalhar</span>${hasRepo?'<span class="au-tdone">✓ conectado</span>':'<button class="au-link" id="auRepo">conectar</button>'}</div>
         <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Checar o ambiente: Node, Git, Claude Code e gh</span><button class="au-link" id="auEnv">verificar</button></div>
         <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:''}</span><button class="au-link" id="auTeam">convidar</button></div></div>
       <button class="au-btn primary big" id="auGo">Abrir o cockpit</button></div>`;
@@ -161,7 +163,7 @@ async function auOAuth(provider){
 // ---- planos (lê billing_plans; sem seed mostra os preços do design, sem checkout) ----
 const AU_PLAN_DEFAULTS=[
   { key:'individual', name:'Solo', who:'1 pessoa, 1 repo', perSeat:false, feats:['1 agente por vez, sem fila','Branch + worktree isolada por tarefa','Histórico de 30 dias'] },
-  { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Agentes em paralelo, sem limite de fila','Workflows e personas compartilhados','Daily automática e custo por pessoa','Preferências do projeto sincronizadas'] },
+  { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Agentes em paralelo, sem limite de fila','Equipes de agentes e personas compartilhadas','Daily automática e custo por pessoa','Preferências do projeto sincronizadas'] },
   { key:'enterprise', name:'Organização', who:'vários times e repos', feats:['Tudo do Time, sem teto de assentos','SSO, auditoria e política por repo','Chaves de modelo próprias (BYOK)','Suporte dedicado'] },
 ];
 const AU_FALLBACK_PRICE={ individual:{month:4900,year:3900}, team:{month:3900,year:3100} };

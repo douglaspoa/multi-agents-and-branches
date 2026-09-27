@@ -10,14 +10,17 @@ function setView(v){ const b=document.querySelector('#viewSeg button[data-v="'+v
 function tmap(){ try{ return JSON.parse(lsGet('sb:tmap')||'{}'); }catch(_){ return {}; } }
 function tmapSet(localId, cloudId){ const m=tmap(); m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
 function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
-const CT_ST_PT={ backlog:'backlog', queued:'na fila', running:'rodando', thinking:'pensando', 'plan-review':'plano em revisão', review:'pronta pra review', delivered:'entregue', done:'concluída', merged:'mergeada', error:'erro', conflict:'conflito', aborted:'abortada', cancelled:'cancelada' };
-// backlog + autoStart + pré-requisitos = AGUARDANDO (começa sozinha — 46-epico-time: epicAutoStartTick)
+// nome PT do status = o MESMO de toda a app (00-util: STATUS_META/stLabel). Mantido como objeto porque
+// outras telas leem CT_ST_PT[st] direto; agora é só um espelho do STATUS_META.
+const CT_ST_PT=Object.fromEntries(Object.keys(STATUS_META).map(k=>[k, stLabel(k)]));
+// backlog + autoStart + pré-requisitos = NA ESPERA (começa sozinha — 46-epico-time: epicAutoStartTick).
+// "Aguardando você" é reservado pro que depende do HUMANO; tarefa esperando outra tarefa é "na espera".
 function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
-function ctStLabel(ct){ return ctWaiting(ct)?'aguardando':(CT_ST_PT[ct.status]||ct.status); }
-function ctStColor(st){ return st==='backlog'?'var(--muted)':(st==='review'||st==='delivered'||st==='done')?'var(--good)':(st==='merged')?'var(--accent)':(st==='error'||st==='conflict')?'var(--bad, #e5534b)':'var(--warn)'; }
+function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(typeof tsSt==='function'?tsSt(ct):ct.status); } // R5-1: status efetivo (PR aberto/pergunta)
+function ctStColor(st){ return stColor(st); }
 
 async function cloudEnsureProject(){
-  const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão do topo');
+  const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão Conta (rodapé da barra lateral)');
   const remote=await invoke('repo_remote');
   const rows=await sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId+'&repo_remote=eq.'+encodeURIComponent(remote));
   if(rows.length) return rows[0];
@@ -39,7 +42,7 @@ async function issueConfigPull(){
 }
 // compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
 async function cloudShareTask(payload){
-  if(!SB.sess()) throw new Error('entre na sua conta (botão no topo)');
+  if(!SB.sess()) throw new Error('entre na sua conta (botão Conta, no rodapé da barra lateral)');
   const proj=await cloudEnsureProject();
   const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
@@ -215,7 +218,7 @@ async function cloudIntentTick(){
         }catch(e){ return finish(false,'criar PR falhou: '+e); }
       }
       if(kind==='merge'){
-        try{ const msg=await invoke('merge_pr',{taskId:lid, method:'merge'}); return finish(true,msg); }
+        try{ const msg=await invoke('merge_pr',{taskId:lid, method:'squash'}); return finish(true,msg); }
         catch(e){ return finish(false,String(e)); }
       }
       if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return finish(false,String(e)); } }
@@ -248,12 +251,16 @@ async function cloudPrStatTick(){
     prPubAt[t.id]=now;
     try{
       const d=diffOf(t.id)||{}; const c=commitsCache[t.id];
-      const stat={ files:(d.files||[]).length, add:d.additions||0, del:d.deletions||0, commits:Array.isArray(c)?c.length:null };
+      const stat={ files:diffFiles(d), add:d.additions||0, del:d.deletions||0, commits:Array.isArray(c)?c.length:null };
       let prInfo=null;
       if(t.prUrl){
         try{ await loadPr(t.id); const i=prCache[t.id];
           if(i&&i.exists) prInfo={ number:i.number, state:i.state, decision:i.decision, body:(i.body||'').slice(0,3000),
-            comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,answered:x.answered,isBot:x.isBot,body:(x.body||'').slice(0,400)})) };
+            comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,
+              // o app do celular só lê "answered": manda o MESMO "resolvido" do desktop (respondido, resolvido no
+              // GitHub, desatualizado ou ignorado aqui) — antes o celular mostrava em aberto o que o desktop já escondia
+              answered:(typeof prCmtDone==='function'&&typeof prIgnSet==='function')?prCmtDone(x, prIgnSet(t.id)):!!(x.answered||x.resolved||x.outdated),
+              resolved:!!x.resolved,outdated:!!x.outdated,isBot:x.isBot,body:(x.body||'').slice(0,400)})) };
           // merge feito FORA do app (GitHub) → marca merged aqui também
           if(i&&i.exists&&i.state==='MERGED'&&!['merged','done'].includes(t.status)){
             invoke('mark_task_status',{ taskId:t.id, status:'merged' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>{});
@@ -493,7 +500,7 @@ setInterval(()=>{ cloudMsgTick().catch(e=>tickErr('cloudMsgTick',e)); }, 5000);
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
 let tmView=lsGet('tmView')||'overview';
-// escopo da aba Time: 'team' (o time escolhido no topo) ou 'org' (TODOS os times — só owner/admin,
+// escopo da aba Time: 'team' (o time escolhido em Conta, no rodapé da barra lateral) ou 'org' (TODOS os times — só owner/admin,
 // que já enxergam tudo pela RLS; é a visão de super usuário da empresa)
 let tmScope=lsGet('tmScope')||'team';
 function tsIsOrgAdmin(){ return !!(cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin')); }

@@ -21,7 +21,7 @@ function syncChromeH(){ const tb=$id('tabBar'); if(tb && tb.style.display!=='non
 // Esc: digitando num campo ou com um modal aberto por cima, o Esc é DELES — não fecha a aba de trás
 function escBusy(e){
   if(e && e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return true;
-  return ['artOverlay','lbOverlay','askOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','orgTplOverlay','repOverlay','txOverlay']
+  return ['artOverlay','lbOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','orgTplOverlay','repOverlay','txOverlay']
     .some(id=>{ const m=document.getElementById(id); return m && m.style.display && m.style.display!=='none'; });
 }
 // Confirmação SIM/NÃO de verdade. NÃO use window.confirm: o tauri-plugin-dialog troca ele por
@@ -34,3 +34,49 @@ async function askYes(message, title){
   try{ return (await inv('plugin:dialog|message',{ message:String(message), title:title||'Starfork', kind:'warning', buttons:'OkCancel' }))==='Ok'; }
   catch(e){ console.error('askYes:', e); return false; } // na dúvida, NÃO executa
 }
+
+// ===== status: UMA fonte de verdade (nome em PT + cor + ícone) =====
+// Toda tela que mostra status de tarefa/cartão usa stLabel/stColor/stIcon — nada de
+// mapa próprio nem de t.status cru em inglês na tela.
+// `short` = forma curta (etiqueta da barra lateral / espaço apertado) — derivada DESTE mapa, nunca inventada na tela.
+// 'pr-open' é um status DERIVADO (tarefa com PR aberto no GitHub), usado pelo taskSt(t) do 22.
+const STATUS_META={
+  draft:        { pt:'rascunho',          short:'rascunho', c:'var(--muted)',     ic:'·' },
+  backlog:      { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'·' },
+  queued:       { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'·' },
+  'plan-review':{ pt:'plano pra aprovar', short:'plano',    c:'var(--st-ask)',    ic:'?' },
+  running:      { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'●' },
+  thinking:     { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'●' },
+  asking:       { pt:'aguardando você',   short:'aguardando', c:'var(--st-ask)',    ic:'?' },
+  paused:       { pt:'pausada',           short:'pausada',  c:'var(--muted)',     ic:'❚❚' },
+  review:       { pt:'pronta pra revisar',short:'pra revisar', c:'var(--st-review)', ic:'◆' },
+  delivered:    { pt:'pronta pra revisar',short:'pra revisar', c:'var(--st-review)', ic:'◆' },
+  'pr-open':    { pt:'PR aberto',         short:'PR',       c:'var(--info)',      ic:'⌥' },
+  done:         { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'✓' },
+  merged:       { pt:'mergeada',          short:'mergeada', c:'var(--st-done)',   ic:'✓' },
+  closed:       { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'✓' },
+  error:        { pt:'erro',              short:'erro',     c:'var(--st-err)',    ic:'!' },
+  conflict:     { pt:'conflito',          short:'conflito', c:'var(--st-err)',    ic:'!' },
+  blocked:      { pt:'bloqueada',         short:'bloqueada',c:'var(--warn)',      ic:'⏸' },
+  aborted:      { pt:'abortada',          short:'abortada', c:'var(--muted)',     ic:'×' },
+  cancelled:    { pt:'cancelada',         short:'cancelada',c:'var(--muted)',     ic:'×' },
+  waiting:      { pt:'na espera',         short:'espera',   c:'var(--muted)',     ic:'·' },
+};
+function stMeta(st){ return STATUS_META[st]||{ pt:String(st||'—'), c:'var(--muted)', ic:'·' }; }
+function stLabel(st){ return stMeta(st).pt; }
+function stColor(st){ return stMeta(st).c; }
+function stIcon(st){ return stMeta(st).ic; }
+function stIsBad(st){ return st==='error'||st==='conflict'; }
+// selo de status padrão (mesma cara em todas as telas)
+function stBadge(st){ const m=stMeta(st); return '<span class="stbadge" style="--stc:'+m.c+'"><i>'+m.ic+'</i>'+m.pt+'</span>'; }
+
+// ===== toast global: feedback curto de sucesso/aviso sem travar a tela (alert só pra erro fatal) =====
+function toast(msg, kind){
+  let el=$id('appToast'); if(!el){ el=document.createElement('div'); el.id='appToast'; el.setAttribute('role','status'); document.body.appendChild(el); }
+  el.className='apptoast '+(kind||'info'); el.textContent=String(msg);
+  el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.display='none'; }, kind==='err'?7000:4200);
+}
+window.toast=toast;
+// nº de arquivos de um diff: o backend (Rust, struct Diff) manda `files` como NÚMERO;
+// versões antigas/mock mandavam lista — aceita os dois (antes saía "undefined arquivo(s)")
+function diffFiles(d){ if(!d) return 0; const f=d.files; return typeof f==='number'?f:(Array.isArray(f)?f.length:0); }

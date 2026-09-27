@@ -1,6 +1,8 @@
 // Starfork — 22-quadro-fluxo
 // ----- filtros do Fluxo (status · período · agente · busca) -----
-let flowStatus = 'all';   // all | active | review | merged | error
+// filtros persistem entre sessões (a busca não): status = uma das seções da Central (FLOW_SECS) ou 'epicos'
+let flowStatus = lsGet('flowStatus')||'all';   // all | aguardando | andamento | prontas | praberto | rascunho | epicos
+let flowEpic = lsGet('flowEpic')||'all';       // all | id do épico (nuvem)
 let projFilter = lsGet('projFilter')||'all'; // 'all' (integrado) | caminho de um projeto
 let allTasksCache = [];   // tarefas de TODOS os projetos (list_all_tasks), pro board integrado
 let allTasksSig = '';
@@ -61,9 +63,10 @@ function openTaskById(id){
   if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, id); return; }
   selected=id; render(); openOrEdit(t);
 }
-let flowPeriod = 'all';   // all | today | week
-let flowAgent  = 'all';   // 'all' | nome do agente
-let flowType   = 'all';   // all | build | design | invest | fix | review
+let flowPeriod = lsGet('flowPeriod')||'all';   // all | today | week | month
+let flowAgent  = lsGet('flowAgent')||'all';    // 'all' | nome do agente
+let flowType   = lsGet('flowType')||'all';     // all | build | design | invest | fix | review
+function flowSetF(k, v){ lsSet(k, v); }
 let flowQuery  = '';      // busca por nome da tarefa
 let flowGroupBy= 'none';  // none | day
 let flowShowBlocked=false, flowShowClosed=false; // por padrão, escondidas do Fluxo
@@ -74,8 +77,6 @@ function dayLabel(ts){
   if(same(d,y)) return 'Ontem';
   return d.toLocaleDateString('pt-BR',{ day:'2-digit', month:'short', ...(d.getFullYear()!==today.getFullYear()?{year:'numeric'}:{}) });
 }
-const STATUS_GROUP = { draft:'draft', 'plan-review':'review', running:'active', thinking:'active', queued:'active', paused:'active', review:'review', merged:'merged', done:'merged', error:'error', conflict:'error', aborted:'error' };
-function taskGroup(t){ return STATUS_GROUP[t.status] || 'other'; }
 function inPeriod(t){
   if(flowPeriod==='all') return true;
   const now=Date.now(), d=new Date();
@@ -136,7 +137,9 @@ function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
   return tasks.filter(t=>
     flowScopeOk(t) &&
-    (flowStatus==='all'||taskGroup(t)===flowStatus) &&
+    // chips de status = as MESMAS seções da lista (flowBucket); em Concluídas não há chips, então não filtra
+    (flowScope==='done'||flowStatus==='all'||flowBucket(t)===flowStatus) &&
+    (flowEpic==='all'||((t.epic&&t.epic.epicId)||'')===flowEpic) &&
     (flowType==='all'||taskType(t)===flowType) &&
     inPeriod(t) &&
     (flowAgent==='all'||taskAgents(t).includes(flowAgent)) &&
@@ -151,11 +154,15 @@ function renderFlowFilters(){
   // com a lista vazia porque as 29 estão encerradas (moram em Concluídas)
   let srcAll; try{ srcAll=boardSource(); }catch(_){ srcAll=(state.tasks||[]); }
   const byPeriod=srcAll.filter(t=>inPeriod(t)&&flowScopeOk(t));
-  const count=g=> g==='all'?byPeriod.length:byPeriod.filter(t=>taskGroup(t)===g).length;
-  const ST=[['all','Todas',null],['draft','Rascunho','var(--muted)'],['active','Rodando','var(--good)'],['review','Review','var(--warn)'],['merged','Merged','var(--info)'],['error','Erro','var(--crit)']]
+  const epqN=(typeof epQueueCount==='function')?epQueueCount():0;
+  const fcP=flowCounts(byPeriod); // a MESMA contagem do cabeçalho/barra de status/Kanban
+  const count=g=> g==='all'?byPeriod.length:g==='epicos'?epqN:(fcP[g]||0);
+  // chips = as seções da Central (mesmo nome, mesma cor) + a fila dos épicos quando existe
+  if(flowStatus!=='all' && !FLOW_EXEC_KEYS.includes(flowStatus) && flowStatus!=='epicos') flowStatus='all'; // valor antigo (draft/active/…) salvo
+  const ST=[['all','Todas',null]].concat(FLOW_SECS.filter(([k])=>FLOW_EXEC_KEYS.includes(k)).map(([k,label])=>[k,label,FLOW_SEC_COLOR[k]||null]))
+    .concat([['epicos','Na fila dos épicos','var(--accent)']])
     .filter(([k])=>k==='all'||k===flowStatus||count(k)>0);
-  if(flowStatus!=='all' && count(flowStatus)===0 && !ST.some(([k])=>k===flowStatus)) flowStatus='all';
-  let stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}">${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
+  let stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}"${FLOW_SEC_TIP[k]?` title="${escA(FLOW_SEC_TIP[k])}"`:''}>${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
   // bloqueadas: escondidas por padrão em Execução (toggle); encerradas moram em Concluídas
   const nBlocked=flowScope==='done'?0:srcAll.filter(t=>t.flag==='blocked'&&inPeriod(t)&&!(t.flag==='closed'||['merged','done'].includes(t.status))).length;
   if(nBlocked) stChips+=`<button class="fchip flagchip${flowShowBlocked?' on':''}" data-flag="blocked" title="mostrar/ocultar bloqueadas">${IC.pause} Bloqueadas<span class="n">${nBlocked}</span></button>`;
@@ -163,24 +170,59 @@ function renderFlowFilters(){
   const PE=[['all','Todo período'],['today','Hoje'],['week','Últimos 7 dias'],['month','Últimos 30 dias']];
   const peOpts=PE.map(([k,label])=>`<option value="${k}"${flowPeriod===k?' selected':''}>${label}</option>`).join('');
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
-  if(flowAgent!=='all' && !agents.includes(flowAgent)) flowAgent='all';
+  if(flowAgent!=='all' && agents.length && !agents.includes(flowAgent)) flowAgent='all'; // lista vazia = ainda carregando: não perde o filtro salvo
   const agOpts=['all',...agents].map(a=>`<option value="${escA(a)}"${flowAgent===a?' selected':''}>${a==='all'?'Todos os agentes':esc(a)}</option>`).join('');
   const tyCount=k=>byPeriod.filter(t=>taskType(t)===k).length;
-  const tyOpts=[['all','Todos os tipos']].concat(TYPE_ORDER.filter(k=>tyCount(k)>0).map(k=>[k, TYPE_PT[k]+' ('+tyCount(k)+')']))
+  if(flowType!=='all' && !TYPE_ORDER.includes(flowType)){ flowType='all'; flowSetF('flowType','all'); } // valor antigo (build…) que nenhuma tarefa usa
+  // tipo salvo que hoje tem 0 tarefas continua na lista (senão o select mostrava "Todos" e a lista vinha vazia sem explicação)
+  const tyOpts=[['all','Todos os tipos']].concat(TYPE_ORDER.filter(k=>tyCount(k)>0||k===flowType).map(k=>[k, (TYPE_PT[k]||k)+' ('+tyCount(k)+')']))
     .map(([k,l])=>`<option value="${k}"${flowType===k?' selected':''}>${l}</option>`).join('');
   // abas da Central: Execução (o que está vivo) · Concluídas (portfólio) · Time (espaço próprio)
   if(flowScope!=='done') flowScope='exec';
   const TABS=[['exec','Execução'],['done','Concluídas'],['team','Time']];
+  // ordem manual (arrastar na grade) vale DENTRO de cada seção; "restaurar" volta pra mais recentes primeiro —
+  // fica como link discreto junto dos controles de vista (antes era um botão no meio dos chips de status)
+  const manualOn=flowScope!=='done' && lsGet('flowManual')!=='0' && srcAll.some(t=>t.sortOrder!=null);
+  const resetBtn=manualOn?`<button class="fvlink" id="flowResetOrder" title="você reordenou arrastando — volta pra ordem automática (mais recentes primeiro em cada seção)">↺ restaurar ordem</button>`:'';
   const tabsHtml=`<div class="ftabs">`+
     TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}">${l}</button>`).join('')+
-    `<span class="grow"></span>`+
+    `<span class="grow"></span>`+resetBtn+
     `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
     `<span class="fvsep"></span>`+
     `<button class="fvic${flowView==='list'?' on':''}" data-fv="list" title="Fluxo em lista"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
     `<button class="fvic${flowView==='grid'?' on':''}" data-fv="grid" title="Fluxo em grade"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button>`+
     `<button class="fvic" data-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
     `</div>`;
-  // SEMPRE visível: status (review/rodando/merged/…) + tipo — é o que mais se filtra
+  // PROJETO e ÉPICO viram dois selects compactos (antes eram 2 linhas de chips acima dos chips de status).
+  // Mesmas chaves persistidas (projFilter / flowEpic).
+  const pl=projList();
+  const projSel = pl.length>1 ? `<select class="sel ffsel" id="ffProj" title="filtrar por projeto">`+
+    `<option value="all"${projFilter==='all'?' selected':''}>Todos os projetos</option>`+
+    pl.map(([path,name])=>`<option value="${escA(path)}"${projFilter===path?' selected':''}>${esc(name)}</option>`).join('')+
+    (projFilter!=='all'&&!pl.some(([p])=>p===projFilter)?`<option value="${escA(projFilter)}" selected>${esc(projShort(projFilter))}</option>`:'')+
+    `</select>` : '';
+  const epIds=[...new Set(srcAll.filter(flowScopeOk).map(t=>(t.epic&&t.epic.epicId)||'')
+    .concat(flowScope==='done'?[]:((typeof epQueue!=='undefined'&&epQueue.rows)||[]).map(r=>r.epic_id)).filter(Boolean))];
+  if(flowEpic!=='all' && !epIds.includes(flowEpic)) epIds.push(flowEpic); // o escolhido fica na lista (pra poder limpar)
+  const epName=id=>(typeof epNameOf==='function'&&epNameOf(id))||'épico';
+  const epicSel = epIds.length ? `<select class="sel ffsel" id="ffEpic" title="filtrar por épico">`+
+    `<option value="all"${flowEpic==='all'?' selected':''}>Todos os épicos</option>`+
+    epIds.map(id=>`<option value="${escA(id)}"${flowEpic===id?' selected':''}>◆ ${esc(epName(id).slice(0,32))}</option>`).join('')+
+    `</select>` : '';
+  // filtro salvo que esconde tarefa sem controle à vista (período/agente moram no painel avançado fechado,
+  // tipo/épico/status podem ter vindo de outra sessão): sempre mostra "filtros ativos · limpar"
+  const PE_PT=Object.fromEntries(PE);
+  const act=[];
+  if(flowScope!=='done' && flowStatus!=='all') act.push(flowStatus==='epicos'?'fila dos épicos':((FLOW_SECS.find(([k])=>k===flowStatus)||[])[1]||flowStatus));
+  if(flowPeriod!=='all') act.push(PE_PT[flowPeriod]||flowPeriod);
+  if(flowAgent!=='all') act.push('agente '+flowAgent);
+  if(flowType!=='all') act.push(TYPE_PT[flowType]||flowType);
+  if(flowEpic!=='all') act.push('◆ '+epName(flowEpic).slice(0,24));
+  // projeto salvo que não existe mais (removido/renomeado) → volta pra todos; senão entra no aviso de filtro ativo
+  if(projFilter!=='all' && !pl.some(([p])=>p===projFilter)){ projFilter='all'; lsSet('projFilter','all'); }
+  if(projFilter!=='all') act.push('projeto '+projShort(projFilter));
+  const activeChip = act.length ? `<span class="ffactive" title="alguns filtros estão escondendo tarefas">filtros ativos: ${esc(act.join(' · '))} <button class="fvlink" id="ffClearAll">limpar</button></span>` : '';
+  // SEMPRE visível: status + busca + projeto/épico/tipo (selects compactos)
   const isDone=flowScope==='done';
   const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
     (isDone?`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`:`<div class="ffchips">${stChips}</div>`)+
@@ -188,20 +230,23 @@ function renderFlowFilters(){
     // busca por nome SEMPRE visível (antes ficava escondida nos filtros avançados)
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
     `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa pelo nome…" value="${escA(flowQuery)}"></div>`+
-    `<select class="sel" id="ffType" title="filtrar por tipo (feature/fix/docs/investigação…)">${tyOpts}</select></div>`;
+    projSel+epicSel+
+    `<select class="sel ffsel" id="ffType" title="filtrar por tipo (feature/fix/docs/investigação…)">${tyOpts}</select></div>`+
+    (activeChip?`<div class="ffactrow">${activeChip}</div>`:'');
   // AVANÇADO (toggle): período, agente, agrupar
   const advHtml=`<div class="ffadv" style="display:${ffAdvOpen?'flex':'none'};flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">`+
     `<select class="sel" id="ffPeriod">${peOpts}</select>`+
     `<select class="sel" id="ffAgent">${agOpts}</select>`+
     `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select></div>`;
-  // chips de PROJETO (multi-projeto integrado) — só quando há mais de um
-  const pl=projList();
-  const projChips = pl.length>1 ? `<div class="pfrow">`+
-    `<button class="pfchip${projFilter==='all'?' on':''}" data-pf="all">Todos os projetos</button>`+
-    pl.map(([path,name])=>`<button class="pfchip${projFilter===path?' on':''}" data-pf="${escA(path)}"><span class="pfd" style="background:${projColor(path)}"></span>${esc(name)}</button>`).join('')+
-    `</div>` : '';
-  { const h=tabsHtml + projChips + filterRow + advHtml; if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
-  el.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>{ projFilter=b.dataset.pf; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); });
+  { const h=tabsHtml + filterRow + advHtml; if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
+  { const s=$id('ffProj'); if(s) s.onchange=(e)=>{ projFilter=e.target.value; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); }; }
+  { const s=$id('ffEpic'); if(s) s.onchange=(e)=>{ flowEpic=e.target.value; flowSetF('flowEpic',flowEpic); lastSig=''; renderFlow(); }; }
+  bindClick('ffClearAll', ()=>{
+    flowStatus='all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all'; projFilter='all'; lsSet('projFilter','all');
+    ['flowStatus','flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all'));
+    lastSig=''; renderFlow();
+  });
+  bindClick('flowResetOrder', ()=>{ lsSet('flowManual','0'); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
     if(k==='team'){ tmView='people'; lsSet('tmView','people'); teamPaintSig=''; setView('team'); return; } // PDF p7: time por PESSOA
@@ -210,13 +255,13 @@ function renderFlowFilters(){
   el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
   el.querySelectorAll('[data-fv]').forEach(b=>b.onclick=()=>{ flowView=b.dataset.fv; lsSet('flowView',flowView); if(curView()!=='flow') setView('flow'); lastSig=''; renderFlow(); });
   { const b=el.querySelector('#ffMore'); if(b) b.onclick=()=>{ ffAdvOpen=!ffAdvOpen; lastSig=''; renderFlow(); }; }
-  el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; lastSig=''; renderFlow(); });
+  el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; flowSetF('flowStatus',flowStatus); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
-  $id('ffType').onchange=(e)=>{ flowType=e.target.value; lastSig=''; renderFlow(); };
-  $id('ffPeriod').onchange=(e)=>{ flowPeriod=e.target.value; lastSig=''; renderFlow(); };
-  { const p2=$id('ffPeriod2'); if(p2) p2.onchange=(e)=>{ flowPeriod=e.target.value; lastSig=''; renderFlow(); }; }
+  $id('ffType').onchange=(e)=>{ flowType=e.target.value; flowSetF('flowType',flowType); lastSig=''; renderFlow(); };
+  $id('ffPeriod').onchange=(e)=>{ flowPeriod=e.target.value; flowSetF('flowPeriod',flowPeriod); lastSig=''; renderFlow(); };
+  { const p2=$id('ffPeriod2'); if(p2) p2.onchange=(e)=>{ flowPeriod=e.target.value; flowSetF('flowPeriod',flowPeriod); lastSig=''; renderFlow(); }; }
   bindClick('flowPeriodRep', periodReport);
-  $id('ffAgent').onchange=(e)=>{ flowAgent=e.target.value; lastSig=''; renderFlow(); };
+  $id('ffAgent').onchange=(e)=>{ flowAgent=e.target.value; flowSetF('flowAgent',flowAgent); lastSig=''; renderFlow(); };
   $id('ffGroup').onchange=(e)=>{ flowGroupBy=e.target.value; lastSig=''; renderFlow(); };
   const s=$id('ffSearch');
   s.oninput=(e)=>{ flowQuery=e.target.value; lastSig=''; renderFlow(); };
@@ -241,6 +286,8 @@ function renderNavTabs(v){
 }
 let flowDragId=null;
 // Central de execuções: bucket de cada tarefa (ordem = urgência pro humano)
+// É A regra única de "em que etapa está" — Central, chips, cabeçalho, barra de status, Kanban,
+// barra lateral e Time contam por aqui (flowCounts). Não crie outra classificação numa tela.
 function flowBucket(t){
   if(t.status==='draft') return 'rascunho';
   if((t.flag==='closed'||['merged','done'].includes(t.status))) {
@@ -250,7 +297,32 @@ function flowBucket(t){
   if(pendingOf(t.id).length || ['plan-review','error','conflict','aborted'].includes(t.status)) return 'aguardando';
   if(t.prUrl && t.status!=='merged') return 'praberto';
   if(['review','delivered'].includes(t.status)) return 'prontas';
+  if(['backlog','requested'].includes(t.status)) return 'fila'; // só cartões da nuvem (Time) — local não tem backlog
   return 'andamento'; // running/thinking/queued/paused
+}
+// status EFETIVO pra exibir (selo/etiqueta): pergunta aberta vence o status cru ('running' com pergunta = aguardando você),
+// PR aberto vira 'pr-open' (mesma etapa da Central). Use com stBadge/stLabel/stColor/stShort.
+function taskSt(t){
+  if(!t) return '';
+  if(pendingOf(t.id).length) return 'asking';
+  if(t.flag==='closed' && !['merged','done','cancelled'].includes(t.status)) return 'closed';
+  if(flowBucket(t)==='praberto') return 'pr-open';
+  return t.status;
+}
+function stShort(st){ const m=STATUS_META[st]; return (m&&m.short)||stLabel(st); }
+// plural PT simples: nPl(0,'arquivo') → "0 arquivos", nPl(1,'arquivo') → "1 arquivo", nPl(2,'PR','PRs')
+function nPl(n, sing, plur){ n=+n||0; return n+' '+(n===1?sing:(plur||sing+'s')); }
+// tarefas VIVAS do board (mesma regra de visibilidade da lista de Execução: sem encerradas; bloqueadas só com o toggle)
+function flowLiveTasks(src){
+  if(!src){ try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); } }
+  return (src||[]).filter(t=>notHidden(t) && !(t.flag==='closed'||['merged','done'].includes(t.status)));
+}
+// A CONTAGEM ÚNICA: quantas tarefas em cada etapa (chaves = FLOW_SECS + 'fila'). `rodando` = subconjunto de
+// andamento que está de fato executando agora (running/thinking) — só pra detalhe/tooltip.
+function flowCounts(tasks){
+  const c={ aguardando:0, andamento:0, prontas:0, praberto:0, rascunho:0, fila:0, hoje:0, anteriores:0, rodando:0, total:0 };
+  for(const t of (tasks||[])){ const b=flowBucket(t); c[b]=(c[b]||0)+1; c.total++; if(b==='andamento' && ['running','thinking'].includes(t.status)) c.rodando++; }
+  return c;
 }
 const FLOW_SECS=[
   ['aguardando','Aguardando você','warn','acc-warn'],
@@ -261,21 +333,44 @@ const FLOW_SECS=[
   ['hoje','Concluídas hoje','',''],
   ['anteriores','Anteriores','',''],
 ];
+// B6: uma linha explicando cada seção (tooltip do cabeçalho e do chip) — pra quem não conhece o jargão
+const FLOW_SEC_TIP={
+  aguardando:'Aguardando você: o agente parou e precisa de uma decisão SUA (pergunta, plano pra aprovar, erro ou conflito).',
+  andamento:'Em andamento: agentes trabalhando agora — você não precisa fazer nada.',
+  prontas:'Prontas pra revisar: o agente terminou — confira e abra o PR (ou conclua).',
+  praberto:'PR aberto: esperando revisão/merge no GitHub.',
+  rascunho:'Rascunhos: ainda não começaram — ▶ inicia.',
+  hoje:'Concluídas hoje: mergeadas ou concluídas por você.',
+  anteriores:'Concluídas antes de hoje.',
+  epativos:'Épicos em andamento: épicos cujas tarefas já começaram todas — o resumo mostra quantas foram entregues, a onda atual e um ponto por tarefa (clique pra abrir).',
+  epicos:'Na fila dos épicos: tarefas de épicos do time que ainda não começaram, agrupadas por épico e por onda. Onda = grupo de tarefas que rodam juntas; a próxima começa quando esta termina.',
+};
+const FLOW_SEC_COLOR={ aguardando:'var(--st-ask)', andamento:'var(--st-run)', prontas:'var(--st-review)', praberto:'var(--info)', rascunho:'var(--muted)' };
+const FLOW_EXEC_KEYS=['aguardando','andamento','prontas','praberto','rascunho'];
+// seção recolhida (B4): estado por seção no localStorage; `def` = padrão quando o usuário nunca mexeu
+function flowSecCollapsed(k, def){ const v=lsGet('sec:col:'+k); return v==null?!!def:v==='1'; }
+function flowSecHead(k, label, n, tone, collapsed){
+  return `<div class="sech ${tone||''}" data-sectog="${escA(k)}" role="button" tabindex="0" aria-expanded="${collapsed?'false':'true'}" title="${escA((FLOW_SEC_TIP[k]||label)+' · clique pra '+(collapsed?'expandir':'recolher'))}"><span class="secchev">${collapsed?'▸':'▾'}</span>${esc(label)} <span class="n">${n}</span></div>`;
+}
 let flowView=lsGet('flowView')||'list';   // list | grid (redesign p1/p2)
 function renderFlowHead(){
   const el=$id('flowHead'); if(!el) return;
   // só troca o DOM se mudou: reescrever a cada render piscava e zerava o #coordChip (preenchido a cada 2s)
   const put=h=>{ if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; };
-  const vis=(state.tasks||[]).filter(t=>notHidden(t));
-  const andamento=vis.filter(t=>['andamento','prontas','praberto'].includes(flowBucket(t))).length;
-  const aguardando=vis.filter(t=>flowBucket(t)==='aguardando').length;
+  // mesma contagem dos chips/barra de status/Kanban (flowCounts) — antes "andamento" aqui somava prontas+PR
+  const fc=flowCounts(flowLiveTasks());
   if(flowScope==='done'){
     let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
     const done=flowVisible(src); const prs=done.filter(t=>t.prUrl).length;
     put(`<h1>Entregas concluídas</h1><div class="sub">${done.length} demanda${done.length===1?'':'s'}${prs?` · ${prs} PR${prs===1?'':'s'}`:''} · objetivos, provas e documentos de cada uma</div><span style="flex:1"></span>`);
     return;
   }
-  put(`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
+  const bits=[];
+  if(fc.aguardando) bits.push(`<b>${fc.aguardando} aguardando você</b>`);
+  bits.push(`${fc.andamento} em andamento`);
+  if(fc.prontas) bits.push(`${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar`);
+  if(fc.praberto) bits.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
+  put(`<h1>Central</h1><div class="sub">${bits.join(' · ')}</div>
     <span style="flex:1"></span><span id="coordChip" class="mono" title="Coordenação (baseline): conflitos de merge · colisões do bus · reworks" style="font-size:11px;color:var(--muted);align-self:center"></span>`);
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
@@ -342,7 +437,7 @@ function renderTaskSummary(t){
     <div class="seclbl2">O que já foi feito</div>
     ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?'✓':'○'}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
     ${dels.length?`<div style="margin-top:6px">${li(dels,'◆','var(--accent)')}</div>`:''}
-    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${(d.files||[]).length} arquivo(s) alterado(s) · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${c.length} commit(s)${rev?' · review interno ✓':''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
+    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${nPl(diffFiles(d),'arquivo alterado','arquivos alterados')} · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${nPl(c.length,'commit')}${rev?' · review interno ✓':''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
     ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;color:var(--text-2)"><span class="mono dim" style="flex:none">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
     ${rev?`<div class="seclbl2" style="margin-top:10px">Como testar</div><div style="font-size:12.5px">${esc(rev.howToTest||'')}</div>`:''}
     <div class="seclbl2" style="margin-top:14px">O que falta pra finalizar</div>
@@ -372,7 +467,7 @@ function flowTaskRow(t){
     : t.status==='draft' ? 'rascunho — clique pra editar · ▶ inicia'
     : done ? (prN?`PR #${prN} · merged`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
-    : ['review','delivered'].includes(t.status) ? `${(diffOf(t.id)?.files||[]).length||''} arquivo(s) alterado(s), pronta pra revisar`
+    : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${nPl(diffFiles(diffOf(t.id)),'arquivo')}`
     : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,70))}`
     : 'iniciando…';
   const proj=t.proj||(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'';
@@ -390,7 +485,7 @@ function flowTaskRow(t){
   const pvChip=pvChips(t, true);
   return `<div class="frow${done?' done':''}" data-id="${t.id}">
     <span class="d" style="background:${dot}"></span>
-    ${play}<span class="ti">${esc(t.title)}</span>
+    ${play}<span class="ti">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}
     <span class="prj"><span class="prjd" style="background:${pcol}"></span>${esc(proj)}</span>
     <span class="pctwrap" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><i style="width:${pct}%;background:${asking.length?'var(--warn)':'var(--good)'}"></i></span><span class="pctn mono" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito">${pct}%</span>
     <span class="msg">${msg}</span>
@@ -415,12 +510,12 @@ function openTaskMenu(taskId, anchor){
   const ty=taskType(t);
   const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
   // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
-  if(t.flag!=='closed') item('✓ concluir · arquiva e sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
-  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='⚙ trocar modelo · '+(typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão')); b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); pop.remove(); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
+  if(t.flag!=='closed') item('✓ concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
+  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='⚙ trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); pop.remove(); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
   if(t.flag==='closed') item('↩ reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
-  if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra review', ()=>invoke('mark_task_status',{taskId,status:'review'}));
-  if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como merged', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
-  if(['review','delivered','merged'].includes(t.status)) item('↻ voltar pra rodando', ()=>invoke('mark_task_status',{taskId,status:'running'}));
+  if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}));
+  if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como mergeada', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
+  if(['review','delivered','merged'].includes(t.status)) item('↻ voltar pra em andamento', ()=>invoke('mark_task_status',{taskId,status:'running'}));
   if(t.flag!=='blocked') item('❙❙ bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}));
   else item('▶ desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(['error','aborted','conflict'].includes(t.status)){
@@ -451,11 +546,12 @@ function openStatusMenu(taskId, anchor){
   // cada opção: {key, label, col, act()} — status via mark_task_status, finalizar via flag
   const setSt=(status)=>()=>invoke('mark_task_status',{taskId,status});
   const opts=[
-    { key:'running', label:'▶ Rodando',          col:'var(--good)', act:setSt('running') },
-    { key:'review',  label:'◆ Pronta pra review', col:'var(--warn)', act:setSt('review') },
-    { key:'merged',  label:'✓ Mergeado',          col:'var(--good)', act:setSt('merged') },
-    { key:'finished',label:'★ Finalizado · sai da fila', col:'var(--accent)', act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
-    { key:'cancelled',label:'⊘ Cancelada · para e sai da fila', col:'var(--crit)', act:async()=>{ await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } },
+    // nomes = STATUS_META (stLabel/stColor); fechar = "concluir" em toda a app
+    { key:'running', label:'▶ Em andamento',        col:stColor('running'), act:setSt('running') },
+    { key:'review',  label:'◆ Pronta pra revisar',  col:stColor('review'),  act:setSt('review') },
+    { key:'merged',  label:'✓ Mergeada',            col:stColor('merged'),  act:setSt('merged') },
+    { key:'finished',label:'★ Concluir · sai da fila', col:stColor('done'), act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
+    { key:'cancelled',label:'⊘ Cancelar · para e sai da fila', col:'var(--crit)', act:async()=>{ await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } },
     // "Rascunho" NÃO entra: rebaixar uma task já iniciada pra draft a tornava
     // não-abrível (o clique ia pro editor) — footgun. Rascunho é só na criação.
   ];
@@ -484,6 +580,34 @@ function openStatusMenu(taskId, anchor){
 }
 // a task JÁ foi iniciada (tem PR ou commits)? Se sim, clicar abre o workspace
 // mesmo com status 'draft' — senão iria pro editor e não dava pra falar com o agente.
+// R3: épico cujas tarefas JÁ começaram todas (fila da nuvem vazia) sumia da Central — o epBoardHtml (46) só monta
+// grupo pra épico com cartão na fila. Aqui: um cabeçalho por épico com tarefa local viva e sem cartão na fila,
+// reaproveitando o resumo do 46 (epqSummaryHtml: x/y entregues · onda · rodando/em PR… + um ponto por tarefa).
+// Entra DENTRO da seção da fila quando ela existe; senão numa seção própria "◆ Épicos em andamento".
+function flowEpicGroupsHtml(src, epHtml){
+  if(flowScope==='done' || typeof epqSummaryHtml!=='function' || typeof epColor!=='function') return epHtml;
+  if(flowStatus!=='all' && flowStatus!=='epicos') return epHtml; // outro chip de status: a fila também sai
+  const inQueue=new Set(((typeof epQueueList==='function')?epQueueList(false):[]).map(ct=>ct.epic_id));
+  const q=flowQuery.trim().toLowerCase();
+  const nameOf=eid=>(typeof epNameOf==='function'&&epNameOf(eid))||'épico';
+  const by=new Map();
+  for(const t of flowLiveTasks(src)){
+    const eid=t.epic&&t.epic.epicId; if(!eid || t._cross || inQueue.has(eid)) continue; // resumo do 46 lê o projeto aberto
+    if(flowEpic!=='all' && eid!==flowEpic) continue;
+    if(!by.has(eid)) by.set(eid,[]); by.get(eid).push(t);
+  }
+  if(q) [...by.keys()].forEach(eid=>{ if(!(nameOf(eid).toLowerCase().includes(q) || by.get(eid).some(t=>(t.title||'').toLowerCase().includes(q)))) by.delete(eid); });
+  if(!by.size) return epHtml;
+  const groups=[...by.keys()].map(eid=>`<div class="epqep" style="--epc:${epColor(eid)}"><div class="epqh" style="cursor:default" title="todas as tarefas deste épico já começaram — cada ponto abre uma">`+
+    `<span class="secchev">◆</span><span class="tsepc epqname">${esc(nameOf(eid))}</span><span class="epqsum">${epqSummaryHtml(eid, 0)}</span><span style="flex:1"></span>`+
+    `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir ⤢</button></div></div>`).join('');
+  if(epHtml){
+    if(/class="secgrp epqgrp collapsed"/.test(epHtml)) return epHtml; // seção recolhida: nada de corpo
+    return epHtml.replace(/<\/div>\s*$/, groups+'</div>');
+  }
+  const col=flowSecCollapsed('epativos', false);
+  return `<div class="secgrp epqgrp${col?' collapsed':''}" data-sec="epativos">${flowSecHead('epativos','◆ Épicos em andamento', by.size, '', col)}${col?'':groups}</div>`;
+}
 function taskStarted(t){ return !!(t && (t.prUrl || (commitsCache[t.id] && commitsCache[t.id].length))); }
 function openOrEdit(t){ if(t.status==='draft' && !taskStarted(t)) editDraft(t); else openWorkspace(t.id); }
 function renderFlow(){
@@ -498,14 +622,21 @@ function renderFlow(){
   // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
   // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
   let tasks=[], html='', grouped=false;
-  if(!src.length){ html=ghost; }
+  // fila dos épicos (46): respeita busca/status/tipo/agente/épico lá dentro; entra DEPOIS de
+  // "Aguardando você" e "Em andamento" (recolhida por padrão se há algo esperando você)
+  const nWaitYou=flowScope==='done'?0:src.filter(t=>flowScopeOk(t)&&flowBucket(t)==='aguardando').length;
+  const epHtml=flowEpicGroupsHtml(src, window.epBoardHtml?window.epBoardHtml(flowScope, { waitingYou:nWaitYou }):'');
+  if(!src.length){ html=epHtml+ghost; }
   else {
     const vis=flowVisible(src).slice();
-    const hasManual=vis.some(t=>t.sortOrder!=null);
-    tasks = hasManual
-      ? vis.sort((a,b)=> (a.sortOrder??1e15)-(b.sortOrder??1e15) || b.created_at-a.created_at)
+    // ordem manual (arrastar) vale DENTRO de cada seção — antes um único arrasto virava a Central numa lista
+    // plana pra sempre. Sem sortOrder (tarefa nova) fica no topo da seção; "restaurar ordem" desliga.
+    const manual=lsGet('flowManual')!=='0' && vis.some(t=>t.sortOrder!=null);
+    const so=t=>t.sortOrder==null?-1:t.sortOrder;
+    tasks = manual
+      ? vis.sort((a,b)=> so(a)-so(b) || b.created_at-a.created_at)
       : vis.sort((a,b)=> b.created_at-a.created_at);
-    if(!tasks.length){ html = flowQuery.trim()
+    if(!tasks.length){ html = epHtml ? epHtml : flowQuery.trim()
       ? `<div class="empty">nenhuma tarefa para <b>"${esc(flowQuery.trim())}"</b> · <a class="lnk" id="flowClearSearch" style="cursor:pointer">limpar busca</a></div>`
       : '<div class="empty">nenhuma tarefa neste filtro.</div>'; }
     else {
@@ -516,32 +647,36 @@ function renderFlow(){
         const g=new Map();
         for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         const keys=[...g.keys()].sort((a,b)=>b-a);
-        html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${g.get(k).length} tarefa(s)</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("");
+        html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${nPl(g.get(k).length,'tarefa')}</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("") + epHtml;
       } else if(byProject){
         const g=new Map();
         for(const t of tasks){ const k=t.repo||state.repo||''; if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         html = [...g.entries()].map(([k,list])=>`<div class="secgrp"><div class="sech"><span class="prjd" style="background:${projColor(k)};width:8px;height:8px;border-radius:99px;display:inline-block"></span>${esc(projShort(k))} <span class="n">${list.length}</span></div>${list.map(t=>item(t)).join("")}</div>`).join("");
-      } else if(hasManual){
-        html = tasks.map(t=>item(t)).join("");
       } else {
         const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
         html = FLOW_SECS.map(([k,label,tone,acc])=>{
-          const list=by[k]||[]; if(!list.length) return '';
-          const cards=list.map(t=>item(t, acc)).join("");
-          return `<div class="secgrp"><div class="sech ${tone}">${esc(label)} <span class="n">${list.length}</span></div>${cards}</div>`;
+          // a fila dos épicos entra logo antes de "Prontas pra revisar" (= depois de Aguardando você/Em andamento)
+          const pre = k==='prontas' ? epHtml : '';
+          const list=by[k]||[]; if(!list.length) return pre;
+          const col=flowSecCollapsed(k, false);
+          const cards=col?'':list.map(t=>item(t, acc)).join(""); // recolhida: nem monta os cartões
+          return pre+`<div class="secgrp${col?' collapsed':''}" data-sec="${escA(k)}">${flowSecHead(k, label, list.length, tone, col)}${cards}</div>`;
         }).join("") + ghost;
       }
     }
   }
   // planos do orquestrador entram no topo em QUALQUER ordenação/agrupamento (sem busca ativa)
-  // cartões de épico no backlog do time (só nuvem): aguardando pré-requisito / prontos pra assumir
-  if(window.epBoardHtml && !flowQuery.trim()) html=window.epBoardHtml(flowScope)+html;
   if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
   if(window.epWireBoard) window.epWireBoard(el);
+  // B4: cabeçalho de seção recolhe/expande (estado salvo por seção; vale pra fila dos épicos também)
+  el.querySelectorAll('[data-sectog]').forEach(h=>{
+    h.onclick=(e)=>{ e.stopPropagation(); const k=h.dataset.sectog; const was=h.getAttribute('aria-expanded')==='false'; lsSet('sec:col:'+k, was?'0':'1'); lastSig=''; renderFlow(); };
+    h.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); h.onclick(e); } };
+  });
   bindClick('ghostNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
   wireLinkChips(el);
@@ -588,7 +723,7 @@ function renderFlow(){
     card.addEventListener('dragstart',e=>{ flowDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
     card.addEventListener('dragend',()=>{ flowDragId=null; card.classList.remove('dragging'); });
     card.addEventListener('dragover',e=>{ if(flowDragId&&flowDragId!==card.dataset.id){ e.preventDefault(); e.dataTransfer.dropEffect='move'; } });
-    card.addEventListener('drop',e=>{ e.preventDefault(); const tgt=card.dataset.id; const drag=flowDragId; flowDragId=null; if(drag&&drag!==tgt) reorderFlow(drag,tgt); });
+    card.addEventListener('drop',e=>{ e.preventDefault(); const tgt=card.dataset.id; const drag=flowDragId; flowDragId=null; if(drag&&drag!==tgt){ lsSet('flowManual','1'); reorderFlow(drag,tgt); } });
   });
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
   el.querySelectorAll('[data-ctog]').forEach(h=>h.onclick=(e)=>{ e.stopPropagation(); const id=h.dataset.ctog; if(flowCommitsOpen.has(id)) flowCommitsOpen.delete(id); else flowCommitsOpen.add(id); lastSig=''; renderFlow(); });

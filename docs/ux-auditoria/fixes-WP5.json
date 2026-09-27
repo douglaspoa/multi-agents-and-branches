@@ -1,0 +1,211 @@
+[
+  {
+    "id": "V1",
+    "area": "Sistema visual",
+    "titulo": "Cores soltas viram tokens do tema",
+    "antes": "57 usos de #eaf2ee (um segundo 'texto' quase igual ao --text) no CSS + 6 em estilos inline do JS; 45 superfícies #101312/#0f1211/#0e1110; 13 rgba(63,221,138,…) de um verde que não é o --accent; vermelhos #e5645c/#f85149/#ff6b5f, azuis #5b9dff/#5b9df9, rosa #e8788a e #05170e (texto sobre verde) espalhados. O mapa ORQ_ST do orquestrador tinha hex próprios.",
+    "depois": "Tudo aponta pros tokens: var(--text), var(--card-bg) (novo token no :root, mesmo #101312), var(--surface-2), var(--accent) e color-mix(in srgb,var(--accent) N%,transparent) nas transparências, var(--crit), var(--info), var(--st-ask), var(--on-accent). ORQ_ST agora é derivado dos tokens (rodando continua âmbar de propósito). Paletas categóricas (faixas do grafo, fluxo do PR) ficaram hex porque são cores de série, não de estado.",
+    "motivo": "Com cor duplicada, ajustar o tema exige caçar hex; e o verde/vermelho 'quase igual' dá a sensação de duas marcas na mesma tela.",
+    "arquivos": [
+      "app/src/css/10-base.css",
+      "app/src/css/20-abas-e-telas.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/70-orquestrador.css",
+      "app/src/css/82-issues.css",
+      "app/src/js/11-ambiente-updater.js",
+      "app/src/js/12-chat-prefs-daily.js",
+      "app/src/js/14-nova-demanda-inicio.js",
+      "app/src/js/25-grafo.js",
+      "app/src/js/34-orquestrador.js",
+      "app/src/js/41-assinatura-chaves.js",
+      "app/src/js/43-espaco-times.js",
+      "app/src/js/44-onboarding.js"
+    ],
+    "como_ver": "Abrir Orquestrador, Nova demanda, Conta e Issues: as cores de destaque e de erro são as mesmas da Central.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V2",
+    "area": "Sistema visual",
+    "titulo": "Uma pilha de fonte de display e uma de código, carregadas no boot",
+    "antes": "144 pilhas literais 'Instrument Sans',… e 94 'JetBrains Mono',monospace (CSS + estilos inline). As fontes só baixavam quando ndInjectFonts() rodava em algumas telas, então a primeira tela abria em fonte do sistema e 'pulava' (FOUT).",
+    "depois": "Todas viram var(--display) / var(--code). O index.html carrega a folha do Google Fonts uma vez no boot, sem bloquear a pintura (media=print → all), com id ndFonts pra que ndInjectFonts() vire no-op. Offline, as pilhas caem em -apple-system/SF Mono (antes caíam em sans-serif genérico).",
+    "motivo": "Troca de fonte no meio da navegação parece bug; e 238 cópias da mesma pilha impedem trocar a fonte num lugar só.",
+    "arquivos": [
+      "app/src/index.html",
+      "app/src/css/*.css",
+      "app/src/js/11-ambiente-updater.js",
+      "app/src/js/12-chat-prefs-daily.js"
+    ],
+    "como_ver": "Abrir o app e ir direto em Skills ou Conta: o título já sai em Instrument Sans, sem trocar depois.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V3",
+    "area": "Sistema visual",
+    "titulo": "Título de tela numa escala só; H1 da Central igual à aba",
+    "antes": "O mesmo papel (título da aba) tinha 5 tamanhos: .ndh1 32px, .sk-h1/.as-h1 28px, .en-h1/.tmain h1 26px, .flowhead h1 21px; .tmain h1 era definido duas vezes no css/60. A aba se chama 'Central' mas o H1 dizia 'Central de execuções'.",
+    "depois": "Uma regra única no css/80: 26px/600 var(--display) pra .ndh1, .sk-h1, .as-h1, .en-h1, .tmain h1 e .flowhead h1 (o .au-h1 do login/onboarding segue maior, é tela-herói). Duplicata do .tmain h1 removida. H1 = 'Central' com subtítulo 'execuções · N em andamento…'.",
+    "motivo": "Tamanho de título diferente a cada aba faz o app parecer montado por times diferentes; nome da aba e título devem bater.",
+    "arquivos": [
+      "app/src/css/80-ajustes-cards.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/js/22-quadro-fluxo.js"
+    ],
+    "como_ver": "Alternar entre Central, Skills, Nova demanda e Time: o título tem o mesmo tamanho.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V4",
+    "area": "Sistema visual",
+    "titulo": "Texto fraco sobe pra contraste AA",
+    "antes": "64 cores de TEXTO rgba(255,255,255,a) / rgba(234,242,238,a) com a < .45 (até .2) sobre o fundo escuro — abaixo de AA (placeholders, rótulos, metadados, vazio do tracker).",
+    "depois": "Viram var(--text-3) (≈ .52). Bordas e fundos não foram tocados. Mantido só um '·' decorativo (.22) no Daily.",
+    "motivo": "Texto que não se lê em tela escura some pra quem tem baixa visão ou monitor com brilho baixo.",
+    "arquivos": [
+      "app/src/css/20-abas-e-telas.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/70-orquestrador.css",
+      "app/src/css/82-issues.css",
+      "app/src/js/11-ambiente-updater.js",
+      "app/src/js/12-chat-prefs-daily.js"
+    ],
+    "como_ver": "Issues com coluna vazia, placeholders do login e da Nova demanda: o texto cinza agora é legível.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V5",
+    "area": "Sistema visual",
+    "titulo": "Botões numa receita só",
+    "antes": ".as-btn (10px 15px, raio 9px), .au-btn (11px 16px, raio 9px, texto #05170e e brilho de outro verde), .sk-add, e o 'ghost contornado' copiado 5 vezes (#cloudOverlay .btn.ghost, .enpage .btn.ghost, #projetosOverlay .pc2acts .btn, #ntOverlay .mbody .btn.sm, .nf-ghost) com tamanhos 11.5–12px diferentes.",
+    "depois": "Um bloco no fim do css/60: .as-btn/.au-btn/.sk-add com a mesma altura do .btn (~31px), raio var(--r-sm), primária var(--accent)/var(--on-accent) com hover --accent-2; o ghost contornado definido uma vez (seletor .btn.ghost.outline + os 5 antigos, sem renomear classes do JS). .as-btn.big/.au-btn.big alinhados em 11px 22px/14px.",
+    "motivo": "Botões com alturas e verdes diferentes lado a lado passam desleixo e confundem qual é a ação principal.",
+    "arquivos": [
+      "app/src/css/20-abas-e-telas.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/70-orquestrador.css"
+    ],
+    "como_ver": "Conta e time, Projetos, Orquestrador, Skills: botões primários e secundários com a mesma altura e o mesmo verde.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V6",
+    "area": "Sistema visual",
+    "titulo": "Raio pill pelo token",
+    "antes": "border-radius literais 99px/100px/999px e um var(--r-pill,99px) espalhados pelo CSS.",
+    "depois": "Todos viram var(--r-pill).",
+    "motivo": "Um token só pra forma de pílula.",
+    "arquivos": [
+      "app/src/css/*.css"
+    ],
+    "como_ver": "Sem mudança visual.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V7",
+    "area": "Sistema visual",
+    "titulo": "!important que só brigava com .overlay.astab .mbody",
+    "antes": "#envOverlay/#dailyOverlay/#ndOverlay/#projetosOverlay/#orqOverlay .astab .mbody usavam !important em max-width/margin/padding/overflow.",
+    "depois": "Sem !important: o seletor #id.astab .mbody (1-2-0) já vence .overlay.astab:not(.fwoverlay) .mbody (0-4-0). Comentário explica. Os do #ntOverlay ficaram (brigam com várias regras #ntOverlay de outros arquivos).",
+    "motivo": "!important desnecessário vira escada de !important no próximo ajuste.",
+    "arquivos": [
+      "app/src/css/20-abas-e-telas.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/70-orquestrador.css"
+    ],
+    "como_ver": "Ambiente, Daily, Projetos e Orquestrador renderizam igual.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V8",
+    "area": "Sistema visual",
+    "titulo": "Fechar/remover e check de status com SVG",
+    "antes": "Botões de fechar e remover usavam ✕, × ou SVG conforme a tela; selos do PR usavam ✔ e o chip 'pronto quando' ☑ — cada fonte desenha o glifo diferente.",
+    "depois": "IC.x e IC.ok (novos, em 10-core.js: SVGs do IC em 1em, herdam o font-size) em 13 lugares: fechar aba, fechar detalhe da issue, remover anexo/ref/checagem/objetivo/projeto, desvincular chip, lightbox, selos 'resolvido/respondido/checks' do PR, 'pronto quando' do épico.",
+    "motivo": "Ícone consistente e com o mesmo traço do resto da interface.",
+    "arquivos": [
+      "app/src/index.html",
+      "app/src/js/10-core.js",
+      "app/src/js/14-issues-projeto.js",
+      "app/src/js/15-config-abas-onboarding.js",
+      "app/src/js/20-workspace-tarefa.js",
+      "app/src/js/21-pull-request.js",
+      "app/src/js/30-anexos.js",
+      "app/src/js/31-nova-demanda-form.js",
+      "app/src/js/32-planner.js",
+      "app/src/js/33-switcher-projetos.js",
+      "app/src/js/34-orquestrador.js",
+      "app/src/js/43-espaco-times.js"
+    ],
+    "como_ver": "O X das abas no topo e o X de remover anexo na Nova demanda.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "V9",
+    "area": "Sistema visual",
+    "titulo": "CSS morto removido",
+    "antes": "~60 linhas de regras sem nenhum elemento: switcher antigo do topo (.projsw/.projbtn/.projmenu/.pdot), linha ao vivo (.lrow/.lract*/.stg), medidor .slots/.slotdot*, .askrow, .tmrow1-3/.tmst/.tmstat*, .fgroup, .topsearch*, .task-card.",
+    "depois": "Removidas após conferir zero ocorrências (inclusive como pedaço de string) em index.html e js/*.js. .prow/.projadd/.projerr (ainda usados pelo 33) ficaram.",
+    "motivo": "CSS morto engana quem procura onde um estilo vem.",
+    "arquivos": [
+      "app/src/css/10-base.css",
+      "app/src/css/30-refino-macos.css",
+      "app/src/css/40-sidebar-quadro.css",
+      "app/src/css/60-grafo-times-nova-demanda.css"
+    ],
+    "como_ver": "Sem mudança visual.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "K1",
+    "area": "Limpeza",
+    "titulo": "Modal antigo de pergunta do agente removido",
+    "antes": "#askOverlay seguia no index.html e o 24-perguntas-agente.js ligava askClose/askSend/askTa no carregamento, embora openAsk já leve à tela da tarefa (pergunta inline).",
+    "depois": "Saem o markup, closeAsk/askDoSend/askId e os binds, as entradas 'askOverlay' em 00-util.js e 10-core.js e o CSS .askmodal/.askq/.askta/.askopt*. .askopts (usado na conversa) ficou.",
+    "motivo": "Código morto que roda no boot e pode ser reaberto por engano.",
+    "arquivos": [
+      "app/src/index.html",
+      "app/src/js/24-perguntas-agente.js",
+      "app/src/js/00-util.js",
+      "app/src/js/10-core.js",
+      "app/src/css/10-base.css"
+    ],
+    "como_ver": "Tarefa com pergunta pendente: 'responder' abre a tela da tarefa como antes.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "K2",
+    "area": "Limpeza",
+    "titulo": "Assistente lateral da Nova demanda removido",
+    "antes": "#aiAssist ficava escondido no formulário; 31-nova-demanda-form.js mantinha sendAiMsg/extractSpec/fillFromSpec e o 33 ligava aiSend/aiInput; o estado da aba ainda salvava aiSid.",
+    "depois": "Markup, funções, binds, aiSid do estado da aba e CSS (#aiAssist, .aichat, .aimsg, .aispec, .airow) removidos. .aihint (dica usada em várias telas) ficou.",
+    "motivo": "Recurso desligado há tempo ('completar com IA' substituiu).",
+    "arquivos": [
+      "app/src/index.html",
+      "app/src/js/31-nova-demanda-form.js",
+      "app/src/js/33-switcher-projetos.js",
+      "app/src/css/30-refino-macos.css",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Nova demanda › Preencher eu mesmo abre igual.",
+    "estado_mock": "—"
+  },
+  {
+    "id": "K3",
+    "area": "Limpeza",
+    "titulo": "Textos que mandavam pro 'topo'",
+    "antes": "Alertas e avisos diziam 'botão no topo' / 'escolha um time no topo' (31, 32, 42, 43), mas Conta e time mora no rodapé da barra lateral. O guia de demanda aparecia como '(.cardume/SPEC.md)' e a Entrega citava '(.cardume/refs)' no texto.",
+    "depois": "'botão Conta, no rodapé da barra lateral'; o caminho .cardume/SPEC.md virou uma dica mono discreta; o vazio da Entrega fala só 'os anexos'. Nenhum 'Cardume'/'Constellation' visível sobrou (só caminhos internos e comentários).",
+    "motivo": "Instrução que aponta pro lugar errado faz o usuário procurar um botão que não existe.",
+    "arquivos": [
+      "app/src/index.html",
+      "app/src/js/20-workspace-tarefa.js",
+      "app/src/js/31-nova-demanda-form.js",
+      "app/src/js/32-planner.js",
+      "app/src/js/42-nuvem-sync-mobile.js",
+      "app/src/js/43-espaco-times.js"
+    ],
+    "como_ver": "Sem conta: tentar 'Desdobrar em épico' — o alerta aponta pro rodapé.",
+    "estado_mock": "—"
+  }
+]

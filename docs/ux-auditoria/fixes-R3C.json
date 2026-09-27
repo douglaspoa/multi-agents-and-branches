@@ -1,0 +1,57 @@
+[
+  {
+    "id": "R3-C1",
+    "area": "Central · seção de épicos (46 epBoardHtml)",
+    "titulo": "Grupo de épico abre expandido e resume o épico inteiro, com um ponto por tarefa",
+    "antes": "A seção 'Na fila dos épicos' começava recolhida sempre que havia algo aguardando você, ou seja, quase sempre. O cabeçalho de cada épico dizia só '4 na fila' quando o épico tinha 7 tarefas; as que estavam rodando, em PR ou em conflito ficavam espalhadas em outras seções, marcadas só por um selo. O ponto de cada linha usava a cor do épico numa linha e a cor do status nas outras.",
+    "depois": "A seção nasce aberta e só fica recolhida se você mesmo recolher (sec:col:epicos). O cabeçalho resume o épico todo, juntando nuvem e tarefas locais já iniciadas: '◆ Checkout novo · 0/7 entregues · onda 1 · 1 rodando · 1 em PR · 1 com problema · 4 na fila', mais um ponto por tarefa na cor do status (stColor), com o título e o status no tooltip. Clicar no ponto abre a tarefa (local → workspace; da nuvem → página do cartão). A borda esquerda do grupo é a cor do épico; o ponto de cada linha é sempre a cor do status (cheio = pronta, anel = na espera). Cada grupo tem uma única ação primária, o '▶ iniciar' da primeira tarefa pronta; as outras prontas ficam secundárias e 'iniciar mesmo assim' virou ghost tracejado.",
+    "motivo": "Queixa do dono: 'ao abrir épicos as issues ficam todas juntas, não dá pra saber o que é de qual épico'. A visão por épico precisa aparecer por padrão e mostrar o épico inteiro, não só a fila.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/css/60-grafo-times-nova-demanda.css"],
+    "como_ver": "Central (aba Tarefas) com épicos no backlog do time. A seção '◆ Na fila dos épicos' vem aberta. Passe o mouse nos pontos do cabeçalho e clique num deles.",
+    "estado_mock": "harness: cena epic-queue (ep1 Checkout novo com 7 tarefas: 4 na fila, t-running rodando, t-pr em PR, t-conflict em conflito; ep2 Login social com 4 tarefas)"
+  },
+  {
+    "id": "R3-C2",
+    "area": "Página do épico (46 epicPageRender)",
+    "titulo": "Página do épico: status 1x, números numa faixa compacta, uma primária, códigos D/R explicados",
+    "antes": "'em andamento' aparecia 3 vezes (barra do topo, sobretítulo e bloco de status). Cinco blocos de KPI ao lado apertavam a descrição. Havia três 'iniciar mesmo assim', um '▶ iniciar' e um 'revisar' verde, com duas primárias disputando atenção. Aparecia o texto redundante '✓ prova: prova definida no épico', e os códigos D1, R1 e R2 não tinham legenda.",
+    "depois": "O status aparece uma vez, colorido no sobretítulo ('épico do time · em andamento'); a barra do topo mostra só o nome e o bloco de status saiu. Os números viraram uma faixa compacta de pílulas abaixo da descrição (issue, pronto quando, tarefas entregues, onda atual). 'Tarefas entregues' agora conta só mergeadas/concluídas, igual ao cabeçalho da Central, e o tooltip diz quantas estão prontas pra revisar. Há uma única primária na lista, a próxima ação recomendada (revisar > 1ª pronta pra iniciar > ver o problema); as outras ações ficam secundárias e 'iniciar mesmo assim' é ghost tracejado. A prova genérica ou repetida some, e o 'prova:' duplicado é removido. Os códigos têm tooltip ('R = requisito do épico · D = critério de pronto quando'), e há legenda nos títulos das seções ('D1, D2… = critérios', 'R1, R2… = requisitos') e 'cobre R1 R2' nas tarefas.",
+    "motivo": "Poluição e hierarquia: a mesma informação repetida, a descrição espremida e duas primárias sem dizer qual é o próximo passo.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/css/60-grafo-times-nova-demanda.css"],
+    "como_ver": "Central → 'abrir ⤢' num grupo de épico (ou o selo ◆ de uma tarefa).",
+    "estado_mock": "harness: cena epic-page (ep1 Checkout novo, 4 critérios com 2 marcados, 7 tarefas em 3 ondas)"
+  },
+  {
+    "id": "R3-C3",
+    "area": "Issues · quadro (14 trkBoardHtml/trkCardHtml, 82-issues.css)",
+    "titulo": "Quadro de issues cabe na tela, sem texto cortado nem quebrado",
+    "antes": "Com 5 colunas de no mínimo 240px, a 5ª coluna ('Concluída') ficava cortada. Selos cortados ('pronta pra revi…'), o número de comentários caía para baixo do ícone, nomes quebravam em duas linhas ('Bruno / Lima', 'sem / responsável') e o placeholder da busca era cortado ('…ou pes'). Dentro de um grupo de épico, cada cartão ainda repetia o chip '◆ LOJ-12', que o cabeçalho já mostrava.",
+    "depois": "As colunas têm no mínimo 200px, e as 5 cabem a 1440px; em janelas menores o quadro rola por dentro. Nome do responsável em uma linha com reticências (e tooltip), ícone e número de comentários juntos. A tarefa vinculada ganhou linha própria abaixo do título ('⎇ tarefa rodando', na cor do status) e nunca vira 'ro…'. Busca mais larga, com o placeholder 'buscar código, título ou pessoa'. O chip '◆ LOJ-12' sai dos cartões que já estão sob o cabeçalho do épico. No detalhe da issue, o status da tarefa vinculada passou por stLabel (antes aparecia em inglês).",
+    "motivo": "Quadro com transbordo e texto cortado parece quebrado e esconde informação (o status e a coluna Concluída).",
+    "arquivos": ["app/src/js/14-issues-projeto.js", "app/src/css/82-issues.css"],
+    "como_ver": "Issues → Quadro, a 1440x900.",
+    "estado_mock": "harness: cena issues-board (14 issues LOJ-*, épicos LOJ-12/LOJ-20, 5 colunas)"
+  },
+  {
+    "id": "R3-C4",
+    "area": "Issues · Nova issue (conversa persistida)",
+    "titulo": "Conversa da Nova issue presa ao projeto em que nasceu (CR6)",
+    "antes": "A conversa era salva em 'trkni:<state.repo>', mas o trkNI não mudava ao trocar de projeto. O render seguinte gravava a conversa do projeto A na chave do B e apagava a do B.",
+    "depois": "trkNI guarda o repo em que foi criado (n.repo), e a chave usa esse repo. Ao abrir ou redesenhar a aba com outro projeto ativo (sem pesquisa ou criação em andamento), a conversa atual é salva na chave dela e a do projeto novo é restaurada, ou começa do zero. Um save pendente de outra conversa é gravado antes de trocar.",
+    "motivo": "Perda silenciosa de dados: rascunhos de issues de um projeto sobrescritos por outro.",
+    "arquivos": ["app/src/js/14-issues-projeto.js"],
+    "como_ver": "Abra Nova issue no projeto A e escreva algo. Troque para o projeto B e volte à aba: aparece a conversa do B. Volte para A: a do A continua lá.",
+    "estado_mock": "harness: SCENE_JS em issues-board (openTab('issuesbulk'), troca state.repo): chave de B continua com a conversa de B, sem a de A; a de A continua intacta."
+  },
+  {
+    "id": "R3-C5",
+    "area": "Issues · Nova issue (composer)",
+    "titulo": "'enviar' desabilitado enquanto as issues são criadas (CR9)",
+    "antes": "Durante a criação (n.running), o chatComposer com sendWhileBusy religava o #trkNISend.",
+    "depois": "Com n.running, o botão fica desabilitado, com o tooltip 'criando as issues — espere terminar'.",
+    "motivo": "Botão ativo que não faz nada (trkNISend retorna se running) confunde.",
+    "arquivos": ["app/src/js/14-issues-projeto.js"],
+    "como_ver": "Nova issue → 'confirmar e criar': o 'enviar' fica cinza até terminar.",
+    "estado_mock": "harness: SCENE_JS trkNI.running=true; trkNIRender() → #trkNISend.disabled === true"
+  }
+]

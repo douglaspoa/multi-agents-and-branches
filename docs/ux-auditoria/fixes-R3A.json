@@ -1,0 +1,123 @@
+[
+ {
+  "id": "R3-A1",
+  "area": "Contagens",
+  "titulo": "Uma contagem só: cabeçalho, chips, barra de status, Kanban e Time contam pela mesma regra",
+  "antes": "Cada tela contava do seu jeito: cabeçalho da Central '5 em andamento · 5 aguardando você' (somava prontas + PR em 'andamento'), chip 'Em andamento 4', barra de status '3 rodando · 4 esperando você' (contava prontas pra revisar como 'esperando você'), Kanban 'Em andamento 5 / Aguardando você 4', Time 'Rodando agora 4' (plano pra aprovar contava como rodando).",
+  "depois": "flowCounts(tasks) (22) conta por flowBucket — a mesma regra que monta as seções da Central. Cabeçalho, chips de status, barra de status, colunas do Kanban e o KPI do Time usam essa função. Cabeçalho e barra dizem a mesma frase: 'N aguardando você · N em andamento · N prontas pra revisar · N PR aberto'. A barra de status agora olha a mesma fonte da Central (projeto filtrado ou todos) e explica no tooltip ('mesma contagem da Central', com quantas estão de fato executando).",
+  "motivo": "O mesmo número aparecia de 5 jeitos em telas vizinhas — o usuário não sabia em qual confiar.",
+  "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/js/26-sidebar-projetos.js", "app/src/js/23-kanban-artefatos-editor.js", "app/src/js/43-espaco-times.js"],
+  "como_ver": "Home: o cabeçalho da Central, os chips e a barra 'Agora' no rodapé mostram os mesmos números (mock: 5 aguardando você · 4 em andamento · 2 prontas pra revisar · 1 PR aberto). Abra o Kanban: as colunas têm os mesmos números.",
+  "estado_mock": "cena home / kanban do harness"
+ },
+ {
+  "id": "R3-A2",
+  "area": "Status",
+  "titulo": "Etiquetas da barra lateral saem do dicionário único (forma curta) e 'aguardando você' é o termo único",
+  "antes": "A barra lateral usava um vocabulário próprio (exec/disc/rev/rasc/pausa/plano/⏳/PR/erro) e juntava erro, conflito e abortada no mesmo 'erro'. STATUS_META dizia 'precisa de você', a barra de status 'esperando você', a Central 'aguardando você'.",
+  "depois": "STATUS_META ganhou o campo `short` (rodando, pergunta, plano, revisar, PR, conflito, erro, abortada, pausada, rascunho, fila…) e um status derivado 'pr-open' (PR aberto). taskSt(t) dá o status efetivo (pergunta aberta vence 'running'; PR aberto = pr-open) e stShort/stColor pintam a etiqueta — tooltip com o nome completo. STATUS_META.asking agora é 'aguardando você', igual à barra de status, chips e Central.",
+  "motivo": "Duas linguagens pro mesmo estado; conflito e abortada pediam ações diferentes de erro e apareciam iguais.",
+  "arquivos": ["app/src/js/00-util.js", "app/src/js/22-quadro-fluxo.js", "app/src/js/25-grafo.js", "app/src/css/40-sidebar-quadro.css"],
+  "como_ver": "Barra lateral, projeto 'loja': Login com Apple → 'pergunta', Cupom → 'plano', Endereço → 'conflito', Migrar imagens → 'erro', Refatorar → 'abortada', Pix → 'PR'.",
+  "estado_mock": "qualquer cena (barra lateral)"
+ },
+ {
+  "id": "R3-A3",
+  "area": "Grafo e cards em grade",
+  "titulo": "Status em português com o selo padrão, e tarefa com pergunta aparece como 'aguardando você'",
+  "antes": "O Grafo e o card em grade (flowTaskCard) escreviam o status cru em inglês com text-transform:capitalize ('Plan-Review' vermelho como erro, 'Running' numa tarefa que estava esperando resposta). A barra do trilho e o selo da lateral da tarefa também usavam t.status cru.",
+  "depois": "Grafo usa stBadge(taskSt(t)) e a cor do trilho vem do status efetivo; o card em grade mostra ícone + stLabel(taskSt(t)) (o menu de status continua no mesmo lugar) e perdeu o selo duplicado 'esperando você'; o selo da lateral da tarefa (stPill) usa stLabel. text-transform:capitalize saiu de .fstatus.",
+  "motivo": "Inglês cru e cor de erro pra algo que não é erro assustam quem não é dev.",
+  "arquivos": ["app/src/js/25-grafo.js", "app/src/js/21-pull-request.js", "app/src/js/26-sidebar-projetos.js", "app/src/css/30-refino-macos.css"],
+  "como_ver": "Aba Grafo: 'Login com Apple' com '? aguardando você', 'Cupom' com '? plano pra aprovar', 'Endereço' com '! conflito'. Central em grade: mesmo texto no canto do card.",
+  "estado_mock": "cenas grafo e home com flowView='grid'"
+ },
+ {
+  "id": "R3-A4",
+  "area": "Kanban",
+  "titulo": "Colunas do Kanban derivadas das etapas da Central (com coluna PR aberto)",
+  "antes": "O Kanban tinha classificação própria: tarefa com PR aberto ficava em 'Prontas pra revisar' (na Central, 'PR aberto'), pausada e conflito em 'Em andamento', abortada em 'Aguardando você', e havia 'Mergeadas' separada de 'Concluídas'. Olhava só o projeto ativo.",
+  "depois": "kanbanCol(t) = flowBucket(t): Rascunhos · Aguardando você · Em andamento · Prontas pra revisar · PR aberto · Concluídas (mergeadas entram aqui, mostra as 30 mais recentes e conta todas). Mesma fonte da Central (boardSource). Card ganhou nota pra conflito e PR aberto; arrastar pra 'Concluídas' encerra; card de outro projeto volta pro lugar (abra-o pra mudar).",
+  "motivo": "A mesma tarefa estava em etapas diferentes conforme a tela.",
+  "arquivos": ["app/src/js/23-kanban-artefatos-editor.js"],
+  "como_ver": "Kanban: 'Pagamento via Pix' em 'PR aberto' (igual à Central); 'Endereço com autocomplete' (conflito) em 'Aguardando você'; 'Tema escuro' (pausada) em 'Em andamento'.",
+  "estado_mock": "cena kanban"
+ },
+ {
+  "id": "R3-A5",
+  "area": "Time",
+  "titulo": "KPI e quadro do Time pelas mesmas etapas da Central",
+  "antes": "KPI 'rodando agora' contava running/thinking/queued/plan-review; o quadro do time escondia erro/conflito/plano pra aprovar em 'Em andamento' e PR aberto em 'Prontas'. '1 devs ativos'.",
+  "depois": "Cartões da nuvem passam por tsNorm (local_id → pergunta aberta sua conta como aguardando; pr_url → prUrl; cancelada = encerrada) e flowBucket. KPI 'em andamento' + 'N aguardando alguém · 1 dev ativo'. Quadro com 5 colunas: Na fila · Aguardando alguém · Em andamento · Prontas / PR aberto · Concluídas. 'Agora no time', Pessoas e Entregas por membro dizem 'em andamento' com a mesma regra; selo das tarefas com stLabel do status efetivo.",
+  "motivo": "O KPI e as colunas do Time não batiam com a Central nem entre si.",
+  "arquivos": ["app/src/js/43-espaco-times.js", "app/src/css/40-sidebar-quadro.css"],
+  "como_ver": "Time → Visão geral (KPI 'em andamento') e Quadro (5 colunas).",
+  "estado_mock": "cena time"
+ },
+ {
+  "id": "R3-A6",
+  "area": "Daily",
+  "titulo": "Daily sem jargão e com o status efetivo",
+  "antes": "KPI 'prontas/merged' (e só contava 'review'), bloco 'TURNO', status pelo mapa da nuvem sem considerar pergunta aberta.",
+  "depois": "KPI 'prontas ou mergeadas' (conta review/delivered/merged/done), 'tarefa tocada'/'commit' no singular, bloco 'O QUE O AGENTE FEZ NO DIA', selo stBadge(taskSt(t)) — tarefa com pergunta aparece como 'aguardando você'.",
+  "motivo": "Jargão em inglês e 'turno' não dizem nada pra quem só quer colar o resumo na reunião.",
+  "arquivos": ["app/src/js/12-chat-prefs-daily.js"],
+  "como_ver": "Daily: 'Login com Apple' com selo '? aguardando você'.",
+  "estado_mock": "cena daily"
+ },
+ {
+  "id": "R3-A7",
+  "area": "Central",
+  "titulo": "Cabeçalho alinhado e filtros enxutos (projeto e épico em selects, 'restaurar ordem' fora dos chips)",
+  "antes": "'Central' e o subtítulo 'execuções · …' desalinhados (topo, fonte mono); 3 linhas de chips (projeto, épico, status) + busca; 'restaurar ordem' no meio dos chips de status.",
+  "depois": "Subtítulo na linha de base do título, sem 'execuções ·'. Projeto e épico viraram dois selects compactos (mesmas chaves persistidas projFilter/flowEpic) ao lado da busca e do tipo; uma linha de chips só (status). 'restaurar ordem' é um link discreto junto dos ícones de vista.",
+  "motivo": "Excesso de linhas de filtro empurrava a lista pra baixo e confundia o que era filtro e o que era ação.",
+  "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/css/30-refino-macos.css"],
+  "como_ver": "Home: uma linha de chips de status; selects 'Todos os projetos', 'Todos os épicos', 'Todos os tipos'; 'restaurar ordem' à direita das abas.",
+  "estado_mock": "cena home"
+ },
+ {
+  "id": "R3-A8",
+  "area": "Central",
+  "titulo": "Faixa 'filtros ativos · limpar' quando um filtro salvo esconde tarefas",
+  "antes": "flowPeriod/flowAgent ficavam salvos mas o select mora no painel avançado fechado; flowType salvo podia não aparecer no select (sem tarefas daquele tipo) — a lista ficava menor sem explicação.",
+  "depois": "Sempre que status/período/agente/tipo/épico ≠ todos aparece 'filtros ativos: … · limpar' (limpa tudo e persiste). Tipo salvo com 0 tarefas continua na lista do select (com '(0)'); valor salvo que não é um tipo conhecido volta pra 'todos'.",
+  "motivo": "Filtro invisível parece bug ('sumiu minha tarefa').",
+  "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/css/30-refino-macos.css"],
+  "como_ver": "Home com flowAgent='Orion' salvo: aparece 'filtros ativos: agente Orion · limpar'.",
+  "estado_mock": "cena home com SCENE_JS lsSet('flowAgent','Orion')"
+ },
+ {
+  "id": "R3-A9",
+  "area": "PR",
+  "titulo": "'aplicar correção' da lateral passa a chave do comentário (não um número)",
+  "antes": "26-sidebar-projetos.js chamava prFixOne(t.id, +b.dataset.prfix) — a chave é texto (prCmtKey), virava NaN e o comentário não era achado.",
+  "depois": "prFixOne(t.id, b.dataset.prfix), igual ao workspace.",
+  "motivo": "Botão quebrado silenciosamente ('comentário não encontrado').",
+  "arquivos": ["app/src/js/26-sidebar-projetos.js"],
+  "como_ver": "Lateral da tarefa com PR → aba PR → 'aplicar correção' num comentário.",
+  "estado_mock": "t-pr"
+ },
+ {
+  "id": "R3-A10",
+  "area": "Central",
+  "titulo": "Card sem descrição sem buraco, plural certo e modelo com nome amigável",
+  "antes": "Card 'Chave de idempotência' (sem objetivo/requisitos) reservava a altura mínima e ficava com um vão vazio; 'pronta pra revisar · 0 arquivo(s)'; '(s)' em commits/entregáveis/tarefas; id técnico do modelo ('claude-sonnet-4-5') no rodapé do card.",
+  "depois": "Card sem objetivo nem requisitos ganha .dc-bare (sem altura mínima). nPl(n, 'arquivo') → '0 arquivos'/'1 arquivo'/'N arquivos' em card, linha, resumo, grade e Entrega. boardModelName: 'claude-sonnet-4-5' → 'Sonnet 4.5'; id que não dá pra traduzir some do card (continua no cabeçalho da tarefa e no tooltip).",
+  "motivo": "Detalhes que fazem o produto parecer inacabado.",
+  "arquivos": ["app/src/js/27-entregas.js", "app/src/js/22-quadro-fluxo.js", "app/src/js/21-pull-request.js", "app/src/css/30-refino-macos.css"],
+  "como_ver": "Home → Prontas pra revisar → 'Chave de idempotência no /cobrancas': card compacto com 'pronta pra revisar · 0 arquivos'; demais cards com 'Orion · Sonnet 4.5'.",
+  "estado_mock": "cena home"
+ },
+ {
+  "id": "R3-A11",
+  "area": "Épicos na Central",
+  "titulo": "Épico com todas as tarefas já iniciadas continua com grupo na Central",
+  "antes": "A seção de épicos (epBoardHtml, 46) só montava grupo pra épico com cartão ainda na fila da nuvem. Quando todas as tarefas de um épico começavam (rodando/em PR), o épico sumia da Central e a visão por épico se perdia.",
+  "depois": "flowEpicGroupsHtml (22) acrescenta um cabeçalho por épico com tarefa local viva e sem cartão na fila, reaproveitando o resumo do 46 (x/y entregues · onda · rodando/em PR… + um ponto por tarefa, clicável) e o 'abrir ⤢'. Entra dentro de '◆ Na fila dos épicos' quando a seção existe; senão numa seção própria '◆ Épicos em andamento' (recolhível). Respeita chip de status, filtro de épico e busca.",
+  "motivo": "A visão por épico não pode desaparecer justo quando o épico está andando.",
+  "arquivos": ["app/src/js/22-quadro-fluxo.js"],
+  "como_ver": "Home com a fila de um épico vazia: 'Login social' continua como grupo com '1/4 entregues · onda 2 · 1 rodando'.",
+  "estado_mock": "cena home + SCENE_JS 'epQueue.rows=epQueue.rows.filter(r=>r.epic_id!==\"ep2\"); flowLastHtml=null; renderFlow()'"
+ }
+]

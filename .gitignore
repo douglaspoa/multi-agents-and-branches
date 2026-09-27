@@ -10,3 +10,4 @@ dist/Starfork-portable.zip
 app/src-tauri/resources/
 mobile/ios/build*/
 mobile/ios/**/xcuserdata/
+.claude/worktrees/

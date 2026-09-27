@@ -1,46 +1,65 @@
 // Starfork — 12-chat-prefs-daily
 // ---------- chat do projeto ----------
-let pcBusy=false;
+let pcBusy=false, pcStopping=false;
 function pcKey(){ return 'pchat:'+(state.repo||''); }
-function pcMsgs(){ try{ return JSON.parse(lsGet(pcKey())||'[]'); }catch(_){ return []; } }
-function pcSave(ms){ lsSet(pcKey(), JSON.stringify(ms.slice(-60))); }
+// role: user | assistant | sys (aviso: erro, parado, sessão recuperada — aparece na conversa mas NUNCA volta pro modelo)
+// conversas antigas guardavam o erro como se fosse a resposta da IA ("⚠ Falhou: …") → vira aviso ao ler
+function pcMsgs(k){ let ms=[]; try{ ms=JSON.parse(lsGet(k||pcKey())||'[]'); }catch(_){ } return (Array.isArray(ms)?ms:[]).map(m=>m&&m.role==='assistant'&&/^⚠ Falhou:/.test(m.text||'')?{ role:'sys', text:m.text }:m).filter(Boolean); }
+function pcSave(ms,k){ lsSet(k||pcKey(), JSON.stringify(ms.slice(-60))); }
 function pcRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const th=$id('pcThread'); if(!th) return;
   const ms=pcMsgs();
   const repo=esc((state.repo||'o projeto').split('/').pop());
   const projOpts=(typeof projList==='function'?projList():[]).map(([path,name])=>`<option value="${escA(path)}"${path===state.repo?' selected':''}>${esc(name)}</option>`).join('');
-  const head=`<div class="pc-head"><div><h1 class="as-h1" style="font-size:24px">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:rgba(255,255,255,.42)">limpar</button></div></div>`;
+  const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:var(--text-3)">limpar</button></div></div>`;
   let bodyHtml;
   if(ms.length){
-    bodyHtml=`<div class="pc-thread">${ms.map(m=>m.role==='user'?`<div class="pc-msg you"><div class="pc-bub">${esc(m.text)}${attRowHtml(m.atts)}</div></div>`:`<div class="pc-msg"><div class="pc-bub">${mdToHtml(m.text)}</div></div>`).join('')}${pcBusy?'<div class="pc-msg"><div class="pc-bub" style="padding:0;min-width:280px;overflow:hidden">'+cosmosHtml('lendo o projeto…','inline')+'</div></div>':''}</div>`;
+    bodyHtml=`<div class="pc-thread">${ms.map(chatMsgHtml).join('')}${pcBusy?chatThinkHtml('<span class="pltyping"><i></i><i></i><i></i></span> lendo o projeto…'):''}</div>`;
   } else {
     const sugg=[['ARQUITETURA','como o autocomplete resolve o ranking hoje?'],['ONDE FICA','onde fica a lógica de autenticação?'],['POR QUÊ','por que o cache é invalidado desse jeito?'],['IDEIA','como eu adicionaria rate limiting aqui?']];
-    bodyHtml=`<div class="pc-empty"><div class="pc-empty-t">Pergunte qualquer coisa sobre <span class="as-mono" style="color:var(--accent)">${repo}</span></div><div class="pc-empty-d">Arquitetura, "onde fica X", "por que Y é assim", ideias. Gostou de uma resposta? <b style="color:#eaf2ee">virar tarefa</b> transforma a conversa numa spec pronta.</div><div class="pc-sugg">${sugg.map(s=>`<button class="pc-sc" data-sg="${escA(s[1])}"><span class="pc-sc-t">${esc(s[0])}</span><span class="pc-sc-x">${esc(s[1])}</span></button>`).join('')}</div></div>`;
+    bodyHtml=`<div class="pc-empty"><div class="pc-empty-t">Pergunte qualquer coisa sobre <span class="as-mono" style="color:var(--accent)">${repo}</span></div><div class="pc-empty-d">Arquitetura, "onde fica X", "por que Y é assim", ideias. Gostou de uma resposta? <b style="color:var(--text)">virar tarefa</b> transforma a conversa numa spec pronta.</div><div class="pc-sugg">${sugg.map(s=>`<button class="pc-sc" data-sg="${escA(s[1])}"><span class="pc-sc-t">${esc(s[0])}</span><span class="pc-sc-x">${esc(s[1])}</span></button>`).join('')}</div></div>`;
   }
-  th.innerHTML=`<div class="appscreen" style="padding:24px 34px 16px">${head}${bodyHtml}</div>`;
+  const keep=stickBottom(th);
+  th.innerHTML=`<div class="appscreen">${head}${bodyHtml}</div>`;
   { const b=th.querySelector('#pcTask2'); if(b) b.onclick=()=>{ const o=$id('pcTask'); if(o) o.click(); }; }
   { const b=th.querySelector('#pcClear2'); if(b) b.onclick=()=>{ const o=$id('pcClear'); if(o) o.click(); }; }
   { const s=th.querySelector('#pcProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p&&p!==state.repo&&window.switchProject){ await switchProject(p); } pcRender(); }; }
   th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=$id('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
   attRenderPend('pcPend', pcPend, pcRender);
-  th.scrollTop=th.scrollHeight;
+  chatComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender, onSend:pcSend, send:'pcSend',
+    stop:{ btn:'pcStop', busy:()=>pcBusy, fn:pcStop }, busyHint:'lendo o projeto… · ■ parar interrompe — dá pra ir escrevendo a próxima' });
+  keep(th);
 }
 let pcPend=[]; // anexos importados, ainda não enviados
 async function pcSend(){
-  if(pcBusy) return;
+  // respondendo: antes o Enter/enviar era engolido em silêncio — agora o botão fica desabilitado e o ■ parar aparece
+  if(pcBusy){ toast('Ainda respondendo — espere ou toque em ■ parar.'); return; }
   const inp=$id('pcInput'); let text=inp.value.trim();
   const atts=pcPend.splice(0);
   if(!text && atts.length) text='Anexei estes arquivos — leia e considere no contexto do projeto.';
   if(!text) return;
-  const ms=pcMsgs(); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms); inp.value=''; pcBusy=true; pcRender();
+  const key=pcKey(), sidKey='pcsid:'+(state.repo||''); // presos ao projeto de ONDE saiu a pergunta
+  const ms=pcMsgs(key); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms,key); inp.value=''; pcBusy=true; pcStopping=false; chatPinBottom('pcThread'); pcRender();
   try{
-    const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'' }), lsGet('pcsid:'+(state.repo||''))||'', text+attPromptBlock(atts), pcMsgs().slice(0,-1));
-    if(r.sessionId) lsSet('pcsid:'+(state.repo||''), r.sessionId);
-    const ms2=pcMsgs(); ms2.push({role:'assistant',text:r.text||'(sem resposta)'}); pcSave(ms2);
-  }catch(e){ const ms2=pcMsgs(); ms2.push({role:'assistant',text:'⚠ Falhou: '+(e.message||e)}); pcSave(ms2); }
-  pcBusy=false; pcRender();
+    const hist=pcMsgs(key).slice(0,-1).filter(m=>m.role!=='sys'); // aviso/erro NUNCA volta pro modelo como se fosse fala
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'' }), lsGet(sidKey)||'', text+attPromptBlock(atts), hist);
+    if(r.sessionId) lsSet(sidKey, r.sessionId);
+    const ms2=pcMsgs(key);
+    if(r.recovered) ms2.push({role:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
+    ms2.push({role:'assistant',text:r.text||'(sem resposta)'}); pcSave(ms2,key);
+  }catch(e){
+    const msg=String((e&&e.message)||e||''); const ms2=pcMsgs(key);
+    if(pcStopping||/PROJECT_CHAT_STOPPED/.test(msg)){
+      const last=ms2[ms2.length-1]; if(last&&last.role==='user'&&last.text===text) ms2.pop();
+      ms2.push({role:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
+      const i=$id('pcInput'); if(i&&!i.value) i.value=text; pcPend.push(...atts);
+    } else ms2.push({role:'sys', text:'⚠ Não consegui responder: '+msg.slice(0,300)+(/expirou|timeout/i.test(msg)?' — a leitura do projeto demorou demais; tente uma pergunta mais específica.':' — sua pergunta ficou salva; é só enviar de novo.')});
+    pcSave(ms2,key);
+  }
+  pcBusy=false; pcStopping=false; pcRender();
 }
+async function pcStop(){ if(!pcBusy) return; pcStopping=true; try{ await invoke('project_chat_stop'); }catch(_){ } }
 async function pcToTask(){
   const btn=$id('pcTask');
   if(!pcMsgs().length){ alert('Converse primeiro — a spec nasce do papo.'); return; }
@@ -60,7 +79,7 @@ async function pcToTask(){
   }catch(e){ alert('Não consegui montar a spec:\n'+(e.message||e)); }
   finally{ btn.disabled=false; btn.innerHTML=ic('compass')+'virar tarefa'; }
 }
-function openPc(){ $id('pcOverlay').style.display='flex'; pcRender(); attWireComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender }); setTimeout(()=>$id('pcInput').focus(),80); }
+function openPc(){ $id('pcOverlay').style.display='flex'; chatPinBottom('pcThread'); pcRender(); setTimeout(()=>$id('pcInput').focus(),80); }
 $id('pcBtn').onclick=openPc;
 // ---- Preferências do projeto: 1 doc por projeto, o time escreve, agentes seguem ----
 async function prefsKey(){
@@ -110,7 +129,6 @@ $id('pcClose').onclick=()=>{ ovHide('pcOverlay'); };
 $id('pcSend').onclick=pcSend;
 $id('pcTask').onclick=pcToTask;
 $id('pcClear').onclick=async()=>{ if(await askYes('Começar uma conversa nova? (a atual some)')){ lsSet(pcKey(),''); lsSet('pcsid:'+(state.repo||''),''); pcRender(); } };
-$id('pcInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); pcSend(); } });
 $id('pcOverlay').addEventListener('click',e=>{ if(e.target.id==='pcOverlay') ovHide('pcOverlay'); });
 
 // ---------- daily do dev ----------
@@ -132,26 +150,26 @@ function renderDaily(){
   const body=$id('dailyBody'); if(!body||!dailyData) return;
   const iso=($id('dailyDate')||{}).value||'';
   const head=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">O que os agentes fizeram — pronto pra colar na reunião.</p></div>
-    <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" style="color:#eaf2ee;padding:8px 12px">
+    <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" style="color:var(--text);padding:8px 12px">
       <button class="as-btn" id="dlAI">resumo curto</button><button class="as-btn primary" id="dlDoc">DOC + PDF</button></div></div>`;
-  if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div class="as-card" style="margin-top:22px;text-align:center;padding:40px"><div style="font:600 16px 'Instrument Sans',sans-serif">Dia sem atividade</div><div class="dim" style="margin-top:6px">nenhuma tarefa teve eventos nesse dia neste projeto.</div></div></div>`; wireDaily(); return; }
+  if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div class="as-card" style="margin-top:22px;text-align:center;padding:40px"><div style="font:600 16px var(--display)">Dia sem atividade</div><div class="dim" style="margin-top:6px">nenhuma tarefa teve eventos nesse dia neste projeto.</div></div></div>`; wireDaily(); return; }
   const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
   const totCommits=Object.values(dailyCommits).reduce((s,c)=>s+c.length,0);
-  const merged=dailyData.filter(t=>t.status==='merged').length, rev=dailyData.filter(t=>t.status==='review').length;
-  const kpis=[[dailyData.length,'tarefas tocadas',''],[totCommits,'commits',''],[rev+merged,'prontas/merged','var(--accent)'],[fmtUsd(totUsd),'custo do dia','']];
-  const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 28px/1 'Instrument Sans',sans-serif;color:${k[2]||'#eaf2ee'}">${k[0]}</div><div style="margin-top:8px;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(255,255,255,.34)">${esc(k[1])}</div></div>`).join('')}</div>`;
+  const merged=dailyData.filter(t=>['merged','done'].includes(t.status)).length, rev=dailyData.filter(t=>['review','delivered'].includes(t.status)).length;
+  const kpis=[[dailyData.length,dailyData.length===1?'tarefa tocada':'tarefas tocadas',''],[totCommits,totCommits===1?'commit':'commits',''],[rev+merged,'prontas ou mergeadas','var(--accent)'],[fmtUsd(totUsd),'custo do dia','']];
+  const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 28px/1 var(--display);color:${k[2]||'var(--text)'}">${k[0]}</div><div style="margin-top:8px;font:500 10px var(--code);letter-spacing:.12em;color:var(--text-3)">${esc(k[1])}</div></div>`).join('')}</div>`;
   const cards=dailyData.map(t=>{
     const cs=dailyCommits[t.id]||[];
-    const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 12.5px/1.45 'JetBrains Mono',monospace;min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:rgba(234,242,238,.62);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 12px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.34)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:12px">sem commits</div>';
-    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 12px/1.45 'Instrument Sans',sans-serif;color:rgba(234,242,238,.5)"><span style="color:rgba(255,255,255,.22)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:12px">—</div>';
+    const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 12.5px/1.45 var(--code);min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:rgba(234,242,238,.62);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 12px var(--display);color:var(--text-3)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:12px">sem commits</div>';
+    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 12px/1.45 var(--display);color:rgba(234,242,238,.5)"><span style="color:rgba(255,255,255,.22)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:12px">—</div>';
     return `<div class="as-card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
-        <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 'Instrument Sans',sans-serif">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px 'JetBrains Mono',monospace;color:rgba(255,255,255,.36)">${esc(t.branch||'')}</div></div>
-        <div style="display:flex;align-items:center;gap:14px"><span style="display:flex;align-items:center;gap:7px;font:500 12px 'Instrument Sans',sans-serif;color:${ctStColor(t.status)}"><span style="width:7px;height:7px;border-radius:50%;background:${ctStColor(t.status)}"></span>${esc(CT_ST_PT[t.status]||t.status)}</span><span style="font:500 12px 'JetBrains Mono',monospace;color:rgba(255,255,255,.5)">${t.usd?fmtUsd(t.usd):''}</span></div>
+        <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>
+        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtUsd(t.usd):''}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
         <div style="padding:14px 18px;border-right:1px solid rgba(255,255,255,.06)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>
-        <div style="padding:14px 18px"><div class="as-sect" style="margin:0 0 10px">TURNO</div>${log}</div>
+        <div style="padding:14px 18px"><div class="as-sect" style="margin:0 0 10px">O QUE O AGENTE FEZ NO DIA</div>${log}</div>
       </div></div>`;
   }).join('');
   body.innerHTML=`<div class="appscreen">${head}${kpiRow}<div id="dailyAIOut"></div><div style="display:flex;flex-direction:column;gap:12px">${cards}</div></div>`;

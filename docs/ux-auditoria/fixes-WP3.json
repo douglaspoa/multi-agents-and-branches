@@ -1,0 +1,112 @@
+[
+  {
+    "id": "C0",
+    "area": "Chats",
+    "titulo": "Matriz de capacidades dos chats — antes e depois",
+    "antes": "| Superfície | Botão anexar | ⌘V print | Arrastar | Enter envia | Auto-altura | ■ parar | Markdown IA | ✦ avatar | Copiar resposta | Selecionar texto | Não força rolagem | Persiste |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n| B Planner | sim | sim | sim | sim | não | sim | sim | sim | não | sim | não | sim (rascunho) |\n| C Chat do projeto | sim | sim | sim | sim | não | NÃO (envio ignorado em silêncio) | sim | NÃO | não | sim | não | sim (erro salvo como fala da IA) |\n| D Nova issue | sim | sim | sim | sim | não | sim | sim | sim | não | sim | não | NÃO |\n| E Orquestrador (conversa) | sim | sim | sim | sim | não | NÃO | sim | NÃO | não | NÃO | não | sim (no plano) |\n| F Orquestrador (briefing) | sim | NÃO | NÃO | — | — | — | — | — | — | — | — | — |\n| G Nova demanda (objetivo ×4) | só seletor de arquivo | NÃO | NÃO | — | — | — | — | — | — | — | — | — |\n\nBolha do usuário: verde cheio (B, D, E), verde translúcido (C), cinza discreto (A — chat da tarefa). Cada tela tinha seu próprio HTML de mensagem (plmsg, pc-msg, orq-cm).",
+    "depois": "| Superfície | Botão anexar | ⌘V print | Arrastar | Enter envia | Auto-altura | ■ parar | Markdown IA | ✦ avatar | Copiar resposta | Selecionar texto | Não força rolagem | Persiste |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n| B Planner | sim | sim | sim | sim | sim | sim | sim | sim | sim | sim | sim | sim |\n| C Chat do projeto | sim | sim | sim | sim | sim | SIM (project_chat_stop) | sim | sim | sim | sim | sim | sim (erro vira aviso, fora do histórico) |\n| D Nova issue | sim | sim | sim | sim | sim | sim | sim | sim | sim | sim | sim | SIM (por projeto) |\n| E Orquestrador (conversa) | sim | sim | sim | sim | sim | SIM (orq_chat_stop) | sim | sim | sim | sim | sim | sim |\n| F Orquestrador (briefing) | sim | SIM | SIM | — | — | — | — | — | — | — | — | — |\n| G Nova demanda (objetivo ×4) | sim | SIM | SIM | — | — | — | — | — | — | — | — | — |\n\nUm componente só: chatComposer() (composer) + chatMsgHtml() (bolha) em js/30-anexos.js. Bolha do usuário igual à do chat da tarefa (A) em todos. Mesma linha de dica embaixo de todo composer: \"Enter envia · Shift+Enter quebra linha · ⌘V ou arraste pra anexar\".",
+    "motivo": "Reclamação do dono: \"os chats parecem não usar todos os mesmos componentes; em alguns você pode enviar anexos em outros não\". A auditoria confirmou 4 marcações diferentes de mensagem, 3 formas de ligar o Enter e 2 campos sem colar/arrastar.",
+    "arquivos": ["app/src/js/30-anexos.js", "app/src/js/12-chat-prefs-daily.js", "app/src/js/32-planner.js", "app/src/js/14-issues-projeto.js", "app/src/js/34-orquestrador.js", "app/src/js/31-nova-demanda-form.js", "app/src/css/81-chat.css", "app/src/index.html", "app/src-tauri/src/lib.rs"],
+    "como_ver": "openTab('chat'); /* depois */ openTab('planner'); /* depois */ openTab('orq')",
+    "estado_mock": "Ver C1–C9."
+  },
+  {
+    "id": "C1",
+    "area": "Chats",
+    "titulo": "Composer único (chatComposer) em planner, chat do projeto, nova issue e orquestrador",
+    "antes": "Cada chat ligava Enter, anexos e parar do seu jeito (addEventListener no planner e no chat do projeto, onkeydown na issue, onkeydown no orquestrador). Nenhum crescia com o texto e as dicas de teclado estavam soltas no placeholder, cada uma com um texto.",
+    "depois": "chatComposer(cfg) em 30-anexos.js faz tudo: anexar (botão, ⌘V, arrastar), Enter envia (Shift+Enter quebra, ignora IME), auto-altura até 160px, mostra/esconde ■ parar e desabilita enviar enquanto a IA responde, e escreve a mesma linha de dica embaixo do composer (troca pra uma dica de 'respondendo…' quando ocupado). Idempotente: pode rodar a cada render. A Nova issue mantém o 'redirecionar' (enviar durante a pesquisa continua permitido).",
+    "motivo": "Mesma ação com 4 comportamentos diferentes; a dica de ⌘V só existia em alguns placeholders, então quem usava um chat não descobria no outro. Um componente = uma correção vale pra todos.",
+    "arquivos": ["app/src/js/30-anexos.js", "app/src/js/12-chat-prefs-daily.js", "app/src/js/32-planner.js", "app/src/js/14-issues-projeto.js", "app/src/js/34-orquestrador.js", "app/src/index.html", "app/src/css/81-chat.css"],
+    "como_ver": "openTab('chat'); const i=$id('pcInput'); i.value='a\\nb\\nc\\nd\\ne'; i.dispatchEvent(new Event('input'));",
+    "estado_mock": "Qualquer projeto aberto (state.repo). Nenhum dado extra."
+  },
+  {
+    "id": "C2",
+    "area": "Chats",
+    "titulo": "■ parar no Chat do projeto e na conversa com o orquestrador",
+    "antes": "Chat do projeto: enviar enquanto a IA respondia era ignorado em silêncio (if(pcBusy) return) e não havia como interromper — até 240s esperando. Conversa do orquestrador: textarea e enviar travados, sem parar, até 300s.",
+    "depois": "Novos comandos Rust project_chat_stop e orq_chat_stop (padrão do ISSUE_CHAT_PID: o claude nasce em grupo próprio via detach_new_group e o parar derruba o grupo com signal_group(KILL)). Helper output_stoppable() reaproveitado pelos dois, com timeout distinto de 'parado'. Na tela: ■ parar aparece, enviar fica desabilitado com dica, dá pra ir escrevendo a próxima; parar devolve a mensagem e os anexos pra caixa e mostra 'Parado.'.",
+    "motivo": "Sem parar, uma pergunta errada prendia o chat por minutos; o clique em enviar 'não fazia nada' e parecia bug. Planner e Nova issue já tinham parar — agora todos têm.",
+    "arquivos": ["app/src-tauri/src/lib.rs", "app/src/js/12-chat-prefs-daily.js", "app/src/js/34-orquestrador.js", "app/src/index.html"],
+    "como_ver": "openTab('chat'); $id('pcInput').value='explica o módulo X'; pcSend(); /* botão ■ parar aparece */",
+    "estado_mock": "No preview: invoke('project_chat') precisa demorar (ex.: promise de 4s) e invoke('project_chat_stop') rejeitar a anterior com 'PROJECT_CHAT_STOPPED'. Orquestrador: orq.plan com status 'planned' e orq.sel='__orq'; ai_orchestrate_chat lento; orq_chat_stop → 'ORQ_CHAT_STOPPED'."
+  },
+  {
+    "id": "C3",
+    "area": "Chats",
+    "titulo": "Esc no Planner não fecha a aba enquanto você digita",
+    "antes": "O listener global de Esc do planner fechava a aba mesmo com o foco no campo de texto — apertar Esc pra fechar o popup de '/' ou por reflexo jogava a conversa fora da tela.",
+    "depois": "Guardado com escBusy(e): digitando (INPUT/TEXTAREA/SELECT) ou com modal por cima, o Esc é do campo; fora disso continua fechando.",
+    "motivo": "Padrão já adotado nas outras abas (escBusy em 00-util.js); o planner era a exceção.",
+    "arquivos": ["app/src/js/32-planner.js"],
+    "como_ver": "openTab('planner'); $id('plInput').focus(); /* aperte Esc: a aba fica */",
+    "estado_mock": "Nenhum."
+  },
+  {
+    "id": "C4",
+    "area": "Chats",
+    "titulo": "Bolha única: mesma cara pra você e pra IA em todos os chats (+ copiar + seleção)",
+    "antes": "Planner/Issues: plmsg com sua fala em verde cheio. Chat do projeto: pc-msg com verde translúcido e sem avatar ✦. Orquestrador: orq-cm, sem avatar, sem copiar e sem poder selecionar o texto (faltava -webkit-user-select). Chat da tarefa: bolha cinza discreta com copiar.",
+    "depois": "chatMsgHtml(m) em 30-anexos.js gera a mesma marcação (plmsg/plbub) em B, C, D e E: você = bolha discreta igual à do chat da tarefa (surface-3 + borda, quebra de linha preservada); IA = ✦ + markdown (mdToHtml) + botão ⧉ copiar (reuso do .ccopy); aviso do sistema = pílula central. Texto selecionável em todos, inclusive no orquestrador. Removido CSS morto (.pc-msg/.pc-bub e .orq-cm.you/.bot/.sys/.think).",
+    "motivo": "Foi a reclamação literal: 'parecem não usar os mesmos componentes'. Copiar a resposta da IA só existia no chat da tarefa.",
+    "arquivos": ["app/src/js/30-anexos.js", "app/src/css/81-chat.css", "app/src/css/20-abas-e-telas.css", "app/src/css/70-orquestrador.css", "app/src/js/12-chat-prefs-daily.js", "app/src/js/32-planner.js", "app/src/js/14-issues-projeto.js", "app/src/js/34-orquestrador.js"],
+    "como_ver": "lsSet('pchat:'+state.repo, JSON.stringify([{role:'user',text:'onde fica o login?'},{role:'assistant',text:'Fica em **src/auth**.\\n\\n- a\\n- b'}])); openTab('chat');",
+    "estado_mock": "Mensagens no localStorage 'pchat:<repo>' (chat do projeto) ou orq.plan.chat [{who:'you'|'bot'|'sys', text}] (orquestrador)."
+  },
+  {
+    "id": "C5",
+    "area": "Chats",
+    "titulo": "Rolagem não te arranca da leitura (stickBottom)",
+    "antes": "Todo render forçava scrollTop=scrollHeight: no orquestrador o tick de 7s te jogava pro fim enquanto você lia uma resposta longa; no chat do projeto, planner e nova issue qualquer re-render (anexo, chip, progresso) fazia o mesmo.",
+    "depois": "stickBottom(el) guarda se você estava no fim ANTES do render e só gruda no fim nesse caso; senão mantém a posição (funciona mesmo quando o elemento é recriado). chatPinBottom(id) força o fim só quando VOCÊ acabou de enviar.",
+    "motivo": "Ler uma resposta longa era impossível com a conversa pulando; o problema aparecia em 5 lugares (12:27, 32:81, 14:674, 34:356 e o tick 34:580).",
+    "arquivos": ["app/src/js/30-anexos.js", "app/src/js/12-chat-prefs-daily.js", "app/src/js/32-planner.js", "app/src/js/14-issues-projeto.js", "app/src/js/34-orquestrador.js"],
+    "como_ver": "openTab('chat'); const th=$id('pcThread'); th.scrollTop=0; pcRender(); th.scrollTop /* continua 0 */",
+    "estado_mock": "Conversa com mensagens suficientes pra rolar (ex.: 10 pares no 'pchat:<repo>')."
+  },
+  {
+    "id": "C6",
+    "area": "Chats",
+    "titulo": "Chat do projeto: erro vira aviso (não 'fala da IA') e sessão recuperada é avisada",
+    "antes": "Falha de rede/limite era gravada como resposta da IA ('⚠ Falhou: …', role assistant) e reenviada no histórico quando a sessão caía — a IA 'lia' o próprio erro como se tivesse dito aquilo. Quando a sessão era recriada, nada avisava.",
+    "depois": "Erro vira aviso do sistema (role sys, pílula central) com o que fazer ('sua pergunta ficou salva; é só enviar de novo' / 'tente uma pergunta mais específica' no timeout). Avisos nunca entram no histórico enviado ao modelo. Conversas antigas com '⚠ Falhou:' são convertidas em aviso ao carregar. Sessão recriada mostra 'a sessão anterior foi perdida — continuei com o histórico', igual ao planner. A resposta cai no projeto de onde saiu a pergunta, mesmo se você trocar de projeto no meio.",
+    "motivo": "Poluía o contexto do modelo e confundia o usuário (o erro parecia resposta).",
+    "arquivos": ["app/src/js/12-chat-prefs-daily.js"],
+    "como_ver": "lsSet('pchat:'+state.repo, JSON.stringify([{role:'user',text:'oi'},{role:'assistant',text:'⚠ Falhou: rede'}])); openTab('chat');",
+    "estado_mock": "Para o caminho ao vivo: invoke('project_chat') rejeitando com 'rede indisponível'."
+  },
+  {
+    "id": "C7",
+    "area": "Chats",
+    "titulo": "Nova issue: conversa e rascunhos persistem por projeto",
+    "antes": "trkNI vivia só na memória: fechar o app (ou recarregar a webview) perdia a conversa, a pesquisa já feita e os rascunhos das issues.",
+    "depois": "A conversa (mensagens, rascunhos, épico, sessão, projeto escolhido) é salva em localStorage 'trkni:<repo>' a cada render (debounce 300ms) e recuperada ao abrir a aba, com o aviso '↺ Conversa recuperada'. Criação interrompida no meio vira 'falhou — confira no quadro antes de criar de novo' (não recria às cegas). '＋ nova conversa' limpa.",
+    "motivo": "Montar uma lista de issues leva vários minutos de pesquisa da IA; perder tudo num fechamento é o pior tipo de retrabalho.",
+    "arquivos": ["app/src/js/14-issues-projeto.js"],
+    "como_ver": "lsSet('trkni:'+state.repo, JSON.stringify({v:1,project:state.repo,msgs:[{who:'you',text:'criar issue X'}],items:[]})); trkNI=null; openTab('issuesbulk');",
+    "estado_mock": "Painel conectado (trk.connector com baseUrl, ops.list e ops.create) e list_projects devolvendo o projeto atual."
+  },
+  {
+    "id": "C8",
+    "area": "Chats",
+    "titulo": "Briefing do orquestrador aceita ⌘V e arrastar",
+    "antes": "O campo 'Descreva o problema inteiro' só anexava pelo botão (seletor de arquivo); colar um print ou arrastar não fazia nada.",
+    "depois": "attWireComposer no orqTa: botão, ⌘V de print e arrastar — os anexos entram na mesma lista (orq.atts) e vão pro plano.",
+    "motivo": "Mesma expectativa do chat: quem cola print no chat tenta colar aqui.",
+    "arquivos": ["app/src/js/34-orquestrador.js"],
+    "como_ver": "openTab('orq'); orq.plan=null; orq.step='brief'; orqRender();",
+    "estado_mock": "Nenhum (import_attachment_data mockado no preview)."
+  },
+  {
+    "id": "C9",
+    "area": "Chats",
+    "titulo": "Nova demanda: colar/arrastar print no objetivo vira anexo",
+    "antes": "Os 4 campos de objetivo (Entrega, Fix, Design, Investigar) só aceitavam anexo pelo botão 'anexar'; colar um print no texto não fazia nada.",
+    "depois": "attWireRefField(): ⌘V de print ou arrastar arquivo no texto importa o arquivo pro projeto e coloca o caminho na lista de anexos daquele modo (ntRefs/ntFixRefs/ntDzRefs/ntInvRefs), com toast 'anexado: …'. Texto colado continua texto. Placeholder avisa.",
+    "motivo": "É exatamente onde se descreve o bug — o print do bug é a coisa mais natural de colar ali.",
+    "arquivos": ["app/src/js/30-anexos.js", "app/src/js/31-nova-demanda-form.js", "app/src/index.html"],
+    "como_ver": "openTab('form'); setNtMode('fix');",
+    "estado_mock": "Nenhum."
+  }
+]

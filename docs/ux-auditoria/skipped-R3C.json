@@ -1,0 +1,16 @@
+[
+  {
+    "id": "R3-C-s1",
+    "area": "Central · seção de épicos",
+    "titulo": "Grupo de épico só aparece quando o épico ainda tem tarefa na fila",
+    "motivo": "O grupo (com o resumo do épico inteiro) vive dentro da seção 'Na fila dos épicos'. Um épico sem nenhum cartão no backlog não ganha grupo, e as tarefas dele continuam nas seções de status com o selo ◆ (27/22, fora do meu escopo). Mostrar um bloco por épico mesmo sem fila exige mexer em renderFlow (22).",
+    "sugestao": "Em 22-quadro-fluxo, opção 'agrupar por épico' que reuse epqSummaryHtml/epqEpicTasks (46) para todos os épicos com tarefa visível."
+  },
+  {
+    "id": "R3-C-s2",
+    "area": "Página do épico",
+    "titulo": "Cabeçalho de onda ('ONDA 2 · 1/3') ainda conta 'pronta pra revisar' como feita",
+    "motivo": "A onda seguinte é liberada por essa mesma regra (curWave). Mudar a contagem mudaria qual onda é marcada 'atual'. Ficou como estava, e só o KPI 'tarefas entregues' passou a contar apenas mergeadas/concluídas.",
+    "sugestao": "Decidir com o dono se revisão conta como 'entregue' na onda; se não, trocar isRev no waveHead."
+  }
+]

@@ -1,28 +1,42 @@
 // Starfork — 32-planner
 // ========== Planner (chat) — monta o TASK.yaml conversando ==========
+// label = o que a pessoa lê (PT, sem jargão); y = a chave no TASK.yaml (aparece só em "ver como arquivo")
 const PL_MESH=[
-  {k:'id',      label:'id',              src:'auto',      auto:true},
-  {k:'title',   label:'title',           src:'você',      req:true},
-  {k:'objective',label:'objective',      src:'você',      req:true,  area:true},
-  {k:'deliverables',label:'deliverables',src:'você',      req:true,  list:true},
-  {k:'requirements',label:'requirements',src:'você',      list:true},
-  {k:'owns',    label:'scope.owns',      src:'você',      list:true},
-  {k:'off',     label:'scope.off_limits',src:'barramento',list:true},
-  {k:'artifacts',label:'artifacts',      src:'você',      arts:true},
-  {k:'autonomy',label:'autonomy',        src:'padrão'},
-  {k:'engine',  label:'engine',          src:'padrão'},
+  {k:'id',      label:'identificador',            y:'id',               src:'automático', auto:true},
+  {k:'title',   label:'título',                   y:'title',            src:'você',      req:true},
+  {k:'objective',label:'objetivo',                y:'objective',        src:'você',      req:true,  area:true},
+  {k:'deliverables',label:'o que vai ser entregue',y:'deliverables',    src:'você',      req:true,  list:true},
+  {k:'requirements',label:'requisitos (como checar que ficou pronto)',y:'requirements',src:'você', list:true},
+  {k:'owns',    label:'arquivos que pode mexer',  y:'scope.owns',       src:'você',      list:true, tip:'pastas/arquivos que esta tarefa pode alterar — ex.: src/pontos/**'},
+  {k:'off',     label:'arquivos proibidos',       y:'scope.off_limits', src:'outras tarefas',list:true, tip:'o que esta tarefa NÃO pode tocar — vem sozinho dos arquivos que outras tarefas em andamento já estão mexendo'},
+  {k:'artifacts',label:'o que entregar junto',    y:'artifacts',        src:'você',      arts:true},
+  {k:'autonomy',label:'autonomia',                y:'autonomy',         src:'padrão'},
+  {k:'engine',  label:'IA',                       y:'engine',           src:'padrão'},
 ];
+let plRawOpen=false; // "ver como arquivo" aberto?
+// o mesmo resumo, no formato do arquivo que o agente recebe (TASK.yaml) — só pra quem quer conferir
+function plYaml(){
+  const q=v=>{ v=String(v==null?'':v); return /^[\w./*@-]*$/.test(v)&&v?v:JSON.stringify(v); };
+  const out=[];
+  PL_MESH.forEach(f=>{
+    const v=f.arts?Object.entries(plFields.artifacts||{}).filter(([,on])=>on).map(([k])=>k):plVal(f.k);
+    if(Array.isArray(v)) out.push(f.y+':'+(v.length?'\n'+v.map(x=>'  - '+q(x)).join('\n'):' []'));
+    else out.push(f.y+': '+(f.area&&String(v||'').includes('\n')?'|\n'+String(v).split('\n').map(l=>'  '+l).join('\n'):q(v)));
+  });
+  return out.join('\n');
+}
 let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plBusy=false, plRefs=[], plPlan=null, plNoEpic=false;
 let plActs=[], plStopping=false; // plActs: o que a IA está fazendo agora (uma linha por ação), vindo do evento planner-activity
 let plPend=[]; // anexos importados, ainda não enviados
 function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; }
 function plRenderRefs(){
   const el=$id('plRefsBar'); if(!el) return;
-  el.innerHTML = plRefs.map((p,i)=>{ const n=(p||'').split('/').pop(); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">×</button></span>`; }).join('');
+  el.innerHTML = plRefs.map((p,i)=>{ const n=(p||'').split('/').pop(); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">${IC.x}</button></span>`; }).join('');
   el.querySelectorAll('.plrefx').forEach(b=>b.onclick=()=>{ plRefs.splice(+b.dataset.r,1); plRenderRefs(); });
 }
 // anexos do planner: composer único; o que entra também vira ref da tarefa criada
-function plWireComposer(){ attWireComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); } }); }
+function plWireComposer(){ chatComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); },
+  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop }, busyHint:'a IA está pensando · ■ parar interrompe — dá pra ir escrevendo a próxima' }); }
 function plVal(k){ if(k==='engine'&&plFields.engineLabel) return plFields.engineLabel; if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
@@ -71,34 +85,40 @@ function renderPlanner(){
   if(plQuiet) return; // aplicando resposta noutra aba (plInTab): não pinta a aba que está na tela
   // medidor
   const okCount=PL_MESH.filter(f=>plState(f.k)==='ok').length;
-  $id('plMeter').textContent=`${okCount} de ${PL_MESH.length} campos`;
+  $id('plMeter').textContent=`resumo: ${okCount} de ${PL_MESH.length} itens preenchidos`;
   // chat
   const th=$id('plThread');
   const ci=document.activeElement, keep=(ci&&ci.id==='plInput'), iv=$id('plInput')?$id('plInput').value:null;
-  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span><div class="placts" id="plActs">'+plActsHtml()+'</div></div></div>':'')+(plPlanCtx.origin?'':plPlanCardHtml());
-  { const st=$id('plStop'); if(st) st.style.display=plBusy?'':'none'; const sd=$id('plSend'); if(sd) sd.disabled=!!plBusy; }
+  const stick=stickBottom(th);
+  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):chatMsgHtml(m)).join('')+(plBusy?chatThinkHtml('<span class="pltyping"><i></i><i></i><i></i></span><div class="placts" id="plActs">'+plActsHtml()+'</div>'):'')+(plPlanCtx.origin?'':plPlanCardHtml());
   if(!plPlanCtx.origin) plWirePlanCard(); plWireModelCard(th);
   attRenderPend('plPend', plPend, renderPlanner);
-  th.scrollTop=th.scrollHeight;
+  plWireComposer(); // composer único: Enter, anexos, auto-altura, ■ parar e a dica — tudo no mesmo lugar
+  stick(th);
   // chips
   const chipsEl=$id('plChips');
   chipsEl.innerHTML=(plChips||[]).map((c,i)=>`<button class="plchip" data-chip="${i}">${esc(c)}</button>`).join('');
   chipsEl.querySelectorAll('[data-chip]').forEach(b=>b.onclick=()=>plSend(plChips[+b.dataset.chip]));
   // mesh (9 campos)
   const mesh=$id('plMesh');
-  mesh.innerHTML=`<div class="plmeshh">TASK.yaml <span class="plmesht">montando ao vivo · ${okCount}/${PL_MESH.length}</span></div>`+
+  mesh.innerHTML=`<div class="plmeshh">Resumo da demanda <span class="plmesht">montando ao vivo · ${okCount}/${PL_MESH.length}</span></div>`+
     PL_MESH.map(f=>{ const st=plState(f.k); const v=plVal(f.k); const disp=Array.isArray(v)?v.join('\n'):v;
       const ctl = f.arts ? (()=>{ const a=plFields.artifacts||{}; const chip=(k,lbl)=>`<button class="plart${a[k]?' on':''}" data-plart="${k}">${lbl}</button>`; return `<div class="plarts">${chip('doc','doc de arquitetura')}${chip('proof','prints')}${chip('tests','testes')}</div>`; })()
-        : f.auto ? `<div class="plfv mono auto">${esc(disp)||'—'}</div>`
+        : f.auto ? (()=>{ // R5-10: o id técnico (branch/pasta) é cortado em ~24 caracteres — antes parecia título quebrado ("…-na-lo")
+            const tt=String(plFields.title||''), full=tt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+            const cut=!!(disp && full.length>String(disp).length && full.startsWith(String(disp).replace(/-$/,'')));
+            return `<div class="plfv mono auto" title="${escA('identificador técnico (nome da branch e da pasta'+(cut?', encurtado':'')+')'+(tt?' — da tarefa “'+tt+'”':''))}">${esc(disp)||'—'}${cut?'…':''}</div>`; })()
         : f.list ? `<textarea class="plfv in mono" data-fk="${f.k}" rows="2" placeholder="um por linha…">${esc(Array.isArray(v)?v.join('\n'):'')}</textarea>`
         : f.area ? `<textarea class="plfv in" data-fk="${f.k}" rows="2" placeholder="…">${esc(disp)}</textarea>`
         : `<input class="plfv in ${f.k==='id'?'mono':''}" data-fk="${f.k}" value="${escA(disp)}" placeholder="…">`;
-      return `<div class="plfield ${st}"><div class="plfhead"><span class="pldot"></span><span class="plfk mono">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`;
+      return `<div class="plfield ${st}"${f.tip?` title="${escA(f.tip)}"`:''}><div class="plfhead"><span class="pldot"></span><span class="plfk">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`;
     }).join('')+
+    `<details class="plraw" id="plRaw"${plRawOpen?' open':''}><summary>ver como arquivo <span class="mono">TASK.yaml</span></summary><pre class="mono">${esc(plYaml())}</pre></details>`+
     `<div class="plmeshfoot"><button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
   mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
   bindClick('plCreate', plCreate);
+  { const d=$id('plRaw'); if(d) d.ontoggle=()=>{ plRawOpen=d.open; }; }
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
 }
 // ---- "Com qual IA?" no começo da conversa: usa o padrão do usuário ou escolhe (e pode salvar como padrão) ----
@@ -124,7 +144,7 @@ function plWireModelCard(th){
   card.querySelectorAll('[data-plm="more"]').forEach(b=>b.onclick=()=>{ m.open=true; renderPlanner(); });
   card.querySelectorAll('[data-plm="done"]').forEach(b=>b.onclick=()=>{ const cur=AI_TARGET_FORM.get(); choose(cur.eng,cur.model); });
   card.querySelectorAll('[data-plm="change"]').forEach(a=>a.onclick=()=>{ m.choice=null; m.open=false; renderPlanner(); });
-  if(m.open) aiPickRender();
+  if(m.open){ aiPickRender(); if(window.aiPlainWatch) aiPlainWatch(card.querySelector('.aipick-pl')); }
 }
 // ---- plano da IA → plPlan: envelope do épico (outcome, requirements, doneWhen, boundaries) + tarefas
 //      com verify/covers/after/risk. A ONDA é DERIVADA de `after` (nível topológico) — a IA não manda wave.
@@ -207,10 +227,10 @@ function plPlanCardHtml(bare){
     <textarea class="ppedit ppout" id="ppOutcome" rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(PLP().outcome||'')}</textarea>
     ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">REQUISITOS <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${esc(r.text)}</div>`).join('')}</div>`:''}
     <div class="ppdone"><div class="ppdh">PRONTO QUANDO <span>· o épico só fecha com tudo marcado</span></div>
-      ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>✕</button></div>`).join('')}
+      ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>${IC.x}</button></div>`).join('')}
       <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
-    ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time no topo pra aprovar.</div>`:''}
+    ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time (botão Conta, no rodapé da barra lateral) pra aprovar.</div>`:''}
     <div class="ppfoot"><button class="btn sm" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'descartar'}</button><button class="btn primary sm" id="ppApprove"${(noTeam||PLP().locked)?' disabled':''}>${PLP().locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
   </div>`;
   return bare?inner:`<div class="plmsg bot"><span class="plav">◆</span>${inner}</div>`;
@@ -240,7 +260,7 @@ function plWirePlanCard(){
 }
 async function plCreateEpic(){
   if(!PLP()) return;
-  if(!(SB.sess() && cloudTeamId())){ alert('Épico usa o backlog do time — entre na conta e escolha um time primeiro (botão no topo).'); return; }
+  if(!(SB.sess() && cloudTeamId())){ alert('Épico usa o backlog do time — entre na conta e escolha um time primeiro (botão Conta, no rodapé da barra lateral).'); return; }
   plWaves(PLP().tasks); plSortWaves(PLP().tasks); // ondas finais só com o que está marcado
   const picked=PLP().tasks.filter(x=>x.on);
   if(!picked.length){ alert('Marque pelo menos uma tarefa do épico.'); return; }
@@ -285,7 +305,7 @@ async function plCreateEpic(){
 // atualiza só o medidor/estado sem re-render pesado (ao editar campo à mão)
 function renderPlannerMeterOnly(){
   const okCount=PL_MESH.filter(f=>plState(f.k)==='ok').length;
-  const m=$id('plMeter'); if(m) m.textContent=`${okCount} de ${PL_MESH.length} campos`;
+  const m=$id('plMeter'); if(m) m.textContent=`resumo: ${okCount} de ${PL_MESH.length} itens preenchidos`;
   document.querySelectorAll('#plMesh .plfield').forEach((el,i)=>{ const f=PL_MESH[i]; if(!f)return; el.className='plfield '+plState(f.k); const src=el.querySelector('.plfsrc'); if(src){ const st=plState(f.k); src.textContent=st==='ask'?'perguntando':(st==='ok'?f.src:'falta'); } });
   const c=$id('plCreate'); if(c) c.disabled=!plReady();
   const hint=document.querySelector('.plmeshfoot .dim'); if(hint) hint.textContent=plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ');
@@ -314,7 +334,7 @@ async function plSend(text){
   if(!text) return;
   const myTab=activeTab; // a aba que perguntou
   const inp=$id('plInput'); if(inp) inp.value='';
-  plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; plActs=[]; plStopping=false; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
+  plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; plActs=[]; plStopping=false; chatPinBottom('plThread'); renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
   plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
   let r=null, err=null;
   try{
@@ -383,14 +403,13 @@ async function plCreate(){
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;
-{ const st=$id('plStop'); if(st) st.onclick=plStop; }
 $id('plNew').onclick=plNew;
 plWireComposer();
 $id('plSend').onclick=()=>plSend($id('plInput').value);
-$id('plInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); plSend($id('plInput').value); } });
 $id('plInput').addEventListener('input',()=>plAutoSave()); // persiste o texto em digitação (sobrevive a queda antes de enviar)
 $id('plannerOverlay').addEventListener('click',e=>{ if(e.target.id==='plannerOverlay') closePlanner(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none') closePlanner(); });
+// Esc digitando (ou com modal por cima) é do campo — antes fechava a aba no meio da frase
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none'&&!escBusy(e)) closePlanner(); });
 
 // aplica o destino Time (local/self/team) a QUALQUER modo de criação;
 // devolve true quando virou cartão do time (não roda nesta máquina)

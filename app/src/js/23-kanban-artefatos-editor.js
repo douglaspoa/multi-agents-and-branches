@@ -1,28 +1,30 @@
 // Starfork — 23-kanban-artefatos-editor
 // ---------- Kanban ----------
-const KCOLS=[['rascunho','Rascunho'],['rodando','Rodando'],['precisa','Precisa de você'],['review','Em review'],['mergeada','Mergeada'],['encerrada','Encerradas']];
+// colunas = as MESMAS etapas da Central (22: flowBucket/FLOW_SECS) — mesma tarefa, mesma coluna, mesmo número.
+// Antes o Kanban tinha classificação própria (pausada/conflito em "Em andamento", PR aberto em "Prontas").
+const KCOLS=[['rascunho','Rascunhos'],['aguardando','Aguardando você'],['andamento','Em andamento'],['prontas','Prontas pra revisar'],['praberto','PR aberto'],['concluidas','Concluídas']];
+const KDONE_CAP=30; // Concluídas: mostra as mais recentes (conta todas)
 function kanbanCol(t){
-  if(t.flag==='closed') return 'encerrada';
-  if(t.status==='draft') return 'rascunho';
-  if(t.status==='merged') return 'mergeada';
-  if(t.status==='plan-review' || pendingOf(t.id).length || t.status==='error' || t.status==='aborted') return 'precisa';
-  if(t.status==='review') return 'review';
-  return 'rodando'; // running/thinking/queued/paused
+  const b=flowBucket(t);
+  return (b==='hoje'||b==='anteriores')?'concluidas':(b==='fila'?'andamento':b);
 }
 function kCard(t){
   const roles=t.roles||[]; const curIdx=roles.findIndex(r=>r.role===t.stage);
-  const crew=roles.map((r,i)=>`<span class="kav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name)}">${agentBadge(r.name)}</span>`).join('');
+  const crew=roles.map((r,i)=>`<span class="kav${r.role===t.stage?' cur':''}" style="background:${agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name+(r.role===t.stage?' — na vez agora':''))}">${agentBadge(r.name)}</span>`).join('');
   const ev=lastEventOf(t.id);
   const amber = t.status==='plan-review'||pendingOf(t.id).length||t.status==='aborted';
-  const note = t.status==='plan-review'?'plano pronto · aprove pra continuar'
-    : pendingOf(t.id).length?'perguntou — responda'
-    : t.status==='review'?'review pronto · aprovar ou pedir ajuste'
+  const note = pendingOf(t.id).length?'perguntou — responda'
+    : t.status==='plan-review'?'plano pronto · aprove pra continuar'
+    : t.status==='conflict'?'conflito de merge — resolva'
+    : (t.prUrl && t.status!=='merged' && t.flag!=='closed' && ['review','delivered','running','thinking','queued','paused'].includes(t.status))?'PR aberto · aguardando revisão/merge'
+    : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir ajuste'
     : t.status==='error'?'erro — veja o log'
     : t.status==='aborted'?'abortada — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
     : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
   return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" data-id="${t.id}">
-    <div class="kctop">${t.status==='draft'?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:''}<b class="ktitle">${esc(t.title)}</b></div>
+    <div class="kctop">${t.status==='draft'?((!t.repo||t.repo===state.repo)?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:`<button class="kplay" disabled title="rascunho de outro projeto — abra ${escA(projShort(t.repo))} para iniciar">${IC.cright}</button>`):''}<b class="ktitle">${esc(t.title)}</b></div>
+    ${typeof epTaskBadge==='function'&&t.epic?`<div class="kepic">${epTaskBadge(t)}</div>`:''}
     <div class="kcrew">${crew}</div>
     ${note?`<div class="knote${amber?' amber':''}">${esc(note.length>64?note.slice(0,63)+'…':note)}</div>`:''}
   </div>`;
@@ -31,13 +33,20 @@ let kDragId=null;
 function renderKanban(){
   const el=$id('kanban');
   const byCol={}; KCOLS.forEach(([k])=>byCol[k]=[]);
-  for(const t of (state.tasks||[]).filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
+  // mesma fonte da Central (boardSource: projeto filtrado ou todos) e mesma regra de bloqueadas
+  let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
+  for(const t of src.filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.andamento).push(t);
+  const kTs=x=>{ const v=x.createdAt||x.created_at||0; return typeof v==='number'?v:(Date.parse(v)||0); }; // nuvem manda ISO, local manda número
+  byCol.concluidas.sort((a,b)=>kTs(b)-kTs(a));
   if(kDragId) return; // arrastando: reconstruir destruía o card no meio do arrasto (o drop nunca vinha)
-  const html = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
+  const html = KCOLS.map(([k,label])=>{ const list=byCol[k]; const shown=k==='concluidas'?list.slice(0,KDONE_CAP):list;
+    return `<div class="kcol" data-col="${k}"><div class="kcolh" title="${escA(FLOW_SEC_TIP[k]||'')}">${label} <span class="kn">${list.length}</span></div><div class="kcolbody">${shown.map(kCard).join('')||'<div class="kempty">—</div>'}${list.length>shown.length?`<div class="kempty">+${list.length-shown.length} mais antigas</div>`:''}</div></div>`; }).join('');
   if(el.__html===html && el.firstChild) return; // nada visível mudou: sem piscar, sem perder clique
   el.__html=html; el.innerHTML=html;
   el.querySelectorAll('.kcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; openTaskById(card.dataset.id); };
+    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return;
+      const eb=e.target.closest('[data-epbadge]'); if(eb){ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(eb.dataset.epbadge); return; } // R5-7
+      openTaskById(card.dataset.id); };
     card.addEventListener('dragstart',e=>{ kDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
     card.addEventListener('dragend',()=>{ kDragId=null; card.classList.remove('dragging'); el.querySelectorAll('.kcol').forEach(c=>c.classList.remove('over')); });
   });
@@ -49,11 +58,10 @@ function renderKanban(){
   el.querySelectorAll('[data-kplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.kplay); });
 }
 function kanbanDrop(id, col){
-  const t=(state.tasks||[]).find(x=>x.id===id); if(!t) return;
+  const t=(state.tasks||[]).find(x=>x.id===id); if(!t){ renderKanban(); return; } // card de outro projeto: abra-o pra mudar
   if(kanbanCol(t)===col) return;
-  if(col==='rodando' && t.status==='draft') startTask(id);
-  else if(col==='mergeada' && t.status==='review') mergeTask(id);
-  else if(col==='encerrada'){ invoke('set_task_flag',{ taskId:id, flag:'closed' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>renderKanban()); }
+  if(col==='andamento' && t.status==='draft'){ if(t.repo && t.repo!==state.repo){ toast('Esse rascunho é de outro projeto — abra '+projShort(t.repo)+' para iniciar.','warn'); return; } startTask(id); }
+  else if(col==='concluidas'){ invoke('set_task_flag',{ taskId:id, flag:'closed' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>renderKanban()); }
   else renderKanban(); // transição não suportada → volta o card
 }
 async function reorderFlow(dragId, targetId){
@@ -299,7 +307,7 @@ async function resolvePending(id, answer){
 function questionBlock(taskId){
   const ps = pendingOf(taskId);
   if(ps.length===0) return "";
-  return ps.map(p=>`<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq clamp3">${esc(p.prompt)}</div><div class="qc"><button class="btn primary sm" data-askopen="${p.id}">${IC.q} Responder ›</button></div></div>`).join("");
+  return ps.map(p=>`<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} · aguardando você</div><div class="qq clamp3">${esc(p.prompt)}</div><div class="qc"><button class="btn primary sm" data-askopen="${p.id}">${IC.q} Responder ›</button></div></div>`).join("");
 }
 function wireQuestion(root){
   root.querySelectorAll("[data-askopen]").forEach(b=>b.onclick=()=>openAsk(+b.dataset.askopen));

@@ -388,6 +388,36 @@ fn ai_branch_name(title: &str) -> Option<String> {
     if name.len() >= 8 && name.len() <= 48 && name != "tarefa" { Some(name) } else { None }
 }
 
+#[cfg(all(test, unix))]
+mod stoppable_tests {
+    use super::*;
+    static TEST_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+    #[test]
+    fn output_stoppable_para_e_devolve_marcador() {
+        let h = std::thread::spawn(|| {
+            let mut c = Command::new("sh");
+            c.args(["-c", "sleep 20"]);
+            output_stoppable(c, 30, &TEST_PID, "TEST_STOPPED")
+        });
+        let t0 = std::time::Instant::now();
+        while TEST_PID.load(std::sync::atomic::Ordering::SeqCst) == 0 && t0.elapsed().as_secs() < 5 { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        assert!(stop_slot(&TEST_PID));
+        let r = h.join().unwrap();
+        assert_eq!(r.err().as_deref(), Some("TEST_STOPPED"));
+        assert!(t0.elapsed().as_secs() < 10);
+        assert!(!stop_slot(&TEST_PID)); // nada rodando → false
+    }
+    #[test]
+    fn output_stoppable_ok_quando_termina() {
+        static P2: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+        let mut c = Command::new("sh");
+        c.args(["-c", "echo oi"]);
+        let o = output_stoppable(c, 10, &P2, "X").unwrap();
+        assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "oi");
+        assert_eq!(P2.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+}
+
 #[cfg(test)]
 mod slug_tests {
     use super::slug_id;
@@ -547,6 +577,39 @@ fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, S
         Ok(_) => Err(format!("comando expirou após {secs}s (rede indisponível?)")),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Igual ao output_timeout, mas PARÁVEL: o processo nasce num grupo próprio
+/// (detach_new_group) e o pid fica em `slot` pra um comando *_stop derrubar o grupo
+/// inteiro (signal_group). Parado pelo usuário → Err(`stopped`); estourou o tempo →
+/// Err("comando expirou…"). Mesmo padrão do issue_chat/ISSUE_CHAT_PID.
+fn output_stoppable(mut cmd: Command, secs: u64, slot: &'static std::sync::atomic::AtomicI32, stopped: &str) -> Result<std::process::Output, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    detach_new_group(&mut cmd);
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    let pid = child.id() as i32;
+    slot.store(pid, Ordering::SeqCst);
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let timed_out = std::sync::Arc::new(AtomicBool::new(false));
+    let timed_out2 = timed_out.clone();
+    let watch = std::thread::spawn(move || {
+        if rx.recv_timeout(std::time::Duration::from_secs(secs)).is_err() { timed_out2.store(true, Ordering::SeqCst); signal_group(pid, procsig::KILL); }
+    });
+    let out = child.wait_with_output();
+    let _ = tx.send(());
+    let _ = watch.join();
+    // só zera se ainda for o MEU pid (outra chamada pode ter começado)
+    let _ = slot.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst);
+    let out = out.map_err(|e| e.to_string())?;
+    if out.status.code().is_none() {
+        return Err(if timed_out.load(Ordering::SeqCst) { format!("comando expirou após {secs}s (rede indisponível?)") } else { stopped.to_string() });
+    }
+    Ok(out)
+}
+fn stop_slot(slot: &std::sync::atomic::AtomicI32) -> bool {
+    let pid = slot.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
 
 /// Envia um sinal ao GRUPO de processos — atinge node + claude.
@@ -3389,7 +3452,7 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 300)?;
+    let out = output_stoppable(cmd, 300, &ORQ_CHAT_PID, "ORQ_CHAT_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
@@ -4411,6 +4474,17 @@ fn apply_update(url: String) -> Result<(), String> {
     Ok(())
 }
 
+static PROJECT_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static ORQ_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// PARA a resposta em andamento do Chat do projeto (mata o grupo do claude → PROJECT_CHAT_STOPPED).
+#[tauri::command(async)]
+fn project_chat_stop() -> Result<bool, String> { Ok(stop_slot(&PROJECT_CHAT_PID)) }
+
+/// PARA a resposta em andamento da conversa com o orquestrador (→ ORQ_CHAT_STOPPED).
+#[tauri::command(async)]
+fn orq_chat_stop() -> Result<bool, String> { Ok(stop_slot(&ORQ_CHAT_PID)) }
+
 /// Chat do PROJETO: conversa livre sobre o repo (arquitetura, dúvidas, ideias)
 /// com leitura REAL do código — sem tarefa e sem editar nada. A conversa pode
 /// virar tarefa depois (a UI pede a spec pro mesmo session).
@@ -4437,7 +4511,7 @@ fn project_chat(state: State<AppState>, prompt: String, session_id: Option<Strin
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 240)?;
+    let out = output_stoppable(cmd, 240, &PROJECT_CHAT_PID, "PROJECT_CHAT_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
@@ -5175,7 +5249,7 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct PrComment {
     path: Option<String>,
@@ -5183,12 +5257,41 @@ struct PrComment {
     author: String,
     body: String,
     is_bot: bool,
-    /// id do review comment (inline) — permite responder via gh api …/replies
+    /// id do comentário (review inline OU conversa — este parseado da url #issuecomment-N)
     id: Option<i64>,
     /// este comentário é uma RESPOSTA a outro (thread)
     in_reply_to: Option<i64>,
-    /// já tem resposta na thread (endereçado)
+    /// endereçado: thread → a última palavra começa com "✔" OU é uma RESPOSTA sua (conta do gh);
+    /// conversa → um comentário POSTERIOR "✔ …" (seu/do bot, ou que cita este) fechou o assunto.
+    /// Autoria sozinha nunca conta: quem revisa o próprio PR (agente commitando com a sua conta) tem os
+    /// próprios comentários como pendência de verdade.
     answered: bool,
+    /// thread de review marcada como resolvida no GitHub
+    resolved: bool,
+    /// o código comentado mudou depois (GitHub marca a thread como desatualizada)
+    outdated: bool,
+    /// id (node) da thread de review — resolver via GraphQL (resolveReviewThread)
+    thread_id: Option<String>,
+    /// autor do último comentário da thread
+    last_author: String,
+    /// link direto do comentário no GitHub
+    url: String,
+    created_at: String,
+}
+/// Resumo de review (APPROVED/CHANGES_REQUESTED/COMMENTED) com texto — o corpo do review.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PrReview {
+    id: String,
+    author: String,
+    body: String,
+    state: String,
+    submitted_at: String,
+    is_bot: bool,
+    url: String,
+    /// o mesmo autor deu um review decisivo DEPOIS (aprovou/pediu mudanças de novo/foi dispensado):
+    /// este não vale mais — um "pediu mudanças" antigo não volta pro rework
+    superseded: bool,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -5201,28 +5304,271 @@ struct PrInfo {
     mergeable: String,
     body: String,
     comments: Vec<PrComment>,
+    reviews: Vec<PrReview>,
+    is_draft: bool,
+    merge_state_status: String,
+    base_ref_name: String,
+    checks_total: i64,
+    checks_fail: i64,
+    checks_pending: i64,
+    /// login da conta do gh (quem "respondeu" as threads)
+    gh_user: String,
 }
 
-/// Status do PR da tarefa: estado, decisão (aprovado/mudanças) e comentários
-/// (conversa + inline por arquivo — inclui CodeRabbit e pessoas).
+fn pr_is_bot(a: &str) -> bool {
+    let l = a.to_lowercase();
+    l.contains("coderabbit") || l.contains("[bot]")
+}
+
+/// "Respondido" (thread de review) = a última palavra começa com ✔ (padrão das respostas do agente) OU é
+/// uma RESPOSTA da sua conta. Um comentário sozinho seu NÃO está respondido: quando o agente usa a sua
+/// conta e você revisa o PR dele, o seu próprio comentário é pendência (antes nascia "tratado").
+fn pr_thread_answered(n_comments: usize, last_author: &str, last_body: &str, me: &str) -> bool {
+    last_body.trim_start().starts_with('✔') || (n_comments > 1 && !me.is_empty() && last_author.eq_ignore_ascii_case(me))
+}
+
+/// Conversa do PR (issue comments, lista plana e cronológica): um comentário está respondido quando um
+/// comentário POSTERIOR começa com "✔" E cita este (link, #id ou @autor) — o agente é instruído a colar o link. O próprio "✔ …" é resposta, não pendência. Autoria sozinha não conta.
+fn pr_mark_conv_answered(conv: &mut [PrComment], me: &str) {
+    let n = conv.len();
+    let mut marks = vec![false; n];
+    for i in 0..n {
+        let c = &conv[i];
+        if c.body.trim_start().starts_with('✔') {
+            marks[i] = true;
+            continue;
+        }
+        let later = |j: usize| -> bool {
+            let (a, b) = (&conv[i].created_at, &conv[j].created_at);
+            if !a.is_empty() && !b.is_empty() && a != b { b > a } else { j > i }
+        };
+        let id_tx = c.id.map(|x| x.to_string());
+        let mention = format!("@{}", c.author).to_lowercase();
+        marks[i] = (0..n).any(|j| {
+            if j == i || !later(j) {
+                return false;
+            }
+            let r = &conv[j];
+            if !r.body.trim_start().starts_with('✔') {
+                return false;
+            }
+            let low = r.body.to_lowercase();
+            let cites = (!c.url.is_empty() && r.body.contains(&c.url))
+                || id_tx.as_ref().map(|t| r.body.contains(t.as_str())).unwrap_or(false)
+                || (!c.author.is_empty() && low.contains(&mention));
+            // precisa CITAR este comentário: um "✔" genérico não fecha os comentários de outras pessoas
+            cites
+        });
+    }
+    for (c, m) in conv.iter_mut().zip(marks) {
+        c.answered = m;
+    }
+}
+
+/// reviews do `gh pr view --json reviews` → resumos com texto; marca como `superseded` o review que o mesmo
+/// autor já substituiu por outro decisivo (APPROVED / CHANGES_REQUESTED / DISMISSED) depois.
+fn pr_parse_reviews(arr: &serde_json::Value, url: &str) -> Vec<PrReview> {
+    let mut out = vec![];
+    let Some(rs) = arr.as_array() else { return out };
+    let login = |r: &serde_json::Value| r["author"]["login"].as_str().unwrap_or("").to_string();
+    for (i, r) in rs.iter().enumerate() {
+        let body = r["body"].as_str().unwrap_or("").to_string();
+        if body.trim().is_empty() {
+            continue;
+        }
+        let author = login(r);
+        let at = r["submittedAt"].as_str().unwrap_or("").to_string();
+        let superseded = rs.iter().enumerate().any(|(j, o)| {
+            if j == i || !login(o).eq_ignore_ascii_case(&author) {
+                return false;
+            }
+            let decisive = matches!(o["state"].as_str().unwrap_or(""), "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED");
+            let oat = o["submittedAt"].as_str().unwrap_or("");
+            let after = if !at.is_empty() && !oat.is_empty() && oat != at { oat > at.as_str() } else { j > i };
+            decisive && after
+        });
+        out.push(PrReview {
+            id: r["id"].as_str().unwrap_or("").to_string(),
+            is_bot: pr_is_bot(&author),
+            author,
+            body,
+            state: r["state"].as_str().unwrap_or("").to_string(),
+            submitted_at: at,
+            url: url.to_string(),
+            superseded,
+        });
+    }
+    out
+}
+
+/// chave do comentário igual à da UI (prCmtKey no 21-pull-request.js): id numérico, senão autor:início do texto
+fn pr_cmt_key(c: &PrComment) -> String {
+    match c.id {
+        Some(id) => id.to_string(),
+        None => format!("{}:{}", c.author, c.body.chars().take(40).collect::<String>()),
+    }
+}
+
+/// gh pr view falhou porque NÃO HÁ PR (ou o repo não tem GitHub) — isso é "sem PR", não erro de rede.
+fn gh_says_no_pr(stderr: &str) -> bool {
+    let l = stderr.to_lowercase();
+    l.contains("no pull requests found")
+        || l.contains("no open pull requests")
+        || l.contains("could not find pull request")
+        || l.contains("none of the git remotes")
+        || l.contains("no git remotes")
+        || l.contains("not a git repository")
+}
+
+/// statusCheckRollup → (total, falhando, pendentes). CheckRun usa status/conclusion; StatusContext usa state.
+fn pr_checks_summary(rollup: &serde_json::Value) -> (i64, i64, i64) {
+    let (mut tot, mut fail, mut pend) = (0i64, 0i64, 0i64);
+    if let Some(arr) = rollup.as_array() {
+        for c in arr {
+            tot += 1;
+            let is_ctx = c["__typename"].as_str() == Some("StatusContext") || (c.get("state").is_some() && c.get("status").is_none());
+            if is_ctx {
+                match c["state"].as_str().unwrap_or("") {
+                    "FAILURE" | "ERROR" => fail += 1,
+                    "PENDING" | "EXPECTED" => pend += 1,
+                    _ => {}
+                }
+            } else {
+                let status = c["status"].as_str().unwrap_or("");
+                if !status.is_empty() && status != "COMPLETED" {
+                    pend += 1;
+                } else {
+                    match c["conclusion"].as_str().unwrap_or("") {
+                        "FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" | "STARTUP_FAILURE" => fail += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    (tot, fail, pend)
+}
+
+/// Resposta do GraphQL reviewThreads → comentários achatados (raiz + respostas com in_reply_to).
+fn pr_parse_review_threads(v: &serde_json::Value, me: &str) -> Vec<PrComment> {
+    let mut out = vec![];
+    let threads = &v["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"];
+    let Some(ths) = threads.as_array() else { return out };
+    for th in ths {
+        let Some(cs) = th["comments"]["nodes"].as_array() else { continue };
+        if cs.is_empty() {
+            continue;
+        }
+        let login = |c: &serde_json::Value| c["author"]["login"].as_str().unwrap_or("").to_string();
+        let last = cs.last().unwrap();
+        let last_author = login(last);
+        let answered = pr_thread_answered(cs.len(), &last_author, last["body"].as_str().unwrap_or(""), me);
+        let resolved = th["isResolved"].as_bool().unwrap_or(false);
+        let outdated = th["isOutdated"].as_bool().unwrap_or(false);
+        let thread_id = th["id"].as_str().map(|s| s.to_string());
+        let root_id = cs[0]["databaseId"].as_i64();
+        for (i, c) in cs.iter().enumerate() {
+            let body = c["body"].as_str().unwrap_or("").to_string();
+            if body.trim().is_empty() {
+                continue;
+            }
+            let author = login(c);
+            out.push(PrComment {
+                path: c["path"].as_str().map(|s| s.to_string()),
+                line: c["line"].as_i64().or_else(|| c["originalLine"].as_i64()),
+                is_bot: pr_is_bot(&author),
+                author,
+                body,
+                id: c["databaseId"].as_i64(),
+                // resposta aponta pra raiz (-1 se a raiz veio sem id: continua sendo "resposta", não vira card)
+                in_reply_to: if i == 0 { None } else { Some(root_id.unwrap_or(-1)) },
+                answered,
+                resolved,
+                outdated,
+                thread_id: thread_id.clone(),
+                last_author: last_author.clone(),
+                url: c["url"].as_str().unwrap_or("").to_string(),
+                created_at: c["createdAt"].as_str().unwrap_or("").to_string(),
+            });
+        }
+    }
+    out
+}
+
+/// Login da conta do gh (cache de 10 min — a conta pode ser trocada no app).
+fn gh_user_login(repo: &PathBuf) -> String {
+    static CACHE: Mutex<Option<(String, std::time::Instant)>> = Mutex::new(None);
+    if let Some((u, at)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(600) {
+            return u.clone();
+        }
+    }
+    let mut c = Command::new(gh_bin());
+    c.args(["api", "user", "-q", ".login"]).current_dir(repo);
+    match output_timeout(c, 10) {
+        Ok(o) if o.status.success() => {
+            let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !u.is_empty() {
+                *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((u.clone(), std::time::Instant::now()));
+            }
+            u
+        }
+        _ => String::new(),
+    }
+}
+
+/// Status do PR da tarefa: estado, decisão (aprovado/mudanças), checks, reviews e comentários
+/// (conversa + threads inline com resolvido/desatualizado — inclui CodeRabbit e pessoas).
+/// Falha de rede/gh vira ERRO (a UI diz "não consegui falar com o GitHub"); só "não há PR" vira exists:false.
 #[tauri::command(async)]
 fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> {
     let (repo, branch) = pr_head(&state, &task_id)?;
-    let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(), comments: vec![] };
-    let mut vcmd = Command::new(gh_bin());
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments"]).current_dir(&repo);
-    // rede caída / gh pendurado → devolve "sem PR" em vez de travar/errar a UI
-    let view = match output_timeout(vcmd, 12) {
-        Ok(o) => o,
-        Err(_) => return Ok(empty),
+    let empty = PrInfo {
+        exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(),
+        comments: vec![], reviews: vec![], is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
+        checks_total: 0, checks_fail: 0, checks_pending: 0, gh_user: String::new(),
     };
+    let mut vcmd = Command::new(gh_bin());
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName"]).current_dir(&repo);
+    let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !view.status.success() {
-        return Ok(empty);
+        let err = String::from_utf8_lossy(&view.stderr).to_string();
+        if gh_says_no_pr(&err) {
+            return Ok(empty);
+        }
+        return Err(format!("gh pr view falhou: {}", err.trim()));
     }
     let v: serde_json::Value = serde_json::from_slice(&view.stdout).map_err(|e| e.to_string())?;
     let number = v["number"].as_i64().unwrap_or(0);
-    let is_bot = |a: &str| { let l = a.to_lowercase(); l.contains("coderabbit") || l.contains("[bot]") };
+    let is_bot = pr_is_bot;
+    let mut me = String::new();
     let mut comments: Vec<PrComment> = vec![];
+    // threads inline via GraphQL: traz resolvido/desatualizado (o REST não tem) + o login da conta (viewer)
+    let slug = if number > 0 { repo_slug(&repo).ok() } else { None };
+    let mut got_threads = false;
+    if let Some(slug) = slug.as_ref() {
+        if let Some((owner, name)) = slug.split_once('/') {
+            let q = "query($owner:String!,$name:String!,$num:Int!){viewer{login} repository(owner:$owner,name:$name){pullRequest(number:$num){reviewThreads(first:100){nodes{id isResolved isOutdated comments(first:50){nodes{databaseId author{login} body path line originalLine createdAt url}}}}}}}";
+            let mut gcmd = Command::new(gh_bin());
+            gcmd.args(["api", "graphql", "-f", &format!("query={q}"), "-f", &format!("owner={owner}"), "-f", &format!("name={name}"), "-F", &format!("num={number}")]).current_dir(&repo);
+            if let Ok(o) = output_timeout(gcmd, 15) {
+                if o.status.success() {
+                    if let Ok(gv) = serde_json::from_slice::<serde_json::Value>(&o.stdout) {
+                        if gv["data"]["repository"]["pullRequest"].is_object() {
+                            me = gv["data"]["viewer"]["login"].as_str().unwrap_or("").to_string();
+                            comments.extend(pr_parse_review_threads(&gv, &me));
+                            got_threads = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if me.is_empty() {
+        me = gh_user_login(&repo);
+    }
+    // conversa do PR (issue comments)
+    let mut conv: Vec<PrComment> = vec![];
     if let Some(arr) = v["comments"].as_array() {
         for c in arr {
             let author = c["author"]["login"].as_str().unwrap_or("").to_string();
@@ -5230,18 +5576,33 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
             if body.trim().is_empty() {
                 continue;
             }
+            let url = c["url"].as_str().unwrap_or("").to_string();
+            // id numérico sai da url (#issuecomment-N) — o "id" do gh aqui é node id
+            let id = url.rsplit_once("#issuecomment-").and_then(|(_, n)| n.parse::<i64>().ok());
             let bot = is_bot(&author);
-            comments.push(PrComment { path: None, line: None, author, body, is_bot: bot, id: None, in_reply_to: None, answered: false });
+            conv.push(PrComment {
+                // "respondido" é decidido abaixo (pr_mark_conv_answered): autoria sozinha não conta
+                // minimizado no GitHub (resolvido/desatualizado/spam) não é mais pendência
+                resolved: c["isMinimized"].as_bool().unwrap_or(false),
+                last_author: author.clone(),
+                created_at: c["createdAt"].as_str().unwrap_or("").to_string(),
+                author, body, is_bot: bot, id, url,
+                ..Default::default()
+            });
         }
     }
-    if number > 0 {
-        if let Ok(slug) = repo_slug(&repo) {
+    pr_mark_conv_answered(&mut conv, &me);
+    comments.splice(0..0, conv);
+    // fallback: GraphQL falhou → REST antigo (sem resolvido/desatualizado; "respondido" = tem resposta)
+    if !got_threads && number > 0 {
+        if let Some(slug) = slug.as_ref() {
             let mut acmd = Command::new(gh_bin());
             acmd.args(["api", &format!("repos/{}/pulls/{}/comments", slug, number), "--paginate"]).current_dir(&repo);
             if let Ok(o) = output_timeout(acmd, 15) {
                 if o.status.success() {
                     if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&o.stdout) {
                         if let Some(a) = arr.as_array() {
+                            let mut rest: Vec<PrComment> = vec![];
                             for c in a {
                                 let author = c["user"]["login"].as_str().unwrap_or("").to_string();
                                 let body = c["body"].as_str().unwrap_or("").to_string();
@@ -5251,24 +5612,34 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
                                 let path = c["path"].as_str().map(|s| s.to_string());
                                 let line = c["line"].as_i64().or_else(|| c["original_line"].as_i64());
                                 let bot = is_bot(&author);
-                                comments.push(PrComment { path, line, author, body, is_bot: bot, id: c["id"].as_i64(), in_reply_to: c["in_reply_to_id"].as_i64(), answered: false });
+                                rest.push(PrComment {
+                                    path, line, is_bot: bot, id: c["id"].as_i64(), in_reply_to: c["in_reply_to_id"].as_i64(),
+                                    last_author: author.clone(), author, body,
+                                    url: c["html_url"].as_str().unwrap_or("").to_string(),
+                                    created_at: c["created_at"].as_str().unwrap_or("").to_string(),
+                                    ..Default::default()
+                                });
                             }
+                            // marca como RESPONDIDO todo comentário cuja thread tem resposta
+                            let replied: std::collections::HashSet<i64> = rest.iter().filter_map(|c| c.in_reply_to).collect();
+                            for c in rest.iter_mut() {
+                                if let Some(cid) = c.id {
+                                    if replied.contains(&cid) {
+                                        c.answered = true;
+                                    }
+                                }
+                            }
+                            comments.extend(rest);
                         }
                     }
                 }
             }
         }
     }
-    // marca como RESPONDIDO todo comentário cuja thread tem resposta
-    let replied: std::collections::HashSet<i64> = comments.iter().filter_map(|c| c.in_reply_to).collect();
-    for c in comments.iter_mut() {
-        if let Some(cid) = c.id {
-            if replied.contains(&cid) {
-                c.answered = true;
-            }
-        }
-    }
     let url = v["url"].as_str().unwrap_or("").to_string();
+    // resumos de review com texto (o "request changes" com explicação não aparecia em lugar nenhum)
+    let reviews: Vec<PrReview> = pr_parse_reviews(&v["reviews"], &url);
+    let (checks_total, checks_fail, checks_pending) = pr_checks_summary(&v["statusCheckRollup"]);
     // PERSISTE o PR na tarefa (spec.prUrl): sem isso o link só existia "ao
     // vivo" via gh — snapshot/sync do time ficavam com pr_url nulo pra sempre.
     if !url.is_empty() {
@@ -5317,6 +5688,14 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         mergeable: v["mergeable"].as_str().unwrap_or("").to_string(),
         body: v["body"].as_str().unwrap_or("").to_string(),
         comments,
+        reviews,
+        is_draft: v["isDraft"].as_bool().unwrap_or(false),
+        merge_state_status: v["mergeStateStatus"].as_str().unwrap_or("").to_string(),
+        base_ref_name: v["baseRefName"].as_str().unwrap_or("").to_string(),
+        checks_total,
+        checks_fail,
+        checks_pending,
+        gh_user: me,
     })
 }
 
@@ -5759,18 +6138,35 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     Ok("PR mergeado".to_string())
 }
 
+/// "Pediu mudanças" que ainda vale: o review mais recente do autor (não substituído), não ignorado na UI,
+/// e só enquanto a decisão do PR continua CHANGES_REQUESTED (aprovado depois → nada a reenviar).
+fn pr_open_review_asks<'a>(info: &'a PrInfo, ign: &std::collections::HashSet<String>) -> Vec<&'a PrReview> {
+    if info.decision != "CHANGES_REQUESTED" {
+        return vec![];
+    }
+    info.reviews
+        .iter()
+        .enumerate()
+        .filter(|(i, r)| r.state == "CHANGES_REQUESTED" && !r.superseded && !ign.contains(&if r.id.is_empty() { format!("idx:{i}") } else { r.id.clone() }))
+        .map(|(_, r)| r)
+        .collect()
+}
+
 /// Coleta os comentários do PR e manda o agente endereçá-los (rework via --resume).
 #[tauri::command(async)]
-fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String> {
+fn rework_from_pr(state: State<AppState>, task_id: String, ignored: Option<Vec<String>>) -> Result<(), String> {
     let info = pr_status(state.clone(), task_id.clone())?;
-    if !info.exists || info.comments.is_empty() {
+    // o que a UI ignorou (localStorage prIgn:*) NÃO vai pro agente — mesma conta do botão "corrigir N em aberto"
+    let ign: std::collections::HashSet<String> = ignored.unwrap_or_default().into_iter().collect();
+    let asks = pr_open_review_asks(&info, &ign);
+    if !info.exists || (info.comments.is_empty() && asks.is_empty()) {
         return Err("nenhum comentário de review pra endereçar".to_string());
     }
     let repo = repo_of(&state)?;
     let slug = repo_slug(&repo).unwrap_or_default();
-    // só o que ainda NÃO foi endereçado (nem é resposta de thread)
-    let open: Vec<&PrComment> = info.comments.iter().filter(|c| !c.answered && c.in_reply_to.is_none()).collect();
-    if open.is_empty() {
+    // só o que ainda NÃO foi endereçado: nem resposta de thread, nem respondido, resolvido, desatualizado ou ignorado
+    let open: Vec<&PrComment> = info.comments.iter().filter(|c| !c.answered && !c.resolved && !c.outdated && c.in_reply_to.is_none() && !ign.contains(&pr_cmt_key(c))).collect();
+    if open.is_empty() && asks.is_empty() {
         return Err("todos os comentários já têm resposta — nada a endereçar".to_string());
     }
     let mut text = format!("Endereça os comentários de review do PR #{} (aplique as correções pedidas):\n", info.number);
@@ -5781,10 +6177,15 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
             _ => "(conversa)".to_string(),
         };
         let snippet: String = c.body.replace('\n', " ").chars().take(300).collect();
-        match c.id {
-            Some(id) => text.push_str(&format!("- [comment_id={id}] [{}] {loc}: {snippet}\n", c.author)),
-            None => text.push_str(&format!("- [conversa] [{}]: {snippet}\n", c.author)),
+        // comentário inline (tem path) responde via …/replies; conversa do PR responde com gh pr comment
+        match (c.id, c.path.is_some()) {
+            (Some(id), true) => text.push_str(&format!("- [comment_id={id}] [{}] {loc}: {snippet}\n", c.author)),
+            _ => text.push_str(&format!("- [conversa] [{}] {}: {snippet}\n", c.author, c.url)),
         }
+    }
+    for r in &asks {
+        let snippet: String = r.body.replace('\n', " ").chars().take(500).collect();
+        text.push_str(&format!("- [review · pediu mudanças] [{}]: {snippet}\n", r.author));
     }
     text.push_str(&format!(
         "\nDEPOIS de aplicar TODAS as correções, FECHE O CICLO (obrigatório):\n\
@@ -5792,7 +6193,7 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
          2. Push: git push (o PR atualiza sozinho)\n\
          3. RESPONDA cada comentário inline no GitHub, um a um, dizendo O QUE mudou (ou por que não mudou):\n\
             gh api repos/{slug}/pulls/{num}/comments/<comment_id>/replies -f body=\"✔ <o que foi feito>\"\n\
-         4. Pros itens de (conversa), responda com: gh pr comment {num} --body \"...\"\n\
+         4. Pros itens de (conversa), responda UM comentário por item, citando o link dele: gh pr comment {num} --body \"✔ <link do comentário> <o que foi feito>\"\n\
          Sem commit + push + respostas o rework NÃO está completo.\n",
         num = info.number,
         slug = slug,
@@ -5807,6 +6208,34 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("falha ao iniciar rework: {e}"))?;
+    Ok(())
+}
+
+/// Marca uma thread de review como RESOLVIDA no GitHub (GraphQL resolveReviewThread).
+#[tauri::command(async)]
+fn pr_resolve_thread(state: State<AppState>, thread_id: String) -> Result<(), String> {
+    let tid = thread_id.trim();
+    if tid.is_empty() || tid.len() > 200 || !tid.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '=') {
+        return Err("id de thread inválido".to_string());
+    }
+    let repo = repo_of(&state)?;
+    let q = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id isResolved}}}";
+    let mut c = Command::new(gh_bin());
+    c.args(["api", "graphql", "-f", &format!("query={q}"), "-f", &format!("id={tid}")]).current_dir(&repo);
+    let o = output_timeout(c, 15).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
+    if !o.status.success() {
+        let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+        return Err(if err.is_empty() { "gh api graphql falhou".to_string() } else { err });
+    }
+    let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap_or(serde_json::Value::Null);
+    if let Some(errs) = v["errors"].as_array() {
+        if !errs.is_empty() {
+            return Err(errs.iter().filter_map(|e| e["message"].as_str()).collect::<Vec<_>>().join("; "));
+        }
+    }
+    if v["data"]["resolveReviewThread"]["thread"]["isResolved"].as_bool() != Some(true) {
+        return Err("o GitHub não confirmou a resolução da thread".to_string());
+    }
     Ok(())
 }
 
@@ -6357,6 +6786,8 @@ pub fn run() {
             tracker_ai_build,
             issue_chat,
             issue_chat_stop,
+            project_chat_stop,
+            orq_chat_stop,
             create_skill,
             import_skill_md,
             git_skills,
@@ -6443,6 +6874,7 @@ pub fn run() {
             open_pr,
             pr_compare_url,
             pr_status,
+            pr_resolve_thread,
             merge_pr,
             rework_from_pr,
             merge_task,
@@ -6531,5 +6963,128 @@ mod cardume_hygiene_tests {
         assert!(remove_worktree_dir(&tmp, &orphan));
         assert!(!orphan.exists());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+#[cfg(test)]
+mod pr_status_tests {
+    use super::*;
+    #[test]
+    fn review_threads_flatten_and_mark_answered_resolved() {
+        let v = serde_json::json!({"data":{"viewer":{"login":"eu"},"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+            {"id":"PRRT_1","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":10,"author":{"login":"coderabbitai[bot]"},"body":"troque X","path":"a.rs","line":3,"originalLine":3,"createdAt":"t","url":"u10"},
+                {"databaseId":11,"author":{"login":"EU"},"body":"feito","path":"a.rs","line":null,"originalLine":3,"createdAt":"t","url":"u11"}]}},
+            {"id":"PRRT_2","isResolved":true,"isOutdated":true,"comments":{"nodes":[
+                {"databaseId":20,"author":{"login":"ana"},"body":"e isso?","path":"b.rs","line":null,"originalLine":7,"createdAt":"t","url":"u20"}]}},
+            {"id":"PRRT_3","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":30,"author":{"login":"ana"},"body":"ok?","path":"c.rs","line":1,"originalLine":1,"createdAt":"t","url":"u30"},
+                {"databaseId":31,"author":{"login":"bot"},"body":"✔ ajustado","path":"c.rs","line":1,"originalLine":1,"createdAt":"t","url":"u31"}]}},
+            {"id":"PRRT_4","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":40,"author":{"login":"ana"},"body":"pendente","path":"d.rs","line":2,"originalLine":2,"createdAt":"t","url":"u40"}]}}
+        ]}}}}});
+        let cs = pr_parse_review_threads(&v, "eu");
+        assert_eq!(cs.len(), 6);
+        let root = |id: i64| cs.iter().find(|c| c.id == Some(id)).unwrap();
+        assert!(root(10).answered && root(10).is_bot && root(10).in_reply_to.is_none());
+        assert_eq!(root(11).in_reply_to, Some(10));
+        assert_eq!(root(11).line, Some(3)); // line nulo cai no originalLine
+        assert!(root(20).resolved && root(20).outdated && !root(20).answered);
+        assert!(root(30).answered); // última começa com ✔
+        assert!(!root(40).answered && !root(40).resolved);
+        assert_eq!(root(40).thread_id.as_deref(), Some("PRRT_4"));
+        assert_eq!(root(40).url, "u40");
+    }
+    #[test]
+    fn own_lone_comment_is_not_answered() {
+        // agente commitando com a SUA conta e você revisando o PR dele: seu comentário sozinho é pendência
+        let v = serde_json::json!({"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+            {"id":"T1","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":50,"author":{"login":"eu"},"body":"renomeie isto","path":"x.rs","line":1,"createdAt":"t","url":"u50"}]}},
+            {"id":"T2","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":60,"author":{"login":"eu"},"body":"e aqui?","path":"y.rs","line":2,"createdAt":"t","url":"u60"},
+                {"databaseId":61,"author":{"login":"eu"},"body":"ajustei","path":"y.rs","line":2,"createdAt":"t","url":"u61"}]}}
+        ]}}}}});
+        let cs = pr_parse_review_threads(&v, "eu");
+        let root = |id: i64| cs.iter().find(|c| c.id == Some(id)).unwrap();
+        assert!(!root(50).answered, "comentário solitário do próprio usuário não pode nascer respondido");
+        assert!(root(60).answered, "resposta da sua conta na thread fecha");
+        assert!(pr_thread_answered(1, "ana", "✔ feito", "eu"));
+        assert!(!pr_thread_answered(1, "eu", "pendente", "eu"));
+    }
+    fn conv(id: i64, author: &str, body: &str, at: &str) -> PrComment {
+        PrComment { id: Some(id), author: author.into(), body: body.into(), created_at: at.into(), is_bot: pr_is_bot(author),
+            url: format!("https://github.com/o/r/pull/1#issuecomment-{id}"), ..Default::default() }
+    }
+    #[test]
+    fn conversation_answered_only_by_later_check_comment() {
+        let mut cs = vec![
+            conv(1, "eu", "faltou o teste", "2026-01-01T10:00:00Z"),
+            conv(2, "ana", "e a doc?", "2026-01-01T10:05:00Z"),
+            conv(3, "eu", "✔ https://github.com/o/r/pull/1#issuecomment-1 adicionei o teste", "2026-01-01T11:00:00Z"),
+            conv(4, "ana", "mais uma coisa", "2026-01-01T12:00:00Z"),
+            conv(5, "bia", "✔ @ana doc feita", "2026-01-01T09:00:00Z"), // ANTES do comentário da ana: não fecha
+        ];
+        pr_mark_conv_answered(&mut cs, "eu");
+        assert!(cs[0].answered, "✔ posterior que cita o link fecha");
+        assert!(!cs[1].answered, "✔ que cita OUTRO comentário não fecha este (o da ana segue aberto)");
+        assert!(cs[2].answered, "o próprio ✔ não é pendência");
+        assert!(!cs[3].answered, "sem ✔ depois → aberto");
+        let mut solo = vec![conv(7, "eu", "meu comentário", "2026-01-01T10:00:00Z")];
+        pr_mark_conv_answered(&mut solo, "eu");
+        assert!(!solo[0].answered, "autoria sozinha não marca respondido");
+        // ✔ de terceiro só fecha se citar o comentário
+        let mut cit = vec![conv(8, "ana", "x", "2026-01-01T10:00:00Z"), conv(9, "bia", "✔ @ana resolvido", "2026-01-01T11:00:00Z"),
+            conv(10, "caio", "y", "2026-01-01T10:30:00Z")];
+        pr_mark_conv_answered(&mut cit, "eu");
+        assert!(cit[0].answered && !cit[2].answered);
+    }
+    #[test]
+    fn reviews_superseded_and_open_asks() {
+        let r = serde_json::json!([
+            {"id":"R1","author":{"login":"ana"},"body":"mude X","state":"CHANGES_REQUESTED","submittedAt":"2026-01-01T10:00:00Z"},
+            {"id":"R2","author":{"login":"ana"},"body":"","state":"APPROVED","submittedAt":"2026-01-02T10:00:00Z"},
+            {"id":"R3","author":{"login":"bia"},"body":"mude Y","state":"CHANGES_REQUESTED","submittedAt":"2026-01-01T10:00:00Z"},
+            {"id":"R4","author":{"login":"bia"},"body":"obs","state":"COMMENTED","submittedAt":"2026-01-03T10:00:00Z"},
+            {"id":"R5","author":{"login":"caio"},"body":"ok","state":"APPROVED","submittedAt":"2026-01-01T10:00:00Z"}
+        ]);
+        let rs = pr_parse_reviews(&r, "u");
+        assert_eq!(rs.len(), 4); // R2 sem texto fica de fora
+        let get = |id: &str| rs.iter().find(|x| x.id == id).unwrap();
+        assert!(get("R1").superseded, "aprovou depois → pedido antigo não vale");
+        assert!(!get("R3").superseded, "COMMENTED depois não derruba o pedido de mudanças");
+        let mk = |decision: &str| PrInfo {
+            exists: true, number: 1, url: "u".into(), state: "OPEN".into(), decision: decision.into(), mergeable: String::new(), body: String::new(),
+            comments: vec![], reviews: rs.clone(), is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
+            checks_total: 0, checks_fail: 0, checks_pending: 0, gh_user: String::new(),
+        };
+        let none = std::collections::HashSet::new();
+        let info = mk("CHANGES_REQUESTED");
+        let asks: Vec<&str> = pr_open_review_asks(&info, &none).iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(asks, vec!["R3"]);
+        let ign: std::collections::HashSet<String> = ["R3".to_string()].into_iter().collect();
+        assert!(pr_open_review_asks(&info, &ign).is_empty(), "ignorado na UI não vai pro agente");
+        assert!(pr_open_review_asks(&mk("APPROVED"), &none).is_empty(), "PR aprovado → nada a reenviar");
+        let c = PrComment { id: None, author: "ana".into(), body: "abc".into(), ..Default::default() };
+        assert_eq!(pr_cmt_key(&c), "ana:abc");
+    }
+    #[test]
+    fn checks_summary_counts_fail_and_pending() {
+        let r = serde_json::json!([
+            {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+            {"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},
+            {"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""},
+            {"__typename":"StatusContext","state":"PENDING"},
+            {"__typename":"StatusContext","state":"ERROR"}
+        ]);
+        assert_eq!(pr_checks_summary(&r), (5, 2, 2));
+        assert_eq!(pr_checks_summary(&serde_json::Value::Null), (0, 0, 0));
+    }
+    #[test]
+    fn no_pr_vs_network_error() {
+        assert!(gh_says_no_pr("no pull requests found for branch \"x\""));
+        assert!(gh_says_no_pr("none of the git remotes configured for this repository point to a known GitHub host"));
+        assert!(!gh_says_no_pr("error connecting to api.github.com"));
+        assert!(!gh_says_no_pr("HTTP 502: Bad Gateway"));
     }
 }
