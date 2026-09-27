@@ -6,6 +6,10 @@ function openAsk(pendingId){
   const p=(state.pending||[]).find(x=>x.id===pendingId); if(!p) return;
   const tid=p.taskId; if(!tid) return;
   selected=tid; render();
+  // a pergunta e o campo de resposta moram na CONVERSA: a aba lembrava o último modo (Entrega/PR/Código)
+  // e reabria com a pergunta escondida
+  { const tab=(typeof tabById==='function')?tabById('task:'+tid):null; if(tab) tab.mode='conversa'; }
+  if(typeof fwTask!=='undefined' && fwTask===tid && typeof fwMode!=='undefined' && fwMode!=='conversa'){ fwMode='conversa'; }
   openWorkspace(tid);
   setTimeout(()=>{ const i=$id('fwInput'); if(i) i.focus(); }, 350);
 }

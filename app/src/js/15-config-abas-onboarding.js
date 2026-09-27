@@ -348,13 +348,16 @@ function coachStart(){
 // ⌘J/⌘, abrem como ABA (igual à barra lateral — antes viravam modal flutuante), ⌘W fecha a aba ativa,
 // ⌘1…⌘8 vão pra aba N e ⌘9 pra última (como no navegador). A lista fica no tooltip do "+" da barra de abas.
 const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba';
-document.addEventListener('keydown', e=>{
+document.addEventListener('keydown', async e=>{
   if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
   const k=(e.key||'').toLowerCase();
   if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('chat'); }
   else if(k===',' && !e.shiftKey){ e.preventDefault(); openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
-  else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById(activeTab); if(t && !t.pin) closeTab(t.id); }
+  else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById(activeTab); if(!t || t.pin) return;
+    // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")
+    if(t.kind==='task' && typeof fwLeaveEditor==='function' && !await fwLeaveEditor()) return;
+    if(tabById(t.id)) closeTab(t.id); }
   else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t) activateTab(t.id); }
 });
 
