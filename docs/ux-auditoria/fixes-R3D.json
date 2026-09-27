@@ -1,0 +1,134 @@
+[
+ {
+  "id": "R3-D1",
+  "area": "Chats",
+  "titulo": "Um composer só em todos os chats — o mesmo layout do chat da tarefa",
+  "antes": "4 layouts: chat da tarefa (caixa em cima, linha 📎 · opções · parar/enviar embaixo, dica com teclas em caixinha); Chat do projeto (📎 e 'enviar' DENTRO de uma caixa arredondada, dica em texto corrido); Montar conversando e conversa do Orquestrador (📎 à esquerda FORA da caixa, 'enviar' com ícone no Orquestrador); briefing do Orquestrador (pílula 'anexar print / arquivo' e 'Montar o plano' separado lá embaixo).",
+  "depois": "chatComposerHtml() (30-anexos) gera a estrutura única: textarea em cima; linha 📎 · extras da tela · espaço · [■ parar] [enviar]; dica embaixo com as teclas em <span class=\"kbd\"> (Enter · ⇧Enter · ⌘V). chatComposer() também NORMALIZA marcação antiga (.plinput/.chatinput/.orq-chatin → .cc), então qualquer tela que chama chatComposer fica igual — inclusive a Nova issue (14-issues) sem mexer no arquivo dela. Aplicado em Chat do projeto, Montar conversando, conversa do Orquestrador, briefing do Orquestrador (📎 · 'usar a última investigação' · IA · 'Montar o plano'; Enter quebra linha, ⌘Enter monta) e Nova issue. Botões especiais de cada tela continuam (■ parar, redirecionar, usar a última investigação).",
+  "motivo": "Reclamação do dono: 'os chats não usam os mesmos componentes'. Cada tela ensinava um jeito diferente de anexar e enviar.",
+  "arquivos": ["app/src/js/30-anexos.js", "app/src/index.html", "app/src/js/34-orquestrador.js", "app/src/css/81-chat.css", "app/src/css/20-abas-e-telas.css"],
+  "como_ver": "Abra lado a lado: uma tarefa em Conversa, Chat do projeto, Montar conversando, Orquestrador (plano aberto → conversar) e Orquestrador sem plano (briefing). Todas: caixa em cima, 📎 à esquerda embaixo, enviar à direita, dica com teclas em caixinha.",
+  "estado_mock": "harness: cenas workspace-conversa, chat-projeto, planner, orq-chat, orq; Nova issue = home + openTab('issuesbulk')"
+ },
+ {
+  "id": "R3-D2",
+  "area": "Layout",
+  "titulo": "Cabeçalho de página único: todo título começa no mesmo x, com o mesmo tamanho",
+  "antes": "Título em x diferente em cada aba (1440px): Issues 284, Chat 284, Nova demanda 325, Épico 329, Configurações 343 (e com 16px!), Agentes 359, Skills 378, Conta 386 (com ícone), Projetos 464, Daily 484, Orquestrador 525 centralizado. Botões secundários misturavam fonte mono ('+ novo agente', '+ novo time', 'gerar relatório da entrega') com sans ('+ novo projeto').",
+  "depois": "Coluna única --page-max 1240px / --page-pad 34px (:root em 20-abas-e-telas) pra .appscreen, .sk-screen, .enpage, .ndinner, briefing do Orquestrador, formulário (Preencher eu mesmo) e as telas CRUD (Configurações, Preferências, Agentes, Conta via mhead/mbody). H1 26px/600 na fonte de display, alinhado à esquerda, subtítulo opcional, ações à direita. Ícone do título da Conta sai (já está na aba). Botão dentro de rótulo de seção (.seclbl2 .btn) usa a fonte do .btn. Medido no harness: todos os H1 em x=284.",
+  "motivo": "Trocar de aba fazia o título 'pular' de lugar e de tamanho — parecia que cada tela era de um app diferente.",
+  "arquivos": ["app/src/css/80-ajustes-cards.css", "app/src/css/20-abas-e-telas.css", "app/src/js/12-chat-prefs-daily.js"],
+  "como_ver": "Abra Issues, Chat do projeto, Nova demanda, um Épico, Configurações, Agentes & Equipes, Skills, Conta, Projetos, Daily e Orquestrador: o título fica no mesmo lugar, mesmo tamanho.",
+  "estado_mock": "harness: cenas issues-board, chat-projeto, nova-demanda, epic-page, cfg, agents, skills, conta, projetos, daily, orq"
+ },
+ {
+  "id": "R3-D3",
+  "area": "Nova demanda",
+  "titulo": "As 3 formas de montar uma demanda com os mesmos nomes e o mesmo seletor em todas as telas",
+  "antes": "Nova demanda: 'Montar conversando / Preencher eu mesmo / Dividir entre vários agentes'. Orquestrador: 'Conversar / Formulário / Orquestrador'. A aba 'Montar conversando' não tinha seletor; o formulário tinha só um botão 'montar conversando' e a aba chamava 'Formulário'.",
+  "depois": "ndMethodSeg() (14-nova-demanda-inicio) = um seletor só com 'Montar conversando · Preencher eu mesmo · Dividir entre vários agentes' (dica de cada um no tooltip). Aparece no topo do Montar conversando, do Preencher eu mesmo (substitui o botão; mantém o id #ntAI, que leva o rascunho pro chat) e do Orquestrador. Aba do formulário se chama 'Preencher eu mesmo'; o selo do briefing diz 'dividir entre vários agentes'.",
+  "motivo": "O mesmo caminho tinha dois nomes; quem entrava por um lado não reconhecia a opção do outro.",
+  "arquivos": ["app/src/js/14-nova-demanda-inicio.js", "app/src/js/34-orquestrador.js", "app/src/index.html", "app/src/js/15-config-abas-onboarding.js"],
+  "como_ver": "Nova demanda → Montar conversando: seletor no topo. Troque pra 'Preencher eu mesmo' e 'Dividir entre vários agentes': o mesmo seletor, com a opção atual em verde.",
+  "estado_mock": "harness: cenas planner, orq, nova-demanda; formulário = home + openTab('form')"
+ },
+ {
+  "id": "R3-D4",
+  "area": "Montar conversando",
+  "titulo": "'✓ Aprovar e criar · N tarefas' sempre à vista",
+  "antes": "O botão do épico ficava no fim do card, dentro da conversa — cortado pela borda e escondido atrás das sugestões ('Pontos para frete grátis?').",
+  "depois": "O rodapé do card (descartar · Aprovar e criar) gruda no fim da conversa (position:sticky) com fundo e sombra; as sugestões ficam abaixo, sem cobrir. Rolando o plano, o botão continua visível.",
+  "motivo": "A ação principal da tela sumia justo quando o plano estava pronto.",
+  "arquivos": ["app/src/css/80-ajustes-cards.css"],
+  "como_ver": "Montar conversando com um épico proposto: role a conversa pra cima e pra baixo — o botão verde fica no rodapé.",
+  "estado_mock": "harness: cena planner (e rolando #plThread)"
+ },
+ {
+  "id": "R3-D5",
+  "area": "Nova demanda",
+  "titulo": "Tela inicial da Nova demanda: sem texto vazio, sem repetição, seletor de projeto igual aos outros campos",
+  "antes": "'10 campos · passos' (sem sentido); selo 'problemas grandes' quebrava em 2 linhas; <select> do projeto nativo com borda verde; 'tipo: Feature' aparecia duas vezes (ao lado do Continuar e no rodapé).",
+  "depois": "'~10 campos, um de cada vez'; selo com nowrap; select com a mesma borda/raio/fundo dos campos e seta própria (foco verde só ao focar); 'tipo' aparece uma vez (ao lado do Continuar).",
+  "motivo": "Ruído visual e texto que não explicava nada na primeira tela do fluxo principal.",
+  "arquivos": ["app/src/js/14-nova-demanda-inicio.js", "app/src/css/20-abas-e-telas.css"],
+  "como_ver": "Nova demanda: cartões do passo 2 e o seletor de projeto no topo.",
+  "estado_mock": "harness: cena nova-demanda"
+ },
+ {
+  "id": "R3-D6",
+  "area": "Linguagem",
+  "titulo": "Montar conversando: 'Resumo da demanda' em português; TASK.yaml só em 'ver como arquivo'",
+  "antes": "Painel da direita 'TASK.YAML' com chaves em inglês (id, title, objective, deliverables, scope.owns, scope.off_limits, artifacts, autonomy, engine) e origem 'BARRAMENTO'; medidor '10 de 10 campos'.",
+  "depois": "'Resumo da demanda' com rótulos PT: identificador, título, objetivo, o que vai ser entregue, requisitos (como checar que ficou pronto), arquivos que pode mexer, arquivos proibidos (com tooltip explicando), o que entregar junto, autonomia, IA; origem 'automático / você / outras tarefas / padrão'. O YAML cru fica num 'ver como arquivo TASK.yaml' recolhível no fim do painel. Medidor: 'resumo: 10 de 10 itens preenchidos'.",
+  "motivo": "Vibe coder não sabe o que é scope.off_limits nem barramento.",
+  "arquivos": ["app/src/js/32-planner.js", "app/src/css/80-ajustes-cards.css"],
+  "como_ver": "Montar conversando: painel da direita; no fim, 'ver como arquivo'.",
+  "estado_mock": "harness: cena planner (rolar #plMesh até o fim)"
+ },
+ {
+  "id": "R3-D7",
+  "area": "Linguagem",
+  "titulo": "Orquestrador: papel da fase por extenso (Investigar/Desenhar/Implementar/Revisar)",
+  "antes": "Siglas IN/DS/IM/CR nos nós do grafo, no inspetor, nas dependências e nos cartões de plano; os botões de tipo diziam 'IN Investigar'.",
+  "depois": "orqBadge() devolve o nome por extenso. No nó do grafo o selo foi pra linha de estado ('Investigar · rodando'), então o título da fase fica inteiro ('Investigar a causa' em vez de 'Investi…'). Botões de tipo só com a palavra.",
+  "motivo": "Sigla de 2 letras não diz nada pra quem não escreveu o código.",
+  "arquivos": ["app/src/js/34-orquestrador.js", "app/src/css/70-orquestrador.css"],
+  "como_ver": "Orquestrador com plano aberto: nós do grafo e inspetor da fase.",
+  "estado_mock": "harness: cena orq-chat"
+ },
+ {
+  "id": "R3-D8",
+  "area": "Linguagem",
+  "titulo": "Configurações → IA padrão sem 'Mock', 'alias' e 'id fixo'",
+  "antes": "Cartão 'Mock · sem IA' visível pra todo mundo; modelos com 'alias · mais capaz' / 'id fixo'; 'outro id… digite o id exato'; descrição 'Alias = …; id fixo trava a versão'.",
+  "depois": "aiPlainify() (15) reescreve o texto do seletor (29 continua dono do desenho): 'Simulação · sem IA, pra testar', só em instalação de desenvolvimento (devInstall) ou se já estiver escolhida; 'sempre o mais novo' / 'versão travada' com o termo técnico no tooltip; 'outro modelo… digite o nome exato do modelo'. Um MutationObserver reaplica quando o seletor se redesenha. Vale também nos seletores do formulário (#aiPickHow/Inv/Dz) e do Montar conversando.",
+  "motivo": "Jargão de dev na tela de configuração mais visitada; 'Mock' parecia uma IA de verdade.",
+  "arquivos": ["app/src/js/15-config-abas-onboarding.js", "app/src/js/32-planner.js"],
+  "como_ver": "Configurações → IA padrão: 3 motores (sem Simulação fora de dev) e chips 'sempre o mais novo' / 'versão travada' (passe o mouse pra ver o termo técnico).",
+  "estado_mock": "harness: cena cfg"
+ },
+ {
+  "id": "R3-D9",
+  "area": "Linguagem",
+  "titulo": "'frontmatter' vira português simples",
+  "antes": "Agentes: 'formato de subagente do Claude Code — frontmatter (name, role, color, model) + o corpo vira a persona'. Skill: '(o nome sai do frontmatter)'.",
+  "depois": "'o cabeçalho do arquivo (entre as linhas ---) traz nome, papel, cor e modelo, e o resto do texto vira a persona' / '(o nome vem do cabeçalho do arquivo, o bloco entre as linhas ---)'.",
+  "motivo": "Termo técnico sem explicação.",
+  "arquivos": ["app/src/index.html", "app/src/js/13-skills-projetos.js"],
+  "como_ver": "Agentes & Equipes (texto abaixo de AGENTES); Skills → + adicionar skill → colar.",
+  "estado_mock": "harness: cena agents"
+ },
+ {
+  "id": "R3-D10",
+  "area": "Estado vazio",
+  "titulo": "Sem projeto aberto: bloco no centro, sem coluna vazia; 'abrir' parece botão",
+  "antes": "Bloco 'Nenhum projeto aberto' lá embaixo (y≈630, a área dos painéis vazios empurrava); coluna da direita vazia com divisória em x=1100; o 'abrir' da barra lateral parecia um campo de texto.",
+  "depois": "Sem projeto (#emptyRepo visível) os painéis e a coluna da direita saem (:has) e o bloco fica no centro da área; 'abrir' centralizado, verde, com cara de botão.",
+  "motivo": "Primeira tela de quem acabou de instalar parecia quebrada.",
+  "arquivos": ["app/src/css/80-ajustes-cards.css"],
+  "como_ver": "Feche todos os projetos (ou instale limpo): Central.",
+  "estado_mock": "harness: cena empty-no-project"
+ },
+ {
+  "id": "R3-D11",
+  "area": "Contagens",
+  "titulo": "Projetos conta igual à Central (pedido do coordenador)",
+  "antes": "Cartões de Projetos usavam p.active/p.review do backend: 'loja: 5 rodando · 2 em review'.",
+  "depois": "flowCounts (22) sobre as tarefas do projeto (state.tasks do aberto; allTasksCache dos outros): 'N aguardando você · N em revisão · N em andamento' (ou 'nada em andamento'); sem cache, cai no resumo do backend.",
+  "motivo": "Mesmo número e mesmo vocabulário em todas as telas (R3-A).",
+  "arquivos": ["app/src/js/13-skills-projetos.js"],
+  "como_ver": "Projetos: a linha colorida de cada cartão bate com a Central filtrada naquele projeto.",
+  "estado_mock": "harness: cena projetos"
+ },
+ {
+  "id": "R3-D12",
+  "area": "Linguagem",
+  "titulo": "Tour: 'precisa de você' → 'aguardando você'",
+  "antes": "Coach mark da barra lateral: 'Amarelo = um deles precisa de você.'",
+  "depois": "'Amarelo = um deles está aguardando você.' (o termo único do app).",
+  "motivo": "Um termo só pro mesmo estado.",
+  "arquivos": ["app/src/js/15-config-abas-onboarding.js"],
+  "como_ver": "Configurações → rever o tour.",
+  "estado_mock": "harness: cena onboarding-first-run"
+ }
+]

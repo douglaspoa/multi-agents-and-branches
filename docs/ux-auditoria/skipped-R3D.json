@@ -1,0 +1,26 @@
+[
+ {
+  "id": "R3-D7b",
+  "area": "Linguagem",
+  "titulo": "Agentes & Equipes: papéis 'Planner / Builder / Reviewer' nos cartões",
+  "motivo": "Fora do meu escopo de arquivos: o cartão é desenhado em 33-switcher-projetos.js (renderAg, `<span class=\"tc\">${esc(a.role||'')}</span>`). Sugestão: mapa { planner:'Planejador', builder:'Construtor', reviewer:'Revisor' } (case-insensitive) no texto, com o valor original no title do cartão."
+ },
+ {
+  "id": "R3-D1b",
+  "area": "Chats",
+  "titulo": "Nova issue (14-issues) e chat da tarefa (20) — o que falta pra paridade total do composer",
+  "motivo": "Nova issue já fica igual SEM mexer no 14: chatComposer() normaliza o .plinput dela em runtime (📎 embaixo à esquerda, ■ parar/enviar à direita, dica com .kbd). Pra ficar limpo na fonte, o 14 pode trocar a string do .plinput (linha ~714) por chatComposerHtml({ cls:'plinput', input:'trkNIInput', attach:'trkNIAttach', stop:n.busy?'trkNIStop':null, send:'trkNISend', sendHtml:n.busy?'redirecionar':'enviar', placeholder:…, disabled:n.running }) — note que chatComposerHtml já cria o ■ parar escondido (chatComposer mostra quando busy). O chat da tarefa (20) é a referência e já bate; opcional: trocar .fwinput/.fwinrow/.fwhint por chatComposerHtml com extras = checkbox 'vira requisito' e right = botões 'parar e enviar'/'na fila' — hoje a diferença é só de classe (visual idêntico)."
+ },
+ {
+  "id": "R3-D2b",
+  "area": "Layout",
+  "titulo": "Barra do topo do Épico e rodapé 'salvo nas configurações' de Agentes",
+  "motivo": "O título grande do Épico (.enpage, 46) já está na coluna única; a barra fina do topo (fwhead 'Checkout novo', x=265) é do padrão de barra de ferramenta do workspace (20/46), fora do meu escopo. O rodapé fixo de Agentes (.mfoot) segue largura total, igual às outras barras de ação."
+ },
+ {
+  "id": "R3-D6b",
+  "area": "Linguagem",
+  "titulo": "Montar conversando: valor 'ask' / 'claude' nos campos autonomia e IA",
+  "motivo": "São os valores crus que a IA devolve e que vão pro TASK.yaml; traduzir exige mapear entrada/saída no plApplyPatch e no plCreate (ask/review/auto). Fica pra uma rodada com teste do fluxo de criação real."
+ }
+]

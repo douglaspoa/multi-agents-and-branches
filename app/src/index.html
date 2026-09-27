@@ -471,7 +471,7 @@
     <div class="mhead"><b>Agentes & Equipes</b><button class="x" id="agClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div class="seclbl2">Agentes <span style="flex:1"></span><button class="btn sm" id="agImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="btn sm" id="agAdd">+ novo agente</button></div>
-      <div class="imhint">Cada agente tem um papel e uma persona (instrução). Você pode <b>importar .md</b> no formato de subagente do Claude Code — frontmatter (<code>name</code>, <code>role</code>, <code>color</code>, <code>model</code>) + o corpo vira a persona.</div>
+      <div class="imhint">Cada agente tem um papel e uma persona (as instruções dele). Dá pra <b>importar um .md</b> de subagente do Claude Code: o cabeçalho do arquivo (entre as linhas <code>---</code>) traz nome, papel, cor e modelo, e o resto do texto vira a persona.</div>
       <div id="agList"></div>
       <div class="seclbl2" style="margin-top:20px">Workflows (equipes) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ novo workflow</button></div>
       <div class="imhint">Um workflow é a sequência de agentes que toca a tarefa. Arraste a ordem com ◀ ▶.</div>

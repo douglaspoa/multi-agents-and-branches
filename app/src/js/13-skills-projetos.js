@@ -28,7 +28,7 @@ function skAddPanelHtml(){
       <label>Instruções</label><textarea class="in" id="skNewBody" rows="5" placeholder="o passo a passo / regras da skill (markdown)"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skDoCreate">salvar na biblioteca</button><button class="btn" id="skAddCancel">cancelar</button></div>`;
   } else if(skAddMode==='importar'){
-    b=`<label>Cole o conteúdo do SKILL.md <span class="dim" style="font-weight:400">(o nome sai do frontmatter)</span></label>
+    b=`<label>Cole o conteúdo do SKILL.md <span class="dim" style="font-weight:400">(o nome vem do cabeçalho do arquivo, o bloco entre as linhas ---)</span></label>
       <textarea class="in mono" id="skImpMd" rows="8" style="font-size:11.5px" placeholder="---\nname: minha-skill\ndescription: quando usar…\n---\n\n# Instruções\n…"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skDoImport">importar</button><button class="btn" id="skAddCancel">cancelar</button></div>`;
   } else {
@@ -148,10 +148,17 @@ function projetosRender(ov){
   const head=`<div class="as-head"><div><h1 class="as-h1">Projetos</h1><p class="as-sub">Tudo aparece junto no quadro — aqui você gerencia cada repositório.</p></div><div class="as-actions"><span class="as-note">${n} projeto${n===1?'':'s'}</span><button class="as-btn" id="projAddBtn2">abrir existente…</button><button class="as-btn primary" id="projNewBtn">+ novo projeto</button></div></div>`;
   const cards=(ov||[]).map(p=>{
     const col=projColor(p.path);
-    const run=p.active?`<b style="color:var(--accent)">${p.active} rodando</b>`:'<span class="dim">nada rodando</span>';
+    // MESMA contagem e vocabulário do quadro (flowCounts em 22-quadro-fluxo); sem o cache de tarefas, cai no resumo do backend
+    const mine=p.path===state.repo ? (state.tasks||[]) : (typeof allTasksCache!=='undefined'?allTasksCache:[]).filter(t=>t.repo===p.path).map(t=>typeof normAgg==='function'?normAgg(t):t);
+    const fc=(typeof flowCounts==='function' && mine.length) ? flowCounts(typeof flowLiveTasks==='function'?flowLiveTasks(mine):mine) : null;
+    const nAnd=fc?fc.andamento:(p.active||0), nRev=fc?fc.prontas:(p.review||0), nAsk=fc?fc.aguardando:0;
+    const bits=[];
+    if(nAsk) bits.push(`<b style="color:var(--st-ask,var(--warn))">${nAsk} aguardando você</b>`);
+    if(nRev) bits.push(`<b style="color:var(--warn)">${nRev} em revisão</b>`);
+    bits.push(nAnd?`<b style="color:var(--accent)">${nAnd} em andamento</b>`:'<span class="dim">nada em andamento</span>');
     return `<div class="projcard2 as-card">
       <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="as-badge" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)">aberto</span>':''}</div>
-      <div class="pc2meta">${p.review?`<b style="color:var(--warn)">${p.review} em review</b> · `:''}${run}</div>
+      <div class="pc2meta">${bits.join(' · ')}</div>
       <div class="pc2path mono">${esc(p.path)}</div>
       <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}">Finder</button><button class="btn sm" data-pjrm="${escA(p.path)}">remover</button></div>
     </div>`;

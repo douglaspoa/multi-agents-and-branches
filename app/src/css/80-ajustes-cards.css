@@ -155,7 +155,7 @@
 .plraw pre{margin:8px 0 2px;white-space:pre-wrap;word-break:break-word;font-size:10.5px;line-height:1.5;color:var(--text-2);max-height:260px;overflow:auto;-webkit-user-select:text;user-select:text}
 /* a ação principal do épico ("✓ Aprovar e criar · N tarefas") fica SEMPRE à vista: rodapé grudado no fim da conversa
    (antes ficava escondido atrás das sugestões e do fim do card) */
-.plthread .plplan .ppfoot{position:sticky;bottom:0;z-index:3;margin:11px -12px -11px;padding:10px 12px;background:var(--surface-2);border-top:1px solid var(--border);border-radius:0 0 11px 11px;box-shadow:0 -10px 14px -10px rgba(0,0,0,.55)}
+.plthread .plplan .ppfoot{position:sticky;bottom:-8px;z-index:3;margin:11px -12px -11px;padding:10px 12px;background:var(--surface-2);border-top:1px solid var(--border);border-radius:0 0 11px 11px;box-shadow:0 -10px 14px -10px rgba(0,0,0,.55)}
 .plchips{padding-top:6px}
 
 /* ===== Sem projeto aberto (R3-D #20): bloco no centro da área, sem a coluna vazia da direita ===== */
@@ -166,3 +166,5 @@
 /* "abrir" do caminho colado parecia um campo de texto: vira botão de verdade */
 #connectBtn{justify-content:center;text-align:center;font-weight:600;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
 #connectBtn:hover{background:color-mix(in srgb,var(--accent) 18%,transparent)}
+/* Preencher eu mesmo (formulário): mesma coluna das outras abas (antes: 1020px centralizado → título em outro x) */
+#ntOverlay.astab .mhead,#ntOverlay.astab .mbody,#ntOverlay.astab .mfoot{padding-left:max(var(--page-pad),calc((100% - var(--page-max))/2 + var(--page-pad)))!important;padding-right:max(var(--page-pad),calc((100% - var(--page-max))/2 + var(--page-pad)))!important}

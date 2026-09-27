@@ -191,7 +191,7 @@ function orqRenderBrief(body){
   body.__html=null; // o brief troca o conteúdo: a guarda do plano não pode achar que ainda está lá
   body.innerHTML=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${orqStatusPill()}</div>
   <div class="orq-brief"><div class="orq-briefin">
-    <div class="ndeyebrow" style="color:var(--accent)">orquestrador</div>
+    <div class="ndeyebrow" style="color:var(--accent)">dividir entre vários agentes</div>
     <h1 class="ndh1" style="margin-top:10px">Descreva o problema inteiro</h1>
     <p class="ndsub">Não precisa quebrar em tarefas. Um agente orquestrador lê isso, propõe as fases e abre um subagente para cada uma. Você aprova o plano antes de qualquer coisa rodar.</p>
     ${orq.busy?cosmosHtml('o orquestrador está lendo o repositório e montando o plano…'):`
@@ -272,8 +272,8 @@ function orqRenderPlan(body){
       : `<button class="orq-open" data-orqtask="${escA(t.id)}">abrir tarefa ↗</button>`;
     const chip = st.key==='asking' ? '<span class="orq-stchip asking">responda</span>' : st.key==='review' ? '<span class="orq-stchip review">revise</span>' : st.key==='running' ? '<span class="orq-stchip running"><i class="spin" style="--pc:#f0b449;background:#f0b449"></i>rodando</span>' : st.key==='done' ? '<span class="orq-stchip done">✓</span>' : st.key==='error' ? '<span class="orq-stchip error">erro</span>' : '';
     return `<div class="orq-node ${st.key}${orq.sel===ph.key?' sel':''}" data-orqsel="${escA(ph.key)}" style="left:${q.x}px;top:${q.y}px;width:${q.w}px;height:${q.h}px;--c:${orqColor(ph.kind)};--st:${st.color}">
-      <div class="orq-nh"><b class="orq-badge">${orqBadge(ph.kind)}</b><span class="orq-nn">${esc(ph.name)}</span>${chip||`<i class="orq-dot" style="background:${st.color}"></i>`}</div>
-      <div class="orq-nm mono"><span style="color:${st.color}">${esc(st.label)}</span><span>${done}/${tot} objetivos</span></div>
+      <div class="orq-nh"><span class="orq-nn" title="${escA(ph.name)}">${esc(ph.name)}</span>${chip||`<i class="orq-dot" style="background:${st.color}"></i>`}</div>
+      <div class="orq-nm mono"><span class="orq-nmk"><b class="orq-badge sm">${orqBadge(ph.kind)}</b><span style="color:${st.color}">${esc(st.label)}</span></span><span>${done}/${tot} objetivos</span></div>
       <div class="orq-bar"><i style="width:${tot?Math.round(done/tot*100):0}%;background:${st.key==='done'?ORQ_ST.done:st.color}"></i></div>
       <div class="orq-term mono">${sub}</div>
       ${action}
