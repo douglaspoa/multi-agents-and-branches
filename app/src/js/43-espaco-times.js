@@ -50,14 +50,15 @@ function tsCardHtml(t, me, isAdmin){
   const obj=((t.spec||{}).objective||'').replace(/\s+/g,' ').slice(0,160);
   const reqs=((t.spec||{}).requirements||[]).filter(Boolean);
   const teamTag=(typeof tsOrgScope==='function'&&tsOrgScope())?`<span class="tsteamtag" title="time">${esc(tsTeamName(t.team_id)||'?')}</span>`:'';
-  return `<div class="tscard dcard-like" data-ct="${escA(t.id)}">
+  const epSt=(t.epic_id&&typeof epColor==='function')?` style="--epc:${epColor(t.epic_id)}"`:''; // F2: cor estável do épico
+  return `<div class="tscard dcard-like${epSt?' has-ep':''}" data-ct="${escA(t.id)}"${epSt}>
     <div class="tt">${esc(t.title)}${teamTag}</div>
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
     ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?'✓':st==='blk'?'!':'○'}</i>${esc(r)}</span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
-    <div class="meta">${ep?`<span class="tsepc">◆ ${esc(ep)}</span>`:''}${t.pr_url?`<button class="mono" data-lk="${escA(t.pr_url)}" style="color:var(--accent);background:none;border:0;cursor:pointer;font-size:10px;padding:0">PR ↗</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" style="color:var(--text-2);background:none;border:0;cursor:pointer;font-size:10px;padding:0">${esc(c[1])} ↗</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
+    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">◆ ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="mono" data-lk="${escA(t.pr_url)}" style="color:var(--accent);background:none;border:0;cursor:pointer;font-size:10px;padding:0">PR ↗</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" style="color:var(--text-2);background:none;border:0;cursor:pointer;font-size:10px;padding:0">${esc(c[1])} ↗</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
-      ${isErr?`<span class="tstag" style="color:var(--crit,#e5645c);border:1px solid currentColor">${esc(t.status)}</span>`:running?`<span class="tstag run">${esc(CT_ST_PT[t.status]||t.status)}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando os pré-requisitos forem mergeados">⏳ aguardando</span>`:''}
+      ${isErr?`<span class="tstag" style="color:var(--crit,#e5645c);border:1px solid currentColor">${esc(stLabel(t.status))}</span>`:running?`<span class="tstag run">${esc(stLabel(t.status))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
       ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" style="padding:3px 9px;font-size:10.5px">assumir ▸</button>`:`<button class="btn sm" disabled title="abra ${escA(proj.repo_remote||'o projeto certo')}" style="padding:3px 9px;font-size:10.5px">outro repo</button>`):''}
       ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:10.5px">✕</button>`:''}
     </div></div>`;
@@ -113,7 +114,7 @@ function renderTeamBoard(){
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   const epicChips=(teamEpics.length?teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(B.done).length+ts.filter(B.review).length;
     const dw=Array.isArray((e.spec||{}).doneWhen)?e.spec.doneWhen:[]; const dwOk=dw.filter(d=>d&&d.checkedBy).length;
-    return `<span class="fchipgrp"><button class="fchip${epSel===e.id?' on':''}" data-epsel="${escA(e.id)}" title="filtrar o quadro por este épico">◆ ${esc(e.name)}<span class="n">${done}/${ts.length}</span>${dw.length?`<span class="n" title="pronto quando">☑ ${dwOk}/${dw.length}</span>`:''}</button><button class="fchip fchip-open" data-epopen="${escA(e.id)}" title="abrir a página do épico">⤢</button></span>`; }).join(''):'')+
+    return `<span class="fchipgrp"><button class="fchip${epSel===e.id?' on':''}" data-epsel="${escA(e.id)}" title="filtrar o quadro por este épico" style="--epc:${typeof epColor==='function'?epColor(e.id):'var(--accent)'}"><span class="pfd" style="background:var(--epc)"></span>◆ ${esc(e.name)}<span class="n" title="${done} de ${ts.length} tarefas entregues ou em revisão">${done}/${ts.length}</span>${dw.length?`<span class="n" title="pronto quando">☑ ${dwOk}/${dw.length}</span>`:''}</button><button class="fchip fchip-open" data-epopen="${escA(e.id)}" title="abrir a página do épico">⤢</button></span>`; }).join(''):'')+
     `<button class="fchip" id="tbEpicAdd">+ épico</button>`;
   // ---------- main por vista ----------
   let main='';
@@ -126,7 +127,8 @@ function renderTeamBoard(){
     const doing=all.filter(t=>TS_DOING.includes(t.status));
     const asking=all.filter(t=>t.assignee===me&&false); // ✋ real vem do desktop de cada dev
     const custo=inP.reduce((s,t)=>s+(+t.cost_usd||0),0);
-    const eps=teamEpics.length;
+    const activeEps=teamEpics.filter(e=>e.status!=='done'&&e.status!=='archived'); // B2: concluído não é "ativo"
+    const eps=activeEps.length;
     // entregas por dia (últimos 7)
     const days=[...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); d.setHours(0,0,0,0); return d; });
     const perDay=days.map(d=>all.filter(t=>(B.done(t)||B.review(t)) && new Date(t.updated_at)>=d && new Date(t.updated_at)<new Date(+d+86400e3)).length);
@@ -136,13 +138,13 @@ function renderTeamBoard(){
     <div class="tskpis">
       <div class="tskpi"><div class="v">${done}</div><div class="l">entregas</div><div class="d">${inP.length} tarefas no período</div></div>
       <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">rodando agora</div><div class="d">${members.filter(u=>tsRunningOf(u).length).length} devs ativos</div></div>
-      <div class="tskpi"><div class="v" style="color:#c678dd">${eps}</div><div class="l">épicos ativos</div><div class="d">${teamEpics.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(x=>B.done(x)||B.review(x)).length;return esc(e.name.split(' ')[0])+' '+(ts.length?Math.round(dn/ts.length*100):0)+'%';}).join(' · ')||'—'}</div></div>
+      <div class="tskpi"><div class="v" style="color:#c678dd">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(x=>B.done(x)||B.review(x)).length;return esc(e.name.split(' ')[0])+' '+(ts.length?Math.round(dn/ts.length*100):0)+'%';}).join(' · ')||'—'}</div></div>
       <div class="tskpi"><div class="v" style="color:${prs.length?'var(--warn)':'var(--text)'}">${prs.length}</div><div class="l">PRs pra revisar</div><div class="d">${prs.length?'mais antigo '+agoTx(prs[prs.length-1].updated_at):'em dia ✓'}</div></div>
       <div class="tskpi"><div class="v">${fmtUsd(custo)}</div><div class="l">custo no período</div><div class="d">${inP.length?fmtUsd(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
     </div>
     <div class="tscols"><div>
       <div class="tspanel"><div class="tsph">Agora no time <span style="flex:1"></span><span style="color:var(--accent);font-size:10px">● ao vivo</span></div>
-        ${doing.length?doing.slice(0,6).map(t=>{ const who=t.assignee||t.created_by; return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(CT_ST_PT[t.status]||t.status)}</span></div>`; }).join(''):'<div class="dim" style="font-size:12px">nenhum agente rodando agora</div>'}
+        ${doing.length?doing.slice(0,6).map(t=>{ const who=t.assignee||t.created_by; return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(stLabel(t.status))}</span></div>`; }).join(''):'<div class="dim" style="font-size:12px">nenhum agente rodando agora</div>'}
       </div>
       <div class="tspanel"><div class="tsph">PRs esperando gente</div>
         ${prs.length?prs.slice(0,5).map(t=>`<div class="tslive"><span class="mono" style="color:var(--accent);font-size:11px">${esc((t.pr_url.match(/\/pull\/(\d+)/)||[])[1]?'#'+(t.pr_url.match(/\/pull\/(\d+)/)||[])[1]:'PR')}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer">${esc(t.title)}</span>${tsAv(t.assignee||t.created_by,false)}${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}" style="padding:3px 8px;font-size:10.5px">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}" style="padding:3px 8px;font-size:10.5px">revisar com agente</button></div>`).join(''):'<div class="dim" style="font-size:12px">nenhum PR aberto — em dia ✓</div>'}
@@ -156,13 +158,14 @@ function renderTeamBoard(){
       </div>
     </div></div>`;
   } else if(tmView==='board'){
-    const cols=[['Backlog','var(--muted)',vis.filter(B.backlog)],['Em andamento','var(--accent)',vis.filter(B.doing)],['Review','var(--info,#5b9dff)',vis.filter(B.review)],['Entregue','#c678dd',vis.filter(B.done).slice(0,8)]];
+    // M1: mesmos nomes da Central/Kanban (STATUS_META) · M7: conta TUDO e só depois corta a lista em 8 (+N)
+    const cols=[['Na fila',stColor('backlog'),vis.filter(B.backlog),0],['Em andamento',stColor('running'),vis.filter(B.doing),0],['Prontas pra revisar',stColor('review'),vis.filter(B.review),0],['Concluídas',stColor('done'),vis.filter(B.done),8]];
     main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>
-    <div class="tsboard">${cols.map(([l,c,ts])=>`<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${ts.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:11px;padding:6px">vazio</div>'}</div>`).join('')}</div>`;
+    <div class="tsboard">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:11px;padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:11px;padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
   } else if(tmView==='prs'){
     main=`<h1>PRs pra revisar</h1><div class="tssub">todo cartão do time com PR aberto</div>`+
       (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
-        return `<div class="tspanel" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--accent)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:13px">${esc(t.title)}</b><div class="dim" style="font-size:11px">de ${esc(tmName(t.assignee||t.created_by))} · ${esc(CT_ST_PT[t.status]||t.status)} · ${agoTx(t.updated_at)}</div></div>${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}">revisar com agente</button></div>`; }).join('')
+        return `<div class="tspanel" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--accent)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:13px">${esc(t.title)}</b><div class="dim" style="font-size:11px">de ${esc(tmName(t.assignee||t.created_by))} · ${esc(stLabel(t.status))} · ${agoTx(t.updated_at)}</div></div>${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}">revisar com agente</button></div>`; }).join('')
       :'<div class="emptyrepo" style="display:flex"><div class="big">Em dia ✓</div><div>nenhum PR do time esperando review.</div></div>');
   } else if(tmView==='people'){
     const inP=tsPeriodTasks();

@@ -1,0 +1,233 @@
+[
+  {
+    "id": "F1",
+    "area": "Épicos e quadro",
+    "titulo": "Fila dos épicos agrupada por épico, por onda, depois do que é seu",
+    "antes": "Ao abrir épicos, a seção \"Na fila dos épicos\" mostrava as tarefas de TODOS os épicos numa lista única, ordenada por data de criação; o nome do épico era só um \"◆ nome\" pequeno na linha de meta. A seção ficava no topo da Central, acima até de \"Aguardando você\".",
+    "depois": "Um bloco por épico com cabeçalho \"◆ nome · x/y entregues · onda N · N na fila · abrir ⤢\" (⤢ abre a página do épico), tarefas ordenadas por onda, cada épico recolhível (estado salvo em epq:col:<id>). A seção entra DEPOIS de \"Aguardando você\" e \"Em andamento\" e nasce recolhida quando há algo esperando você.",
+    "motivo": "Queixa direta do dono: \"as issues ficam todas juntas, não dá pra saber o que é de qual épico\". Evidência: 46:263 buscava o backlog de todos os épicos por created_at e 46:297-309 pintava lista plana; 22:538 inseria antes de tudo, empurrando o que exige ação humana pra baixo.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/js/22-quadro-fluxo.js", "app/src/css/60-grafo-times-nova-demanda.css", "app/src/css/80-ajustes-cards.css"],
+    "como_ver": "teamEpics=[{id:'E1',name:'Checkout novo',status:'in-progress'}]; epQueue={rows:[{id:'c1',epic_id:'E1',title:'API de pagamento',status:'backlog',created_by:cloudUserId(),spec:{wave:1}},{id:'c2',epic_id:'E1',title:'Tela de revisão',status:'backlog',spec:{wave:2,after:['d1'],autoStart:true}},{id:'c3',epic_id:'E9',title:'Relatório',status:'backlog',spec:{wave:1}}],stOf:{d1:'running'},flagOf:{},titleOf:{d1:'Modelo de dados'},epicOf:{E9:'Relatórios'},projOf:{},progOf:{E1:{n:5,ok:2,wave:2}},here:''}; flowScope='exec'; lastSig=''; renderFlow();",
+    "estado_mock": "epQueue com cartões backlog de 2+ épicos (epic_id diferentes, spec.wave 1 e 2, um com spec.after pendente), progOf por épico; opcional uma tarefa local plan-review pra ver a seção nascer recolhida."
+  },
+  {
+    "id": "F2",
+    "area": "Épicos e quadro",
+    "titulo": "Cor estável por épico (selo e borda)",
+    "antes": "Todo selo de épico (.tsepc) era do mesmo roxo (#c678dd), em todos os épicos — impossível distinguir dois épicos pela cor.",
+    "depois": "epColor(epicId) dá uma cor estável por épico (mesmo hash de projColor, com prefixo). Ela pinta o selo ◆, a borda esquerda do bloco do épico na fila, do cartão da Central (dcard.has-ep), do cartão do Quadro do time (tscard.has-ep), o ponto dos chips de épico e o grupo de issues filhas no painel de Issues.",
+    "motivo": "css/60:98 fixava a cor. Cor por épico permite escanear a Central e o quadro do time e saber na hora de qual épico é cada tarefa.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/js/27-entregas.js", "app/src/js/43-espaco-times.js", "app/src/js/14-issues-projeto.js", "app/src/css/60-grafo-times-nova-demanda.css", "app/src/css/80-ajustes-cards.css", "app/src/css/82-issues.css"],
+    "como_ver": "[epColor('E1'), epColor('E2'), epColor('E1')]  // 1ª e 3ª iguais; depois o mock do F1 + renderFlow()",
+    "estado_mock": "Dois ou mais épicos (ids diferentes) com tarefas na fila ou tarefas locais com t.epic.epicId."
+  },
+  {
+    "id": "F3",
+    "area": "Épicos e quadro",
+    "titulo": "Tarefa iniciada mantém o selo \"◆ nome · onda N\"",
+    "antes": "Quando uma tarefa do épico começava a rodar ela virava um cartão comum na Central — sem nenhuma indicação de que era de um épico nem de qual onda.",
+    "depois": "flowDemandCard (lista) e flowTaskRow ganham o selo \"◆ nome · onda N\" (epTaskBadge) quando t.epic.epicId existe; clicar no selo abre a página do épico sem abrir a tarefa. Os nomes vêm de teamEpics / epQueue.epicOf — o tick da fila agora também busca os nomes dos épicos das tarefas LOCAIS.",
+    "motivo": "O snapshot já expõe t.epic.epicId/wave (lib.rs:1791) mas o front ignorava. Sem isso o usuário perde o fio do épico justamente quando ele está andando.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/js/27-entregas.js", "app/src/js/22-quadro-fluxo.js", "app/src/css/60-grafo-times-nova-demanda.css"],
+    "como_ver": "teamEpics=[{id:'E1',name:'Checkout novo',status:'in-progress'}]; state.tasks.push({id:'tEp',title:'API de pagamento',status:'running',agent:'dev',created_at:Date.now(),createdAt:Date.now(),epic:{epicId:'E1',wave:2}}); flowScope='exec'; lastSig=''; renderFlow();",
+    "estado_mock": "Uma tarefa local rodando com epic:{epicId, wave} e o épico correspondente em teamEpics (ou em epQueue.epicOf)."
+  },
+  {
+    "id": "F4",
+    "area": "Épicos e quadro",
+    "titulo": "Filtro por épico na Central",
+    "antes": "Não havia como ver só as tarefas de um épico na Central; os filtros eram só projeto/status/tipo/agente/período.",
+    "depois": "Linha de chips \"Todos os épicos · ◆ épico A · ◆ épico B…\" (com a cor de cada épico) aparece quando há tarefa de épico; o filtro vale para as tarefas locais (t.epic.epicId) e para a fila dos épicos, e fica salvo (flowEpic) como o filtro de projeto.",
+    "motivo": "Pedido direto da auditoria; com vários épicos rodando em paralelo a Central vira uma mistura.",
+    "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/js/46-epico-time.js"],
+    "como_ver": "mock do F1 + F3; depois flowEpic='E1'; lastSig=''; renderFlow();",
+    "estado_mock": "Tarefas locais e/ou cartões da fila de 2 épicos diferentes."
+  },
+  {
+    "id": "F5",
+    "area": "Issues",
+    "titulo": "Issues filhas agrupadas sob o épico no painel de Issues",
+    "antes": "O quadro de Issues ignorava a relação pai/filha: as filhas publicadas de um épico apareciam soltas e a issue-mãe era mais um cartão qualquer.",
+    "depois": "trkNorm lê o pai (campo parent do conector ou a linha \"Épico: CODE\" que o próprio app escreve no corpo). Em cada coluna, as filhas de um épico ficam juntas sob o cabeçalho \"◆ CODE · título do pai · n\" (clicar abre o pai); o pai não aparece de novo como cartão solto; cada filha tem borda e selo ◆ CODE na cor do épico; chips \"◆ CODE · título\" filtram o épico e suas filhas.",
+    "motivo": "14:108-117 não tinha pai; 14:239 grava 'Épico: '+parent.code em toda filha. Sem agrupar, o quadro de issues repetia o problema do F1.",
+    "arquivos": ["app/src/js/14-issues-projeto.js", "app/src/css/82-issues.css"],
+    "como_ver": "trkIssues=[{code:'FND-1',title:'Checkout novo',status:trk.connector.statuses[0].id,description:'',updatedAt:''},{code:'FND-2',epicCode:'FND-1',title:'API',status:trk.connector.statuses[0].id,description:'Épico: FND-1',updatedAt:''},{code:'FND-3',epicCode:'FND-1',title:'Tela',status:trk.connector.statuses[1].id,description:'Épico: FND-1',updatedAt:''}]; trkView='board'; issRender();",
+    "estado_mock": "Conector de issues configurado (trk.connector com statuses) e issues cujo corpo contém 'Épico: CODE'."
+  },
+  {
+    "id": "A1",
+    "area": "Página do épico",
+    "titulo": "Status com a cor e o ícone certos na página do épico",
+    "antes": "Tarefa em revisão/entregue aparecia com o ícone vermelho \"!\" (classe de erro), e erro/conflito aparecia neutro \"·\" — o oposto do que significam.",
+    "depois": "Ícones e cores vêm do STATUS_META: concluída = ✓ verde; pronta pra revisar = ◆ na cor de revisão; erro/conflito = ! crítico; o resto neutro com o ícone do status. O texto usa stLabel.",
+    "motivo": "46:66/73 mapeava isRev → 'blk' e '!'. Vermelho em algo que está pronto assusta à toa e esconde o que está quebrado de verdade.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/css/60-grafo-times-nova-demanda.css"],
+    "como_ver": "epCache.E1={loaded:true,tasks:[{id:'a',title:'Modelo',status:'merged',spec:{wave:1}},{id:'b',title:'API',status:'review',spec:{wave:1}},{id:'c',title:'Tela',status:'backlog',spec:{wave:2,after:['b']}},{id:'d',title:'Bug',status:'error',spec:{wave:2}}]}; openEpicPage({id:'E1',name:'Checkout novo',status:'in-progress',spec:{}});",
+    "estado_mock": "Épico com tarefas em merged, review, backlog com dependência e error (epCache.<id>.tasks). No preview sem nuvem, epicPageLoad falha em silêncio e mantém o cache."
+  },
+  {
+    "id": "A4",
+    "area": "Linguagem",
+    "titulo": "\"Aguardando\" só quando depende de você; tarefa esperando outra é \"na espera de …\"",
+    "antes": "\"Aguardando você\" (humano precisa agir) e \"⏳ aguardando X\" (tarefa esperando outra tarefa) usavam a mesma palavra para coisas opostas.",
+    "depois": "Esperar outra tarefa agora é \"na espera de <tarefa>\" (fila, página do épico) ou \"na espera da onda anterior\" (cartão do time, ctStLabel). \"Aguardando você\" ficou exclusivo da seção que exige ação humana.",
+    "motivo": "Ambiguidade apontada na auditoria: o vibe coder lê \"aguardando\" e acha que precisa fazer algo.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/js/43-espaco-times.js", "app/src/js/42-nuvem-sync-mobile.js"],
+    "como_ver": "mock do F1 (cartão c2 com spec.after pendente) + renderFlow(); ou ctStLabel({status:'backlog',spec:{autoStart:true,after:['x']}})",
+    "estado_mock": "Cartão backlog com spec.after apontando para tarefa não concluída."
+  },
+  {
+    "id": "A5",
+    "area": "Central de execuções",
+    "titulo": "Arrastar um cartão não desmonta mais as seções + \"restaurar ordem\"",
+    "antes": "Um único arrasto gravava sortOrder e a Central virava, para sempre, uma lista plana sem as seções (Aguardando você, Em andamento…).",
+    "depois": "A ordem manual vale DENTRO de cada seção (tarefa nova, sem sortOrder, fica no topo da seção). Um botão \"↺ restaurar ordem\" aparece quando há ordem manual e volta pra \"mais recentes primeiro\" (flowManual=0; arrastar de novo liga).",
+    "motivo": "22:504/524: hasManual=true pulava o agrupamento por FLOW_SECS. Perder as seções esconde o que está esperando o usuário.",
+    "arquivos": ["app/src/js/22-quadro-fluxo.js"],
+    "como_ver": "state.tasks.forEach((t,i)=>t.sortOrder=i); lsSet('flowManual','1'); lastSig=''; renderFlow();  // seções continuam; o botão ↺ aparece nos filtros",
+    "estado_mock": "Tarefas locais com sortOrder preenchido em pelo menos uma."
+  },
+  {
+    "id": "M1",
+    "area": "Linguagem",
+    "titulo": "Um status, um nome em toda a app; fechar = \"concluir\"",
+    "antes": "O mesmo status tinha nomes diferentes: chips Rascunho/Rodando/Review/Merged/Erro; kanban Rodando/Precisa de você/Em review/Mergeada/Encerradas; quadro do time Backlog/Em andamento/Review/Entregue; menus \"Pronta pra review\", \"Mergeado\", \"Finalizado\", \"concluir · arquiva\".",
+    "depois": "Kanban: Rascunhos/Em andamento/Aguardando você/Prontas pra revisar/Mergeadas/Concluídas. Time: Na fila/Em andamento/Prontas pra revisar/Concluídas (cores do STATUS_META). Menus: \"Em andamento\", \"Pronta pra revisar\", \"Mergeada\", \"Concluir · sai da fila\", \"✓ concluir · sai da fila\". CT_ST_PT e ctStColor (42) agora são espelho de stLabel/stColor.",
+    "motivo": "Nomes divergentes obrigam o usuário a traduzir entre telas; o STATUS_META (00-util) é a fonte única.",
+    "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/js/23-kanban-artefatos-editor.js", "app/src/js/43-espaco-times.js", "app/src/js/42-nuvem-sync-mobile.js", "app/src/js/46-epico-time.js"],
+    "como_ver": "setView('kanban'); // colunas; depois openStatusMenu(state.tasks[0].id, document.body) e openTaskMenu(state.tasks[0].id, document.body)",
+    "estado_mock": "Qualquer projeto com tarefas locais; para o Time, teamTasks com cartões em backlog/running/review/merged."
+  },
+  {
+    "id": "M2",
+    "area": "Central de execuções",
+    "titulo": "Chips de status = as seções da lista",
+    "antes": "Os chips (Rascunho/Rodando/Review/Merged/Erro, via STATUS_GROUP) não batiam com as seções da lista (flowBucket); 'delivered' nem tinha chip.",
+    "depois": "Chips derivados de FLOW_SECS/flowBucket, com o mesmo nome e cor da seção (Aguardando você, Em andamento, Prontas pra revisar, PR aberto, Rascunhos) + \"Na fila dos épicos\" quando existe. STATUS_GROUP/taskGroup removidos (só eram usados no 22).",
+    "motivo": "22:77 vs 22:250: clicar em \"Review\" mostrava um conjunto diferente da seção \"Prontas pra revisar\".",
+    "arquivos": ["app/src/js/22-quadro-fluxo.js"],
+    "como_ver": "flowScope='exec'; lastSig=''; renderFlow(); // chips no topo; clicar filtra a mesma seção",
+    "estado_mock": "Tarefas locais em plan-review, running, review e draft."
+  },
+  {
+    "id": "M3",
+    "area": "Épicos e quadro",
+    "titulo": "Fila dos épicos respeita busca e filtros",
+    "antes": "A fila dos épicos ignorava os filtros de status/tipo/agente e sumia inteira quando havia texto na busca.",
+    "depois": "epQueueList aplica busca (título + nome do épico), status (só aparece em \"Todas\" ou no chip \"Na fila dos épicos\"), tipo, agente, épico e projeto.",
+    "motivo": "22:538 só chamava epBoardHtml sem busca; filtros não chegavam lá dentro.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/js/22-quadro-fluxo.js"],
+    "como_ver": "mock do F1; flowQuery='relat'; lastSig=''; renderFlow();  // só o cartão 'Relatório' fica",
+    "estado_mock": "Mock do F1."
+  },
+  {
+    "id": "M4",
+    "area": "Épicos e quadro",
+    "titulo": "Remover cartão do time só pra quem pode, dentro do ⋯",
+    "antes": "Um ✕ que APAGA o cartão da nuvem aparecia em todo cartão da fila, de qualquer pessoa, colado no ▶ iniciar.",
+    "depois": "O ✕ saiu. Um ⋯ (só para quem criou o cartão ou owner/admin, mesma regra do 43:62) abre \"abrir o cartão\" e \"remover do backlog do time…\", que confirma com askYes.",
+    "motivo": "46:307: ação destrutiva ao lado da primária e sem guarda de permissão.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/css/60-grafo-times-nova-demanda.css"],
+    "como_ver": "mock do F1 (c1 é seu, c2/c3 de outra pessoa) + renderFlow(); só c1 tem ⋯",
+    "estado_mock": "Cartões da fila com created_by igual e diferente de cloudUserId()."
+  },
+  {
+    "id": "M5",
+    "area": "Épicos e quadro",
+    "titulo": "\"▶ iniciar\" deixa de ser primário quando há dependência pendente",
+    "antes": "O botão verde \"▶ iniciar\" aparecia igual mesmo quando a tarefa ainda dependia de outra não concluída.",
+    "depois": "Com dependência pendente o botão vira secundário \"iniciar mesmo assim\" (o askYes de epCardStart continua); sem dependência segue primário \"▶ iniciar\". Vale na fila e na página do épico.",
+    "motivo": "Induzia a começar fora de ordem e gerar conflito entre ondas.",
+    "arquivos": ["app/src/js/46-epico-time.js"],
+    "como_ver": "mock do F1; o cartão c2 mostra 'iniciar mesmo assim'",
+    "estado_mock": "Cartão com spec.after pendente."
+  },
+  {
+    "id": "M6",
+    "area": "Issues",
+    "titulo": "Status da tarefa vinculada em português no cartão da issue",
+    "antes": "O cartão da issue mostrava \"⎇ running\"/\"⎇ review\" — status cru em inglês.",
+    "depois": "Usa stLabel: \"⎇ rodando\", \"⎇ pronta pra revisar\".",
+    "motivo": "14:475 (agora trkCardHtml) imprimia tasks[0].status direto.",
+    "arquivos": ["app/src/js/14-issues-projeto.js"],
+    "como_ver": "lsSet('trk:links', JSON.stringify({[state.tasks[0].id]:'FND-2'})); trkView='board'; issRender();",
+    "estado_mock": "Issue no painel vinculada a uma tarefa local (trk:links ou código na branch)."
+  },
+  {
+    "id": "M7",
+    "area": "Time",
+    "titulo": "Coluna \"Concluídas\" do quadro do time conta tudo",
+    "antes": "A coluna \"Entregue\" cortava a lista em 8 ANTES de contar — o contador nunca passava de 8.",
+    "depois": "Conta todas, mostra as 8 mais recentes e um \"+N concluídas\" embaixo.",
+    "motivo": "43:159 fazia slice(0,8) antes do length.",
+    "arquivos": ["app/src/js/43-espaco-times.js"],
+    "como_ver": "teamTasks=Array.from({length:12},(_,i)=>({id:'m'+i,title:'Entrega '+i,status:'merged',updated_at:new Date().toISOString()})); tmView='board'; teamPaintSig=''; setView('team');",
+    "estado_mock": "Mais de 8 cartões concluídos/mergeados em teamTasks."
+  },
+  {
+    "id": "M8",
+    "area": "Página do épico",
+    "titulo": "Página do épico com progresso por onda e a próxima ação em cada linha",
+    "antes": "As tarefas vinham só com o título e \"ONDA N\"; não dava pra saber quantas da onda já estavam prontas nem agir dali.",
+    "depois": "Cabeçalho \"ONDA N · x/y\" (✓ quando completa, \"· atual\" na onda em curso) + KPI \"onda atual N/M\". Cada linha ganha a ação: \"▶ iniciar\" / \"iniciar mesmo assim\" (backlog), \"revisar\" (pronta pra revisar), \"ver o problema\" (erro), e o texto \"na espera de <tarefa>\" quando depende de outra. Reusa epCardStart; a página agora carrega a linha completa (select=*).",
+    "motivo": "A página era só leitura — pra agir o usuário precisava voltar pro quadro e achar a tarefa.",
+    "arquivos": ["app/src/js/46-epico-time.js", "app/src/css/60-grafo-times-nova-demanda.css"],
+    "como_ver": "o mesmo do A1",
+    "estado_mock": "O mesmo do A1."
+  },
+  {
+    "id": "B1",
+    "area": "Central de execuções",
+    "titulo": "Filtros da Central e do painel de Issues persistem",
+    "antes": "Status, tipo, agente e período voltavam pra \"todos\" a cada abertura; o filtro do painel de Issues também.",
+    "depois": "flowStatus/flowType/flowAgent/flowPeriod/flowEpic e trkFilter são salvos (lsSet) como o projFilter; a busca não. Valores antigos inválidos caem em \"todas\"; o filtro de agente não é perdido enquanto a lista ainda carrega.",
+    "motivo": "Reconfigurar filtros toda vez é atrito desnecessário.",
+    "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/js/14-issues-projeto.js"],
+    "como_ver": "flowType='fix'; lsSet('flowType','fix'); location.reload();  // volta com 'Fix' selecionado",
+    "estado_mock": "Nenhum além de tarefas locais."
+  },
+  {
+    "id": "B2",
+    "area": "Time",
+    "titulo": "KPI \"épicos ativos\" não conta épico concluído",
+    "antes": "O KPI contava todos os épicos, inclusive os concluídos.",
+    "depois": "Conta só os que não estão done/arquivados; os dois exemplos de % também vêm só dos ativos.",
+    "motivo": "43:139 usava teamEpics.length.",
+    "arquivos": ["app/src/js/43-espaco-times.js"],
+    "como_ver": "teamEpics=[{id:'E1',name:'Checkout',status:'in-progress'},{id:'E2',name:'Login',status:'done'}]; tmView='overview'; teamPaintSig=''; setView('team');",
+    "estado_mock": "teamEpics com um épico done e outro in-progress; teamTasks não nulo."
+  },
+  {
+    "id": "B3",
+    "area": "Time",
+    "titulo": "Legenda do \"3/5\" no chip do épico",
+    "antes": "O chip do épico mostrava \"3/5\" sem dizer o que era.",
+    "depois": "Tooltip \"3 de 5 tarefas entregues ou em revisão\" (também no cabeçalho da fila e no KPI da página); o chip ganhou o ponto na cor do épico.",
+    "motivo": "Número solto não se explica.",
+    "arquivos": ["app/src/js/43-espaco-times.js", "app/src/js/46-epico-time.js"],
+    "como_ver": "o mesmo do B2 com tmView='board'",
+    "estado_mock": "teamEpics + teamTasks com epic_id."
+  },
+  {
+    "id": "B4",
+    "area": "Central de execuções",
+    "titulo": "Seções da Central recolhíveis",
+    "antes": "As seções (Aguardando você, Em andamento, Prontas pra revisar…) não podiam ser recolhidas.",
+    "depois": "Clicar no cabeçalho (ou Enter/Espaço) recolhe/expande; estado salvo por seção (sec:col:<chave>). Seção recolhida nem monta os cartões. Implementado com classe no .secgrp (não <details>) pra não quebrar a grade (#flow.gridview .secgrp é grid).",
+    "motivo": "Com muitas tarefas, recolher \"Concluídas\"/\"Rascunhos\" deixa o que importa à vista.",
+    "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/css/80-ajustes-cards.css"],
+    "como_ver": "lsSet('sec:col:andamento','1'); lastSig=''; renderFlow();",
+    "estado_mock": "Tarefas locais em ao menos duas seções."
+  },
+  {
+    "id": "B6",
+    "area": "Linguagem",
+    "titulo": "Uma linha de explicação nos cabeçalhos e em \"onda\"",
+    "antes": "Termos como \"onda\", \"PR aberto\", \"Aguardando você\" não tinham explicação na tela.",
+    "depois": "Tooltip (title) em cada cabeçalho de seção e chip de status (FLOW_SEC_TIP) e em toda ocorrência de \"onda\": \"onda = grupo de tarefas que rodam juntas; a próxima começa quando esta termina\".",
+    "motivo": "O público inclui vibe coders que não conhecem o jargão.",
+    "arquivos": ["app/src/js/22-quadro-fluxo.js", "app/src/js/46-epico-time.js", "app/src/js/43-espaco-times.js"],
+    "como_ver": "passar o mouse sobre um cabeçalho de seção da Central ou sobre 'onda N' na fila/página do épico",
+    "estado_mock": "Mock do F1 ou do A1."
+  }
+]

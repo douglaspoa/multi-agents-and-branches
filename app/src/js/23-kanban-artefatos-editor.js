@@ -1,6 +1,7 @@
 // Starfork — 23-kanban-artefatos-editor
 // ---------- Kanban ----------
-const KCOLS=[['rascunho','Rascunho'],['rodando','Rodando'],['precisa','Precisa de você'],['review','Em review'],['mergeada','Mergeada'],['encerrada','Encerradas']];
+// mesmos nomes das seções da Central (22: FLOW_SECS) e do STATUS_META — um status, um nome em toda a app
+const KCOLS=[['rascunho','Rascunhos'],['rodando','Em andamento'],['precisa','Aguardando você'],['review','Prontas pra revisar'],['mergeada','Mergeadas'],['encerrada','Concluídas']];
 function kanbanCol(t){
   if(t.flag==='closed') return 'encerrada';
   if(t.status==='draft') return 'rascunho';
@@ -16,7 +17,7 @@ function kCard(t){
   const amber = t.status==='plan-review'||pendingOf(t.id).length||t.status==='aborted';
   const note = t.status==='plan-review'?'plano pronto · aprove pra continuar'
     : pendingOf(t.id).length?'perguntou — responda'
-    : t.status==='review'?'review pronto · aprovar ou pedir ajuste'
+    : t.status==='review'?'pronta pra revisar · aprovar ou pedir ajuste'
     : t.status==='error'?'erro — veja o log'
     : t.status==='aborted'?'abortada — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
