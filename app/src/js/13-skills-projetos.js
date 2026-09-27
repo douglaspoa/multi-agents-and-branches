@@ -1,4 +1,4 @@
-// Constellation — 13-skills-projetos
+// Starfork — 13-skills-projetos
 // ===== Skills: biblioteca (adicionar) + habilitar por projeto =====
 let skAddOpen=false, skAddMode='git', skGitFound=null, skList=[], skQuery='';
 async function openSkills(){

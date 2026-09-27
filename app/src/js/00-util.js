@@ -31,6 +31,6 @@ function escBusy(e){
 async function askYes(message, title){
   const inv=window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.invoke;
   if(!inv) return window.confirm(String(message)); // preview no browser: confirm nativo
-  try{ return (await inv('plugin:dialog|message',{ message:String(message), title:title||'Constellation', kind:'warning', buttons:'OkCancel' }))==='Ok'; }
+  try{ return (await inv('plugin:dialog|message',{ message:String(message), title:title||'Starfork', kind:'warning', buttons:'OkCancel' }))==='Ok'; }
   catch(e){ console.error('askYes:', e); return false; } // na dúvida, NÃO executa
 }

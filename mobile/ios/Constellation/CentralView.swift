@@ -40,7 +40,7 @@ struct CentralView: View {
             Starfield(seed: 5).frame(height: 420).frame(maxHeight: .infinity, alignment: .top)
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    PageHeader(kicker: "Constellation", title: "Central",
+                    PageHeader(kicker: "Starfork", title: "Central",
                                sub: loaded ? "\(running.count) agente\(running.count == 1 ? "" : "s") em órbita · \(ready.count + waiting.count) entrega\(ready.count + waiting.count == 1 ? "" : "s") esperando você" : "sincronizando com a nuvem…",
                                live: true)
                     if !loaded { BoardSkeleton() } else {

@@ -1,4 +1,4 @@
-// Constellation — 46-epico-time: o ÉPICO do time abre como PÁGINA (aba, nunca modal): o envelope
+// Starfork — 46-epico-time: o ÉPICO do time abre como PÁGINA (aba, nunca modal): o envelope
 // (Outcome, Requisitos, "Pronto quando" como checklist, Não muda), as tarefas por onda e o status.
 // Regras (épico "Épico com Done when no planner", R6/R7):
 //  - o checklist é marcável por quem criou o épico (ou owner/admin do time); o agente revisor marca pela
@@ -164,7 +164,7 @@ async function epicCompileContext(epicId, forTask){
   const sp=ep.spec||{}; const dw=Array.isArray(sp.doneWhen)?sp.doneWhen:[], reqs=Array.isArray(sp.requirements)?sp.requirements:[], bounds=Array.isArray(sp.boundaries)?sp.boundaries:[];
   const stPt=s=>(typeof CT_ST_PT!=='undefined'&&CT_ST_PT[s])||s;
   const byId={}; sibs.forEach(t=>{ byId[t.id]=t; });
-  const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Constellation ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', ''];
+  const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Starfork ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', ''];
   L.push('## Objetivo', epCut(sp.outcome||sp.description||('Épico do time "'+ep.name+'".'),400)); if(sp.outcome&&sp.description) L.push(epCut(sp.description,300)); L.push('');
   if(reqs.length){ L.push('## Requisitos do épico'); reqs.slice(0,12).forEach(r=>L.push('- '+(r.id||'R?')+': '+epCut(r.text,200))); L.push(''); }
   if(dw.length){ L.push('## Pronto quando (o épico só fecha com tudo marcado)'); dw.slice(0,8).forEach((d,i)=>L.push('- '+(d.checkedBy?'☑':'☐')+' '+(d.id||('D'+(i+1)))+': '+epCut(d.text,200))); L.push(''); }

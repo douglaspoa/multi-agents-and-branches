@@ -1,4 +1,4 @@
-// Constellation — 05-cosmos: céu de fundo dos loadings (estrelas que piscam + meteoros), canvas leve.
+// Starfork — 05-cosmos: céu de fundo dos loadings (estrelas que piscam + meteoros), canvas leve.
 // Uso: el.innerHTML = cosmosHtml('carregando…')  → o MutationObserver anima sozinho.
 // Pra HTML estático que já está no DOM (ex.: modal escondido), chame cosmosStart(raiz) ao exibir.
 function cosmosHtml(msg, size){ return `<div class="cosmos${size?' '+size:''}"><canvas class="cosmos-c"></canvas><div class="cosmos-t">${msg?esc(msg):''}</div></div>`; }

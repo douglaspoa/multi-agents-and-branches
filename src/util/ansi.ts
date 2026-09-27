@@ -1,4 +1,4 @@
-// Cores ANSI ecoando a pele "Terminal" do Cardume (verde de fósforo).
+// Cores ANSI ecoando a pele "Terminal" do Starfork (verde de fósforo).
 const wrap = (code: string) => (s: string) => `\x1b[${code}m${s}\x1b[0m`;
 
 export const c = {

@@ -1,4 +1,4 @@
-/* Constellation — 20-abas-e-telas (fatia 2/6; a ORDEM dos arquivos importa: cascata) */
+/* Starfork — 20-abas-e-telas (fatia 2/6; a ORDEM dos arquivos importa: cascata) */
 /* ===== Motor de abas (Chrome-style) ===== */
 .tabbar{display:flex;align-items:stretch;gap:2px;padding:5px 8px 0;background:var(--surface-2);border-bottom:1px solid var(--border);overflow-x:auto;flex:none}
 .tabbar::-webkit-scrollbar{height:0}

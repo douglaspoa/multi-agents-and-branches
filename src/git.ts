@@ -15,7 +15,7 @@ export interface DiffStat {
 }
 
 /**
- * Fina camada sobre o `git` CLI. Cada tarefa do Cardume vive numa worktree
+ * Fina camada sobre o `git` CLI. Cada tarefa do Starfork vive numa worktree
  * isolada apontando para a sua branch — é o que permite N agentes editarem o
  * mesmo repo em paralelo sem conflito de arquivo.
  */
@@ -28,7 +28,7 @@ export class GitService {
 
   /**
    * Garante padrões no exclude LOCAL do git (.git/info/exclude, comum a todas as
-   * worktrees) — assim a pasta do Constellation NUNCA é rastreada/commitada, sem
+   * worktrees) — assim a pasta do Starfork NUNCA é rastreada/commitada, sem
    * tocar no .gitignore rastreado do repo do usuário. Idempotente, best-effort.
    */
   async ensureExcluded(patterns: string[]): Promise<void> {

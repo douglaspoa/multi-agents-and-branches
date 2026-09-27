@@ -1,4 +1,4 @@
-// Constellation — 20-workspace-tarefa
+// Starfork — 20-workspace-tarefa
 // ---------- workspace 3 colunas (arquivos · código · chat do agente) ----------
 let fwWhyCache={}, fwWhyOpen=false;
 let fwTask=null, fwPath=null, fwContent='', fwAdded=[], fwSelA=0, fwSelB=0, fwFiles=[], fwEditing=false, fwDrag=false;

@@ -1,4 +1,4 @@
-# Fosso do Cardume — Coordenação + Verificação
+# Fosso do Starfork — Coordenação + Verificação
 
 > Intenção → arquitetura → resultado. Base para o time entender **por que** este
 > trabalho existe e **o que** já está no código.
@@ -6,7 +6,7 @@
 ## 1. Intenção (por que)
 
 Pesquisa de voz do cliente (VoC) na categoria "rodar múltiplos agentes de código
-em paralelo" apontou 5 dores. Cruzando com o que o Cardume já faz, o **fosso**
+em paralelo" apontou 5 dores. Cruzando com o que o Starfork já faz, o **fosso**
 — o que nos diferencia e o que ninguém resolve — está em **coordenação** e
 **verificação**, não em "mais engines" nem em mais telas.
 
@@ -24,7 +24,7 @@ Concorrência (fraquezas para battle-card):
 - **Devin:** ~15% de sucesso em tarefas reais ([theregister.com](https://www.theregister.com/2025/01/23/ai_developer_devin_poor_reviews)).
 - **Cursor:** backlash de pricing, CEO pediu desculpa ([finance.yahoo.com](https://finance.yahoo.com/news/cursor-apologizes-unclear-pricing-changes-225709399.html)).
 - **Claude Code + worktree (DIY):** abas statless não trocam contexto — que é
-  justamente onde o hub de conversas do Cardume **ganha**.
+  justamente onde o hub de conversas do Starfork **ganha**.
 
 ## 2. Árvore de oportunidade (OST)
 
@@ -86,7 +86,7 @@ Tudo aditivo e com **fonte única no núcleo TS**; a GUI só faz proxy.
 
 ### Como testar
 ```bash
-# núcleo (num repo com workspace Cardume)
+# núcleo (num repo com workspace Starfork)
 cardume metrics                       # baseline: conflitos, colisões, reworks
 cardume overlap --owns "src/auth/**"  # checa contra tarefas ativas
 cardume new --title "x" --owns "src/auth/login.ts"   # avisa se pisar em tarefa ativa
@@ -94,8 +94,8 @@ cardume new --title "y" --owns "src/**" --bus-policy human-tiebreak
 ```
 
 ## 5. O que ficou de fora (e por quê)
-- **Unificar nome Cardume ⇄ Constellation (D1):** é decisão de produto (qual nome
-  vence) e mexe em identificadores do app/bundle/mobile — não fazer no cego.
+- **Unificar o nome (D1):** decidido em 27/09 — o produto se chama **Starfork**
+  (starfork.com.br). Identificadores internos (bundle ids, `.cardume/`) ficaram.
 - **Tela de conflito assistida (E4):** grande; precisa de agente em worktree-scratch
   + UX nova. Base pronta (`orch_integrate` já reporta o conflito).
 - **`sequential-lock` honrado na execução:** o bus já sinaliza `blocked`; falta o

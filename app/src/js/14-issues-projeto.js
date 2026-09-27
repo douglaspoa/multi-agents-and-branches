@@ -1,4 +1,4 @@
-// Constellation — 14-issues-projeto
+// Starfork — 14-issues-projeto
 // ===== Painel de Issues do TIME, em estágios =====
 //  1) CONEXÃO  — doc da API + chaves → a IA gera o CONECTOR declarativo (JSON) que o app executa
 //  2) PROJETOS E REGRAS — quais projetos usam o painel; criar issue ao abrir tarefa; sync de status; observar
@@ -328,7 +328,7 @@ function trkConnHtml(){
     ${c?`<div class="trk-card"><div class="trk-ct">2 · Chaves e dados da conexão <span class="mono dim" style="font-weight:400">${esc(c.baseUrl||'')}</span></div>
       ${secrets||'<p class="trk-rs">Este painel não pede chave.</p>'}
       ${vars?`<div class="trk-grid2" style="margin-top:12px">${vars}</div>`:''}</div>
-    <div class="trk-card"><div class="trk-ct">3 · O que o Constellation consegue fazer neste painel</div>
+    <div class="trk-card"><div class="trk-ct">3 · O que o Starfork consegue fazer neste painel</div>
       <div class="trk-ops">${ops}</div>
       <div class="trk-ops" style="margin-top:10px">${(c.statuses||[]).map(s=>`<span class="trk-st"><i style="background:${TRK_KINDS[s.kind]||'var(--muted)'}"></i>${esc(s.label||s.id)}</span>`).join('<span class="dim">→</span>')}</div>
       ${c.notes?`<p class="trk-rs" style="margin-top:10px">${esc(c.notes)}</p>`:''}
@@ -530,7 +530,7 @@ async function trkNIProjects(){
 function trkNIAskProject(first){
   const n=trkNI, on=n.projects.filter(p=>p.on), cur=on.find(p=>p.active);
   if(on.length===1){ n.project=on[0]; n.msgs.push({ who:'bot', text:`Vou criar no projeto **${on[0].name}** (o único conectado ao painel). Me diga a issue — ou cole uma **lista**, uma por linha — que eu pesquiso o código pra fechar as arestas antes de criar.` }); n.chips=[]; return; }
-  if(!n.projects.length){ n.msgs.push({ who:'sys', text:'Nenhum projeto local encontrado — abra o projeto no Constellation primeiro (preciso da pasta pra pesquisar o código).' }); return; }
+  if(!n.projects.length){ n.msgs.push({ who:'sys', text:'Nenhum projeto local encontrado — abra o projeto no Starfork primeiro (preciso da pasta pra pesquisar o código).' }); return; }
   n.msgs.push({ who:'bot', text:(first?'Bora montar as issues conversando. ':'')+`**Em qual projeto** essas issues vão ser criadas?${cur?` O aberto agora é **${cur.name}**.`:''} Eu pesquiso o código dele pra fechar as arestas de cada uma.`+(on.length?'':' _(nenhum projeto local está conectado ao painel ainda — escolha um e eu sigo mesmo assim)_') });
   n.chips=(on.length?on:n.projects).slice(0,6).map(p=>'projeto: '+p.name);
 }
@@ -767,7 +767,7 @@ function trkDetailHtml(){
       <div class="trk-f">Com quem está${trkOp('assign')?`<div class="trk-bar" style="margin-top:6px"><input class="in" id="trkDWho" list="trkDPeople" value="${escA(i.assigneeEmail||(p&&!p.unnamed?p.full:''))}" placeholder="${c.assigneeFormat==='email'?'e-mail do responsável':'responsável'}"><button class="btn sm" id="trkDWhoSave">ok</button>${trkMe()&&i.assigneeEmail!==trkMe()?'<button class="btn sm primary" id="trkDMine" title="me colocar como responsável">ficar comigo</button>':''}<datalist id="trkDPeople">${trkPeopleList().map(x=>`<option value="${escA(x.id)}">${esc(x.name)}</option>`).join('')}</datalist></div>`:''}<div class="trk-if" style="margin-top:9px">${p?`<span class="trk-av">${esc(p.ini)}</span><span title="${escA(p.full)}">${esc(p.label)}</span>${p.unnamed?`<button class="btn sm" id="trkNamePerson" data-pid="${escA(p.full)}" style="padding:2px 7px;font-size:10.5px">dar nome</button>`:''}`:'<span class="dim">sem responsável</span>'}</div></div></div>
     ${i.tags.length?`<div class="trk-ops">${i.tags.map(t=>`<span class="trk-op">${esc(String(t))}</span>`).join('')}</div>`:''}
     ${i.description?`<div class="trk-desc">${esc(i.description)}</div>`:''}
-    <div class="trk-ct" style="margin-top:16px">Tarefa no Constellation</div>
+    <div class="trk-ct" style="margin-top:16px">Tarefa no Starfork</div>
     ${tasks.map(t=>`<div class="trk-key"><span class="trk-task">⎇ ${esc(t.status||'')}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title||t.id)}</span><button class="btn sm" data-trkopen="${escA(t.id)}">abrir</button></div>`).join('')}
     <div class="trk-bar" style="margin-top:8px"><button class="btn primary" id="trkMkTask">criar tarefa desta issue</button>${free.length?`<select class="in" id="trkLinkSel" style="flex:1"><option value="">vincular a uma tarefa existente…</option>${free.map(t=>`<option value="${escA(t.id)}">${esc((t.title||t.id).slice(0,60))}</option>`).join('')}</select>`:''}</div>
     <div class="trk-ct" style="margin-top:16px">Comentários</div>${comm}

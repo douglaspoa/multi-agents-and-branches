@@ -89,14 +89,14 @@ async function cmdInit(repo: string, noGit = false) {
   const ws = new Workspace(repo);
   ws.ensure();
   new Store(ws.dbFile).close();
-  console.log(c.green("✔") + ` workspace Cardume pronto em ${c.dim(ws.dir)}`);
+  console.log(c.green("✔") + ` workspace Starfork pronto em ${c.dim(ws.dir)}`);
   if (ensureConfig(repo)) console.log(c.green("✔") + ` catálogo criado em ${c.dim("cardume.config.json")} (agentes + workflows)`);
   console.log(c.dim("  dica: adicione .cardume/ ao seu .gitignore"));
 }
 
 function cmdAgents(repo: string) {
   const cfg = loadConfig(repo);
-  console.log("\n" + c.bold(c.green("🐙 Agentes")) + c.dim("  (cardume.config.json)\n"));
+  console.log("\n" + c.bold(c.green("✦ Agentes")) + c.dim("  (cardume.config.json)\n"));
   for (const a of cfg.agents) {
     console.log(`  ${c.bold(a.name.padEnd(8))} ${c.cyan(a.role.padEnd(9))} ${c.dim(a.engine)}  ${c.dim("#" + a.id)}`);
     if (a.persona) console.log(`      ${c.dim("↳ " + a.persona)}`);
@@ -107,7 +107,7 @@ function cmdAgents(repo: string) {
 function cmdWorkflows(repo: string) {
   const cfg = loadConfig(repo);
   const byId = Object.fromEntries(cfg.agents.map((a) => [a.id, a]));
-  console.log("\n" + c.bold(c.green("🐙 Workflows")) + c.dim("  (cardume.config.json)\n"));
+  console.log("\n" + c.bold(c.green("✦ Workflows")) + c.dim("  (cardume.config.json)\n"));
   for (const w of cfg.workflows) {
     const chain = w.steps.map((s) => `${byId[s]?.name ?? s}${c.dim("(" + (byId[s]?.role ?? "?") + ")")}`).join(c.dim(" → "));
     console.log(`  ${c.bold(w.name.padEnd(22))} ${c.dim("#" + w.id)}`);
@@ -243,7 +243,7 @@ async function cmdNew(repo: string, a: Args) {
 function openStore(repo: string): Store {
   const ws = new Workspace(repo);
   if (!existsSync(ws.dbFile)) {
-    console.error(c.red(`✖ nenhum workspace Cardume em ${repo}. Rode: cardume init`));
+    console.error(c.red(`✖ nenhum workspace Starfork em ${repo}. Rode: cardume init`));
     process.exit(1);
   }
   return new Store(ws.dbFile);
@@ -257,7 +257,7 @@ function cmdMetrics(repo: string, json = false) {
     store.close();
     return;
   }
-  console.log("\n" + c.bold(c.green("🐙 Coordenação")) + c.dim(`  ${repo}\n`));
+  console.log("\n" + c.bold(c.green("✦ Coordenação")) + c.dim(`  ${repo}\n`));
   console.log(`  ${c.bold("tarefas")}            ${m.totalTasks}`);
   const st = Object.entries(m.byStatus)
     .map(([k, v]) => `${statusColor(k)(k)}:${v}`)
@@ -310,7 +310,7 @@ function cmdOverlap(repo: string, a: Args) {
 
 function cmdListCmd(repo: string) {
   const store = openStore(repo);
-  console.log("\n" + c.bold(c.green("🐙 Cardume")) + c.dim(`  ${repo}\n`));
+  console.log("\n" + c.bold(c.green("✦ Starfork")) + c.dim(`  ${repo}\n`));
   console.log(renderList(store));
   store.close();
 }
@@ -345,7 +345,7 @@ function cmdReview(repo: string, taskId: string) {
     store.close();
     return;
   }
-  console.log("\n" + c.bold(c.green("🐙 Review humano")) + c.dim(`  ${t.title}  ·  ${t.branch}`));
+  console.log("\n" + c.bold(c.green("✦ Review humano")) + c.dim(`  ${t.title}  ·  ${t.branch}`));
   console.log(c.dim(`  revisado por ${r.byAgent}\n`));
   console.log("  " + c.bold("Resumo"));
   console.log("  " + r.summary + "\n");
@@ -601,7 +601,7 @@ async function cmdWatch(repo: string) {
   const store = openStore(repo);
   const tick = () => {
     process.stdout.write("\x1b[2J\x1b[H");
-    process.stdout.write("\n " + c.bold(c.green("🐙 Cardume")) + c.dim(`  watch · ${repo}`) + "\n\n");
+    process.stdout.write("\n " + c.bold(c.green("✦ Starfork")) + c.dim(`  watch · ${repo}`) + "\n\n");
     process.stdout.write(renderList(store));
     process.stdout.write("\n " + c.dim("barramento:") + "\n");
     for (const cl of store.allClaims().filter((x) => x.yielded_to)) {
@@ -629,8 +629,8 @@ async function cmdDemo() {
   await rm(demoDir, { recursive: true, force: true });
   await run("git", ["init", "-q", "-b", "main", repo]);
   // config local para permitir commits
-  await run("git", ["-C", repo, "config", "user.email", "demo@cardume.dev"]);
-  await run("git", ["-C", repo, "config", "user.name", "Cardume Demo"]);
+  await run("git", ["-C", repo, "config", "user.email", "demo@starfork.local"]);
+  await run("git", ["-C", repo, "config", "user.name", "Starfork Demo"]);
   // arquivos-semente
   await run("bash", ["-lc", `mkdir -p "${repo}/src/components" && \
     echo "export const version = '2.4.0';" > "${repo}/src/index.ts" && \
@@ -684,7 +684,7 @@ async function cmdDemo() {
   console.log(c.dim("→ rodando as equipes em paralelo (planner → builder → reviewer) …\n"));
   await Promise.all([orch.runTask("login-2fa"), orch.runTask("api-ratelimit")]);
 
-  console.log(c.bold(c.green("\n🐙 Cardume · resultado\n")));
+  console.log(c.bold(c.green("\n✦ Starfork · resultado\n")));
   console.log(renderList(orch.store));
 
   console.log(" " + c.dim("barramento (colisões resolvidas):"));
@@ -771,7 +771,7 @@ async function main() {
       break;
     default:
       console.log(`
-${c.bold(c.green("🐙 Cardume"))} ${c.dim("— orquestra múltiplos agentes em branches paralelas")}
+${c.bold(c.green("✦ Starfork"))} ${c.dim("— orquestra múltiplos agentes em branches paralelas")}
 
 ${c.dim("criar & rodar")}
   ${c.green("cardume demo")}                        loop completo, 2 agentes em paralelo (mock)

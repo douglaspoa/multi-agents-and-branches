@@ -1,4 +1,4 @@
-// Constellation — 11-ambiente-updater
+// Starfork — 11-ambiente-updater
 // ---------- preflight de ambiente ----------
 let envChecks=null;
 async function runEnvCheck(){
@@ -85,10 +85,10 @@ async function checkUpdate(manual){
 }
 async function applyUpdate(btn){
   if(!updInfo) return;
-  if(!await askYes('Atualizar o Constellation agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
+  if(!await askYes('Atualizar o Starfork agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
   btn.disabled=true; btn.textContent='baixando…';
   try{
-    const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Constellation-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
+    const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Starfork-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
     btn.textContent='instalando…';
     await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });
     btn.textContent='reabrindo…';

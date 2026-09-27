@@ -1,4 +1,4 @@
-// Constellation — 23-kanban-artefatos-editor
+// Starfork — 23-kanban-artefatos-editor
 // ---------- Kanban ----------
 const KCOLS=[['rascunho','Rascunho'],['rodando','Rodando'],['precisa','Precisa de você'],['review','Em review'],['mergeada','Mergeada'],['encerrada','Encerradas']];
 function kanbanCol(t){

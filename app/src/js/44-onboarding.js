@@ -1,4 +1,4 @@
-// Constellation — 44-onboarding: entrada e assinatura (design "onboarding-planos").
+// Starfork — 44-onboarding: entrada e assinatura (design "onboarding-planos").
 // Telas: criar conta · entrar · confirmar e-mail (código de 6 dígitos) · nova senha · planos · pagamento · pronto.
 // Tudo fala com o Supabase (GoTrue) e com a function stripe-checkout que já existem.
 // Substitui o gate de login do cloudOverlay e o payOverlay (as duas funções são reapontadas no fim).
@@ -22,15 +22,15 @@ function auOpen(){ return !!auEl() && auEl().style.display!=='none'; }
 const AU_LEFT={
   signup:{ h:'Sua equipe de agentes, rodando na sua máquina', s:'Cada tarefa ganha branch e worktree isoladas. Nada some, nada colide.', b:[['g','Escreva a demanda com requisitos claros'],['c','Agentes em paralelo, um por branch'],['p','Aprove a entrega e o PR abre sozinho']], f:'pareado com este Mac' },
   login:{ h:'Bem-vindo de volta ao cockpit', s:'Suas demandas continuam aqui — entre pra ver o que rodou enquanto você esteve fora.', b:[['g','Tarefas em órbita ficam visíveis pro time'],['c','Custo por tarefa, sempre à vista'],['p','PRs prontos pra merge num clique']], f:'sessão local · nada sai da sua máquina' },
-  confirm:{ h:'Um passo e a constelação acende', s:'O código confirma que o e-mail é seu e liga sua conta à organização certa.', b:[['g','O link do e-mail também funciona'],['c','Você entra como membro; o lead aprova'],['p','Dá pra trocar de time depois']], f:'código expira em 10 minutos' },
-  newpass:{ h:'Nova senha, mesma constelação', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres'],['c','Vale em todos os seus Macs'],['p','Sessões antigas continuam válidas']], f:'a senha nunca sai da sua máquina em texto' },
+  confirm:{ h:'Um passo e a sua estrela acende', s:'O código confirma que o e-mail é seu e liga sua conta à organização certa.', b:[['g','O link do e-mail também funciona'],['c','Você entra como membro; o lead aprova'],['p','Dá pra trocar de time depois']], f:'código expira em 10 minutos' },
+  newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres'],['c','Vale em todos os seus Macs'],['p','Sessões antigas continuam válidas']], f:'a senha nunca sai da sua máquina em texto' },
   ready:{ h:'Tudo pronto — falta só o repo', s:'Sua conta está ativa nesta máquina. Conecte o repositório e escreva a primeira demanda.', b:[['g','Ambiente checado automaticamente'],['c','Workflows do time já sincronizados'],['p','Companion mobile pareado']], f:'teste em andamento' },
 };
 const AU_DOT={ g:'#3fdd8a', c:'#5ec8c8', p:'#c493bb' };
 function auLeftHtml(step){
   const L=AU_LEFT[step]||AU_LEFT.signup;
   return `<canvas class="cosmos-c au-sky"></canvas><div class="au-lin">
-    <div class="au-brand"><span class="au-logo">C</span><span class="au-brandt">CONSTELLATION</span></div>
+    <div class="au-brand"><span class="au-logo">S</span><span class="au-brandt">STARFORK</span></div>
     <h1 class="au-h1">${esc(L.h)}</h1><p class="au-sub">${esc(L.s)}</p>
     <div class="au-bul">${L.b.map(([c,t])=>`<div class="au-b"><i style="background:${AU_DOT[c]}"></i>${esc(t)}</div>`).join('')}</div>
     <div class="au-foot"><i></i>${esc(L.f)}</div></div>`;
@@ -62,7 +62,7 @@ function auRender(){
       <label class="au-lbl">E-mail de trabalho</label><input class="au-in" id="auEmail" type="email" placeholder="voce@empresa.com" value="${escA(au.email)}"${dis}>
       <label class="au-lbl">Senha</label><input class="au-in" id="auPass" type="password" placeholder="mínimo 8 caracteres"${dis}><div class="au-strength" id="auStr"><i></i><i></i><i></i><i></i><span>use 8+ caracteres</span></div>
       <div class="au-row"><button class="au-btn primary" id="auGo"${dis}>${au.busy?'criando…':'Continuar'}</button><button class="au-btn" id="auGh"${dis}>${AU_GH} GitHub</button><button class="au-btn" id="auGoogle"${dis}>${AU_GG} Google</button><span style="flex:1"></span><button class="au-link" id="auToLogin">já tenho conta</button></div>
-      <div class="au-legal">Ao continuar você aceita os <a data-ext="https://constellation.ai/termos">termos</a> e a <a data-ext="https://constellation.ai/privacidade">privacidade</a>.</div></div>`;
+      <div class="au-legal">Ao continuar você aceita os <a data-ext="https://starfork.com.br/termos">termos</a> e a <a data-ext="https://starfork.com.br/privacidade">privacidade</a>.</div></div>`;
     const go=async()=>{ au.name=$id('auName').value.trim(); au.email=$id('auEmail').value.trim(); const pass=$id('auPass').value;
       if(!auValidEmail(au.email)){ au.msg='informe um e-mail válido.'; auRender(); return; } if(pass.length<8){ au.msg='a senha precisa de 8+ caracteres.'; auRender(); return; }
       au.busy=true; auRender(); lsSet('sb:email',au.email);
@@ -137,7 +137,7 @@ function auRender(){
     const seats=(myBilling&&myBilling.seats)||au.plan.seats||1, planName=(myBilling&&myBilling.plan==='team')?'Time':(myBilling&&myBilling.plan==='enterprise')?'Organização':(myBilling?'Solo':'');
     const trial=(myBilling&&myBilling.status==='trialing'&&myBilling.trial_end)?Math.max(0,Math.ceil((new Date(myBilling.trial_end)-Date.now())/864e5)):0;
     const hasRepo=!!(state&&state.repo);
-    R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Constelação ativa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos neste Mac.`:'Sua conta está ativa neste Mac.'}</p>
+    R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos neste Mac.`:'Sua conta está ativa neste Mac.'}</p>
       <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:#3fdd8a">1</span><span>Conectar o repositório que os agentes vão trabalhar</span>${hasRepo?'<span class="au-tdone">✓ conectado</span>':'<button class="au-link" id="auRepo">conectar</button>'}</div>
         <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Checar o ambiente: Node, Git, Claude Code e gh</span><button class="au-link" id="auEnv">verificar</button></div>
         <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:''}</span><button class="au-link" id="auTeam">convidar</button></div></div>
@@ -182,7 +182,7 @@ function auRenderPlans(R, topbar){
   const trial=(auPlanRow(au.plan.key,iv)||{}).trial_days||14;
   R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>-20%</i></button></div></div>${auMsg()}
     <div class="au-plans">${cards}</div>
-    <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Constellation? <a id="auInvite">tenho um convite / verificar</a></span></div>
+    <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Starfork? <a id="auInvite">tenho um convite / verificar</a></span></div>
     <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por repo e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
       `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'cobrança ainda não ativada neste backend (BILLING-SETUP.md)'}</span></div>`}</div></div>`;
   R.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>{ au.plan.key=b.dataset.plan; auRender(); });
@@ -190,7 +190,7 @@ function auRenderPlans(R, topbar){
   bindClick('auSeatM', ()=>{ au.plan.seats=Math.max(1,au.plan.seats-1); auRender(); });
   bindClick('auSeatP', ()=>{ const cap=(auPlanRow('team',iv)||{}).seats||12; au.plan.seats=Math.min(cap,au.plan.seats+1); auRender(); });
   bindClick('auGo', ()=>auShow('pay'));
-  bindClick('auSales', ()=>openExternal('mailto:vendas@constellation.ai?subject=Plano%20Organiza%C3%A7%C3%A3o%20Constellation'));
+  bindClick('auSales', ()=>openExternal('mailto:vendas@starfork.com.br?subject=Plano%20Organiza%C3%A7%C3%A3o%20Starfork'));
   bindClick('auInvite', async()=>{
     const tok=await askText('Convite do time','cole o token que o lead te mandou (se o convite foi pro seu e-mail, normalmente entra sozinho — deixe vazio pra só verificar)', '');
     if(tok===null) return;

@@ -1,4 +1,4 @@
-/* Constellation — 82-issues: painel de Issues (conexão → projetos e regras → quadro) */
+/* Starfork — 82-issues: painel de Issues (conexão → projetos e regras → quadro) */
 #issuesOverlay.astab .mbody{max-width:none;margin:0;padding:0}
 #issuesOverlay.astab .mhead{display:none} /* a tela tem H1 próprio */
 .sk-screen.trk{width:100%;min-width:0}

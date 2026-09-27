@@ -11,7 +11,7 @@
  *
  * Estratégia: chamamos o gateway em modo NÃO-streaming (resposta completa) e
  * sintetizamos a sequência de eventos SSE da Anthropic no fim. Perde-se o
- * "digitar ao vivo" dentro de uma mensagem (irrelevante pro Constellation, que
+ * "digitar ao vivo" dentro de uma mensagem (irrelevante pro Starfork, que
  * mostra eventos por turno), em troca de uma tradução MUITO mais robusta —
  * sem acumular deltas de tool-use no meio do stream.
  */

@@ -1,4 +1,4 @@
-// Constellation — 30-anexos
+// Starfork — 30-anexos
 // ===== anexos IMPORTADOS (planner, chat do projeto e chat da tarefa) =====
 // o arquivo é copiado pra dentro do projeto (import_attachment), o texto entra
 // INTEIRO na mensagem e a imagem vira miniatura — antes só o caminho ia pro chat.

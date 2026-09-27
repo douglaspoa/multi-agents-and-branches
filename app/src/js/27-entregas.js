@@ -1,4 +1,4 @@
-// Constellation — 27-entregas: card de demanda (Execução/Concluídas), aba ENTREGA da demanda
+// Starfork — 27-entregas: card de demanda (Execução/Concluídas), aba ENTREGA da demanda
 // (objetivo · entregáveis com provas · documentos · linha do tempo), lightbox dos prints,
 // relatório da entrega e relatório do período (IA), tudo em cima do que o app já guarda.
 const TASK_DONE_ST=['merged','done'];

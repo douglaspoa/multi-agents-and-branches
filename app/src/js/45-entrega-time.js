@@ -1,4 +1,4 @@
-// Constellation — 45-entrega-time: a tarefa de um COLEGA abre como PÁGINA de entrega (uma aba),
+// Starfork — 45-entrega-time: a tarefa de um COLEGA abre como PÁGINA de entrega (uma aba),
 // com o mesmo layout da aba "Entrega" das tarefas locais — só que alimentada pela nuvem:
 // cartão (tasks), requisitos provados (requirements_proof), provas publicadas (artifacts_meta +
 // Storage) e atividade (task_activity). O modal antigo (openCloudTask) fica só pra EDITAR o cartão.

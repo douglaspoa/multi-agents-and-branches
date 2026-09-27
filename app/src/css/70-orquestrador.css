@@ -1,4 +1,4 @@
-/* Constellation — 70-orquestrador: briefing → grafo de fases (orquestrador + subagentes) → execução */
+/* Starfork — 70-orquestrador: briefing → grafo de fases (orquestrador + subagentes) → execução */
 #orqOverlay .modal{width:100%}
 #orqOverlay .mbody{padding:0;display:flex;flex-direction:column;min-height:0}
 .orq-top{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;font-family:'Instrument Sans',-apple-system,sans-serif}

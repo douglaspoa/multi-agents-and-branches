@@ -1,9 +1,10 @@
 #!/bin/bash
-# Empacota o Constellation PORTÁVEL: motor bundlado dentro do .app, sem nenhum
+# Empacota o Starfork PORTÁVEL: motor bundlado dentro do .app, sem nenhum
 # caminho de máquina no Info.plist. Requisitos do dev de destino: macOS + node
 # 22.6+ (homebrew ou nvm) + claude CLI + gh — o preflight do app confere tudo.
 #
-# Uso: scripts/package-app.sh  →  dist/Constellation-portable.zip
+# Uso: scripts/package-app.sh  →  dist/Starfork-portable.zip
+#      (+ cópia dist/Constellation-portable.zip: nome antigo, pros clientes em update)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,12 +24,19 @@ echo "→ 2/4 binário release"
 ( cd app/src-tauri && cargo build --release ) >/dev/null
 
 echo "→ 3/4 monta o .app portável"
-PORT=dist/Constellation-portable.app
-rm -rf "$PORT"
-cp -R dist/Constellation.app "$PORT"
-cp app/src-tauri/target/release/cardume-app "$PORT/Contents/MacOS/Constellation"
+# template: dist/Starfork.app (gerado pelo scripts/deploy-local.sh; máquina só
+# com o template antigo dist/Constellation.app → usa ele e renomeia no plist)
+TPL=dist/Starfork.app; [ -d "$TPL" ] || TPL=dist/Constellation.app
+PORT=dist/Starfork-portable.app
+rm -rf "$PORT" dist/Constellation-portable.app
+cp -R "$TPL" "$PORT"
+rm -f "$PORT/Contents/MacOS/Constellation"
+for k in CFBundleName CFBundleDisplayName CFBundleExecutable; do
+  /usr/libexec/PlistBuddy -c "Set :$k Starfork" "$PORT/Contents/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$k string Starfork" "$PORT/Contents/Info.plist"
+done
+cp app/src-tauri/target/release/cardume-app "$PORT/Contents/MacOS/Starfork"
 mkdir -p "$PORT/Contents/Resources"
-# rm ANTES de copiar: o template dist/Constellation.app pode já trazer Resources/engine|mcp,
+# rm ANTES de copiar: o template dist/Starfork.app pode já trazer Resources/engine|mcp,
 # e `cp -R origem dest/engine` ANINHA (engine/engine/cli.mjs) deixando o motor ANTIGO em
 # engine/cli.mjs — que é justamente o que o app carrega. Sem isto, o rebuild ship motor velho.
 rm -rf "$PORT/Contents/Resources/engine" "$PORT/Contents/Resources/mcp"
@@ -64,23 +72,24 @@ fi
 
 echo "→ 4/4 zip (com LEIA-ME de instalação)"
 cat > dist/LEIA-ME.txt <<'TXT'
-CONSTELLATION — instalação (macOS, Apple Silicon)
+STARFORK — instalação (macOS, Apple Silicon)
 
-1. Arraste Constellation.app para /Applications (substituindo o antigo, se houver).
+1. Arraste Starfork.app para /Applications (substituindo o antigo
+   Starfork.app ou Constellation.app, se houver — pode apagar o Constellation.app).
 2. Ao abrir, o macOS vai BLOQUEAR ("A Apple não pôde verificar…").
    Isso é o Gatekeeper com apps fora da App Store — o app está íntegro.
    Destrave por UM dos caminhos:
 
    A) Sem terminal: clique OK (NÃO "Mover para o Lixo") →
       Ajustes do Sistema → Privacidade e Segurança → role até
-      "Constellation foi bloqueado…" → Abrir Mesmo Assim.
+      "Starfork foi bloqueado…" → Abrir Mesmo Assim.
 
    B) Terminal (1 linha):
-      xattr -dr com.apple.quarantine /Applications/Constellation.app
+      xattr -dr com.apple.quarantine /Applications/Starfork.app
 
-   Na 1ª execução o macOS também pergunta se o Constellation pode acessar
+   Na 1ª execução o macOS também pergunta se o Starfork pode acessar
    a pasta Documentos (é onde ficam os repositórios) — clique Permitir.
-   Ele pergunta UMA vez por app; mantendo o nome Constellation.app nas
+   Ele pergunta UMA vez por app; mantendo o nome Starfork.app nas
    atualizações, a permissão fica guardada.
 3. Abra o app: tour de 1 minuto + verificação do ambiente
    (precisa de node, git, claude logado e gh autenticado — a tela
@@ -89,23 +98,25 @@ CONSTELLATION — instalação (macOS, Apple Silicon)
    link do e-mail → entrar → colar o token do convite.
 
 COMO ATUALIZAR (quando receber um zip novo)
-1. Feche o Constellation (⌘Q).
+1. Feche o Starfork (⌘Q).
 2. Descompacte o zip novo e arraste para /Applications,
    SUBSTITUINDO o app antigo.
 3. Destrave o Gatekeeper de novo (todo download re-quarentena):
    Ajustes → Privacidade e Segurança → Abrir Mesmo Assim
    — ou no terminal:
-   xattr -dr com.apple.quarantine /Applications/Constellation.app
+   xattr -dr com.apple.quarantine /Applications/Starfork.app
 4. Abra. Nada se perde: login, projetos e tarefas continuam
    (ficam fora do .app).
 
 Qual versão estou rodando? Olhe o rodapé do app, canto direito:
 "· build dd/mm hh:mm". Ao reportar um problema, informe esse carimbo.
 TXT
-# dentro do zip o app se chama Constellation.app: mesmo nome do instalado → substitui no lugar e o macOS
-# mantém as permissões (Documentos etc.) em vez de perguntar de novo pra um "Constellation-portable"
-( cd dist && rm -f Constellation-portable.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Constellation-portable.app _pkg/Constellation.app && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Constellation-portable.zip && rm -rf _pkg )
-echo "✔ dist/Constellation-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
+# dentro do zip o app se chama Starfork.app: mesmo nome do instalado → substitui no lugar e o macOS
+# mantém as permissões (Documentos etc.) em vez de perguntar de novo pra um "Starfork-portable".
+# Constellation-portable.zip = o MESMO zip com o nome antigo: clientes antigos em update
+# (ou links velhos) continuam achando o release.
+( cd dist && rm -f Starfork-portable.zip Constellation-portable.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Starfork-portable.app _pkg/Starfork.app && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Starfork-portable.zip && cp Starfork-portable.zip Constellation-portable.zip && rm -rf _pkg )
+echo "✔ dist/Starfork-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
 
 # publica no canal de releases quando as credenciais do owner estão no ambiente
 if [ -n "${CONSTELLATION_EMAIL:-}" ] && [ -n "${CONSTELLATION_PASSWORD:-}" ]; then

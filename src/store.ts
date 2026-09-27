@@ -11,7 +11,7 @@ import type {
 } from "./types.ts";
 
 /**
- * Persistência do Cardume — um arquivo SQLite por repo (<repo>/.cardume/state.sqlite).
+ * Persistência do Starfork — um arquivo SQLite por repo (<repo>/.cardume/state.sqlite).
  * É o "DB que o app lê": os agentes gravam eventos aqui (via hooks/MCP no produto
  * final; direto pelo orquestrador na Fase 0) e a UI só observa este arquivo.
  */

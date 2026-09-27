@@ -9,7 +9,7 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
  * OpenAI-compatível (ex.: o LLM hospedado da Logcomex em llm.logcomex.ai/v1).
  *
  * Diferenças honestas vs. o motor Claude (v1):
- *  - sem MCP do Cardume: ask_human/claim não existem — dúvidas viram
+ *  - sem MCP do Starfork: ask_human/claim não existem — dúvidas viram
  *    .cardume/artifacts/QUESTIONS.md e o turno finaliza com status honesto;
  *  - sem retomar sessão no meio (chat da tarefa reabre um turno fresco).
  */

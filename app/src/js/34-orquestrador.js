@@ -1,4 +1,4 @@
-// Constellation — 34-orquestrador: terceiro caminho de Nova demanda.
+// Starfork — 34-orquestrador: terceiro caminho de Nova demanda.
 // Você descreve o problema inteiro; um agente orquestrador quebra em fases, cada
 // fase vira uma TAREFA REAL (branch + worktree) e o grafo é só uma visão sobre elas.
 // Plano fica em .cardume/orchestrations/<id>.json; a coordenação (iniciar uma fase

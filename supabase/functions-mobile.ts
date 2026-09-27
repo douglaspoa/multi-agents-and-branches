@@ -1,10 +1,10 @@
-// Constellation Mobile — PWA companion servida como Edge Function.
+// Starfork Mobile — PWA companion servida como Edge Function.
 // Página única, dark, mobile-first: login → "esperando você" (responder o
 // agente) → backlog do time → detalhe com requisitos provados e provas.
 const HTML = `<!doctype html><html lang="pt-BR"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0b0e0d"><title>Constellation</title>
+<meta name="theme-color" content="#0b0e0d"><title>Starfork</title>
 <style>
 :root{--bg:#0b0e0d;--s:#111514;--s2:#161b19;--b:#232a27;--b2:#313a36;--t:#e8ede9;--t2:#aab5af;--mut:#6b7671;--ac:#39d46a;--warn:#e0b34d;--bad:#e5645c}
 *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
@@ -41,7 +41,7 @@ textarea.in{min-height:74px;resize:vertical}
 .req{display:flex;gap:8px;padding:6px 0;border-bottom:1px dashed var(--b);font-size:13px}
 a{color:var(--ac)}
 </style></head><body>
-<header><svg viewBox="0 0 20 20" fill="none"><g stroke="currentColor" stroke-width="1.2" stroke-opacity=".7" stroke-linecap="round"><path d="M5 14L9.5 9M9.5 9L15 11.5M9.5 9L12 4"/></g><g fill="currentColor"><circle cx="5" cy="14" r="1.5"/><circle cx="15" cy="11.5" r="1.5"/><circle cx="12" cy="4" r="1.4"/><circle cx="9.5" cy="9" r="2.2"/></g></svg><b>Constellation</b><span class="grow"></span><span id="who" class="mut"></span></header>
+<header><svg viewBox="0 0 20 20" fill="none"><g stroke="currentColor" stroke-width="1.2" stroke-opacity=".7" stroke-linecap="round"><path d="M5 14L9.5 9M9.5 9L15 11.5M9.5 9L12 4"/></g><g fill="currentColor"><circle cx="5" cy="14" r="1.5"/><circle cx="15" cy="11.5" r="1.5"/><circle cx="12" cy="4" r="1.4"/><circle cx="9.5" cy="9" r="2.2"/></g></svg><b>Starfork</b><span class="grow"></span><span id="who" class="mut"></span></header>
 <main id="app"><div class="center dim">carregando…</div></main>
 <script>
 const U=location.origin, K='KEY_PLACEHOLDER';

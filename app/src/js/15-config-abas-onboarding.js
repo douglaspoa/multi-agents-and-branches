@@ -1,4 +1,4 @@
-// Constellation — 15-config-abas-onboarding
+// Starfork — 15-config-abas-onboarding
 // ---------- configurações (⌘,) ----------
 // fecha Configurações: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
 function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab')) closeTabOfKind('cfg'); else if(o) o.style.display='none'; }
@@ -258,7 +258,7 @@ $id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') $
 
 // ---------- onboarding de 60 segundos (primeiro boot) ----------
 const OB_STEPS=[
-  { t:'Bem-vindo ao Constellation', b:'Aqui, cada <b>tarefa</b> vira uma <b>branch isolada</b> do seu repo, tocada por agentes de IA — com plano, código, testes e <b>provas reais</b> (prints e saídas de verdade, nunca mock). Você acompanha tudo ao vivo e conversa com o agente como num chat.' },
+  { t:'Bem-vindo ao Starfork', b:'Aqui, cada <b>tarefa</b> vira uma <b>branch isolada</b> do seu repo, tocada por agentes de IA — com plano, código, testes e <b>provas reais</b> (prints e saídas de verdade, nunca mock). Você acompanha tudo ao vivo e conversa com o agente como num chat.' },
   { t:'Seu time vê o essencial', b:'Entrando no time (botão no topo), suas tarefas viram <b>cartões compartilhados automaticamente</b>: título, status, custo e branch sincronizam — o <b>stream do agente fica só na sua máquina</b> e os artefatos/provas só sobem quando você publicar. O backlog do time fica na aba <b>Time</b>.' },
   { t:'Antes de começar', b:'O app depende de 4 coisas: <b>node</b>, <b>git</b>, <b>claude</b> (logado) e <b>gh</b> (autenticado). Vamos verificar agora — o que faltar vem com o comando de correção pronto pra copiar.' },
 ];
@@ -274,7 +274,7 @@ function renderOb(){
     ${last?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:12px">verificando o ambiente…</div></div>':''}
     <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
       <button class="btn sm" id="obSkip">pular</button><span style="flex:1"></span>
-      <button class="btn primary" id="obNext">${last?'Entrar no Constellation':'continuar'}</button>
+      <button class="btn primary" id="obNext">${last?'Entrar no Starfork':'continuar'}</button>
     </div>`;
   $id('obSkip').onclick=()=>{ finishOb(); };
   $id('obNext').onclick=()=>{ if(!last){ obStep++; renderOb(); } else { finishOb(); coachStart(); } };

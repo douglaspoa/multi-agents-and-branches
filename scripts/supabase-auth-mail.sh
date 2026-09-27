@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# E-mails de autenticação do Constellation (código de 6 dígitos, visual do produto).
+# E-mails de autenticação do Starfork (código de 6 dígitos, visual do produto).
 #
 #   scripts/supabase-auth-mail.sh check    # mostra o estado atual (templates com {{ .Token }}? SMTP próprio? validade do código)
 #   scripts/supabase-auth-mail.sh apply    # sobe supabase/templates/*.html + assuntos + código válido por 10 min
@@ -48,16 +48,16 @@ rd=lambda n:(t/f"{n}.html").read_text()
 print(json.dumps({
   "mailer_otp_length": 6,
   "mailer_otp_exp": 600,
-  "mailer_subjects_recovery": "{{ .Token }} é seu código pra redefinir a senha · Constellation",
+  "mailer_subjects_recovery": "{{ .Token }} é seu código pra redefinir a senha · Starfork",
   "mailer_templates_recovery_content": rd("recovery"),
-  "mailer_subjects_confirmation": "{{ .Token }} é seu código pra confirmar o e-mail · Constellation",
+  "mailer_subjects_confirmation": "{{ .Token }} é seu código pra confirmar o e-mail · Starfork",
   "mailer_templates_confirmation_content": rd("confirmation"),
-  "mailer_subjects_magic_link": "{{ .Token }} é seu código de acesso · Constellation",
+  "mailer_subjects_magic_link": "{{ .Token }} é seu código de acesso · Starfork",
   "mailer_templates_magic_link_content": rd("magic_link"),
-  "mailer_subjects_invite": "Você foi convidado pro Constellation",
+  "mailer_subjects_invite": "Você foi convidado pro Starfork",
   "mailer_templates_invite_content": rd("invite"),
   "mailer_notifications_password_changed_enabled": True,
-  "mailer_subjects_password_changed_notification": "Sua senha foi alterada · Constellation",
+  "mailer_subjects_password_changed_notification": "Sua senha foi alterada · Starfork",
   "mailer_templates_password_changed_notification_content": rd("password_changed"),
 }))
 PY
@@ -71,7 +71,7 @@ smtp(){
   python3 - <<PY > /tmp/sb-smtp.json
 import json,os
 print(json.dumps({"smtp_host":"$SMTP_HOST","smtp_port":int("$SMTP_PORT"),"smtp_user":"$SMTP_USER","smtp_pass":"$SMTP_PASS",
-  "smtp_admin_email":"$SMTP_FROM","smtp_sender_name":"${SMTP_NAME:-Constellation}","smtp_max_frequency":10,"rate_limit_email_sent":200}))
+  "smtp_admin_email":"$SMTP_FROM","smtp_sender_name":"${SMTP_NAME:-Starfork}","smtp_max_frequency":10,"rate_limit_email_sent":200}))
 PY
   curl -sf -X PATCH "${auth[@]}" "$API" --data-binary @/tmp/sb-smtp.json >/dev/null && echo "✓ SMTP próprio ligado ($SMTP_HOST, remetente $SMTP_FROM)"
   rm -f /tmp/sb-smtp.json

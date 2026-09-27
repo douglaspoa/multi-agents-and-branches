@@ -1,4 +1,4 @@
-// Constellation — 41-assinatura-chaves
+// Starfork — 41-assinatura-chaves
 // ========== Assinatura (Stripe) ==========
 // billing_plans vazio = cobrança desligada (app livre). Semeou os planos
 // (BILLING-SETUP.md) → o gate liga sozinho no próximo sync. Nuvem sem clique.
@@ -175,7 +175,7 @@ function routeAiCfgHtml(){
   const sw=(id,on,dis)=>`<label class="sw"><input type="checkbox" id="${id}"${on?' checked':''}${dis?' disabled':''}><span class="tr"><span class="kn"></span></span></label>`;
   const label=raGet('ALT_AI_LABEL')||'', models=raGet('ALT_AI_MODELS')||'';
   return `<div class="seclbl2" style="margin-top:22px">Gateway próprio <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· qualquer endpoint OpenAI-compatível da sua empresa (vLLM, LiteLLM, Azure, Ollama…)</span></div>
-    <div class="dim" style="margin-top:5px;line-height:1.5">Aparece como motor em "Com qual IA?" na hora de abrir a demanda e serve de <b>Route AI</b>: o agente continua sendo o <b>Claude Code</b> (todo o MCP do Constellation) — só o modelo por trás muda pro seu gateway. Config <b>individual</b> da sua conta.</div>
+    <div class="dim" style="margin-top:5px;line-height:1.5">Aparece como motor em "Com qual IA?" na hora de abrir a demanda e serve de <b>Route AI</b>: o agente continua sendo o <b>Claude Code</b> (todo o MCP do Starfork) — só o modelo por trás muda pro seu gateway. Config <b>individual</b> da sua conta.</div>
     ${!logged?`<div class="rawarn" style="margin-top:10px">Entre na conta (botão da nuvem, no topo) pra configurar — a chave fica no seu cofre pessoal.</div>`:`
     <div id="raPanel" style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r-sm);padding:13px 14px;background:var(--surface-2)">
       <label style="margin:0">Chave do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(fica só no seu cofre)</span></label>

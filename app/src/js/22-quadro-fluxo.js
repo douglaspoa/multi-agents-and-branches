@@ -1,4 +1,4 @@
-// Constellation — 22-quadro-fluxo
+// Starfork — 22-quadro-fluxo
 // ----- filtros do Fluxo (status · período · agente · busca) -----
 let flowStatus = 'all';   // all | active | review | merged | error
 let projFilter = lsGet('projFilter')||'all'; // 'all' (integrado) | caminho de um projeto

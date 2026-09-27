@@ -1,4 +1,4 @@
-<title>Constellation Teams — Plano</title>
+<title>Starfork Teams — Plano</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
@@ -55,7 +55,7 @@
 </style>
 
 <div class="wrap">
-  <h1>Constellation Teams — Plano</h1>
+  <h1>Starfork Teams — Plano</h1>
   <div class="lead">times · enterprise · visibilidade por papel · tarefas compartilhadas · dashboard — planejado antes de codar</div>
 
   <div class="card callout">
@@ -63,7 +63,7 @@
   </div>
 
   <h2><span class="n">0</span>A decisão estrutural: local-first + servidor de coordenação</h2>
-  <p>Hoje o Constellation é <b>100% local</b>: estado em SQLite dentro de cada repo, agentes rodando na máquina do dev com a assinatura Claude dele. Isso é uma força (privacidade, custo zero de infra, código nunca sai do git) — e times não devem destruí-la.</p>
+  <p>Hoje o Starfork é <b>100% local</b>: estado em SQLite dentro de cada repo, agentes rodando na máquina do dev com a assinatura Claude dele. Isso é uma força (privacidade, custo zero de infra, código nunca sai do git) — e times não devem destruí-la.</p>
   <p>A proposta: <b>a execução continua local</b>; o que sobe pra nuvem é só a <b>coordenação</b> — identidade, times, o "cartão" de cada tarefa (spec/status/progresso/custo), artefatos de prova e os eventos de time. Recomendo <b>Supabase</b> como backend v1:</p>
   <ul>
     <li><b>Auth</b> pronta (e-mail + Google/GitHub SSO) — a tela de login do mock pluga direto;</li>

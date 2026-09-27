@@ -1,4 +1,4 @@
-# 🐙 Cardume — Fase 0 (núcleo)
+# ✦ Starfork — Fase 0 (núcleo)
 
 Orquestrador de múltiplos agentes de IA em branches paralelas do mesmo repo.
 Esta é a **Fase 0**: o núcleo de orquestração, ainda sem shell desktop. Prova o loop
