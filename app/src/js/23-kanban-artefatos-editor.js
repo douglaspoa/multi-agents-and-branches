@@ -303,7 +303,7 @@ async function resolvePending(id, answer){
 function questionBlock(taskId){
   const ps = pendingOf(taskId);
   if(ps.length===0) return "";
-  return ps.map(p=>`<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} está esperando você</div><div class="qq clamp3">${esc(p.prompt)}</div><div class="qc"><button class="btn primary sm" data-askopen="${p.id}">${IC.q} Responder ›</button></div></div>`).join("");
+  return ps.map(p=>`<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} · aguardando você</div><div class="qq clamp3">${esc(p.prompt)}</div><div class="qc"><button class="btn primary sm" data-askopen="${p.id}">${IC.q} Responder ›</button></div></div>`).join("");
 }
 function wireQuestion(root){
   root.querySelectorAll("[data-askopen]").forEach(b=>b.onclick=()=>openAsk(+b.dataset.askopen));

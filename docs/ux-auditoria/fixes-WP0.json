@@ -109,5 +109,21 @@
   ],
   "como_ver": "openWorkspace('t-review'); fwMode='entrega'; renderWorkspace()",
   "estado_mock": "tarefa em review com diff"
+ },
+ {
+  "id": "B8",
+  "area": "Base do produto",
+  "titulo": "'Aguardando você' com cor própria e mesmo nome em todo lugar",
+  "antes": "O estado em que o agente precisa de você tinha 3 nomes ('precisa de você', 'esperando você', 'aguardando você') e a cor rosa-avermelhada ficava parecida com a de erro — 'plano pra aprovar' parecia falha.",
+  "depois": "Um termo só, 'aguardando você', na pergunta do painel, no seletor de tarefa, no resumo do épico e no dicionário; a cor virou lilás, claramente diferente do vermelho de erro. 'com problema' no épico virou 'com erro ou conflito'.",
+  "motivo": "Achado da 2ª rodada de revisão visual: o usuário precisa distinguir num relance 'é comigo' de 'quebrou'.",
+  "arquivos": [
+   "app/src/css/10-base.css",
+   "app/src/js/23-kanban-artefatos-editor.js",
+   "app/src/js/35-ref-tarefa.js",
+   "app/src/js/46-epico-time.js"
+  ],
+  "como_ver": "tarefa com pergunta pendente na Central",
+  "estado_mock": "tarefa asking"
  }
 ]

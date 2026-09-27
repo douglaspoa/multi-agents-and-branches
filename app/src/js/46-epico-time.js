@@ -400,7 +400,7 @@ function epqRowHtml(ct, showProj, me, isAdmin, primary){
 // R3-C1: TODAS as tarefas do épico (nuvem + locais já iniciadas), cada uma com o status efetivo — o cabeçalho do grupo
 // resume o épico inteiro (antes dizia "4 na fila" com 7 tarefas no épico e as rodando/em PR soltas em outras seções)
 const EPQ_BUCKETS=[ // ordem da frase do cabeçalho
-  ['run','rodando'], ['ask','precisa de você'], ['rev','pra revisar'], ['pr','em PR'], ['bad','com problema'], ['queue','na fila'],
+  ['run','rodando'], ['ask','aguardando você'], ['rev','pra revisar'], ['pr','em PR'], ['bad','com erro ou conflito'], ['queue','na fila'],
 ];
 function epqBucket(st, flag, pr){
   if(flag==='closed'||['merged','done','closed'].includes(st)) return 'ok';

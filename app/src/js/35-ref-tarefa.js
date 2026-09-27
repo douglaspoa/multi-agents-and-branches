@@ -17,7 +17,7 @@ async function trfLoad(force){
     .catch(()=>trfCache||[]).finally(()=>{ trfLoading=null; });
   return trfLoading;
 }
-function trfStatusTx(t){ return t.status==='merged'?'mergeada':t.status==='done'?'concluída':t.flag==='closed'?'finalizada':t.status==='review'?'entregue · em review':t.status; }
+function trfStatusTx(t){ return t.flag==='closed'?stLabel('closed'):stLabel(t.status); } // vocabulário único (STATUS_META)
 function trfAgo(ms){ if(!ms) return ''; const s=(Date.now()-ms)/1000; if(s<3600) return Math.max(1,Math.floor(s/60))+'min'; if(s<86400) return Math.floor(s/3600)+'h'; if(s<86400*30) return Math.floor(s/86400)+'d'; return new Date(ms).toLocaleDateString('pt-BR',{ day:'2-digit', month:'short' }); }
 function trfNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 function trfFiltered(){
