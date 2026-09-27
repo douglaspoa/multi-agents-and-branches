@@ -195,11 +195,14 @@ function agEditor(i){
     <datalist id="catList">${allCats().map(c=>`<option value="${escA(c)}"></option>`).join("")}</datalist>
   </div>`;
 }
+// papel do agente em PT (o id técnico em inglês fica no tooltip)
+const AG_ROLE_PT={ planner:'Planejador', builder:'Construtor', reviewer:'Revisor', docs:'Documentador', tester:'Testador', investigator:'Investigador', designer:'Designer', coder:'Construtor' };
+function roleLabel(r){ const k=String(r||'').toLowerCase(); return AG_ROLE_PT[k]||r||''; }
 function renderAg(){
   const el=$id("agList");
   const tiles = cfgEdit.agents.map((a,i)=>`<button class="agtile${i===agOpen?' sel':''}" data-open="${i}" data-agtile="${i}" draggable="true" title="arraste pra dentro de uma equipe →">
     <span class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</span>
-    <span class="tn">${esc(a.name||'—')}</span><span class="tc">${esc(a.role||'')}</span>
+    <span class="tn">${esc(a.name||'—')}</span><span class="tc" title="${escA(a.role||'')}">${esc(roleLabel(a.role))}</span>
   </button>`).join("");
   const add = `<button class="agtile new" data-add><span class="plus">+</span><span class="tc">novo agente</span></button>`;
   el.innerHTML = `<div class="aggrid">${tiles}${add}</div>${agOpen>=0&&cfgEdit.agents[agOpen]?agEditor(agOpen):''}`;

@@ -340,7 +340,7 @@ function costBlock(taskId){
     Object.entries(byAgent).map(([a,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(a)}">${agentBadge(a)}</span><span class="cnm">${esc(a)}</span><span class="ctok">${fmtTok(v.tok)} tok</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')+
     `</div>`;
 }
-const ROLE_PT = { planner:"plano", builder:"build", reviewer:"review" };
+const ROLE_PT = { planner:"planejamento", builder:"construção", reviewer:"revisão" };
 
 let __selPersisted='';
 function render(){

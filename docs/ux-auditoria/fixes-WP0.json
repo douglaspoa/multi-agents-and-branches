@@ -125,5 +125,19 @@
   ],
   "como_ver": "tarefa com pergunta pendente na Central",
   "estado_mock": "tarefa asking"
+ },
+ {
+  "id": "B9",
+  "area": "Navegação e jornada",
+  "titulo": "Papéis dos agentes em português",
+  "antes": "A tela de Agentes mostrava os papéis em inglês técnico ('planner', 'builder', 'reviewer') e as etapas da tarefa diziam 'plano · build · review'.",
+  "depois": "Papéis aparecem como Planejador / Construtor / Revisor (o id técnico fica no tooltip) e as etapas como planejamento · construção · revisão.",
+  "motivo": "Jargão em inglês apontado na revisão visual; para quem não é dev, 'build' e 'reviewer' não dizem nada.",
+  "arquivos": [
+   "app/src/js/33-switcher-projetos.js",
+   "app/src/js/21-pull-request.js"
+  ],
+  "como_ver": "openTab('agents')",
+  "estado_mock": "agentes configurados"
  }
 ]
