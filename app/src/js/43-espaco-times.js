@@ -114,7 +114,7 @@ function renderTeamBoard(){
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   const epicChips=(teamEpics.length?teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(B.done).length+ts.filter(B.review).length;
     const dw=Array.isArray((e.spec||{}).doneWhen)?e.spec.doneWhen:[]; const dwOk=dw.filter(d=>d&&d.checkedBy).length;
-    return `<span class="fchipgrp"><button class="fchip${epSel===e.id?' on':''}" data-epsel="${escA(e.id)}" title="filtrar o quadro por este épico" style="--epc:${typeof epColor==='function'?epColor(e.id):'var(--accent)'}"><span class="pfd" style="background:var(--epc)"></span>◆ ${esc(e.name)}<span class="n" title="${done} de ${ts.length} tarefas entregues ou em revisão">${done}/${ts.length}</span>${dw.length?`<span class="n" title="pronto quando">☑ ${dwOk}/${dw.length}</span>`:''}</button><button class="fchip fchip-open" data-epopen="${escA(e.id)}" title="abrir a página do épico">⤢</button></span>`; }).join(''):'')+
+    return `<span class="fchipgrp"><button class="fchip${epSel===e.id?' on':''}" data-epsel="${escA(e.id)}" title="filtrar o quadro por este épico" style="--epc:${typeof epColor==='function'?epColor(e.id):'var(--accent)'}"><span class="pfd" style="background:var(--epc)"></span>◆ ${esc(e.name)}<span class="n" title="${done} de ${ts.length} tarefas entregues ou em revisão">${done}/${ts.length}</span>${dw.length?`<span class="n" title="pronto quando">${IC.ok} ${dwOk}/${dw.length}</span>`:''}</button><button class="fchip fchip-open" data-epopen="${escA(e.id)}" title="abrir a página do épico">⤢</button></span>`; }).join(''):'')+
     `<button class="fchip" id="tbEpicAdd">+ épico</button>`;
   // ---------- main por vista ----------
   let main='';

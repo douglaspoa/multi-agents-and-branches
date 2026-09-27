@@ -43,7 +43,7 @@ function prChecksBadges(info){
   if(!info) return '';
   let h='';
   const tot=info.checksTotal||0, fail=info.checksFail||0, pend=info.checksPending||0;
-  if(fail) h+=`<span class="prbadge bad" title="${fail} de ${tot} checagens falharam">✕ checks (${fail})</span>`;
+  if(fail) h+=`<span class="prbadge bad" title="${fail} de ${tot} checagens falharam">${IC.x} checks (${fail})</span>`;
   else if(pend) h+=`<span class="prbadge" title="${pend} de ${tot} checagens ainda rodando">… checks</span>`;
   else if(tot) h+=`<span class="prbadge ok" title="${tot} checagens passaram">✓ checks</span>`;
   if(info.state==='OPEN' && info.mergeable==='CONFLICTING') h+='<span class="prbadge bad" title="a branch conflita com a base">conflito</span>';
@@ -91,7 +91,7 @@ function prCommentsHtml(t, info, opts){
     return `<div class="prcmt prrev${r.isBot?' bot':''}"><div class="prcmt-h"><span class="prau">${esc(r.author)}${r.isBot?' <span class="botag">bot</span>':''}</span><span class="prloc">review</span><span class="prbadge ${m[1]}">${m[0]}</span></div>${body(r.body, old&&compact)}<div class="prcmt-acts">${r.state==='CHANGES_REQUESTED'?`<button class="btn primary sm" data-prfixrev="${escA(prRevKey(r, allRevs.indexOf(r)))}" data-prtask="${escA(t.id)}" style="${bs}">${IC.ai} aplicar correção</button>`:''}${ghLink(r.url)}</div></div>`; }).join('');
   const cards=vis.map(c=>{
     const done=prCmtDone(c,ign);
-    const tag=c.resolved?'<span class="prbadge ok">✔ resolvido</span>' : c.answered?'<span class="prbadge ok">✔ respondido</span>' : c.outdated?'<span class="prbadge" title="o código comentado já mudou">desatualizado</span>' : done?'<span class="prbadge">ignorado</span>' : '';
+    const tag=c.resolved?'<span class="prbadge ok">'+IC.ok+' resolvido</span>' : c.answered?'<span class="prbadge ok">'+IC.ok+' respondido</span>' : c.outdated?'<span class="prbadge" title="o código comentado já mudou">desatualizado</span>' : done?'<span class="prbadge">ignorado</span>' : '';
     const loc=c.path?`<span class="prloc mono">${esc(c.path)}${c.line?':'+c.line:''}</span>`:'<span class="prloc">conversa</span>';
     const acts=!done
       ? `<div class="prcmt-acts"><button class="btn primary sm" data-prfix="${escA(prCmtKey(c))}" style="${bs}">${IC.ai} aplicar correção</button>${c.threadId?`<button class="btn sm" data-prresolve="${escA(c.threadId)}" data-prtask="${escA(t.id)}" style="${bs}" title="marca a conversa como resolvida no GitHub">marcar resolvido</button>`:''}<button class="btn sm" data-prign="${escA(prCmtKey(c))}" style="${bs}" title="marcar como não-aplicável — some da fila">ignorar</button>${ghLink(c.url)}</div>`
@@ -100,7 +100,7 @@ function prCommentsHtml(t, info, opts){
   }).join('');
   const openN=roots.length-doneN;
   const empty=!roots.length&&!revs.length ? `<div class="dim" style="font-size:12px;padding:4px 2px">sem comentários ainda${compact?'':' — o link já está com o time.'}</div>`
-    : (!vis.length&&roots.length) ? '<div class="dim" style="font-size:12px;padding:4px 2px">✔ nenhum comentário em aberto</div>' : '';
+    : (!vis.length&&roots.length) ? '<div class="dim" style="font-size:12px;padding:4px 2px">'+IC.ok+' nenhum comentário em aberto</div>' : '';
   const toggle=doneN?`<button class="lnk prshowdone" data-prshowdone data-prtask="${escA(t.id)}">${showDone?'esconder os tratados':`mostrar resolvidos (${doneN})`}</button>`:'';
   return { html:revHtml+cards+empty+toggle, open:openN, total:roots.length };
 }
@@ -167,7 +167,7 @@ function prBlock(t, full){
     <div class="prrow prbadges" style="margin-top:6px"><span class="dim mono" style="font-size:10.5px">→ ${esc(base)}</span>${prChecksBadges(info)}<span class="grow"></span><span class="dim" style="font-size:10.5px">${prAgoTx(info._at)}${info.staleErr?' · <span style="color:var(--warn)">sem conexão agora</span>':''}</span></div>
     ${descHtml}
     <div class="prcmts" style="margin-top:8px">${cm.html}</div>
-    <div class="prrow" style="margin-top:10px">${cm.open?`<button class="btn primary sm" id="prRework">${IC.ai} corrigir ${cm.open} comentário${cm.open===1?'':'s'} em aberto</button>`:cm.total?`<span class="dim" style="font-size:11.5px">✔ todos os comentários tratados</span>`:''}<span class="grow"></span>${prMergeBtnHtml(info,'prMerge','sm')}</div>
+    <div class="prrow" style="margin-top:10px">${cm.open?`<button class="btn primary sm" id="prRework">${IC.ai} corrigir ${cm.open} comentário${cm.open===1?'':'s'} em aberto</button>`:cm.total?`<span class="dim" style="font-size:11.5px">${IC.ok} todos os comentários tratados</span>`:''}<span class="grow"></span>${prMergeBtnHtml(info,'prMerge','sm')}</div>
     ${prMergeWhyHtml(info)}
   </div>`;
 }

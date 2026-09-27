@@ -14,7 +14,7 @@ async function attPick(taskId){
 function attFmtSize(n){ n=+n||0; return n<1024?n+' B':n<1048576?Math.round(n/1024)+' KB':(n/1048576).toFixed(1)+' MB'; }
 function attChipHtml(a,i,removable){
   const thumb=(a.kind==='image'&&a.dataUrl)?`<img src="${a.dataUrl}" alt="">`:`<span class="attic">${a.kind==='pdf'?'PDF':a.kind==='image'?'IMG':a.kind==='text'?'TXT':'FILE'}</span>`;
-  return `<span class="attchip ${esc(a.kind||'file')}" title="${escA(a.rel||a.name||'')}">${thumb}<span class="attnm">${esc(a.name||'')}</span><span class="attsz">${esc(a.sizeLabel||attFmtSize(a.size))}</span>${removable?`<button class="attx" data-attrm="${i}" title="remover">✕</button>`:''}</span>`;
+  return `<span class="attchip ${esc(a.kind||'file')}" title="${escA(a.rel||a.name||'')}">${thumb}<span class="attnm">${esc(a.name||'')}</span><span class="attsz">${esc(a.sizeLabel||attFmtSize(a.size))}</span>${removable?`<button class="attx" data-attrm="${i}" title="remover">${IC.x}</button>`:''}</span>`;
 }
 function attRowHtml(atts,removable){ return (atts&&atts.length)?`<div class="attrow">${atts.map((a,i)=>attChipHtml(a,i,removable)).join('')}</div>`:''; }
 function attRenderPend(id, arr, rerender){
@@ -131,7 +131,7 @@ function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?
 // lista de anexos genérica: prints/PDFs/docs em qualquer modo da Nova tarefa
 function renderRefsInto(elId, arr, emptyMsg){
   const el=$id(elId); if(!el) return;
-  el.innerHTML = arr.length ? arr.map((p,i)=>{ const name=(p||'').split('/').pop(); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">×</button></div>`; }).join('') : `<div class="dim" style="font-size:12px;padding:2px">${emptyMsg}</div>`;
+  el.innerHTML = arr.length ? arr.map((p,i)=>{ const name=(p||'').split('/').pop(); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">${IC.x}</button></div>`; }).join('') : `<div class="dim" style="font-size:12px;padding:2px">${emptyMsg}</div>`;
   el.querySelectorAll('.refrm').forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.r,1); renderRefsInto(elId, arr, emptyMsg); });
 }
 function renderNtRefs(){ renderRefsInto('ntRefs', ntRefs, 'nenhum — anexe specs, PDFs ou um print do bug'); }

@@ -492,7 +492,7 @@ async function openLinkedFix(t){
 function renderNtLink(){
   const el=$id('ntLinkChip'); if(!el) return;
   const t=(state.tasks||[]).find(x=>x.id===ntLinkedTo);
-  el.innerHTML = ntLinkedTo ? `<span class="linkchip">${IC.clip} linkada a: <b>${esc(t?t.title:ntLinkedTo)}</b><button class="fwselx" id="ntLinkX">✕</button></span>` : '';
+  el.innerHTML = ntLinkedTo ? `<span class="linkchip">${IC.clip} linkada a: <b>${esc(t?t.title:ntLinkedTo)}</b><button class="fwselx" id="ntLinkX">${IC.x}</button></span>` : '';
   const x=$id('ntLinkX'); if(x) x.onclick=()=>{ ntLinkedTo=null; renderNtLink(); };
 }
 function setNtMode(m){

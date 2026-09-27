@@ -23,7 +23,7 @@ function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos 
   const rows = projects.length ? projects.map(p=>`<div class="prow${p.active?' on':''}" data-path="${escA(p.path)}">
       <span class="pd"></span>
       <div class="pn"><div class="pnm">${esc(p.name)}</div><div class="pp">${esc(p.path)}</div></div>
-      <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">✕</button>
+      <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">${IC.x}</button>
     </div>`).join("") : '<div class="projerr" style="color:var(--muted)">nenhum projeto ainda</div>';
   m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr">${esc(projErr)}</div>`:""}<div class="psep"></div>`+
     `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`+
