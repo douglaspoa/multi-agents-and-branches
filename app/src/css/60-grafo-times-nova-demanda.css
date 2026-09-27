@@ -114,16 +114,8 @@
 /* backlog do time (aba Time) */
 .tmcard{border:1px solid var(--border);background:var(--surface);padding:10px 12px;margin:0 2px 8px;border-radius:6px}
 .tmcard:hover{border-color:var(--accent)}
-.tmrow1,.tmrow2,.tmrow3{display:flex;align-items:center;gap:8px}
-.tmrow2{margin-top:4px}
-.tmrow3{margin-top:8px}
 .tmtitle{font-size:13px}
-.tmst{font-size:11px;white-space:nowrap}
 .tmbadge{font-size:10px;color:var(--warn);border:1px solid var(--warn);padding:1px 6px;border-radius:var(--r-pill);white-space:nowrap}
-.tmstats{display:flex;gap:8px;margin:4px 2px 6px;flex-wrap:wrap}
-.tmstat{border:1px solid var(--border);background:var(--surface);padding:8px 14px;border-radius:6px;min-width:86px}
-.tmstat .v{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
-.tmstat .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
 
 /* bus */
 .bus{display:flex;align-items:center;gap:12px;padding:7px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:12px}

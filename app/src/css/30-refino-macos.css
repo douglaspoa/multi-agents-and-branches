@@ -34,7 +34,7 @@
 .nm::before{content:none}
 .ini{border-radius:7px;font-weight:600}
 .br{font-size:11px}
-.card,.task-card,.agcard,.wfrow,.qbox,.diff,.log,.claim,.wfprev,.bus-note{border-radius:var(--r-sm)}
+.card,.agcard,.wfrow,.qbox,.diff,.log,.claim,.wfprev,.bus-note{border-radius:var(--r-sm)}
 .agcard,.wfrow{border:.5px solid var(--border);box-shadow:var(--shadow-sm)}
 .pill{border-radius:var(--r-pill);font-weight:600}
 .mergedtag{border-radius:var(--r-pill)}
@@ -304,7 +304,6 @@
 .fcommit .chash{color:var(--muted);font-size:10.5px;flex:none}
 .fcommit .csub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .sidecommits{display:flex;flex-direction:column;gap:1px;margin-top:4px}
-.fgroup{margin-bottom:20px}
 .fgh{display:flex;align-items:center;gap:9px;margin:0 2px 9px;padding-bottom:8px;border-bottom:1px solid var(--border)}
 .fgh b{font-size:14px;font-weight:700}
 .fgav{width:26px;height:26px;border-radius:8px;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none;box-shadow:var(--shadow-sm)}

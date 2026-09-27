@@ -44,15 +44,6 @@ body{
 .pubspin{width:15px;height:15px;border-radius:var(--r-pill);border:2px solid var(--border-strong);border-top-color:var(--accent);animation:pubrot .8s linear infinite;flex:none}
 @keyframes pubrot{to{transform:rotate(360deg)}}
 
-/* switcher de projetos */
-.projsw{position:relative}
-.projbtn{display:inline-flex;align-items:center;gap:8px;max-width:280px}
-.projbtn b{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.projbtn .pdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
-.projbtn .pdot.live{background:var(--good);animation:pulse 1.6s infinite}
-.projbtn .chev{width:9px;height:7px;color:var(--muted);flex:none}
-.projmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:50;min-width:300px;max-width:420px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-sm);box-shadow:var(--shadow,0 12px 32px rgba(0,0,0,.28));padding:5px;max-height:60vh;overflow:auto}
-.projmenu .phead{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:6px 9px 4px}
 .prow{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:7px 9px;border-radius:var(--r-xs);cursor:pointer}
 .prow:hover{background:var(--surface-2)}
 .prow .pd{width:8px;height:8px;border-radius:50%;background:var(--border-strong)}
@@ -64,7 +55,6 @@ body{
 .prow .px{opacity:0;color:var(--muted);border:none;background:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:5px}
 .prow:hover .px{opacity:.7}
 .prow .px:hover{opacity:1;background:var(--surface-3);color:var(--crit)}
-.projmenu .psep{height:1px;background:var(--border);margin:5px 4px}
 .projadd{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:var(--r-xs);cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent)}
 .projadd svg{width:15px;height:15px;flex:none}
 .projadd:hover{background:var(--surface-2)}
@@ -74,10 +64,6 @@ body{
 
 /* barra de perguntas do agente */
 .askbar{background:color-mix(in srgb, var(--warn) 20%, var(--surface));border-bottom:1px solid var(--warn);padding:9px 14px;display:flex;flex-direction:column;gap:8px;flex:none}
-.askrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.askrow .q{font-size:12.5px;color:var(--text)}
-.askrow .q b{color:var(--warn)}
-.askrow .ac{margin-left:auto;display:flex;gap:6px;align-items:center}
 .askinput{background:var(--surface);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:5px 9px;min-width:220px}
 .askinput:focus{outline:2px solid var(--warn);outline-offset:-1px}
 .askopt,.asksend{border:1px solid var(--warn);background:var(--surface);color:var(--text);font:inherit;font-weight:600;font-size:12px;padding:5px 11px;cursor:pointer}
@@ -181,11 +167,6 @@ body{
 .mergedtag{display:inline-block;margin-top:12px;font-size:11px;font-weight:700;color:var(--good);border:1px solid var(--good);padding:3px 9px}
 .top .grow{flex:1}
 .repoinput{width:210px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:12px;padding:6px 9px}
-/* busca central do topo (redesign p2) */
-.topsearchwrap{display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;min-width:230px}
-.topsearchwrap:focus-within{border-color:var(--accent)}
-.topsearch{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:12px}
-@media (max-width:1180px){ .topsearchwrap{min-width:150px} }
 /* menu "mais" do topo — os botões secundários viram linhas de menu */
 .moremenu{position:absolute;top:calc(100% + 6px);right:0;z-index:70;min-width:230px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:6px;display:flex;flex-direction:column;gap:2px}
 .moremenu .btn{width:100%;justify-content:flex-start;border:0;background:transparent;padding:8px 10px}

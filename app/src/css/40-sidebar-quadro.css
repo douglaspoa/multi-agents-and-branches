@@ -5,8 +5,6 @@
 .sbhead .brand{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden}
 .sbnew{display:flex;flex-direction:column;gap:8px;padding:2px 12px 10px;flex:none}
 .sbbig{width:100%;justify-content:center}
-.sbnew .projsw{width:100%;position:relative}
-.sbnew .projbtn{width:100%;justify-content:flex-start}
 .sbscroll{flex:1;min-height:0;overflow:auto}
 .sbnav{display:flex;flex-direction:column;gap:2px;padding:8px 10px 12px;border-top:1px solid var(--border);flex:none}
 .sbitem{width:100%;justify-content:flex-start;gap:9px}
@@ -139,40 +137,9 @@
 .railadd{display:flex;align-items:center;gap:8px;width:calc(100% - 24px);margin:10px 12px 4px;padding:9px 11px;border:1px dashed var(--border-strong);border-radius:8px;background:none;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
 .railadd:hover{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
 .rsub.crit{color:var(--crit)}
-.lrow{display:grid;grid-template-columns:auto auto 1fr auto;gap:9px;align-items:center;padding:8px 12px;border:1px solid transparent;cursor:pointer;min-width:0}
-.lrow:hover{background:var(--surface-2)}
-/* ações rápidas na linha ao vivo (pausar/retomar/abortar) */
-.lracts{display:flex;gap:4px;opacity:0;transition:opacity .12s}
-.lrow:hover .lracts,.lrow.paused .lracts{opacity:1}
-.lract{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);background:var(--surface-3);color:var(--text-2);border-radius:6px;font-size:10px;cursor:pointer;padding:0}
-.lract:hover{border-color:var(--border-strong);color:var(--text)}
-.lract.danger:hover{border-color:var(--crit);color:var(--crit)}
-.lract svg{width:12px;height:12px}
-.lrow.sel .lract{background:var(--on-accent);border-color:transparent;color:var(--accent)}
-.lrow.paused{opacity:.85}
-.lrow.paused .stg{color:var(--info);border-color:color-mix(in srgb,var(--info) 40%,var(--border))}
 .pulse.off{animation:none;box-shadow:none;opacity:.5}
-/* medidor de slots (execuções em paralelo) */
-.slots{display:flex;align-items:center;gap:9px;padding:9px 13px 8px;border-bottom:1px solid var(--border)}
-.slots.over .slotinfo b{color:var(--warn)}
-.slotinfo{font-size:11px;color:var(--text-2)}
-.slotinfo b{font-size:13px;color:var(--text);font-variant-numeric:tabular-nums}
-.slotlim{color:var(--muted)}
-.slotdots{display:flex;gap:3px;flex:1;flex-wrap:wrap}
-.slotdot{width:7px;height:7px;border-radius:2px;background:var(--surface-3);border:1px solid var(--border)}
-.slotdot.on{background:var(--accent);border-color:var(--accent)}
-.slotdot.over.on{background:var(--warn);border-color:var(--warn)}
-.slotstep{display:flex;gap:3px}
 .sbtn{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);background:var(--surface-3);color:var(--text-2);border-radius:5px;font-size:13px;line-height:1;cursor:pointer;padding:0}
 .sbtn:hover{border-color:var(--border-strong);color:var(--text)}
-.lrow.sel{background:var(--accent);border-color:var(--accent)}
-.lrow.sel .nm,.lrow.sel .act,.lrow.sel .stg{color:var(--on-accent)}
-.lrow.sel .ini{background:var(--on-accent);color:var(--accent)}
-.lrow .lrt{min-width:0}
-.lrow .nm{font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:5px}
-.lrow .stg{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:0 4px}
-.lrow .act{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-.lrow.ask .act{color:var(--text)}
 .pulse{width:9px;height:9px;border-radius:50%;background:var(--pc,var(--good));box-shadow:0 0 0 0 var(--pc,var(--good));animation:lpulse 1.4s ease-out infinite}
 @keyframes lpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--pc,var(--good)) 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .ridle{padding:22px 16px;color:var(--muted);font-size:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
