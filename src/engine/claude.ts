@@ -243,7 +243,7 @@ export class ClaudeEngine implements AgentEngine {
       ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule
       : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule : baseline);
 
-    // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
+    // Escreve o mcp.json que injeta o servidor MCP do Starfork neste run.
     // Dev: src/mcp/server.ts ao lado do fonte. App empacotado: o bundle vira
     // Resources/engine/cli.mjs e o server mora em Resources/mcp/server.mjs.
     const serverPath = (() => {

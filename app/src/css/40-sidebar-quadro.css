@@ -1,4 +1,4 @@
-/* Constellation — 40-sidebar-quadro (fatia 4/6; a ORDEM dos arquivos importa: cascata) */
+/* Starfork — 40-sidebar-quadro (fatia 4/6; a ORDEM dos arquivos importa: cascata) */
 /* ===== SIDEBAR de altura total (estilo Claude) ===== */
 .sidebar{position:fixed;left:0;top:0;bottom:0;width:var(--rail-w,250px);display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--border);z-index:50;overflow:hidden}
 .sbhead{display:flex;align-items:center;gap:8px;padding:30px 12px 8px 14px;flex:none}

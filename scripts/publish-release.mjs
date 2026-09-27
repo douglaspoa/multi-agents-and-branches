@@ -1,4 +1,5 @@
-// Publica o Constellation-portable.zip no canal de releases (bucket privado).
+// Publica o Starfork-portable.zip no canal de releases (bucket privado) — e, em
+// seguida, o mesmo zip com o nome antigo (Constellation-portable.zip), pros clientes em update.
 // Credenciais do OWNER via env: CONSTELLATION_EMAIL / CONSTELLATION_PASSWORD.
 // Uso: node scripts/publish-release.mjs [notas da versão]
 import { readFileSync, statSync } from 'node:fs';
@@ -12,17 +13,23 @@ const login = await fetch(`${U}/auth/v1/token?grant_type=password`, { method: 'P
 if (!login.access_token) { console.error('login falhou:', login.msg || login.error_description); process.exit(1); }
 const H = { apikey: K, Authorization: 'Bearer ' + login.access_token };
 
-const zipPath = fileURLToPath(new URL('../dist/Constellation-portable.zip', import.meta.url));
-const binPath = fileURLToPath(new URL('../dist/Constellation-portable.app/Contents/MacOS/Constellation', import.meta.url));
+const zipPath = fileURLToPath(new URL('../dist/Starfork-portable.zip', import.meta.url));
+const binPath = fileURLToPath(new URL('../dist/Starfork-portable.app/Contents/MacOS/Starfork', import.meta.url));
 const buildMs = Math.floor(statSync(binPath).mtimeMs);
 const zip = readFileSync(zipPath);
 
-const up = await fetch(`${U}/storage/v1/object/releases/Constellation-portable.zip`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/zip', 'x-upsert': 'true' }, body: zip });
-if (!up.ok) { console.error('upload do zip falhou:', await up.text()); process.exit(1); }
+for (const name of ['Starfork-portable.zip', 'Constellation-portable.zip']) {
+  const up = await fetch(`${U}/storage/v1/object/releases/${name}`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/zip', 'x-upsert': 'true' }, body: zip });
+  if (!up.ok) {
+    // só o Starfork-portable.zip pode falhar a publicação; o alias antigo é best-effort
+    if (name === 'Starfork-portable.zip') { console.error(`upload do ${name} falhou:`, await up.text()); process.exit(1); }
+    console.warn(`⚠ alias ${name} não subiu (seguindo):`, await up.text());
+  }
+}
 
 const d = new Date(buildMs);
 const version = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-const meta = { buildMs, version, file: 'Constellation-portable.zip', size: zip.length, notes: process.argv.slice(2).join(' ') || 'Melhorias e correções.', publishedAt: new Date().toISOString() };
+const meta = { buildMs, version, file: 'Starfork-portable.zip', size: zip.length, notes: process.argv.slice(2).join(' ') || 'Melhorias e correções.', publishedAt: new Date().toISOString() };
 const mj = await fetch(`${U}/storage/v1/object/releases/latest.json`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: JSON.stringify(meta) });
 if (!mj.ok) { console.error('latest.json falhou:', await mj.text()); process.exit(1); }
 console.log(`✔ release publicada: build ${version} · ${(zip.length / 1048576).toFixed(1)} MB — os apps mostram "⬆ atualizar" em até 6h (ou no próximo boot).`);

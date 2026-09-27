@@ -1,4 +1,4 @@
-// Constellation — 31-nova-demanda-form
+// Starfork — 31-nova-demanda-form
 // ---- spec-first: campos obrigatórios por tipo + gate do Iniciar execução ----
 const NT_REQUIRED={
   build:[['ntTitle','título'],['ntObj','objetivo']],
@@ -299,7 +299,7 @@ $id('howGo').onclick=()=>{
 
 // ---- cadeia de política/guia: padrão do PRODUTO < organização < repo ----
 const ORG_DEFAULT_POLICY={ minRequirements:1, proofRequired:true, testsRequired:true, docRequired:false, costWarn:25 };
-const DEFAULT_SPEC_TEMPLATE=`# Guia de demanda — template padrão do Constellation
+const DEFAULT_SPEC_TEMPLATE=`# Guia de demanda — template padrão do Starfork
 
 Sua organização pode sobrescrever este guia (Conta → Padrões da organização);
 um repo pode refinar com .cardume/SPEC.md. A IA e o wizard seguem este texto.

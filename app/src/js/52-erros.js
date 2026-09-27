@@ -1,4 +1,4 @@
-// Constellation — 52-erros
+// Starfork — 52-erros
 // Rastreabilidade de erros: UMA classe/handler por onde TODO erro passa e vai
 // pro Supabase (tabela app_errors). A captura é GLOBAL (envelope no invoke em
 // 10-core + os listeners abaixo), então cobre do login ao mais banal — sem

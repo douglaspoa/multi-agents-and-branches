@@ -59,7 +59,7 @@ O SMTP padrão do Supabase só entrega pra e-mails dos membros do projeto e limi
 Crie um domínio no Resend (ou Postmark), pegue a chave e rode:
 ```bash
 SUPABASE_ACCESS_TOKEN=sbp_... SMTP_HOST=smtp.resend.com SMTP_PORT=465 SMTP_USER=resend \
-SMTP_PASS=re_... SMTP_FROM=no-reply@SEU-DOMINIO SMTP_NAME=Constellation scripts/supabase-auth-mail.sh smtp
+SMTP_PASS=re_... SMTP_FROM=no-reply@SEU-DOMINIO SMTP_NAME=Starfork scripts/supabase-auth-mail.sh smtp
 ```
 (sobe pra 200 e-mails/hora; o remetente precisa ser do domínio verificado no Resend).
 

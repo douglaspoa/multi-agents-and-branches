@@ -1,4 +1,4 @@
-// Constellation — 25-grafo
+// Starfork — 25-grafo
 // ============================================================================
 // GRAFO v2 — trilhos por tarefa: cada branch é uma linha horizontal legível
 // (fork na base → commits clicáveis → ponta com o agente e a cor do status →

@@ -1,4 +1,4 @@
-// Constellation — 29-ia-picker: "Com qual IA?" — motor + versão do modelo com ícones e recomendação pela demanda.
+// Starfork — 29-ia-picker: "Com qual IA?" — motor + versão do modelo com ícones e recomendação pela demanda.
 // Fonte da verdade continua sendo os selects escondidos #ntEngine e #ntModel (o CLI recebe --engine/--model).
 // Como as versões chegam ao modelo: o Claude Code aceita um ALIAS (opus/sonnet/haiku = a versão mais nova do seu
 // plano) ou o id COMPLETO (ex.: claude-opus-5-5). O app não descobre a lista sozinho — ela é curada aqui e

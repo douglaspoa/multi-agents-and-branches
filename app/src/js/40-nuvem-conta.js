@@ -1,11 +1,11 @@
-// Constellation — 40-nuvem-conta
+// Starfork — 40-nuvem-conta
 /* ============================================================================
    TIME NA NUVEM (F1) — Supabase via fetch puro, zero dependência.
    Estados: setup (URL+anon key) → login → sem-org (criar org/aceitar convite)
    → home (org, times, membros, convites, seletor de time atual).
    RLS mora no banco; aqui só autentica e consome /auth/v1 + /rest/v1.
    ========================================================================= */
-// Padrão: NUVEM (projeto Supabase do Constellation) — anon key é pública por
+// Padrão: NUVEM (projeto Supabase do Starfork) — anon key é pública por
 // design; o RLS protege os dados. "backend…" na tela de login troca o alvo
 // (localStorage tem precedência) e SB_LOCAL volta pro stack de dev.
 const SB_DEFAULT = { url: 'https://fivoakrhazlzcdoocgbg.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpdm9ha3JoYXpsemNkb29jZ2JnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMjcxOTcsImV4cCI6MjEwMzYwMzE5N30.NXr1RjGqhcYHfMU050PRBcBraXsAYw-4FUVyoo3RC8U' };
@@ -340,7 +340,7 @@ async function renderCloud(){
     renderCloud();
   }; });
   // convites pendentes: copiar mensagem / revogar
-  const invMsg=(iv)=>{ const tn=(d.teams.find(x=>x.id===iv.team_id)||{}).name||''; return `Você foi convidado(a) pro time ${tn} da ${d.org.name} no Constellation.\n1. Abra o Constellation e clique em Entrar\n2. Crie sua conta com o e-mail ${iv.email}\n3. Em "aceitar convite", cole o token:\n${iv.token}`; };
+  const invMsg=(iv)=>{ const tn=(d.teams.find(x=>x.id===iv.team_id)||{}).name||''; return `Você foi convidado(a) pro time ${tn} da ${d.org.name} no Starfork.\n1. Abra o Starfork e clique em Entrar\n2. Crie sua conta com o e-mail ${iv.email}\n3. Em "aceitar convite", cole o token:\n${iv.token}`; };
   body.querySelectorAll('[data-iact]').forEach(b=>{ b.onclick=async()=>{
     const iv=(d.invites||[]).find(x=>x.id===b.dataset.iv); if(!iv) return;
     if(b.dataset.iact==='copy'){ navigator.clipboard.writeText(invMsg(iv)); b.textContent='copiado ✓'; return; }
@@ -358,7 +358,7 @@ async function renderCloud(){
         const rows=await sbPost('invites',{ org_id:d.org.id, team_id:invTeamId, email:mail, role:$id('sbInvRole').value, created_by:cloudUserId() });
         const tok=rows[0].token;
         const teamName=(d.teams.find(x=>x.id===invTeamId)||{}).name||'';
-        const msg=`Você foi convidado(a) pro time ${teamName} da ${d.org.name} no Constellation.\n1. Abra o Constellation e clique em Entrar\n2. Crie sua conta com o e-mail ${mail}\n3. Em "aceitar convite", cole o token:\n${tok}`;
+        const msg=`Você foi convidado(a) pro time ${teamName} da ${d.org.name} no Starfork.\n1. Abra o Starfork e clique em Entrar\n2. Crie sua conta com o e-mail ${mail}\n3. Em "aceitar convite", cole o token:\n${tok}`;
         $id('sbInvOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
         $id('sbInvCopy').onclick=function(){ navigator.clipboard.writeText(msg); this.textContent='copiado ✓'; };
       }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }

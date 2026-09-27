@@ -1,4 +1,4 @@
-// Constellation — admin-api: backend da área /admin do site (constellation-ai-v1).
+// Starfork — admin-api: backend da área /admin do site (constellation-ai-v1).
 // TRAVADA no dono do produto (allowlist de e-mail + JWT válido). Roda com service role,
 // então enxerga tudo (auth.users, audit log, app_errors, orgs/times, billing, custo).
 // Deploy:  supabase functions deploy admin-api --no-verify-jwt --project-ref fivoakrhazlzcdoocgbg

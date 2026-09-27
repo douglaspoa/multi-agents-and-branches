@@ -1,4 +1,4 @@
-// Constellation — 10-core
+// Starfork — 10-core
 // DIAGNÓSTICO de travamento: comandos em voo, comando > 3s e thread da página bloqueada > 1,5s vão pro
 // /tmp/constellation-web.log com o que estava rodando — a causa fica registrada em vez de suposta
 const __inflight=new Map(); let __invSeq=0;
@@ -132,7 +132,7 @@ function gitUiSync(){
 async function gitGate(){
   if(repoHasGit()) return true;
   const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
-  if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Constellation precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
+  if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Starfork precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
   try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
   catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
 }
@@ -165,7 +165,7 @@ let lastNotif=null; // {id, ts} — última notificação disparada (pro roteame
 function pushNotif(title, body, taskId){
   if(!notifOn) return;
   if(taskId && !document.hasFocus()) lastNotif={ id:taskId, ts:Date.now() };
-  // caminho nativo: atribuição correta (Constellation) — clicar abre o APP
+  // caminho nativo: atribuição correta (Starfork) — clicar abre o APP
   invoke('notify_native', { title, body: String(body||'').slice(0,180), taskId: taskId||null })
     .catch(()=>{ const n=notifApi(); if(n) try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} });
 }

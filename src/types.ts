@@ -1,4 +1,4 @@
-// Tipos compartilhados do núcleo do Cardume.
+// Tipos compartilhados do núcleo do Starfork.
 
 export type ClarMode = "ask" | "assume" | "strict" | "auto"; // "auto" = decide sozinho (planner/CLI já gravam)
 export type CommitMode = "per-step" | "at-end" | "never";

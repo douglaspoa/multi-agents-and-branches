@@ -1,4 +1,4 @@
-// Constellation — 14-nova-demanda-inicio
+// Starfork — 14-nova-demanda-inicio
 // ===== Nova demanda (redesign): tela de início — tipo + método =====
 const ND_TYPES=[
   {k:'build', i:'F', name:'Feature', desc:'Construir algo novo — tela, endpoint, fluxo.'},

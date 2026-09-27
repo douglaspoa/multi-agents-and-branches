@@ -1,4 +1,4 @@
-// Constellation — 42-nuvem-sync-mobile
+// Starfork — 42-nuvem-sync-mobile
 /* ============================================================================
    F2 — TAREFAS COMPARTILHADAS: o "cartão" da tarefa vive no time (Supabase);
    o trabalho (worktree, stream do agente) vive na máquina de quem assumiu.

@@ -1,4 +1,4 @@
-/* Constellation — 30-refino-macos (fatia 3/6; a ORDEM dos arquivos importa: cascata) */
+/* Starfork — 30-refino-macos (fatia 3/6; a ORDEM dos arquivos importa: cascata) */
 /* ===================== refinamento macOS (override) ===================== */
 .mono,.br,.feed .fl,.log,.log .ts,#graphSvg text,.hash,.gsub,.glabel,.claim{font-family:var(--mono)}
 .top{gap:9px;padding:9px 14px;border-bottom:.5px solid var(--border);background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);position:relative;z-index:40}

@@ -1,4 +1,4 @@
-// Constellation — 24-perguntas-agente
+// Starfork — 24-perguntas-agente
 // ---------- modal de resposta ao agente (legível, input estável fora do poll) ----------
 let askId=null;
 // pergunta do agente SEM modal: abre a tela de execução — a pergunta está inline

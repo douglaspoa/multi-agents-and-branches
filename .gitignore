@@ -5,8 +5,8 @@ node_modules/
 *.log
 .DS_Store
 dist/
-dist/Constellation-portable.app
-dist/Constellation-portable.zip
+dist/Starfork-portable.app
+dist/Starfork-portable.zip
 app/src-tauri/resources/
 mobile/ios/build*/
 mobile/ios/**/xcuserdata/

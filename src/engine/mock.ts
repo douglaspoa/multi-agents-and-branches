@@ -104,7 +104,7 @@ function firstOwnedDir(owns: string[]): string {
 /** Gera uma função por entregável, com o comentário de propósito logo acima. */
 function implBody(spec: { title: string; agent: string; deliverables: string[]; id: string }): string {
   const header = [
-    `// Gerado pelo Cardume (MockEngine) — agente ${spec.agent}`,
+    `// Gerado pelo Starfork (MockEngine) — agente ${spec.agent}`,
     `// Tarefa: ${spec.title}`,
     ``,
   ];

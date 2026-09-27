@@ -1,4 +1,4 @@
-// Constellation — 33-switcher-projetos
+// Starfork — 33-switcher-projetos
 // ---------- switcher de projetos ----------
 let projects = [];
 let projErr = "";

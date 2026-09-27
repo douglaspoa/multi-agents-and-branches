@@ -1,7 +1,7 @@
 [package]
 name = "cardume-app"
 version = "0.0.1"
-description = "Cardume — orquestrador visual de agentes"
+description = "Starfork — orquestrador visual de agentes"
 edition = "2021"
 rust-version = "1.77"
 

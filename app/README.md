@@ -1,6 +1,6 @@
-# 🐙 Cardume — App desktop (Tauri v2, Mac-first)
+# ✦ Starfork — App desktop (Tauri v2, Mac-first)
 
-Shell desktop do Cardume. **Fase 1, milestone 1: visor ao vivo.** É o `cardume watch`
+Shell desktop do Starfork. **Fase 1, milestone 1: visor ao vivo.** É o `cardume watch`
 virando UI de verdade — lê o `state.sqlite` do repo (a fonte de verdade que o núcleo
 escreve) e renderiza, na **pele Terminal**, a lista de agentes, a atividade ao vivo, o
 detalhe da tarefa (reivindicações, diff, log) e o barramento de coordenação.

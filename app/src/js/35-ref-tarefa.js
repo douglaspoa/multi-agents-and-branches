@@ -1,4 +1,4 @@
-// Constellation — 35-ref-tarefa
+// Starfork — 35-ref-tarefa
 // ---- "/" referencia uma tarefa JÁ FEITA ao abrir uma nova ----
 // Digitou "/" (no começo ou depois de espaço) numa descrição da Nova demanda ou no
 // "montar conversando": abre o seletor com as últimas tarefas feitas (mais recentes

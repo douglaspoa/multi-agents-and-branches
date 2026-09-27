@@ -1,6 +1,6 @@
 name: build-linux
 
-# Gera o Constellation pro Linux (.AppImage + .deb). O Tauri NÃO faz
+# Gera o Starfork pro Linux (.AppImage + .deb). O Tauri NÃO faz
 # cross-compile a partir do macOS, então o build precisa rodar num Linux de
 # verdade — é o que esta runner ubuntu-22.04 faz. Dispare pela aba Actions
 # (workflow_dispatch) ou empurrando uma tag v*.
@@ -63,7 +63,7 @@ jobs:
       - name: Publica os pacotes como artefato
         uses: actions/upload-artifact@v4
         with:
-          name: constellation-linux
+          name: starfork-linux
           path: |
             app/src-tauri/target/release/bundle/deb/*.deb
             app/src-tauri/target/release/bundle/appimage/*.AppImage

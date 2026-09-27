@@ -11,7 +11,7 @@ function list(arr: string[]): string {
  */
 export function taskToYaml(t: TaskSpec): string {
   const lines = [
-    `# .cardume/TASK.yaml — lido pelo agente Cardume na worktree`,
+    `# .cardume/TASK.yaml — lido pelo agente Starfork na worktree`,
     `id: ${t.id}`,
     `title: ${t.title}`,
     `agent: ${t.agent}`,

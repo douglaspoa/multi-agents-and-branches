@@ -89,7 +89,7 @@ export class Orchestrator {
     // — a não ser que uma base explícita seja passada em spec.base.
     const base = spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase();
 
-    // A pasta do Constellation nunca deve entrar no repo do usuário.
+    // A pasta do Starfork nunca deve entrar no repo do usuário.
     await this.git.ensureExcluded([".cardume/", ".constellation/"]);
     // base ATUALIZADA: fetch + origin/<base> quando existir (main fresca sempre)
     const baseRef = await this.git.freshBaseRef(base);
@@ -690,7 +690,7 @@ export class Orchestrator {
           } else {
             this.store.addEvent(taskId, r.name, "error", msg, false, r.role);
             this.store.setStatus(taskId, "error");
-            notify("Cardume", "Tarefa falhou — veja o log", task.title);
+            notify("Starfork", "Tarefa falhou — veja o log", task.title);
             return;
           }
         }
@@ -751,7 +751,7 @@ export class Orchestrator {
           false,
           r.role,
         );
-        notify("Constellation", `${r.name} não concluiu — veja o log`, task.title);
+        notify("Starfork", `${r.name} não concluiu — veja o log`, task.title);
         return;
       }
 
@@ -763,7 +763,7 @@ export class Orchestrator {
       // quando foi o próprio agente que fez o commit.
       if (r.role !== "reviewer") {
         try {
-          await this.git.commitAll(task.worktree, `cardume(${r.role}): ${task.title}`);
+          await this.git.commitAll(task.worktree, `starfork(${r.role}): ${task.title}`);
           const d = await this.git.diffStat(task.worktree, task.base);
           this.store.setDiff(taskId, d.files, d.add, d.del);
           // Tarefas via Claude já geram o resumo do commit no fluxo (fica em cache).
@@ -800,7 +800,7 @@ export class Orchestrator {
       if (r.role === "planner" && spec.autonomy.planApproval === "review" && i < roles.length - 1) {
         this.store.setStatus(taskId, "plan-review");
         this.store.addEvent(taskId, r.name, "note", "plano pronto — aguardando sua aprovação para continuar", true);
-        notify("Constellation", "Plano pronto para sua aprovação", task.title);
+        notify("Starfork", "Plano pronto para sua aprovação", task.title);
         return;
       }
     }
@@ -810,7 +810,7 @@ export class Orchestrator {
     this.store.releaseClaims(taskId); // terminou de editar → libera os caminhos
     this.store.setStatus(taskId, "review");
     const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
-    if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
+    if (usesClaude) notify("Starfork", "Pronta para review ✓", task.title);
     this.appendHistory(taskId);      // memória de issues: entra no índice pesquisável
     this.harvestRunbook(task.worktree); // aprendizado de ambiente volta pro repo
     await this.maybeOpenPr(taskId, task, spec);
@@ -827,7 +827,7 @@ export class Orchestrator {
     const mode = spec.autoPr ?? "ask";
     if (mode === "no") return;
     if (mode === "ask") {
-      notify("Constellation", "Pronta — quer abrir o PR? (aba PR da tarefa)", task.title);
+      notify("Starfork", "Pronta — quer abrir o PR? (aba PR da tarefa)", task.title);
       return;
     }
     // mode === "auto": GATE MECÂNICO antes de abrir (evidência existe + testes passam)
@@ -835,7 +835,7 @@ export class Orchestrator {
     if (!gate.ok) {
       const why = gate.reasons.slice(0, 3).join(" · ");
       this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
-      notify("Constellation", "PR não aberto — verificação falhou", task.title);
+      notify("Starfork", "PR não aberto — verificação falhou", task.title);
       return;
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
@@ -844,11 +844,11 @@ export class Orchestrator {
       const body =
         `## O quê\n${spec.objective || spec.title}\n\n` +
         ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
-        `_Aberto automaticamente pelo Constellation (sem pendências nos requisitos)._`;
+        `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._`;
       const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree });
       const url = stdout.trim().split("\n").pop() ?? "";
       this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
-      notify("Constellation", "PR aberto ✓", task.title);
+      notify("Starfork", "PR aberto ✓", task.title);
     } catch (err) {
       this.store.addEvent(taskId, spec.agent, "note", `falha ao abrir o PR automaticamente: ${(err as Error).message?.slice(0, 140)}`, false);
     }
@@ -931,7 +931,7 @@ export class Orchestrator {
       this.store.addEvent(spec.id, spec.agent, "note", `falha no review factual: ${(err as Error).message}`, false, "reviewer");
     }
     this.store.setStatus(spec.id, "review");
-    notify("Constellation", "Review do PR pronto ✓", spec.title);
+    notify("Starfork", "Review do PR pronto ✓", spec.title);
   }
 
   /**
@@ -1136,7 +1136,7 @@ export class Orchestrator {
       this.store.addEvent(taskId, role.name, "note", `não consegui gerar ${label} — veja o erro acima e tente de novo`, false, role.role);
     } else {
       this.store.addEvent(taskId, role.name, "note", `${label} pronto — veja em Artefatos`, true, role.role);
-      notify("Constellation", `${label} pronto ✓`, task.title);
+      notify("Starfork", `${label} pronto ✓`, task.title);
     }
   }
 
@@ -1267,7 +1267,7 @@ export class Orchestrator {
     }
     this.store.setStatus(taskId, next);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
-    else notify("Constellation", `${role.name} respondeu`, task.title);
+    else notify("Starfork", `${role.name} respondeu`, task.title);
     // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
     if (!asReq) void this.learnFromMessage(message);
   }
@@ -1308,7 +1308,7 @@ export class Orchestrator {
     this.store.setDoneRoles(taskId, 0);
     this.store.setStatus(taskId, "running");
     await this.runTaskInner(taskId); // Inner: o lock/fila já é do chamador
-    notify("Constellation", "Ajuste aplicado (time inteiro) — pronto para review", task.title);
+    notify("Starfork", "Ajuste aplicado (time inteiro) — pronto para review", task.title);
   }
 
   /** Detecta um código de issue (FND-853, ABC-12…) nos eventos e renomeia a branch. */
@@ -1356,7 +1356,7 @@ export class Orchestrator {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     try {
-      await this.git.mergeBranch(task.branch, `cardume: merge ${task.title} (${task.branch})`);
+      await this.git.mergeBranch(task.branch, `starfork: merge ${task.title} (${task.branch})`);
     } catch (err) {
       await this.git.abortMerge();
       this.store.setStatus(taskId, "conflict");

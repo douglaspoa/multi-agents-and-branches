@@ -1,11 +1,11 @@
-# Cardume — Spec & Plano Técnico
+# Starfork — Spec & Plano Técnico
 
 > Um "GitKraken para múltiplos agentes de IA": você abre várias tarefas no mesmo
 > repositório, cada agente trabalha na sua própria branch **em paralelo e isolado**,
 > todos sabem uns dos outros através de um **barramento de coordenação**, e tudo é
 > visual — grafo de branches + quadro de tarefas.
 
-`Cardume` é um nome-código (um cardume de agentes nadando juntos). Troque à vontade.
+`Starfork` é o nome do produto (domínio starfork.com.br). Identificadores internos (`.cardume/`, CLI `cardume`, `CARDUME_*`) seguem com o nome-código antigo.
 
 ---
 
@@ -176,7 +176,7 @@ Desfazendo a confusão de nomes:
 | Caminho | O que é | Usar? |
 |---|---|---|
 | **API da Anthropic** (`/messages`) | Você reimplementa o agente do zero (loop de tools, edição, git). | ❌ Não — é rebuildar o Claude Code. |
-| **Claude Code headless** (`claude -p …`) | O próprio Claude Code, com todo o harness, usando **seu login/assinatura Max**. | ✅ É o motor do Cardume. |
+| **Claude Code headless** (`claude -p …`) | O próprio Claude Code, com todo o harness, usando **seu login/assinatura Max**. | ✅ É o motor do Starfork. |
 | **Claude Agent SDK** (TS/Python) | O mesmo Claude Code como biblioteca, mesma auth. | ✅ Alternativa se preferir embutir. |
 
 O motor é o **binário `claude` rodando headless dentro de cada worktree**. Autenticação
@@ -185,7 +185,7 @@ O motor é o **binário `claude` rodando headless dentro de cada worktree**. Aut
 ### Os dois canais de comunicação
 
 ```
-  APP (Cardume)                         CLAUDE CODE (headless, na worktree)
+  APP (Starfork)                         CLAUDE CODE (headless, na worktree)
   ─────────────                         ──────────────────────────────────
                     (1) spawn + contexto
    cria worktree ─────────────────────►  claude -p "execute .cardume/TASK.yaml"

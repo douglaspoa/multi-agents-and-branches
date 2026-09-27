@@ -1,4 +1,4 @@
-// Constellation — 32-planner
+// Starfork — 32-planner
 // ========== Planner (chat) — monta o TASK.yaml conversando ==========
 const PL_MESH=[
   {k:'id',      label:'id',              src:'auto',      auto:true},
@@ -402,7 +402,7 @@ async function ntApplyShare(payload){
   if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
   return false;
 }
-// Este PR já foi revisado por alguém do time via Constellation? (dedup de review)
+// Este PR já foi revisado por alguém do time via Starfork? (dedup de review)
 async function cloudPrReviewCheck(prUrl){
   if(!SB.sess()||!cloudTeamId()||!prUrl) return null;
   try{
@@ -421,7 +421,7 @@ async function submitNewTask(start=true){
     const agents = $id("ntReviewer").value || null;
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="revisando…";
     const done=await cloudPrReviewCheck(pr).catch(()=>null);
-    if(done && !await askYes('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Constellation — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
+    if(done && !await askYes('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
     try{ await invoke("review_pr", { prUrl: pr, agents }); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ alert("Falha ao iniciar o review:\n"+e); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }

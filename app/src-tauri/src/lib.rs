@@ -45,7 +45,7 @@ fn cli_path(repo: &PathBuf) -> String {
         }
     }
     if let Ok(exe) = std::env::current_exe() {
-        // Contents/MacOS/Constellation → Contents/Resources/engine/cli.mjs
+        // Contents/MacOS/Starfork → Contents/Resources/engine/cli.mjs
         if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
             let bundled = contents.join("Resources").join("engine").join("cli.mjs");
             if bundled.is_file() {
@@ -487,7 +487,7 @@ fn signal_group(pid: i32, sig: i32) {
 /// pra podermos pausar/abortar a árvore inteira. Uma thread limpa o registro
 /// quando o processo termina naturalmente (evita PID reciclado no mapa).
 fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Result<(), String> {
-    // O APP é quem notifica (plugin Tauri, atribuído ao Constellation — clicar
+    // O APP é quem notifica (plugin Tauri, atribuído ao Starfork — clicar
     // abre o app). As do motor via osascript saem como "Editor de Script" e o
     // clique abre ele; caladas aqui. No CLI puro (sem app) elas continuam.
     cmd.env("CARDUME_NOTIFY", "0");
@@ -1115,7 +1115,7 @@ fn list_projects(state: State<AppState>) -> Vec<Project> {
         .collect()
 }
 
-/// Abre um projeto: valida git, inicializa o workspace Cardume se preciso,
+/// Abre um projeto: valida git, inicializa o workspace do Starfork se preciso,
 /// torna-o o projeto ativo e adiciona ao topo da lista.
 #[tauri::command(async)]
 fn open_project(state: State<AppState>, path: String) -> Result<String, String> {
@@ -1160,8 +1160,8 @@ fn git_init_repo(state: State<AppState>) -> Result<String, String> {
     let has_ident = Command::new("git").arg("-C").arg(&repo).args(["config", "user.email"]).output().map(|o| o.status.success() && !o.stdout.is_empty()).unwrap_or(false);
     let mut c = Command::new("git");
     c.arg("-C").arg(&repo);
-    if !has_ident { c.args(["-c", "user.name=Constellation", "-c", "user.email=constellation@local"]); }
-    let out = c.args(["commit", "-q", "-m", "chore: início do repositório (Constellation)"]).output().map_err(|e| e.to_string())?;
+    if !has_ident { c.args(["-c", "user.name=Starfork", "-c", "user.email=starfork@local"]); }
+    let out = c.args(["commit", "-q", "-m", "chore: início do repositório (Starfork)"]).output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if !err.contains("nothing to commit") { return Err(format!("commit inicial falhou: {err}")); }
@@ -1203,7 +1203,7 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
         }
     }
     if !db.exists() {
-        return Err("workspace Cardume não pôde ser criado".to_string());
+        return Err("workspace do Starfork não pôde ser criado".to_string());
     }
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
@@ -1261,7 +1261,7 @@ fn create_project(
     run(&["init", "-b", "main"])?;
     std::fs::write(repo.join("README.md"), format!("# {}
 
-Projeto criado pelo Constellation.
+Projeto criado pelo Starfork.
 ", name.trim()))
         .map_err(|e| e.to_string())?;
     std::fs::write(repo.join(".gitignore"), ".DS_Store
@@ -1270,8 +1270,8 @@ node_modules/
 .cardume/
 ").map_err(|e| e.to_string())?;
     run(&["add", "-A"])?;
-    run(&["-c", "user.name=Constellation", "-c", "user.email=constellation@local", "commit", "-q", "-m", "chore: projeto criado pelo Constellation"])
-        .or_else(|_| run(&["commit", "-q", "-m", "chore: projeto criado pelo Constellation"]))?;
+    run(&["-c", "user.name=Starfork", "-c", "user.email=starfork@local", "commit", "-q", "-m", "chore: projeto criado pelo Starfork"])
+        .or_else(|_| run(&["commit", "-q", "-m", "chore: projeto criado pelo Starfork"]))?;
     if github {
         let full = if owner.trim().is_empty() { slug.clone() } else { format!("{}/{}", owner.trim(), slug) };
         let mut c = Command::new(gh_bin());
@@ -1457,7 +1457,7 @@ fn gh_owners() -> Vec<String> {
 fn switch_project(state: State<AppState>, path: String) -> Result<String, String> {
     let db = PathBuf::from(&path).join(".cardume").join("state.sqlite");
     if !db.exists() {
-        return Err(format!("sem workspace Cardume em {path}"));
+        return Err(format!("sem workspace do Starfork em {path}"));
     }
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
@@ -2838,7 +2838,7 @@ fn set_task_model(state: State<AppState>, task_id: String, model: String) -> Res
 #[tauri::command(async)]
 fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o ORQUESTRADOR do Constellation. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
+    let sys = "Você é o ORQUESTRADOR do Starfork. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -3169,7 +3169,7 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     use std::io::BufRead;
     use tauri::Emitter;
     let repo = repo_of(&state)?;
-    let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
+    let sys = "Você é o PLANNER do Starfork: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -3276,7 +3276,7 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
     let repo = repo_or(&state, repo)?;
     let locked = plan.contains("\"status\":\"running\"") || plan.contains("\"status\":\"done\"");
     let sys = format!(concat!(
-        "Você é o ORQUESTRADOR do Constellation conversando com o dev em português sobre o PROJETO aberto e o PLANO que você propôs. ",
+        "Você é o ORQUESTRADOR do Starfork conversando com o dev em português sobre o PROJETO aberto e o PLANO que você propôs. ",
         "Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar. Você NÃO edita arquivos nem roda comandos que alterem estado. ",
         "Seja direto e específico (arquivos/linhas quando útil). ",
         "Responda SEMPRE com um bloco ```json com as chaves {{\"say\":\"sua resposta em markdown curto\"}}{}. Nada de texto fora do bloco.\n\nPLANO ATUAL (JSON):\n{}"),
@@ -3327,8 +3327,8 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let cli = std::env::var("CARDUME_CLI").map_err(|_| "só a instalação de desenvolvimento publica releases")?;
     // CARDUME_CLI → .../src/cli.ts → raiz do produto
     let root = PathBuf::from(&cli).parent().and_then(|p| p.parent()).map(|p| p.to_path_buf()).ok_or("CARDUME_CLI inesperado")?;
-    let zip = root.join("dist").join("Constellation-portable.zip");
-    let bin = root.join("dist").join("Constellation-portable.app").join("Contents").join("MacOS").join("Constellation");
+    let zip = root.join("dist").join("Starfork-portable.zip");
+    let bin = root.join("dist").join("Starfork-portable.app").join("Contents").join("MacOS").join("Starfork");
     if !zip.exists() { return Err(format!("rode scripts/package-app.sh antes — sem {}", zip.display())); }
     let mtime_ms = |p: &PathBuf| -> Option<i64> {
         std::fs::metadata(p).and_then(|m| m.modified()).ok()
@@ -3338,8 +3338,9 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let build_ms = mtime_ms(&bin).ok_or("binário do portable não encontrado")?;
     // GUARD: se o app DEV (deploy-local) é bem mais novo que o portable, o pacote
     // está DEFASADO — publicar mandaria um build velho pros colegas. Barra.
-    let dev_bin = root.join("dist").join("Constellation.app").join("Contents").join("MacOS").join("Constellation");
-    if let Some(dev_ms) = mtime_ms(&dev_bin) {
+    let dev_bin = root.join("dist").join("Starfork.app").join("Contents").join("MacOS").join("Starfork");
+    let old_dev_bin = root.join("dist").join("Constellation.app").join("Contents").join("MacOS").join("Constellation");
+    if let Some(dev_ms) = mtime_ms(&dev_bin).or_else(|| mtime_ms(&old_dev_bin)) {
         // 30min de folga: ignora o skew de reempacotar+redeploy na mesma sessão,
         // mas pega o caso real (portable de dias atrás, esquecido).
         if dev_ms > build_ms + 1_800_000 {
@@ -3347,16 +3348,24 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
         }
     }
     let size = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
-    // 1) zip
-    let mut c1 = Command::new("curl");
-    c1.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
-        "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
-        "-H", "x-upsert: true", "-H", "Content-Type: application/zip",
-        "--data-binary"]).arg(format!("@{}", zip.display()))
-        .arg(format!("{url}/storage/v1/object/releases/Constellation-portable.zip"));
-    let r1 = output_timeout(c1, 300)?;
-    let code1 = String::from_utf8_lossy(&r1.stdout).trim().to_string();
-    if code1 != "200" { return Err(format!("upload do zip falhou (HTTP {code1}) — você é o owner do canal?")); }
+    // 1) zip — primeiro com o nome novo e, em seguida, com o antigo (Constellation-portable.zip):
+    // clientes de antes do rename (ou links velhos) continuam achando o release.
+    // Só o Starfork-portable.zip pode falhar a publicação; o alias antigo é best-effort.
+    let mut warn = String::new();
+    for name in ["Starfork-portable.zip", "Constellation-portable.zip"] {
+        let mut c1 = Command::new("curl");
+        c1.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
+            "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
+            "-H", "x-upsert: true", "-H", "Content-Type: application/zip",
+            "--data-binary"]).arg(format!("@{}", zip.display()))
+            .arg(format!("{url}/storage/v1/object/releases/{name}"));
+        let r1 = output_timeout(c1, 300)?;
+        let code1 = String::from_utf8_lossy(&r1.stdout).trim().to_string();
+        if code1 != "200" {
+            if name == "Starfork-portable.zip" { return Err(format!("upload do {name} falhou (HTTP {code1}) — você é o owner do canal?")); }
+            warn = format!(" · aviso: alias {name} não subiu (HTTP {code1})");
+        }
+    }
     // 2) latest.json
     let d = build_ms / 1000;
     let version = {
@@ -3364,7 +3373,7 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
     let meta = serde_json::json!({
-        "buildMs": build_ms, "version": version, "file": "Constellation-portable.zip",
+        "buildMs": build_ms, "version": version, "file": "Starfork-portable.zip",
         "size": size, "notes": notes.unwrap_or_else(|| "Melhorias e correções.".into()),
         "publishedAt": chrono_iso_now(),
     });
@@ -3379,7 +3388,7 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let r2 = output_timeout(c2, 60)?;
     let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
     if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
-    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram ⬆ atualizar no próximo boot ou em até 6h", size as f64 / 1048576.0))
+    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram ⬆ atualizar no próximo boot ou em até 6h{warn}", size as f64 / 1048576.0))
 }
 fn chrono_iso_now() -> String {
     let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();
@@ -3834,7 +3843,7 @@ Não invente: o que o código não responde vira pergunta em `open`. Pergunte PO
 TAMANHO DA LISTA (diga no `say`, na 1ª frase, qual caminho tomou): se as linhas forem 3 ou mais FRENTES de UMA MESMA entrega (mesmo resultado pro usuário — ex.: cadastro, login social e recuperação de senha), proponha agrupar num ÉPICO: devolva a chave opcional `epic` = {"title":"nome curto","outcome":"1 frase: pra quem, o que muda e o sinal de que funcionou","doneWhen":["3 a 6 checagens que uma PESSOA roda sem abrir nenhuma issue"]} e abra o `say` com "Épico: <título> — …"; a ordem das issues é a ordem de build (a primeira é o caminho mais fino que atravessa tudo). Bugs soltos, itens sem relação entre si ou lista curta NÃO ganham `epic` (mande `"epic":null`) e o `say` abre com "Issues soltas: …". Na dúvida, sem épico. `epic` é ESTADO COMPLETO como `issues`: enquanto o agrupamento valer, repita o objeto inteiro em TODA rodada (perguntas, respostas e lotes); só mande `"epic":null` quando decidir desagrupar. O dev pode mandar "vira épico" ou "sem épico" — obedeça e diga que trocou. Se o contexto trouxer `epicSupport:false`, ainda proponha o `epic` quando fizer sentido: o app cita o épico no corpo das issues.
 Responda SEMPRE E SOMENTE com um bloco ```json: {"say":"sua fala curta em markdown","chips":["0 a 4 respostas rápidas"],"epic":null,"issues":[{"title":"","description":"","requirements":[""],"goal":"","assignee":"","priority":"","type":"","open":[""],"skip":false}],"done":false}. `issues` traz SEMPRE a lista COMPLETA e atualizada (não só o que mudou), na ordem do dev — EXCETO quando a mensagem vier marcada com [LOTE k/n]: aí devolva em `issues` SÓ as issues daquele lote (o app junta) e guarde as perguntas menos importantes em `open` em vez de encher o `say`. Lista grande = pesquisa mais enxuta por item (1-2 buscas direcionadas cada). `done` só vira true quando nenhuma issue tem `open` pendente E o dev confirmar que pode criar. Se a mensagem for saudação ou ainda não houver nada concreto, responda direto sem usar ferramentas e com "issues":[]. JSON ESTRITAMENTE VÁLIDO: dentro das strings use \\n pra quebra de linha, escape aspas, e NUNCA coloque cercas ``` dentro de `say`/`description` (pra citar caminho, label ou trecho use `crase simples`). Nada de texto fora do bloco json."#;
 
-const TRACKER_AI_PROMPT: &str = r#"Você configura a conexão do Constellation com um painel/tracker de issues a partir da DOCUMENTAÇÃO da API dele. Responda SOMENTE um JSON válido (sem markdown, sem comentários) neste formato:
+const TRACKER_AI_PROMPT: &str = r#"Você configura a conexão do Starfork com um painel/tracker de issues a partir da DOCUMENTAÇÃO da API dele. Responda SOMENTE um JSON válido (sem markdown, sem comentários) neste formato:
 {
  "name": "nome curto do painel",
  "baseUrl": "https://…",
@@ -4251,6 +4260,21 @@ fn is_dev_install() -> bool {
     std::env::var("CARDUME_CLI").map(|v| !v.is_empty()).unwrap_or(false)
 }
 
+/// Destino do update: instala no lugar, exceto o rename único Constellation.app →
+/// Starfork.app (quando o zip traz Starfork.app e esse irmão ainda não existe).
+/// Bundle id igual → dados e permissões seguem.
+fn update_dest(cur_app: &std::path::Path, new_app: &std::path::Path) -> PathBuf {
+    let name = |p: &std::path::Path| p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string());
+    let sib = cur_app.with_file_name("Starfork.app");
+    if name(cur_app).as_deref() == Some("Constellation.app")
+        && name(new_app).as_deref() == Some("Starfork.app")
+        && !sib.exists()
+    {
+        return sib;
+    }
+    cur_app.to_path_buf()
+}
+
 /// Auto-update estilo Claude: baixa o zip (URL assinada), troca o .app em
 /// disco e relança. curl/ditto não aplicam quarantine → abre sem Gatekeeper.
 #[tauri::command(async)]
@@ -4283,18 +4307,25 @@ fn apply_update(url: String) -> Result<(), String> {
     if cur_app.extension().map(|x| x != "app").unwrap_or(true) {
         return Err("instalação não-bundle — atualize manualmente".to_string());
     }
+    let dest = update_dest(&cur_app, &new_app);
     let backup = cur_app.with_extension("app.old");
     let _ = std::fs::remove_dir_all(&backup);
     std::fs::rename(&cur_app, &backup).map_err(|e| format!("não consegui mover o app atual: {e}"))?;
-    let cp = Command::new("cp").arg("-R").arg(&new_app).arg(&cur_app).output().map_err(|e| e.to_string())?;
+    let cp = Command::new("cp").arg("-R").arg(&new_app).arg(&dest).output().map_err(|e| e.to_string())?;
     if !cp.status.success() {
+        if dest != cur_app { let _ = std::fs::remove_dir_all(&dest); }
         let _ = std::fs::rename(&backup, &cur_app); // rollback
         return Err(format!("cópia falhou: {}", String::from_utf8_lossy(&cp.stderr)));
     }
     let _ = std::fs::remove_dir_all(&backup);
     let _ = std::fs::remove_dir_all(&tmp);
+    if dest != cur_app {
+        // caminho novo: registra no LaunchServices (best-effort, igual ao deploy-local.sh)
+        let _ = Command::new("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
+            .arg("-f").arg(&dest).output();
+    }
     // relança a versão nova e sai
-    let _ = Command::new("open").arg("-n").arg(&cur_app).spawn();
+    let _ = Command::new("open").arg("-n").arg(&dest).spawn();
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(600));
         std::process::exit(0);
@@ -4308,7 +4339,7 @@ fn apply_update(url: String) -> Result<(), String> {
 #[tauri::command(async)]
 fn project_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o copiloto do PROJETO aberto no Constellation, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
+    let sys = "Você é o copiloto do PROJETO aberto no Starfork, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -4553,7 +4584,7 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
     if body.len() < 80 || !body.contains("## ") {
         return Err("corpo gerado inválido".to_string());
     }
-    Ok(format!("{body}\n\n_Aberto pelo Constellation._"))
+    Ok(format!("{body}\n\n_Aberto pelo Starfork._"))
 }
 
 /// Diff unificado de UM arquivo da tarefa (tela de Revisão do redesign):
@@ -4802,7 +4833,7 @@ fn env_check() -> Vec<EnvCheck> {
     // motor
     let cli = cli_path(&std::env::var("HOME").map(PathBuf::from).unwrap_or_default());
     let cli_ok = std::path::Path::new(&cli).is_file();
-    out.push(EnvCheck { name: "Motor do Constellation".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
+    out.push(EnvCheck { name: "Motor do Starfork".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
     // git
     match ver("git", &["--version"]) {
         Some(v) => out.push(EnvCheck { name: "Git".into(), ok: true, detail: v, fix: String::new() }),
@@ -4877,7 +4908,7 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
     let st = Command::new("git").arg("-C").arg(&wt).args(["status", "--porcelain"]).output().map_err(|e| e.to_string())?;
     let mut committed = false;
     if !String::from_utf8_lossy(&st.stdout).trim().is_empty() {
-        let c = Command::new("git").arg("-C").arg(&wt).args(["commit", "-m", "ajustes via Constellation"]).output().map_err(|e| e.to_string())?;
+        let c = Command::new("git").arg("-C").arg(&wt).args(["commit", "-m", "ajustes via Starfork"]).output().map_err(|e| e.to_string())?;
         if !c.status.success() {
             return Err(format!("commit falhou: {}", String::from_utf8_lossy(&c.stderr)));
         }
@@ -4956,7 +4987,7 @@ fn oauth_wait_callback(authorize_url: String) -> Result<String, String> {
                 let first = req.lines().next().unwrap_or("");
                 let path = first.split_whitespace().nth(1).unwrap_or("");
                 let query = path.split('?').nth(1).unwrap_or("").to_string();
-                let body = "<!doctype html><html><head><meta charset=utf-8><title>Login</title><style>body{font:16px -apple-system,system-ui,sans-serif;background:#0e1113;color:#e6e6e6;display:grid;place-items:center;height:100vh;margin:0}</style></head><body><div style=\"text-align:center\"><div style=\"font-size:44px;color:#16a34a;line-height:1\">✓</div><h2 style=\"margin:14px 0 4px\">Login concluído</h2><p style=\"color:#94a3b8;margin:0\">Pode fechar esta aba e voltar pro Constellation.</p></div></body></html>";
+                let body = "<!doctype html><html><head><meta charset=utf-8><title>Login</title><style>body{font:16px -apple-system,system-ui,sans-serif;background:#0e1113;color:#e6e6e6;display:grid;place-items:center;height:100vh;margin:0}</style></head><body><div style=\"text-align:center\"><div style=\"font-size:44px;color:#16a34a;line-height:1\">✓</div><h2 style=\"margin:14px 0 4px\">Login concluído</h2><p style=\"color:#94a3b8;margin:0\">Pode fechar esta aba e voltar pro Starfork.</p></div></body></html>";
                 let _ = stream.write_all(
                     format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes(),
                 );
@@ -6028,7 +6059,7 @@ fn web_log(line: String) {
 
 /// Notificação NATIVA com clique útil. O plugin (notify-rust) cai no bundle do
 /// Editor de Script quando não registra o app — clicar abria o editor. Aqui:
-/// mac-notification-sys com o bundle do Constellation + resposta do clique →
+/// mac-notification-sys com o bundle do Starfork + resposta do clique →
 /// evento "notif-open" pro front abrir a tarefa certa.
 #[tauri::command(async)]
 fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) {
@@ -6361,7 +6392,7 @@ pub fn run() {
             read_artifact
         ])
         .build(tauri::generate_context!())
-        .expect("erro ao iniciar o Cardume")
+        .expect("erro ao iniciar o Starfork")
         .run(|_app, event| {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
@@ -6377,6 +6408,27 @@ mod cardume_hygiene_tests {
         let o = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git");
         String::from_utf8_lossy(&o.stdout).to_string()
     }
+    #[test]
+    fn update_dest_rename_only_constellation_to_starfork() {
+        let tmp = std::env::temp_dir().join(format!("cardume-upd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let new_sf = PathBuf::from("/x/Starfork.app");
+        // Constellation → Starfork
+        let cur = tmp.join("Constellation.app");
+        assert_eq!(update_dest(&cur, &new_sf), tmp.join("Starfork.app"));
+        // mesmo nome → no lugar
+        let cur_sf = tmp.join("Starfork.app");
+        assert_eq!(update_dest(&cur_sf, &new_sf), cur_sf);
+        // nome customizado → no lugar
+        let custom = tmp.join("MyApp.app");
+        assert_eq!(update_dest(&custom, &new_sf), custom);
+        // irmão Starfork.app já existe → no lugar
+        std::fs::create_dir_all(tmp.join("Starfork.app")).unwrap();
+        assert_eq!(update_dest(&cur, &new_sf), cur);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn remove_worktree_dir_only_inside_cardume() {
         let tmp = std::env::temp_dir().join(format!("cardume-hyg-{}", std::process::id()));

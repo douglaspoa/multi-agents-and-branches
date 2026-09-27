@@ -1,4 +1,4 @@
-// Constellation — 12-chat-prefs-daily
+// Starfork — 12-chat-prefs-daily
 // ---------- chat do projeto ----------
 let pcBusy=false;
 function pcKey(){ return 'pchat:'+(state.repo||''); }
@@ -204,7 +204,7 @@ function dailyPdfHtml(md, date){
     pre{background:#f6f8fa;padding:12px 14px;border-radius:8px;overflow:auto} pre code{background:none;padding:0}
     strong{color:#0f172a} ul{margin:6px 0;padding-left:22px} li{margin:3px 0} a{color:#16a34a}
     .foot{margin-top:34px;padding-top:10px;border-top:1px solid #e5e7eb;color:#94a3b8;font-size:11px}
-  </style></head><body>${mdToHtml(md)}<div class="foot">Gerado pelo Constellation · ${esc(date||'')}</div></body></html>`;
+  </style></head><body>${mdToHtml(md)}<div class="foot">Gerado pelo Starfork · ${esc(date||'')}</div></body></html>`;
 }
 function dailyOut(html){ const el=$id('dailyAIOut'); if(el) el.innerHTML=html; }
 async function dailyGenDoc(){

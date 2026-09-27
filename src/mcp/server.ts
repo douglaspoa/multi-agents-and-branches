@@ -1,4 +1,4 @@
-// Servidor MCP (stdio, JSON-RPC 2.0) hospedado pelo Cardume e injetado no
+// Servidor MCP (stdio, JSON-RPC 2.0) hospedado pelo Starfork e injetado no
 // Claude Code via --mcp-config. Expõe:
 //   ask_human(question, options?) — pergunta ao humano; BLOQUEIA até a UI responder.
 //   claim(path, mode)             — reivindica um caminho no barramento.
@@ -29,7 +29,7 @@ const TOOLS = [
   {
     name: "ask_human",
     description:
-      "Pergunte ao humano quando houver ambiguidade sobre requisitos ou uma decisão que precise de aprovação. BLOQUEIA até o humano responder na UI do Cardume. Use apenas quando realmente necessário.",
+      "Pergunte ao humano quando houver ambiguidade sobre requisitos ou uma decisão que precise de aprovação. BLOQUEIA até o humano responder na UI do Starfork. Use apenas quando realmente necessário.",
     inputSchema: {
       type: "object",
       properties: {
@@ -110,7 +110,7 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     if (!question) return { text: "pergunta vazia", isError: true };
     const id = store.addPending(TASK, AGENT, "question", question, options);
     store.addEvent(TASK, AGENT, "note", `perguntou ao humano: ${question}`, undefined);
-    notify("Cardume", question, `${AGENT} precisa de você`);
+    notify("Starfork", question, `${AGENT} precisa de você`);
     // Bloqueia até a UI responder (poll no SQLite).
     // CARDUME_ASK_TIMEOUT_MIN > 0 → janela de INATIVIDADE (usada no chat): sem
     // resposta em N min, encerra EDUCADAMENTE (não é erro). 0/ausente → espera

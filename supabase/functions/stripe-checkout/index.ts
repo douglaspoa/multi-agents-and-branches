@@ -23,8 +23,8 @@ Deno.serve(async (req) => {
   const u = new URL(req.url);
   if (req.method === "GET") {
     const d = u.searchParams.get("done");
-    if (d === "1") return PAGE("Assinatura ativada!", "Pode fechar esta aba e voltar pro Constellation — ele reconhece a assinatura sozinho em instantes.");
-    return PAGE("Checkout cancelado", "Nada foi cobrado. Volte pro Constellation quando quiser assinar.");
+    if (d === "1") return PAGE("Assinatura ativada!", "Pode fechar esta aba e voltar pro Starfork — ele reconhece a assinatura sozinho em instantes.");
+    return PAGE("Checkout cancelado", "Nada foi cobrado. Volte pro Starfork quando quiser assinar.");
   }
   try {
     const auth = req.headers.get("Authorization") ?? "";

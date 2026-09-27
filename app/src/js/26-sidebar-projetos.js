@@ -1,4 +1,4 @@
-// Constellation — 26-sidebar-projetos
+// Starfork — 26-sidebar-projetos
 // ---- sidebar por PROJETO (redesign p2): sessões de TODOS os repos salvos ----
 let projOv=null, projOvAt=0;
 async function railProjTick(){

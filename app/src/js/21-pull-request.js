@@ -1,4 +1,4 @@
-// Constellation — 21-pull-request
+// Starfork — 21-pull-request
 // ---------- Pull Request (GitHub) ----------
 const prCache={}; let branchList=null;
 async function loadBranches(){ if(branchList) return branchList; try{ branchList=await invoke("list_branches"); }catch(e){ branchList=["main"]; } return branchList; }
@@ -68,7 +68,7 @@ function prBodyOf(t){
   return `## O quê\n${t.objective||t.title}\n\n`+
     ((t.deliverables||[]).length?`## Entregáveis\n${(t.deliverables||[]).map(d=>'- '+d).join('\n')}\n\n`:'')+
     (rev?`## Resumo\n${(rev.summary||'').slice(0,400)}\n\n## Como testar\n${(rev.howToTest||'').slice(0,600)}\n\n`:'')+
-    `_Aberto pelo Constellation._`;
+    `_Aberto pelo Starfork._`;
 }
 // ---- "Preparando o PR" (redesign p13): checagens reais → push → criar ----
 function prPrepOpen(taskId, base){
