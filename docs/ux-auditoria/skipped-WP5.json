@@ -1,0 +1,20 @@
+[
+  {
+    "id": "V8b",
+    "area": "Sistema visual",
+    "titulo": "Glifos restantes (✕ em .btn sm, textContent, menus, log)",
+    "motivo": "Não é barato/seguro: .btn svg força 15px (o SVG ficaria maior que o botão de 10.5px em Chaves e Time); textContent não aceita SVG (status do PR, erro de chave); GLYPH do log e itens de menu são texto em monoespaçada; ✔ em prompts vai pro agente/GitHub."
+  },
+  {
+    "id": "V7b",
+    "area": "Sistema visual",
+    "titulo": "!important do #ntOverlay",
+    "motivo": "Brigam com várias regras #ntOverlay em 30/50/60 (display:flex, padding, modal); tirar exige reescrever a cascata da Nova demanda — risco de layout sem ganho visível."
+  },
+  {
+    "id": "K3b",
+    "area": "Limpeza",
+    "titulo": "AU_SITE aponta pra constellation-ai-v1.lovable.app",
+    "motivo": "É URL (não texto) e trocar sem saber se o domínio novo existe quebraria os links do login/onboarding. Fica pro dono do site."
+  }
+]
