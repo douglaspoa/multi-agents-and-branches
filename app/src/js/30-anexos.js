@@ -63,21 +63,56 @@ function attWireComposer(cfg){
   input.ondrop=async(e)=>{ e.preventDefault(); input.classList.remove('dropping'); const files=[...((e.dataTransfer&&e.dataTransfer.files)||[])]; if(files.length) add(await attImportFiles(files, cfg.taskId())); };
 }
 // ===== CHAT ÚNICO: o mesmo composer + a mesma bolha em todos os chats (planner, projeto, issues, orquestrador) =====
-const CHAT_HINT='Enter envia · Shift+Enter quebra linha · ⌘V ou arraste pra anexar';
+// Layout ÚNICO = o do chat da tarefa (20-workspace): caixa de texto em cima; embaixo UMA linha com
+// 📎 · (extras da tela) · espaço · [■ parar] [enviar]; e a dica com as teclas em <span class="kbd">.
+// Quem monta o HTML usa chatComposerHtml(); marcação antiga (.plinput/.chatinput/.orq-chatin) é
+// normalizada por chatComposer() — então qualquer tela que chame chatComposer fica igual.
+const CHAT_HINT='Enter envia · ⇧Enter quebra linha · ⌘V ou arraste pra anexar';
+const CHAT_CLIP_SVG='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// o: { input, attach, send, stop (ids) · placeholder · value · extras (HTML logo depois do 📎) · right (HTML antes do parar/enviar)
+//      · sendHtml (rótulo do enviar) · rows · cls (classe extra no contêiner) · attachTitle · stopTitle · disabled }
+function chatComposerHtml(o){
+  const dis=o.disabled?' disabled':'';
+  return `<div class="cc${o.cls?' '+o.cls:''}"><textarea class="in cc-ta" id="${o.input}" rows="${o.rows||2}" placeholder="${escA(o.placeholder||'')}"${dis}>${esc(o.value||'')}</textarea>`+
+    `<div class="cc-row">${o.attach?`<button class="btn sm cc-clip" id="${o.attach}" title="${escA(o.attachTitle||'anexar print, PDF ou doc — ou cole (⌘V) / arraste')}"${dis}>${CHAT_CLIP_SVG}</button>`:''}${o.extras||''}<span class="cc-sp"></span>${o.right||''}`+
+    `${o.stop?`<button class="btn sm trk-stop" id="${o.stop}" style="display:none" title="${escA(o.stopTitle||'interrompe a IA agora')}">■ parar</button>`:''}`+
+    `${o.send?`<button class="btn primary sm cc-send" id="${o.send}"${dis}>${o.sendHtml||'enviar'}</button>`:''}</div></div>`;
+}
+// marcação antiga (botões soltos ao lado da caixa) → layout único. Idempotente; roda a cada render.
+function chatNormalize(input){
+  const done=input.closest('.cc'); if(done) return done;
+  const box=input.closest('.plinput,.chatinput,.orq-chatin'); if(!box) return input.parentNode;
+  box.classList.add('cc'); input.classList.add('in','cc-ta');
+  const kids=[...box.children].filter(k=>k!==input && !k.classList.contains('atmenu') && !k.classList.contains('chathint'));
+  const isEnd=k=>k.tagName==='BUTTON' && (k.classList.contains('primary')||k.classList.contains('trk-stop')||/Send$|Stop$/.test(k.id||''));
+  const row=document.createElement('div'); row.className='cc-row';
+  const clip=kids.find(k=>/Att(ach)?$/.test(k.id||''));
+  const asBtn=k=>{ if(k.tagName==='BUTTON'){ k.classList.remove('as-btn','orq-attbtn','big'); k.classList.add('btn','sm'); } };
+  if(clip){ asBtn(clip); clip.classList.add('cc-clip'); row.appendChild(clip); }
+  kids.filter(k=>k!==clip && !isEnd(k)).forEach(k=>row.appendChild(k));
+  const sp=document.createElement('span'); sp.className='cc-sp'; row.appendChild(sp);
+  kids.filter(isEnd).forEach(k=>{ asBtn(k); row.appendChild(k); });
+  box.insertBefore(row, input.nextSibling);
+  return box;
+}
 function chatGrow(el){ if(!el||!el.offsetParent) return; el.style.height='auto'; const h=Math.min(el.scrollHeight+2,160); el.style.height=h+'px'; el.style.overflowY=el.scrollHeight>160?'auto':'hidden'; }
 { let t=null; window.addEventListener('resize',()=>{ clearTimeout(t); t=setTimeout(()=>document.querySelectorAll('textarea[data-chat-grow]').forEach(chatGrow),120); }); }
-// linha de dica logo abaixo do composer (mesmo texto em todos); `busyHint` troca o texto enquanto a IA responde
-function chatHintLine(row, text, busy){
-  if(!row||!row.parentNode) return;
-  let h=row.nextElementSibling; if(!h||!h.classList.contains('chathint')){ h=document.createElement('div'); h.className='chathint'; row.parentNode.insertBefore(h, row.nextSibling); }
-  h.textContent=text; h.classList.toggle('busy', !!busy);
+// teclas da dica viram <span class="kbd"> (igual ao chat da tarefa)
+function chatKbd(text){ return esc(String(text||'')).replace(/Shift\+Enter/g,'⇧Enter').replace(/(⇧Enter|⌘Enter|⌘V|Enter|Esc)/g,'<span class="kbd">$1</span>'); }
+// linha de dica DENTRO do composer, abaixo dos botões (mesmo texto em todos); `busyHint` troca o texto enquanto a IA responde
+function chatHintLine(box, text, busy){
+  if(!box) return;
+  let h=[...box.children].find(x=>x.classList.contains('chathint'));
+  if(!h){ h=document.createElement('div'); h.className='chathint'; box.appendChild(h); }
+  const html=chatKbd(text); if(h.innerHTML!==html) h.innerHTML=html; h.classList.toggle('busy', !!busy);
 }
-// cfg: { input, attach, pend, taskId, rerender, afterAdd?, onSend, onKey?, stop?:{btn, busy:()=>bool, fn}, send?, busyHint? }
+// cfg: { input, attach, pend, taskId, rerender, afterAdd?, onSend, onKey?, stop?:{btn, busy:()=>bool, fn}, send?, busyHint?, hint? }
 // Idempotente (on* handlers + flag no elemento): pode ser chamado a cada render.
 // onKey(e) roda ANTES do Enter; devolver true (ou dar preventDefault) cancela o envio.
 function chatComposer(cfg){
   attWireComposer(cfg);
   const input=$id(cfg.input); if(!input) return;
+  const box=chatNormalize(input);
   input.onkeydown=(e)=>{
     if(cfg.onKey && cfg.onKey(e)===true) return;
     if(e.defaultPrevented) return;
@@ -88,7 +123,7 @@ function chatComposer(cfg){
   const busy=!!(cfg.stop&&cfg.stop.busy&&cfg.stop.busy());
   if(cfg.stop){ const b=$id(cfg.stop.btn); if(b){ b.onclick=cfg.stop.fn; b.style.display=busy?'':'none'; } }
   if(cfg.send){ const s=$id(cfg.send); if(s){ s.disabled=busy && !cfg.sendWhileBusy; s.title=(busy&&!cfg.sendWhileBusy)?'espere a resposta — ou ■ parar':''; } }
-  chatHintLine(input.closest('.plinput,.chatinput,.orq-chatin')||input.parentNode, busy&&cfg.busyHint?cfg.busyHint:CHAT_HINT, busy);
+  chatHintLine(box, busy&&cfg.busyHint?cfg.busyHint:(cfg.hint||CHAT_HINT), busy);
 }
 // ---- bolha única: você / IA (✦ + markdown + copiar) / aviso do sistema ----
 function chatCopyBtn(){ return '<button class="ccopy" title="copiar">⧉</button>'; }

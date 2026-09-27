@@ -17,8 +17,9 @@
 .overlay.astab{position:fixed;left:var(--rail-w,250px);right:0;bottom:0;top:var(--chrome-h,96px);background:var(--bg);display:block;padding:0;z-index:30;align-items:stretch;justify-content:stretch}
 .overlay.astab .modal{width:100%!important;max-width:100%!important;height:100%!important;max-height:100%!important;border:none;border-radius:0;box-shadow:none;display:flex;flex-direction:column}
 /* conteúdo da view-aba centralizado num max-width confortável (senão fica "pela metade") — exceto o workspace, que é largo */
-.overlay.astab:not(.fwoverlay) .mhead{width:100%;max-width:1040px;margin:0 auto;flex:none}
-.overlay.astab:not(.fwoverlay) .mbody{flex:1;min-height:0;width:100%;max-width:1040px;margin:0 auto;overflow:auto}
+:root{--page-max:1240px;--page-pad:34px} /* coluna ÚNICA das telas-aba: todo título começa no mesmo x */
+.overlay.astab:not(.fwoverlay) .mhead{width:100%;max-width:var(--page-max);margin:0 auto;flex:none}
+.overlay.astab:not(.fwoverlay) .mbody{flex:1;min-height:0;width:100%;max-width:var(--page-max);margin:0 auto;overflow:auto}
 .overlay.astab .mhead>.x{display:none}
 .overlay.astab.fwoverlay{top:var(--chrome-h,96px)}
 /* Nova demanda (redesign) — tela de início */
@@ -26,7 +27,9 @@
 .ndinner{width:100%;max-width:1020px}
 .ndeyebrow{font:500 10.5px/1 var(--code);letter-spacing:.14em;color:var(--text-3);text-transform:uppercase}
 .nd-projrow{display:flex;align-items:center;gap:12px;margin-bottom:2px}
-.nd-projsel{font:500 12px var(--code);color:var(--text);background:var(--card-bg);border:1px solid var(--accent);border-radius:7px;padding:5px 9px;cursor:pointer}
+.nd-projsel{font:500 12.5px var(--display);color:var(--text);background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238b959b' stroke-width='1.5'%3E%3Cpath d='M4.5 6.5l3.5 3.5 3.5-3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center/12px;border:.5px solid var(--border-strong);border-radius:var(--r-sm,7px);padding:5px 28px 5px 10px;cursor:pointer;-webkit-appearance:none;appearance:none}
+.nd-projsel:hover{border-color:rgba(255,255,255,.24)}
+.nd-projsel:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
 .ndh1{margin:14px 0 6px;font:600 32px/1.15 var(--display);letter-spacing:-.02em}
 .ndsub{margin:0 0 26px;font:400 14.5px/1.55 var(--display);color:rgba(255,255,255,.5);max-width:580px}
 .ndtypes{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px}
@@ -46,7 +49,7 @@
 .ndmtop{display:flex;align-items:center;justify-content:space-between;width:100%}
 .ndmt{font:600 18px/1.2 var(--display);color:var(--text)}
 .ndmt2{font:600 18px/1.2 var(--display);color:rgba(234,242,238,.9)}
-.ndmbadge{font:500 10px var(--code);color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:4px}
+.ndmbadge{font:500 10px var(--code);color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:4px;white-space:nowrap;flex:none}
 .ndmd{font:400 13px/1.5 var(--display);color:rgba(234,242,238,.6)}
 .ndmeta{margin-top:6px;font:500 11px var(--code);color:var(--text-3)}
 .ndfoot{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-top:26px;padding-top:18px;border-top:1px solid rgba(255,255,255,.07)}
@@ -103,8 +106,6 @@
 #pcOverlay.astab .mhead{display:none}
 #pcOverlay.astab .chatthread{max-height:none!important;min-height:0!important;flex:1;overflow:auto;padding:0}
 #pcOverlay.astab .chatthread>.appscreen{display:flex;flex-direction:column;min-height:100%}
-#pcOverlay.astab .chatinput{max-width:1040px;margin:0 auto 20px;width:calc(100% - 68px);border:1px solid rgba(255,255,255,.16);border-radius:13px;background:var(--surface-2);padding:12px 14px;font-family:var(--display)}
-#pcOverlay.astab .chatinput .in{background:none;border:none;font:400 14px/1.5 var(--display)}
 .pc-head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:8px}
 .pc-thread{display:flex;flex-direction:column;gap:12px;padding:12px 0}
 .pc-empty{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:22px;padding:50px 0 30px;text-align:center}
@@ -115,11 +116,13 @@
 .pc-sc:hover{border-color:rgba(255,255,255,.2)}
 .pc-sc-t{font:500 10px var(--code);letter-spacing:.1em;color:var(--text-3)}
 .pc-sc-x{font:400 13px/1.45 var(--display);color:rgba(234,242,238,.78)}
-/* shell leve pras telas CRUD (Agentes/Conta) — fonte + header no padrão novo */
-#agOverlay.astab .modal,#cloudOverlay.astab .modal{font-family:var(--display)}
-#agOverlay.astab .mbody,#cloudOverlay.astab .mbody{padding:24px 34px 44px}
-#agOverlay.astab .mhead,#cloudOverlay.astab .mhead{padding:22px 34px 14px;border-bottom:1px solid var(--border);gap:12px}
-#agOverlay.astab .mhead>b,#cloudOverlay.astab .mhead>b{font:600 24px var(--display);letter-spacing:-.015em}
+/* shell leve pras telas CRUD (Configurações/Preferências/Agentes/Conta) — MESMO cabeçalho de página das outras abas
+   (coluna --page-max, título 26px à esquerda, ações à direita; ver "cabeçalho de página único" em 80-ajustes-cards) */
+#cfgOverlay.astab .modal,#prefsOverlay.astab .modal,#agOverlay.astab .modal,#cloudOverlay.astab .modal{font-family:var(--display)}
+#cfgOverlay.astab .mbody,#prefsOverlay.astab .mbody,#agOverlay.astab .mbody,#cloudOverlay.astab .mbody{max-width:var(--page-max);padding:18px var(--page-pad) 44px}
+#cfgOverlay.astab .mhead,#prefsOverlay.astab .mhead,#agOverlay.astab .mhead,#cloudOverlay.astab .mhead{max-width:var(--page-max);padding:30px var(--page-pad) 8px;border-bottom:0;gap:12px;justify-content:flex-start;font-family:var(--display)}
+#cfgOverlay.astab .mhead>b,#prefsOverlay.astab .mhead>b,#agOverlay.astab .mhead>b,#cloudOverlay.astab .mhead>b{font:600 26px/1.15 var(--display);letter-spacing:-.02em}
+#cloudOverlay.astab .mhead>svg{display:none} /* o ícone já está na aba e na barra lateral */
 #agOverlay.astab .seclbl2,#cloudOverlay.astab .seclbl2{font-family:var(--code)}
 /* filtro de projeto (multi-projeto) */
 .pfrow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}

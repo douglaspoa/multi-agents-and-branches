@@ -47,9 +47,44 @@ function openCfg(){
   if(typeof updRenderCfg==='function') updRenderCfg();
   wsMount();
   if(typeof aiPickRender==='function' && typeof AI_TARGET_CFG!=='undefined') aiPickRender(AI_TARGET_CFG);
+  aiPlainWatch($id('aiPickCfg'));
   $id('cfgOverlay').style.display='flex';
 }
 $id('cfgBtn').onclick=openCfg;
+
+// ---------- "Com qual IA?" sem jargão (o seletor é desenhado em 29-ia-picker; aqui só a camada de texto) ----------
+// alias / id fixo → "sempre o mais novo" / "versão travada" (o termo técnico fica no tooltip);
+// "Mock · sem IA" → "Simulação · sem IA, pra testar" e só aparece em instalação de desenvolvimento (ou se já estiver escolhido).
+const AI_PLAIN_TXT=[
+  ['Alias = sempre a versão mais nova do seu plano; id fixo trava a versão.', '"Sempre o mais novo" acompanha a versão nova do seu plano; "versão travada" fica sempre na mesma.'],
+  ['outro id…','outro modelo…'], ['digite o id exato','digite o nome exato do modelo'],
+];
+function aiPlainify(root){
+  if(!root) return;
+  const dev=typeof devInstall!=='undefined' && !!devInstall; // só quem roda o app do código-fonte
+  root.querySelectorAll('[data-aieng="mock"]').forEach(b=>{
+    const show=dev||b.classList.contains('on'); if(b.style.display!==(show?'':'none')) b.style.display=show?'':'none';
+    const n=b.querySelector('.ain'), v=b.querySelector('.aiv');
+    if(n&&n.textContent!=='Simulação') n.textContent='Simulação';
+    if(v&&v.textContent!=='sem IA, pra testar') v.textContent='sem IA, pra testar';
+    if(!b.title) b.title='simula a execução sem chamar nenhum modelo — só pra testar o fluxo do app';
+  });
+  root.querySelectorAll('.aimodel span').forEach(sp=>{
+    const t=sp.textContent; if(!/\balias\b|id fixo/.test(t)) return;
+    sp.parentNode.title=/\balias\b/.test(t)?'alias: o Claude Code usa a versão mais nova deste modelo no seu plano':'id fixo: usa exatamente esta versão, mesmo quando sair uma nova';
+    sp.textContent=t.replace(/\balias\b/,'sempre o mais novo').replace(/id fixo/,'versão travada');
+  });
+  const w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let nd;
+  while((nd=w.nextNode())){ let t=nd.nodeValue, t2=t; AI_PLAIN_TXT.forEach(([a,b])=>{ if(t2.includes(a)) t2=t2.split(a).join(b); }); if(t2!==t) nd.nodeValue=t2; }
+}
+// o seletor se redesenha sozinho a cada clique → reaplica no mesmo quadro (idempotente: só muda o que ainda está "cru")
+function aiPlainWatch(el){
+  if(!el||el.__aiPlain) return; el.__aiPlain=true;
+  new MutationObserver(()=>aiPlainify(el)).observe(el,{ childList:true, subtree:true });
+  aiPlainify(el);
+}
+window.aiPlainWatch=aiPlainWatch;
+['aiPickHow','aiPickInv','aiPickDz'].forEach(id=>aiPlainWatch($id(id)));
 
 // ---------- espaço em disco do .cardume (raio-x + limpeza) ----------
 // Regra: aprendizados/estado (MEMORY, HISTORY, RUNBOOK, SPEC, PREFS, policy,
@@ -107,7 +142,7 @@ const VIEW_META={
   orq:{title:'Orquestrador',icon:'<circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="1.8"/><circle cx="12" cy="12" r="1.8"/><path d="M6 7.2l4.2-2.4M6 8.8l4.2 2.4"/>'},
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
   planner:{title:'Montar conversando',icon:'<path d="M12.8 8.4c0 2.4-2.2 4.3-4.9 4.3-.6 0-1.2-.1-1.8-.3L3.2 13.4l.8-2.2A4.1 4.1 0 0 1 3 8.4" stroke-linejoin="round"/><path d="M10.4 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" stroke-linejoin="round"/>'},
-  form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
+  form:{title:'Preencher eu mesmo',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   prefs:{title:'Preferências do projeto',icon:'<path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.3" fill="currentColor"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor"/><circle cx="5" cy="11.5" r="1.3" fill="currentColor"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
   cttask:{title:'Entrega do time',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.2 8.2l1.6 1.6 2.4-2.8"/>'},
@@ -316,7 +351,7 @@ setTimeout(obMaybeStart, 3800);
 const COACH=[
   ['newTaskBtn','Tudo começa aqui','Descreva o que precisa em 1–2 frases — o assistente monta a spec e o time de agentes executa.'],
   ['ffSearch','Busca em tudo','Ache qualquer demanda pelo título — ou use ⌘K de qualquer lugar.'],
-  ['rail','Execução ao vivo','Os agentes rodando agora ficam aqui. Amarelo = um deles precisa de você.'],
+  ['rail','Execução ao vivo','Os agentes rodando agora ficam aqui. Amarelo = um deles está aguardando você.'],
 ];
 function coachStart(){
   if(lsGet('coached')) return;

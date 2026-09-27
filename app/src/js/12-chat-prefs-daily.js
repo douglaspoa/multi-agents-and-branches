@@ -12,7 +12,7 @@ function pcRender(){
   const ms=pcMsgs();
   const repo=esc((state.repo||'o projeto').split('/').pop());
   const projOpts=(typeof projList==='function'?projList():[]).map(([path,name])=>`<option value="${escA(path)}"${path===state.repo?' selected':''}>${esc(name)}</option>`).join('');
-  const head=`<div class="pc-head"><div><h1 class="as-h1" style="font-size:24px">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:var(--text-3)">limpar</button></div></div>`;
+  const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:var(--text-3)">limpar</button></div></div>`;
   let bodyHtml;
   if(ms.length){
     bodyHtml=`<div class="pc-thread">${ms.map(chatMsgHtml).join('')}${pcBusy?chatThinkHtml('<span class="pltyping"><i></i><i></i><i></i></span> lendo o projeto…'):''}</div>`;
@@ -21,7 +21,7 @@ function pcRender(){
     bodyHtml=`<div class="pc-empty"><div class="pc-empty-t">Pergunte qualquer coisa sobre <span class="as-mono" style="color:var(--accent)">${repo}</span></div><div class="pc-empty-d">Arquitetura, "onde fica X", "por que Y é assim", ideias. Gostou de uma resposta? <b style="color:var(--text)">virar tarefa</b> transforma a conversa numa spec pronta.</div><div class="pc-sugg">${sugg.map(s=>`<button class="pc-sc" data-sg="${escA(s[1])}"><span class="pc-sc-t">${esc(s[0])}</span><span class="pc-sc-x">${esc(s[1])}</span></button>`).join('')}</div></div>`;
   }
   const keep=stickBottom(th);
-  th.innerHTML=`<div class="appscreen" style="padding:24px 34px 16px">${head}${bodyHtml}</div>`;
+  th.innerHTML=`<div class="appscreen">${head}${bodyHtml}</div>`;
   { const b=th.querySelector('#pcTask2'); if(b) b.onclick=()=>{ const o=$id('pcTask'); if(o) o.click(); }; }
   { const b=th.querySelector('#pcClear2'); if(b) b.onclick=()=>{ const o=$id('pcClear'); if(o) o.click(); }; }
   { const s=th.querySelector('#pcProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p&&p!==state.repo&&window.switchProject){ await switchProject(p); } pcRender(); }; }
