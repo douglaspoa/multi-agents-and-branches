@@ -62,6 +62,63 @@ function attWireComposer(cfg){
   input.ondragleave=()=>input.classList.remove('dropping');
   input.ondrop=async(e)=>{ e.preventDefault(); input.classList.remove('dropping'); const files=[...((e.dataTransfer&&e.dataTransfer.files)||[])]; if(files.length) add(await attImportFiles(files, cfg.taskId())); };
 }
+// ===== CHAT ÚNICO: o mesmo composer + a mesma bolha em todos os chats (planner, projeto, issues, orquestrador) =====
+const CHAT_HINT='Enter envia · Shift+Enter quebra linha · ⌘V ou arraste pra anexar';
+function chatGrow(el){ if(!el||!el.offsetParent) return; el.style.height='auto'; const h=Math.min(el.scrollHeight+2,160); el.style.height=h+'px'; el.style.overflowY=el.scrollHeight>160?'auto':'hidden'; }
+{ let t=null; window.addEventListener('resize',()=>{ clearTimeout(t); t=setTimeout(()=>document.querySelectorAll('textarea[data-chat-grow]').forEach(chatGrow),120); }); }
+// linha de dica logo abaixo do composer (mesmo texto em todos); `busyHint` troca o texto enquanto a IA responde
+function chatHintLine(row, text, busy){
+  if(!row||!row.parentNode) return;
+  let h=row.nextElementSibling; if(!h||!h.classList.contains('chathint')){ h=document.createElement('div'); h.className='chathint'; row.parentNode.insertBefore(h, row.nextSibling); }
+  h.textContent=text; h.classList.toggle('busy', !!busy);
+}
+// cfg: { input, attach, pend, taskId, rerender, afterAdd?, onSend, onKey?, stop?:{btn, busy:()=>bool, fn}, send?, busyHint? }
+// Idempotente (on* handlers + flag no elemento): pode ser chamado a cada render.
+// onKey(e) roda ANTES do Enter; devolver true (ou dar preventDefault) cancela o envio.
+function chatComposer(cfg){
+  attWireComposer(cfg);
+  const input=$id(cfg.input); if(!input) return;
+  input.onkeydown=(e)=>{
+    if(cfg.onKey && cfg.onKey(e)===true) return;
+    if(e.defaultPrevented) return;
+    if(e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); cfg.onSend(); setTimeout(()=>chatGrow($id(cfg.input)),0); }
+  };
+  if(!input.dataset.chatGrow){ input.dataset.chatGrow='1'; input.addEventListener('input',()=>chatGrow(input)); }
+  chatGrow(input);
+  const busy=!!(cfg.stop&&cfg.stop.busy&&cfg.stop.busy());
+  if(cfg.stop){ const b=$id(cfg.stop.btn); if(b){ b.onclick=cfg.stop.fn; b.style.display=busy?'':'none'; } }
+  if(cfg.send){ const s=$id(cfg.send); if(s){ s.disabled=busy && !cfg.sendWhileBusy; s.title=(busy&&!cfg.sendWhileBusy)?'espere a resposta — ou ■ parar':''; } }
+  chatHintLine(input.closest('.plinput,.chatinput,.orq-chatin')||input.parentNode, busy&&cfg.busyHint?cfg.busyHint:CHAT_HINT, busy);
+}
+// ---- bolha única: você / IA (✦ + markdown + copiar) / aviso do sistema ----
+function chatCopyBtn(){ return '<button class="ccopy" title="copiar">⧉</button>'; }
+function chatMsgHtml(m){
+  const w=m.who||m.role, t=String(m.text||'');
+  if(w==='you'||w==='user') return `<div class="plmsg you chatmsg"><div class="plbub">${esc(t)}${attRowHtml(m.atts)}</div></div>`;
+  if(w==='sys') return `<div class="plmsg sys chatmsg"><div class="plbub">${esc(t)}</div></div>`;
+  return `<div class="plmsg bot chatmsg"><span class="plav">✦</span><div class="plbub">${mdToHtml(t)}${chatCopyBtn()}</div></div>`;
+}
+function chatThinkHtml(inner){ return `<div class="plmsg bot chatmsg"><span class="plav">✦</span><div class="plbub think">${inner||'<span class="pltyping"><i></i><i></i><i></i></span>'}</div></div>`; }
+document.addEventListener('click', e=>{
+  const cp=e.target.closest&&e.target.closest('.chatmsg .ccopy'); if(!cp) return;
+  const cl=cp.parentElement.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove());
+  try{ navigator.clipboard.writeText(cl.innerText.trim()); cp.textContent='✓'; setTimeout(()=>{ cp.textContent='⧉'; },900); }catch(_){ }
+});
+// ---- rolagem: só gruda no fim se você JÁ estava no fim (ler lá em cima não é mais interrompido) ----
+// uso: const keep=stickBottom($id('x')); …re-render…; keep($id('x'))  (o elemento pode ter sido recriado)
+const chatPinned=new Set(); // ids que DEVEM ir pro fim no próximo render (você acabou de enviar)
+function chatPinBottom(id){ chatPinned.add(id); }
+function stickBottom(el){
+  const was=el?{ bottom:el.scrollHeight-el.scrollTop-el.clientHeight<48, top:el.scrollTop, id:el.id }:null;
+  return (el2)=>{ el2=el2||el; if(!el2) return;
+    const pin=el2.id&&chatPinned.delete(el2.id);
+    el2.scrollTop=(!was||was.bottom||pin)?el2.scrollHeight:was.top; };
+}
+// campos de texto que não são chat (objetivo da Nova demanda): colar/arrastar um print vira anexo (path na lista de refs)
+function attWireRefField(id, arr, render){
+  attWireComposer({ input:id, attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{},
+    afterAdd:atts=>{ const a=arr(); atts.forEach(x=>{ if(x&&x.path&&!a.includes(x.path)) a.push(x.path); }); render(); toast(atts.length===1?'anexado: '+atts[0].name:atts.length+' anexos adicionados'); } });
+}
 // mensagem EXIBIDA: o bloco vira chips (o texto integral do anexo não polui a conversa)
 function attSplit(text){
   const src=String(text||''); const m=src.match(/\n*\[ANEXOS\]\n([\s\S]*?)\n\[\/ANEXOS\]/);

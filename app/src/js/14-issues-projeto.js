@@ -514,8 +514,31 @@ function trkNIOpen(){ openTab('issuesbulk'); }
 async function openIssuesBulk(){
   $id('issuesBulkOverlay').style.display='flex';
   await trkLoad();
-  if(!trkNI){ trkNI=trkNIBlank(); await trkNIProjects(); trkNIAskProject(true); }
+  if(!trkNI){ trkNI=trkNIBlank(); await trkNIProjects(); if(!trkNIRestore()) trkNIAskProject(true); }
   trkNIRender();
+}
+// ----- conversa da "Nova issue" persistida POR PROJETO (fechar o app não perde a conversa nem os rascunhos) -----
+function trkNIStoreKey(){ return 'trkni:'+(state.repo||''); }
+let trkNISaveT=null;
+function trkNIPersist(){
+  const n=trkNI; if(!n) return; const k=trkNIStoreKey();
+  clearTimeout(trkNISaveT); trkNISaveT=setTimeout(()=>{
+    const has=n.msgs.some(m=>m.who==='you')||n.items.length;
+    lsSet(k, has?JSON.stringify({ v:1, at:Date.now(), project:n.project?n.project.path:'', sid:n.sid, chips:n.chips, epic:n.epic, epicCode:n.epicCode||'', pendingText:n.pendingText||'',
+      msgs:n.msgs.slice(-80).map(m=>m.atts?{ ...m, atts:attLite(m.atts) }:m), items:n.items }):'');
+  }, 300);
+}
+function trkNIRestore(){
+  let d=null; try{ d=JSON.parse(lsGet(trkNIStoreKey())||'null'); }catch(_){ }
+  if(!d||!Array.isArray(d.msgs)||!(d.msgs.some(m=>m&&m.who==='you')||(d.items||[]).length)) return false;
+  const n=trkNI;
+  n.project=(d.project&&n.projects.find(p=>p.path===d.project))||null;
+  n.sid=d.sid||''; n.chips=Array.isArray(d.chips)?d.chips:[]; n.epic=d.epic||null; if(d.epicCode) n.epicCode=d.epicCode; n.pendingText=d.pendingText||'';
+  n.msgs=d.msgs.filter(Boolean);
+  // criação interrompida no meio (app fechou): não sabemos se o painel recebeu — marca pra conferir antes de recriar
+  n.items=(d.items||[]).map(it=>it.state==='run'?{ ...it, state:'fail', err:'o app fechou durante a criação — confira no quadro antes de criar de novo' }:it);
+  n.msgs.push({ who:'sys', text:'↺ Conversa recuperada — continue de onde parou (ou "＋ nova conversa" pra começar do zero).'+(n.project?'':' Escolha o projeto de novo ali em cima.') });
+  return true;
 }
 // projetos DESTA máquina (a pesquisa precisa da pasta) — conectados ao painel primeiro
 async function trkNIProjects(){
@@ -550,7 +573,7 @@ async function trkNISend(text, silent){
   if(n.busy){ // no meio da pesquisa: interrompe e segue JÁ com a info nova (muda o rumo sem perder o pedido)
     n.msgs.push({ who:'you', text }); n.redirect=n.redirect?n.redirect+'\n'+text:text; n.prog='recebi — interrompendo pra seguir com isso…'; trkNIRender();
     try{ await invoke('issue_chat_stop'); }catch(_){ } return; }
-  if(!silent) n.msgs.push({ who:'you', text, atts }); n.chips=[];
+  if(!silent) n.msgs.push({ who:'you', text, atts }); n.chips=[]; chatPinBottom('trkNIThread');
   // sem projeto definido: tenta achar no texto; senão PERGUNTA (e guarda o pedido pra não perder)
   if(!n.project){
     const p=trkNIPickProject(text);
@@ -640,8 +663,8 @@ function trkNIRender(){
   const me=trkCtx().email||'';
   const cb=JSON.stringify(trk.connector.ops.create.body||{}), sel=(cls,vals,cur,ph,lock)=>`<select class="plfv in ${cls}"${lock?' disabled':''}><option value="">${ph}</option>${vals.map(v=>`<option${v===cur?' selected':''}>${esc(v)}</option>`).join('')}</select>`;
   const people=trkPeopleList();
-  const thread=n.msgs.map(m=>`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')
-    +(n.busy?`<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think">pesquisando em ${esc(n.project?n.project.name:'…')} pra fechar as arestas…${n.prog?'<br><span style="font-size:11.5px">'+esc(n.prog)+'</span>':''}</div></div>`:'');
+  const thread=n.msgs.map(chatMsgHtml).join('')
+    +(n.busy?chatThinkHtml(`<span class="pltyping"><i></i><i></i><i></i></span> pesquisando em ${esc(n.project?n.project.name:'…')} pra fechar as arestas…${n.prog?'<br><span style="font-size:11.5px">'+esc(n.prog)+'</span>':''}`):'');
   const cards=n.items.map((it,k)=>{
     const lock=n.running||it.state==='ok', st=it.state==='ok'?'ok':(it.open.length||it.state==='fail')?'ask':it.skip?'wait':'ok';
     const who=trkPerson(it.assignee);
@@ -655,12 +678,13 @@ function trkNIRender(){
         ?`<input class="plfv in na" list="trkNIPeople" value="${escA(it.assignee)}" placeholder="${trk.connector.assigneeFormat==='email'||trkAssignKey()?'e-mail do responsável (opcional)':'sem responsável'}"${lock?' disabled':''}>${me&&!lock&&it.assignee!==me?`<button class="btn sm" data-nime="${k}" style="padding:3px 8px;font-size:11px">eu</button>`:''}`
         :`<span class="trk-rt" style="font-size:12px">${who?esc(who.label):'<span class="dim">sem responsável</span>'}</span>${it.assignee?'<span class="trk-rs">· vai anotado na descrição (este painel não define responsável na criação)</span>':''}`}</div>
       ${it.open.length?`<div class="trk-niopen">${it.open.map(q=>`<div>? ${esc(q)}</div>`).join('')}</div>`:''}${it.err?`<div class="trk-rs" style="color:var(--warn)">${esc(it.err)}</div>`:''}</div>`; }).join('');
+  const stick=stickBottom($id('trkNIThread'));
   o.innerHTML=`<div class="plhead"><div class="plheadl"><span class="plheadic">✦</span><div class="plheadt"><b>Nova issue — montar conversando</b><span class="fwsub">${esc(trk.name||'painel')} · ${n.project?'projeto '+esc(n.project.name):'projeto ainda não escolhido'}${me?' · criando como '+esc(me):''}</span></div></div>
       <div class="plheadr">${n.projects.length>1?`<select class="in" id="trkNIProj" style="width:auto;font-size:12px"${n.running?' disabled':''}><option value="">escolher projeto…</option>${n.projects.map((p,k)=>`<option value="${k}"${n.project===p?' selected':''}>${esc(p.name)}${p.on?'':' (não conectado)'}</option>`).join('')}</select>`:''}<button class="btn sm ghost" id="trkNINew" title="encerra esta conversa e começa outra do zero (as issues já criadas continuam no painel)">＋ nova conversa</button><button class="btn sm" id="trkNIClose">voltar pro quadro</button></div></div>
     <div class="plcols"><div class="plchatcol"><div class="plthread" id="trkNIThread">${thread}</div>
         <div class="plchips">${n.chips.map((c,k)=>`<button class="plchip" data-nichip="${k}">${esc(c)}</button>`).join('')}</div>
         <div class="attrow attpend" id="trkNIPend" style="display:none"></div>
-        <div class="plinput"><button class="btn sm" id="trkNIAttach" title="anexar print/PDF/doc (⌘V cola um print)"${n.running?' disabled':''}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="width:14px;height:14px"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in plta" id="trkNIInput" rows="2" placeholder="${n.busy?'quer mudar o rumo ou acrescentar uma info? escreva e envie — eu interrompo e sigo com isso':n.project?'descreva a issue — ou cole uma lista, uma por linha · ⌘V cola um print · enter envia, shift+enter quebra linha':'diga o projeto (ou escolha acima)…'}"${n.running?' disabled':''}></textarea>${n.busy?`<button class="btn trk-stop" id="trkNIStop">■ parar</button>`:''}<button class="btn primary" id="trkNISend"${n.running?' disabled':''}>${n.busy?'redirecionar':'enviar'}</button></div></div>
+        <div class="plinput"><button class="btn sm" id="trkNIAttach" title="anexar print/PDF/doc (⌘V cola um print)"${n.running?' disabled':''}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="width:14px;height:14px"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in plta" id="trkNIInput" rows="2" placeholder="${n.busy?'quer mudar o rumo ou acrescentar uma info? escreva e envie — eu interrompo e sigo com isso':n.project?'descreva a issue — ou cole uma lista, uma por linha':'diga o projeto (ou escolha acima)…'}"${n.running?' disabled':''}></textarea>${n.busy?`<button class="btn trk-stop" id="trkNIStop">■ parar</button>`:''}<button class="btn primary" id="trkNISend"${n.running?' disabled':''}>${n.busy?'redirecionar':'enviar'}</button></div></div>
       <div class="plmesh"><div class="plmeshh">issues <span class="plmesht">${n.items.length?`${todo.length} pra criar${made?' · '+made+' criadas':''}${openQ?' · '+openQ+' perguntas em aberto':''}`:'aparecem aqui conforme a conversa'}</span></div>${n.epic?`<div class="trk-niepic"><span class="mono" style="color:var(--accent)">◆ ÉPICO</span> <b>${esc(n.epic.title)}</b>${n.epic.outcome?` <span class="dim">· ${esc(n.epic.outcome)}</span>`:''}${trkParentSupport()?'':' <span class="dim">· este painel não tem issue-mãe: o épico vai citado no corpo</span>'}${n.running?'':` <button class="trk-nix" onclick="trkNIEpicOff()" title="não agrupar">✕</button>`}</div>`:''}
         ${cards||'<div class="trk-rs" style="padding:8px 2px">Mande uma issue ou uma lista. Eu pesquiso o projeto, preencho descrição e requisitos e pergunto só o que o código não responde.</div>'}
         <datalist id="trkNIPeople">${people.map(p=>`<option value="${escA(p.id)}">${esc(p.name)}</option>`).join('')}</datalist>
@@ -669,11 +693,14 @@ function trkNIRender(){
           :`<button class="btn primary" id="trkNICreate"${trkNIReady()&&!n.busy&&!n.running?'':' disabled'}>${n.running?'criando…':'confirmar e criar '+(todo.length||'')+(todo.length===1?' issue':' issues')}</button>
           <div class="dim" style="font-size:10.5px;margin-top:6px">${!n.project?'falta escolher o projeto':!todo.length?'nenhuma issue montada ainda':openQ?'ainda há perguntas em aberto — pode criar assim mesmo ou responder no chat':'revisado? é só confirmar'}${made&&todo.length?' · '+made+' já criadas ficam como estão':''}</div>`}</div></div></div>`;
   const on=(id,fn)=>{ const e=o.querySelector('#'+id); if(e) e.onclick=fn; };
-  { const th=$id('trkNIThread'); if(th) th.scrollTop=th.scrollHeight; }
-  { const i=$id('trkNIInput'); if(i){ i.value=iv; if(keep) i.focus(); i.onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){ e.preventDefault(); trkNISend(i.value); } }; } }
-  on('trkNISend',()=>trkNISend($id('trkNIInput').value)); on('trkNIStop',trkNIStop);
+  stick($id('trkNIThread'));
+  { const i=$id('trkNIInput'); if(i){ i.value=iv; if(keep) i.focus(); } }
+  on('trkNISend',()=>trkNISend($id('trkNIInput').value));
   attRenderPend('trkNIPend', n.pend, trkNIRender);
-  attWireComposer({ input:'trkNIInput', attach:'trkNIAttach', pend:()=>n.pend, taskId:()=>null, rerender:trkNIRender });
+  // composer único; aqui enviar DURANTE a pesquisa é permitido (vira "redirecionar")
+  chatComposer({ input:'trkNIInput', attach:'trkNIAttach', pend:()=>n.pend, taskId:()=>null, rerender:trkNIRender, onSend:()=>trkNISend($id('trkNIInput').value),
+    send:'trkNISend', sendWhileBusy:true, stop:{ btn:'trkNIStop', busy:()=>!!n.busy, fn:trkNIStop }, busyHint:'pesquisando… · envie uma info nova pra mudar o rumo — ■ parar interrompe' });
+  trkNIPersist();
   o.querySelectorAll('[data-nichip]').forEach(b=>b.onclick=()=>trkNISend(n.chips[+b.dataset.nichip]));
   o.querySelectorAll('[data-nime]').forEach(b=>b.onclick=()=>{ trkNIKeep(); n.items[+b.dataset.nime].assignee=trkMe(); trkNIRender(); });
   o.querySelectorAll('[data-niskip]').forEach(b=>b.onclick=()=>{ trkNIKeep(); const it=n.items[+b.dataset.niskip]; it.skip=!it.skip; trkNIRender(); });

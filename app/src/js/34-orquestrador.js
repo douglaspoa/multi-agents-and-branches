@@ -177,7 +177,9 @@ function orqStatusPill(){
 }
 function orqRender(){
   const body=$id('orqBody'); if(!body) return;
+  const stick=stickBottom($id('orqChat')); // lendo lá em cima? o tick de 7s não te joga mais pro fim
   if(orq.step==='brief') orqRenderBrief(body); else orqRenderPlan(body);
+  stick($id('orqChat'));
   body.querySelectorAll('[data-orqgo]').forEach(b=>b.onclick=()=>{ if(b.dataset.orqgo&&window.openTab) window.openTab(b.dataset.orqgo); });
   if(typeof cosmosMount==='function') cosmosMount(body);
 }
@@ -192,7 +194,7 @@ function orqRenderBrief(body){
     ${orq.busy?cosmosHtml('o orquestrador está lendo o repositório e montando o plano…'):`
     <textarea class="orq-ta" id="orqTa" placeholder="ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar">${esc(orq.briefing)}</textarea>
     <div class="attpend" id="orqPend" style="display:${orq.atts.length?'flex':'none'}"></div>
-    <div class="orq-chips"><button class="orq-chip" id="orqAtt">anexar print / arquivo</button><button class="orq-chip" id="orqLastInv">usar a última investigação</button><span style="flex:1"></span><span class="dim mono" style="font-size:11px">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span></div>
+    <div class="orq-chips"><button class="orq-chip" id="orqAtt" title="ou cole (⌘V) / arraste o print direto no texto">anexar print / arquivo</button><button class="orq-chip" id="orqLastInv">usar a última investigação</button><span style="flex:1"></span><span class="dim mono" style="font-size:11px">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span></div>
     ${orq.msg?`<div class="orq-msg">${esc(orq.msg)}</div>`:''}
     <div class="ndeyebrow" style="margin-top:26px">o orquestrador pode</div>
     <div class="orq-can">
@@ -206,7 +208,8 @@ function orqRenderBrief(body){
   </div></div>`;
   const ta=$id('orqTa'); if(ta){ ta.oninput=()=>{ orq.briefing=ta.value; const g=$id('orqGo'); if(g) g.disabled=ta.value.trim().length<12; }; ta.focus(); }
   if(typeof attRenderPend==='function') attRenderPend('orqPend', orq.atts, ()=>orqRender());
-  bindClick('orqAtt', async()=>{ const got=await attPick(null); orq.atts.push(...got); orqRender(); });
+  // anexar igual aos chats: botão, ⌘V de print e arrastar arquivo pro texto
+  attWireComposer({ input:'orqTa', attach:'orqAtt', pend:()=>orq.atts, taskId:()=>null, rerender:()=>orqRender() });
   bindClick('orqLastInv', ()=>{ const inv=(state.tasks||[]).filter(t=>t.kind==='invest'||/^invest\//.test(t.branch||'')).slice(-1)[0]; if(!inv){ orq.msg='nenhuma investigação encontrada neste projeto.'; orqRender(); return; } orq.briefing=(orq.briefing?orq.briefing+'\n\n':'')+`Partir da investigação "${inv.title}" (tarefa ${inv.id} — leia .cardume/artifacts/${inv.id}/INVESTIGATION.md).`; orqRender(); });
   bindClick('orqGo', orqPlanNow);
   body.querySelectorAll('[data-orqopen]').forEach(b=>b.onclick=()=>{ const p=(orq.list||[]).find(x=>x.id===b.dataset.orqopen); if(p){ if(!p.repo) p.repo=state.repo||''; orq.plan=p; orq.step='plan'; orq.sel=p.phases[0]?p.phases[0].key:null; orq.pan={x:20,y:20}; orq.zoom=1; orq.needFit=true; orqRender(); } });
@@ -338,35 +341,37 @@ function orqWire(body,pos){
 function orqChatHtml(p){
   const msgs=p.chat||[];
   const locked=p.status!=='planned';
-  const thread=msgs.length?msgs.map(m=>`<div class="orq-cm ${m.who}">${m.who==='bot'?mdToHtml(m.text||''):esc(m.text||'')+(m.who==='you'?attRowHtml(m.atts):'')}</div>`).join('')
+  const thread=msgs.length?msgs.map(chatMsgHtml).join('')
     :`<div class="orq-cm hint">Pergunte sobre o projeto ("por que a fase 2 depende da 1?", "quais arquivos a fase de build vai mexer?") ${locked?'ou peça sugestões — o plano já está rodando, então as fases não mudam por aqui.':'ou peça ajustes no plano ("junta as fases 2 e 3", "adiciona uma fase de testes de carga") — o grafo muda na hora.'}</div>`;
   return `<div class="orq-chatwrap"><div class="ndeyebrow" style="margin-top:12px">conversar com o orquestrador <span class="dim" style="text-transform:none;letter-spacing:0">· lê o repo de verdade${locked?'':' · pode ajustar o plano'}</span></div>
-    <div class="orq-chat" id="orqChat">${thread}${orq.chatBusy?'<div class="orq-cm bot think"><span class="pltyping"><i></i><i></i><i></i></span></div>':''}</div>
+    <div class="orq-chat" id="orqChat">${thread}${orq.chatBusy?chatThinkHtml():''}</div>
     <div class="attrow attpend orq-chatpend" id="orqChatPend" style="display:none"></div>
-    <div class="orq-chatin"><button class="as-btn sm orq-attbtn" id="orqChatAtt" title="anexar print / PDF / doc (ou cole com ⌘V)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea id="orqChatTa" rows="2" placeholder="pergunte ou peça um ajuste… (⌘V cola print · enter envia)" ${orq.chatBusy?'disabled':''}>${esc(orq.chatDraft||'')}</textarea><button class="as-btn primary sm" id="orqChatSend" ${orq.chatBusy?'disabled':''}>${ic('send',12)}enviar</button></div></div>`;
+    <div class="orq-chatin"><button class="as-btn sm orq-attbtn" id="orqChatAtt" title="anexar print / PDF / doc (ou cole com ⌘V)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea id="orqChatTa" rows="2" placeholder="pergunte ou peça um ajuste…">${esc(orq.chatDraft||'')}</textarea><button class="as-btn sm trk-stop" id="orqChatStop" style="display:none" title="interrompe o orquestrador agora">■ parar</button><button class="as-btn primary sm" id="orqChatSend" ${orq.chatBusy?'disabled':''}>${ic('send',12)}enviar</button></div></div>`;
 }
 function orqWireChat(body){
   { const d=body.querySelector('.orq-more'); if(d) d.ontoggle=()=>{ orq.moreOpen=d.open; }; }
   const ta=$id('orqChatTa'); if(!ta) return;
-  if(typeof attWireComposer==='function') attWireComposer({ input:'orqChatTa', attach:'orqChatAtt', pend:()=>orq.chatAtts, taskId:()=>null, rerender:()=>orqRender() });
-  if(typeof attRenderPend==='function') attRenderPend('orqChatPend', orq.chatAtts, ()=>orqRender());
-  ta.oninput=()=>{ orq.chatDraft=ta.value; };
-  ta.onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); orqChatSend(); } };
+  // a tela do plano tem guarda de "HTML igual → não repinta": os chips pendentes se desenham direto no lugar
+  const pend=()=>attRenderPend('orqChatPend', orq.chatAtts, pend); pend();
+  chatComposer({ input:'orqChatTa', attach:'orqChatAtt', pend:()=>orq.chatAtts, taskId:()=>null, rerender:pend, onSend:orqChatSend, send:'orqChatSend',
+    stop:{ btn:'orqChatStop', busy:()=>!!orq.chatBusy, fn:orqChatStop }, busyHint:'o orquestrador está lendo o repo · ■ parar interrompe — dá pra ir escrevendo a próxima' });
+  ta.oninput=()=>{ orq.chatDraft=ta.value; chatGrow(ta); };
   bindClick('orqChatSend', orqChatSend);
-  const th=$id('orqChat'); if(th) th.scrollTop=th.scrollHeight;
 }
+async function orqChatStop(){ if(!orq.chatBusy) return; orq.chatStopping=true; try{ await invoke('orq_chat_stop'); }catch(_){ } }
 function orqChatFocus(){ orq.sel='__orq'; orq.addOpen=false; orqRender(); const ta=$id('orqChatTa'); if(ta){ ta.focus(); ta.scrollIntoView({block:'nearest'}); } }
 async function orqChatSend(){
-  const p=orq.plan; if(!p||orq.chatBusy) return;
+  const p=orq.plan; if(!p) return;
+  if(orq.chatBusy){ toast('O orquestrador ainda está respondendo — espere ou toque em ■ parar.'); return; }
   let text=(orq.chatDraft||'').trim();
   const atts=(orq.chatAtts||[]).splice(0);
   if(!text && atts.length) text='Anexei estes arquivos — leia e extraia o contexto (spec, print do bug, etc.).';
   if(!text) return;
-  p.chat=p.chat||[]; p.chat.push({who:'you', text, atts:attLite(atts)}); orq.chatDraft=''; orq.chatBusy=true; orqRender();
+  p.chat=p.chat||[]; p.chat.push({who:'you', text, atts:attLite(atts)}); orq.chatDraft=''; orq.chatBusy=true; orq.chatStopping=false; chatPinBottom('orqChat'); orqRender();
   try{
     const planJson=JSON.stringify({ title:p.title, summary:p.summary, briefing:p.briefing, status:p.status, phases:p.phases.map(x=>({ key:x.key, name:x.name, kind:x.kind, agent:x.agent, objective:x.objective, objectives:x.objectives, autonomy:x.autonomy, dependsOn:x.dependsOn, taskId:x.taskId||undefined })) });
     if(!p.repo) p.repo=state.repo||'';
-    const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_orchestrate_chat',{ prompt:pr, sessionId:sid, model:p.model||null, plan:planJson, repo:p.repo||null }), p.chatSid||null, text+attPromptBlock(atts), p.chat.slice(0,-1));
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_orchestrate_chat',{ prompt:pr, sessionId:sid, model:p.model||null, plan:planJson, repo:p.repo||null }), p.chatSid||null, text+attPromptBlock(atts), p.chat.slice(0,-1).filter(m=>m.who!=='sys'));
     if(r&&r.recovered) p.chat.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     if(r&&r.sessionId) p.chatSid=r.sessionId;
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
@@ -385,8 +390,15 @@ async function orqChatSend(){
         p.chat.push({who:'sys', text:'o plano já está rodando — a sugestão acima não foi aplicada (use "+ subagente" pra acrescentar uma fase).'});
       }
     }
-  }catch(e){ p.chat.push({who:'sys', text:'⚠ '+(e&&e.message||e)}); }
-  orq.chatBusy=false; orqSave(); orqRender();
+  }catch(e){
+    const msg=String((e&&e.message)||e||'');
+    if(orq.chatStopping||/ORQ_CHAT_STOPPED/.test(msg)){ // parado: a pergunta volta pra caixa (com os anexos)
+      const last=p.chat[p.chat.length-1]; if(last&&last.who==='you'&&last.text===text) p.chat.pop();
+      p.chat.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
+      if(!orq.chatDraft) orq.chatDraft=text; orq.chatAtts=(orq.chatAtts||[]).concat(atts);
+    } else p.chat.push({who:'sys', text:'⚠ '+msg});
+  }
+  orq.chatBusy=false; orq.chatStopping=false; orqSave(); orqRender();
   const ta=$id('orqChatTa'); if(ta) ta.focus();
 }
 function orqInspHtml(){
