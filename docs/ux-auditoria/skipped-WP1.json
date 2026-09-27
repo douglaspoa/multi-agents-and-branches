@@ -1,0 +1,12 @@
+[
+  {
+    "id": "W1 (parcial)",
+    "titulo": "Regras mortas .fwcols.chatwide em css/10-base.css",
+    "motivo": "css/10-base.css não é deste pacote. As regras .chatwide do css/50 saíram e o JS nunca liga essa classe, então as de css/10 ficaram inofensivas (código morto) — remover junto com quem cuida do 10-base."
+  },
+  {
+    "id": "PR-11 (parcial)",
+    "titulo": "Merge squash no fluxo do celular",
+    "motivo": "js/42-nuvem-sync-mobile.js (merge pedido pelo celular) ainda chama merge_pr com method:'merge'. O arquivo está fora deste pacote; o desktop (mergePr) usa squash sempre."
+  }
+]
