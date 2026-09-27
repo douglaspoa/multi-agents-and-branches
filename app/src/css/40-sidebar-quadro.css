@@ -132,6 +132,10 @@
 .prow2 .d{width:7px;height:7px;border-radius:var(--r-pill);flex:none}
 .prow2 .tt{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .prow2 .tg{font-size:10px;font-weight:600;flex:none;opacity:.9;white-space:nowrap}
+.prow2 .sbepdot{flex:none;font-size:8px;line-height:1;margin:0 -3px 0 -2px;opacity:.95} /* R5-7: tarefa de épico (nome no tooltip) */
+#fwTaskEpic{flex:none;display:inline-flex;min-width:0;max-width:240px} #fwTaskEpic:empty{display:none}
+.kepic{margin:4px 0 2px;display:flex;min-width:0} .kepic .epbadge{max-width:100%}
+.grh .epbadge{max-width:220px}
 .prow2.other .tt{color:var(--text-2)}
 #rail{padding-top:8px}
 .railadd{display:flex;align-items:center;gap:8px;width:calc(100% - 24px);margin:10px 12px 4px;padding:9px 11px;border:1px dashed var(--border-strong);border-radius:8px;background:none;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
@@ -225,6 +229,7 @@
 .kplay svg{width:11px;height:11px}
 .kcrew{display:flex;gap:4px;margin-top:8px}
 .kav{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+.kav.cur{box-shadow:0 0 0 1.5px var(--surface),0 0 0 3px var(--text-2)} /* R5-5: quem está na vez = anel, a cor continua a do agente (catálogo) */
 .knote{margin-top:8px;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .knote.amber{color:var(--warn)}
 /* R3: quadro do Time com as etapas da Central (5 colunas: fila · aguardando · andamento · prontas/PR · concluídas) */

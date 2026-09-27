@@ -238,7 +238,7 @@
       </div>
       <label class="cfgck" style="display:flex;gap:9px;align-items:center;margin-top:10px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="ntLight"><span>Faixa leve <span class="dim">— mudança pequena: pula linkar dependências e o setup.sh na worktree (mais rápido; ligue só se a tarefa não precisa rodar/buildar o projeto)</span></span></label>
       <div class="two" id="ntTeamRow" style="margin-top:11px">
-        <div><label>Equipe (workflow)</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
+        <div><label>Equipe</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
         <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%" title="Logcomex AI usa a LGCX_API_KEY da sua conta (Conta → Chaves de modelo)"><option value="claude">Claude (assinatura)</option><option value="codex">Codex (OpenAI)</option><option value="gateway">Gateway próprio (OpenAI-compatível)</option><option value="mock">Mock (sem IA)</option></select></div>
         <div><label>Versão do modelo</label><select class="sel" id="ntModel" style="width:100%" title="tarefa simples? um modelo mais rápido termina em fração do tempo"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio (rápido)</option><option value="haiku">Haiku — o mais veloz (tarefas simples)</option></select></div>
       </div>
@@ -427,7 +427,7 @@
 <div class="overlay fwoverlay" id="fwOverlay" style="display:none">
   <div class="fw">
     <div class="fwhead">
-      <b class="mono" id="fwTaskName">Arquivos & chat</b>
+      <b class="mono" id="fwTaskName">Arquivos & chat</b><span id="fwTaskEpic" class="fwtaskepic"></span>
       <span class="fwsub" id="fwTaskBranch"></span>
       <span id="fwOrqChips"></span>
       <span class="phst" id="fwPhases" style="margin-left:12px"></span>
@@ -473,8 +473,8 @@
       <div class="seclbl2">Agentes <span style="flex:1"></span><button class="btn sm" id="agImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="btn sm" id="agAdd">+ novo agente</button></div>
       <div class="imhint">Cada agente tem um papel e uma persona (as instruções dele). Dá pra <b>importar um .md</b> de subagente do Claude Code: o cabeçalho do arquivo (entre as linhas <code>---</code>) traz nome, papel, cor e modelo, e o resto do texto vira a persona.</div>
       <div id="agList"></div>
-      <div class="seclbl2" style="margin-top:20px">Workflows (equipes) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ novo workflow</button></div>
-      <div class="imhint">Um workflow é a sequência de agentes que toca a tarefa. Arraste a ordem com ◀ ▶.</div>
+      <div class="seclbl2" style="margin-top:20px">Equipes (fluxos de trabalho) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ nova equipe</button></div>
+      <div class="imhint">Uma equipe é o fluxo de trabalho: a sequência de agentes que toca a tarefa (ex.: planejar → construir → revisar). Arraste pra mudar a ordem.</div>
       <div id="wfList"></div>
     </div>
     <div class="mfoot"><span class="dim" title="arquivo: cardume.config.json na raiz do projeto">salvo nas configurações deste projeto</span><span style="flex:1"></span><button class="btn" id="agCancel">cancelar</button><button class="btn primary" id="agSave">salvar catálogo</button></div>

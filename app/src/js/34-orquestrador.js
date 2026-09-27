@@ -23,7 +23,8 @@ function orqNewId(){ return 'orq-'+Date.now().toString(36)+Math.random().toStrin
 // Um estado = uma cor = uma ação. Rodando (amarelo) · perguntou, responda (rosa) · entregou,
 // revise (azul) · pronto (verde) · erro (vermelho) · esperando (cinza).
 // cores do grafo do orquestrador: tokens do tema (aqui "rodando" é âmbar de propósito — fase em andamento)
-const ORQ_ST={ running:'var(--warn)', asking:'var(--st-ask)', review:'var(--info)', done:'var(--good)', error:'var(--crit)', waiting:'var(--text-3)' };
+// R5-4: mesmas cores de status do resto do app (rodando = --st-run verde; revisão = --st-review; erro = --st-err)
+const ORQ_ST={ running:'var(--st-run)', asking:'var(--st-ask)', review:'var(--st-review)', done:'var(--good)', error:'var(--st-err)', waiting:'var(--text-3)' };
 function orqPhaseState(ph){
   const t=orqTaskOf(ph);
   if(!t) return { key:'planned', label:'planejado', color:ORQ_ST.waiting };
@@ -176,7 +177,7 @@ function orqStatusPill(){
   if(done===p.phases.length) return `<span class="orq-pill ok"><i></i>plano concluído</span>`;
   if(ask) return `<span class="orq-pill ask"><i></i>${ask} fase${ask===1?'':'s'} esperando sua resposta</span>`;
   if(rev) return `<span class="orq-pill rev"><i></i>${rev} entrega${rev===1?'':'s'} pra revisar</span>`;
-  return `<span class="orq-pill live"><i></i>${run} subagente${run===1?'':'s'} rodando · ${done} pronto${done===1?'':'s'}</span>`;
+  return `<span class="orq-pill live"><i></i>${run} subagente${run===1?'':'s'} rodando · ${done}/${p.phases.length} prontas</span>`;
 }
 function orqRender(){
   const body=$id('orqBody'); if(!body) return;
@@ -270,7 +271,7 @@ function orqRenderPlan(body){
       : st.key==='running' ? `<button class="orq-open" data-orqtask="${escA(t.id)}" data-orqmode="conversa">acompanhar ↗</button>`
       : st.key==='error' ? `<button class="orq-open act" data-orqtask="${escA(t.id)}">ver o erro ↗</button>`
       : `<button class="orq-open" data-orqtask="${escA(t.id)}">abrir tarefa ↗</button>`;
-    const chip = st.key==='asking' ? '<span class="orq-stchip asking">responda</span>' : st.key==='review' ? '<span class="orq-stchip review">revise</span>' : st.key==='running' ? '<span class="orq-stchip running"><i class="spin" style="--pc:#f0b449;background:#f0b449"></i>rodando</span>' : st.key==='done' ? '<span class="orq-stchip done">✓</span>' : st.key==='error' ? '<span class="orq-stchip error">erro</span>' : '';
+    const chip = st.key==='asking' ? '<span class="orq-stchip asking">responda</span>' : st.key==='review' ? '<span class="orq-stchip review">revise</span>' : st.key==='running' ? '<span class="orq-stchip running"><i class="spin" style="--pc:var(--st-run);background:var(--st-run)"></i>rodando</span>' : st.key==='done' ? '<span class="orq-stchip done">✓</span>' : st.key==='error' ? '<span class="orq-stchip error">erro</span>' : '';
     return `<div class="orq-node ${st.key}${orq.sel===ph.key?' sel':''}" data-orqsel="${escA(ph.key)}" style="left:${q.x}px;top:${q.y}px;width:${q.w}px;height:${q.h}px;--c:${orqColor(ph.kind)};--st:${st.color}">
       <div class="orq-nh"><span class="orq-nn" title="${escA(ph.name)}">${esc(ph.name)}</span>${chip||`<i class="orq-dot" style="background:${st.color}"></i>`}</div>
       <div class="orq-nm mono"><span class="orq-nmk"><b class="orq-badge sm">${orqBadge(ph.kind)}</b><span style="color:${st.color}">${esc(st.label)}</span></span><span>${done}/${tot} objetivos</span></div>
@@ -331,12 +332,15 @@ function orqLastLines(taskId,n){
 }
 function orqWire(body,pos){
   const canvas=$id('orqCanvas'), world=$id('orqWorld');
-  canvas.onmousedown=e=>{ if(e.target.closest('.orq-node')) return; orqDrag={ x:e.clientX, y:e.clientY, px:orq.pan.x, py:orq.pan.y }; canvas.classList.add('drag'); };
+  canvas.onmousedown=e=>{ if(e.target.closest('.orq-node')) return; orqDrag={ x:e.clientX, y:e.clientY, px:orq.pan.x, py:orq.pan.y }; orq.autoFit=false; canvas.classList.add('drag'); };
   window.onmousemove=e=>{ if(!orqDrag) return; orq.pan.x=orqDrag.px+(e.clientX-orqDrag.x); orq.pan.y=orqDrag.py+(e.clientY-orqDrag.y); world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; };
   window.onmouseup=()=>{ if(orqDrag){ orqDrag=null; canvas.classList.remove('drag'); } };
-  const fit=()=>{ const r=canvas.getBoundingClientRect(); if(!r.width) return; orq.zoom=Math.max(.85,Math.min(1,(r.width-40)/pos.__size.w,(r.height-40)/pos.__size.h)); orq.pan={x:Math.max(16,(r.width-pos.__size.w*orq.zoom)/2), y:Math.max(16,(r.height-pos.__size.h*orq.zoom)/2)}; world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; };
-  if(orq.needFit){ orq.needFit=false; requestAnimationFrame(fit); }
-  body.querySelectorAll('[data-orqz]').forEach(b=>b.onclick=()=>{ const z=b.dataset.orqz; if(z==='fit'){ fit(); return; } orq.zoom=Math.max(.4,Math.min(1.6,orq.zoom+(z==='+'?.12:-.12))); world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; });
+  const fit=()=>{ const r=canvas.getBoundingClientRect(); if(!r.width) return; orq.zoom=Math.max(.85,Math.min(1,(r.width-40)/pos.__size.w,(r.height-40)/pos.__size.h)); /* piso .85 = cartões legíveis; o que não cabe continua à direita (fade na borda) */ orq.pan={x:Math.max(16,(r.width-pos.__size.w*orq.zoom)/2), y:Math.max(16,(r.height-pos.__size.h*orq.zoom)/2)}; world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; };
+  if(orq.needFit){ orq.needFit=false; orq.autoFit=true; requestAnimationFrame(fit); }
+  // R5-10: abrir/fechar o chat do orquestrador estreita o canvas — enquanto você não mexeu no zoom/arrasto, reajusta
+  if(!canvas.__ro && typeof ResizeObserver==='function'){ canvas.__ro=new ResizeObserver(()=>{ if(orq.autoFit && canvas.__fit) canvas.__fit(); }); canvas.__ro.observe(canvas); }
+  canvas.__fit=fit;
+  body.querySelectorAll('[data-orqz]').forEach(b=>b.onclick=()=>{ const z=b.dataset.orqz; if(z==='fit'){ orq.autoFit=true; fit(); return; } orq.autoFit=false; orq.zoom=Math.max(.4,Math.min(1.6,orq.zoom+(z==='+'?.12:-.12))); world.style.transform=`translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})`; });
   body.querySelectorAll('[data-orqsel]').forEach(n=>n.onclick=e=>{ if(e.target.closest('[data-orqtask]')) return; orq.sel=n.dataset.orqsel; orq.addOpen=false; orqRender(); });
   body.querySelectorAll('[data-orqsel2]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); orq.sel=b.dataset.orqsel2; orq.addOpen=false; orqRender(); });
   body.querySelectorAll('[data-orqtask]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); openWorkspace(b.dataset.orqtask); const m=b.dataset.orqmode; if(m){ setTimeout(()=>{ try{ if(fwTask===b.dataset.orqtask){ fwMode=m; renderWorkspace(); } }catch(_){ } }, 250); } });
@@ -411,7 +415,7 @@ async function orqChatSend(){
   const ta=$id('orqChatTa'); if(ta) ta.focus();
 }
 function orqInspHtml(){
-  const p=orq.plan; if(orq.sel==='__orq'||!orq.sel) return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">◉</span><div><b>Orquestrador</b><div class="mono dim" style="font-size:10.5px">${p.status==='planned'?'propôs o plano':'comandando'} · ${esc(typeof aiModelName==='function'?aiModelName(p.model):'')}</div></div></div>
+  const p=orq.plan; if(orq.sel==='__orq'||!orq.sel) return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">◉</span><div><b>Orquestrador</b><div class="mono dim" style="font-size:10.5px">${p.status==='planned'?'propôs o plano':'comandando'}${p.model?` · <span title="${escA(p.model)}">${esc(boardModelName(p.model)||p.model)}</span>`:''}</div></div></div>
     <p class="orq-p">${esc(p.summary||'')}</p>
     <details class="orq-more"${orq.moreOpen?' open':''}><summary>regras · briefing</summary>
       <div class="ndeyebrow">regras</div><ul class="orq-rules"><li>Nunca mexe em código — planeja, abre tarefa, coordena e para pra perguntar.</li><li>Nada roda sem a sua aprovação do plano.</li><li>Uma fase só começa quando as anteriores PROVAREM o resultado (requisitos com evidência).</li><li>Fases sem dependência rodam em paralelo, uma branch por fase.</li></ul>

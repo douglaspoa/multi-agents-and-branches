@@ -24,6 +24,9 @@ function boardModelName(id){
   if(m) return m[1].charAt(0).toUpperCase()+m[1].slice(1).toLowerCase()+(m[2]?' '+m[2]+(m[3]?'.'+m[3]:''):'');
   return /^[a-z]+$/i.test(id) ? id : ''; // apelido curto (ex.: "opus") passa; id técnico longo não
 }
+// R5-9: nome amigável SEMPRE (menus/cabeçalhos): "claude-sonnet-4-5" → "Sonnet 4.5"; sem modelo = padrão da assinatura;
+// o id cru fica pro tooltip de quem chama
+function modelFriendly(id){ if(!id) return 'padrão da assinatura'; return boardModelName(id)||((typeof aiModelName==='function')?aiModelName(id):id); }
 // ---- CARD DE DEMANDA (lista da Central: Execução e Concluídas) ----
 function flowDemandCard(t){
   const asking=pendingOf(t.id);

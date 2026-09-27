@@ -168,3 +168,19 @@
 #connectBtn:hover{background:color-mix(in srgb,var(--accent) 18%,transparent)}
 /* Preencher eu mesmo (formulário): mesma coluna das outras abas (antes: 1020px centralizado → título em outro x) */
 #ntOverlay.astab .mhead,#ntOverlay.astab .mbody,#ntOverlay.astab .mfoot{padding-left:max(var(--page-pad),calc((100% - var(--page-max))/2 + var(--page-pad)))!important;padding-right:max(var(--page-pad),calc((100% - var(--page-max))/2 + var(--page-pad)))!important}
+/* R5-8: Central e Time no MESMO x de título das outras telas-aba (conteúdo começa em --page-pad; antes 264/277 vs 284) */
+#flowPane{padding-left:calc(var(--page-pad) - 2px);padding-right:calc(var(--page-pad) - 2px)}
+.tmain{padding-left:var(--page-pad);padding-right:var(--page-pad)}
+.chead{padding-left:calc(var(--page-pad) - 2px);padding-right:calc(var(--page-pad) - 2px)}
+/* R5-10: a faixa "Agora" dividia a largura com o espaçador (flex:1 dos dois) e cortava o resumo com "…" (custo e
+   arquivo disputado sumiam) — agora ocupa o que precisa e só cede (com …) quando a janela é estreita de verdade */
+.bus #busSummary{flex:0 1 auto}
+/* R5-10: bolinha de "online" FORA das iniciais (canto inferior direito, menor) — antes cobria o "O" de "DO" */
+.tsav.on::after{right:-4px;bottom:-4px;width:7px;height:7px;border-width:2px}
+/* R5-10: chat lateral (Código/Revisão): a conversa rolava colada embaixo da pílula "CONSTRUINDO" e parecia passar
+   por baixo dela — a pílula fica fixa no fluxo e o topo da conversa ganha respiro + um fade curto */
+.fwchat .fwctx{flex:none}
+.fwchat .fwthread{padding-top:12px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 14px);mask-image:linear-gradient(to bottom,transparent 0,#000 14px)}
+/* R5-10: o canvas do orquestrador termina ANTES do chat (borda + fade): a fase que não cabe "continua →" em vez de
+   parecer escondida embaixo do painel — arraste o fundo ou use − pra ver o resto */
+.orq-canvas{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent)}

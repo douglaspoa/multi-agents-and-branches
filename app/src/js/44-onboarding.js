@@ -26,7 +26,7 @@ const AU_LEFT={
   login:{ h:'Bem-vindo de volta ao cockpit', s:'Suas demandas continuam aqui — entre pra ver o que rodou enquanto você esteve fora.', b:[['g','Tarefas em órbita ficam visíveis pro time'],['c','Custo por tarefa, sempre à vista'],['p','PRs prontos pra merge num clique']], f:'sessão local · nada sai da sua máquina' },
   confirm:{ h:'Um passo e a sua estrela acende', s:'O código confirma que o e-mail é seu e liga sua conta à organização certa.', b:[['g','O link do e-mail também funciona'],['c','Você entra como membro; o lead aprova'],['p','Dá pra trocar de time depois']], f:'código expira em 10 minutos' },
   newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres'],['c','Vale em todos os seus Macs'],['p','Sessões antigas continuam válidas']], f:'a senha nunca sai da sua máquina em texto' },
-  ready:{ h:'Tudo pronto — falta só o repo', s:'Sua conta está ativa nesta máquina. Conecte o repositório e escreva a primeira demanda.', b:[['g','Ambiente checado automaticamente'],['c','Workflows do time já sincronizados'],['p','Companion mobile pareado']], f:'teste em andamento' },
+  ready:{ h:'Tudo pronto — falta só o repo', s:'Sua conta está ativa nesta máquina. Conecte o repositório e escreva a primeira demanda.', b:[['g','Ambiente checado automaticamente'],['c','Equipes de agentes do time já sincronizadas'],['p','Companion mobile pareado']], f:'teste em andamento' },
 };
 const AU_DOT={ g:'var(--accent)', c:'#5ec8c8', p:'#c493bb' };
 function auLeftHtml(step){
@@ -163,7 +163,7 @@ async function auOAuth(provider){
 // ---- planos (lê billing_plans; sem seed mostra os preços do design, sem checkout) ----
 const AU_PLAN_DEFAULTS=[
   { key:'individual', name:'Solo', who:'1 pessoa, 1 repo', perSeat:false, feats:['1 agente por vez, sem fila','Branch + worktree isolada por tarefa','Histórico de 30 dias'] },
-  { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Agentes em paralelo, sem limite de fila','Workflows e personas compartilhados','Daily automática e custo por pessoa','Preferências do projeto sincronizadas'] },
+  { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Agentes em paralelo, sem limite de fila','Equipes de agentes e personas compartilhadas','Daily automática e custo por pessoa','Preferências do projeto sincronizadas'] },
   { key:'enterprise', name:'Organização', who:'vários times e repos', feats:['Tudo do Time, sem teto de assentos','SSO, auditoria e política por repo','Chaves de modelo próprias (BYOK)','Suporte dedicado'] },
 ];
 const AU_FALLBACK_PRICE={ individual:{month:4900,year:3900}, team:{month:3900,year:3100} };

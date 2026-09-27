@@ -10,7 +10,7 @@ function kanbanCol(t){
 }
 function kCard(t){
   const roles=t.roles||[]; const curIdx=roles.findIndex(r=>r.role===t.stage);
-  const crew=roles.map((r,i)=>`<span class="kav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name)}">${agentBadge(r.name)}</span>`).join('');
+  const crew=roles.map((r,i)=>`<span class="kav${r.role===t.stage?' cur':''}" style="background:${agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name+(r.role===t.stage?' — na vez agora':''))}">${agentBadge(r.name)}</span>`).join('');
   const ev=lastEventOf(t.id);
   const amber = t.status==='plan-review'||pendingOf(t.id).length||t.status==='aborted';
   const note = pendingOf(t.id).length?'perguntou — responda'
@@ -24,6 +24,7 @@ function kCard(t){
     : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
   return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" data-id="${t.id}">
     <div class="kctop">${t.status==='draft'?((!t.repo||t.repo===state.repo)?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:`<button class="kplay" disabled title="rascunho de outro projeto — abra ${escA(projShort(t.repo))} para iniciar">${IC.cright}</button>`):''}<b class="ktitle">${esc(t.title)}</b></div>
+    ${typeof epTaskBadge==='function'&&t.epic?`<div class="kepic">${epTaskBadge(t)}</div>`:''}
     <div class="kcrew">${crew}</div>
     ${note?`<div class="knote${amber?' amber':''}">${esc(note.length>64?note.slice(0,63)+'…':note)}</div>`:''}
   </div>`;
@@ -43,7 +44,9 @@ function renderKanban(){
   if(el.__html===html && el.firstChild) return; // nada visível mudou: sem piscar, sem perder clique
   el.__html=html; el.innerHTML=html;
   el.querySelectorAll('.kcard').forEach(card=>{
-    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return; openTaskById(card.dataset.id); };
+    card.onclick=(e)=>{ if(e.target.closest('.kplay')) return;
+      const eb=e.target.closest('[data-epbadge]'); if(eb){ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(eb.dataset.epbadge); return; } // R5-7
+      openTaskById(card.dataset.id); };
     card.addEventListener('dragstart',e=>{ kDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
     card.addEventListener('dragend',()=>{ kDragId=null; card.classList.remove('dragging'); el.querySelectorAll('.kcol').forEach(c=>c.classList.remove('over')); });
   });

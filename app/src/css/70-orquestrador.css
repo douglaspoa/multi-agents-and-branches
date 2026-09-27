@@ -8,7 +8,7 @@
 .orq-segd{font-size:12.5px;color:var(--text-3)}
 .orq-pill{display:inline-flex;align-items:center;gap:7px;font:400 11px var(--code);color:var(--text-3)}
 .orq-pill i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3)}
-.orq-pill.live{color:var(--warn)}.orq-pill.live i{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.orq-pill.live{color:var(--st-run)}.orq-pill.live i{background:var(--st-run);box-shadow:0 0 8px var(--st-run)}
 .orq-pill.ok{color:var(--accent)}.orq-pill.ok i{background:var(--accent)}
 /* briefing */
 .orq-brief{flex:1;overflow:auto;display:flex;justify-content:center;padding:44px 28px 60px;font-family:var(--display);color:var(--text)}
@@ -53,7 +53,7 @@
 .orq-node{position:absolute;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:var(--card-bg);padding:12px 14px;display:flex;flex-direction:column;gap:7px;cursor:pointer;font-family:var(--display);color:var(--text);transition:border-color .12s,box-shadow .12s}
 .orq-node:hover{border-color:rgba(255,255,255,.3)}
 .orq-node.sel{border-color:var(--accent);box-shadow:0 0 0 1px rgba(63,214,138,.35),0 10px 40px rgba(63,214,138,.12)}
-.orq-node.running{border-color:rgba(240,180,73,.5)}
+.orq-node.running{border-color:color-mix(in srgb,var(--st-run) 50%,transparent)}
 .orq-node.done{border-color:rgba(63,214,138,.45)}
 .orq-node.error{border-color:rgba(242,104,92,.6)}
 .orq-node.asking{border-color:rgba(232,120,138,.75);box-shadow:0 0 0 1px rgba(232,120,138,.25),0 8px 30px rgba(232,120,138,.12)}
@@ -62,8 +62,8 @@
 .orq-askq{white-space:normal!important;color:var(--text)!important;line-height:1.4}
 .orq-stchip{display:inline-flex;align-items:center;gap:5px;font:600 9.5px var(--code);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:var(--r-pill);flex:none}
 .orq-stchip.asking{background:rgba(232,120,138,.18);color:var(--st-ask)}
-.orq-stchip.review{background:rgba(91,157,249,.18);color:var(--info)}
-.orq-stchip.running{background:rgba(240,180,73,.15);color:#f0b449}
+.orq-stchip.review{background:color-mix(in srgb,var(--st-review) 18%,transparent);color:var(--st-review)}
+.orq-stchip.running{background:color-mix(in srgb,var(--st-run) 15%,transparent);color:var(--st-run)}
 .orq-stchip.done{background:rgba(63,214,138,.18);color:#3fd68a}
 .orq-stchip.error{background:rgba(242,104,92,.18);color:#f2685c}
 .orq-open.act{color:var(--st);font-weight:600}

@@ -16,7 +16,7 @@ const CT_ST_PT=Object.fromEntries(Object.keys(STATUS_META).map(k=>[k, stLabel(k)
 // backlog + autoStart + pré-requisitos = NA ESPERA (começa sozinha — 46-epico-time: epicAutoStartTick).
 // "Aguardando você" é reservado pro que depende do HUMANO; tarefa esperando outra tarefa é "na espera".
 function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
-function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(ct.status); }
+function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(typeof tsSt==='function'?tsSt(ct):ct.status); } // R5-1: status efetivo (PR aberto/pergunta)
 function ctStColor(st){ return stColor(st); }
 
 async function cloudEnsureProject(){

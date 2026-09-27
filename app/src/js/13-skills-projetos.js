@@ -154,7 +154,9 @@ function projetosRender(ov){
     const nAnd=fc?fc.andamento:(p.active||0), nRev=fc?fc.prontas:(p.review||0), nAsk=fc?fc.aguardando:0;
     const bits=[];
     if(nAsk) bits.push(`<b style="color:var(--st-ask,var(--warn))">${nAsk} aguardando você</b>`);
-    if(nRev) bits.push(`<b style="color:var(--warn)">${nRev} em revisão</b>`);
+    const nPr=fc?fc.praberto:0; // R5-1: mesmos rótulos da Central (FLOW_SECS): "pronta(s) pra revisar" e "PR aberto"
+    if(nRev) bits.push(`<b style="color:var(--st-review,var(--warn))">${nRev} ${nRev===1?'pronta':'prontas'} pra revisar</b>`);
+    if(nPr) bits.push(`<b style="color:var(--info)">${nPl(nPr,'PR aberto','PRs abertos')}</b>`);
     bits.push(nAnd?`<b style="color:var(--accent)">${nAnd} em andamento</b>`:'<span class="dim">nada em andamento</span>');
     return `<div class="projcard2 as-card">
       <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="as-badge" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)">aberto</span>':''}</div>

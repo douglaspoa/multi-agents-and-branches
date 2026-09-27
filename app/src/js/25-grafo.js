@@ -38,6 +38,7 @@ function renderGraph(){
       <div class="grh">
         <span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
         <b class="grt">${esc(t.title)}</b>
+        ${typeof epTaskBadge==='function'?epTaskBadge(t):''}
         ${linkChips(t)}
         <span style="flex:1"></span>
         <span class="mono dim" style="font-size:10px">${esc(t.base||'main')} → ${esc(t.branch)}</span>
@@ -49,7 +50,8 @@ function renderGraph(){
   const mainRow=mainCommits.length?`<div class="grmain"><span class="mono" style="color:var(--text-2);font-size:11px;font-weight:700">main</span><div class="grmc">${mainCommits.slice(0,12).map(c=>`<span class="gmdot" data-hash="${escA(c.hash)}" title="${escA((c.subject||'').slice(0,90))}"></span>`).join('')}</div><span class="dim" style="font-size:10.5px">últimos ${Math.min(12,mainCommits.length)} commits · clique num ponto pra ver o diff</span></div>`:'';
   host.innerHTML=`<div class="gtlwrap">${mainRow}${rows||'<div class="empty">nenhuma tarefa com branch ainda</div>'}</div>`;
   host.querySelectorAll('.gdot,.gmdot').forEach(d=>{ d.onclick=(e)=>{ e.stopPropagation(); openCommit(d.dataset.hash); }; });
-  host.querySelectorAll('[data-tsel]').forEach(r=>{ r.addEventListener('click',(e)=>{ if(e.target.closest('.gdot,.gmdot,[data-lk],[data-lkcfg]')) return; selected=r.dataset.tsel; lastSig=''; render(); }); });
+  host.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); // R5-7
+  host.querySelectorAll('[data-tsel]').forEach(r=>{ r.addEventListener('click',(e)=>{ if(e.target.closest('.gdot,.gmdot,[data-lk],[data-lkcfg],[data-epbadge]')) return; selected=r.dataset.tsel; lastSig=''; render(); }); });
   wireLinkChips(host);
 }
 const DEFPAT=[/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_,\s]*)\s*=>/,/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/,/^\s*def\s+([A-Za-z0-9_]+)/,/^\s*#\[tauri::command\]/];
@@ -187,7 +189,7 @@ function renderRail(){
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
     html+=rows.map(t=>{ const [tg,tc,tl]=tagOf(t);
-      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
+      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span>${sbEpDot(t)}<span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
     }).join('');
   } else if(!(window.orqRailRows&&window.orqRailRows())){
     html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:11px">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
@@ -223,4 +225,11 @@ function renderRail(){
     if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
+}
+
+// R5-7: tarefa de épico na barra lateral = ◆ pequeno na cor do épico (nome no tooltip) — a linha é estreita demais pro selo inteiro
+function sbEpDot(t){
+  const id=t&&t.epic&&t.epic.epicId; if(!id) return '';
+  const nm=(typeof epNameOf==='function'&&epNameOf(id))||'épico', w=parseInt(t.epic.wave,10)||0;
+  return `<span class="sbepdot" style="color:${typeof epColor==='function'?epColor(id):'var(--accent)'}" title="${escA('épico “'+nm+'”'+(w?' · onda '+w:''))}">◆</span>`;
 }

@@ -406,7 +406,16 @@ function commitChip(x, agent){
 const FLOW_PAL=["#3fd68a","#5b9df9","#b47ce0","#f0b449","#f2685c","#4fc4c9","#e07ab4","#7c8792"];
 // Busca o agente no catálogo do projeto (config) POR NOME — é como as tarefas
 // referenciam o agente (só o nome fica gravado). Dá acesso a cor + avatar escolhidos no editor.
-function agentCat(name){ try{ return ((state.config&&state.config.agents)||[]).find(a=>String(a.name||'').toLowerCase()===String(name||'').toLowerCase())||null; }catch(_){ return null; } }
+// R5-5: o catálogo só era lido ao abrir "Nova demanda" — até lá toda cor caía no hash (Lyra coral no chat e roxa em
+// Agentes). Agora carrega sozinho (1x por repo) na 1ª consulta e redesenha; salvar o catálogo atualiza state.config.
+let agentCatRepo=null;
+function agentCatEnsure(){
+  const repo=(typeof state!=='undefined'&&state.repo)||'';
+  if(agentCatRepo===repo) return; agentCatRepo=repo;
+  if(typeof invoke!=='function') return;
+  invoke('config').then(c=>{ if(c&&(state.repo||'')===repo){ state.config=c; lastSig=''; try{ if(typeof render==='function') render(); }catch(_){ } } }).catch(()=>{});
+}
+function agentCat(name){ agentCatEnsure(); try{ return ((state.config&&state.config.agents)||[]).find(a=>String(a.name||'').toLowerCase()===String(name||'').toLowerCase())||null; }catch(_){ return null; } }
 function agentColor(name){ const a=agentCat(name); if(a&&a.color) return a.color; let h=0; const s=String(name||""); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return FLOW_PAL[h%FLOW_PAL.length]; }
 // Conteúdo do badge do agente: o AVATAR (emoji) escolhido no editor, ou as iniciais.
 function agentBadge(name){ const a=agentCat(name); return a&&a.avatar ? a.avatar : esc(String(name||'?').trim().slice(0,2).toUpperCase()); }

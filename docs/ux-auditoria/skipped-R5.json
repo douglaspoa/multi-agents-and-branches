@@ -1,0 +1,7 @@
+[
+ {
+  "id": "R5-10b",
+  "titulo": "Renomear o workflow \"Plano → build → review\"",
+  "motivo": "É o nome salvo pelo usuário no catálogo (config/org_workflows), não string do app; renomear dado do usuário não é correção de UI."
+ }
+]

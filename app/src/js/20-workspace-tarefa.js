@@ -191,9 +191,9 @@ function fwCtxBarHtml(t){
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
   // estado final: selo padrão (PT + ícone certo) — antes era "✓ error" em inglês, com ✓ até em falha
-  const st = asking.length?`<span class="fwctxst" style="color:var(--warn)"><span class="pulse" style="--pc:var(--warn)"></span>aguardando você</span>`
+  const st = asking.length?`<span class="fwctxst" style="color:var(--st-ask)"><span class="pulse" style="--pc:var(--st-ask)"></span>aguardando você</span>`
     : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(ROLE_DOING[t.stage]||'trabalhando')}</span>`
-    : `<span class="fwctxst">${stBadge(t.flag==='closed'&&!TASK_DONE_ST.includes(t.status)?'closed':t.status)}</span>`;
+    : `<span class="fwctxst">${stBadge(taskSt(t))}</span>`; // R5-1: status efetivo (PR aberto igual à Central)
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   let reqPart='';
   if(reqs.length){
@@ -279,9 +279,9 @@ function phasesHtml(t){
 // (não interrompe); "parar e enviar" é ⌘Enter / botão secundário — antes o Enter era destrutivo.
 function fwSendRowHtml(t){
   const asking=pendingOf(t.id).length>0, working=fwIsWorking(t);
-  const btns = asking ? `<button class="btn primary sm" id="fwSend" style="white-space:nowrap">responder</button>`
-    : working ? `<button class="btn sm" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">parar e enviar</button><button class="btn primary sm" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
-    : `<button class="btn primary sm" id="fwSend" style="white-space:nowrap">enviar</button>`;
+  const btns = asking ? `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">responder</button>`
+    : working ? `<button class="btn sm trk-stop" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">■ parar e enviar</button><button class="btn primary sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
+    : `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">enviar</button>`;
   const hint = asking ? '<span class="kbd">Enter</span> responde · <span class="kbd">⇧Enter</span> quebra linha'
     : working ? '<span class="kbd">Enter</span> põe na fila (não interrompe) · <span class="kbd">⌘Enter</span> para e envia já'
     : '<span class="kbd">Enter</span> envia · <span class="kbd">⇧Enter</span> quebra linha';
@@ -303,7 +303,7 @@ function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[]
 function fwPrimaryAction(t){
   if(t.status==='draft') return null;
   if(pendingOf(t.id).length) return { id:'fwAnswer', html:'✋ responder', title:'o agente fez uma pergunta — a resposta vai na conversa' };
-  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn', html:`${IC.pause} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
+  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`■ parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
   if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
   if(t.status==='conflict') return { id:'fwResolve', html:'⚡ resolver conflito', title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
   if(t.status==='paused') return { id:'fwResume', html:'▶ continuar', title:'retoma a tarefa de onde parou' };
@@ -341,7 +341,7 @@ function fwMoreItems(t){
   if(pv){ it.push({ k:'pv', label:'abrir o preview', hint:pv.replace(/^https?:\/\//,'').slice(0,40) });
     it.push(tun?{ k:'pvoff', label:'fechar o acesso do celular', warn:true }:{ k:'pvmob', label:'abrir o preview no celular', hint:'túnel criptografado' }); }
   if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
-  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão')}`, hint:'vale a partir do próximo turno' });
+  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${modelFriendly(t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
   const cost=taskCost(t.id);
   it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtUsd(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}`, info:true });
   if(fwTreeHidden()) it.push({ k:'tree', label:'mostrar arquivos e artefatos', hint:'⌘B' });
@@ -352,7 +352,7 @@ function fwOpenMore(t, anchor){
   const old=$id('fwMorePop'); if(old){ old.remove(); return; }
   const pop=document.createElement('div'); pop.id='fwMorePop'; pop.className='fwmenu';
   pop.innerHTML=fwMoreItems(t).map(i=>i.info?`<div class="fwmi info">${esc(i.label)}</div>`
-    :`<button class="fwmi${i.warn?' warn':''}" data-fwm="${i.k}"><span>${esc(i.label)}</span>${i.hint?`<span class="fwmh">${esc(i.hint)}</span>`:''}</button>`).join('');
+    :`<button class="fwmi${i.warn?' warn':''}" data-fwm="${i.k}"${i.tip?` title="${escA(i.tip)}"`:''}><span>${esc(i.label)}</span>${i.hint?`<span class="fwmh">${esc(i.hint)}</span>`:''}</button>`).join('');
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.right-pop.offsetWidth))+'px';
@@ -412,6 +412,9 @@ function renderWorkspace(){
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
   { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=async()=>{ const nm=b.dataset.fwmode; if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }); } }
   { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
+  // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
+  { const te=$id('fwTaskEpic'); if(te){ const h=(typeof epTaskBadge==='function')?epTaskBadge(t):''; if(te.innerHTML!==h) te.innerHTML=h;
+      te.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); } }
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
   if(typeof orqTaskChips==='function') orqTaskChips(t);
   // barra do topo: [🌐 preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
@@ -566,17 +569,16 @@ function renderWorkspace(){
   const sel2=fwSelRange();
   const sr=fwSendRowHtml(t);
   chat.innerHTML=`
-    <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div>${workingW?`<button class="btn sm chatstop" id="fwStop">${IC.pause} parar</button>`:''}</div>
+    <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
-    <div class="fwinput"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
+    <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
-      <textarea class="in fwta" id="fwInput" rows="2" style="width:100%" data-tk="${escA(t.id)}" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
-      <div class="fwinrow" style="margin-top:6px"><button class="btn sm" id="fwAttach" title="anexar arquivo">${IC.clip}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span style="flex:1"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
-      <div class="fwhint" id="fwHint">${sr.hint}</div></div>`;
+      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?'responda a pergunta — o turno continua':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
+      <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
+      <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
   chat.dataset.tk=t.id;
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
-  bindClick('fwStop', ()=>stopTask(t.id));
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
   bindClick('fwSend', ()=>fwSendMsg(false));
