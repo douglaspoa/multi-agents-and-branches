@@ -1,23 +1,23 @@
 // Starfork — 23-kanban-artefatos-editor
 // ---------- Kanban ----------
-// mesmos nomes das seções da Central (22: FLOW_SECS) e do STATUS_META — um status, um nome em toda a app
-const KCOLS=[['rascunho','Rascunhos'],['rodando','Em andamento'],['precisa','Aguardando você'],['review','Prontas pra revisar'],['mergeada','Mergeadas'],['encerrada','Concluídas']];
+// colunas = as MESMAS etapas da Central (22: flowBucket/FLOW_SECS) — mesma tarefa, mesma coluna, mesmo número.
+// Antes o Kanban tinha classificação própria (pausada/conflito em "Em andamento", PR aberto em "Prontas").
+const KCOLS=[['rascunho','Rascunhos'],['aguardando','Aguardando você'],['andamento','Em andamento'],['prontas','Prontas pra revisar'],['praberto','PR aberto'],['concluidas','Concluídas']];
+const KDONE_CAP=30; // Concluídas: mostra as mais recentes (conta todas)
 function kanbanCol(t){
-  if(t.flag==='closed') return 'encerrada';
-  if(t.status==='draft') return 'rascunho';
-  if(t.status==='merged') return 'mergeada';
-  if(t.status==='plan-review' || pendingOf(t.id).length || t.status==='error' || t.status==='aborted') return 'precisa';
-  if(t.status==='review') return 'review';
-  return 'rodando'; // running/thinking/queued/paused
+  const b=flowBucket(t);
+  return (b==='hoje'||b==='anteriores')?'concluidas':(b==='fila'?'andamento':b);
 }
 function kCard(t){
   const roles=t.roles||[]; const curIdx=roles.findIndex(r=>r.role===t.stage);
   const crew=roles.map((r,i)=>`<span class="kav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name)}">${agentBadge(r.name)}</span>`).join('');
   const ev=lastEventOf(t.id);
   const amber = t.status==='plan-review'||pendingOf(t.id).length||t.status==='aborted';
-  const note = t.status==='plan-review'?'plano pronto · aprove pra continuar'
-    : pendingOf(t.id).length?'perguntou — responda'
-    : t.status==='review'?'pronta pra revisar · aprovar ou pedir ajuste'
+  const note = pendingOf(t.id).length?'perguntou — responda'
+    : t.status==='plan-review'?'plano pronto · aprove pra continuar'
+    : t.status==='conflict'?'conflito de merge — resolva'
+    : (t.prUrl && t.status!=='merged' && t.flag!=='closed' && ['review','delivered','running','thinking','queued','paused'].includes(t.status))?'PR aberto · aguardando revisão/merge'
+    : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir ajuste'
     : t.status==='error'?'erro — veja o log'
     : t.status==='aborted'?'abortada — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
@@ -32,9 +32,13 @@ let kDragId=null;
 function renderKanban(){
   const el=$id('kanban');
   const byCol={}; KCOLS.forEach(([k])=>byCol[k]=[]);
-  for(const t of (state.tasks||[]).filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.rodando).push(t);
+  // mesma fonte da Central (boardSource: projeto filtrado ou todos) e mesma regra de bloqueadas
+  let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
+  for(const t of src.filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.andamento).push(t);
+  byCol.concluidas.sort((a,b)=>(b.createdAt||b.created_at||0)-(a.createdAt||a.created_at||0));
   if(kDragId) return; // arrastando: reconstruir destruía o card no meio do arrasto (o drop nunca vinha)
-  const html = KCOLS.map(([k,label])=>`<div class="kcol" data-col="${k}"><div class="kcolh">${label} <span class="kn">${byCol[k].length}</span></div><div class="kcolbody">${byCol[k].map(kCard).join('')||'<div class="kempty">—</div>'}</div></div>`).join('');
+  const html = KCOLS.map(([k,label])=>{ const list=byCol[k]; const shown=k==='concluidas'?list.slice(0,KDONE_CAP):list;
+    return `<div class="kcol" data-col="${k}"><div class="kcolh" title="${escA(FLOW_SEC_TIP[k]||'')}">${label} <span class="kn">${list.length}</span></div><div class="kcolbody">${shown.map(kCard).join('')||'<div class="kempty">—</div>'}${list.length>shown.length?`<div class="kempty">+${list.length-shown.length} mais antigas</div>`:''}</div></div>`; }).join('');
   if(el.__html===html && el.firstChild) return; // nada visível mudou: sem piscar, sem perder clique
   el.__html=html; el.innerHTML=html;
   el.querySelectorAll('.kcard').forEach(card=>{
@@ -50,11 +54,10 @@ function renderKanban(){
   el.querySelectorAll('[data-kplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.kplay); });
 }
 function kanbanDrop(id, col){
-  const t=(state.tasks||[]).find(x=>x.id===id); if(!t) return;
+  const t=(state.tasks||[]).find(x=>x.id===id); if(!t){ renderKanban(); return; } // card de outro projeto: abra-o pra mudar
   if(kanbanCol(t)===col) return;
-  if(col==='rodando' && t.status==='draft') startTask(id);
-  else if(col==='mergeada' && t.status==='review') mergeTask(id);
-  else if(col==='encerrada'){ invoke('set_task_flag',{ taskId:id, flag:'closed' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>renderKanban()); }
+  if(col==='andamento' && t.status==='draft') startTask(id);
+  else if(col==='concluidas'){ invoke('set_task_flag',{ taskId:id, flag:'closed' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>renderKanban()); }
   else renderKanban(); // transição não suportada → volta o card
 }
 async function reorderFlow(dragId, targetId){

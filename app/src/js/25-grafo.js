@@ -19,7 +19,7 @@ function renderGraph(){
   const railW=520;
   const rail=(t)=>{
     const cs=(commitsCache[t.id]||[]).slice().reverse(); // antigo → novo
-    const col=STATUS_COLOR[t.status]||'var(--muted)';
+    const col=stColor(taskSt(t));
     const n=cs.length, shown=cs.slice(-24);
     const x0=16, xTip=railW-30;
     const step=shown.length>1?Math.min(34,(xTip-40-x0)/(shown.length-1)):0;
@@ -32,7 +32,7 @@ function renderGraph(){
     return `<svg width="${railW+70}" height="40" viewBox="0 0 ${railW+70} 40">${g}${tip}${merge}</svg>`+(n>24?`<span class="dim" style="font-size:10px">+${n-24}</span>`:'');
   };
   const rows=tasks.map(t=>{
-    const col=STATUS_COLOR[t.status]||'var(--muted)';
+    const col=stColor(taskSt(t));
     const cs=commitsCache[t.id];
     return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}">
       <div class="grh">
@@ -41,7 +41,7 @@ function renderGraph(){
         ${linkChips(t)}
         <span style="flex:1"></span>
         <span class="mono dim" style="font-size:10px">${esc(t.base||'main')} → ${esc(t.branch)}</span>
-        <span class="fstatus" style="color:${col};font-size:10.5px">● ${esc(t.status)}${t.flag?' · '+(t.flag==='blocked'?'bloqueada':'encerrada'):''}</span>
+        ${stBadge(taskSt(t))}${t.flag==='blocked'?' <span class="flagbadge blk">bloqueada</span>':''}
       </div>
       <div class="grrail">${cs===undefined?'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">carregando commits…</span>':(cs.length?rail(t):'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
     </div>`;
@@ -169,22 +169,10 @@ function renderRail(){
   const el = $id("rail");
   const curPath=state.repo||'';
   const curName=curPath.split('/').filter(Boolean).slice(-1)[0]||'projeto';
-  const tagOf=(t)=>{
-    if(pendingOf(t.id).length) return ['⏳','var(--warn)'];
-    if(t.status==='plan-review') return ['plano','var(--warn)'];
-    if(t.prUrl&&t.status!=='merged') return ['PR','var(--info)'];
-    if(['review','delivered'].includes(t.status)) return ['rev','var(--warn)'];
-    if(t.status==='queued') return ['fila','var(--muted)'];
-    if(t.status==='paused') return ['pausa','var(--muted)'];
-    if(t.status==='draft') return ['rasc','var(--muted)'];
-    if(['error','conflict','aborted'].includes(t.status)) return ['erro','var(--crit)'];
-    const k=taskType(t);
-    return [k==='invest'?'disc':k==='design'?'design':'exec', ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'];
-  };
-  const dotOf=(t)=> pendingOf(t.id).length||t.status==='plan-review' ? 'var(--warn)'
-    : ['error','conflict'].includes(t.status) ? 'var(--crit)'
-    : (ACTIVE_ST.has(t.status)||t.status==='thinking') ? 'var(--good)'
-    : ['review','delivered'].includes(t.status) ? 'var(--warn)' : 'var(--muted)';
+  // etiqueta e ponto = o status EFETIVO (taskSt: pergunta aberta vence, PR aberto = 'pr-open') com o nome curto e
+  // a cor do STATUS_META — antes era um vocabulário próprio (exec/disc/rev/rasc/⏳) que juntava erro/conflito/abortada em "erro"
+  const tagOf=(t)=>{ const st=taskSt(t); return [stShort(st), stColor(st), stLabel(st)]; };
+  const dotOf=(t)=> stColor(taskSt(t));
   // MESMA regra de visibilidade do quadro (bloqueadas e encerradas ficam fora — o quadro tem o chip pra revelar)
   const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&t.flag!=='blocked'&&!['merged','done'].includes(t.status));
   const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
@@ -198,8 +186,8 @@ function renderRail(){
   html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div>${gitRailTag()}</div>`;
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
-    html+=rows.map(t=>{ const [tg,tc]=tagOf(t);
-      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
+    html+=rows.map(t=>{ const [tg,tc,tl]=tagOf(t);
+      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
     }).join('');
   } else if(!(window.orqRailRows&&window.orqRailRows())){
     html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:11px">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;

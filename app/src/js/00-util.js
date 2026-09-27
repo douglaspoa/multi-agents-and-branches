@@ -38,26 +38,29 @@ async function askYes(message, title){
 // ===== status: UMA fonte de verdade (nome em PT + cor + ícone) =====
 // Toda tela que mostra status de tarefa/cartão usa stLabel/stColor/stIcon — nada de
 // mapa próprio nem de t.status cru em inglês na tela.
+// `short` = forma curta (etiqueta da barra lateral / espaço apertado) — derivada DESTE mapa, nunca inventada na tela.
+// 'pr-open' é um status DERIVADO (tarefa com PR aberto no GitHub), usado pelo taskSt(t) do 22.
 const STATUS_META={
-  draft:        { pt:'rascunho',          c:'var(--muted)',     ic:'·' },
-  backlog:      { pt:'na fila',           c:'var(--muted)',     ic:'·' },
-  queued:       { pt:'na fila',           c:'var(--muted)',     ic:'·' },
-  'plan-review':{ pt:'plano pra aprovar', c:'var(--st-ask)',    ic:'?' },
-  running:      { pt:'rodando',           c:'var(--st-run)',    ic:'●' },
-  thinking:     { pt:'pensando',          c:'var(--st-run)',    ic:'●' },
-  asking:       { pt:'precisa de você',   c:'var(--st-ask)',    ic:'?' },
-  paused:       { pt:'pausada',           c:'var(--muted)',     ic:'❚❚' },
-  review:       { pt:'pronta pra revisar',c:'var(--st-review)', ic:'◆' },
-  delivered:    { pt:'pronta pra revisar',c:'var(--st-review)', ic:'◆' },
-  done:         { pt:'concluída',         c:'var(--st-done)',   ic:'✓' },
-  merged:       { pt:'mergeada',          c:'var(--st-done)',   ic:'✓' },
-  closed:       { pt:'concluída',         c:'var(--st-done)',   ic:'✓' },
-  error:        { pt:'erro',              c:'var(--st-err)',    ic:'!' },
-  conflict:     { pt:'conflito',          c:'var(--st-err)',    ic:'!' },
-  blocked:      { pt:'bloqueada',         c:'var(--warn)',      ic:'⏸' },
-  aborted:      { pt:'abortada',          c:'var(--muted)',     ic:'×' },
-  cancelled:    { pt:'cancelada',         c:'var(--muted)',     ic:'×' },
-  waiting:      { pt:'na espera',         c:'var(--muted)',     ic:'·' },
+  draft:        { pt:'rascunho',          short:'rascunho', c:'var(--muted)',     ic:'·' },
+  backlog:      { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'·' },
+  queued:       { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'·' },
+  'plan-review':{ pt:'plano pra aprovar', short:'plano',    c:'var(--st-ask)',    ic:'?' },
+  running:      { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'●' },
+  thinking:     { pt:'pensando',          short:'rodando',  c:'var(--st-run)',    ic:'●' },
+  asking:       { pt:'aguardando você',   short:'pergunta', c:'var(--st-ask)',    ic:'?' },
+  paused:       { pt:'pausada',           short:'pausada',  c:'var(--muted)',     ic:'❚❚' },
+  review:       { pt:'pronta pra revisar',short:'revisar',  c:'var(--st-review)', ic:'◆' },
+  delivered:    { pt:'pronta pra revisar',short:'revisar',  c:'var(--st-review)', ic:'◆' },
+  'pr-open':    { pt:'PR aberto',         short:'PR',       c:'var(--info)',      ic:'⌥' },
+  done:         { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'✓' },
+  merged:       { pt:'mergeada',          short:'mergeada', c:'var(--st-done)',   ic:'✓' },
+  closed:       { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'✓' },
+  error:        { pt:'erro',              short:'erro',     c:'var(--st-err)',    ic:'!' },
+  conflict:     { pt:'conflito',          short:'conflito', c:'var(--st-err)',    ic:'!' },
+  blocked:      { pt:'bloqueada',         short:'bloqueada',c:'var(--warn)',      ic:'⏸' },
+  aborted:      { pt:'abortada',          short:'abortada', c:'var(--muted)',     ic:'×' },
+  cancelled:    { pt:'cancelada',         short:'cancelada',c:'var(--muted)',     ic:'×' },
+  waiting:      { pt:'na espera',         short:'espera',   c:'var(--muted)',     ic:'·' },
 };
 function stMeta(st){ return STATUS_META[st]||{ pt:String(st||'—'), c:'var(--muted)', ic:'·' }; }
 function stLabel(st){ return stMeta(st).pt; }

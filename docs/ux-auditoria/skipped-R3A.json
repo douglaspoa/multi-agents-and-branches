@@ -1,0 +1,32 @@
+[
+ {
+  "id": "R3-A1b",
+  "area": "Contagens",
+  "titulo": "Projetos: 'loja: 5 rodando' e '2 em review'",
+  "motivo": "Fora do meu escopo de arquivos: o hub de Projetos (13-skills-projetos.js:151/154) usa p.active/p.review do backend (projects_overview no lib.rs). Pra bater com a Central, trocar por flowCounts(allTasksCache.filter(t=>t.repo===p.path)) — 'N em andamento', 'N aguardando você', 'N em revisão' (não 'em review')."
+ },
+ {
+  "id": "R3-A2b",
+  "area": "Status",
+  "titulo": "'esperando você' e status cru em arquivos de outros agentes",
+  "motivo": "Fora do meu escopo: 20-workspace-tarefa.js:183 ('esperando você' → 'aguardando você', ou stBadge('asking')); 23-kanban-artefatos-editor.js:303 caixa de pergunta 'está esperando você' (arquivo meu, mas é o bloco de pergunta do workspace/lateral — deixado pro dono das perguntas); 35-ref-tarefa.js:20 trfStatusTx devolve 'entregue · em review' e t.status cru; 15-config-abas-onboarding.js:319 'precisa de você'."
+ },
+ {
+  "id": "R3-A4b",
+  "area": "Épicos",
+  "titulo": "Etapas da página do épico / fila dos épicos",
+  "motivo": "Fora do meu escopo (14/46). Devem usar flowBucket/taskSt (22) pra a tarefa ficar na mesma etapa da Central. Também: 46-epico-time.js EPQ_BUCKETS diz 'precisa de você' no resumo do grupo de épico (trocar por 'aguardando você') e classifica conflito/erro como 'com problema' em vez de aguardando."
+ },
+ {
+  "id": "R3-A5b",
+  "area": "Time",
+  "titulo": "Visão da organização (cloudOrgView) ainda conta 'run' por conta própria",
+  "motivo": "43-espaco-times.js:cloudOrgView seleciona só team_id,status,cost_usd (sem flag/pr_url) e é um agregado de admin; mudar exige ampliar o select no Supabase. Baixa visibilidade — deixado."
+ },
+ {
+  "id": "R3-A3b",
+  "area": "Tokens",
+  "titulo": "--st-ask (#e8788a) ainda é um rosa próximo do vermelho de erro",
+  "motivo": "Token em 10-base.css (não é meu). O ícone já diferencia ('?' vs '!'), mas 'plano pra aprovar' ainda lê como alerta. Sugestão: --st-ask num âmbar/laranja distinto de --st-review."
+ }
+]

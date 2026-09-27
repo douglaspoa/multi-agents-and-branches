@@ -185,7 +185,7 @@
 .fcard.ghost{border:1px dashed var(--border);background:transparent;box-shadow:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:22px;color:var(--text-2)}
 .fcard.ghost:hover{border-color:var(--accent);color:var(--text)}
 .fcard.ghost .gplus{color:var(--accent);font-size:18px;font-weight:700}
-.flowhead{padding:4px 2px 2px;display:flex;gap:12px;align-items:flex-start}
+.flowhead{padding:4px 2px 2px;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
 /* vista em GRADE da Central (redesign p1): cards 2-up dentro de cada seção */
 #flow.gridview .secgrp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
 #flow.gridview .secgrp .sech{grid-column:1/-1}
@@ -193,7 +193,7 @@
 .fcard.has-ep{border-left:3px solid var(--epc)}
 #flow.gridview .daygrp{display:contents}
 .flowhead h1{font-size:21px;margin:0 0 2px;letter-spacing:-.01em}
-.flowhead .sub{font-family:var(--mono,ui-monospace,monospace);font-size:11.5px;color:var(--text-2)}
+.flowhead .sub{font-family:var(--display,inherit);font-size:13px;color:var(--text-2)}
 .flowhead .sub b{color:var(--warn);font-weight:600}
 .sech{font-family:var(--mono,ui-monospace,monospace);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2);display:flex;align-items:center;gap:8px;padding:16px 2px 8px}
 .sech .n{color:var(--good)}
@@ -262,7 +262,7 @@
 .fhead{display:flex;align-items:center;gap:9px}
 .fhead b{font-size:13.5px;font-weight:600}
 .fhead .sd{width:9px;height:9px;border-radius:50%;flex:none}
-.fstatus{margin-left:auto;font-size:11px;font-weight:600;text-transform:capitalize}
+.fstatus{margin-left:auto;font-size:11px;font-weight:600}
 .fstatus.stdrop{display:inline-flex;align-items:center;gap:4px;cursor:pointer;padding:2px 7px;border-radius:6px;border:1px solid transparent;transition:background .12s,border-color .12s}
 .fstatus.stdrop:hover{background:var(--surface-2);border-color:var(--border)}
 .fstatus.stdrop .stcaret{font-size:8px;opacity:.7;transform:translateY(1px)}
@@ -322,3 +322,14 @@ html:not(.os-mac) .fwtabs.legacy{padding-left:14px}
 
 /* barra de status "Agora": o detalhe (tarefas, custo em tokens, arquivos reservados) mora no tooltip */
 #busSummary{cursor:help;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* R3: filtros da Central — projeto/épico viram selects compactos; "restaurar ordem" é link junto dos controles
+   de vista; faixa "filtros ativos · limpar" aparece sempre que algum filtro salvo esconde tarefas */
+.ffbar .ffsel{max-width:180px;text-overflow:ellipsis}
+.ftabs .fvlink,.ffactive .fvlink{border:0;background:none;color:var(--muted);font:inherit;font-size:11.5px;cursor:pointer;padding:4px 6px;border-radius:6px;white-space:nowrap}
+.ftabs .fvlink:hover,.ffactive .fvlink:hover{color:var(--text);background:var(--surface-2)}
+.ffactrow{margin:-2px 0 10px}
+.ffactive{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-2);border:1px dashed color-mix(in srgb,var(--st-ask) 55%,var(--border));border-radius:var(--r-pill);padding:2px 4px 2px 11px;background:color-mix(in srgb,var(--st-ask) 7%,transparent)}
+.ffactive .fvlink{color:var(--st-ask);font-weight:600}
+/* R3: card da Central sem objetivo nem requisitos não reserva a altura mínima (sumia num buraco vazio) */
+.dcard.dc-bare{min-height:0}
+.dcard.dc-bare .dc-foot{margin-top:10px}

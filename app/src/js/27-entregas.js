@@ -14,6 +14,16 @@ function reqRows(t){
   const m=matchReqProofs(reqs, c&&c.list);
   return reqs.map((r,i)=>{ const p=m[i]; const st=p?(p.status==='done'?'ok':'blk'):'na'; return { text:r, st, evidence:(p&&Array.isArray(p.evidence))?p.evidence:[], note:(p&&p.note)||'' }; });
 }
+// nome AMIGÁVEL do modelo pros cards do quadro: "claude-sonnet-4-5" → "Sonnet 4.5"; id que não dá pra
+// traduzir some do card (o id cru continua no cabeçalho da tarefa e no tooltip)
+function boardModelName(id){
+  if(!id) return '';
+  const n=(typeof aiModelName==='function')?aiModelName(id):id;
+  if(n && n!==id) return n;
+  const m=String(id).match(/(opus|sonnet|haiku)(?:[-_ ](\d{1,2})(?!\d)(?:[-_.](\d{1,2})(?!\d))?)?/i);
+  if(m) return m[1].charAt(0).toUpperCase()+m[1].slice(1).toLowerCase()+(m[2]?' '+m[2]+(m[3]?'.'+m[3]:''):'');
+  return /^[a-z]+$/i.test(id) ? id : ''; // apelido curto (ex.: "opus") passa; id técnico longo não
+}
 // ---- CARD DE DEMANDA (lista da Central: Execução e Concluídas) ----
 function flowDemandCard(t){
   const asking=pendingOf(t.id);
@@ -33,7 +43,7 @@ function flowDemandCard(t){
     : t.status==='draft' ? 'rascunho — clique pra editar'
     : done ? (prN?`PR #${prN} mergeado`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
-    : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${diffFiles(diffOf(t.id))||0} arquivo(s)`
+    : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${nPl(diffFiles(diffOf(t.id)),'arquivo')}`
     : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
   const artC=artifactsCache[t.id];
   if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
@@ -53,11 +63,13 @@ function flowDemandCard(t){
   // F2/F3: tarefa de épico mantém a identidade depois de começar — selo "◆ nome · onda N" + borda na cor do épico
   const epId=(t.epic&&t.epic.epicId)||'';
   const epSt=(epId&&typeof epColor==='function')?` style="--epc:${epColor(epId)}"`:'';
-  return `<div class="dcard${done?' done':''}${epSt?' has-ep':''}" data-id="${escA(t.id)}"${epSt}>
+  const bare=!t.objective && !rows.length; // sem descrição nem requisitos: o card não reserva o espaço (sumia num buraco)
+  const mName=boardModelName(t.model);
+  return `<div class="dcard${done?' done':''}${epSt?' has-ep':''}${bare?' dc-bare':''}" data-id="${escA(t.id)}"${epSt}>
     <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}<span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span>${t.orchestration?`<span class="dc-orq" data-orq="${escA(t.orchestration.id)}" data-orq-task="${escA(t.id)}" title="fase ${escA(t.orchestration.phase||'')} do plano — abrir o grafo">◉ ${esc(String(t.orchestration.title||'plano').slice(0,28))}</span>`:''}<span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar">⋯</button></div>
     ${t.objective?`<div class="dc-obj">${esc(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].replace(/\s+/g,' ').slice(0,220))}</div>`:''}
     ${reqsHtml}
-    <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${t.model?` <span class="dc-model">· ${esc(typeof aiModelName==='function'?aiModelName(t.model):t.model)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):(t.createdAt||t.created_at))}</span></div>
+    <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${mName?` <span class="dc-model" title="${escA(t.model)}">· ${esc(mName)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):(t.createdAt||t.created_at))}</span></div>
   </div>`;
 }
 // ---- ABA ENTREGA (dentro da demanda) ----
@@ -99,8 +111,8 @@ function fwRenderEntrega(t, main){
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
         <div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
-        <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?diffFiles(d)+' arquivo(s)':'sem diff'}</span></div>
-        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${c.length} commit(s)${cost.usd>0?' · '+fmtUsd(cost.usd):''}</span></div>
+        <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
+        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtUsd(cost.usd):''}</span></div>
       </div>
     </div>
     <div class="en-grid">
@@ -147,7 +159,7 @@ async function entregaFacts(t){
     `REQUISITOS:\n${rows.map(r=>`- ${r.text} → ${r.st==='ok'?'PROVADO'+(r.evidence.length?' (evidência: '+r.evidence.join(', ')+')':''):r.st==='blk'?'NÃO PROVADO'+(r.note?' — '+r.note:''):'sem verificação'}`).join('\n')||'—'}`,
     `ENTREGÁVEIS COMBINADOS: ${(t.deliverables||[]).join(' | ')||'—'}`,
     `MUDANÇAS (assuntos dos commits): ${c.map(x=>x.subject||'').filter(Boolean).join(' | ')||'—'}`,
-    `ESCOPO: ${d?`${diffFiles(d)} arquivo(s), +${d.additions||0} −${d.deletions||0}`:'—'}`,
+    `ESCOPO: ${d?`${nPl(diffFiles(d),'arquivo')}, +${d.additions||0} −${d.deletions||0}`:'—'}`,
     `PR: ${t.prUrl?`#${prNumOf(t)} ${t.prUrl} · ${pr&&pr.state?pr.state:(taskIsDone(t)?'MERGED':'aberto')}${pr&&pr.body?'\nDESCRIÇÃO DO PR:\n'+String(pr.body).slice(0,2500):''}`:'sem PR'}`,
     `REVISÃO INTERNA: ${rev?(rev.summary||'')+(rev.howToTest?'\nCOMO TESTAR: '+rev.howToTest:''):'—'}`,
     `DIÁRIO DO AGENTE:\n${notas.join('\n')||'—'}`,
