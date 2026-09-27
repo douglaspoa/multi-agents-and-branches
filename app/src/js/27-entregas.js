@@ -33,7 +33,7 @@ function flowDemandCard(t){
     : t.status==='draft' ? 'rascunho — clique pra editar'
     : done ? (prN?`PR #${prN} mergeado`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
-    : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${(diffOf(t.id)?.files||[]).length||0} arquivo(s)`
+    : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${diffFiles(diffOf(t.id))||0} arquivo(s)`
     : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
   const artC=artifactsCache[t.id];
   if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
@@ -99,7 +99,7 @@ function fwRenderEntrega(t, main){
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
         <div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
-        <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?(d.files||[]).length+' arquivo(s)':'sem diff'}</span></div>
+        <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?diffFiles(d)+' arquivo(s)':'sem diff'}</span></div>
         <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${c.length} commit(s)${cost.usd>0?' · '+fmtUsd(cost.usd):''}</span></div>
       </div>
     </div>
@@ -147,7 +147,7 @@ async function entregaFacts(t){
     `REQUISITOS:\n${rows.map(r=>`- ${r.text} → ${r.st==='ok'?'PROVADO'+(r.evidence.length?' (evidência: '+r.evidence.join(', ')+')':''):r.st==='blk'?'NÃO PROVADO'+(r.note?' — '+r.note:''):'sem verificação'}`).join('\n')||'—'}`,
     `ENTREGÁVEIS COMBINADOS: ${(t.deliverables||[]).join(' | ')||'—'}`,
     `MUDANÇAS (assuntos dos commits): ${c.map(x=>x.subject||'').filter(Boolean).join(' | ')||'—'}`,
-    `ESCOPO: ${d?`${(d.files||[]).length} arquivo(s), +${d.additions||0} −${d.deletions||0}`:'—'}`,
+    `ESCOPO: ${d?`${diffFiles(d)} arquivo(s), +${d.additions||0} −${d.deletions||0}`:'—'}`,
     `PR: ${t.prUrl?`#${prNumOf(t)} ${t.prUrl} · ${pr&&pr.state?pr.state:(taskIsDone(t)?'MERGED':'aberto')}${pr&&pr.body?'\nDESCRIÇÃO DO PR:\n'+String(pr.body).slice(0,2500):''}`:'sem PR'}`,
     `REVISÃO INTERNA: ${rev?(rev.summary||'')+(rev.howToTest?'\nCOMO TESTAR: '+rev.howToTest:''):'—'}`,
     `DIÁRIO DO AGENTE:\n${notas.join('\n')||'—'}`,

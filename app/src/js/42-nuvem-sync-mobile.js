@@ -251,7 +251,7 @@ async function cloudPrStatTick(){
     prPubAt[t.id]=now;
     try{
       const d=diffOf(t.id)||{}; const c=commitsCache[t.id];
-      const stat={ files:(d.files||[]).length, add:d.additions||0, del:d.deletions||0, commits:Array.isArray(c)?c.length:null };
+      const stat={ files:diffFiles(d), add:d.additions||0, del:d.deletions||0, commits:Array.isArray(c)?c.length:null };
       let prInfo=null;
       if(t.prUrl){
         try{ await loadPr(t.id); const i=prCache[t.id];

@@ -381,7 +381,7 @@ function renderTaskSummary(t){
     <div class="seclbl2">O que já foi feito</div>
     ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?'✓':'○'}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
     ${dels.length?`<div style="margin-top:6px">${li(dels,'◆','var(--accent)')}</div>`:''}
-    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${(d.files||[]).length} arquivo(s) alterado(s) · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${c.length} commit(s)${rev?' · review interno ✓':''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
+    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${diffFiles(d)} arquivo(s) alterado(s) · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${c.length} commit(s)${rev?' · review interno ✓':''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
     ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;color:var(--text-2)"><span class="mono dim" style="flex:none">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
     ${rev?`<div class="seclbl2" style="margin-top:10px">Como testar</div><div style="font-size:12.5px">${esc(rev.howToTest||'')}</div>`:''}
     <div class="seclbl2" style="margin-top:14px">O que falta pra finalizar</div>
@@ -411,7 +411,7 @@ function flowTaskRow(t){
     : t.status==='draft' ? 'rascunho — clique pra editar · ▶ inicia'
     : done ? (prN?`PR #${prN} · merged`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
-    : ['review','delivered'].includes(t.status) ? `${(diffOf(t.id)?.files||[]).length||''} arquivo(s) alterado(s), pronta pra revisar`
+    : ['review','delivered'].includes(t.status) ? `${diffFiles(diffOf(t.id))||''} arquivo(s) alterado(s), pronta pra revisar`
     : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,70))}`
     : 'iniciando…';
   const proj=t.proj||(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'';

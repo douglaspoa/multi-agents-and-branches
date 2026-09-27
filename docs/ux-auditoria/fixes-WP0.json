@@ -93,5 +93,21 @@
   ],
   "como_ver": "—",
   "estado_mock": "—"
+ },
+ {
+  "id": "B7",
+  "area": "Entrega e quadro",
+  "titulo": "'undefined arquivo(s)' na Entrega e nos cards",
+  "antes": "A tela de Entrega mostrava 'undefined arquivo(s)' e os cards em revisão diziam '0 arquivo(s)' ou nada, mesmo com arquivos alterados: o backend manda o número de arquivos como número e o front tratava como lista.",
+  "depois": "Um helper diffFiles(d) aceita número ou lista; Entrega, cards, resumo e sincronização com o celular mostram a contagem real.",
+  "motivo": "Bug visível encontrado ao fotografar a tela com os dados no formato exato do backend (struct Diff em lib.rs, files: i64).",
+  "arquivos": [
+   "app/src/js/00-util.js",
+   "app/src/js/22-quadro-fluxo.js",
+   "app/src/js/27-entregas.js",
+   "app/src/js/42-nuvem-sync-mobile.js"
+  ],
+  "como_ver": "openWorkspace('t-review'); fwMode='entrega'; renderWorkspace()",
+  "estado_mock": "tarefa em review com diff"
  }
 ]

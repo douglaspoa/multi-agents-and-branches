@@ -74,3 +74,6 @@ function toast(msg, kind){
   el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.display='none'; }, kind==='err'?7000:4200);
 }
 window.toast=toast;
+// nº de arquivos de um diff: o backend (Rust, struct Diff) manda `files` como NÚMERO;
+// versões antigas/mock mandavam lista — aceita os dois (antes saía "undefined arquivo(s)")
+function diffFiles(d){ if(!d) return 0; const f=d.files; return typeof f==='number'?f:(Array.isArray(f)?f.length:0); }
