@@ -13,7 +13,8 @@ window.orqFresh=()=>{ const l=orq.list; orq=orqNewState(); orq.list=l; };
 window.TAB_STATE_orq={ get:()=>Object.assign({ _title:(orq.plan&&orq.plan.title)||'' }, { s:orq }), set:(st)=>{ if(st&&st.s){ const list=orq.list; orq=st.s; if(!orq.list) orq.list=list; } } };
 let orqDrag=null, orqTickT=null, orqListAt=0;
 
-function orqBadge(k){ return (ORQ_KINDS[k]||ORQ_KINDS.build).badge; }
+// o papel da fase por extenso (antes: siglas IN/DS/IM/CR que ninguém decifrava)
+function orqBadge(k){ return (ORQ_KINDS[k]||ORQ_KINDS.build).label; }
 function orqColor(k){ return (ORQ_KINDS[k]||ORQ_KINDS.build).color; }
 function orqTaskOf(ph){ return ph&&ph.taskId ? (state.tasks||[]).find(t=>t.id===ph.taskId) : null; }
 function orqNewId(){ return 'orq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
@@ -163,7 +164,8 @@ function orqBoardHtml(scope){
 function orqWireOpeners(root){ (root||document).querySelectorAll('[data-orq]').forEach(b=>{ if(b.dataset.orqWired) return; b.dataset.orqWired='1'; b.onclick=(e)=>{ e.stopPropagation(); orqOpenPlan(b.dataset.orq, b.dataset.orqTask||null); }; }); }
 window.orqRailRows=orqRailRows; window.orqBoardHtml=orqBoardHtml; window.orqWireOpeners=orqWireOpeners;
 function orqSeg(cur){
-  return `<div class="orq-seg"><button class="${cur==='chat'?'on':''}" data-orqgo="planner">Conversar</button><button class="${cur==='form'?'on':''}" data-orqgo="form">Formulário</button><button class="on" data-orqgo="">Orquestrador</button></div><span class="orq-segd">um agente lê o problema inteiro e abre uma tarefa por fase</span>`;
+  // mesmo seletor (e mesmos nomes) da Nova demanda / Montar conversando / Preencher eu mesmo
+  return typeof ndMethodSeg==='function' ? ndMethodSeg('orq') : '';
 }
 function orqStatusPill(){
   if(orq.step==='brief') return `<span class="orq-pill"><i></i>nenhum plano ainda</span>`;
@@ -189,13 +191,16 @@ function orqRenderBrief(body){
   body.__html=null; // o brief troca o conteúdo: a guarda do plano não pode achar que ainda está lá
   body.innerHTML=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${orqStatusPill()}</div>
   <div class="orq-brief"><div class="orq-briefin">
-    <div class="ndeyebrow" style="color:var(--accent)">orquestrador</div>
+    <div class="ndeyebrow" style="color:var(--accent)">dividir entre vários agentes</div>
     <h1 class="ndh1" style="margin-top:10px">Descreva o problema inteiro</h1>
     <p class="ndsub">Não precisa quebrar em tarefas. Um agente orquestrador lê isso, propõe as fases e abre um subagente para cada uma. Você aprova o plano antes de qualquer coisa rodar.</p>
     ${orq.busy?cosmosHtml('o orquestrador está lendo o repositório e montando o plano…'):`
-    <textarea class="orq-ta" id="orqTa" placeholder="ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar">${esc(orq.briefing)}</textarea>
-    <div class="attpend" id="orqPend" style="display:${orq.atts.length?'flex':'none'}"></div>
-    <div class="orq-chips"><button class="orq-chip" id="orqAtt" title="ou cole (⌘V) / arraste o print direto no texto">anexar print / arquivo</button><button class="orq-chip" id="orqLastInv">usar a última investigação</button><span style="flex:1"></span><span class="dim mono" style="font-size:11px">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span></div>
+    <div class="attrow attpend" id="orqPend" style="display:${orq.atts.length?'flex':'none'}"></div>
+    ${chatComposerHtml({ cls:'orq-briefcc', input:'orqTa', attach:'orqAtt', rows:5, value:orq.briefing,
+      placeholder:'ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar',
+      extras:'<button class="btn sm" id="orqLastInv">usar a última investigação</button>',
+      right:`<span class="dim mono orq-model" title="IA que monta o plano (troque em Configurações → IA padrão)">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span>`,
+      send:'orqGo', sendHtml:'Montar o plano' })}
     ${orq.msg?`<div class="orq-msg">${esc(orq.msg)}</div>`:''}
     <div class="ndeyebrow" style="margin-top:26px">o orquestrador pode</div>
     <div class="orq-can">
@@ -204,13 +209,16 @@ function orqRenderBrief(body){
       <div><i style="background:#b47ce0"></i>Rodar em paralelo o que não depende de ninguém</div>
       <div><i style="background:var(--st-ask)"></i>Parar e te perguntar sempre que a decisão for sua</div>
     </div>
-    <div class="orq-briefact"><button class="as-btn primary big" id="orqGo" ${orq.briefing.trim().length<12?'disabled':''}>Montar o plano</button><span class="dim" style="font-size:12px">${orq.briefing.trim().length<12?'escreva pelo menos uma frase completa':'o plano aparece como grafo — nada roda antes de você aprovar'}</span></div>`}
+`}
     ${prev.length?`<div class="ndeyebrow" style="margin-top:34px">planos anteriores</div><div class="orq-prev">${prev.map(p=>`<button class="orq-prevrow" data-orqopen="${escA(p.id)}"><b>${esc(p.title||'plano')}</b><span class="mono dim">${orqProjName(p)?esc(orqProjName(p))+' · ':''}${(p.phases||[]).length} fases · ${esc(p.status==='planned'?'não aprovado':p.status==='done'?'concluído':'rodando')} · ${esc(typeof agoTx==='function'?agoTx(new Date(p.createdAt).toISOString()):'')}</span></button>`).join('')}</div>`:''}
   </div></div>`;
-  const ta=$id('orqTa'); if(ta){ ta.oninput=()=>{ orq.briefing=ta.value; const g=$id('orqGo'); if(g) g.disabled=ta.value.trim().length<12; }; ta.focus(); }
+  const briefHint=()=>orq.briefing.trim().length<12?'escreva pelo menos uma frase completa · ⌘Enter monta o plano · ⌘V ou arraste pra anexar':'⌘Enter monta o plano · nada roda antes de você aprovar · ⌘V ou arraste pra anexar';
   if(typeof attRenderPend==='function') attRenderPend('orqPend', orq.atts, ()=>orqRender());
-  // anexar igual aos chats: botão, ⌘V de print e arrastar arquivo pro texto
-  attWireComposer({ input:'orqTa', attach:'orqAtt', pend:()=>orq.atts, taskId:()=>null, rerender:()=>orqRender() });
+  // mesmo composer dos chats (📎 · extras · enviar + dica); aqui Enter quebra linha e ⌘Enter monta o plano
+  chatComposer({ input:'orqTa', attach:'orqAtt', pend:()=>orq.atts, taskId:()=>null, rerender:()=>orqRender(), onSend:orqPlanNow, hint:briefHint(),
+    onKey:e=>{ if(e.key!=='Enter'||e.isComposing) return; if(e.metaKey||e.ctrlKey){ e.preventDefault(); orqPlanNow(); } return true; } });
+  const ta=$id('orqTa'); if(ta){ ta.oninput=()=>{ orq.briefing=ta.value; const g=$id('orqGo'); if(g) g.disabled=ta.value.trim().length<12; const h=ta.closest('.cc'); if(h) chatHintLine(h, briefHint(), false); }; ta.focus(); }
+  { const g=$id('orqGo'); if(g) g.disabled=orq.briefing.trim().length<12; }
   bindClick('orqLastInv', ()=>{ const inv=(state.tasks||[]).filter(t=>t.kind==='invest'||/^invest\//.test(t.branch||'')).slice(-1)[0]; if(!inv){ orq.msg='nenhuma investigação encontrada neste projeto.'; orqRender(); return; } orq.briefing=(orq.briefing?orq.briefing+'\n\n':'')+`Partir da investigação "${inv.title}" (tarefa ${inv.id} — leia .cardume/artifacts/${inv.id}/INVESTIGATION.md).`; orqRender(); });
   bindClick('orqGo', orqPlanNow);
   body.querySelectorAll('[data-orqopen]').forEach(b=>b.onclick=()=>{ const p=(orq.list||[]).find(x=>x.id===b.dataset.orqopen); if(p){ if(!p.repo) p.repo=state.repo||''; orq.plan=p; orq.step='plan'; orq.sel=p.phases[0]?p.phases[0].key:null; orq.pan={x:20,y:20}; orq.zoom=1; orq.needFit=true; orqRender(); } });
@@ -264,8 +272,8 @@ function orqRenderPlan(body){
       : `<button class="orq-open" data-orqtask="${escA(t.id)}">abrir tarefa ↗</button>`;
     const chip = st.key==='asking' ? '<span class="orq-stchip asking">responda</span>' : st.key==='review' ? '<span class="orq-stchip review">revise</span>' : st.key==='running' ? '<span class="orq-stchip running"><i class="spin" style="--pc:#f0b449;background:#f0b449"></i>rodando</span>' : st.key==='done' ? '<span class="orq-stchip done">✓</span>' : st.key==='error' ? '<span class="orq-stchip error">erro</span>' : '';
     return `<div class="orq-node ${st.key}${orq.sel===ph.key?' sel':''}" data-orqsel="${escA(ph.key)}" style="left:${q.x}px;top:${q.y}px;width:${q.w}px;height:${q.h}px;--c:${orqColor(ph.kind)};--st:${st.color}">
-      <div class="orq-nh"><b class="orq-badge">${orqBadge(ph.kind)}</b><span class="orq-nn">${esc(ph.name)}</span>${chip||`<i class="orq-dot" style="background:${st.color}"></i>`}</div>
-      <div class="orq-nm mono"><span style="color:${st.color}">${esc(st.label)}</span><span>${done}/${tot} objetivos</span></div>
+      <div class="orq-nh"><span class="orq-nn" title="${escA(ph.name)}">${esc(ph.name)}</span>${chip||`<i class="orq-dot" style="background:${st.color}"></i>`}</div>
+      <div class="orq-nm mono"><span class="orq-nmk"><b class="orq-badge sm">${orqBadge(ph.kind)}</b><span style="color:${st.color}">${esc(st.label)}</span></span><span>${done}/${tot} objetivos</span></div>
       <div class="orq-bar"><i style="width:${tot?Math.round(done/tot*100):0}%;background:${st.key==='done'?ORQ_ST.done:st.color}"></i></div>
       <div class="orq-term mono">${sub}</div>
       ${action}
@@ -347,7 +355,7 @@ function orqChatHtml(p){
   return `<div class="orq-chatwrap"><div class="ndeyebrow" style="margin-top:12px">conversar com o orquestrador <span class="dim" style="text-transform:none;letter-spacing:0">· lê o repo de verdade${locked?'':' · pode ajustar o plano'}</span></div>
     <div class="orq-chat" id="orqChat">${thread}${orq.chatBusy?chatThinkHtml():''}</div>
     <div class="attrow attpend orq-chatpend" id="orqChatPend" style="display:none"></div>
-    <div class="orq-chatin"><button class="as-btn sm orq-attbtn" id="orqChatAtt" title="anexar print / PDF / doc (ou cole com ⌘V)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea id="orqChatTa" rows="2" placeholder="pergunte ou peça um ajuste…">${esc(orq.chatDraft||'')}</textarea><button class="as-btn sm trk-stop" id="orqChatStop" style="display:none" title="interrompe o orquestrador agora">■ parar</button><button class="as-btn primary sm" id="orqChatSend" ${orq.chatBusy?'disabled':''}>${ic('send',12)}enviar</button></div></div>`;
+    ${chatComposerHtml({ cls:'orq-chatin', input:'orqChatTa', attach:'orqChatAtt', stop:'orqChatStop', send:'orqChatSend', placeholder:'pergunte ou peça um ajuste…', value:orq.chatDraft||'', stopTitle:'interrompe o orquestrador agora' })}</div></div>`;
 }
 function orqWireChat(body){
   { const d=body.querySelector('.orq-more'); if(d) d.ontoggle=()=>{ orq.moreOpen=d.open; }; }
@@ -422,7 +430,7 @@ function orqInspHtml(){
     ${locked&&t&&t.branch?`<div class="orq-branch mono" title="${escA(t.branch)}">${esc(t.branch)}</div>`:''}
     ${orqIsIntegration(p, ph)?(()=>{ const src=orqIntegrationSources(p, ph); const r=ph.integration; return `<div class="orq-integ"><b>fase de integração</b> · branch a partir da main com o merge de ${src.map(x=>`<span class="orq-depchip" style="--c:${orqColor('build')}">IM ${esc(x.d.name)}</span>`).join('')} — testa tudo junto e o PR final sai daqui${r?(r.conflicts&&r.conflicts.length?`<div class="orq-integwarn">⚠ conflito de merge deixado pro agente resolver: ${esc(r.conflicts.join(' · '))}</div>`:`<div class="dim" style="margin-top:4px">${(r.merged||[]).length} merge(s) feitos${(r.skipped||[]).length?` · ${(r.skipped||[]).length} já contida(s)/ignorada(s)`:''}</div>`):''}</div>`; })():''}
     ${locked?`<p class="orq-p">${esc(ph.objective)}</p>`:`<textarea class="orq-objta" id="orqObjective" placeholder="o que essa fase entrega">${esc(ph.objective)}</textarea>
-    <div class="orq-kindrow">${Object.entries(ORQ_KINDS).map(([k,v])=>`<button class="orq-kind${ph.kind===k?' on':''}" data-orqkind="${k}" style="--c:${v.color}">${v.badge} ${v.label}</button>`).join('')}</div>`}
+    <div class="orq-kindrow">${Object.entries(ORQ_KINDS).map(([k,v])=>`<button class="orq-kind${ph.kind===k?' on':''}" data-orqkind="${k}" style="--c:${v.color}">${v.label}</button>`).join('')}</div>`}
     <div class="ndeyebrow" style="margin-top:14px">objetivos <span class="dim" style="text-transform:none;letter-spacing:0">${locked?'· provados com evidência pelo subagente':'· edite, marque ou adicione'}</span></div>
     <div class="orq-objs">${objs||'<span class="dim">sem objetivos ainda</span>'}</div>
     ${t&&!orqProved(t)&&['review','asking','error'].includes(st.key)&&p.phases.some(x=>(x.dependsOn||[]).includes(ph.key))?`<div class="orq-release"><span>Nem tudo está provado, então as fases que dependem desta continuam esperando.</span><button class="as-btn sm" id="orqRelease">liberar as próximas fases mesmo assim</button></div>`:''}
@@ -441,7 +449,7 @@ function orqAddHtml(){
   return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">+</span><div><b>Novo subagente</b><div class="mono dim" style="font-size:10.5px">entra no grafo já na coluna certa</div></div></div>
     <div class="ndeyebrow">nome da fase</div><input class="orq-namein" id="orqAddName" placeholder="ex.: Escrever testes de carga">
     <div class="ndeyebrow" style="margin-top:12px">o que ela entrega</div><textarea class="orq-objta" id="orqAddObj" placeholder="1-2 frases"></textarea>
-    <div class="ndeyebrow" style="margin-top:12px">tipo / agente</div><div class="orq-kindrow" id="orqAddKinds">${Object.entries(ORQ_KINDS).map(([k,v])=>`<button class="orq-kind${k==='build'?' on':''}" data-k="${k}" style="--c:${v.color}">${v.badge} ${v.label}</button>`).join('')}</div>
+    <div class="ndeyebrow" style="margin-top:12px">tipo / agente</div><div class="orq-kindrow" id="orqAddKinds">${Object.entries(ORQ_KINDS).map(([k,v])=>`<button class="orq-kind${k==='build'?' on':''}" data-k="${k}" style="--c:${v.color}">${v.label}</button>`).join('')}</div>
     <div class="ndeyebrow" style="margin-top:12px">quando roda</div>
     <div class="orq-auto"><button class="on" data-orqwhen="par">em paralelo</button><button data-orqwhen="after">depois de…</button></div>
     <div class="orq-deps" id="orqAddDeps" style="display:none">${p.phases.map(o=>`<label class="orq-dep"><input type="checkbox" value="${escA(o.key)}"><span class="orq-badge" style="--c:${orqColor(o.kind)}">${orqBadge(o.kind)}</span>${esc(o.name)}</label>`).join('')}</div>

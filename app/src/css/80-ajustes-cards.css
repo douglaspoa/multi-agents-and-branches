@@ -119,3 +119,52 @@
    antes: .ndh1 32 · .sk-h1/.as-h1 28 · .en-h1/.tmain h1 26 · .flowhead h1 21 — mesmo papel, 5 tamanhos.
    .au-h1 (login/onboarding) fica maior de propósito: é a tela-herói. Margens seguem por componente. */
 .ndh1,#ntOverlay .ndh1,.sk-h1,.as-h1,.en-h1,.tmain h1,.flowhead h1{font:600 26px/1.15 var(--display);letter-spacing:-.02em}
+
+/* ===== CABEÇALHO DE PÁGINA ÚNICO (R3-D) =====
+   Antes cada aba tinha sua coluna (Issues 284 · Nova demanda 325 · Épico 329 · Configurações 343 com título de 16px ·
+   Agentes 359 · Skills 378 · Conta 386 · Projetos 464 · Daily 484 · Orquestrador 525 centralizado).
+   Agora: MESMA coluna (--page-max centralizada, --page-pad de respiro — :root em 20-abas-e-telas), H1 26px à esquerda,
+   subtítulo opcional, ações à direita. As telas CRUD (mhead/mbody) seguem a mesma coluna em 20-abas-e-telas. */
+.appscreen,.sk-screen,.enpage,#projetosOverlay .appscreen,#pcOverlay.astab .chatthread>.appscreen{width:100%;max-width:var(--page-max);margin-left:auto;margin-right:auto;padding-left:var(--page-pad);padding-right:var(--page-pad)}
+#pcOverlay.astab .chatthread>.appscreen{padding-top:30px;padding-bottom:16px}
+/* Nova demanda e briefing do Orquestrador: o conteúdo era centralizado numa coluna estreita */
+.ndwrap{padding-left:0;padding-right:0}
+.ndinner{max-width:var(--page-max);padding-left:var(--page-pad);padding-right:var(--page-pad)}
+.orq-brief{padding-left:0;padding-right:0}
+.orq-briefin{max-width:var(--page-max);padding-left:var(--page-pad);padding-right:var(--page-pad)}
+.orq-briefin>*{max-width:860px}
+.as-head,.sk-head,.pc-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.as-sub,.sk-sub{margin-top:7px;font:400 13.5px/1.5 var(--display);color:rgba(255,255,255,.48);max-width:600px}
+.pc-head .as-actions,.as-head .as-actions{margin-left:auto}
+/* botões secundários no título de seção herdavam a fonte mono do rótulo ("+ novo agente", "+ novo time",
+   "gerar relatório da entrega") — botão é botão: mesma fonte do .btn em todo lugar */
+.seclbl2 .btn,.seclbl2 .as-btn{font-family:var(--display);letter-spacing:0;text-transform:none;font-size:12px;font-weight:500}
+
+/* ===== Montar conversando: cabeçalho com o seletor das 3 formas + resumo em PT ===== */
+#plannerOverlay .plhead{padding:12px 22px;background:var(--bg)}
+#plannerOverlay .plheadl{display:flex;align-items:center;gap:14px;min-width:0}
+#plannerOverlay .plmeter{font-size:12px;color:var(--text-3);white-space:nowrap}
+.ndseg button{white-space:nowrap}
+.plmeshh{font:600 13px var(--display);letter-spacing:0;text-transform:none;color:var(--text)}
+.plmeshh .plmesht{font:400 11.5px var(--display);color:var(--muted)}
+.plfield .plfk{font-family:var(--display);font-weight:600;font-size:12px}
+.plfield .plfsrc{text-transform:none;letter-spacing:0}
+.plraw{border:1px dashed var(--border-strong);border-radius:8px;padding:7px 10px;font-size:11.5px;color:var(--muted)}
+.plraw summary{cursor:pointer}
+.plraw summary .mono{font-size:10.5px;opacity:.8}
+.plraw pre{margin:8px 0 2px;white-space:pre-wrap;word-break:break-word;font-size:10.5px;line-height:1.5;color:var(--text-2);max-height:260px;overflow:auto;-webkit-user-select:text;user-select:text}
+/* a ação principal do épico ("✓ Aprovar e criar · N tarefas") fica SEMPRE à vista: rodapé grudado no fim da conversa
+   (antes ficava escondido atrás das sugestões e do fim do card) */
+.plthread .plplan .ppfoot{position:sticky;bottom:-8px;z-index:3;margin:11px -12px -11px;padding:10px 12px;background:var(--surface-2);border-top:1px solid var(--border);border-radius:0 0 11px 11px;box-shadow:0 -10px 14px -10px rgba(0,0,0,.55)}
+.plchips{padding-top:6px}
+
+/* ===== Sem projeto aberto (R3-D #20): bloco no centro da área, sem a coluna vazia da direita ===== */
+.body:has(#emptyRepo[style*="flex"]){grid-template-columns:1fr}
+.body:has(#emptyRepo[style*="flex"]) .side{display:none}
+.feed:has(#emptyRepo[style*="flex"])>.pane{display:none!important}
+#emptyRepo{padding-bottom:12vh}
+/* "abrir" do caminho colado parecia um campo de texto: vira botão de verdade */
+#connectBtn{justify-content:center;text-align:center;font-weight:600;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+#connectBtn:hover{background:color-mix(in srgb,var(--accent) 18%,transparent)}
+/* Preencher eu mesmo (formulário): mesma coluna das outras abas (antes: 1020px centralizado → título em outro x) */
+#ntOverlay.astab .mhead,#ntOverlay.astab .mbody,#ntOverlay.astab .mfoot{padding-left:max(var(--page-pad),calc((100% - var(--page-max))/2 + var(--page-pad)))!important;padding-right:max(var(--page-pad),calc((100% - var(--page-max))/2 + var(--page-pad)))!important}

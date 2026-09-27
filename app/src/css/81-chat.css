@@ -94,15 +94,37 @@
 .orq-chat .plmsg.bot .plbub:not(.think) { padding-right: 28px; }
 .orq-chat .plav { width: 20px; height: 20px; font-size: 10.5px; }
 
-/* ---------- linha de dica do composer (mesmo texto em todos os chats) ---------- */
-.chathint { font-size: 10.5px; color: var(--muted); padding: 0 18px 10px; background: var(--bg); letter-spacing: .01em; }
+/* ---------- COMPOSER ÚNICO (chatComposerHtml / chatNormalize em js/30-anexos.js) ----------
+   Referência = chat da tarefa (.fwinput): caixa de texto em cima; embaixo UMA linha
+   📎 · extras · espaço · [■ parar] [enviar]; dica com as teclas em .kbd.
+   `.cc.cc` (0-2-0) vence .plinput/.chatinput/.orq-chatin antigos em 10/50/70/82. */
+.cc.cc { display: block; position: relative; padding: 10px 13px; border-top: 1px solid var(--border); background: var(--bg); }
+.cc.cc .cc-ta { display: block; width: 100%; flex: none; resize: none; min-height: 40px; line-height: 1.45; font-size: 13px; overflow-y: hidden; }
+.cc.cc .cc-row { display: flex; gap: 7px; align-items: center; margin-top: 6px; min-width: 0; }
+.cc.cc .cc-row > * { flex: none; }
+.cc.cc .cc-row .btn { white-space: nowrap; }
+.cc.cc .cc-sp { flex: 1; min-width: 0; }
+.cc.cc .cc-clip { display: inline-grid; place-items: center; }
+.cc.cc .cc-clip svg { width: 14px; height: 14px; }
+.cc.cc .cc-row .btn svg { width: 13px; height: 13px; }
+.cc.cc .cc-row .dim { font-size: 11px; }
+.chathint { font-size: 10.5px; color: var(--muted); line-height: 1.4; letter-spacing: .01em; }
+.cc .chathint { margin-top: 6px; padding: 0; background: transparent; }
+.chathint .kbd { margin-left: 0; }
 .chathint.busy { color: var(--text-2); }
-.plinput:has(+ .chathint) { padding-bottom: 6px; }
-.chatinput:has(+ .chathint) { padding-bottom: 6px; }
-.orq-chatin + .chathint { padding: 5px 2px 0; background: transparent; }
-#pcOverlay.astab .chatinput + .chathint { max-width: 1040px; width: calc(100% - 68px); margin: -14px auto 12px; padding: 0 4px; background: transparent; }
-#pcOverlay.astab .chatinput:has(+ .chathint) { padding-bottom: 12px; }
-.plta, #pcInput, #orqChatTa { overflow-y: hidden; }
+
+/* chat do projeto: o composer acompanha a coluna da página (mesma largura do cabeçalho) */
+#pcOverlay.astab .cc.cc { max-width: var(--page-max, 1240px); width: 100%; margin: 0 auto; padding: 10px var(--page-pad, 34px) 14px; border-top: 1px solid var(--border); border-radius: 0; background: var(--bg); font-family: inherit; }
+#pcOverlay.astab .pcpend { max-width: var(--page-max, 1240px); width: 100%; padding: 0 var(--page-pad, 34px) 8px; }
+/* planner e nova issue: mesma caixa */
+.plinput.cc.cc { padding: 10px 18px 12px; }
+/* conversa com o orquestrador (painel da direita): sem faixa, a coluna já tem moldura */
+.orq-chatin.cc.cc { padding: 8px 0 0; border-top: 0; background: transparent; margin-top: 0; }
+/* briefing do orquestrador: mesma estrutura, caixa maior (é a descrição do problema inteiro) */
+.orq-briefcc.cc.cc { padding: 0; border-top: 0; background: transparent; }
+.orq-briefcc.cc.cc .cc-ta { min-height: 132px; font: 400 14px/1.6 var(--display); padding: 12px 14px; border-radius: 10px; }
+.orq-briefcc.cc.cc .cc-row { margin-top: 10px; }
+.orq-briefcc .orq-model { font-size: 11px; margin-right: 4px; }
 
 /* ---------- resultado de tool: linha sutil (sem pill), estilo Claude ---------- */
 .ctool {

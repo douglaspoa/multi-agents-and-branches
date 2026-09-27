@@ -70,7 +70,7 @@
 .orq-pill.ask{color:var(--st-ask)}.orq-pill.ask i{background:var(--st-ask)}
 .orq-pill.rev{color:var(--info)}.orq-pill.rev i{background:var(--info)}
 .orq-nh{display:flex;align-items:center;gap:8px}
-.orq-badge{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font:700 9.5px var(--code);background:color-mix(in srgb,var(--c,#3fd68a) 22%,transparent);color:var(--c,#3fd68a);flex:none}
+.orq-badge{min-width:22px;height:22px;padding:0 7px;white-space:nowrap;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font:600 10.5px var(--display);background:color-mix(in srgb,var(--c,#3fd68a) 22%,transparent);color:var(--c,#3fd68a);flex:none}
 .orq-nn{font-weight:600;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .orq-dot{width:7px;height:7px;border-radius:50%;flex:none}
 .orq-nm{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3)}
@@ -88,7 +88,7 @@
 .orq-insp{overflow:auto;padding:16px 18px 24px;font-family:var(--display);color:var(--text);display:flex;flex-direction:column;gap:6px}
 .orq-ih{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .orq-ih b{font-size:16px;font-weight:600}
-.orq-ih .orq-badge{width:30px;height:30px;font-size:11px}
+.orq-ih .orq-badge{height:26px;font-size:11.5px;padding:0 9px}
 .orq-p{font-size:13px;color:rgba(255,255,255,.72);line-height:1.5;margin:0 0 8px}
 .orq-rules{margin:6px 0 0;padding-left:18px;font-size:12.5px;color:rgba(255,255,255,.62);line-height:1.55}
 .orq-namein,.orq-objta,.orq-objin{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:9px;background:var(--card-bg);color:var(--text);font:400 13px var(--display);padding:9px 11px;outline:none}
@@ -114,7 +114,7 @@
 .orq-deps{display:flex;flex-direction:column;gap:5px;margin-top:6px}
 .orq-dep{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:7px 9px;border:1px solid rgba(255,255,255,.09);border-radius:9px;cursor:pointer}
 .orq-dep.on{border-color:rgba(63,214,138,.4)}
-.orq-dep .orq-badge{width:18px;height:18px;font-size:8.5px}
+.orq-dep .orq-badge{height:18px;font-size:9.5px;padding:0 5px}
 .orq-depchip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:var(--r-pill);border:1px solid color-mix(in srgb,var(--c) 45%,transparent);color:var(--c);font:500 11px var(--code);margin:2px 4px 2px 0}
 .orq-termbox{border:1px solid rgba(255,255,255,.09);border-radius:9px;background:#0b0d0c;padding:9px 11px;font-size:11px;color:rgba(255,255,255,.6);display:flex;flex-direction:column;gap:4px;margin-top:6px;max-height:160px;overflow:auto}
 .orq-termbox div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -220,3 +220,6 @@
 .orq-integwarn{margin-top:4px;color:var(--warn);font-size:11.5px}
 .orqc-proj{font-size:10px;color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:1px 6px;margin-left:8px;white-space:nowrap}
 .orqc-proj.other{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+/* papel da fase por extenso (Investigar/Desenhar/Implementar/Revisar) na linha de estado — o título do nó fica inteiro */
+.orq-nmk{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.orq-badge.sm{height:17px;font-size:9.5px;padding:0 6px;border-radius:5px}
