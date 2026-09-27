@@ -321,7 +321,9 @@ async function epicAutoStartTick(){
     const eps=nameIds.length?(await sbGet('epics?select=id,name&id=in.('+nameIds.join(',')+')')||[]):[];
     // progresso por épico da fila (cabeçalho "x/y entregues · onda N"): uma consulta leve por tick
     // R3-C1: a linha inteira (título/local_id) — o cabeçalho do grupo resume o épico TODO com um ponto por tarefa
-    const sibs=eids.length?(await sbGet('tasks?select=*&epic_id=in.('+eids.slice(0,20).join(',')+')&order=created_at.asc').catch(()=>[])||[]):[];
+    // inclui os épicos só com tarefas LOCAIS em andamento (fila vazia): sem isso o resumo "Épicos em andamento" contava só esta máquina
+    const sibIds=[...new Set(eids.concat(localEids))].slice(0,20);
+    const sibs=sibIds.length?(await sbGet('tasks?select=*&epic_id=in.('+sibIds.join(',')+')&order=created_at.asc').catch(()=>[])||[]):[];
     const progOf={}, sibsOf={};
     sibs.forEach(t=>{ (sibsOf[t.epic_id]=sibsOf[t.epic_id]||[]).push(t); const p=progOf[t.epic_id]||(progOf[t.epic_id]={ n:0, ok:0, wave:0 });
       const ok=['merged','done','review','delivered'].includes(t.status)||t.flag==='closed'; p.n++; if(ok) p.ok++;

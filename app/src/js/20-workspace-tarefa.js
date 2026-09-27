@@ -307,6 +307,7 @@ function fwPrimaryAction(t){
   if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
   if(t.status==='conflict') return { id:'fwResolve', html:'⚡ resolver conflito', title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
   if(t.status==='paused') return { id:'fwResume', html:'▶ continuar', title:'retoma a tarefa de onde parou' };
+  if(t.status==='plan-review') return { id:'fwApprovePlan', html:'▶ aprovar plano', title:'o plano está pronto — aprovar deixa o time começar a construir' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
   if(t.prUrl){ const n=fwPrNum(t);
     return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n} ↗`, title:'abrir o PR no GitHub' }
@@ -426,6 +427,7 @@ function renderWorkspace(){
       bindClick('fwArchive', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
       bindClick('fwResume', async()=>{ await resumeTask(t.id); renderWorkspace(); });
+      bindClick('fwApprovePlan', async()=>{ await startTask(t.id); renderWorkspace(); });
       bindClick('fwResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
       bindClick('fwPrGo', ()=>{ fwMode='pr'; fwRememberTab(); renderWorkspace(); });
       bindClick('fwPrGh', ()=>openExternal(t.prUrl));

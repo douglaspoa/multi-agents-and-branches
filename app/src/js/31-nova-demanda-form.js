@@ -502,7 +502,7 @@ function setNtMode(m){
   $id("ntDesignFields").style.display = m==='design'?'':'none';
   $id("ntInvFields").style.display = m==='invest'?'':'none';
   $id("ntDraft").style.display = m==='build'?'':'none';
-  $id("ntAI").style.display = m==='build'?'':'none'; // planner conversacional: monta a issue conversando (Entrega)
+  { const ai=$id("ntAI"); if(ai){ ai.style.display=''; ai.disabled=m!=='build'; ai.title=m==='build'?'montar conversando com a IA':'montar conversando só existe para Feature (entrega) — para os outros tipos, preencha aqui'; } } // mesmo seletor de 3 opções em todo lugar
   $id("ntImport").style.display = m==='build'?'':'none';
   { const tn=$id('ntTypeName'); if(tn) tn.textContent=(ntDocsPreset&&m==='build')?'Documentação':((window.ND_NAME_OF_MODE||{})[m]||m); }
   $id("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';

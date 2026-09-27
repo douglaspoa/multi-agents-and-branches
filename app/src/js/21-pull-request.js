@@ -203,7 +203,7 @@ async function prFixOne(taskId, ref){
   const loc=c.path?`${c.path}${c.line?':'+c.line:''}`:'(conversa do PR)';
   const rv=prIsReviewCmt(c) && c.id;
   const idTx=rv?` [comment_id=${c.id}]`:'';
-  const msg=`Aplique a correção pedida NESTE comentário do PR #${info.number}${idTx} — ${loc}, de ${c.author}:\n"""\n${(c.body||'').slice(0,1200)}\n"""\nDepois: commit + push, e responda o thread`+(rv?` via gh api (repos/{owner}/{repo}/pulls/${info.number}/comments/${c.id}/replies) começando com "✔" e dizendo o que mudou.`:` com um comentário no PR (gh pr comment ${info.number}) começando com "✔" e dizendo o que mudou.`);
+  const msg=`Aplique a correção pedida NESTE comentário do PR #${info.number}${idTx} — ${loc}, de ${c.author}:\n"""\n${(c.body||'').slice(0,1200)}\n"""\nDepois: commit + push, e responda o thread`+(rv?` via gh api (repos/{owner}/{repo}/pulls/${info.number}/comments/${c.id}/replies) começando com "✔" e dizendo o que mudou.`:` com um comentário no PR (gh pr comment ${info.number}) começando com "✔ ${c.url||''}" (o link identifica qual comentário foi resolvido) e dizendo o que mudou.`);
   await fwSendText(taskId, msg);
 }
 // aplicar o que um REVIEW (resumo) pediu

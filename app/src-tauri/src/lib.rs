@@ -5328,8 +5328,7 @@ fn pr_thread_answered(n_comments: usize, last_author: &str, last_body: &str, me:
 }
 
 /// Conversa do PR (issue comments, lista plana e cronológica): um comentário está respondido quando um
-/// comentário POSTERIOR começa com "✔" e é da sua conta / de bot (o agente responde com `gh pr comment`)
-/// ou cita este (link, #id ou @autor). O próprio "✔ …" é resposta, não pendência. Autoria sozinha não conta.
+/// comentário POSTERIOR começa com "✔" E cita este (link, #id ou @autor) — o agente é instruído a colar o link. O próprio "✔ …" é resposta, não pendência. Autoria sozinha não conta.
 fn pr_mark_conv_answered(conv: &mut [PrComment], me: &str) {
     let n = conv.len();
     let mut marks = vec![false; n];
@@ -5353,12 +5352,12 @@ fn pr_mark_conv_answered(conv: &mut [PrComment], me: &str) {
             if !r.body.trim_start().starts_with('✔') {
                 return false;
             }
-            let by_agent = r.is_bot || (!me.is_empty() && r.author.eq_ignore_ascii_case(me));
             let low = r.body.to_lowercase();
             let cites = (!c.url.is_empty() && r.body.contains(&c.url))
                 || id_tx.as_ref().map(|t| r.body.contains(t.as_str())).unwrap_or(false)
                 || (!c.author.is_empty() && low.contains(&mention));
-            by_agent || cites
+            // precisa CITAR este comentário: um "✔" genérico não fecha os comentários de outras pessoas
+            cites
         });
     }
     for (c, m) in conv.iter_mut().zip(marks) {
@@ -6181,7 +6180,7 @@ fn rework_from_pr(state: State<AppState>, task_id: String, ignored: Option<Vec<S
         // comentário inline (tem path) responde via …/replies; conversa do PR responde com gh pr comment
         match (c.id, c.path.is_some()) {
             (Some(id), true) => text.push_str(&format!("- [comment_id={id}] [{}] {loc}: {snippet}\n", c.author)),
-            _ => text.push_str(&format!("- [conversa] [{}]: {snippet}\n", c.author)),
+            _ => text.push_str(&format!("- [conversa] [{}] {}: {snippet}\n", c.author, c.url)),
         }
     }
     for r in &asks {
@@ -6194,7 +6193,7 @@ fn rework_from_pr(state: State<AppState>, task_id: String, ignored: Option<Vec<S
          2. Push: git push (o PR atualiza sozinho)\n\
          3. RESPONDA cada comentário inline no GitHub, um a um, dizendo O QUE mudou (ou por que não mudou):\n\
             gh api repos/{slug}/pulls/{num}/comments/<comment_id>/replies -f body=\"✔ <o que foi feito>\"\n\
-         4. Pros itens de (conversa), responda com: gh pr comment {num} --body \"...\"\n\
+         4. Pros itens de (conversa), responda UM comentário por item, citando o link dele: gh pr comment {num} --body \"✔ <link do comentário> <o que foi feito>\"\n\
          Sem commit + push + respostas o rework NÃO está completo.\n",
         num = info.number,
         slug = slug,
@@ -7022,13 +7021,13 @@ mod pr_status_tests {
         let mut cs = vec![
             conv(1, "eu", "faltou o teste", "2026-01-01T10:00:00Z"),
             conv(2, "ana", "e a doc?", "2026-01-01T10:05:00Z"),
-            conv(3, "eu", "✔ adicionei o teste", "2026-01-01T11:00:00Z"),
+            conv(3, "eu", "✔ https://github.com/o/r/pull/1#issuecomment-1 adicionei o teste", "2026-01-01T11:00:00Z"),
             conv(4, "ana", "mais uma coisa", "2026-01-01T12:00:00Z"),
             conv(5, "bia", "✔ @ana doc feita", "2026-01-01T09:00:00Z"), // ANTES do comentário da ana: não fecha
         ];
         pr_mark_conv_answered(&mut cs, "eu");
-        assert!(cs[0].answered, "✔ posterior da sua conta fecha");
-        assert!(cs[1].answered, "✔ posterior da sua conta fecha os anteriores");
+        assert!(cs[0].answered, "✔ posterior que cita o link fecha");
+        assert!(!cs[1].answered, "✔ que cita OUTRO comentário não fecha este (o da ana segue aberto)");
         assert!(cs[2].answered, "o próprio ✔ não é pendência");
         assert!(!cs[3].answered, "sem ✔ depois → aberto");
         let mut solo = vec![conv(7, "eu", "meu comentário", "2026-01-01T10:00:00Z")];

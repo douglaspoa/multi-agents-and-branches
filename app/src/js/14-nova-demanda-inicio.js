@@ -29,7 +29,7 @@ window.ndMethodSeg=ndMethodSeg;
 // um handler só pra todos os seletores (os botões com id próprio — ex.: #ntAI — seguem com o handler deles)
 document.addEventListener('click', e=>{
   const b=e.target.closest&&e.target.closest('[data-ndseg]'); if(!b||b.id||b.classList.contains('on')) return;
-  if(window.openTab) window.openTab(b.dataset.ndseg);
+  if(window.openTab) window.openTab(b.dataset.ndseg,{replace:true}); // troca o jeito de montar NA MESMA aba (não empilha abas)
 });
 window.TAB_STATE_nova={ get:()=>({ ndType, ndMethod }), set:(st)=>{ ndType=st.ndType||'build'; ndMethod=st.ndMethod||'chat'; } };
 function ndInjectFonts(){ if($id('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }

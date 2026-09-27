@@ -23,7 +23,7 @@ function kCard(t){
     : t.status==='paused'?'pausada — retome quando quiser'
     : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
   return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" data-id="${t.id}">
-    <div class="kctop">${t.status==='draft'?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:''}<b class="ktitle">${esc(t.title)}</b></div>
+    <div class="kctop">${t.status==='draft'?((!t.repo||t.repo===state.repo)?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:`<button class="kplay" disabled title="rascunho de outro projeto — abra ${escA(projShort(t.repo))} para iniciar">${IC.cright}</button>`):''}<b class="ktitle">${esc(t.title)}</b></div>
     <div class="kcrew">${crew}</div>
     ${note?`<div class="knote${amber?' amber':''}">${esc(note.length>64?note.slice(0,63)+'…':note)}</div>`:''}
   </div>`;
@@ -35,7 +35,8 @@ function renderKanban(){
   // mesma fonte da Central (boardSource: projeto filtrado ou todos) e mesma regra de bloqueadas
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
   for(const t of src.filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.andamento).push(t);
-  byCol.concluidas.sort((a,b)=>(b.createdAt||b.created_at||0)-(a.createdAt||a.created_at||0));
+  const kTs=x=>{ const v=x.createdAt||x.created_at||0; return typeof v==='number'?v:(Date.parse(v)||0); }; // nuvem manda ISO, local manda número
+  byCol.concluidas.sort((a,b)=>kTs(b)-kTs(a));
   if(kDragId) return; // arrastando: reconstruir destruía o card no meio do arrasto (o drop nunca vinha)
   const html = KCOLS.map(([k,label])=>{ const list=byCol[k]; const shown=k==='concluidas'?list.slice(0,KDONE_CAP):list;
     return `<div class="kcol" data-col="${k}"><div class="kcolh" title="${escA(FLOW_SEC_TIP[k]||'')}">${label} <span class="kn">${list.length}</span></div><div class="kcolbody">${shown.map(kCard).join('')||'<div class="kempty">—</div>'}${list.length>shown.length?`<div class="kempty">+${list.length-shown.length} mais antigas</div>`:''}</div></div>`; }).join('');
@@ -56,7 +57,7 @@ function renderKanban(){
 function kanbanDrop(id, col){
   const t=(state.tasks||[]).find(x=>x.id===id); if(!t){ renderKanban(); return; } // card de outro projeto: abra-o pra mudar
   if(kanbanCol(t)===col) return;
-  if(col==='andamento' && t.status==='draft') startTask(id);
+  if(col==='andamento' && t.status==='draft'){ if(t.repo && t.repo!==state.repo){ toast('Esse rascunho é de outro projeto — abra '+projShort(t.repo)+' para iniciar.','warn'); return; } startTask(id); }
   else if(col==='concluidas'){ invoke('set_task_flag',{ taskId:id, flag:'closed' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>renderKanban()); }
   else renderKanban(); // transição não suportada → volta o card
 }

@@ -218,6 +218,9 @@ function renderFlowFilters(){
   if(flowAgent!=='all') act.push('agente '+flowAgent);
   if(flowType!=='all') act.push(TYPE_PT[flowType]||flowType);
   if(flowEpic!=='all') act.push('◆ '+epName(flowEpic).slice(0,24));
+  // projeto salvo que não existe mais (removido/renomeado) → volta pra todos; senão entra no aviso de filtro ativo
+  if(projFilter!=='all' && !pl.some(([p])=>p===projFilter)){ projFilter='all'; lsSet('projFilter','all'); }
+  if(projFilter!=='all') act.push('projeto '+projShort(projFilter));
   const activeChip = act.length ? `<span class="ffactive" title="alguns filtros estão escondendo tarefas">filtros ativos: ${esc(act.join(' · '))} <button class="fvlink" id="ffClearAll">limpar</button></span>` : '';
   // SEMPRE visível: status + busca + projeto/épico/tipo (selects compactos)
   const isDone=flowScope==='done';
@@ -239,7 +242,7 @@ function renderFlowFilters(){
   { const s=$id('ffProj'); if(s) s.onchange=(e)=>{ projFilter=e.target.value; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); }; }
   { const s=$id('ffEpic'); if(s) s.onchange=(e)=>{ flowEpic=e.target.value; flowSetF('flowEpic',flowEpic); lastSig=''; renderFlow(); }; }
   bindClick('ffClearAll', ()=>{
-    flowStatus='all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all';
+    flowStatus='all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all'; projFilter='all'; lsSet('projFilter','all');
     ['flowStatus','flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all'));
     lastSig=''; renderFlow();
   });
