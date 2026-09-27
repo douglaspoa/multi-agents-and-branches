@@ -255,7 +255,7 @@ function renderSide(){
   const iSend=el.querySelector('#instrSend'); if(iSend) iSend.onclick=()=>sendInstruction(t.id);
   const iInput=el.querySelector('#instrInput'); if(iInput) iInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendInstruction(t.id); });
   { const b=el.querySelector('#openChatBtn'); if(b) b.onclick=()=>openChat(t.id); }
-  { const a=el.querySelector('#rwFull'); if(a) a.onclick=()=>{ const txt=prompt('Ajuste completo (passa pelo time inteiro — planeja → coda → revisa → docs):'); if(txt&&txt.trim()){ invoke('rework_task',{taskId:t.id, text:txt.trim()}).then(()=>{ lastSig=''; refresh(); }).catch(e=>alert('Falha:\n'+e)); } }; }
+  { const a=el.querySelector('#rwFull'); if(a) a.onclick=async()=>{ const txt=await askText('Ajuste completo — passa pelo time inteiro (planeja → coda → revisa → docs)','o que precisa mudar?'); if(txt&&txt.trim()){ invoke('rework_task',{taskId:t.id, text:txt.trim()}).then(()=>{ lastSig=''; refresh(); toast('Ajuste enviado pro time','ok'); }).catch(e=>toast('Não consegui enviar o ajuste: '+e,'err')); } }; }
   // clicar numa etapa: planner/designer abrem o doc produzido (ver/editar);
   // as demais miram o "pedir ajuste" naquela etapa.
   const stageDoc={ planner:'.cardume/PLAN.md', designer:'.cardume/DESIGN.md' };
