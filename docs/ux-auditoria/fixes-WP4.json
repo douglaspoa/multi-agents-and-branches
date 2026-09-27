@@ -1,0 +1,189 @@
+[
+  {
+    "id": "N1",
+    "area": "Navegação e jornada",
+    "titulo": "⌘J e ⌘, abrem Chat e Configurações como aba",
+    "antes": "Os atalhos ⌘J e ⌘, chamavam openPc()/openCfg() direto e as telas apareciam como modal flutuante, enquanto os mesmos itens da barra lateral abriam como aba.",
+    "depois": "⌘J abre a aba \"Chat do projeto\" e ⌘, abre a aba \"Configurações\" (openTab), igual à barra lateral. O check de ambiente do boot também abre como aba em vez de modal.",
+    "motivo": "Mesma tela com dois comportamentos (aba vs. modal) confunde e quebra a regra \"fluxo novo abre como aba\". Atalho deve ser só um caminho mais curto pro mesmo lugar.",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js", "app/src/js/11-ambiente-updater.js"],
+    "como_ver": "document.dispatchEvent(new KeyboardEvent('keydown',{key:'j',metaKey:true})); activeTab /* 'chat' */",
+    "estado_mock": "qualquer projeto aberto"
+  },
+  {
+    "id": "N2",
+    "area": "Navegação e jornada",
+    "titulo": "⌘K mostra a Central antes de focar a busca",
+    "antes": "Com outra aba ativa (Skills, Conta…), ⌘K focava o campo de busca da Central que estava escondido atrás dela — nada acontecia na tela.",
+    "depois": "⌘K ativa a aba Central, troca pra visão Fluxo e foca a busca.",
+    "motivo": "Atalho global que só funcionava numa aba parecia quebrado.",
+    "arquivos": ["app/src/js/10-core.js"],
+    "como_ver": "openTab('skills'); window.dispatchEvent(new KeyboardEvent('keydown',{key:'k',metaKey:true})); [activeTab, document.activeElement.id] /* ['flow','ffSearch'] */",
+    "estado_mock": "projeto com tarefas"
+  },
+  {
+    "id": "N3",
+    "area": "Navegação e jornada",
+    "titulo": "\"Publicar release\" só pra dev ou admin",
+    "antes": "O item \"⇡ Publicar release\" aparecia no menu Mais pra todo mundo, embora só sirva pra quem empacota o app.",
+    "depois": "O botão nasce escondido e só aparece em instalação de desenvolvimento (comando is_dev_install) ou pra owner/admin da organização (revalidado a cada cloudBtnSync).",
+    "motivo": "Ação de dev no menu do usuário comum gera cliques em algo que falha e polui o menu.",
+    "arquivos": ["app/src/index.html", "app/src/js/10-core.js", "app/src/js/40-nuvem-conta.js"],
+    "como_ver": "document.getElementById('moreBtn').click(); getComputedStyle(pubRelBtn).display /* 'none' sem dev/admin */; devInstall=true; devUiSync()",
+    "estado_mock": "is_dev_install=false e cloudData.meRole='member' (escondido) / 'owner' (visível)"
+  },
+  {
+    "id": "N4",
+    "area": "Status e feedback",
+    "titulo": "Barra de status \"Agora\" legível",
+    "antes": "Rodapé com \"Barramento\", \"N agentes\" (na verdade todas as tarefas já criadas), \"reivindicações\" e tokens tipo \"1670683k tok\".",
+    "depois": "Rótulo \"Agora\" e resumo \"X rodando · Y na fila · Z esperando você · $W no total · ⚠ N arquivos disputados\". O detalhe (total de tarefas, tokens em k/M/B, arquivos reservados e quem cedeu pra quem) vai pro tooltip em linguagem simples. fmtTok agora usa k/M/B.",
+    "motivo": "Número errado (agentes = tarefas) e jargão interno faziam a barra ser ignorada; o que o usuário quer saber é o que roda, o que espera por ele e quanto custou. O snapshot não traz custo por dia (costs é agregado por tarefa), então o valor é o total.",
+    "arquivos": ["app/src/index.html", "app/src/js/26-sidebar-projetos.js", "app/src/js/15-config-abas-onboarding.js", "app/src/css/30-refino-macos.css"],
+    "como_ver": "renderBus(); [busSummary.innerText, busSummary.title]",
+    "estado_mock": "tasks com status running/review/asking/merged, pending[] com 1 pergunta, costs com ~1,7B tokens, claims com 1 yieldedTo"
+  },
+  {
+    "id": "N5",
+    "area": "Primeiro uso",
+    "titulo": "Tour de boas-vindas na ordem certa + passo de projeto",
+    "antes": "O tour abria em 900ms e o gate obrigatório de login (3,2s) cobria ele no meio; o passo 2 dizia que login era opcional \"(botão no topo)\"; não havia passo pra abrir/criar projeto.",
+    "depois": "O tour só começa com sessão aberta e sem a tela de entrada por cima (obMaybeStart chamado pelo auHide e por um timer de segurança após o gate). Copy corrigida (Conta e time, no rodapé da barra lateral) e novo passo final \"Escolha o projeto\" com \"Abrir pasta\" e \"+ Criar projeto novo\".",
+    "motivo": "Primeiro uso interrompido por sobreposição de telas e sem chegar ao passo que destrava o produto (ter um projeto aberto).",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js", "app/src/js/44-onboarding.js"],
+    "como_ver": "localStorage.removeItem('onboarded'); obMaybeStart(); obStep=3; renderOb()",
+    "estado_mock": "sb:sess válido, sem 'onboarded' no localStorage; com e sem state.repo"
+  },
+  {
+    "id": "N6",
+    "area": "Copy",
+    "titulo": "Referências a \"topo\" apontam pro lugar novo",
+    "antes": "Textos mandavam usar \"botão no topo\", \"botão da nuvem\" ou \"coração 🩺 do topo\", que não existem mais depois do redesign.",
+    "depois": "\"Conta e time, no rodapé da barra lateral\" e \"Mais › Ambiente\" nos meus arquivos (onboarding, publicar release, compartilhar equipe, assinatura, chaves).",
+    "motivo": "Instrução apontando pra um lugar que não existe deixa o usuário travado.",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js", "app/src/js/33-switcher-projetos.js", "app/src/js/41-assinatura-chaves.js"],
+    "como_ver": "openOnboarding(); obStep=1; renderOb()",
+    "estado_mock": "nenhum"
+  },
+  {
+    "id": "N7",
+    "area": "Marca",
+    "titulo": "Sem \"cardume\" visível pro usuário",
+    "antes": "Textos mostravam \".cardume/SPEC.md\", \"Espaço em disco · .cardume/\", \"grava no cardume.config.json\", \".cardume/ no .gitignore\" e tooltips com cardume.config.json.",
+    "depois": "Frase \"pasta de trabalho do Starfork\" / \"configurações deste projeto\"; o caminho real ficou só em dica monoespaçada pequena ou tooltip onde o dev precisa.",
+    "motivo": "Nome antigo do produto confunde e parece bug de marca.",
+    "arquivos": ["app/src/js/14-nova-demanda-inicio.js", "app/src/js/15-config-abas-onboarding.js", "app/src/index.html", "app/src/js/40-nuvem-conta.js", "app/src/js/10-core.js"],
+    "como_ver": "openTab('cfg'); openTab('nova'); openTab('agents')",
+    "estado_mock": "projeto aberto"
+  },
+  {
+    "id": "N8",
+    "area": "Navegação e jornada",
+    "titulo": "Mesmo nome na barra lateral, na aba e no título",
+    "antes": "Aba \"Tarefas\" vs. título \"Central de execuções\"; sidebar \"Agentes & Equipes\" abria a aba \"Agentes\"; conta aparecia como \"Entrar\"/nome, aba \"Conta\", título \"Time na nuvem\"/\"Conectar ao backend\"; Preferências usava o ícone do Formulário e Montar conversando o do Chat; tooltip do Mais citava o chat.",
+    "depois": "Aba fixa \"Central\"; aba \"Agentes & Equipes\"; aba e títulos \"Conta e time\" (\"Conta e time · entrar/sua organização/<org>\"); aba \"Preferências do projeto\" com ícone de controles e Montar conversando com ícone de balão+faísca; tooltip do Mais corrigido.",
+    "motivo": "Nomes diferentes pra mesma tela fazem o usuário duvidar se clicou no lugar certo.",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js", "app/src/index.html", "app/src/js/40-nuvem-conta.js"],
+    "como_ver": "openTab('agents'); openTab('conta'); openTab('prefs'); TABS.map(t=>t.title)",
+    "estado_mock": "sessão logada com org"
+  },
+  {
+    "id": "N9",
+    "area": "Copy",
+    "titulo": "Menos jargão (coordenação, worktree, task.yaml, subagentes)",
+    "antes": "Chip \"0 conflitos · 0 colisões · 0 reworks\" sempre visível; \"branch + worktree isolada\", \"de onde a worktree nasce\"; \"preenche o task.yaml\", \"Orquestrar com subagentes\"; cadastro com \"branch e worktree isoladas\"; FIX do onboarding sem botão de copiar.",
+    "depois": "Chip some quando tudo é zero e mostra \"⚑ 1 tarefa com conflito · 2 disputas de arquivo entre agentes · 1 ajuste pedido\" com tooltip explicando cada termo; \"cópia isolada do código (branch)\" com tooltip; \"monta a demanda\", \"Dividir entre vários agentes\"; copy do cadastro simples; comando de correção com \"rode no Terminal:\" + botão copiar (data-envfix).",
+    "motivo": "Vibe coders não sabem o que é worktree/rework; números zerados permanentes viram ruído.",
+    "arquivos": ["app/src/js/50-coordenacao.js", "app/src/index.html", "app/src/js/14-nova-demanda-inicio.js", "app/src/js/44-onboarding.js", "app/src/js/15-config-abas-onboarding.js"],
+    "como_ver": "openTab('flow') (chip na Central); openTab('nova'); openOnboarding(); obStep=2; renderOb()",
+    "estado_mock": "coordination_metrics = {conflictTasks:1, collisionEvents:2, reworkCount:0}; env_check com 1 item falhando e fix"
+  },
+  {
+    "id": "N10",
+    "area": "Status e feedback",
+    "titulo": "Toast em vez de alert pra validação e sucesso",
+    "antes": "Validações simples (URL vazia, nome inválido, marcar skill) usavam alert() bloqueante; salvar Configurações fechava calado.",
+    "depois": "toast(msg,'warn') nas validações e toast('…','ok') ao salvar Configurações, catálogo de agentes, skill criada, senha alterada e projeto criado. alert() mantido só pra falha real de comando.",
+    "motivo": "Alert trava a tela por algo trivial; salvar sem retorno deixa dúvida se salvou.",
+    "arquivos": ["app/src/js/13-skills-projetos.js", "app/src/js/15-config-abas-onboarding.js", "app/src/js/33-switcher-projetos.js", "app/src/js/41-assinatura-chaves.js", "app/src/js/44-onboarding.js"],
+    "como_ver": "openTab('cfg'); document.getElementById('cfgSave').click()",
+    "estado_mock": "nenhum"
+  },
+  {
+    "id": "N11",
+    "area": "Primeiro uso",
+    "titulo": "Tela vazia oferece criar projeto novo",
+    "antes": "Sem projeto, a tela só tinha \"Abrir projeto\" e pedia um repositório git existente.",
+    "depois": "\"Escolha uma pasta (ou crie um projeto novo) para começar.\" com \"Abrir pasta\" e \"Criar projeto novo\" (abre a aba Projetos já com o formulário de projeto novo aberto).",
+    "motivo": "Quem começa do zero (vibe coder) não tinha caminho a partir da tela vazia.",
+    "arquivos": ["app/src/index.html", "app/src/js/33-switcher-projetos.js", "app/src/js/13-skills-projetos.js"],
+    "como_ver": "document.getElementById('emNovo').click()",
+    "estado_mock": "snapshot com repo:null"
+  },
+  {
+    "id": "N12",
+    "area": "Navegação e jornada",
+    "titulo": "Nova demanda sem projeto leva a Projetos",
+    "antes": "Com nenhum projeto aberto, \"Nova demanda\"/+ abria o formulário (repoHasGit() é true sem repo) e a demanda não tinha destino.",
+    "depois": "openTab de nova/form/planner/orq sem state.repo mostra o toast \"Abra ou crie um projeto primeiro — a demanda roda dentro dele.\" e abre a aba Projetos.",
+    "motivo": "Formulário inteiro preenchido que não tem onde rodar é trabalho perdido.",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js"],
+    "como_ver": "openTab('nova'); activeTab /* 'projetos' */",
+    "estado_mock": "snapshot com repo:null"
+  },
+  {
+    "id": "N14",
+    "area": "Skills",
+    "titulo": "\"✦ Com IA\" monta a skill de verdade",
+    "antes": "A aba \"✦ Com IA\" só dizia pra ir em outra tela pedir a skill-creator — beco sem saída.",
+    "depois": "Campo \"O que a skill deve fazer?\" + botão \"montar com IA\": abre o Montar conversando com \"Crie uma skill do Claude Code (…) que <texto>\" já na caixa (espera o rascunho carregar e não sobrescreve texto existente).",
+    "motivo": "Promessa de ação que não fazia nada.",
+    "arquivos": ["app/src/js/13-skills-projetos.js"],
+    "como_ver": "openTab('skills'); skAddOpen=true; skAddMode='ia'; skRender(); skAiIdea.value='padroniza PR'; skAiGo.click()",
+    "estado_mock": "projeto aberto, load_draft vazio"
+  },
+  {
+    "id": "N15",
+    "area": "Navegação e jornada",
+    "titulo": "Visão principal lembrada entre sessões",
+    "antes": "Fluxo/Kanban/Grafo/Atividade/Time voltava sempre pro Fluxo ao abrir o app.",
+    "depois": "A visão escolhida é salva (lsSet('mainView')) e restaurada depois do 1º refresh do boot (Grafo continua sumindo em pasta sem git).",
+    "motivo": "Quem trabalha no Kanban tinha que trocar toda vez.",
+    "arquivos": ["app/src/js/26-sidebar-projetos.js", "app/src/js/33-switcher-projetos.js"],
+    "como_ver": "document.querySelector('#viewSeg button[data-v=kanban]').click(); location.reload(); /* depois */ curView()",
+    "estado_mock": "projeto com tarefas"
+  },
+  {
+    "id": "N16",
+    "area": "Navegação e jornada",
+    "titulo": "⌘W e ⌘1–9 nas abas + lista de atalhos",
+    "antes": "Não havia atalho pra fechar aba ou pular entre abas, nem lugar que listasse os atalhos.",
+    "depois": "⌘W fecha a aba ativa (a Central é fixa), ⌘1–⌘8 vão pra aba N e ⌘9 pra última; o tooltip do \"+\" da barra de abas lista todos os atalhos.",
+    "motivo": "Com o app em abas, navegação por teclado é o esperado de quem vem de navegador/IDE.",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js"],
+    "como_ver": "openTab('skills'); document.dispatchEvent(new KeyboardEvent('keydown',{key:'1',metaKey:true})); tabAdd.title",
+    "estado_mock": "2+ abas abertas"
+  },
+  {
+    "id": "N17",
+    "area": "Copy",
+    "titulo": "Placeholders neutros e servidor da conta só pra dev/admin",
+    "antes": "Placeholders \"linear.app/logcomex/issue\", \"revisar-pr-logcomex\", \"LGCX_API_KEY\"; botões \"backend do time…\" (Configurações) e \"backend…\" (login) pra todo mundo.",
+    "depois": "Placeholders \"sua-empresa\", \"revisar-pr-do-time\", \"MINHA_API_KEY\". Botão renomeado pra \"servidor…\" e só aparece pra instalação de dev, owner/admin, ou quando já há um servidor personalizado salvo (pra quem está preso num servidor local conseguir voltar).",
+    "motivo": "Nome de empresa em placeholder parece dado vazado; configurar URL/chave do Supabase não é tarefa de usuário final.",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js", "app/src/js/13-skills-projetos.js", "app/src/js/41-assinatura-chaves.js", "app/src/js/40-nuvem-conta.js"],
+    "como_ver": "openTab('cfg'); !!document.getElementById('cfgBackend') /* false pra usuário comum */",
+    "estado_mock": "is_dev_install=false, sem sb:url no localStorage, meRole='member'"
+  },
+  {
+    "id": "N18",
+    "area": "Status e feedback",
+    "titulo": "Ambiente mostra há quanto tempo checou",
+    "antes": "A tela Ambiente dizia sempre \"última checagem: agora\", mesmo mostrando resultado antigo em cache.",
+    "depois": "Guarda o horário da checagem e mostra \"agora\" / \"há N min\" / \"há N h\" (tooltip com data e hora); enquanto rechecagem roda mostra \"verificando de novo…\".",
+    "motivo": "Informação falsa de frescor faz o usuário confiar num check velho.",
+    "arquivos": ["app/src/js/11-ambiente-updater.js"],
+    "como_ver": "envCheckedAt=Date.now()-5*60000; openTab('env')",
+    "estado_mock": "env_check com resultados"
+  }
+]

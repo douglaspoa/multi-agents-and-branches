@@ -72,7 +72,7 @@ function pubSetState(s){ // 'form' | 'prog' | done html
 function closePub(){ $id('pubOverlay').style.display='none'; }
 { const b=$id('pubRelBtn');
   if(b) b.onclick=()=>{
-    if(!SB.sess()){ alert('Entre na sua conta primeiro (botão do topo).'); return; }
+    if(!SB.sess()){ toast('Entre na sua conta primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     pubSetState('form');
     $id('pubOverlay').style.display='flex';
     $id('pubNotes').focus();
@@ -115,6 +115,7 @@ $id("ntAI").onclick = openPlanner;
 $id("aiSend").onclick = sendAiMsg;
 $id("aiInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendAiMsg(); });
 $id("emAbrir").onclick = pickFolder;
+bindClick("emNovo", ()=>openNewProject());
 $id("ntImport").onclick = importTaskMd;
 $id("ntRefAdd").onclick = pickRefs;
 $id("ntDzRefAdd").onclick = ()=>pickRefsInto(ntDzRefs, renderDzRefs);
@@ -245,7 +246,7 @@ function renderWf(){
   el.querySelectorAll("[data-wshare]").forEach(b=>b.onclick=async()=>{
     const w=cfgEdit.workflows[+b.dataset.wshare]; if(!w) return;
     const orgId=cloudData&&cloudData.org&&cloudData.org.id;
-    if(!SB.sess()||!orgId){ alert('Entre na sua conta e numa organização primeiro (botão do topo).'); return; }
+    if(!SB.sess()||!orgId){ toast('Entre na sua conta e numa organização primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     b.disabled=true; const o=b.textContent; b.textContent='publicando…';
     try{
       if(!w.id) w.id=agSlug(w.name);
@@ -295,7 +296,7 @@ async function saveConfig(){
   cfgEdit.agents.forEach(a=>{ if(!a.id) a.id=uniqueId(agSlug(a.name)); });
   cfgEdit.workflows.forEach(w=>{ if(!w.id) w.id=agSlug(w.name); if(!w.steps) w.steps=[]; });
   const btn=$id("agSave"); btn.disabled=true; btn.textContent="salvando…";
-  try{ await invoke("save_config",{config:cfgEdit}); closeAgents(); }
+  try{ await invoke("save_config",{config:cfgEdit}); closeAgents(); toast('Agentes e equipes salvos','ok'); }
   catch(e){ alert("Falha ao salvar catálogo:\n"+e); }
   finally{ btn.disabled=false; btn.textContent="salvar catálogo"; }
 }
@@ -315,7 +316,7 @@ window.addEventListener("unhandledrejection", e=>{ console.error("promise sem ca
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 initNotifs();
-refresh().then(loadProjects).catch(e=>console.error("boot:", e));
+refresh().then(loadProjects).then(restoreMainView).catch(e=>console.error("boot:", e));
 // poll blindado: uma volta que falhe não derruba o ciclo
 // um refresh por vez (o tick de 1s empilhava vários em paralelo), mas a trava NUNCA fica presa: se um refresh
 // não voltar em 6s (IPC perdido, SQLite ocupado), o próximo tick segue — antes a tela parava de atualizar pra sempre

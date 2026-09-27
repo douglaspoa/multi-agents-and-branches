@@ -25,8 +25,8 @@ function sbNetErr(){
   const custom=!!lsGet('sb:url') && SB.url()!==SB_DEFAULT.url;
   const isLocal=/localhost|127\.0\.0\.1/.test(SB.url());
   let m='sem conexão com '+host;
-  if(custom&&isLocal) m+=' — este app está apontando pra um backend LOCAL que não está rodando. Clique em "backend…" → "usar nuvem (padrão)".';
-  else if(custom) m+=' — backend personalizado configurado. Confira em "backend…" ou clique em "usar nuvem (padrão)".';
+  if(custom&&isLocal) m+=' — este app está apontando pra um backend LOCAL que não está rodando. Em Conta e time, clique em "servidor…" → "usar nuvem (padrão)".';
+  else if(custom) m+=' — backend personalizado configurado. Confira em Conta e time › "servidor…" ou clique em "usar nuvem (padrão)".';
   else m+=' — verifique sua internet/VPN (a rede pode estar bloqueando o Supabase).';
   return new Error(m);
 }
@@ -155,6 +155,7 @@ function cloudBtnSync(){
     tx.textContent = name;
     const btn=$id('cloudBtn'); if(btn) btn.title = (team ? 'Time '+team.name+' · ' : '') + ((s.user&&s.user.email)||'') + ' — conta, organização e convites';
   }
+  if(typeof devUiSync==='function') devUiSync(); // "Publicar release" aparece pra owner/admin
   loginGateSync();
 }
 // LOGIN OBRIGATÓRIO: sem conta não usa — dados (repos, agentes, memória) e
@@ -181,7 +182,7 @@ async function renderCloud(){
   const head=$id('cloudHead');
   // 1) tela de backend (aparece se não há default nem config, ou via "backend…")
   if(!SB.configured() || cloudCfgOpen){
-    head.textContent='Conectar ao backend';
+    head.textContent='Conta e time · servidor (avançado)';
     const isLocal=SB.url().startsWith('http://127.0.0.1');
     body.innerHTML = cloudMsgHtml()+`
       <div class="imhint">Backend atual: <b>${esc(SB.url()||'nenhum')}</b>${isLocal?' <span class="dim">(Supabase local — dev)</span>':''}. Pra usar o projeto na nuvem, cole as credenciais (Settings → API) — vale só nesta máquina.</div>
@@ -195,13 +196,13 @@ async function renderCloud(){
   }
   // 2) sem sessão → login / criar conta
   if(!SB.sess()){
-    head.textContent='Entrar';
+    head.textContent='Conta e time · entrar';
     body.innerHTML = cloudMsgHtml()+`
       <button class="btn" id="sbGoogle" style="width:100%;justify-content:center;gap:9px;padding:9px;font-weight:600"><svg viewBox="0 0 18 18" width="16" height="16"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>Entrar com Google</button>
       <div style="display:flex;align-items:center;gap:10px;margin:14px 0"><span style="flex:1;height:1px;background:var(--border)"></span><span class="dim" style="font-size:11px">ou</span><span style="flex:1;height:1px;background:var(--border)"></span></div>
       <label>E-mail</label><input class="in" id="sbEmail" placeholder="voce@empresa.com" value="${escA(lsGet('sb:email')||'')}">
       <label style="margin-top:12px;display:flex;align-items:center">Senha<span style="flex:1"></span><a class="lnk" id="sbForgot" style="text-transform:none;letter-spacing:0;font-size:11px;cursor:pointer">esqueci a senha</a></label><input class="in" id="sbPass" type="password" placeholder="••••••••">
-      <div style="display:flex;gap:8px;margin-top:16px;align-items:center"><button class="btn sm" id="sbCfgEdit" title="trocar URL/chave do backend">backend…</button><span style="flex:1"></span><button class="btn" id="sbSignup">criar conta</button><button class="btn primary" id="sbLogin">entrar</button></div>
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center">${(canSeeDevTools()||lsGet('sb:url'))?'<button class="btn sm" id="sbCfgEdit" title="avançado: trocar o servidor da conta (dev/admin)">servidor…</button>':''}<span style="flex:1"></span><button class="btn" id="sbSignup">criar conta</button><button class="btn primary" id="sbLogin">entrar</button></div>
       <div class="aihint dim" style="margin-top:10px">A conta é sua identidade no time — quem criou a tarefa, quem assumiu, quem entregou.</div>`;
     const email=()=>$id('sbEmail').value.trim(), pass=()=>$id('sbPass').value;
     const go=async(kind)=>{
@@ -241,14 +242,14 @@ async function renderCloud(){
         renderCloud();
       }; }
     $id('sbPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go('in'); });
-    $id('sbCfgEdit').onclick=()=>{ cloudCfgOpen=true; renderCloud(); };
+    bindClick('sbCfgEdit', ()=>{ cloudCfgOpen=true; renderCloud(); });
     return;
   }
   // dados frescos
   if(!cloudData){ body.innerHTML=cosmosHtml('carregando a conta…'); try{ await cloudLoad(); }catch(e){ cloudMsg='Falhou: '+e.message; SB.setSess(SB.sess()); } }
   // 3) logado mas sem org → criar ou aceitar convite
   if(!cloudData || !cloudData.org){
-    head.textContent='Sua organização';
+    head.textContent='Conta e time · sua organização';
     body.innerHTML = cloudMsgHtml()+`
       <div class="seclbl2">Criar organização + primeiro time</div>
       <label style="margin-top:6px">Nome da organização</label><input class="in" id="sbOrgName" placeholder="ex.: Logcomex">
@@ -275,7 +276,7 @@ async function renderCloud(){
   }
   // 4) home: gestão da org — times, membros por time, convites, catálogo, visão
   const d=cloudData, teamId=cloudTeamId();
-  head.textContent=d.org.name;
+  head.textContent='Conta e time · '+d.org.name;
   const isAdmin = d.meRole==='owner'||d.meRole==='admin';
   const myLeadTeams = d.teams.filter(t=>(d.teamMembers[t.id]||[]).some(m=>m.user_id===cloudUserId()&&m.role==='lead'));
   const canManage = t => isAdmin || myLeadTeams.some(x=>x.id===t.id);
@@ -308,7 +309,7 @@ async function renderCloud(){
     <div class="mlist tm2">${(d.orgMembers||[]).map(om=>`<div class="mrow"><span class="mav" style="background:${agentColor(pName(om.user_id))}">${esc(pName(om.user_id).slice(0,2).toUpperCase())}</span><span class="mnm">${esc(pName(om.user_id))}${om.user_id===cloudUserId()?' <span class="mme">você</span>':''}</span><span class="mrole${om.role==='owner'||om.role==='admin'?' lead':''}">${esc(om.role)}</span>${(om.role!=='owner'&&om.user_id!==cloudUserId())?`<span class="macts"><button class="btn sm ghost" data-orgrm="${escA(om.user_id)}" title="remove da organização e de todos os times — libera o assento">remover da org</button></span>`:''}</div>`).join('')}</div>`:''}
     <div class="seclbl2" style="margin-top:18px">Agentes &amp; equipes da organização</div>
     <div id="sbCat" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>
-    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="grava os agentes/workflows da org no cardume.config.json do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="copia os agentes e equipes da organização pras configurações do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
     ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>`:''}
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center;gap:8px"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbPassChange" title="define uma senha nova pra sua conta">trocar senha</button><button class="btn sm" id="sbLogout">sair</button></div>
@@ -390,7 +391,7 @@ function orgDefaultsRenderCloud(isAdmin){
   const el=document.createElement('div');
   el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Padrões de demanda</div>
     <div style="display:flex;align-items:center;gap:10px;font-size:12.5px">
-      <span style="flex:1" class="dim">guia de spec + política valem pra org inteira; repos refinam com <span class="mono">.cardume/</span></span>
+      <span style="flex:1" class="dim">guia de spec + política valem pra org inteira; cada repo pode refinar na própria pasta de trabalho do Starfork</span>
       ${isAdmin?'<button class="btn sm" id="sbOrgTpl">editar padrões</button>':''}
     </div>`;
   body.appendChild(el);

@@ -274,21 +274,37 @@ function renderSide(){
   if(sideTab==='stream'){ const s=el.querySelector('.stream'); if(s) s.scrollTop=s.scrollHeight; }
 }
 
+// Barra de status "Agora": o que importa num relance — quantas tarefas estão rodando, quantas esperam
+// você e quanto já custou. Antes: "N agentes" (= TODAS as tarefas já criadas), "reivindicações" e
+// "1670683k tok". O detalhe técnico (arquivos reservados/cedidos entre agentes) foi pro tooltip.
 function renderBus(){
-  const yields = state.claims.filter(c=>c.yieldedTo);
-  const totalClaims = state.claims.length;
-  const el = $id("busSummary");
-  if(state.tasks.length===0){ el.innerHTML = '<span class="dim">—</span>'; return; }
-  const parts = [`${state.tasks.length} agentes · ${totalClaims} reivindicações`];
+  const el = $id("busSummary"); if(!el) return;
+  const tasks=state.tasks||[];
+  if(tasks.length===0){ el.innerHTML = '<span class="dim">nenhuma tarefa neste projeto ainda</span>'; el.title=''; return; }
+  const RUN=new Set(['running','thinking']), WAIT=new Set(['asking','plan-review','review','delivered']);
+  const askIds=new Set((state.pending||[]).map(p=>p.taskId));
+  const running=tasks.filter(t=>RUN.has(t.status)).length;
+  const waiting=tasks.filter(t=>WAIT.has(t.status)||askIds.has(t.id)).length;
+  const queued=tasks.filter(t=>t.status==='queued').length;
   const totUsd=(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0);
   const totTok=(state.costs||[]).reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0);
-  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">Σ ${fmtUsd(totUsd)} · ${fmtTok(totTok)} tok</span>`);
-  // cessões: dedup (o mesmo arquivo pode ceder N vezes) + só o basename + cap
+  const parts=[`<b style="color:${running?'var(--st-run,var(--good))':'var(--text-2)'}">${running} rodando</b>`];
+  if(queued) parts.push(`${queued} na fila`);
+  parts.push(waiting?`<b style="color:var(--st-ask,var(--warn))">${waiting} esperando você</b>`:'0 esperando você');
+  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">${fmtUsd(totUsd)} no total</span>`);
+  // conflitos de arquivo entre agentes: resumo curto na barra, explicação no tooltip
+  const claims=state.claims||[], yields=claims.filter(c=>c.yieldedTo);
   const seen=new Set(); const uniq=[];
   for(const c of yields){ const k=c.agent+'|'+c.path+'|'+c.yieldedTo; if(!seen.has(k)){ seen.add(k); uniq.push(c); } }
-  for(const c of uniq.slice(0,2)) parts.push(`<span class="warn">⚠ ${esc(c.agent)} cedeu ${esc((c.path||'').split('/').pop())} → ${esc(c.yieldedTo)}</span>`);
-  if(uniq.length>2) parts.push(`<span class="warn">+${uniq.length-2} cessões</span>`);
+  if(uniq.length) parts.push(`<span class="warn">⚠ ${uniq.length} arquivo${uniq.length===1?'':'s'} disputado${uniq.length===1?'':'s'}</span>`);
   el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+  const tip=[
+    `${tasks.length} tarefa${tasks.length===1?'':'s'} neste projeto · ${running} rodando agora · ${queued} na fila · ${waiting} esperando uma resposta ou revisão sua`,
+    (totUsd||totTok)?`Custo somado de todas as tarefas: ${fmtUsd(totUsd)} (${fmtTok(totTok)} tokens de IA)`:'',
+    claims.length?`${claims.length} arquivo${claims.length===1?'':'s'} reservado${claims.length===1?'':'s'} por agentes agora (evita dois agentes editarem o mesmo arquivo ao mesmo tempo)`:'',
+    ...uniq.slice(0,5).map(c=>`${c.agent} cedeu ${(c.path||'').split('/').pop()} para ${c.yieldedTo} — esperou o outro terminar em vez de sobrescrever`),
+  ].filter(Boolean).join('\n');
+  el.title=tip;
 }
 
 $id("connectBtn").onclick = ()=>{
@@ -300,6 +316,7 @@ $id("repoInput").addEventListener("keydown", e=>{ if(e.key==="Enter") $id("conne
 $id("viewSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   const v=b.dataset.v;
   $id("viewSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  lsSet('mainView', v); // reabre na mesma visão (Fluxo/Kanban/Grafo/Atividade/Time) no próximo boot
   $id("chint").textContent = v==="flow"?"quem fez o quê · commits por tarefa":v==="kanban"?"arraste entre colunas · play no card":v==="graph"?"branches · agentes nas pontas":v==="team"?"backlog compartilhado do time · assumir & iniciar":"eventos ao vivo de todos os agentes";
   if(v==="flow") loadAllCommits();
   if(v==="graph"){ refresh(); return; }   // busca o grafo (git log) só ao abrir a aba
@@ -307,4 +324,10 @@ $id("viewSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   lastSig = snapSig();   // marca o estado já renderizado (evita render duplicado no próximo tick)
 });
 
+// boot: volta pra visão principal que você usou por último (Grafo some em pasta sem git — gitUiSync cuida)
+function restoreMainView(){
+  const v=lsGet('mainView'); if(!v || v==='flow' || curView()===v) return;
+  const b=document.querySelector('#viewSeg button[data-v="'+v+'"]');
+  if(b && b.style.display!=='none') b.click();
+}
 let ntDel=[], ntReq=[], ntRefs=[], ntFixReq=[], ntDzRefs=[], ntFixRefs=[], ntInvRefs=[];

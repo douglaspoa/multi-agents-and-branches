@@ -321,3 +321,6 @@ html:not(.os-mac) .app.railcol .top{padding-left:16px}
 html:not(.os-mac) .app.railcol .tabbar{padding-left:16px}
 html:not(.os-mac) #ntOverlay .mhead{padding-left:20px}
 html:not(.os-mac) .fwtabs.legacy{padding-left:14px}
+
+/* barra de status "Agora": o detalhe (tarefas, custo em tokens, arquivos reservados) mora no tooltip */
+#busSummary{cursor:help;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

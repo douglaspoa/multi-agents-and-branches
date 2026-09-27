@@ -22,7 +22,7 @@ function skAddPanelHtml(){
       ${found}
       <div style="display:flex;gap:8px;margin-top:12px;align-items:center">${skGitFound&&skGitFound.length?`<button class="btn primary" id="skGitImport">importar selecionadas</button>`:`<button class="btn primary" id="skGitDetect">detectar skills</button>`}<button class="btn" id="skAddCancel">cancelar</button></div>`;
   } else if(skAddMode==='criar'){
-    b=`<label>Nome</label><input class="in mono" id="skNewName" placeholder="ex.: revisar-pr-logcomex" style="font-size:12px">
+    b=`<label>Nome</label><input class="in mono" id="skNewName" placeholder="ex.: revisar-pr-do-time" style="font-size:12px">
       <label>Quando usar <span class="dim" style="font-weight:400">(o gatilho — a IA lê isso pra saber quando disparar)</span></label>
       <textarea class="in" id="skNewDesc" rows="2" placeholder="Use SEMPRE que for revisar um PR nos repos X… dispara mesmo sem pedir"></textarea>
       <label>Instruções</label><textarea class="in" id="skNewBody" rows="5" placeholder="o passo a passo / regras da skill (markdown)"></textarea>
@@ -32,8 +32,10 @@ function skAddPanelHtml(){
       <textarea class="in mono" id="skImpMd" rows="8" style="font-size:11.5px" placeholder="---\nname: minha-skill\ndescription: quando usar…\n---\n\n# Instruções\n…"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skDoImport">importar</button><button class="btn" id="skAddCancel">cancelar</button></div>`;
   } else {
-    b=`<div class="dim" style="line-height:1.6;padding:2px 0 6px">Pra criar com IA, abra uma <b>Nova demanda</b> pedindo a skill-creator (ex.: "crie uma skill que padroniza como abro PR"), ou use o <span class="mono">skill-creator</span> no Claude Code. Depois ela aparece aqui na biblioteca.</div>
-      <div style="margin-top:4px"><button class="btn" id="skAddCancel">fechar</button></div>`;
+    b=`<label>O que a skill deve fazer? <span class="dim" style="font-weight:400">(a IA monta a skill conversando com você)</span></label>
+      <textarea class="in" id="skAiIdea" rows="2" placeholder="ex.: padronizar como eu abro PR — título, descrição e checklist"></textarea>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skAiGo">${ic('spark')}montar com IA</button><button class="btn" id="skAddCancel">cancelar</button></div>
+      <div class="dim" style="font-size:11px;margin-top:8px;line-height:1.5">Abre o <b>Montar conversando</b> com o pedido pronto. Quando a tarefa terminar, a skill aparece aqui na biblioteca.</div>`;
   }
   return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia','✦ Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
 }
@@ -71,7 +73,24 @@ function skRender(){
   { const b=body.querySelector('#skGitImport'); if(b) b.onclick=skGitImport; }
   { const b=body.querySelector('#skDoCreate'); if(b) b.onclick=skDoCreate; }
   { const b=body.querySelector('#skDoImport'); if(b) b.onclick=skDoImport; }
+  { const b=body.querySelector('#skAiGo'); if(b) b.onclick=skAiCreate; }
 }
+// ✦ Com IA: abre o "Montar conversando" com o pedido da skill já escrito na caixa (openPlanner é async —
+// carrega o rascunho —, então espera a caixa aparecer e só preenche se ela estiver vazia)
+function skAiCreate(){
+  const idea=(($id('skAiIdea')||{}).value||'').trim();
+  const text='Crie uma skill do Claude Code (SKILL.md em ~/.claude/skills/, use o skill-creator) que '+(idea||'…');
+  skAddOpen=false;
+  if(!window.openTab) return;
+  window.openTab('planner');
+  let n=0; const fill=()=>{ const i=$id('plInput'), o=$id('plannerOverlay');
+    if(i && o && o.style.display!=='none' && n>3){ if(!i.value.trim()){ i.value=text; i.dispatchEvent(new Event('input')); } else toast('Já tinha um rascunho na conversa — o pedido da skill não foi colado por cima.','warn'); i.focus(); return; }
+    if(++n<20) setTimeout(fill, 150); };
+  setTimeout(fill, 150);
+}
+// "Criar projeto novo" (tela vazia, onboarding): abre a aba Projetos já com o formulário de projeto novo aberto
+function openNewProject(){ projNewOpen=true; projNewMsg=''; if(window.openTab) window.openTab('projetos'); else openProjetos(); setTimeout(()=>{ const i=$id('pnName'); if(i) i.focus(); }, 400); }
+window.openNewProject=openNewProject;
 async function skSetAll(on){
   (skList||[]).forEach(s=>s.active=on);
   const active=on?(skList||[]).map(x=>({name:x.name,description:x.description||''})):[];
@@ -86,7 +105,7 @@ async function skToggle(name, on){
 }
 function skGitVals(){ return { url:($id('skGitUrl')||{}).value||'', branch:($id('skGitBranch')||{}).value||'', subpath:($id('skGitSub')||{}).value||'' }; }
 async function skGitDetect(){
-  const {url,branch,subpath}=skGitVals(); if(!url.trim()){ alert('Cole a URL do repositório.'); return; }
+  const {url,branch,subpath}=skGitVals(); if(!url.trim()){ toast('Cole a URL do repositório.','warn'); ($id('skGitUrl')||{focus(){}}).focus(); return; }
   const b=$id('skGitDetect'); if(b){ b.disabled=true; b.textContent='clonando…'; }
   try{ const r=await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks:null }); skGitFound=r.found||[]; skRender(); }
   catch(e){ alert('Falhou: '+(e&&e.message||e)); if(b){ b.disabled=false; b.textContent='detectar skills'; } }
@@ -94,20 +113,20 @@ async function skGitDetect(){
 async function skGitImport(){
   const {url,branch,subpath}=skGitVals();
   const picks=[...document.querySelectorAll('[data-gk]:checked')].map(c=>c.dataset.gk);
-  if(!picks.length){ alert('Marque ao menos uma skill.'); return; }
+  if(!picks.length){ toast('Marque ao menos uma skill.','warn'); return; }
   const b=$id('skGitImport'); if(b){ b.disabled=true; b.textContent='importando…'; }
   try{ await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks }); skAddOpen=false; skGitFound=null; await openSkills(); }
   catch(e){ alert('Falhou importar: '+(e&&e.message||e)); if(b){ b.disabled=false; b.textContent='importar selecionadas'; } }
 }
 async function skDoCreate(){
   const name=($id('skNewName')||{}).value||'', desc=($id('skNewDesc')||{}).value||'', bodyv=($id('skNewBody')||{}).value||'';
-  if(!name.trim()||!desc.trim()){ alert('Preencha nome e "quando usar".'); return; }
-  try{ await invoke('create_skill',{ name:name.trim(), description:desc.trim(), body:bodyv }); skAddOpen=false; await openSkills(); }
+  if(!name.trim()||!desc.trim()){ toast('Preencha nome e "quando usar".','warn'); return; }
+  try{ await invoke('create_skill',{ name:name.trim(), description:desc.trim(), body:bodyv }); skAddOpen=false; await openSkills(); toast('Skill criada na biblioteca','ok'); }
   catch(e){ alert('Falhou criar: '+(e&&e.message||e)); }
 }
 async function skDoImport(){
   const md=($id('skImpMd')||{}).value||'';
-  if(!md.trim()){ alert('Cole o conteúdo do SKILL.md.'); return; }
+  if(!md.trim()){ toast('Cole o conteúdo do SKILL.md.','warn'); return; }
   try{ await invoke('import_skill_md',{ content:md }); skAddOpen=false; await openSkills(); }
   catch(e){ alert('Falhou importar: '+(e&&e.message||e)); }
 }
@@ -189,7 +208,7 @@ function projNewWire(ov){
       selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
       await refresh(); if(window.loadProjects) await window.loadProjects();
       await openProjetos();
-      if(window.toast) window.toast('projeto criado em '+path);
+      toast('Projeto criado em '+path,'ok');
     }catch(e){ projNewBusy=false; projNewMsg='Falhou: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); }
   });
 }

@@ -9,7 +9,7 @@ function openCfg(){
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}" style="width:110px"></div>
     <label class="cfgck" style="display:flex;gap:9px;align-items:center;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgHardCap"${lsGet('costHardCap')==='1'?' checked':''}><span>Teto rígido <span class="dim">— ao cruzar o limite, PAUSA a tarefa automaticamente (não só avisa)</span></span></label>
     <label style="margin-top:16px">URL base das issues <span class="dim" style="text-transform:none;letter-spacing:0">(o código FND-853 vira link: base/FND-853)</span></label>
-    <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/logcomex/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
+    <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/sua-empresa/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
     <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
     <input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}" style="width:110px;margin-top:6px">
     <label style="margin-top:16px">Retomar após limite de uso da IA <span class="dim" style="text-transform:none;letter-spacing:0">(quando bate o limite da conta, a tarefa espera e retoma sozinha a cada X min — 0 desliga)</span></label>
@@ -23,12 +23,12 @@ function openCfg(){
     <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
     <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app checa o canal do time no boot e a cada 6h — ou agora, aqui</span></div>
     <div id="updHost" style="margin-top:8px"></div>
-    <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· <span class="mono">.cardume/</span> deste projeto — aprendizados ficam, o resto pode ir</span></div>
+    <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta de trabalho do Starfork deste projeto <span class="mono" style="font-size:10.5px">(.cardume/)</span> — aprendizados ficam, o resto pode ir</span></div>
     <div id="wsHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn sm" id="cfgEnv">${ic('pulse')}verificar ambiente</button>
-      <button class="btn sm" id="cfgBackend">backend do time…</button>
+      ${(canSeeDevTools()||lsGet('sb:url'))?'<button class="btn sm" id="cfgBackend" title="avançado: aponta o app pra outro servidor (dev/admin)">servidor da conta…</button>':''}
       <button class="btn sm" id="cfgTour">rever o tour</button>
     </div>
     <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
@@ -37,9 +37,9 @@ function openCfg(){
   $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0))); { const hc=$id('cfgHardCap'); lsSet('costHardCap', hc&&hc.checked?'1':'0'); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
     { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
     { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
-    lastSig=''; cfgHide(); };
+    lastSig=''; cfgHide(); toast('Configurações salvas','ok'); };
   $id('cfgEnv').onclick=()=>{ cfgHide(); if(window.openTab) openTab('env'); else openEnv(); };
-  $id('cfgBackend').onclick=()=>{ cfgHide(); cloudCfgOpen=true; if(window.openTab) openTab('conta'); else openCloud(); };
+  bindClick('cfgBackend', ()=>{ cfgHide(); cloudCfgOpen=true; if(window.openTab) openTab('conta'); else openCloud(); });
   $id('cfgTour').onclick=()=>{ cfgHide(); openOnboarding(); };
   // Route AI vive no bloco 1 (onde secretsCache/secretSet moram); monta via window
   if(window.routeAiMount) window.routeAiMount();
@@ -60,7 +60,7 @@ function fmtBytes(n){ n=Number(n)||0; if(n<1024) return n+' B'; if(n<1048576) re
 async function wsMount(){
   const h=$id('wsHost'); if(!h) return;
   if(!state.repo){ h.innerHTML='<div class="dim" style="font-size:12px">abra um projeto pra ver o espaço usado.</div>'; return; }
-  h.innerHTML='<div class="dim" style="font-size:12px">medindo o .cardume… (worktrees grandes levam alguns segundos)</div>';
+  h.innerHTML='<div class="dim" style="font-size:12px">medindo a pasta de trabalho do Starfork… (cópias grandes do código levam alguns segundos)</div>';
   try{ wsUsage=await invoke('workspace_usage'); }catch(e){ wsUsage=null; wsMsg='Falhou medir: '+(e&&e.message||e); }
   wsRender();
 }
@@ -77,7 +77,7 @@ function wsRender(){
       ${row('Entregáveis', ar.bytes, `${ar.count} tarefa${ar.count===1?'':'s'} · ${fmtBytes(ar.staleBytes)} em ${ar.staleCount} finalizada${ar.staleCount===1?'':'s'} (mergeadas/canceladas)`)}
       ${row('Worktrees', wt.bytes, `${wt.count} pasta${wt.count===1?'':'s'} · ${fmtBytes(wt.staleBytes)} em ${wt.staleCount} de tarefa finalizada ou órfã — só lixo`)}
       ${row('Temporários', u.temp, 'logs · cache de explicações (why) · scripts descartáveis (tmp)')}
-      ${u.attachments?row('Anexos do chat', u.attachments, '.cardume/attachments — referências que você importou; ficam'):''}
+      ${u.attachments?row('Anexos do chat', u.attachments, 'prints e documentos que você anexou nas conversas — ficam'):''}
       <div style="display:flex;align-items:center;gap:10px;padding:2px 12px 0"><span class="dim" style="font-size:11.5px">total ${fmtBytes(u.total)} · liberável agora: <b style="color:var(--text)">${fmtBytes(trash)}</b> sem perder nada${ar.staleBytes?' · +'+fmtBytes(ar.staleBytes)+' se limpar os entregáveis finalizados':''}</span></div>
       ${stale.length?`<div class="dim mono" style="font-size:10.5px;padding:0 12px;line-height:1.6">${stale.map(i=>esc((i.title||i.id||'').slice(0,48))+' · '+esc(i.status)+' · '+fmtBytes(i.bytes)).join('<br>')}${wt.staleCount>stale.length?'<br>… e mais '+(wt.staleCount-stale.length):''}</div>`:''}
       ${wsMsg?`<div style="font-size:12px;color:${/^✓/.test(wsMsg)?'var(--accent)':'var(--warn)'};padding:0 12px">${esc(wsMsg)}</div>`:''}
@@ -90,7 +90,7 @@ function wsRender(){
   bindClick('wsCleanTrash', ()=>wsClean({ worktrees:true, temp:true, artifacts:false },
     `Liberar ${fmtBytes(trash)}?\n\nRemove ${wt.staleCount} worktree${wt.staleCount===1?'':'s'} de tarefas mergeadas/canceladas/abortadas (ou órfãs) e os temporários (logs parados, cache, tmp).\n\nAprendizados, planos, banco e entregáveis NÃO são tocados. Tarefas em andamento, em review ou com erro ficam intactas.`));
   bindClick('wsCleanArts', ()=>wsClean({ worktrees:false, temp:false, artifacts:true },
-    `Apagar os entregáveis de ${ar.staleCount} tarefa${ar.staleCount===1?'':'s'} finalizada${ar.staleCount===1?'':'s'} (${fmtBytes(ar.staleBytes)})?\n\nSão os prints de prova, testes e documentos gerados em .cardume/artifacts — a tela de Entregas deixa de mostrá-los. O código mergeado e os aprendizados ficam.`));
+    `Apagar os entregáveis de ${ar.staleCount} tarefa${ar.staleCount===1?'':'s'} finalizada${ar.staleCount===1?'':'s'} (${fmtBytes(ar.staleBytes)})?\n\nSão os prints de prova, testes e documentos gerados na pasta de trabalho do Starfork — a tela de Entregas deixa de mostrá-los. O código mergeado e os aprendizados ficam.`));
 }
 async function wsClean(what, question){
   if(!await askYes(question)) return;
@@ -106,9 +106,9 @@ const VIEW_META={
   projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
   orq:{title:'Orquestrador',icon:'<circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="1.8"/><circle cx="12" cy="12" r="1.8"/><path d="M6 7.2l4.2-2.4M6 8.8l4.2 2.4"/>'},
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
-  planner:{title:'Montar conversando',icon:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>'},
+  planner:{title:'Montar conversando',icon:'<path d="M12.8 8.4c0 2.4-2.2 4.3-4.9 4.3-.6 0-1.2-.1-1.8-.3L3.2 13.4l.8-2.2A4.1 4.1 0 0 1 3 8.4" stroke-linejoin="round"/><path d="M10.4 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" stroke-linejoin="round"/>'},
   form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
-  prefs:{title:'Preferências',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
+  prefs:{title:'Preferências do projeto',icon:'<path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.3" fill="currentColor"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor"/><circle cx="5" cy="11.5" r="1.3" fill="currentColor"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
   cttask:{title:'Entrega do time',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.2 8.2l1.6 1.6 2.4-2.8"/>'},
   skills:{title:'Skills',icon:'<rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1"/>'},
@@ -117,8 +117,8 @@ const VIEW_META={
   cfg:{title:'Configurações',icon:'<circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8"/>'},
   daily:{title:'Daily',icon:'<rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5"/>'},
   chat:{title:'Chat do projeto',icon:'<path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/>'},
-  conta:{title:'Conta',icon:'<path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/>'},
-  agents:{title:'Agentes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
+  conta:{title:'Conta e time',icon:'<path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/>'},
+  agents:{title:'Agentes & Equipes',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/>'},
   epic:{title:'Épico',icon:'<path d="M8 2.6l5.2 5.4L8 13.4 2.8 8z" stroke-linejoin="round"/><path d="M5.6 8l1.7 1.7 3.1-3.4"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
@@ -156,7 +156,7 @@ function viewOpen(kind, tab){
 }
 // cada aba tem um id único: 'flow', o próprio kind (views únicas), 'task:<id>' (uma por tarefa)
 // ou '<kind>:<n>' (views de instância múltipla)
-let TABS=[{id:'flow',kind:'flow',title:'Tarefas',pin:true}];
+let TABS=[{id:'flow',kind:'flow',title:'Central',pin:true}];
 let activeTab='flow';
 function tabById(id){ return TABS.find(t=>t.id===id); }
 // fecha uma tela: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
@@ -184,6 +184,10 @@ function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); a
 // ou opts.reuse (função que escolhe uma aba já aberta do mesmo kind).
 function openTab(kind, opts){
   opts=opts||{};
+  // criar demanda/plano exige um projeto aberto: sem projeto, leva pra Projetos em vez de abrir um formulário sem destino
+  if(['nova','form','planner','orq'].includes(kind) && typeof state!=='undefined' && !state.repo){
+    toast('Abra ou crie um projeto primeiro — a demanda roda dentro dele.','warn');
+    openTab('projetos'); return; }
   // criar demanda/plano exige branch: pasta sem git passa pelo "criar repositório" antes
   if(['nova','form','planner','orq'].includes(kind) && typeof repoHasGit==='function' && !repoHasGit()){ gitGate().then(ok=>{ if(ok) openTab(kind, opts); }); return; }
   if(kind==='flow'){ activateTab('flow'); return; }
@@ -241,7 +245,7 @@ function renderTabs(){
     const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
     return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">✕</span>`}</span>`;
-  }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda (sempre abre uma aba nova)">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
+  }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
   bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.xk) return; activateTab(el.dataset.tk); });
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); closeTab(el.dataset.xk); });
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
@@ -254,40 +258,59 @@ $id('bdClose').onclick=()=>bdClosePlan();
 $id('bdCancel').onclick=()=>bdClosePlan();
 $id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdClosePlan(); });
 $id('cfgClose').onclick=cfgHide;
-$id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') $id('cfgOverlay').style.display='none'; });
+$id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') cfgHide(); });
 
 // ---------- onboarding de 60 segundos (primeiro boot) ----------
+// Ordem do 1º uso: login (gate obrigatório do 44-onboarding) → ESTE tour → abrir/criar projeto.
+// Antes o tour abria em 900ms e o gate de login (3,2s) cobria ele no meio. Agora ele só começa com
+// sessão aberta e a tela de entrada fechada: obMaybeStart() é chamado pelo auHide/loginGateSync.
 const OB_STEPS=[
-  { t:'Bem-vindo ao Starfork', b:'Aqui, cada <b>tarefa</b> vira uma <b>branch isolada</b> do seu repo, tocada por agentes de IA — com plano, código, testes e <b>provas reais</b> (prints e saídas de verdade, nunca mock). Você acompanha tudo ao vivo e conversa com o agente como num chat.' },
-  { t:'Seu time vê o essencial', b:'Entrando no time (botão no topo), suas tarefas viram <b>cartões compartilhados automaticamente</b>: título, status, custo e branch sincronizam — o <b>stream do agente fica só na sua máquina</b> e os artefatos/provas só sobem quando você publicar. O backlog do time fica na aba <b>Time</b>.' },
-  { t:'Antes de começar', b:'O app depende de 4 coisas: <b>node</b>, <b>git</b>, <b>claude</b> (logado) e <b>gh</b> (autenticado). Vamos verificar agora — o que faltar vem com o comando de correção pronto pra copiar.' },
+  { t:'Bem-vindo ao Starfork', b:'Aqui, cada <b>tarefa</b> roda numa <b>cópia isolada do seu código</b> (uma branch só dela), tocada por agentes de IA — com plano, código, testes e <b>provas reais</b> (prints e saídas de verdade, nunca mock). Você acompanha tudo ao vivo e conversa com o agente como num chat.' },
+  { t:'Seu time vê o essencial', b:'Com a conta num time (<b>Conta e time</b>, no rodapé da barra lateral), suas tarefas viram <b>cartões compartilhados automaticamente</b>: título, status, custo e branch sincronizam — a <b>conversa do agente fica só na sua máquina</b> e as provas só sobem quando você publicar. O backlog do time fica na visão <b>Time</b> da Central.' },
+  { t:'Antes de começar', b:'O app depende de 4 coisas: <b>node</b>, <b>git</b>, <b>claude</b> (logado) e <b>gh</b> (autenticado). Vamos verificar agora — o que faltar vem com o comando de correção pronto pra copiar.', env:true },
+  { t:'Escolha o projeto', b:'Os agentes trabalham dentro de um projeto (uma pasta com git). Abra uma pasta que você já tem ou crie um projeto novo do zero — dá pra ter vários e trocar a qualquer hora em <b>Projetos</b>.', proj:true },
 ];
 let obStep=0;
 function openOnboarding(){ obStep=0; renderOb(); $id('obOverlay').style.display='flex'; }
+// só no 1º uso, com sessão aberta e sem a tela de entrada/planos por cima
+function obMaybeStart(){
+  if(lsGet('onboarded')) return;
+  const ob=$id('obOverlay'); if(ob && ob.style.display==='flex') return;
+  if(typeof SB==='undefined' || !SB.sess()) return;
+  if(typeof auOpen==='function' && auOpen()) return;
+  openOnboarding();
+}
+window.obMaybeStart=obMaybeStart;
 function renderOb(){
   const s=OB_STEPS[obStep];
   const last=obStep===OB_STEPS.length-1;
+  const hasRepo=!!(state&&state.repo);
   $id('obBody').innerHTML=`
     <div style="display:flex;gap:6px;margin-bottom:18px">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}</div>
     <h2 style="font-size:20px;margin:0 0 10px">${s.t}</h2>
     <p style="color:var(--text-2);font-size:14px;line-height:1.65;margin:0">${s.b}</p>
-    ${last?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:12px">verificando o ambiente…</div></div>':''}
+    ${s.env?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:12px">verificando o ambiente…</div></div>':''}
+    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${hasRepo?`<span class="dim" style="font-size:12.5px;align-self:center">✓ projeto aberto: <b style="color:var(--text)">${esc(String(state.repo).split('/').filter(Boolean).slice(-1)[0]||'')}</b></span>`:''}<button class="btn${hasRepo?'':' primary'}" id="obOpenDir">${ic('folder')}Abrir pasta</button><button class="btn" id="obNewProj">+ Criar projeto novo</button></div>`:''}
     <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
       <button class="btn sm" id="obSkip">pular</button><span style="flex:1"></span>
-      <button class="btn primary" id="obNext">${last?'Entrar no Starfork':'continuar'}</button>
+      <button class="btn primary" id="obNext">${last?(hasRepo?'Começar':'depois'):'continuar'}</button>
     </div>`;
   $id('obSkip').onclick=()=>{ finishOb(); };
   $id('obNext').onclick=()=>{ if(!last){ obStep++; renderOb(); } else { finishOb(); coachStart(); } };
-  // check de ambiente INTEGRADO no onboarding (redesign p16): fix inline, sem bloquear a entrada
-  if(last) runEnvCheck().then(()=>{
+  bindClick('obOpenDir', async()=>{ if(window.pickFolder) await window.pickFolder(); if(state&&state.repo){ finishOb(); coachStart(); } else renderOb(); });
+  bindClick('obNewProj', ()=>{ finishOb(); if(window.openNewProject) window.openNewProject(); });
+  // check de ambiente INTEGRADO no onboarding (redesign p16): fix inline com botão de copiar, sem bloquear a entrada
+  if(s.env) runEnvCheck().then(()=>{
     const el=$id('obEnv'); if(!el) return;
     el.innerHTML=(envChecks||[]).map(c=>`<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--border);font-size:12.5px">
-      <span style="color:${c.ok?'var(--good)':'var(--warn)'}">${c.ok?'✓':'⚠'}</span><div style="flex:1"><b>${esc(c.name)}</b> <span class="dim">${esc((c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?`<div class="mono" style="font-size:10.5px;margin-top:3px;color:var(--warn)">FIX: ${esc(c.fix)}</div>`:''}</div></div>`).join('')
-      +((envChecks||[]).some(c=>!c.ok)?'<div class="dim" style="font-size:11.5px;margin-top:8px">Dá pra entrar mesmo assim — o que faltar fica com o aviso no coração 🩺 do topo.</div>':'');
+      <span style="color:${c.ok?'var(--good)':'var(--warn)'}">${c.ok?'✓':'⚠'}</span><div style="flex:1;min-width:0"><b>${esc(c.name)}</b> <span class="dim">${esc((c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:11px">rode no Terminal:</span><code class="mono" style="font-size:10.5px;color:var(--warn);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(c.fix)}">${esc(c.fix)}</code><button class="btn sm" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}</div></div>`).join('')
+      +((envChecks||[]).some(c=>!c.ok)?'<div class="dim" style="font-size:11.5px;margin-top:8px">Dá pra seguir mesmo assim — o que faltar fica com um aviso em <b>Mais › Ambiente</b>, no rodapé da barra lateral.</div>':'');
+    el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>{ try{ navigator.clipboard.writeText(b.dataset.envfix); b.textContent='copiado ✓'; }catch(_){ } }; });
   }).catch(()=>{});
 }
 function finishOb(){ lsSet('onboarded','1'); $id('obOverlay').style.display='none'; }
-if(!lsGet('onboarded')) setTimeout(openOnboarding, 900);
+// rede de segurança: sessão que já existia no boot (o gate nem abre) → começa depois do gate checar (3,2s)
+setTimeout(obMaybeStart, 3800);
 
 // ---------- coach marks de primeira vez (redesign p17) ----------
 const COACH=[
@@ -322,12 +345,17 @@ function coachStart(){
 }
 
 // ---------- atalhos ----------
+// ⌘J/⌘, abrem como ABA (igual à barra lateral — antes viravam modal flutuante), ⌘W fecha a aba ativa,
+// ⌘1…⌘8 vão pra aba N e ⌘9 pra última (como no navegador). A lista fica no tooltip do "+" da barra de abas.
+const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba';
 document.addEventListener('keydown', e=>{
-  if(!(e.metaKey||e.ctrlKey)) return;
-  const inField=/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'');
-  if(e.key==='j'){ e.preventDefault(); openPc(); }
-  else if(e.key===','){ e.preventDefault(); openCfg(); }
-  else if(e.key==='b'){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
+  if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
+  const k=(e.key||'').toLowerCase();
+  if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('chat'); }
+  else if(k===',' && !e.shiftKey){ e.preventDefault(); openTab('cfg'); }
+  else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
+  else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById(activeTab); if(t && !t.pin) closeTab(t.id); }
+  else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t) activateTab(t.id); }
 });
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
@@ -356,7 +384,8 @@ async function openRef(taskId, name){
 function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId); }
 function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
 function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2); }
-function fmtTok(n){ n=n||0; return n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : String(n); }
+function fmtTok(n){ n=Number(n)||0; const u=(d,s)=>{ const v=n/d; return (v>=100?v.toFixed(0):v>=10?v.toFixed(1).replace(/\.0$/,''):v.toFixed(1).replace(/\.0$/,''))+s; };
+  return n>=1e9?u(1e9,'B'):n>=1e6?u(1e6,'M'):n>=1000?u(1e3,'k'):String(n); }
 
 const fileCache={}; // taskId -> {status, at, list}
 async function loadTaskFiles(taskId, status){

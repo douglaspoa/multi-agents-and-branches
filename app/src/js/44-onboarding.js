@@ -16,11 +16,13 @@ function auShow(step, opts){
   Object.assign(au, opts||{}); if(step) au.step=step; au.msg=''; au.busy=false;
   const o=auEl(); if(!o) return; o.style.display='flex'; auRender(); try{ cosmosStart(o); }catch(_){ }
 }
-function auHide(){ const o=auEl(); if(o) o.style.display='none'; au.waiting=false; if(_auTimer){ clearInterval(_auTimer); _auTimer=null; } }
+function auHide(){ const o=auEl(); if(o) o.style.display='none'; au.waiting=false; if(_auTimer){ clearInterval(_auTimer); _auTimer=null; }
+  // 1º uso: o tour de boas-vindas só começa DEPOIS da entrada (antes ele abria por baixo do gate de login)
+  setTimeout(()=>{ if(window.obMaybeStart) window.obMaybeStart(); }, 350); }
 function auOpen(){ return !!auEl() && auEl().style.display!=='none'; }
 // ---- copy da coluna esquerda por tela (do design) ----
 const AU_LEFT={
-  signup:{ h:'Sua equipe de agentes, rodando na sua máquina', s:'Cada tarefa ganha branch e worktree isoladas. Nada some, nada colide.', b:[['g','Escreva a demanda com requisitos claros'],['c','Agentes em paralelo, um por branch'],['p','Aprove a entrega e o PR abre sozinho']], f:'pareado com este Mac' },
+  signup:{ h:'Sua equipe de agentes, rodando na sua máquina', s:'Cada tarefa roda numa cópia isolada do seu código. Nada some, nada colide.', b:[['g','Escreva a demanda com requisitos claros'],['c','Vários agentes em paralelo, cada um na sua cópia'],['p','Aprove a entrega e o PR abre sozinho']], f:'pareado com este Mac' },
   login:{ h:'Bem-vindo de volta ao cockpit', s:'Suas demandas continuam aqui — entre pra ver o que rodou enquanto você esteve fora.', b:[['g','Tarefas em órbita ficam visíveis pro time'],['c','Custo por tarefa, sempre à vista'],['p','PRs prontos pra merge num clique']], f:'sessão local · nada sai da sua máquina' },
   confirm:{ h:'Um passo e a sua estrela acende', s:'O código confirma que o e-mail é seu e liga sua conta à organização certa.', b:[['g','O link do e-mail também funciona'],['c','Você entra como membro; o lead aprova'],['p','Dá pra trocar de time depois']], f:'código expira em 10 minutos' },
   newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres'],['c','Vale em todos os seus Macs'],['p','Sessões antigas continuam válidas']], f:'a senha nunca sai da sua máquina em texto' },
@@ -127,7 +129,7 @@ function auRender(){
       <div class="au-row"><button class="au-btn primary" id="auGo"${dis}>${au.busy?'salvando…':'Salvar senha'}</button>${au.backTo?'':'<button class="au-link" id="auToLogin">voltar pra entrar</button>'}</div></div>`;
     const go=async()=>{ const a=$id('auPass').value, b=$id('auPass2').value; if(a.length<8){ au.msg='a senha precisa de 8+ caracteres.'; auRender(); return; } if(a!==b){ au.msg='as senhas não conferem.'; auRender(); return; }
       au.busy=true; auRender();
-      try{ await sbFetch('/auth/v1/user',{ method:'PUT', body: JSON.stringify({ password:a }) }); au.msg=''; if(au.backTo){ const b2=au.backTo; au.backTo=null; auHide(); if(typeof b2==='function') b2(); else alert('✓ senha alterada'); return; } await auAfterSession(); }
+      try{ await sbFetch('/auth/v1/user',{ method:'PUT', body: JSON.stringify({ password:a }) }); au.msg=''; if(au.backTo){ const b2=au.backTo; au.backTo=null; auHide(); if(typeof b2==='function') b2(); else toast('Senha alterada','ok'); return; } await auAfterSession(); }
       catch(e){ au.msg='Falhou: '+auErr(e); au.busy=false; auRender(); } };
     bindClick('auGo', go); bindClick('auToLogin', ()=>auShow('login'));
   }

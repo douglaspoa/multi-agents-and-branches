@@ -56,7 +56,7 @@ $id('payLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync();
 async function payCheckout(plan,btn){
   const iv=payYear?'year':'month';
   const p=billingPlans.find(x=>x.plan===plan&&x.interval===iv); if(!p) return;
-  if(plan==='team'&&!cloudTeamId()){ alert('Pra assinar o plano Equipes, entre/crie um time primeiro (botão da nuvem).'); return; }
+  if(plan==='team'&&!cloudTeamId()){ toast('Pra assinar o plano Equipes, entre ou crie um time primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
   if(btn){ btn.disabled=true; btn.textContent='abrindo…'; }
   try{
     const r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST',
@@ -153,9 +153,9 @@ function secretsRenderCloud(){
     await secretDel(b.dataset.sdel); renderCloud();
   });
   { const b=el.querySelector('#sbSecretAdd'); if(b) b.onclick=async()=>{
-      const n=await askText('Nome da variável','LGCX_API_KEY'); if(n===null) return;
+      const n=await askText('Nome da variável','MINHA_API_KEY'); if(n===null) return;
       const name=String(n).trim().toUpperCase().replace(/[^A-Z0-9_]/g,'_');
-      if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ alert('Nome inválido — use MAIÚSCULAS_E_UNDERSCORE.'); return; }
+      if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ toast('Nome inválido — use MAIÚSCULAS_E_UNDERSCORE.','warn'); return; }
       const v=await askText('Valor de '+name,'cole a chave'); if(v===null||!v.trim()) return;
       await secretSet(name, v.trim()); renderCloud();
     }; }
@@ -176,7 +176,7 @@ function routeAiCfgHtml(){
   const label=raGet('ALT_AI_LABEL')||'', models=raGet('ALT_AI_MODELS')||'';
   return `<div class="seclbl2" style="margin-top:22px">Gateway próprio <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· qualquer endpoint OpenAI-compatível da sua empresa (vLLM, LiteLLM, Azure, Ollama…)</span></div>
     <div class="dim" style="margin-top:5px;line-height:1.5">Aparece como motor em "Com qual IA?" na hora de abrir a demanda e serve de <b>Route AI</b>: o agente continua sendo o <b>Claude Code</b> (todo o MCP do Starfork) — só o modelo por trás muda pro seu gateway. Config <b>individual</b> da sua conta.</div>
-    ${!logged?`<div class="rawarn" style="margin-top:10px">Entre na conta (botão da nuvem, no topo) pra configurar — a chave fica no seu cofre pessoal.</div>`:`
+    ${!logged?`<div class="rawarn" style="margin-top:10px">Entre na conta (Conta e time, no rodapé da barra lateral) pra configurar — a chave fica no seu cofre pessoal.</div>`:`
     <div id="raPanel" style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r-sm);padding:13px 14px;background:var(--surface-2)">
       <label style="margin:0">Chave do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(fica só no seu cofre)</span></label>
       ${hasKey
