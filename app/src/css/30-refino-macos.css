@@ -190,6 +190,7 @@
 #flow.gridview .secgrp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
 #flow.gridview .secgrp .sech{grid-column:1/-1}
 #flow.gridview .fcard{margin:0}
+.fcard.has-ep{border-left:3px solid var(--epc)}
 #flow.gridview .daygrp{display:contents}
 .flowhead h1{font-size:21px;margin:0 0 2px;letter-spacing:-.01em}
 .flowhead .sub{font-family:var(--mono,ui-monospace,monospace);font-size:11.5px;color:var(--text-2)}

@@ -132,8 +132,6 @@ body{
 .fwexp{margin-left:auto;width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-3);color:var(--muted);border-radius:7px;cursor:pointer;font-size:13px}
 .fwexp:hover{color:var(--text);border-color:var(--border-strong)}
 /* chat expandido: BEM grande, mas arquivos e código continuam visíveis/clicáveis */
-.fwcols.chatwide{grid-template-columns:210px minmax(250px,.55fr) minmax(520px,1.1fr)}
-@media(max-width:1100px){ .fwcols.chatwide{grid-template-columns:180px minmax(220px,.5fr) minmax(440px,1fr)} }
 .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border);position:relative}
 .cbub.asknow{border-color:color-mix(in srgb,var(--warn) 50%,var(--border));background:color-mix(in srgb,var(--warn) 8%,var(--surface))}
 .asknote{font-size:10.5px;color:var(--warn);margin-top:7px;font-family:var(--mono)}

@@ -96,7 +96,8 @@ const IC = {
 async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
-const STATUS_COLOR = { draft:"var(--muted)", "plan-review":"var(--warn)", running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)", paused:"var(--info)", aborted:"var(--muted)", cancelled:"var(--crit)" };
+// cores de status vêm do dicionário único (STATUS_META em 00-util.js)
+const STATUS_COLOR = Object.fromEntries(Object.entries(STATUS_META).map(([k,v])=>[k,v.c]));
 const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
 const GCOLOR = { collision:"var(--crit)", error:"var(--crit)", claim:"var(--info)", done:"var(--good)", edit:"var(--good)", write:"var(--good)" };
 

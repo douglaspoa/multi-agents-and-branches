@@ -218,7 +218,7 @@ async function cloudIntentTick(){
         }catch(e){ return finish(false,'criar PR falhou: '+e); }
       }
       if(kind==='merge'){
-        try{ const msg=await invoke('merge_pr',{taskId:lid, method:'merge'}); return finish(true,msg); }
+        try{ const msg=await invoke('merge_pr',{taskId:lid, method:'squash'}); return finish(true,msg); }
         catch(e){ return finish(false,String(e)); }
       }
       if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return finish(false,String(e)); } }
