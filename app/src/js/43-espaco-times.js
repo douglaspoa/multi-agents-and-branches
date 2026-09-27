@@ -11,7 +11,14 @@ function tsBuckets(){ return {
   done:    t=>t.flag==='closed'||['merged','done'].includes(t.status),
 }; }
 function tsOnline(uid){ const p=teamProfiles[uid]; return p&&p.last_seen_at && (Date.now()-new Date(p.last_seen_at).getTime()<180000); }
-function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>t.assignee===uid && TS_DOING.includes(t.status)); }
+// cartão da NUVEM no formato que a regra única da Central entende (flowBucket/taskSt do 22):
+// id = local_id (assim a pergunta aberta de uma tarefa SUA conta como "aguardando"), pr_url → prUrl
+// (cancelada = encerrada: na Central ela sai da fila junto com o flag closed; na nuvem às vezes só o status sobe)
+function tsNorm(t){ return Object.assign({}, t, { id:t.local_id||t.id, prUrl:t.pr_url||null, createdAt:t.created_at?+new Date(t.created_at):0, flag:(t.status==='cancelled'?'closed':t.flag) }); }
+function tsBucket(t){ return flowBucket(tsNorm(t)); }
+function tsSt(t){ return taskSt(tsNorm(t)); }
+// "em andamento" = MESMA etapa da Central (antes: running/thinking/queued/plan-review, e plano pra aprovar contava como rodando)
+function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>t.assignee===uid && tsBucket(t)==='andamento'); }
 function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
 function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'all'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
 // fase (1–5) e % de um cartão da NUVEM — mesma régua da Central
@@ -45,8 +52,9 @@ function tsCardHtml(t, me, isAdmin){
   const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
   const prov=list&&list.length?`<span class="tspv"><b>✓</b>${list.filter(x=>x.status==='done').length}/${list.length} provados</span>`:'';
   const who=t.assignee||t.created_by;
-  const running=TS_DOING.includes(t.status);
-  const isErr=t.status==='error'||t.status==='conflict';
+  const bk=tsBucket(t), st=tsSt(t);
+  const running=bk==='andamento' && t.status!=='backlog';
+  const isErr=bk==='aguardando';
   const obj=((t.spec||{}).objective||'').replace(/\s+/g,' ').slice(0,160);
   const reqs=((t.spec||{}).requirements||[]).filter(Boolean);
   const teamTag=(typeof tsOrgScope==='function'&&tsOrgScope())?`<span class="tsteamtag" title="time">${esc(tsTeamName(t.team_id)||'?')}</span>`:'';
@@ -58,7 +66,7 @@ function tsCardHtml(t, me, isAdmin){
     ${ctPhaseBar(t)}
     <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">◆ ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="mono" data-lk="${escA(t.pr_url)}" style="color:var(--accent);background:none;border:0;cursor:pointer;font-size:10px;padding:0">PR ↗</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" style="color:var(--text-2);background:none;border:0;cursor:pointer;font-size:10px;padding:0">${esc(c[1])} ↗</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
-      ${isErr?`<span class="tstag" style="color:var(--crit);border:1px solid currentColor">${esc(stLabel(t.status))}</span>`:running?`<span class="tstag run">${esc(stLabel(t.status))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
+      ${isErr?`<span class="tstag" style="color:${stColor(st)};border:1px solid currentColor">${esc(stLabel(st))}</span>`:running?`<span class="tstag run">${esc(stLabel(st))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
       ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" style="padding:3px 9px;font-size:10.5px">assumir ▸</button>`:`<button class="btn sm" disabled title="abra ${escA(proj.repo_remote||'o projeto certo')}" style="padding:3px 9px;font-size:10.5px">outro repo</button>`):''}
       ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:10.5px">✕</button>`:''}
     </div></div>`;
@@ -124,7 +132,10 @@ function renderTeamBoard(){
   if(tmView==='overview'){
     const inP=tsPeriodTasks();
     const done=inP.filter(B.done).length+inP.filter(B.review).length;
-    const doing=all.filter(t=>TS_DOING.includes(t.status));
+    // MESMA contagem da Central (flowCounts sobre os cartões normalizados)
+    const fcT=flowCounts(all.map(tsNorm).filter(t=>t.flag!=='blocked'));
+    const doing=all.filter(t=>tsBucket(t)==='andamento');
+    const nDevs=members.filter(u=>tsRunningOf(u).length).length;
     const asking=all.filter(t=>t.assignee===me&&false); // ✋ real vem do desktop de cada dev
     const custo=inP.reduce((s,t)=>s+(+t.cost_usd||0),0);
     const activeEps=teamEpics.filter(e=>e.status!=='done'&&e.status!=='archived'); // B2: concluído não é "ativo"
@@ -137,14 +148,14 @@ function renderTeamBoard(){
     main=`<h1>Visão geral</h1><div class="tssub">time ${teamName} · ${perSel}</div>
     <div class="tskpis">
       <div class="tskpi"><div class="v">${done}</div><div class="l">entregas</div><div class="d">${inP.length} tarefas no período</div></div>
-      <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">rodando agora</div><div class="d">${members.filter(u=>tsRunningOf(u).length).length} devs ativos</div></div>
+      <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">em andamento</div><div class="d">${fcT.aguardando?`${fcT.aguardando} aguardando alguém · `:''}${nPl(nDevs,'dev ativo','devs ativos')}</div></div>
       <div class="tskpi"><div class="v" style="color:#c678dd">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(x=>B.done(x)||B.review(x)).length;return esc(e.name.split(' ')[0])+' '+(ts.length?Math.round(dn/ts.length*100):0)+'%';}).join(' · ')||'—'}</div></div>
       <div class="tskpi"><div class="v" style="color:${prs.length?'var(--warn)':'var(--text)'}">${prs.length}</div><div class="l">PRs pra revisar</div><div class="d">${prs.length?'mais antigo '+agoTx(prs[prs.length-1].updated_at):'em dia ✓'}</div></div>
       <div class="tskpi"><div class="v">${fmtUsd(custo)}</div><div class="l">custo no período</div><div class="d">${inP.length?fmtUsd(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
     </div>
     <div class="tscols"><div>
       <div class="tspanel"><div class="tsph">Agora no time <span style="flex:1"></span><span style="color:var(--accent);font-size:10px">● ao vivo</span></div>
-        ${doing.length?doing.slice(0,6).map(t=>{ const who=t.assignee||t.created_by; return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(stLabel(t.status))}</span></div>`; }).join(''):'<div class="dim" style="font-size:12px">nenhum agente rodando agora</div>'}
+        ${doing.length?doing.slice(0,6).map(t=>{ const who=t.assignee||t.created_by; return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(stLabel(tsSt(t)))}</span></div>`; }).join(''):'<div class="dim" style="font-size:12px">nenhuma tarefa em andamento agora</div>'}
       </div>
       <div class="tspanel"><div class="tsph">PRs esperando gente</div>
         ${prs.length?prs.slice(0,5).map(t=>`<div class="tslive"><span class="mono" style="color:var(--accent);font-size:11px">${esc((t.pr_url.match(/\/pull\/(\d+)/)||[])[1]?'#'+(t.pr_url.match(/\/pull\/(\d+)/)||[])[1]:'PR')}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer">${esc(t.title)}</span>${tsAv(t.assignee||t.created_by,false)}${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}" style="padding:3px 8px;font-size:10.5px">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}" style="padding:3px 8px;font-size:10.5px">revisar com agente</button></div>`).join(''):'<div class="dim" style="font-size:12px">nenhum PR aberto — em dia ✓</div>'}
@@ -152,16 +163,19 @@ function renderTeamBoard(){
     </div><div>
       <div class="tspanel"><div class="tsph">Entregas por dia</div><div class="tsspark">${perDay.map((n,i)=>`<div class="c"><div class="b" style="height:${Math.round(n/mx*100)}%"></div><span class="dl">${DL[days[i].getDay()]}</span></div>`).join('')}</div></div>
       <div class="tspanel"><div class="tsph">Entregas por membro</div>
-        ${(()=>{ const per={}; for(const t of inP){ const w=t.assignee||t.created_by; const b=per[w]||(per[w]={d:0,r:0,u:0}); if(B.done(t)||B.review(t)) b.d++; else if(TS_DOING.includes(t.status)) b.r++; b.u+=(+t.cost_usd||0); }
+        ${(()=>{ const per={}; for(const t of inP){ const w=t.assignee||t.created_by; const b=per[w]||(per[w]={d:0,r:0,u:0}); if(B.done(t)||B.review(t)) b.d++; else if(tsBucket(t)==='andamento') b.r++; b.u+=(+t.cost_usd||0); }
           const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
-          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who">${tsAv(u,tsOnline(u))}${esc(tmName(u)).slice(0,14)}</span><span class="what">${v.d} entrega${v.d===1?'':'s'} · ${v.r} rodando</span><span class="dim" style="font-size:11px">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:12px">sem atividade no período</div>'; })()}
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who">${tsAv(u,tsOnline(u))}${esc(tmName(u)).slice(0,14)}</span><span class="what">${nPl(v.d,'entrega')} · ${v.r} em andamento</span><span class="dim" style="font-size:11px">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:12px">sem atividade no período</div>'; })()}
       </div>
     </div></div>`;
   } else if(tmView==='board'){
     // M1: mesmos nomes da Central/Kanban (STATUS_META) · M7: conta TUDO e só depois corta a lista em 8 (+N)
-    const cols=[['Na fila',stColor('backlog'),vis.filter(B.backlog),0],['Em andamento',stColor('running'),vis.filter(B.doing),0],['Prontas pra revisar',stColor('review'),vis.filter(B.review),0],['Concluídas',stColor('done'),vis.filter(B.done),8]];
+    // R3: colunas derivadas da MESMA etapa da Central (flowBucket) — erro/conflito/plano pra aprovar não se escondem
+    // mais em "Em andamento"; PR aberto fica junto de "prontas" (a aba PRs detalha)
+    const inB=(...ks)=>t=>ks.includes(tsBucket(t));
+    const cols=[['Na fila',stColor('backlog'),vis.filter(inB('fila','rascunho')),0],['Aguardando alguém',stColor('asking'),vis.filter(inB('aguardando')),0],['Em andamento',stColor('running'),vis.filter(inB('andamento')),0],['Prontas / PR aberto',stColor('review'),vis.filter(inB('prontas','praberto')),0],['Concluídas',stColor('done'),vis.filter(inB('hoje','anteriores')),8]];
     main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>
-    <div class="tsboard">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:11px;padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:11px;padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
+    <div class="tsboard ts5">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:11px;padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:11px;padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
   } else if(tmView==='prs'){
     main=`<h1>PRs pra revisar</h1><div class="tssub">todo cartão do time com PR aberto</div>`+
       (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
@@ -176,7 +190,7 @@ function renderTeamBoard(){
         const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
         const teamTags=orgScope?teamsOf(uid).map(tid=>`<span class="tsteamtag">${esc(tsTeamName(tid))}</span>`).join(''):'';
         return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:13.5px">${esc(tmName(uid))}</b><div class="dim" style="font-size:10.5px">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
-          <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>rodando</span></div><div><b>${fmtUsd(u)}</b><span>custo</span></div></div>
+          <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtUsd(u)}</b><span>custo</span></div></div>
           <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div>
           ${(()=>{ // tarefas da pessoa com badge de TIPO + progresso (redesign p7)
             const act=mine.filter(t=>!['merged','done'].includes(t.status)&&t.flag!=='closed').slice(0,3);

@@ -1,0 +1,123 @@
+[
+  {
+    "id": "R3-B1",
+    "area": "PR · comentários (backend)",
+    "titulo": "Seu próprio comentário não nasce mais \"respondido\" (CR1, regressão)",
+    "antes": "Uma thread era marcada respondida quando o ÚLTIMO comentário era da conta do gh; na conversa, qualquer comentário seu já nascia respondido. Como o agente faz push com a SUA conta, ao revisar o PR dele os seus comentários iam direto pra \"tratados\", saíam do \"corrigir N em aberto\" e do rework_from_pr.",
+    "depois": "Thread: respondida se o último comentário começa com ✔ OU é uma RESPOSTA da sua conta (thread com mais de 1 comentário). Conversa: respondido só se um comentário POSTERIOR começa com ✔ e é da sua conta/de bot (o agente responde com gh pr comment \"✔ …\") ou cita o comentário (link, id ou @autor). O próprio \"✔ …\" não é pendência. Autoria sozinha nunca conta.",
+    "motivo": "Com a mesma conta pro agente e pro revisor, \"é meu\" não significa \"já tratei\". O fechamento real é o ✔ do agente.",
+    "arquivos": ["app/src-tauri/src/lib.rs (pr_thread_answered, pr_mark_conv_answered, pr_status, testes pr_status_tests)"],
+    "como_ver": "cargo test --release pr_status_tests (own_lone_comment_is_not_answered, conversation_answered_only_by_later_check_comment). No app: num PR do agente, comente você mesmo (thread ou conversa) — o card fica em aberto até o agente responder com ✔.",
+    "estado_mock": "workspace-pr (t-pr, PR #42): os comentários do mock vêm com answered pronto do shim; a regra nova é coberta pelos testes do Rust."
+  },
+  {
+    "id": "R3-B2",
+    "area": "PR · comentários",
+    "titulo": "\"Corrigir N em aberto\" manda ao agente exatamente os N da tela (CR2)",
+    "antes": "A contagem da UI tirava os comentários ignorados (prIgn:* no localStorage), mas rework_from_pr mandava os ignorados também, e anexava TODO review CHANGES_REQUESTED — inclusive os antigos de quem já aprovou depois.",
+    "depois": "rework_from_pr recebe o novo argumento opcional ignored (chaves do prIgn) e pula esses comentários/reviews. Reviews: só o mais recente do autor (novo campo superseded quando o mesmo autor aprovou/pediu de novo/foi dispensado depois; COMMENTED não derruba) e só enquanto a decisão do PR continua CHANGES_REQUESTED. A UI usa a mesma regra pra contar.",
+    "motivo": "Botão e envio discordavam: o agente \"corrigia\" coisa que você tinha ignorado ou que já estava aprovada.",
+    "arquivos": ["app/src-tauri/src/lib.rs (rework_from_pr, pr_open_review_asks, pr_parse_reviews, pr_cmt_key, PrReview.superseded)", "app/src/js/21-pull-request.js (reworkFromPr, prRevOpen, prOpenCount)"],
+    "como_ver": "cargo test --release pr_status_tests::reviews_superseded_and_open_asks. No app: ignore um comentário e clique \"corrigir N em aberto\" — a instrução enviada ao agente não o inclui.",
+    "estado_mock": "workspace-pr: 3 em aberto = review de ana-souza (pediu mudanças) + CodeRabbit + carla-dias; os 4 resolvidos ficam atrás do \"mostrar resolvidos (4)\"."
+  },
+  {
+    "id": "R3-B3",
+    "area": "PR · aba PR",
+    "titulo": "Contagem bate com os cards; \"mostrar resolvidos\" ao lado da contagem; cards não vazam (V9)",
+    "antes": "\"COMENTÁRIOS · 2 em aberto de 4\" quebrava linha; apareciam 5 cards porque resumos de review (APPROVED/COMMENTED) não entravam na conta, não tinham \"ignorar\" e ficavam pra sempre; o alternador ficava no fim da lista e alternava entre \"mostrar resolvidos\" e \"esconder os tratados\"; bloco de código do CodeRabbit estourava a borda e o \"ignorar\" caía sozinho numa linha.",
+    "depois": "Reviews aprovou/comentou/antigo vão pro grupo dos resolvidos; \"pediu mudanças\" vigente conta como em aberto e ganhou \"ignorar\". Cabeçalho \"COMENTÁRIOS · N em aberto\" + \"mostrar resolvidos (n)\" / \"ocultar resolvidos\" na MESMA linha (um termo só). Em aberto primeiro, resolvidos depois. Merge PR foi pra uma linha própria acima. Card: pre com quebra/rolagem, overflow-wrap; ações com o principal à esquerda e \"ignorar · GitHub ↗\" juntos à direita; \"marcar resolvido\" virou \"resolver\" (com tooltip). O painel lateral usa o mesmo cabeçalho.",
+    "motivo": "O número tem que ser o que a pessoa vê; um termo só pra mesma coisa.",
+    "arquivos": ["app/src/js/21-pull-request.js (prCommentsHtml, prBlock)", "app/src/js/20-workspace-tarefa.js (fwRenderPrPage)", "app/src/css/50-workspace-planner.css (.prcmtsh, .prcmt-sec, .prcmt-b pre, .prpgmerge)"],
+    "como_ver": "Abrir a tarefa com PR → aba PR.",
+    "estado_mock": "workspace-pr (1440x900 e 1180x760)."
+  },
+  {
+    "id": "R3-B4",
+    "area": "Workspace · cabeçalho",
+    "titulo": "Cabeçalho fixo: título · modos · UMA ação principal por fase · menu ⋯ (V5)",
+    "antes": "Na Conversa \"commit & push\" e \"fechar\" quebravam pra 2ª linha; na Revisão o título era cortado e 7 controles quebravam; no modo PR sumia o atalho \"PR #42\" e o \"commit & push\" ficava ao lado de \"aprovar e abrir PR\" (vibe coder não sabia qual apertar).",
+    "depois": "Uma linha sempre: título com … (tooltip com o nome inteiro), modos, [🌐 preview só ícone quando existe] + UMA ação principal: pergunta → ✋ responder; rodando → parar; erro/abortada → rodar de novo; conflito → resolver conflito; pausada → continuar; pronta → aprovar e abrir PR (ou concluir em investigação/design); PR aberto → ver PR #n (na aba PR: PR #n ↗ abre o GitHub). Menu ⋯: resumo e progresso (%), pedir ajuste, abrir PR / ver/copiar PR, abrir preview, preview no celular / fechar acesso, commit & push, modelo, custo (informativo), mostrar arquivos (quando recolhidos), fechar a aba. Fechar virou ícone ✕ (tooltip \"fechar a aba (esc)\"). A ação principal se atualiza sozinha quando a fase muda.",
+    "motivo": "Layout que não pula conforme o título/modo e uma decisão óbvia por fase.",
+    "arquivos": ["app/src/index.html (#fwMore, #fwClose)", "app/src/js/20-workspace-tarefa.js (fwPrimaryAction, fwActionHtml, fwMoreItems, fwOpenMore, fwMoreDo, fwPushTask, fwTunnelOff, fwAskFix, fwLiveUpdate)", "app/src/css/50-workspace-planner.css (.fwhead, .fwmenu)"],
+    "como_ver": "Abrir tarefas em fases diferentes e alternar os modos; clicar no ⋯.",
+    "estado_mock": "workspace-conversa/codigo (t-running: parar), workspace-asking (t-asking: responder), workspace-revisao (t-review: aprovar e abrir PR, ⋯ aberto), workspace-pr (t-pr: PR #42 ↗)."
+  },
+  {
+    "id": "R3-B5",
+    "area": "Workspace · árvore de arquivos",
+    "titulo": "Sem selo \"CONCLUÍDO\" em cada arquivo — ponto discreto e só \"editando\" com texto (V6)",
+    "antes": "Com a tarefa rodando, todo arquivo ganhava um selo \"CONCLUÍDO\" que comia a largura (\"checkou…\", \"si…\") e era enganoso com o agente ainda trabalhando.",
+    "depois": "Arquivo tocado há menos de 3 min: selo \"editando\" (com tooltip \"o agente editou há Xs\"). Os demais: ponto de 6px com tooltip (\"alterado nesta tarefa — última edição do agente há X min\"). Nome do arquivo com tooltip do caminho inteiro; coluna do nome com minmax(0,1fr).",
+    "motivo": "Legibilidade do nome e não afirmar \"concluído\" no meio da execução.",
+    "arquivos": ["app/src/js/20-workspace-tarefa.js (renderWorkspace, fwTreeHtml, fwDelivHtml)", "app/src/css/50-workspace-planner.css (.fwdot, .fwtree .fwfile)"],
+    "como_ver": "Abrir uma tarefa rodando no modo Código.",
+    "estado_mock": "workspace-codigo (t-running)."
+  },
+  {
+    "id": "R3-B6",
+    "area": "Workspace · árvore recolhida",
+    "titulo": "\"»\" sem rótulo virou a pílula \"» Arquivos (N) · M artefatos\" (V17)",
+    "antes": "Recolher a árvore deixava um \"»\" de ~18px sem nome; artefatos e custo sumiam junto.",
+    "depois": "Pílula clara \"» Arquivos (7) · 1 artefato\" (mesmo ⌘B, tooltip \"mostrar arquivos, artefatos e custo\"); o custo está no ⋯ e o ⋯ também tem \"mostrar arquivos e artefatos\" quando recolhida.",
+    "motivo": "Quem recolhe não pode perder o caminho de volta nem os artefatos.",
+    "arquivos": ["app/src/js/20-workspace-tarefa.js (fwTreeOpenBtn)", "app/src/css/50-workspace-planner.css (.fwtreepill)"],
+    "como_ver": "Modo Código → « (ou ⌘B).",
+    "estado_mock": "workspace-codigo com lsSet('fwTreeOff','1')."
+  },
+  {
+    "id": "R3-B7",
+    "area": "Workspace · Revisão",
+    "titulo": "Explicação inteira com \"ver mais\"; dica de linhas junto do código; nomes de artefato legíveis (V18)",
+    "antes": "Resumo cortado em 90 caracteres no meio da palavra (\"Movi a soma d\"); a dica \"Selecione linhas no código…\" aparecia no painel de arquivos, longe do código (e nem vale no diff); artefatos cortados (\"print-tot…\").",
+    "depois": "Resumo + como testar em 2 linhas com \"ver mais/ver menos\". Sob o diff: \"quer perguntar sobre um trecho? abra em Código e selecione as linhas\" (link troca pro modo Código). A dica saiu do painel de arquivos (fica só a do agrupamento por entregável). Artefatos na coluna: nome ganha a largura (data/tamanho escondidos ali), tooltip com o nome inteiro; coluna de arquivos 238→256px.",
+    "motivo": "Ler a explicação sem abrir outra tela e ver onde a ação acontece.",
+    "arquivos": ["app/src/js/20-workspace-tarefa.js (fwRenderDiff, renderWorkspace)", "app/src/css/50-workspace-planner.css (.fwrevtx, .fwrevask, .fwarts .artitem, .fwcols)"],
+    "como_ver": "Tarefa pronta pra revisar → Revisão.",
+    "estado_mock": "workspace-revisao (t-review)."
+  },
+  {
+    "id": "R3-B8",
+    "area": "Atalhos",
+    "titulo": "⌘W pergunta antes de descartar edição não salva (CR5)",
+    "antes": "⌘W fechava a aba da tarefa sem passar por fwLeaveEditor — a edição não salva sumia.",
+    "depois": "Handler async: se a aba ativa é de tarefa, `if(!await fwLeaveEditor()) return;` antes de fechar.",
+    "motivo": "Mesmo comportamento do botão fechar e do Esc.",
+    "arquivos": ["app/src/js/15-config-abas-onboarding.js (atalho ⌘W)"],
+    "como_ver": "Modo Código → editar → digitar → ⌘W: aparece a confirmação.",
+    "estado_mock": "workspace-codigo + editar."
+  },
+  {
+    "id": "R3-B9",
+    "area": "Pergunta do agente",
+    "titulo": "Abrir uma pergunta sempre cai na Conversa (CR7)",
+    "antes": "openAsk reabria a aba no último modo lembrado; em Entrega/PR a pergunta e o #fwInput ficavam escondidos.",
+    "depois": "openAsk põe o modo da aba em 'conversa' antes de abrir; e uma aba nova de tarefa com pergunta pendente abre na Conversa.",
+    "motivo": "A resposta só existe na Conversa.",
+    "arquivos": ["app/src/js/24-perguntas-agente.js (openAsk)", "app/src/js/20-workspace-tarefa.js (fwOpenInner)"],
+    "como_ver": "Deixar a aba de uma tarefa na Entrega, esperar uma pergunta e clicar nela.",
+    "estado_mock": "workspace-asking (t-asking)."
+  },
+  {
+    "id": "R3-B10",
+    "area": "Celular",
+    "titulo": "Snapshot do PR pro celular marca o mesmo \"resolvido\" do desktop (CR10)",
+    "antes": "O snapshot mandava só answered — o celular mostrava em aberto comentários resolvidos no GitHub, desatualizados ou ignorados.",
+    "depois": "answered no snapshot = prCmtDone (respondido OU resolvido OU desatualizado OU ignorado aqui), + campos resolved/outdated. O app iOS (que só lê answered) já esconde os mesmos, sem mudar o Swift.",
+    "motivo": "Mesma fila nos dois lugares.",
+    "arquivos": ["app/src/js/42-nuvem-sync-mobile.js (cloudPrStatTick)"],
+    "como_ver": "Resolver uma thread no GitHub → em até 2 min o contador do celular cai.",
+    "estado_mock": "n/a (nuvem)."
+  },
+  {
+    "id": "R3-B11",
+    "area": "Linguagem",
+    "titulo": "\"aguardando você\" (termo único) e papel da etapa em PT no topo do chat",
+    "antes": "Barra do chat dizia \"esperando você\" (o resto do app usa \"aguardando\") e, rodando, mostrava o papel em inglês em caixa alta (\"BUILD\").",
+    "depois": "\"aguardando você\" / \"aguardando sua resposta\"; papel como ação em PT via mapa ROLE_DOING: planejando, construindo, revisando (+ testando/desenhando/investigando), também no \"O que estou fazendo agora\".",
+    "motivo": "Consistência de termo e nada de id técnico em inglês pro vibe coder.",
+    "arquivos": ["app/src/js/20-workspace-tarefa.js (ROLE_DOING, fwCtxBarHtml, fwNowHtml, fwChatSubText)"],
+    "como_ver": "Tarefa rodando → barra do chat mostra \"CONSTRUINDO\"; tarefa com pergunta → \"AGUARDANDO VOCÊ\".",
+    "estado_mock": "workspace-conversa (t-running), workspace-asking (t-asking)."
+  }
+]

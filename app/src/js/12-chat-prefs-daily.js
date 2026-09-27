@@ -155,8 +155,8 @@ function renderDaily(){
   if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div class="as-card" style="margin-top:22px;text-align:center;padding:40px"><div style="font:600 16px var(--display)">Dia sem atividade</div><div class="dim" style="margin-top:6px">nenhuma tarefa teve eventos nesse dia neste projeto.</div></div></div>`; wireDaily(); return; }
   const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
   const totCommits=Object.values(dailyCommits).reduce((s,c)=>s+c.length,0);
-  const merged=dailyData.filter(t=>t.status==='merged').length, rev=dailyData.filter(t=>t.status==='review').length;
-  const kpis=[[dailyData.length,'tarefas tocadas',''],[totCommits,'commits',''],[rev+merged,'prontas/merged','var(--accent)'],[fmtUsd(totUsd),'custo do dia','']];
+  const merged=dailyData.filter(t=>['merged','done'].includes(t.status)).length, rev=dailyData.filter(t=>['review','delivered'].includes(t.status)).length;
+  const kpis=[[dailyData.length,dailyData.length===1?'tarefa tocada':'tarefas tocadas',''],[totCommits,totCommits===1?'commit':'commits',''],[rev+merged,'prontas ou mergeadas','var(--accent)'],[fmtUsd(totUsd),'custo do dia','']];
   const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 28px/1 var(--display);color:${k[2]||'var(--text)'}">${k[0]}</div><div style="margin-top:8px;font:500 10px var(--code);letter-spacing:.12em;color:var(--text-3)">${esc(k[1])}</div></div>`).join('')}</div>`;
   const cards=dailyData.map(t=>{
     const cs=dailyCommits[t.id]||[];
@@ -165,11 +165,11 @@ function renderDaily(){
     return `<div class="as-card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
         <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>
-        <div style="display:flex;align-items:center;gap:14px"><span style="display:flex;align-items:center;gap:7px;font:500 12px var(--display);color:${ctStColor(t.status)}"><span style="width:7px;height:7px;border-radius:50%;background:${ctStColor(t.status)}"></span>${esc(CT_ST_PT[t.status]||t.status)}</span><span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtUsd(t.usd):''}</span></div>
+        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtUsd(t.usd):''}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
         <div style="padding:14px 18px;border-right:1px solid rgba(255,255,255,.06)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>
-        <div style="padding:14px 18px"><div class="as-sect" style="margin:0 0 10px">TURNO</div>${log}</div>
+        <div style="padding:14px 18px"><div class="as-sect" style="margin:0 0 10px">O QUE O AGENTE FEZ NO DIA</div>${log}</div>
       </div></div>`;
   }).join('');
   body.innerHTML=`<div class="appscreen">${head}${kpiRow}<div id="dailyAIOut"></div><div style="display:flex;flex-direction:column;gap:12px">${cards}</div></div>`;
