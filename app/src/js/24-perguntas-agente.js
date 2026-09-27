@@ -1,6 +1,5 @@
 // Starfork — 24-perguntas-agente
-// ---------- modal de resposta ao agente (legível, input estável fora do poll) ----------
-let askId=null;
+// ---------- pergunta do agente: responde-se inline na tela da tarefa (o modal antigo saiu) ----------
 // pergunta do agente SEM modal: abre a tela de execução — a pergunta está inline
 // na conversa, com os botões de opção e o input no mesmo lugar de sempre
 function openAsk(pendingId){
@@ -10,14 +9,6 @@ function openAsk(pendingId){
   openWorkspace(tid);
   setTimeout(()=>{ const i=$id('fwInput'); if(i) i.focus(); }, 350);
 }
-function closeAsk(){ $id('askOverlay').style.display='none'; askId=null; }
-function askDoSend(){ const v=$id('askTa').value.trim(); if(!v||askId==null) return; resolvePending(askId, v); closeAsk(); }
-$id('askClose').onclick=closeAsk;
-$id('askCancel').onclick=closeAsk;
-$id('askSend').onclick=askDoSend;
-$id('askTa').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) askDoSend(); });
-$id('askOverlay').addEventListener('click',e=>{ if(e.target.id==='askOverlay') closeAsk(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('askOverlay').style.display!=='none') closeAsk(); });
 async function mergeTask(taskId){
   try{ await invoke("merge_task",{taskId}); await refresh(); }
   catch(e){ alert("Merge falhou:\n"+e); }

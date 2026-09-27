@@ -128,14 +128,6 @@ body{
 .atit .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .atit .atk{font-size:9.5px;color:var(--muted);font-family:var(--mono)}
 .chatinput textarea{flex:1;resize:none;min-height:42px;line-height:1.45}
-/* modal de resposta ao agente */
-.askmodal{width:min(680px,100%)}
-.askq{font-size:14px;line-height:1.62;color:var(--text);white-space:pre-wrap;max-height:46vh;overflow:auto;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:13px 15px}
-.askoptlbl{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 7px}
-.askoptgrid{display:flex;flex-direction:column;gap:6px}
-.askoptbtn{text-align:left;border:1px solid var(--border);background:var(--surface-2);color:var(--text);border-radius:8px;padding:9px 12px;font:inherit;font-size:12.5px;line-height:1.5;cursor:pointer}
-.askoptbtn:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface-2))}
-.askta{min-height:88px;line-height:1.5}
 .clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .ntmode{display:flex;gap:6px;background:var(--surface-2);border:1px solid var(--border);padding:4px;border-radius:8px;margin-bottom:4px}
 .ntmodebtn{flex:1;border:1px solid transparent;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;padding:7px 10px;border-radius:6px;cursor:pointer}

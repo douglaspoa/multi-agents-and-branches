@@ -112,8 +112,6 @@ $id('ntOverlay').addEventListener('input', ntGate);
 $id("ntDraft").onclick = ()=>submitNewTask(false);
 document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMode(b.dataset.mode));
 $id("ntAI").onclick = openPlanner;
-$id("aiSend").onclick = sendAiMsg;
-$id("aiInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendAiMsg(); });
 $id("emAbrir").onclick = pickFolder;
 bindClick("emNovo", ()=>openNewProject());
 $id("ntImport").onclick = importTaskMd;

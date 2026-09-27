@@ -278,7 +278,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
     .some(id=>{ const el=$id(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo

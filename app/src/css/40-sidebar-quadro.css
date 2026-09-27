@@ -205,17 +205,6 @@
 .step.wait .srole,.step.wait .sname{color:var(--muted)}
 .sact{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
 /* assistente IA de spec */
-#aiAssist{border:1px solid var(--accent);border-radius:var(--r-sm);background:color-mix(in srgb,var(--accent) 6%,var(--surface));padding:11px;margin-bottom:16px}
-.aichat{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto;margin-bottom:9px}
-.aimsg{font-size:13px;line-height:1.5;padding:8px 11px;border-radius:10px;max-width:88%}
-.aimsg.user{align-self:flex-end;background:var(--accent);color:var(--on-accent)}
-.aimsg.assistant{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border)}
-.aimsg.assistant.think{color:var(--muted)}
-.aimsg p{margin:5px 0} .aimsg p:first-child{margin-top:0} .aimsg p:last-child{margin-bottom:0}
-.aimsg ul,.aimsg ol{margin:5px 0 5px 18px}
-.aispec{border:1px solid var(--accent);border-radius:var(--r-sm);padding:10px;background:var(--surface)}
-.airow{display:flex;gap:6px}
-.airow .aiinput{flex:1;min-width:0}
 .aihint{font-size:10.5px;margin-top:6px}
 /* kanban */
 #kanbanPane{padding:12px 12px 16px;height:100%}

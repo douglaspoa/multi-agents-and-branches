@@ -348,9 +348,6 @@ async function openNewTask(){
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   ntFillProjects();
   $id("ntOverlay").style.display = "flex";
-  // o assistente lateral MORREU (bugado demais) — quem completa a spec agora é
-  // o botão "✨ completar com IA", em cima do que você já digitou
-  { const a=$id('aiAssist'); if(a) a.style.display='none'; }
   // POLÍTICA do repo: provas/testes obrigatórios ficam LIGADOS e travados — a
   // entrega tem que sair completa, sem depender da disciplina de cada dev
   try{ ntPolicy={ ...ntPolicy, ...(await policyChain()) }; }catch(_){ }
@@ -526,60 +523,12 @@ window.ntShow=ntShow;
 window.TAB_STATE_form={
   get:()=>{ const fields={}; document.querySelectorAll('#ntOverlay input[id],#ntOverlay select[id],#ntOverlay textarea[id]').forEach(e=>{ fields[e.id]=(e.type==='checkbox'||e.type==='radio')?{c:e.checked}:{v:e.value}; });
     const ti=($id('ntTitle')||{}).value||($id('ntFixTitle')||{}).value||($id('ntDzTitle')||{}).value||($id('ntInvTitle')||{}).value||'';
-    return { _title:ti, fields, ntMode, ntModels, ntDocsPreset, ntLinkedTo, ntDel:ntDel.slice(), ntReq:ntReq.slice(), ntRefs:ntRefs.slice(), ntFixReq:ntFixReq.slice(), ntDzRefs:ntDzRefs.slice(), ntFixRefs:ntFixRefs.slice(), ntInvRefs:ntInvRefs.slice(), aiSid, ntEditingDraft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; },
+    return { _title:ti, fields, ntMode, ntModels, ntDocsPreset, ntLinkedTo, ntDel:ntDel.slice(), ntReq:ntReq.slice(), ntRefs:ntRefs.slice(), ntFixReq:ntFixReq.slice(), ntDzRefs:ntDzRefs.slice(), ntFixRefs:ntFixRefs.slice(), ntInvRefs:ntInvRefs.slice(), ntEditingDraft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; },
   set:(st)=>{ Object.entries(st.fields||{}).forEach(([id,f])=>{ const e=$id(id); if(!e) return; if('c' in f) e.checked=!!f.c; else e.value=f.v; });
-    ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; aiSid=st.aiSid||''; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
+    ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
     renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
 };
-function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; $id("aiChat").innerHTML=""; $id("aiAssist").style.display="none"; }
-// ---------- assistente IA de spec ----------
-let aiSid="", aiBusy=false;
-function aiAppend(role, text){
-  const c=$id('aiChat'); const div=document.createElement('div');
-  div.className='aimsg '+role; div.innerHTML = role==='assistant'?mdToHtml(text):esc(text);
-  c.appendChild(div); c.scrollTop=c.scrollHeight; return div;
-}
-function extractSpec(text){
-  const m=text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
-  let raw = m?m[1]:null;
-  if(!raw){ const j=text.match(/\{[\s\S]*"objective"[\s\S]*\}/); raw=j?j[0]:null; }
-  if(!raw) return null;
-  try{ const o=JSON.parse(raw); return (o && (o.title||o.objective))?o:null; }catch(e){ return null; }
-}
-async function sendAiMsg(){
-  if(aiBusy) return;
-  const inp=$id('aiInput'); const text=inp.value.trim(); if(!text) return;
-  aiAppend('user', text); inp.value=''; aiBusy=true;
-  const send=$id('aiSend'); send.disabled=true;
-  const thinking=aiAppend('assistant','…'); thinking.classList.add('think');
-  try{
-    const r=await invoke('ai_chat',{ prompt:text, sessionId:aiSid });
-    aiSid=r.sessionId||aiSid; thinking.remove();
-    const spec=extractSpec(r.text||'');
-    if(spec){
-      aiAppend('assistant','Montei a spec com base no que você me contou:');
-      const div=aiAppend('assistant','');
-      div.innerHTML=`<div class="aispec"><b>${esc(spec.title||'(sem título)')}</b><div class="dim" style="margin:3px 0 8px">${esc(spec.objective||'')}</div>${(spec.deliverables||[]).length?`<div class="dim" style="font-size:11px">Entregáveis: ${esc((spec.deliverables||[]).join(' · '))}</div>`:''}<button class="btn primary sm" id="aiFill" style="margin-top:9px">preencher formulário</button></div>`;
-      $id('aiFill').onclick=()=>fillFromSpec(spec);
-    } else {
-      aiAppend('assistant', r.text||'(sem resposta)');
-    }
-  }catch(e){ thinking.remove(); const m=String(e&&e.message||e); aiAppend('assistant', /PLANNER_STOPPED/.test(m)?'Parado.':'⚠ '+m); }
-  finally{ aiBusy=false; send.disabled=false; const i=$id('aiInput'); if(i) i.focus(); }
-}
-function fillFromSpec(spec){
-  $id('ntTitle').value=spec.title||'';
-  $id('ntObj').value=spec.objective||'';
-  // entregáveis eram redundantes com requisitos — tudo vira REQUISITO (cobrado com prova)
-  ntDel=[];
-  const reqSet=new Set([...(spec.requirements||[]), ...(spec.deliverables||[])].map(x=>String(x).trim()).filter(Boolean));
-  ntReq=[...reqSet];
-  renderNtList('ntRequirements',ntReq);
-  $id('ntOwns').value=(spec.owns||[]).join(', ');
-  $id('ntOff').value=(spec.off||[]).join(', ');
-  $id('aiAssist').style.display='none';
-  $id('ntTitle').focus();
-}
+function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); }
 // objetivo / detalhes / contexto / sintoma: colar (⌘V) um print ou arrastar um arquivo pro texto vira ANEXO da
 // demanda (mesma lista do botão "anexar") — igual ao composer dos chats; texto colado continua texto
 [['ntObj',()=>ntRefs,renderNtRefs],['ntFixObj',()=>ntFixRefs,renderFixRefs],['ntDzObj',()=>ntDzRefs,renderDzRefs],['ntInvObj',()=>ntInvRefs,renderInvRefs]].forEach(([id,arr,render])=>attWireRefField(id,arr,render));

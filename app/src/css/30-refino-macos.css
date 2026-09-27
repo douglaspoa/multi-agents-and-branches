@@ -203,8 +203,6 @@
 /* Nova demanda spec-first: chat à esquerda, spec à direita */
 #ntOverlay .modal{max-width:1120px;width:min(95vw,1120px)}
 #ntOverlay .mbody{display:flex;gap:22px;align-items:stretch}
-#ntOverlay #aiAssist{flex:0 0 330px;display:flex;flex-direction:column;border-right:1px solid var(--border);padding-right:18px;position:sticky;top:0;align-self:flex-start;max-height:62vh}
-#ntOverlay #aiChat{flex:1;overflow:auto;min-height:200px}
 #ntOverlay #ntRight{flex:1;min-width:0}
 /* Nova demanda é PÁGINA, não modal (pedido: parar de usar modais) */
 #ntOverlay{padding:0;background:var(--bg);align-items:stretch;justify-content:stretch}

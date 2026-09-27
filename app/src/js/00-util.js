@@ -21,7 +21,7 @@ function syncChromeH(){ const tb=$id('tabBar'); if(tb && tb.style.display!=='non
 // Esc: digitando num campo ou com um modal aberto por cima, o Esc é DELES — não fecha a aba de trás
 function escBusy(e){
   if(e && e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return true;
-  return ['artOverlay','lbOverlay','askOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','orgTplOverlay','repOverlay','txOverlay']
+  return ['artOverlay','lbOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','orgTplOverlay','repOverlay','txOverlay']
     .some(id=>{ const m=document.getElementById(id); return m && m.style.display && m.style.display!=='none'; });
 }
 // Confirmação SIM/NÃO de verdade. NÃO use window.confirm: o tauri-plugin-dialog troca ele por
