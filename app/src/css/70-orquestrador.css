@@ -5,8 +5,8 @@
 .orq-seg{display:flex;gap:2px;padding:3px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:var(--card-bg)}
 .orq-seg button{border:0;background:transparent;color:rgba(255,255,255,.62);font:500 13px var(--display);padding:7px 16px;border-radius:8px;cursor:pointer}
 .orq-seg button.on{background:var(--accent);color:var(--on-accent);font-weight:600}
-.orq-segd{font-size:12.5px;color:rgba(255,255,255,.42)}
-.orq-pill{display:inline-flex;align-items:center;gap:7px;font:400 11px var(--code);color:rgba(255,255,255,.42)}
+.orq-segd{font-size:12.5px;color:var(--text-3)}
+.orq-pill{display:inline-flex;align-items:center;gap:7px;font:400 11px var(--code);color:var(--text-3)}
 .orq-pill i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3)}
 .orq-pill.live{color:var(--warn)}.orq-pill.live i{background:var(--warn);box-shadow:0 0 8px var(--warn)}
 .orq-pill.ok{color:var(--accent)}.orq-pill.ok i{background:var(--accent)}
@@ -15,7 +15,7 @@
 .orq-briefin{width:100%;max-width:640px}
 .orq-ta{width:100%;min-height:150px;resize:vertical;margin-top:22px;padding:16px 18px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:var(--card-bg);color:var(--text);font:400 15px/1.55 var(--display);outline:none}
 .orq-ta:focus{border-color:rgba(63,214,138,.55);box-shadow:0 0 0 3px rgba(63,214,138,.12)}
-.orq-ta::placeholder{color:rgba(255,255,255,.3)}
+.orq-ta::placeholder{color:var(--text-3)}
 .orq-chips{display:flex;gap:8px;align-items:center;margin-top:12px}
 .orq-chip{border:1px solid rgba(255,255,255,.14);background:transparent;color:rgba(255,255,255,.75);font:500 12.5px var(--display);padding:8px 14px;border-radius:99px;cursor:pointer}
 .orq-chip:hover{border-color:rgba(255,255,255,.3)}
@@ -73,7 +73,7 @@
 .orq-badge{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font:700 9.5px var(--code);background:color-mix(in srgb,var(--c,#3fd68a) 22%,transparent);color:var(--c,#3fd68a);flex:none}
 .orq-nn{font-weight:600;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .orq-dot{width:7px;height:7px;border-radius:50%;flex:none}
-.orq-nm{display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.4)}
+.orq-nm{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3)}
 .orq-bar{height:2px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}
 .orq-bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
 .orq-term{border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#0b0d0c;padding:6px 8px;font-size:9.5px;color:rgba(255,255,255,.45);display:flex;flex-direction:column;gap:3px;min-height:34px;overflow:hidden}
@@ -105,7 +105,7 @@
 .orq-obj.ok .orq-chk{background:var(--accent);border-color:var(--accent)}
 .orq-objt{flex:1;font-size:13px;line-height:1.4}
 .orq-obj .orq-objin{border:0;background:transparent;padding:2px 0;flex:1}
-.orq-x{border:0;background:transparent;color:rgba(255,255,255,.35);cursor:pointer;font-size:14px}
+.orq-x{border:0;background:transparent;color:var(--text-3);cursor:pointer;font-size:14px}
 .orq-objadd{display:flex;gap:6px;margin-top:6px}
 .orq-auto{display:flex;gap:6px;margin-top:6px}
 .orq-auto button{flex:1;border:1px solid rgba(255,255,255,.12);background:transparent;color:rgba(255,255,255,.7);font:500 12.5px var(--display);padding:9px;border-radius:9px;cursor:pointer}

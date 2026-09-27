@@ -314,7 +314,7 @@ function renderFlowHead(){
     put(`<h1>Entregas concluídas</h1><div class="sub">${done.length} demanda${done.length===1?'':'s'}${prs?` · ${prs} PR${prs===1?'':'s'}`:''} · objetivos, provas e documentos de cada uma</div><span style="flex:1"></span>`);
     return;
   }
-  put(`<h1>Central de execuções</h1><div class="sub">${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
+  put(`<h1>Central</h1><div class="sub">execuções · ${andamento} em andamento${aguardando?` · <b>${aguardando} aguardando você</b>`:''}</div>
     <span style="flex:1"></span><span id="coordChip" class="mono" title="Coordenação (baseline): conflitos de merge · colisões do bus · reworks" style="font-size:11px;color:var(--muted);align-self:center"></span>`);
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra

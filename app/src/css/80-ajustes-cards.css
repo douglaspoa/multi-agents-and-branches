@@ -114,3 +114,8 @@
 #flow.gridview .secgrp.epqgrp { display: block; }
 .dcard.has-ep { border-left: 3px solid var(--epc); }
 .fchip .pfd { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+
+/* ===== escala única de título de tela (aba): 26px/600 na fonte de display =====
+   antes: .ndh1 32 · .sk-h1/.as-h1 28 · .en-h1/.tmain h1 26 · .flowhead h1 21 — mesmo papel, 5 tamanhos.
+   .au-h1 (login/onboarding) fica maior de propósito: é a tela-herói. Margens seguem por componente. */
+.ndh1,#ntOverlay .ndh1,.sk-h1,.as-h1,.en-h1,.tmain h1,.flowhead h1{font:600 26px/1.15 var(--display);letter-spacing:-.02em}

@@ -24,7 +24,7 @@
 /* Nova demanda (redesign) — tela de início */
 .ndwrap{min-height:100%;background:var(--bg);color:var(--text);font-family:var(--display);display:flex;justify-content:center;padding:44px 28px 60px}
 .ndinner{width:100%;max-width:1020px}
-.ndeyebrow{font:500 10.5px/1 var(--code);letter-spacing:.14em;color:rgba(255,255,255,.34);text-transform:uppercase}
+.ndeyebrow{font:500 10.5px/1 var(--code);letter-spacing:.14em;color:var(--text-3);text-transform:uppercase}
 .nd-projrow{display:flex;align-items:center;gap:12px;margin-bottom:2px}
 .nd-projsel{font:500 12px var(--code);color:var(--text);background:var(--card-bg);border:1px solid var(--accent);border-radius:7px;padding:5px 9px;cursor:pointer}
 .ndh1{margin:14px 0 6px;font:600 32px/1.15 var(--display);letter-spacing:-.02em}
@@ -36,7 +36,7 @@
 .ndtb{width:26px;height:26px;border-radius:7px;text-align:center;font:500 12px/26px var(--code);background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
 .ndtype.on .ndtb{background:var(--accent);color:var(--on-accent)}
 .ndtn{font:600 15px/1.2 var(--display);color:var(--text)}
-.ndtd{font:400 12px/1.45 var(--display);color:rgba(255,255,255,.44)}
+.ndtd{font:400 12px/1.45 var(--display);color:var(--text-3)}
 .ndstep2{display:flex;align-items:baseline;gap:10px;margin:34px 0 14px}
 .ndline{flex:1;height:1px;background:rgba(255,255,255,.07)}
 .ndmethods{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
@@ -48,11 +48,11 @@
 .ndmt2{font:600 18px/1.2 var(--display);color:rgba(234,242,238,.9)}
 .ndmbadge{font:500 10px var(--code);color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:4px}
 .ndmd{font:400 13px/1.5 var(--display);color:rgba(234,242,238,.6)}
-.ndmeta{margin-top:6px;font:500 11px var(--code);color:rgba(234,242,238,.36)}
+.ndmeta{margin-top:6px;font:500 11px var(--code);color:var(--text-3)}
 .ndfoot{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-top:26px;padding-top:18px;border-top:1px solid rgba(255,255,255,.07)}
-.ndfl{font:400 12px var(--display);color:rgba(255,255,255,.4)}
+.ndfl{font:400 12px var(--display);color:var(--text-3)}
 .ndfl a{color:var(--accent);cursor:pointer}
-.ndft{font:500 11px var(--code);color:rgba(255,255,255,.3)}
+.ndft{font:500 11px var(--code);color:var(--text-3)}
 /* Skills (redesign) — larga; o wrapper interno centra em 1320 */
 #skOverlay.astab .mbody{max-width:none;margin:0;padding:0}
 #skOverlay.astab .mhead{display:none} /* a tela Skills tem H1 próprio */
@@ -66,7 +66,7 @@
 .sk-search input{flex:1;font:400 13px var(--display);background:none;border:none;outline:none;color:var(--text)}
 .sk-add{font:600 13px var(--display);color:var(--on-accent);background:var(--accent);padding:10px 16px;border-radius:9px;border:none;cursor:pointer}
 .sk-stats{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 0 20px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:22px}
-.sk-mono{font:500 12px var(--code);color:rgba(255,255,255,.4)}
+.sk-mono{font:500 12px var(--code);color:var(--text-3)}
 .sk-mono.on{color:var(--accent)}
 .sk-progress{flex:1;min-width:120px;max-width:260px;height:4px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
 .sk-progress i{display:block;height:4px;border-radius:3px;background:var(--accent)}
@@ -77,7 +77,7 @@
 .skc.on{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:linear-gradient(180deg,rgba(63,214,138,.06),rgba(63,214,138,.015))}
 .skc-h{display:flex;align-items:center;gap:10px}
 .skc-name{font:500 14px var(--code);color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.skc-scope{font:500 9.5px var(--code);letter-spacing:.08em;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px;flex:none;text-transform:uppercase}
+.skc-scope{font:500 9.5px var(--code);letter-spacing:.08em;color:var(--text-3);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px;flex:none;text-transform:uppercase}
 .skc-d{font:400 12.5px/1.5 var(--display);color:rgba(234,242,238,.55)}
 /* ===== design system das TELAS redesenhadas (dentro das abas) ===== */
 #skOverlay.astab .mhead,#envOverlay.astab .mhead,#dailyOverlay.astab .mhead{display:none}
@@ -91,16 +91,16 @@
 .as-btn{font:600 13px var(--display);color:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.14);padding:10px 15px;border-radius:9px;background:none;cursor:pointer}
 .as-btn:hover{color:var(--text);border-color:rgba(255,255,255,.24)}
 .as-btn.primary{color:var(--on-accent);background:var(--accent);border-color:transparent}
-.as-note{font:500 11.5px var(--code);color:rgba(255,255,255,.3)}
+.as-note{font:500 11.5px var(--code);color:var(--text-3)}
 .as-mono{font-family:var(--code)}
-.as-sect{font:500 10px var(--code);letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.34);margin:26px 0 12px}
+.as-sect{font:500 10px var(--code);letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin:26px 0 12px}
 .as-grid{display:grid;gap:12px}
 .as-card{padding:16px 18px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:var(--surface-2)}
 .as-banner{margin:22px 0 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px 20px;border-radius:12px}
 .as-banner.ok{border:1px solid color-mix(in srgb,var(--accent) 32%,transparent);background:rgba(63,214,138,.06)}
 .as-banner.warn{border:1px solid color-mix(in srgb,var(--warn) 38%,transparent);background:rgba(240,180,73,.06)}
 .as-banner .bd{width:8px;height:8px;border-radius:50%;flex:none}
-.as-badge{font:500 9.5px var(--code);letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px}
+.as-badge{font:500 9.5px var(--code);letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:4px}
 .as-chk{width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:600 11px var(--code);color:#08110d}
 /* Chat do projeto (redesign) */
 #pcOverlay.astab .mhead{display:none}
@@ -116,7 +116,7 @@
 .pc-sugg{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;width:100%;max-width:840px}
 .pc-sc{text-align:left;padding:14px 16px;border:1px solid rgba(255,255,255,.09);border-radius:11px;background:var(--surface-2);display:flex;flex-direction:column;gap:6px;cursor:pointer}
 .pc-sc:hover{border-color:rgba(255,255,255,.2)}
-.pc-sc-t{font:500 10px var(--code);letter-spacing:.1em;color:rgba(255,255,255,.3)}
+.pc-sc-t{font:500 10px var(--code);letter-spacing:.1em;color:var(--text-3)}
 .pc-sc-x{font:400 13px/1.45 var(--display);color:rgba(234,242,238,.78)}
 /* shell leve pras telas CRUD (Agentes/Conta) — fonte + header no padrão novo */
 #agOverlay.astab .modal,#cloudOverlay.astab .modal{font-family:var(--display)}
