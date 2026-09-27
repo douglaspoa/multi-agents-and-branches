@@ -67,7 +67,7 @@ function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',re
 function renderTeamBoard(){
   const el=$id('teamBoard'); if(!el) return;
   if(!SB.sess() || !cloudTeamId()){
-    const need=!SB.sess()?'Entre na sua conta pra ver o espaço do time.':'Escolha um time no botão do topo.';
+    const need=!SB.sess()?'Entre na sua conta pra ver o espaço do time.':'Escolha um time no botão Conta, no rodapé da barra lateral.';
     const html=`<div class="emptyrepo" style="display:flex"><div class="big">Espaço do time</div><div>${need}</div><button class="btn primary" id="tbGo">abrir Time na nuvem</button></div>`;
     if(teamPaintSig!==html){ teamPaintSig=html; el.innerHTML=html; $id('tbGo').onclick=openCloud; }
     return;
@@ -109,7 +109,7 @@ function renderTeamBoard(){
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:10px;opacity:.8">${n}</span>`:''}</button>`).join('')+
-    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido no topo e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono" style="font-size:10.5px;align-self:center">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
+    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono" style="font-size:10.5px;align-self:center">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   const epicChips=(teamEpics.length?teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(B.done).length+ts.filter(B.review).length;

@@ -20,7 +20,7 @@ function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabe
 function ctStColor(st){ return stColor(st); }
 
 async function cloudEnsureProject(){
-  const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão do topo');
+  const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão Conta (rodapé da barra lateral)');
   const remote=await invoke('repo_remote');
   const rows=await sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId+'&repo_remote=eq.'+encodeURIComponent(remote));
   if(rows.length) return rows[0];
@@ -42,7 +42,7 @@ async function issueConfigPull(){
 }
 // compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
 async function cloudShareTask(payload){
-  if(!SB.sess()) throw new Error('entre na sua conta (botão no topo)');
+  if(!SB.sess()) throw new Error('entre na sua conta (botão Conta, no rodapé da barra lateral)');
   const proj=await cloudEnsureProject();
   const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
@@ -496,7 +496,7 @@ setInterval(()=>{ cloudMsgTick().catch(e=>tickErr('cloudMsgTick',e)); }, 5000);
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
 let tmView=lsGet('tmView')||'overview';
-// escopo da aba Time: 'team' (o time escolhido no topo) ou 'org' (TODOS os times — só owner/admin,
+// escopo da aba Time: 'team' (o time escolhido em Conta, no rodapé da barra lateral) ou 'org' (TODOS os times — só owner/admin,
 // que já enxergam tudo pela RLS; é a visão de super usuário da empresa)
 let tmScope=lsGet('tmScope')||'team';
 function tsIsOrgAdmin(){ return !!(cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin')); }

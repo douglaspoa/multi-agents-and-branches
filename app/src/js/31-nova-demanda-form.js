@@ -420,7 +420,7 @@ async function openFromDesign(t){
 let bdTask=null, bdItems=null, bdRun=0; // bdRun: só a resposta da IA da ÚLTIMA abertura vale // bdItems: null = IA lendo · [] = sem proposta · 'plan' = card do épico (plPlan) na tela
 // Desdobrar = o MESMO card do planner (envelope + tarefas com verify/after/risk), hospedado no overlay do desdobrar.
 async function openBreakdown(t){
-  if(!SB.sess() || !cloudTeamId()){ alert('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro (botão no topo).'); return; }
+  if(!SB.sess() || !cloudTeamId()){ alert('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro (botão Conta, no rodapé da barra lateral).'); return; }
   bdTask=t; bdItems=null; const run=++bdRun;
   $id('bdOverlay').style.display='flex';
   renderBd();

@@ -212,7 +212,7 @@ function plPlanCardHtml(bare){
       ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>${IC.x}</button></div>`).join('')}
       <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
-    ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time no topo pra aprovar.</div>`:''}
+    ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time (botão Conta, no rodapé da barra lateral) pra aprovar.</div>`:''}
     <div class="ppfoot"><button class="btn sm" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'descartar'}</button><button class="btn primary sm" id="ppApprove"${(noTeam||PLP().locked)?' disabled':''}>${PLP().locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
   </div>`;
   return bare?inner:`<div class="plmsg bot"><span class="plav">◆</span>${inner}</div>`;
@@ -242,7 +242,7 @@ function plWirePlanCard(){
 }
 async function plCreateEpic(){
   if(!PLP()) return;
-  if(!(SB.sess() && cloudTeamId())){ alert('Épico usa o backlog do time — entre na conta e escolha um time primeiro (botão no topo).'); return; }
+  if(!(SB.sess() && cloudTeamId())){ alert('Épico usa o backlog do time — entre na conta e escolha um time primeiro (botão Conta, no rodapé da barra lateral).'); return; }
   plWaves(PLP().tasks); plSortWaves(PLP().tasks); // ondas finais só com o que está marcado
   const picked=PLP().tasks.filter(x=>x.on);
   if(!picked.length){ alert('Marque pelo menos uma tarefa do épico.'); return; }

@@ -367,7 +367,7 @@ function renderWorkspace(){
   const body = fwFiles.length
     ? (fwGroupMode==='deliverable'&&canDeliv ? fwDelivHtml(fwFiles, dels) : `<div class="fwtreebody">${fwTreeHtml(fwBuildTree(fwFiles),0)}</div>`)
     : fwFilesLoading ? '<div class="dim" style="padding:8px;font-size:11.5px"><span class="spin"></span> carregando os arquivos…</div>'
-    : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos (.cardume/refs) e os artefatos aparecem aqui ao vivo</div>';
+    : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const tActive=ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy;
   const cost=taskCost(t.id);
   const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtUsd(cost.usd):'—'}</b></div></div>`;
