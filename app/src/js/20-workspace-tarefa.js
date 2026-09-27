@@ -15,14 +15,22 @@ let fwReadErr='';         // read_file falhou → mostra o erro e NÃO deixa edi
 // árvore de arquivos recolhível (« / » / ⌘B). Sem escolha salva: recolhida em janela estreita.
 function fwTreeHidden(){ const v=lsGet('fwTreeOff'); if(v==='1') return true; if(v==='0') return false; return window.innerWidth<1100; }
 function fwToggleTree(){ lsSet('fwTreeOff', fwTreeHidden()?'0':'1'); renderWorkspace(); }
-function fwTreeOpenBtn(){ return fwTreeHidden()?`<button class="fwtreebtn" data-fwtree="on" title="mostrar os arquivos (⌘B)">»</button>`:''; }
+// árvore recolhida: um "»" de 18px sem rótulo não dizia nada e escondia também artefatos e custo →
+// pílula clara "» Arquivos (N) · M artefatos" (mesmo atalho ⌘B)
+function fwTreeOpenBtn(){
+  if(!fwTreeHidden()) return '';
+  const n=fwFiles.filter(f=>!f.doc).length;
+  const ac=(typeof artifactsCache!=='undefined'&&fwTask)?artifactsCache[fwTask]:null;
+  const na=ac&&Array.isArray(ac.list)?ac.list.filter(a=>a.name!=='requirements.json').length:0;
+  return `<button class="fwtreepill" data-fwtree="on" title="mostrar arquivos, artefatos e custo (⌘B)"><span class="fwtpch">»</span>Arquivos${fwFilesLoading?'':` (${n})`}${na?` <span class="fwtpart">· ${na} artefato${na===1?'':'s'}</span>`:''}</button>`;
+}
 // guarda o arquivo/modo na ABA (voltar pra aba reabre onde você estava)
 function fwRememberTab(){ if(!fwTask||typeof tabById!=='function') return; const tab=tabById('task:'+fwTask); if(tab){ tab.path=fwPath||null; tab.mode=fwMode; } }
 function fwIsWorking(t){ return (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !pendingOf(t.id).length; }
 function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'].includes(taskType(t)); }
 // subtítulo do chat conforme o ESTADO (antes dizia "ele lembra o que fez" até em erro)
 function fwChatSubText(t){
-  if(pendingOf(t.id).length) return 'esperando sua resposta';
+  if(pendingOf(t.id).length) return 'aguardando sua resposta';
   if(fwIsWorking(t)) return 'trabalhando…';
   if(t.status==='error') return 'parou com erro — mande uma mensagem pra ele tentar seguir, ou rode de novo';
   if(t.status==='aborted') return 'abortada — mande uma mensagem pra retomar, ou rode de novo';
@@ -76,7 +84,7 @@ function fwDelivHtml(files, dels){
   if(!groups.length) return '<div class="dim" style="padding:8px;font-size:11.5px">nenhum arquivo alterado</div>';
   return `<div class="fwtreebody">`+groups.map(g=>{
     const rows=g.files.slice().sort((a,b)=>a.path.localeCompare(b.path)).map(f=>{ const tag=f.doc?'·':((f.del===0&&f.add>0)?'A':'M');
-      return `<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" style="padding-left:20px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}" title="${fwTagTitle(f,tag)}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span><span class="fwadd">+${f.add}</span></button>`;
+      return `<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" title="${escA(f.path)}" style="padding-left:20px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}" title="${fwTagTitle(f,tag)}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span><span class="fwadd">+${f.add}</span></button>`;
     }).join('');
     return `<div class="fwdgrp${g.other?' other':''}"><span class="fwdmark">${g.other?'•':'✓'}</span><span class="fwdlabel">${esc(g.label)}</span><span class="fwdn">${g.files.length}</span></div>${rows}`;
   }).join('')+`</div>`;
@@ -96,7 +104,7 @@ function fwTreeHtml(node, depth){
     if(!col) h+=fwTreeHtml(dir, depth+1);
   }
   for(const f of node.files.slice().sort((a,b)=>a.path.localeCompare(b.path))){ const tag=f.doc?'·':((f.del===0&&f.add>0)?'A':'M');
-    h+=`<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" style="padding-left:${depth*13+8}px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}" title="${fwTagTitle(f,tag)}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span>${f.doc?'':`<span class="fwadd">+${f.add}</span>`}</button>`;
+    h+=`<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" title="${escA(f.path)}" style="padding-left:${depth*13+8}px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}" title="${fwTagTitle(f,tag)}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span>${f.doc?'':`<span class="fwadd">+${f.add}</span>`}</button>`;
   }
   return h;
 }
@@ -126,6 +134,7 @@ async function fwOpenInner(taskId, path){
     // pronta pra revisar ou concluída → aba ENTREGA; rodando/perguntando → CONVERSA (é onde a ação está)
     fwMode = (tab&&tab.mode) ? tab.mode
       : path ? 'codigo'
+      : (t&&pendingOf(t.id).length) ? 'conversa' // pergunta aberta: a resposta é na conversa
       : (t&&(taskIsDone(t)||['review','delivered'].includes(t.status))) ? 'entrega'
       : (t&&t.prUrl&&t.status!=='draft') ? 'pr'
       : working ? 'conversa' : 'codigo'; }
@@ -175,13 +184,15 @@ function fwPlan(t){
   }).join('')+`</div>`;
 }
 let fwCtxOpen=(lsGet('fwCtxOpen')==='1');
+// papel da etapa em andamento, em PT e como ação (antes aparecia "BUILD" — o id do papel em inglês)
+const ROLE_DOING={ planner:'planejando', builder:'construindo', reviewer:'revisando', tester:'testando', designer:'desenhando', investigator:'investigando' };
 // barra compacta: estado da tarefa + progresso dos requisitos (expande no clique)
 function fwCtxBarHtml(t){
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
   // estado final: selo padrão (PT + ícone certo) — antes era "✓ error" em inglês, com ✓ até em falha
-  const st = asking.length?`<span class="fwctxst" style="color:var(--warn)"><span class="pulse" style="--pc:var(--warn)"></span>esperando você</span>`
-    : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(ROLE_PT[t.stage]||t.stage||'trabalhando')}</span>`
+  const st = asking.length?`<span class="fwctxst" style="color:var(--warn)"><span class="pulse" style="--pc:var(--warn)"></span>aguardando você</span>`
+    : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(ROLE_DOING[t.stage]||'trabalhando')}</span>`
     : `<span class="fwctxst">${stBadge(t.flag==='closed'&&!TASK_DONE_ST.includes(t.status)?'closed':t.status)}</span>`;
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   let reqPart='';
@@ -205,12 +216,13 @@ function fwNowHtml(t){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
     const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
-    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_PT[t.stage]||t.stage||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
   return fwPlan(t);
 }
 let fwLiveSig='';
+let fwPrimShown=''; // id da ação principal que o topo está mostrando
 let fwPvShown=null; // preview (🌐) que o cabeçalho da tarefa está mostrando
 async function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
@@ -226,6 +238,8 @@ async function fwLiveUpdate(){
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
   // no renderWorkspace → o botão 🌐 nunca aparecia com a aba aberta
   if((taskPreviewUrl(t.id)||null)!==fwPvShown){ renderWorkspace(); return; }
+  // a fase mudou (rodando → revisão, pergunta chegou…): a ação principal do topo muda junto
+  if(((fwPrimaryAction(t)||{}).id||'')!==fwPrimShown){ renderWorkspace(); return; }
   const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
   const th=$id('fwThread');
@@ -282,22 +296,101 @@ function fwPaintSendRow(t){
   bindClick('fwSend', ()=>fwSendMsg(false));
   bindClick('fwQueue', ()=>fwSendMsg(true));
 }
-// ação principal do topo conforme o ESTADO (erro → rodar de novo; conflito → resolver; pausada → continuar;
-// pronta → aprovar/concluir). PR já aberto não ganha botão aqui: a aba PR (modo) já leva pra ele.
-function fwActionHtml(t){
-  if(t.status==='draft') return '';
-  if(['error','aborted'].includes(t.status)) return `<button class="btn primary sm" id="fwRerun" title="descarta o parcial na worktree e roda o time de novo (o plano é mantido)">↻ rodar de novo</button>`;
-  if(t.status==='conflict') return `<button class="btn primary sm" id="fwResolve" title="a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia">⚡ resolver conflito</button>`;
-  if(t.status==='paused') return `<button class="btn primary sm" id="fwResume">▶ continuar</button>`;
-  if(taskIsDone(t) || t.prUrl) return '';
-  const artOnly=fwArtOnly(t);
+// ---- cabeçalho FIXO da tarefa: título (…) · modos · UMA ação principal por fase · menu ⋯ ----
+// antes eram até 7 controles que quebravam linha/cortavam o título conforme o modo; no PR o
+// "commit & push" ficava ao lado de "aprovar e abrir PR" e o vibe coder não sabia qual apertar.
+function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
+function fwPrimaryAction(t){
+  if(t.status==='draft') return null;
+  if(pendingOf(t.id).length) return { id:'fwAnswer', html:'✋ responder', title:'o agente fez uma pergunta — a resposta vai na conversa' };
+  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn', html:`${IC.pause} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
+  if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
+  if(t.status==='conflict') return { id:'fwResolve', html:'⚡ resolver conflito', title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
+  if(t.status==='paused') return { id:'fwResume', html:'▶ continuar', title:'retoma a tarefa de onde parou' };
+  // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
+  if(t.prUrl){ const n=fwPrNum(t);
+    return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n} ↗`, title:'abrir o PR no GitHub' }
+      : { id:'fwPrGo', html:`${IC.merge} ver PR #${n}`, title:'comentários, checagens e merge do PR' }; }
+  if(taskIsDone(t)) return null;
   if(['review','delivered'].includes(t.status)){
     const rev=reviewOf(t.id);
-    return `<button class="btn sm" id="fwAskFix" title="${rev?escA((rev.summary||'').slice(0,120)):'a entrega está pronta pra revisar'}">pedir ajuste</button>`+
-      (artOnly ? `<button class="btn primary sm" id="fwArchive" title="conclui e tira da fila (investigação/design não abrem PR)">✓ concluir</button>`
-               : `<button class="btn primary sm" id="fwApprove">${IC.check} aprovar e abrir PR</button>`);
+    return fwArtOnly(t) ? { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' }
+      : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo → commit & push → cria o PR' };
   }
-  return artOnly ? '' : `<button class="btn sm" id="fwPrOpen" title="checagens do repo → commit & push → cria o PR">${IC.merge} abrir PR</button>`;
+  return null;
+}
+function fwActionHtml(t){
+  const a=fwPrimaryAction(t); if(!a) return '';
+  return `<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}">${a.html}</button>`;
+}
+// itens do ⋯ (secundários) — só o que faz sentido na fase atual
+function fwMoreItems(t){
+  const it=[], done=taskIsDone(t), nogit=document.body.classList.contains('nogit');
+  const prim=(fwPrimaryAction(t)||{}).id;
+  const pv=taskPreviewUrl(t.id), tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+  it.push({ k:'sum', label:`resumo e progresso · ${taskPct(t)}%`, hint:'tudo que já foi feito + o que falta' });
+  if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
+  if(t.prUrl){ const n=fwPrNum(t);
+    if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
+    if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub ↗` });
+    it.push({ k:'prcopy', label:'copiar link do PR' });
+  } else if(!done && !nogit && !fwArtOnly(t) && t.status!=='draft' && !['review','delivered'].includes(t.status)){
+    it.push({ k:'propen', label:'abrir PR', hint:'checagens do repo → commit & push → cria o PR' });
+  }
+  if(pv){ it.push({ k:'pv', label:'abrir o preview', hint:pv.replace(/^https?:\/\//,'').slice(0,40) });
+    it.push(tun?{ k:'pvoff', label:'fechar o acesso do celular', warn:true }:{ k:'pvmob', label:'abrir o preview no celular', hint:'túnel criptografado' }); }
+  if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
+  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão')}`, hint:'vale a partir do próximo turno' });
+  const cost=taskCost(t.id);
+  it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtUsd(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}`, info:true });
+  if(fwTreeHidden()) it.push({ k:'tree', label:'mostrar arquivos e artefatos', hint:'⌘B' });
+  it.push({ k:'close', label:'fechar a aba', hint:'esc' });
+  return it;
+}
+function fwOpenMore(t, anchor){
+  const old=$id('fwMorePop'); if(old){ old.remove(); return; }
+  const pop=document.createElement('div'); pop.id='fwMorePop'; pop.className='fwmenu';
+  pop.innerHTML=fwMoreItems(t).map(i=>i.info?`<div class="fwmi info">${esc(i.label)}</div>`
+    :`<button class="fwmi${i.warn?' warn':''}" data-fwm="${i.k}"><span>${esc(i.label)}</span>${i.hint?`<span class="fwmh">${esc(i.hint)}</span>`:''}</button>`).join('');
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.right-pop.offsetWidth))+'px';
+  const close=()=>{ pop.remove(); document.removeEventListener('mousedown', out, true); };
+  const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor) close(); };
+  setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
+  pop.querySelectorAll('[data-fwm]').forEach(b=>b.onclick=async()=>{ const k=b.dataset.fwm; close(); await fwMoreDo(t, k, anchor); });
+}
+async function fwMoreDo(t, k, anchor){
+  const pv=taskPreviewUrl(t.id);
+  if(k==='sum') openTaskSummary(t.id);
+  else if(k==='askfix') fwAskFix();
+  else if(k==='prgo'){ fwMode='pr'; fwRememberTab(); renderWorkspace(); }
+  else if(k==='prgh') openExternal(t.prUrl);
+  else if(k==='prcopy') copyLink(t.prUrl);
+  else if(k==='propen') prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
+  else if(k==='pv' && pv) invoke('open_url',{ url:pv }).catch(()=>{});
+  else if(k==='pvmob' && pv){ toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); }
+  else if(k==='pvoff') await fwTunnelOff(t);
+  else if(k==='push') await fwPushTask();
+  else if(k==='model') openModelMenu(t.id, anchor);
+  else if(k==='tree') fwToggleTree();
+  else if(k==='close'){ if(await fwLeaveEditor()) closeWorkspace(); }
+}
+function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
+  const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
+async function fwTunnelOff(t){
+  try{ await invoke('tunnel_stop',{ taskId:t.id }); }catch(_){ }
+  if(typeof tunnelUp!=='undefined') delete tunnelUp[t.id];
+  if(typeof autoTunneled!=='undefined') delete autoTunneled[t.id];
+  try{ const cid=tmap()[t.id]; if(cid){ const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{}; await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null,tunnelClose:null}})}); } }catch(_){ }
+  toast('acesso do celular fechado','ok'); renderWorkspace();
+}
+// commit & push (manutenção: mora no ⋯)
+async function fwPushTask(){
+  const t=fwTaskObj(); if(!t) return;
+  toast('commitando e enviando a branch…');
+  try{ const msg=await invoke('push_task',{ taskId:t.id }); prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig=''; toast('✓ '+msg,'ok'); }
+  catch(e){ toast('Commit & push falhou: '+e,'err'); }
 }
 const FW_SCROLLERS=['#fwCode','.fwdiff','.prleft','.prright','.fwwhyt'];
 function fwGrabScroll(root){ const o={ _:root.scrollTop }; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el) o[s]=[el.scrollTop, el.scrollLeft]; }); return o; }
@@ -317,47 +410,28 @@ function renderWorkspace(){
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
   { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=async()=>{ const nm=b.dataset.fwmode; if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }); } }
-  $id('fwTaskName').textContent=t.title;
+  { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
-  // commit & push: ação de manutenção (não é o principal) e some quando não há o que enviar
-  { const pb=$id('fwPush'); if(pb) pb.style.display=(taskIsDone(t)||t.status==='draft')?'none':''; }
   if(typeof orqTaskChips==='function') orqTaskChips(t);
-  // barra do topo: progresso, preview, modelo, custo + a ação principal do estado atual
+  // barra do topo: [🌐 preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
   { const rb=$id('fwReviewBar');
     if(rb){
-      const cost=taskCost(t.id);
-      const modelChip=(t.status!=='draft')?`<button class="btn sm" id="fwModel" title="trocar o modelo desta demanda (vale a partir do próximo turno)" style="font-family:var(--mono);font-size:11px">⚙ ${esc(typeof aiModelName==='function'?aiModelName(t.model):(t.model||'padrão'))}</button>`:'';
-      const costChip=modelChip+(cost.usd>0?`<span class="mono dim" style="font-size:11px" title="custo da tarefa até agora">${fmtUsd(cost.usd)}</span>`:'');
-      // site local que o agente subiu (🌐 preview) — abrir aqui ou no celular (túnel)
       const pv=taskPreviewUrl(t.id); fwPvShown=pv||null;
-      const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
-      const pctHtml=`<button class="btn sm" id="fwSum" title="resumo de tudo que já foi feito + o que falta" style="display:flex;gap:7px;align-items:center"><span style="width:52px;height:4px;border-radius:99px;background:var(--border-strong);overflow:hidden;display:inline-block"><i style="display:block;height:100%;width:${taskPct(t)}%;background:var(--good)"></i></span><span class="mono" style="font-size:10.5px">${taskPct(t)}%</span></button>`;
-      const pvHtml=pctHtml+(pv?`<button class="btn sm" id="fwPv" data-url="${escA(pv)}" title="${escA(pv)}" style="color:var(--accent)">${IC.globe} ${esc(pv.replace(/^https?:\/\//,'').slice(0,26))}</button>`+
-        (tun?`<button class="btn sm" id="fwPvOff" title="fecha o túnel do celular agora (${escA(tun)})" style="color:var(--warn)">${IC.phone} fechar acesso</button>`
-            :`<button class="btn sm" id="fwPvMob" data-url="${escA(pv)}" title="túnel criptografado pra abrir este preview no seu celular">${IC.phone}</button>`):'');
-      rb.innerHTML=pvHtml+costChip+fwActionHtml(t);
-      bindClick('fwAskFix', ()=>{ if(fwMode==='entrega'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // na Entrega o chat está escondido
-        const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } });
+      const pvBtn=pv?`<button class="btn sm fwpvic" id="fwPv" data-url="${escA(pv)}" title="abrir o site que o agente subiu — ${escA(pv)} (celular: no ⋯)">${IC.globe}</button>`:'';
+      rb.innerHTML=pvBtn+fwActionHtml(t);
+      fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
+      bindClick('fwAnswer', ()=>fwAskFix());
+      bindClick('fwStopTop', ()=>stopTask(t.id));
       bindClick('fwApprove', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
-      bindClick('fwPrOpen', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
-      bindClick('fwArchive', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ alert('Falhou: '+err); b.disabled=false; } renderWorkspace(); });
+      bindClick('fwArchive', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
       bindClick('fwResume', async()=>{ await resumeTask(t.id); renderWorkspace(); });
       bindClick('fwResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
-      bindClick('fwSum', ()=>openTaskSummary(t.id));
-      bindClick('fwModel', (e)=>{ e.stopPropagation(); openModelMenu(t.id, e.currentTarget); });
+      bindClick('fwPrGo', ()=>{ fwMode='pr'; fwRememberTab(); renderWorkspace(); });
+      bindClick('fwPrGh', ()=>openExternal(t.prUrl));
       bindClick('fwPv', (e)=>invoke('open_url',{ url:e.currentTarget.dataset.url }).catch(()=>{}));
-      { const b=$id('fwPvMob'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='criando túnel…';
-          const pub=await mobilePreview(t.id, b.dataset.url);
-          if(pub && typeof tunnelUp!=='undefined'){ tunnelUp[t.id]=pub; }
-          renderWorkspace(); }; }
-      { const b=$id('fwPvOff'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='fechando…';
-          try{ await invoke('tunnel_stop',{ taskId:t.id }); }catch(_){ }
-          if(typeof tunnelUp!=='undefined') delete tunnelUp[t.id];
-          if(typeof autoTunneled!=='undefined') delete autoTunneled[t.id];
-          try{ const cid=tmap()[t.id]; if(cid){ const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{}; await sbFetch('/rest/v1/tasks?id=eq.'+cid,{method:'PATCH',body:JSON.stringify({spec:{...(cur.spec||{}),previewUrl:null,tunnelWanted:null,tunnelClose:null}})}); } }catch(_){ }
-          renderWorkspace(); }; }
     }
+    const mb=$id('fwMore'); if(mb) mb.onclick=(e)=>{ e.stopPropagation(); const tt=fwTaskObj(); if(tt) fwOpenMore(tt, mb); };
   }
   // ---- coluna 1: árvore de arquivos ----
   const tree=$id('fwTree');
@@ -378,25 +452,32 @@ function renderWorkspace(){
   tree.innerHTML=`<div class="fwtreeh"><span>${fwMode==='revisao'?'Arquivos alterados':tActive?'Arquivos sendo alterados':'Arquivos desta tarefa'}</span><button class="fwtreebtn" data-fwtree="off" title="recolher os arquivos (⌘B)">«</button></div>`+
     (canDeliv?`<div class="fwgtoggle"><button class="fwgbtn${fwGroupMode==='folder'?' on':''}" data-fwg="folder">Pastas</button><button class="fwgbtn${fwGroupMode==='deliverable'?' on':''}" data-fwg="deliverable">Entregáveis</button></div>`:'')+
     body+
-    (fwMode==='conversa'?'':`<div class="fwtreehint">${fwGroupMode==='deliverable'?'Vínculo por palavra-chave — o arquivo aparece sob o entregável que ele parece atender.':'Selecione linhas no código e pergunte ao agente que escreveu.'}</div>`)+
+    // dica de "selecionar linhas" saiu daqui: fica junto do código (barra sob o código / faixa da Revisão)
+    (fwGroupMode==='deliverable'&&canDeliv?'<div class="fwtreehint">Vínculo por palavra-chave — o arquivo aparece sob o entregável que ele parece atender.</div>':'')+
     (artsHtml?`<div class="fwarts">${artsHtml}</div>`:'')+
     treeFoot;
   tree.dataset.tk=t.id; tree.scrollTop=treeTop;
-  tree.querySelectorAll('[data-art]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openArtifact(t.id, b.dataset.art); });
+  tree.querySelectorAll('[data-art]').forEach(b=>{ if(!b.title) b.title=b.dataset.art; b.onclick=(e)=>{ e.stopPropagation(); openArtifact(t.id, b.dataset.art); }; }); // nome inteiro no tooltip ("print-tot…")
   tree.querySelectorAll('[data-fwg]').forEach(b=>b.onclick=()=>{ fwGroupMode=b.dataset.fwg; renderWorkspace(); });
-  // status por arquivo (redesign p6): tocado há <3min = EDITANDO; resto = CONCLUÍDO
+  // status por arquivo enquanto a tarefa roda: só "editando" (tocado há <3 min) ganha texto; o resto é um
+  // pontinho discreto com o detalhe no tooltip — antes um selo "CONCLUÍDO" em CADA arquivo comia a largura
+  // (nomes viravam "checkou…") e mentia com a tarefa ainda rodando
   if(fwFiles.length && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy)){
-    const hot=new Set(); const now=Date.now();
-    for(const e of eventsOf(t.id).slice(-80)){
+    const touched=new Map(); const now=Date.now(); // arquivo → último edit/write (ms)
+    for(const e of eventsOf(t.id).slice(-120)){
       if(!['edit','write'].includes(e.type)) continue;
-      if(now-(+new Date(e.ts)||0)>180000) continue;
+      const at=+new Date(e.ts)||0;
       const m=String(e.text||'').match(/[\w@./-]+\.[A-Za-z]{1,8}/g)||[];
-      m.forEach(x=>hot.add(x.replace(/^\.\//,'')));
+      m.forEach(x=>{ const k=x.replace(/^\.\//,''); if(at>(touched.get(k)||0)) touched.set(k, at); });
     }
+    const agoTx=ms=>{ const s=Math.max(0,Math.round(ms/1000)); return s<60?`${s}s`:`${Math.round(s/60)} min`; };
     tree.querySelectorAll('[data-fwf]').forEach(b=>{
       const p=b.dataset.fwf||'';
-      const isHot=[...hot].some(h=>p.endsWith(h)||h.endsWith(p));
-      b.insertAdjacentHTML('beforeend', `<span class="fwst ${isHot?'ed':'ok'}">${isHot?'editando':'concluído'}</span>`);
+      let last=0; touched.forEach((at,h)=>{ if((p.endsWith(h)||h.endsWith(p)) && at>last) last=at; });
+      const isHot=last && now-last<=180000;
+      b.insertAdjacentHTML('beforeend', isHot
+        ? `<span class="fwst ed" title="o agente editou este arquivo há ${agoTx(now-last)}">editando</span>`
+        : `<span class="fwdot" title="${escA(last?`alterado nesta tarefa — última edição do agente há ${agoTx(now-last)}`:'alterado nesta tarefa — sem edição do agente nos últimos minutos')}"></span>`);
     });
   }
   tree.querySelectorAll('[data-fwf]').forEach(b=>b.onclick=async()=>{ if(b.dataset.fwf!==fwPath && !await fwLeaveEditor()) return; fwPath=b.dataset.fwf; fwEditing=false; if(fwMode==='conversa'||fwMode==='pr'||fwMode==='entrega') fwMode='codigo'; fwRememberTab(); fwLoadFile(); renderWorkspace(); });
@@ -426,7 +507,7 @@ function renderWorkspace(){
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
-  else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:12px">código</span></div><div class="empty">${fwFilesLoading?'<span class="spin"></span> carregando os arquivos…':fwFiles.length?(fwTreeHidden()?'abra os arquivos (») e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
+  else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:12px">código</span></div><div class="empty">${fwFilesLoading?'<span class="spin"></span> carregando os arquivos…':fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
   else {
     const loadingFile = fwFileLoading===(t.id+'|'+fwPath);
     const headBtns = fwEditing
@@ -526,6 +607,7 @@ function renderWorkspace(){
   document.querySelectorAll('#fwOverlay [data-fwtree]').forEach(b=>b.onclick=()=>fwToggleTree());
 }
 // ---- Revisão: diff de verdade por arquivo (redesign p12) ----
+let fwRevOpen=false; // explicação da revisão expandida
 function fwRenderDiff(t, main){
   if(!fwPath && fwFiles.length) fwPath=fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
   const key=t.id+':'+fwPath;
@@ -537,7 +619,12 @@ function fwRenderDiff(t, main){
   }
   const rev=reviewOf(t.id);
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
-  const band=`<div class="fwrevband">${rev?`<b>${esc((rev.summary||'').slice(0,90))}</b>`:'<b>revisão da entrega</b>'}${rev&&rev.howToTest?`<span class="dim" style="margin-left:4px">· como testar: ${esc(rev.howToTest.slice(0,120))}</span>`:''}<span style="flex:1"></span><button class="btn sm" id="fwBackConv">← conversa</button></div>`;
+  // explicação inteira (antes cortava no meio da palavra: "Movi a soma d") — 2 linhas + "ver mais"
+  const revTx=rev?`<b>${esc(rev.summary||'')}</b>${rev.howToTest?`<span class="dim"> · como testar: ${esc(rev.howToTest)}</span>`:''}`:'<b>revisão da entrega</b>';
+  const revLong=!!(rev && ((rev.summary||'').length+(rev.howToTest||'').length)>160);
+  const band=`<div class="fwrevband"><div class="fwrevtx${fwRevOpen?' open':''}">${revTx}</div>${revLong?`<button class="lnk fwrevmore" id="fwRevMore">${fwRevOpen?'ver menos':'ver mais'}</button>`:''}<button class="btn sm" id="fwBackConv">← conversa</button></div>`;
+  // perguntar sobre linhas é no modo Código — a dica mora aqui, junto do código (antes ficava no painel de arquivos)
+  const askHint=fwPath?`<div class="fwrevask">quer perguntar sobre um trecho? <button class="lnk" id="fwRevToCode">abra em Código</button> e selecione as linhas — a pergunta vai pro agente que escreveu</div>`:'';
   let rows='';
   const diff=fwPath?fwDiffCache[key]:'';
   if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
@@ -559,8 +646,10 @@ function fwRenderDiff(t, main){
       return `<div class="dl"><span class="dn">${n}</span><span class="dtx">${esc(l)||' '}</span></div>`;
     }).join('');
   }
-  main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath||'')}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff">${rows}</div>`;
+  main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath||'')}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff">${rows}</div>${askHint}`;
   bindClick('fwBackConv', ()=>{ fwMode='conversa'; fwRememberTab(); renderWorkspace(); });
+  bindClick('fwRevMore', ()=>{ fwRevOpen=!fwRevOpen; renderWorkspace(); });
+  bindClick('fwRevToCode', ()=>{ fwMode='codigo'; fwRememberTab(); fwLoadFile(); renderWorkspace(); });
   bindClick('fwDiffRetry', ()=>{ fwDiffCache[key]=undefined; renderWorkspace(); });
 }
 // ---- página do PR dentro da execução (redesign p14) ----
@@ -588,11 +677,11 @@ function fwRenderPrPage(t, main){
       <div class="prbadges" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:7px"><span class="mono dim" style="font-size:11px">${esc(t.branch)} → ${esc(base)}</span>${prStateBadge(info)}${prDecisionBadge(info)}${prChecksBadges(info)}</div>
       <div class="dim" style="font-size:11px;margin-top:6px"><span id="prAge">${prAgoTx(info._at)}</span>${info.staleErr?' · <span style="color:var(--warn)">não consegui atualizar agora (sem conexão com o GitHub)</span>':''}</div>
       <div style="margin-top:14px;font-size:13px;line-height:1.6" class="prbody">${chatMd(info.body||'_sem descrição_')}</div>
-      <div style="display:flex;gap:8px;margin-top:18px"><button class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button class="btn sm" id="prPgCopy">copiar link</button><button class="btn sm" id="prPgRefresh">atualizar</button></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px"><button class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button class="btn sm" id="prPgCopy">copiar link</button><button class="btn sm" id="prPgRefresh">atualizar</button></div>
     </div>
     <div class="prright">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><span class="mono" style="font-size:11px;letter-spacing:.08em;color:var(--muted)">COMENTÁRIOS · ${cm.open} em aberto${cm.total!==cm.open?` de ${cm.total}`:''}</span><span style="flex:1"></span>${prMergeBtnHtml(info,'prPgMerge','primary','font-weight:700')}</div>
-      ${prMergeWhyHtml(info)}
+      ${info.state==='OPEN'?`<div class="prpgmerge">${prMergeBtnHtml(info,'prPgMerge','primary','font-weight:700')}${prMergeWhyHtml(info)}</div>`:''}
+      <div class="prcmtsh"><span class="prcmtsn mono">COMENTÁRIOS · ${cm.countTx}</span>${cm.toggle}</div>
       <div style="margin-top:8px">${cm.html}</div>
       ${cm.open>1?`<button class="btn primary sm" id="prPgAll" style="margin-top:6px">${IC.ai} corrigir todos os ${cm.open} em aberto</button>`:''}
     </div>
@@ -798,16 +887,6 @@ async function fwSendMsg(queueOnly){
 }
 // fechar pelo botão: pergunta antes de jogar fora uma edição não salva
 $id('fwClose').onclick=async()=>{ if(!await fwLeaveEditor()) return; closeWorkspace(); };
-$id('fwPush').onclick=async function(){
-  const b=this, t=fwTaskObj(); if(!t) return;
-  b.disabled=true; const o=b.innerHTML; b.textContent='enviando…';
-  try{
-    const msg=await invoke('push_task',{ taskId:t.id });
-    b.textContent='✓ '+msg;
-    prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig='';
-    setTimeout(()=>{ b.disabled=false; b.innerHTML=o; }, 4000);
-  }catch(e){ alert('Commit & push falhou:\n'+e); b.disabled=false; b.innerHTML=o; }
-};
 $id('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
 $id('sumOverlay').addEventListener('click', e=>{ if(e.target.id==='sumOverlay') e.target.style.display='none'; });
 function fwVisible(){ const o=$id('fwOverlay'); return !!(o && o.style.display!=='none'); }

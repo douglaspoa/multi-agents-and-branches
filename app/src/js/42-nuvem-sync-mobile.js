@@ -256,7 +256,11 @@ async function cloudPrStatTick(){
       if(t.prUrl){
         try{ await loadPr(t.id); const i=prCache[t.id];
           if(i&&i.exists) prInfo={ number:i.number, state:i.state, decision:i.decision, body:(i.body||'').slice(0,3000),
-            comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,answered:x.answered,isBot:x.isBot,body:(x.body||'').slice(0,400)})) };
+            comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,
+              // o app do celular só lê "answered": manda o MESMO "resolvido" do desktop (respondido, resolvido no
+              // GitHub, desatualizado ou ignorado aqui) — antes o celular mostrava em aberto o que o desktop já escondia
+              answered:(typeof prCmtDone==='function'&&typeof prIgnSet==='function')?prCmtDone(x, prIgnSet(t.id)):!!(x.answered||x.resolved||x.outdated),
+              resolved:!!x.resolved,outdated:!!x.outdated,isBot:x.isBot,body:(x.body||'').slice(0,400)})) };
           // merge feito FORA do app (GitHub) → marca merged aqui também
           if(i&&i.exists&&i.state==='MERGED'&&!['merged','done'].includes(t.status)){
             invoke('mark_task_status',{ taskId:t.id, status:'merged' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>{});
