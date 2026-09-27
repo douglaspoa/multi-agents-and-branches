@@ -34,3 +34,43 @@ async function askYes(message, title){
   try{ return (await inv('plugin:dialog|message',{ message:String(message), title:title||'Starfork', kind:'warning', buttons:'OkCancel' }))==='Ok'; }
   catch(e){ console.error('askYes:', e); return false; } // na dúvida, NÃO executa
 }
+
+// ===== status: UMA fonte de verdade (nome em PT + cor + ícone) =====
+// Toda tela que mostra status de tarefa/cartão usa stLabel/stColor/stIcon — nada de
+// mapa próprio nem de t.status cru em inglês na tela.
+const STATUS_META={
+  draft:        { pt:'rascunho',          c:'var(--muted)',     ic:'·' },
+  backlog:      { pt:'na fila',           c:'var(--muted)',     ic:'·' },
+  queued:       { pt:'na fila',           c:'var(--muted)',     ic:'·' },
+  'plan-review':{ pt:'plano pra aprovar', c:'var(--st-ask)',    ic:'?' },
+  running:      { pt:'rodando',           c:'var(--st-run)',    ic:'●' },
+  thinking:     { pt:'pensando',          c:'var(--st-run)',    ic:'●' },
+  asking:       { pt:'precisa de você',   c:'var(--st-ask)',    ic:'?' },
+  paused:       { pt:'pausada',           c:'var(--muted)',     ic:'❚❚' },
+  review:       { pt:'pronta pra revisar',c:'var(--st-review)', ic:'◆' },
+  delivered:    { pt:'pronta pra revisar',c:'var(--st-review)', ic:'◆' },
+  done:         { pt:'concluída',         c:'var(--st-done)',   ic:'✓' },
+  merged:       { pt:'mergeada',          c:'var(--st-done)',   ic:'✓' },
+  closed:       { pt:'concluída',         c:'var(--st-done)',   ic:'✓' },
+  error:        { pt:'erro',              c:'var(--st-err)',    ic:'!' },
+  conflict:     { pt:'conflito',          c:'var(--st-err)',    ic:'!' },
+  blocked:      { pt:'bloqueada',         c:'var(--warn)',      ic:'⏸' },
+  aborted:      { pt:'abortada',          c:'var(--muted)',     ic:'×' },
+  cancelled:    { pt:'cancelada',         c:'var(--muted)',     ic:'×' },
+  waiting:      { pt:'na espera',         c:'var(--muted)',     ic:'·' },
+};
+function stMeta(st){ return STATUS_META[st]||{ pt:String(st||'—'), c:'var(--muted)', ic:'·' }; }
+function stLabel(st){ return stMeta(st).pt; }
+function stColor(st){ return stMeta(st).c; }
+function stIcon(st){ return stMeta(st).ic; }
+function stIsBad(st){ return st==='error'||st==='conflict'; }
+// selo de status padrão (mesma cara em todas as telas)
+function stBadge(st){ const m=stMeta(st); return '<span class="stbadge" style="--stc:'+m.c+'"><i>'+m.ic+'</i>'+m.pt+'</span>'; }
+
+// ===== toast global: feedback curto de sucesso/aviso sem travar a tela (alert só pra erro fatal) =====
+function toast(msg, kind){
+  let el=$id('appToast'); if(!el){ el=document.createElement('div'); el.id='appToast'; el.setAttribute('role','status'); document.body.appendChild(el); }
+  el.className='apptoast '+(kind||'info'); el.textContent=String(msg);
+  el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.display='none'; }, kind==='err'?7000:4200);
+}
+window.toast=toast;

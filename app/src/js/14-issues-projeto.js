@@ -255,10 +255,7 @@ async function trkPublishEpic(ep, created){
   }catch(e){ trkToast('Não publiquei o épico no painel: '+trkErrText(e)); return null; }
 }
 window.trkPublishEpic=trkPublishEpic;
-function trkToast(msg){
-  let el=$id('trkToast'); if(!el){ el=document.createElement('div'); el.id='trkToast'; el.className='trk-toast'; document.body.appendChild(el); }
-  el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.display='none'; },5200);
-}
+function trkToast(msg){ return toast(msg,"warn"); } // usa o toast global (00-util)
 
 // ---------- tela ----------
 async function openIssues(){

@@ -222,3 +222,22 @@ body{
 .foundh{font-size:11.5px;color:var(--accent);font-weight:600;margin-bottom:7px}
 .foundit{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0;cursor:pointer}
 .foundit b{font-family:var(--mono)}
+
+/* ===== tokens de status (fonte única — ver STATUS_META em js/00-util.js) ===== */
+:root{
+  --st-run:var(--good); --st-ask:#e8788a; --st-review:var(--warn); --st-done:var(--info); --st-err:var(--crit);
+  --text-3:rgba(233,237,239,.52); --r-pill:999px;
+  --display:'Instrument Sans',var(--ui); --code:'JetBrains Mono',var(--mono);
+  /* aliases de nomes que o código já usava sem existir */
+  --ok:var(--good); --err:var(--crit); --bad:var(--crit); --text-dim:var(--muted); --dim:var(--muted); --dim2:var(--text-3);
+}
+.stbadge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--stc);background:color-mix(in srgb,var(--stc) 13%,transparent);border:1px solid color-mix(in srgb,var(--stc) 32%,transparent);border-radius:var(--r-pill);padding:1px 8px 1px 7px;white-space:nowrap;line-height:1.6}
+.stbadge i{font-style:normal;font-size:10px}
+/* toast global */
+.apptoast{position:fixed;right:20px;bottom:44px;z-index:9999;max-width:440px;background:var(--surface-3);border:1px solid var(--border-strong);border-left:3px solid var(--info);border-radius:10px;padding:11px 14px;font-size:12.5px;color:var(--text);box-shadow:var(--shadow);display:none}
+.apptoast.ok{border-left-color:var(--good)} .apptoast.warn{border-left-color:var(--warn)} .apptoast.err{border-left-color:var(--crit)}
+/* estados que faltavam: desabilitado parece desabilitado; foco por teclado visível */
+.btn:disabled,.btn[disabled],.iconbtn:disabled,.as-btn:disabled,.au-btn:disabled{opacity:.45;cursor:not-allowed;filter:none;box-shadow:none}
+:where(button,.btn,.iconbtn,[role=tab],[tabindex]):focus-visible{outline:none;box-shadow:var(--ring)}
+/* arrastar arquivo pra qualquer caixa de chat mostra onde vai soltar */
+.dropping{outline:2px dashed color-mix(in srgb,var(--accent) 60%,transparent)!important;outline-offset:2px;background:color-mix(in srgb,var(--accent) 6%,transparent)!important}
