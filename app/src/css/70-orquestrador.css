@@ -17,14 +17,14 @@
 .orq-ta:focus{border-color:rgba(63,214,138,.55);box-shadow:0 0 0 3px rgba(63,214,138,.12)}
 .orq-ta::placeholder{color:var(--text-3)}
 .orq-chips{display:flex;gap:8px;align-items:center;margin-top:12px}
-.orq-chip{border:1px solid rgba(255,255,255,.14);background:transparent;color:rgba(255,255,255,.75);font:500 12.5px var(--display);padding:8px 14px;border-radius:99px;cursor:pointer}
+.orq-chip{border:1px solid rgba(255,255,255,.14);background:transparent;color:rgba(255,255,255,.75);font:500 12.5px var(--display);padding:8px 14px;border-radius:var(--r-pill);cursor:pointer}
 .orq-chip:hover{border-color:rgba(255,255,255,.3)}
 .orq-msg{margin-top:12px;padding:10px 12px;border-radius:9px;background:rgba(240,180,73,.08);color:var(--warn);font-size:12.5px;white-space:pre-wrap}
 .orq-can{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .orq-can>div{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:var(--card-bg);font-size:13.5px}
 .orq-can i{width:8px;height:8px;transform:rotate(45deg);border-radius:2px;flex:none}
 .orq-briefact{display:flex;align-items:center;gap:14px;margin-top:26px}
-.as-btn.big{padding:12px 22px;font-size:14.5px}
+.as-btn.big{padding:11px 22px;font-size:14px}
 .as-btn.sm{padding:5px 10px;font-size:11.5px}
 .orq-prev{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .orq-prevrow{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;padding:11px 14px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:var(--card-bg);color:var(--text);cursor:pointer;font-family:var(--display);font-size:13px}
@@ -60,7 +60,7 @@
 .orq-node.review{border-color:rgba(91,157,249,.65);box-shadow:0 0 0 1px rgba(91,157,249,.18)}
 .orq-node.asking .orq-term,.orq-node.review .orq-term{border-color:color-mix(in srgb,var(--st) 35%,transparent);background:color-mix(in srgb,var(--st) 7%,#0b0d0c)}
 .orq-askq{white-space:normal!important;color:var(--text)!important;line-height:1.4}
-.orq-stchip{display:inline-flex;align-items:center;gap:5px;font:600 9.5px var(--code);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:99px;flex:none}
+.orq-stchip{display:inline-flex;align-items:center;gap:5px;font:600 9.5px var(--code);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:var(--r-pill);flex:none}
 .orq-stchip.asking{background:rgba(232,120,138,.18);color:var(--st-ask)}
 .orq-stchip.review{background:rgba(91,157,249,.18);color:var(--info)}
 .orq-stchip.running{background:rgba(240,180,73,.15);color:#f0b449}
@@ -74,7 +74,7 @@
 .orq-nn{font-weight:600;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .orq-dot{width:7px;height:7px;border-radius:50%;flex:none}
 .orq-nm{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3)}
-.orq-bar{height:2px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}
+.orq-bar{height:2px;border-radius:var(--r-pill);background:rgba(255,255,255,.1);overflow:hidden}
 .orq-bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
 .orq-term{border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#0b0d0c;padding:6px 8px;font-size:9.5px;color:rgba(255,255,255,.45);display:flex;flex-direction:column;gap:3px;min-height:34px;overflow:hidden}
 .orq-term span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -115,7 +115,7 @@
 .orq-dep{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:7px 9px;border:1px solid rgba(255,255,255,.09);border-radius:9px;cursor:pointer}
 .orq-dep.on{border-color:rgba(63,214,138,.4)}
 .orq-dep .orq-badge{width:18px;height:18px;font-size:8.5px}
-.orq-depchip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:99px;border:1px solid color-mix(in srgb,var(--c) 45%,transparent);color:var(--c);font:500 11px var(--code);margin:2px 4px 2px 0}
+.orq-depchip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:var(--r-pill);border:1px solid color-mix(in srgb,var(--c) 45%,transparent);color:var(--c);font:500 11px var(--code);margin:2px 4px 2px 0}
 .orq-termbox{border:1px solid rgba(255,255,255,.09);border-radius:9px;background:#0b0d0c;padding:9px 11px;font-size:11px;color:rgba(255,255,255,.6);display:flex;flex-direction:column;gap:4px;margin-top:6px;max-height:160px;overflow:auto}
 .orq-termbox div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .orq-rmphase{margin-top:16px;border:0;background:transparent;color:rgba(242,104,92,.8);font:500 12px var(--display);cursor:pointer;text-align:left;padding:0}
@@ -137,7 +137,8 @@
 
 /* ---- layout v2: aba ocupa a largura toda, grafo respira, inspetor legível ---- */
 #orqOverlay.astab .mhead{display:none}
-#orqOverlay.astab .mbody{max-width:none!important;margin:0!important;overflow:hidden!important}
+/* id + .astab (1-2-0) já vence .overlay.astab:not(.fwoverlay) .mbody (0-4-0): sem !important */
+#orqOverlay.astab .mbody{max-width:none;margin:0;overflow:hidden}
 #orqOverlay:not(.astab) .modal{height:92vh}
 .orq-main{grid-template-columns:minmax(0,1fr) 420px}
 .orq-node{padding:13px 15px;gap:8px;border-radius:14px}
@@ -179,13 +180,13 @@
 .orqc-title{font:600 14px var(--display);color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .orqc-st{font-size:10.5px;white-space:nowrap}
 .orqc-sum{font-size:12px;color:rgba(255,255,255,.55);margin-top:6px;line-height:1.45}
-.orqc-bar{height:3px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:10px}
+.orqc-bar{height:3px;border-radius:var(--r-pill);background:rgba(255,255,255,.1);overflow:hidden;margin-top:10px}
 .orqc-bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
 .orqc-phs{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
-.orqc-ph{display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:99px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);font:400 11px var(--display);color:rgba(255,255,255,.75);max-width:220px}
+.orqc-ph{display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:var(--r-pill);border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);font:400 11px var(--display);color:rgba(255,255,255,.75);max-width:220px}
 .orqc-ph i{width:6px;height:6px;border-radius:50%;flex:none}
 .orqc-ph b{font:700 9px var(--code);color:var(--c);flex:none}
-.dc-orq{font:500 10px var(--code);color:var(--accent);border:1px solid rgba(63,214,138,.35);border-radius:99px;padding:2px 8px;white-space:nowrap;flex:none;cursor:pointer}
+.dc-orq{font:500 10px var(--code);color:var(--accent);border:1px solid rgba(63,214,138,.35);border-radius:var(--r-pill);padding:2px 8px;white-space:nowrap;flex:none;cursor:pointer}
 .dc-orq:hover{background:rgba(63,214,138,.12)}
 
 /* conversa com o orquestrador (inspetor do nó Orquestrador) */

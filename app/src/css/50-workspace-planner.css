@@ -280,7 +280,7 @@
 .plfv.auto{color:var(--muted);padding:2px 0}
 textarea.plfv{resize:vertical;line-height:1.5}
 .plarts{display:flex;gap:6px;flex-wrap:wrap}
-.plart{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--muted);font:inherit;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:99px;cursor:pointer}
+.plart{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--muted);font:inherit;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:var(--r-pill);cursor:pointer}
 .plart.on{background:color-mix(in srgb,var(--accent) 16%,transparent);border-color:var(--accent);color:var(--accent)}
 /* requisitos com prova linkada */
 .critrow2{display:flex;gap:9px;align-items:flex-start;font-size:12px;padding:7px 9px;border:1px solid var(--border);background:var(--surface-2);border-radius:8px;margin-bottom:5px;line-height:1.5}
@@ -304,7 +304,7 @@ textarea.plfv{resize:vertical;line-height:1.5}
 .fwctxst .stbadge{text-transform:none;letter-spacing:0}
 .fwctxreq{display:inline-flex;align-items:center;gap:7px;color:var(--text-2);margin-left:auto}
 .fwctxreq b{font-variant-numeric:tabular-nums}
-.minibar{width:54px;height:4px;border-radius:99px;background:var(--surface-3);overflow:hidden;display:inline-block}
+.minibar{width:54px;height:4px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden;display:inline-block}
 .minibar i{display:block;height:100%;background:var(--accent)}
 .fwchev{color:var(--muted);font-size:10px;margin-left:8px}
 .fwctxbar .fwctxreq+.fwchev{margin-left:8px}
@@ -333,7 +333,7 @@ textarea.plfv{resize:vertical;line-height:1.5}
 /* modal "Preparando o PR" (redesign p13) */
 .prepstep{display:flex;gap:11px;align-items:flex-start;padding:11px 4px;border-bottom:1px dashed var(--border)}
 .prepstep:last-of-type{border-bottom:0}
-.prepstep .ps{width:22px;height:22px;border-radius:99px;border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);flex:none}
+.prepstep .ps{width:22px;height:22px;border-radius:var(--r-pill);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);flex:none}
 .prepstep .ps.run{color:var(--accent);border-color:var(--accent);animation:pulse 1.2s infinite}
 .prepstep .ps.ok{color:var(--good);border-color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
 .prepstep .ps.fail{color:var(--crit);border-color:var(--crit);background:color-mix(in srgb,var(--crit) 12%,transparent)}
@@ -353,7 +353,7 @@ textarea.plfv{resize:vertical;line-height:1.5}
 .prlink{font-size:12px;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:0}
 .prlink svg{width:13px;height:13px}
 .prlink:hover{text-decoration:underline}
-.prbadge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:100px;border:1px solid var(--border-strong);color:var(--muted)}
+.prbadge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:var(--r-pill);border:1px solid var(--border-strong);color:var(--muted)}
 .prbadge.ok{color:var(--good);border-color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
 .prbadge.chg{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
 .prcmts{display:flex;flex-direction:column;gap:7px;margin-top:9px;max-height:260px;overflow:auto}
@@ -393,7 +393,7 @@ textarea.plfv{resize:vertical;line-height:1.5}
 .progbox{margin:11px 0 2px;padding:10px 11px;border:1px solid var(--border);border-radius:var(--r-sm);background:color-mix(in srgb,var(--good) 6%,var(--surface-2))}
 .progh{font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}
 .progchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.pchip{font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:2px 9px;font-variant-numeric:tabular-nums}
+.pchip{font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 9px;font-variant-numeric:tabular-nums}
 .pchip.live{border-color:color-mix(in srgb,var(--good) 40%,var(--border))}
 /* instrução mid-run */
 .instrbox{margin:13px 0 4px;padding:11px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2)}
