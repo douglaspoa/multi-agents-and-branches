@@ -104,3 +104,22 @@
 .trk-issue.has-ep.unseen{border-left-color:var(--warn)}
 .trk-epb{font:600 9.5px var(--code);color:var(--epc,var(--accent));border:1px solid color-mix(in srgb,var(--epc,var(--accent)) 40%,transparent);border-radius:var(--r-pill);padding:0 6px}
 .trk-epd{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+/* R3-C3: o quadro cabe — colunas de 200px no mínimo (o resto rola DENTRO do quadro), cartão sem quebra feia:
+   nome e selo com reticências, ícone+número de comentários na mesma linha, busca com o placeholder inteiro */
+.trk-boardwrap{min-width:0}
+.trk-board{overscroll-behavior-x:contain}
+.trk-col{min-width:200px}
+.trk-colh{white-space:nowrap;min-width:0}
+.trk-ih{min-width:0}
+.trk-if{min-width:0;white-space:nowrap}
+.trk-if .trk-who{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+.trk-if .trk-sp{flex:1 1 4px;min-width:4px}
+.trk-if .trk-cc{display:inline-flex;align-items:center;gap:2px;flex:none;white-space:nowrap}
+.trk-if .trk-ago{flex:none}
+.trk-tl{display:flex;margin:-3px 0 8px;min-width:0}
+.trk-tl .trk-task{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:var(--stc,var(--accent));border-color:color-mix(in srgb,var(--stc,var(--accent)) 40%,transparent)}
+.trk-ih .trk-pri,.trk-ih .trk-code{flex:none}
+.trk-ih .trk-epb{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trk-tools .sk-search{min-width:290px;flex:0 1 320px}
+.trk-tools .sk-search input{min-width:0;text-overflow:ellipsis}
+.trk-epgh .mono{flex:none}

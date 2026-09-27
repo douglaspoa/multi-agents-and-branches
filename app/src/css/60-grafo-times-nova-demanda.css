@@ -557,8 +557,8 @@ body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpe
 /* fila dos épicos no quadro de Tarefas (46-epico-time.js: epBoardHtml) */
 .epq{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px dashed var(--border-strong); border-radius:var(--r-sm); margin-bottom:6px; cursor:pointer; background:var(--surface-2); }
 .epq:hover{ border-color:color-mix(in srgb, var(--accent) 45%, transparent); }
-.epq-dot{ width:8px; height:8px; border-radius:var(--r-pill); margin-top:5px; background:var(--warn); flex:none; }
-.epq-dot.ok{ background:var(--accent); }
+.epq-dot{ width:8px; height:8px; border-radius:var(--r-pill); margin-top:5px; background:var(--stc,var(--muted)); border:1.5px solid var(--stc,var(--muted)); box-sizing:border-box; flex:none; }
+.epq-dot.wait{ background:transparent; } /* na espera de outra tarefa = anel; pronta = cheio (cor = STATUS, nunca a do épico) */
 .epq-body{ min-width:0; flex:1; }
 .epq-t{ font-size:13px; color:var(--text); }
 .epq-m{ display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; margin-top:3px; font-size:11px; color:var(--muted); }
@@ -579,7 +579,6 @@ body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpe
 .epqh .btn{ padding:3px 9px; font-size:10.5px; }
 .epqh .secchev{ color:var(--text-3,var(--muted)); font-size:10px; width:10px; }
 .epqep .epq{ border-style:solid; border-color:var(--border); }
-.epqep .epq-dot.ok{ background:var(--epc,var(--accent)); }
 .epqpop{ position:fixed; z-index:9000; min-width:210px; background:var(--surface); border:1px solid var(--border-strong); border-radius:10px; box-shadow:0 14px 40px rgba(0,0,0,.5); padding:5px; }
 .epqpop button{ display:block; width:100%; text-align:left; border:0; background:none; color:var(--text); font:inherit; font-size:12.5px; padding:8px 10px; border-radius:7px; cursor:pointer; }
 .epqpop button:hover{ background:var(--surface-2); }
@@ -607,3 +606,28 @@ body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpe
 #cloudOverlay .btn.ghost,.enpage .btn.ghost,#projetosOverlay .pc2acts .btn,#ntOverlay .mbody .btn.sm,.nf-foot .btn.nf-ghost{background:transparent;border:1px solid var(--border-strong);box-shadow:none;color:var(--text-2);font:500 12px var(--display);border-radius:var(--r-sm);padding:6px 11px;text-transform:none;letter-spacing:0}
 .btn.ghost.outline:hover,
 #cloudOverlay .btn.ghost:hover,.enpage .btn.ghost:hover,#projetosOverlay .pc2acts .btn:hover,#ntOverlay .mbody .btn.sm:hover,.nf-foot .btn.nf-ghost:hover{color:var(--text);border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.03)}
+
+/* ---- R3-C1: cabeçalho do grupo de épico resume o épico INTEIRO (46 epqSummaryHtml) ---- */
+.epqh .epqsum{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
+.epqh .epqk b{ color:var(--text); font-weight:600; }
+.epqh .epqsep{ color:var(--text-3,var(--muted)); font-size:11px; }
+.epqh .epqk-run{ color:var(--st-run); } .epqh .epqk-ask{ color:var(--st-ask); } .epqh .epqk-rev{ color:var(--st-review); }
+.epqh .epqk-pr{ color:var(--info); } .epqh .epqk-bad{ color:var(--st-err); } .epqh .epqk-queue{ color:var(--text-2); }
+.epq-wv{ cursor:help; text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent); text-underline-offset:3px; }
+.epqdots{ display:inline-flex; gap:4px; align-items:center; margin-left:6px; padding:3px 6px; border:1px solid var(--border); border-radius:var(--r-pill); }
+.epqdot{ width:9px; height:9px; padding:0; border-radius:50%; border:0; background:var(--stc,var(--muted)); cursor:pointer; flex:none; }
+.epqdot:hover,.epqdot:focus-visible{ outline:2px solid var(--stc,var(--muted)); outline-offset:2px; }
+.epqh .btn.ghost{ border:1px solid var(--border-strong); color:var(--text-2); }
+
+/* ---- R3-C2: página do épico — status 1x, faixa compacta de números, 1 primária, códigos com legenda ---- */
+.enpage .ep-st{ color:var(--text-2); }
+.enpage .ep-st-in-progress{ color:var(--st-run); } .enpage .ep-st-done{ color:var(--st-done); }
+.en-kpis.ep-kpis{ gap:6px; margin:12px 0 10px; }
+.ep-kpis .en-kpi{ flex-direction:row; align-items:baseline; gap:6px; min-width:0; padding:5px 10px; border-radius:var(--r-pill); }
+.ep-kpis .en-kpi b{ font-size:13px; }
+.ep-kpis .en-kpi span{ font-size:10.5px; }
+.enpage .ep-acts .btn{ padding:3px 9px; font-size:10.5px; }
+.ep-code{ cursor:help; text-decoration:underline dotted color-mix(in srgb,currentColor 50%,transparent); text-underline-offset:3px; }
+/* "iniciar mesmo assim" = ghost de verdade (tracejado, apagado) — nunca compete com a primária */
+.enpage .ep-acts .btn.ghost,.epq-acts .btn.ghost[data-epqgo]{ border:1px dashed var(--border-strong); background:transparent; color:var(--text-3,var(--muted)); box-shadow:none; }
+.enpage .ep-acts .btn.ghost:hover,.epq-acts .btn.ghost[data-epqgo]:hover{ color:var(--text); border-style:solid; }
