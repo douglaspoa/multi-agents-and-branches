@@ -15,6 +15,10 @@
 <link rel="stylesheet" href="css/80-ajustes-cards.css">
 <link rel="stylesheet" href="css/81-chat.css">
 <link rel="stylesheet" href="css/82-issues.css">
+<!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
+     offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link id="ndFonts" rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
 <body>
 <div class="app">

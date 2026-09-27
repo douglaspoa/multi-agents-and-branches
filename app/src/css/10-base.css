@@ -224,7 +224,7 @@ body{
 /* ===== tokens de status (fonte única — ver STATUS_META em js/00-util.js) ===== */
 :root{
   --st-run:var(--good); --st-ask:#e8788a; --st-review:var(--warn); --st-done:var(--info); --st-err:var(--crit);
-  --text-3:rgba(233,237,239,.52); --r-pill:999px;
+  --text-3:rgba(233,237,239,.52); --r-pill:999px; --card-bg:#101312;
   --display:'Instrument Sans',var(--ui); --code:'JetBrains Mono',var(--mono);
   /* aliases de nomes que o código já usava sem existir */
   --ok:var(--good); --err:var(--crit); --bad:var(--crit); --text-dim:var(--muted); --dim:var(--muted); --dim2:var(--text-3);

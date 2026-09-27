@@ -4,7 +4,7 @@
 // Plano fica em .cardume/orchestrations/<id>.json; a coordenação (iniciar uma fase
 // quando as anteriores PROVARAM o resultado) roda aqui, no app, a cada refresh.
 const ORQ_KINDS={ invest:{label:'Investigar', badge:'IN', color:'#b47ce0', branch:'invest', doc:'INVESTIGATION.md', agent:'Investigador'},
-                  design:{label:'Desenhar',   badge:'DS', color:'#5b9df9', branch:'design', doc:'DESIGN.md', agent:'Designer'},
+                  design:{label:'Desenhar',   badge:'DS', color:'var(--info)', branch:'design', doc:'DESIGN.md', agent:'Designer'},
                   build: {label:'Implementar',badge:'IM', color:'#3fd68a', branch:'feat',   doc:null, agent:'Coder'},
                   review:{label:'Revisar',    badge:'CR', color:'#4fc4c9', branch:'review', doc:'REVIEW.md', agent:'Revisor'} };
 function orqNewState(){ return { step:'brief', briefing:'', atts:[], plan:null, sel:null, zoom:1, pan:{x:40,y:40}, busy:false, msg:'', list:null, addOpen:false, model:'', chatDraft:'', chatBusy:false, chatAtts:[] }; }
@@ -21,7 +21,8 @@ function orqNewId(){ return 'orq-'+Date.now().toString(36)+Math.random().toStrin
 // ---- estado de cada fase (planejado · esperando · na fila · rodando · pronto · erro) ----
 // Um estado = uma cor = uma ação. Rodando (amarelo) · perguntou, responda (rosa) · entregou,
 // revise (azul) · pronto (verde) · erro (vermelho) · esperando (cinza).
-const ORQ_ST={ running:'#f0b449', asking:'#e8788a', review:'#5b9df9', done:'#3fd68a', error:'#f2685c', waiting:'rgba(255,255,255,.4)' };
+// cores do grafo do orquestrador: tokens do tema (aqui "rodando" é âmbar de propósito — fase em andamento)
+const ORQ_ST={ running:'var(--warn)', asking:'var(--st-ask)', review:'var(--info)', done:'var(--good)', error:'var(--crit)', waiting:'var(--text-3)' };
 function orqPhaseState(ph){
   const t=orqTaskOf(ph);
   if(!t) return { key:'planned', label:'planejado', color:ORQ_ST.waiting };
@@ -201,7 +202,7 @@ function orqRenderBrief(body){
       <div><i style="background:#3fd68a"></i>Quebrar em fases com dependência: uma só começa quando a anterior provar o resultado</div>
       <div><i style="background:#4fc4c9"></i>Abrir um subagente por fase, cada um com branch e worktree isoladas</div>
       <div><i style="background:#b47ce0"></i>Rodar em paralelo o que não depende de ninguém</div>
-      <div><i style="background:#e8788a"></i>Parar e te perguntar sempre que a decisão for sua</div>
+      <div><i style="background:var(--st-ask)"></i>Parar e te perguntar sempre que a decisão for sua</div>
     </div>
     <div class="orq-briefact"><button class="as-btn primary big" id="orqGo" ${orq.briefing.trim().length<12?'disabled':''}>Montar o plano</button><span class="dim" style="font-size:12px">${orq.briefing.trim().length<12?'escreva pelo menos uma frase completa':'o plano aparece como grafo — nada roda antes de você aprovar'}</span></div>`}
     ${prev.length?`<div class="ndeyebrow" style="margin-top:34px">planos anteriores</div><div class="orq-prev">${prev.map(p=>`<button class="orq-prevrow" data-orqopen="${escA(p.id)}"><b>${esc(p.title||'plano')}</b><span class="mono dim">${orqProjName(p)?esc(orqProjName(p))+' · ':''}${(p.phases||[]).length} fases · ${esc(p.status==='planned'?'não aprovado':p.status==='done'?'concluído':'rodando')} · ${esc(typeof agoTx==='function'?agoTx(new Date(p.createdAt).toISOString()):'')}</span></button>`).join('')}</div>`:''}

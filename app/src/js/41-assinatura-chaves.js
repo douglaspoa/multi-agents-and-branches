@@ -228,7 +228,7 @@ function wireRouteAiCfg(root){
   { const tb=$('raTest'); if(tb) tb.onclick=async()=>{
       const msg=$('raTestMsg'); msg.style.color='var(--muted)'; msg.textContent='testando…'; tb.disabled=true;
       try{ const r=await invoke('route_ai_ping'); msg.textContent='✓ '+r; msg.style.color='var(--ok,#3fb950)'; }
-      catch(e){ msg.textContent='✕ '+String(e); msg.style.color='var(--err,#f85149)'; }
+      catch(e){ msg.textContent='✕ '+String(e); msg.style.color='var(--crit)'; }
       tb.disabled=false;
     }; }
 }

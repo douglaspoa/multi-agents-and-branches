@@ -28,7 +28,7 @@ const AU_LEFT={
   newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres'],['c','Vale em todos os seus Macs'],['p','Sessões antigas continuam válidas']], f:'a senha nunca sai da sua máquina em texto' },
   ready:{ h:'Tudo pronto — falta só o repo', s:'Sua conta está ativa nesta máquina. Conecte o repositório e escreva a primeira demanda.', b:[['g','Ambiente checado automaticamente'],['c','Workflows do time já sincronizados'],['p','Companion mobile pareado']], f:'teste em andamento' },
 };
-const AU_DOT={ g:'#3fdd8a', c:'#5ec8c8', p:'#c493bb' };
+const AU_DOT={ g:'var(--accent)', c:'#5ec8c8', p:'#c493bb' };
 function auLeftHtml(step){
   const L=AU_LEFT[step]||AU_LEFT.signup;
   return `<canvas class="cosmos-c au-sky"></canvas><div class="au-lin">
@@ -140,7 +140,7 @@ function auRender(){
     const trial=(myBilling&&myBilling.status==='trialing'&&myBilling.trial_end)?Math.max(0,Math.ceil((new Date(myBilling.trial_end)-Date.now())/864e5)):0;
     const hasRepo=!!(state&&state.repo);
     R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos neste Mac.`:'Sua conta está ativa neste Mac.'}</p>
-      <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:#3fdd8a">1</span><span>Conectar o repositório que os agentes vão trabalhar</span>${hasRepo?'<span class="au-tdone">✓ conectado</span>':'<button class="au-link" id="auRepo">conectar</button>'}</div>
+      <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:var(--accent)">1</span><span>Conectar o repositório que os agentes vão trabalhar</span>${hasRepo?'<span class="au-tdone">✓ conectado</span>':'<button class="au-link" id="auRepo">conectar</button>'}</div>
         <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Checar o ambiente: Node, Git, Claude Code e gh</span><button class="au-link" id="auEnv">verificar</button></div>
         <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:''}</span><button class="au-link" id="auTeam">convidar</button></div></div>
       <button class="au-btn primary big" id="auGo">Abrir o cockpit</button></div>`;

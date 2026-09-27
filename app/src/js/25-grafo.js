@@ -172,7 +172,7 @@ function renderRail(){
   const tagOf=(t)=>{
     if(pendingOf(t.id).length) return ['⏳','var(--warn)'];
     if(t.status==='plan-review') return ['plano','var(--warn)'];
-    if(t.prUrl&&t.status!=='merged') return ['PR','var(--info,#5b9df9)'];
+    if(t.prUrl&&t.status!=='merged') return ['PR','var(--info)'];
     if(['review','delivered'].includes(t.status)) return ['rev','var(--warn)'];
     if(t.status==='queued') return ['fila','var(--muted)'];
     if(t.status==='paused') return ['pausa','var(--muted)'];

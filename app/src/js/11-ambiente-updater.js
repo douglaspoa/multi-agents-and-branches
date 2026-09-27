@@ -16,14 +16,14 @@ function renderEnv(){
   if(!envChecks){ el.innerHTML='<div class="appscreen">'+cosmosHtml('verificando o ambiente…')+'</div>'; return; }
   const okN=envChecks.filter(c=>c.ok).length, tot=envChecks.length, bad=tot-okN;
   const banner = bad
-    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px 'Instrument Sans',sans-serif">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} ok</span></div>`
-    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px 'Instrument Sans',sans-serif">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} checagens ok</span></div>`;
+    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} ok</span></div>`
+    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:rgba(255,255,255,.4)">${okN} de ${tot} checagens ok</span></div>`;
   const cards=envChecks.map(c=>`<div class="as-card" style="display:flex;gap:13px;align-items:flex-start">
     <span class="as-chk" style="background:${c.ok?'var(--accent)':'var(--warn)'}">${c.ok?'✓':'!'}</span>
     <div style="min-width:0;flex:1">
-      <div style="font:600 14.5px 'Instrument Sans',sans-serif">${esc(c.name)}</div>
-      <div style="margin-top:6px;font:400 11.5px/1.5 'JetBrains Mono',monospace;color:rgba(255,255,255,.4);word-break:break-all">${esc(c.detail||'')}</div>
-      ${c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:9px"><code class="as-mono" style="font-size:11.5px;background:#141817;border:1px solid rgba(255,255,255,.1);padding:5px 9px;border-radius:6px;color:#eaf2ee">${esc(c.fix)}</code><button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}
+      <div style="font:600 14.5px var(--display)">${esc(c.name)}</div>
+      <div style="margin-top:6px;font:400 11.5px/1.5 var(--code);color:rgba(255,255,255,.4);word-break:break-all">${esc(c.detail||'')}</div>
+      ${c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:9px"><code class="as-mono" style="font-size:11.5px;background:#141817;border:1px solid rgba(255,255,255,.1);padding:5px 9px;border-radius:6px;color:var(--text)">${esc(c.fix)}</code><button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}
     </div></div>`).join('');
   el.innerHTML=`<div class="appscreen">
     <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>
