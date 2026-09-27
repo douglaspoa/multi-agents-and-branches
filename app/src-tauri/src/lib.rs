@@ -3237,7 +3237,7 @@ static PLANNER_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32:
 #[tauri::command]
 fn ai_chat_stop() -> bool {
     let pid = PLANNER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, libc::SIGKILL); true } else { false }
+    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
 
 /// Planner conversando. Roda o claude em stream-json e, a cada tool_use, emite `planner-activity`
@@ -3272,7 +3272,7 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    cmd.process_group(0); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
+    detach_new_group(&mut cmd); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     let pid = child.id() as i32;
@@ -3282,7 +3282,7 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let timed_out2 = timed_out.clone();
     let watch = std::thread::spawn(move || {
-        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { timed_out2.store(true, std::sync::atomic::Ordering::SeqCst); signal_group(pid, libc::SIGKILL); }
+        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { timed_out2.store(true, std::sync::atomic::Ordering::SeqCst); signal_group(pid, procsig::KILL); }
     });
     // lê o stream linha a linha: tool_use → evento pro chat; result → resposta final
     let stdout = child.stdout.take().ok_or("sem stdout do claude")?;
