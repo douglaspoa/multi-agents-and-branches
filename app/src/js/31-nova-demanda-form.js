@@ -580,3 +580,6 @@ function fillFromSpec(spec){
   $id('aiAssist').style.display='none';
   $id('ntTitle').focus();
 }
+// objetivo / detalhes / contexto / sintoma: colar (⌘V) um print ou arrastar um arquivo pro texto vira ANEXO da
+// demanda (mesma lista do botão "anexar") — igual ao composer dos chats; texto colado continua texto
+[['ntObj',()=>ntRefs,renderNtRefs],['ntFixObj',()=>ntFixRefs,renderFixRefs],['ntDzObj',()=>ntDzRefs,renderDzRefs],['ntInvObj',()=>ntInvRefs,renderInvRefs]].forEach(([id,arr,render])=>attWireRefField(id,arr,render));

@@ -22,7 +22,8 @@ function plRenderRefs(){
   el.querySelectorAll('.plrefx').forEach(b=>b.onclick=()=>{ plRefs.splice(+b.dataset.r,1); plRenderRefs(); });
 }
 // anexos do planner: composer único; o que entra também vira ref da tarefa criada
-function plWireComposer(){ attWireComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); } }); }
+function plWireComposer(){ chatComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); },
+  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop }, busyHint:'a IA está pensando · ■ parar interrompe — dá pra ir escrevendo a próxima' }); }
 function plVal(k){ if(k==='engine'&&plFields.engineLabel) return plFields.engineLabel; if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
@@ -75,11 +76,12 @@ function renderPlanner(){
   // chat
   const th=$id('plThread');
   const ci=document.activeElement, keep=(ci&&ci.id==='plInput'), iv=$id('plInput')?$id('plInput').value:null;
-  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):`<div class="plmsg ${m.who}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(m.text):esc(m.text)+attRowHtml(m.atts)}</div></div>`).join('')+(plBusy?'<div class="plmsg bot"><span class="plav">✦</span><div class="plbub think"><span class="pltyping"><i></i><i></i><i></i></span><div class="placts" id="plActs">'+plActsHtml()+'</div></div></div>':'')+(plPlanCtx.origin?'':plPlanCardHtml());
-  { const st=$id('plStop'); if(st) st.style.display=plBusy?'':'none'; const sd=$id('plSend'); if(sd) sd.disabled=!!plBusy; }
+  const stick=stickBottom(th);
+  th.innerHTML=plMsgs.map(m=>m.kind==='model'?plModelCardHtml(m):chatMsgHtml(m)).join('')+(plBusy?chatThinkHtml('<span class="pltyping"><i></i><i></i><i></i></span><div class="placts" id="plActs">'+plActsHtml()+'</div>'):'')+(plPlanCtx.origin?'':plPlanCardHtml());
   if(!plPlanCtx.origin) plWirePlanCard(); plWireModelCard(th);
   attRenderPend('plPend', plPend, renderPlanner);
-  th.scrollTop=th.scrollHeight;
+  plWireComposer(); // composer único: Enter, anexos, auto-altura, ■ parar e a dica — tudo no mesmo lugar
+  stick(th);
   // chips
   const chipsEl=$id('plChips');
   chipsEl.innerHTML=(plChips||[]).map((c,i)=>`<button class="plchip" data-chip="${i}">${esc(c)}</button>`).join('');
@@ -314,7 +316,7 @@ async function plSend(text){
   if(!text) return;
   const myTab=activeTab; // a aba que perguntou
   const inp=$id('plInput'); if(inp) inp.value='';
-  plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; plActs=[]; plStopping=false; renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
+  plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; plActs=[]; plStopping=false; chatPinBottom('plThread'); renderPlanner(); // miniatura fica na memória; o rascunho salva só o essencial
   plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
   let r=null, err=null;
   try{
@@ -383,14 +385,13 @@ async function plCreate(){
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;
-{ const st=$id('plStop'); if(st) st.onclick=plStop; }
 $id('plNew').onclick=plNew;
 plWireComposer();
 $id('plSend').onclick=()=>plSend($id('plInput').value);
-$id('plInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); plSend($id('plInput').value); } });
 $id('plInput').addEventListener('input',()=>plAutoSave()); // persiste o texto em digitação (sobrevive a queda antes de enviar)
 $id('plannerOverlay').addEventListener('click',e=>{ if(e.target.id==='plannerOverlay') closePlanner(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none') closePlanner(); });
+// Esc digitando (ou com modal por cima) é do campo — antes fechava a aba no meio da frase
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none'&&!escBusy(e)) closePlanner(); });
 
 // aplica o destino Time (local/self/team) a QUALQUER modo de criação;
 // devolve true quando virou cartão do time (não roda nesta máquina)

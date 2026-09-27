@@ -201,12 +201,7 @@
 .orq-chatbtn svg{margin-right:6px;vertical-align:-2px}
 .orq-chatin .as-btn svg{margin-right:5px}
 .orq-cm{font-size:12.5px;line-height:1.5;padding:8px 10px;border-radius:9px;max-width:92%;overflow-wrap:anywhere}
-.orq-cm.you{align-self:flex-end;background:var(--accent);color:var(--on-accent,#04241a);border-bottom-right-radius:3px}
-.orq-cm.bot{align-self:flex-start;background:rgba(255,255,255,.06);color:#eaf2ee;border-bottom-left-radius:3px}
-.orq-cm.bot p{margin:0 0 6px}.orq-cm.bot p:last-child{margin:0}.orq-cm.bot ul,.orq-cm.bot ol{margin:4px 0 6px 18px;padding:0}.orq-cm.bot code{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.08);padding:1px 4px;border-radius:4px}.orq-cm.bot pre{font-family:var(--mono);font-size:11px;background:rgba(0,0,0,.35);padding:8px;border-radius:6px;overflow:auto}
-.orq-cm.sys{align-self:center;font-size:11px;color:rgba(255,255,255,.55);background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);text-align:center;max-width:100%}
 .orq-cm.hint{align-self:stretch;font-size:12px;color:rgba(255,255,255,.45);background:transparent;padding:4px 2px;max-width:100%}
-.orq-cm.think{padding:10px 14px}
 .orq-chatin{display:flex;gap:8px;align-items:flex-end;margin-top:8px}
 .orq-chatin textarea{flex:1;min-width:0;resize:none;font:inherit;font-size:12.5px;line-height:1.45;color:#eaf2ee;background:#0f1211;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:8px 10px;outline:none}
 .orq-chatin textarea:focus{border-color:var(--accent)}
@@ -214,8 +209,6 @@
 .orq-chatin .orq-attbtn{padding:8px 9px;display:grid;place-items:center;flex:none}
 .orq-chatin .orq-attbtn svg{width:14px;height:14px}
 .orq-chatin textarea.dropping{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,#0f1211)}
-.orq-cm.you .attchip{background:rgba(0,0,0,.18);border-color:rgba(0,0,0,.25);color:inherit}
-.orq-cm.you .attsz,.orq-cm.you .attic{color:inherit;opacity:.8}
 .orq-obj.defer .orq-chk{background:rgba(240,180,73,.18);color:#f0b449;border-color:rgba(240,180,73,.5)}
 .orq-obj.blk .orq-chk{background:rgba(242,104,92,.18);color:#f2685c;border-color:rgba(242,104,92,.5)}
 .orq-objnote{display:block;font-size:11px;line-height:1.45;color:rgba(255,255,255,.5);margin-top:4px}

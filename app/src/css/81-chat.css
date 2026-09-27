@@ -60,12 +60,49 @@
    Aqui reabilita de verdade (com prefixo) no conteúdo dos 3 chats. */
 .cbub, .cbub *,
 .plbub, .plbub *,
-.pc-bub, .pc-bub *,
 .csys, .cact, .ctool {
   -webkit-user-select: text;
   user-select: text;
 }
-.cbub, .plbub, .pc-bub { cursor: text; }
+.cbub, .plbub { cursor: text; }
+/* conversa com o orquestrador: dava pra ver mas não copiar */
+.orq-cm, .orq-cm *, .orq-chat .plbub, .orq-chat .plbub * { -webkit-user-select: text; user-select: text; }
+
+/* ---------- CHAT ÚNICO: planner, chat do projeto, nova issue e orquestrador usam a MESMA bolha ----------
+   (chatMsgHtml em js/30-anexos.js). Você = bolha discreta igual à do chat da tarefa; IA = ✦ + markdown + copiar. */
+.plbub { position: relative; }
+.plmsg.bot .plbub:not(.think):not(.plmodel) { padding-right: 30px; }
+.plbub:hover .ccopy { opacity: .85; }
+.plmsg.bot .ccopy { background: var(--surface-3); }
+.plmsg.you .plbub {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px 5px 16px 16px;
+  box-shadow: none;
+  white-space: pre-wrap;
+}
+.plmsg.you .plbub strong { color: var(--text); }
+.plmsg.you .attchip { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+.plmsg.you .attsz, .plmsg.you .attic { color: var(--muted); opacity: 1; }
+/* mesmas bolhas dentro de cada tela */
+.pc-thread .plmsg { max-width: 86%; }
+.pc-thread .plmsg.sys { max-width: 92%; }
+.orq-chat .plmsg { max-width: 100%; gap: 8px; }
+.orq-chat .plmsg.you { max-width: 92%; }
+.orq-chat .plbub { font-size: 12.5px; padding: 8px 11px; }
+.orq-chat .plmsg.bot .plbub:not(.think) { padding-right: 28px; }
+.orq-chat .plav { width: 20px; height: 20px; font-size: 10.5px; }
+
+/* ---------- linha de dica do composer (mesmo texto em todos os chats) ---------- */
+.chathint { font-size: 10.5px; color: var(--muted); padding: 0 18px 10px; background: var(--bg); letter-spacing: .01em; }
+.chathint.busy { color: var(--text-2); }
+.plinput:has(+ .chathint) { padding-bottom: 6px; }
+.chatinput:has(+ .chathint) { padding-bottom: 6px; }
+.orq-chatin + .chathint { padding: 5px 2px 0; background: transparent; }
+#pcOverlay.astab .chatinput + .chathint { max-width: 1040px; width: calc(100% - 68px); margin: -14px auto 12px; padding: 0 4px; background: transparent; }
+#pcOverlay.astab .chatinput:has(+ .chathint) { padding-bottom: 12px; }
+.plta, #pcInput, #orqChatTa { overflow-y: hidden; }
 
 /* ---------- resultado de tool: linha sutil (sem pill), estilo Claude ---------- */
 .ctool {

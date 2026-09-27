@@ -388,6 +388,36 @@ fn ai_branch_name(title: &str) -> Option<String> {
     if name.len() >= 8 && name.len() <= 48 && name != "tarefa" { Some(name) } else { None }
 }
 
+#[cfg(all(test, unix))]
+mod stoppable_tests {
+    use super::*;
+    static TEST_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+    #[test]
+    fn output_stoppable_para_e_devolve_marcador() {
+        let h = std::thread::spawn(|| {
+            let mut c = Command::new("sh");
+            c.args(["-c", "sleep 20"]);
+            output_stoppable(c, 30, &TEST_PID, "TEST_STOPPED")
+        });
+        let t0 = std::time::Instant::now();
+        while TEST_PID.load(std::sync::atomic::Ordering::SeqCst) == 0 && t0.elapsed().as_secs() < 5 { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        assert!(stop_slot(&TEST_PID));
+        let r = h.join().unwrap();
+        assert_eq!(r.err().as_deref(), Some("TEST_STOPPED"));
+        assert!(t0.elapsed().as_secs() < 10);
+        assert!(!stop_slot(&TEST_PID)); // nada rodando → false
+    }
+    #[test]
+    fn output_stoppable_ok_quando_termina() {
+        static P2: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+        let mut c = Command::new("sh");
+        c.args(["-c", "echo oi"]);
+        let o = output_stoppable(c, 10, &P2, "X").unwrap();
+        assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "oi");
+        assert_eq!(P2.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+}
+
 #[cfg(test)]
 mod slug_tests {
     use super::slug_id;
@@ -547,6 +577,39 @@ fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, S
         Ok(_) => Err(format!("comando expirou após {secs}s (rede indisponível?)")),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Igual ao output_timeout, mas PARÁVEL: o processo nasce num grupo próprio
+/// (detach_new_group) e o pid fica em `slot` pra um comando *_stop derrubar o grupo
+/// inteiro (signal_group). Parado pelo usuário → Err(`stopped`); estourou o tempo →
+/// Err("comando expirou…"). Mesmo padrão do issue_chat/ISSUE_CHAT_PID.
+fn output_stoppable(mut cmd: Command, secs: u64, slot: &'static std::sync::atomic::AtomicI32, stopped: &str) -> Result<std::process::Output, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    detach_new_group(&mut cmd);
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    let pid = child.id() as i32;
+    slot.store(pid, Ordering::SeqCst);
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let timed_out = std::sync::Arc::new(AtomicBool::new(false));
+    let timed_out2 = timed_out.clone();
+    let watch = std::thread::spawn(move || {
+        if rx.recv_timeout(std::time::Duration::from_secs(secs)).is_err() { timed_out2.store(true, Ordering::SeqCst); signal_group(pid, procsig::KILL); }
+    });
+    let out = child.wait_with_output();
+    let _ = tx.send(());
+    let _ = watch.join();
+    // só zera se ainda for o MEU pid (outra chamada pode ter começado)
+    let _ = slot.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst);
+    let out = out.map_err(|e| e.to_string())?;
+    if out.status.code().is_none() {
+        return Err(if timed_out.load(Ordering::SeqCst) { format!("comando expirou após {secs}s (rede indisponível?)") } else { stopped.to_string() });
+    }
+    Ok(out)
+}
+fn stop_slot(slot: &std::sync::atomic::AtomicI32) -> bool {
+    let pid = slot.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
 
 /// Envia um sinal ao GRUPO de processos — atinge node + claude.
@@ -3389,7 +3452,7 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 300)?;
+    let out = output_stoppable(cmd, 300, &ORQ_CHAT_PID, "ORQ_CHAT_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
@@ -4411,6 +4474,17 @@ fn apply_update(url: String) -> Result<(), String> {
     Ok(())
 }
 
+static PROJECT_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static ORQ_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// PARA a resposta em andamento do Chat do projeto (mata o grupo do claude → PROJECT_CHAT_STOPPED).
+#[tauri::command(async)]
+fn project_chat_stop() -> Result<bool, String> { Ok(stop_slot(&PROJECT_CHAT_PID)) }
+
+/// PARA a resposta em andamento da conversa com o orquestrador (→ ORQ_CHAT_STOPPED).
+#[tauri::command(async)]
+fn orq_chat_stop() -> Result<bool, String> { Ok(stop_slot(&ORQ_CHAT_PID)) }
+
 /// Chat do PROJETO: conversa livre sobre o repo (arquitetura, dúvidas, ideias)
 /// com leitura REAL do código — sem tarefa e sem editar nada. A conversa pode
 /// virar tarefa depois (a UI pede a spec pro mesmo session).
@@ -4437,7 +4511,7 @@ fn project_chat(state: State<AppState>, prompt: String, session_id: Option<Strin
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 240)?;
+    let out = output_stoppable(cmd, 240, &PROJECT_CHAT_PID, "PROJECT_CHAT_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
@@ -6357,6 +6431,8 @@ pub fn run() {
             tracker_ai_build,
             issue_chat,
             issue_chat_stop,
+            project_chat_stop,
+            orq_chat_stop,
             create_skill,
             import_skill_md,
             git_skills,
