@@ -6,7 +6,7 @@
 // A config mora na nuvem (issue_trackers, uma por time) com cache local (~/.constellation/issue-tracker.json).
 // VALOR de chave nunca entra aqui: o conector cita {{secret.NOME}} e o Rust (tracker_http) preenche.
 let trk=null, trkView='board', trkMsg='', trkBusy='', trkDocFiles=[], trkLoadedFor=null;
-let trkIssues=[], trkIssuesAt=0, trkErr='', trkQ='', trkFilter='all', trkSel=null, trkComments=null, trkMoreDone=false, trkNI=null; // trkNI: a aba "Nova issue" (conversa + rascunhos)
+let trkIssues=[], trkIssuesAt=0, trkErr='', trkQ='', trkFilter=lsGet('trkFilter')||'all', trkSel=null, trkComments=null, trkMoreDone=false, trkNI=null; // trkNI: a aba "Nova issue" (conversa + rascunhos)
 let trkProjects=[], trkRemote='', trkRemoteFor=null, trkTimer=null, trkSyncAt=0, trkMine={}; // trkMine: mudanças que EU fiz (não viram aviso)
 let trkBg=false, trkBackoffMs=0, trkNextAt=0; // observador: chamadas em segundo plano não registram erro; falha → recuo exponencial
 const TRK_RULES={ createOnTask:true, syncStatus:true, watch:true };
@@ -112,7 +112,12 @@ function trkNorm(raw){
   const code=String(g('code')||g('id')||'');
   let url=g('url')||''; if(!url && c.urlTemplate) url=trkFill(c.urlTemplate,{ code, id:g('id')||'' });
   const aId=g('assignee'), aName=alt('assigneeName','assignee_name','assigneeName'), aEmail=alt('assigneeEmail','assignee_email','assigneeEmail');
-  return { raw, id:g('id')||code, code, title:String(g('title')||'(sem título)'), description:String(g('description')||''), status:String(g('status')||''),
+  const description=String(g('description')||'');
+  // F5: issue filha de épico — o pai vem do campo `parent` do conector (quando mapeado) ou da linha
+  // "Épico: CODE" que o trkPublishEpic / Nova issue escrevem no corpo de cada filha
+  let par=g('parent'); if(par&&typeof par==='object') par=par.code||par.key||par.id||'';
+  const epicCode=(par&&/^[A-Z][A-Z0-9]*-\d+$/.test(String(par)))?String(par):((description.match(/(?:^|\n)\s*[ÉE]pico:\s*([A-Z][A-Z0-9]*-\d+)/)||[])[1]||'');
+  return { raw, id:g('id')||code, code, epicCode:epicCode!==code?epicCode:'', title:String(g('title')||'(sem título)'), description, status:String(g('status')||''),
     assignee:aName||aEmail||aId, assigneeId:aId, assigneeEmail:aEmail?String(aEmail):'', createdBy:alt('createdBy','created_by_name','created_by_email'),
     priority:g('priority'), tags:Array.isArray(g('tags'))?g('tags'):[], createdAt:g('createdAt')||'', updatedAt:g('updatedAt')||g('createdAt')||'', url:/^https?:\/\//i.test(url)?url:'', commentCount:g('commentCount') };
 }
@@ -464,31 +469,53 @@ async function trkAssign(code, who){
   issRender();
 }
 function trkAgo(iso){ const t=Date.parse(iso); if(!t) return ''; const m=Math.round((Date.now()-t)/60000); return m<1?'agora':m<60?m+'min':m<1440?Math.round(m/60)+'h':Math.round(m/1440)+'d'; }
+const trkEpColor=code=>(typeof epColor==='function')?epColor('trk:'+code):'var(--accent)'; // cor estável por épico (46)
 function trkCardHtml(i){
   const p=trkPerson(i.assignee), tasks=trkTasksFor(i.code), un=trkUnseen()[i.code];
-  return `<div class="trk-issue${un?' unseen':''}${trkSel===i.code?' sel':''}" draggable="true" data-trkcode="${escA(i.code)}">
-    <div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span>${i.priority!=null&&i.priority!==''?`<span class="trk-pri">${esc(String(i.priority))}</span>`:''}<span style="flex:1"></span>${un?`<span class="trk-new">${esc(un)}</span>`:''}</div>
+  const ep=i.epicCode?` style="--epc:${trkEpColor(i.epicCode)}"`:'';
+  return `<div class="trk-issue${un?' unseen':''}${trkSel===i.code?' sel':''}${ep?' has-ep':''}" draggable="true" data-trkcode="${escA(i.code)}"${ep}>
+    <div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span>${i.epicCode?`<span class="trk-epb" title="filha do épico ${escA(i.epicCode)}">◆ ${esc(i.epicCode)}</span>`:''}${i.priority!=null&&i.priority!==''?`<span class="trk-pri">${esc(String(i.priority))}</span>`:''}<span style="flex:1"></span>${un?`<span class="trk-new">${esc(un)}</span>`:''}</div>
     <div class="trk-it">${esc(i.title)}</div>
-    <div class="trk-if">${p?`<span class="trk-av" title="${escA(p.full)}">${esc(p.ini)}</span><span>${esc(p.label)}</span>`:'<span class="dim">sem responsável</span>'}<span style="flex:1"></span>${i.commentCount?`<span title="comentários">💬 ${esc(String(i.commentCount))}</span>`:''}${tasks.length?`<span class="trk-task" title="tarefa vinculada">⎇ ${esc(tasks[0].status||'tarefa')}</span>`:''}<span class="dim">${trkAgo(i.updatedAt)}</span></div>
+    <div class="trk-if">${p?`<span class="trk-av" title="${escA(p.full)}">${esc(p.ini)}</span><span>${esc(p.label)}</span>`:'<span class="dim">sem responsável</span>'}<span style="flex:1"></span>${i.commentCount?`<span title="comentários">💬 ${esc(String(i.commentCount))}</span>`:''}${tasks.length?`<span class="trk-task" title="tarefa vinculada">⎇ ${esc(tasks[0].status?stLabel(tasks[0].status):'tarefa')}</span>`:''}<span class="dim">${trkAgo(i.updatedAt)}</span></div>
   </div>`;
+}
+// F5: numa coluna, as filhas de um mesmo épico ficam juntas sob um cabeçalho "◆ CÓDIGO · título do pai · n"
+// (clicar no cabeçalho abre o pai); o resto segue como cartão solto
+function trkColCards(items, byCode){
+  const groups=new Map(), loose=[];
+  items.forEach(i=>{ if(i.epicCode){ if(!groups.has(i.epicCode)) groups.set(i.epicCode,[]); groups.get(i.epicCode).push(i); } else loose.push(i); });
+  const gh=[...groups.entries()].map(([code,kids])=>{ const par=byCode[code];
+    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?` · ${esc(String(par.title).slice(0,48))}`:''}<em>${kids.length}</em></div>${kids.map(trkCardHtml).join('')}</div>`; }).join('');
+  return gh+loose.map(trkCardHtml).join('');
 }
 function trkBoardHtml(){
   const c=trk.connector, q=trkQ.trim().toLowerCase(), un=trkUnseen();
   let list=trkIssues;
   if(q) list=list.filter(i=>(i.code+' '+i.title+' '+((trkPerson(i.assignee)||{}).full||'')+' '+i.assigneeEmail).toLowerCase().includes(q));
+  // F5: épicos = issues citadas como pai por alguma filha (campo parent ou "Épico: CODE" no corpo)
+  const byCode={}; trkIssues.forEach(i=>{ byCode[i.code]=i; });
+  const kidsOf={}; trkIssues.forEach(i=>{ if(i.epicCode) (kidsOf[i.epicCode]=kidsOf[i.epicCode]||[]).push(i); });
+  const parents=Object.keys(kidsOf);
+  if(trkFilter.startsWith('ep:') && trkIssues.length && !kidsOf[trkFilter.slice(3)]){ trkFilter='all'; lsSet('trkFilter','all'); }
   if(trkFilter==='linked') list=list.filter(i=>trkTasksFor(i.code).length);
   if(trkFilter==='unseen') list=list.filter(i=>un[i.code]);
+  if(trkFilter.startsWith('ep:')){ const ec=trkFilter.slice(3); list=list.filter(i=>i.code===ec||i.epicCode===ec); }
+  // o pai com filhas visíveis vira CABEÇALHO do grupo dentro das colunas — não aparece de novo como cartão solto
+  const shownKids=new Set(list.filter(i=>i.epicCode).map(i=>i.epicCode));
+  list=list.filter(i=>!shownKids.has(i.code));
   const known=new Set((c.statuses||[]).map(s=>s.id));
   const cols=(c.statuses||[]).concat(list.some(i=>!known.has(i.status))?[{ id:'__other', label:'Outros', kind:'todo' }]:[]);
-  const chip=(k,l,n)=>`<button class="trk-chip${trkFilter===k?' on':''}" data-trkfilter="${k}">${l}${n!=null?` <em>${n}</em>`:''}</button>`;
+  const chip=(k,l,n,tip)=>`<button class="trk-chip${trkFilter===k?' on':''}" data-trkfilter="${escA(k)}"${tip?` title="${escA(tip)}"`:''}>${l}${n!=null?` <em>${n}</em>`:''}</button>`;
+  const epChips=parents.slice(0,8).map(code=>{ const p=byCode[code], k=kidsOf[code];
+    return chip('ep:'+code, `<span class="trk-epd" style="background:${trkEpColor(code)}"></span>◆ ${esc(code)}${p?' · '+esc(String(p.title).slice(0,24)):''}`, k.length, 'só este épico e as '+k.length+' issues filhas'); }).join('');
   const colsHtml=cols.map(s=>{
     const items=list.filter(i=>s.id==='__other'?!known.has(i.status):i.status===s.id);
     const cap=(s.kind==='done'&&!trkMoreDone)?25:400, shown=items.slice(0,cap);
     return `<div class="trk-col" data-trkcol="${escA(s.id)}"><div class="trk-colh"><i style="background:${TRK_KINDS[s.kind]||'var(--muted)'}"></i>${esc(s.label||s.id)}<em>${items.length}</em></div>
-      <div class="trk-colb">${shown.map(trkCardHtml).join('')||'<div class="trk-empty">—</div>'}${items.length>shown.length?`<button class="trk-more" id="trkMoreDone">mostrar mais ${items.length-shown.length}</button>`:''}</div></div>`; }).join('');
+      <div class="trk-colb">${trkColCards(shown, byCode)||'<div class="trk-empty">—</div>'}${items.length>shown.length?`<button class="trk-more" id="trkMoreDone">mostrar mais ${items.length-shown.length}</button>`:''}</div></div>`; }).join('');
   return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar por código, título ou pessoa"></div>
-      ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa')}${chip('unseen','mudaram',Object.keys(un).length)}
+      ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa')}${chip('unseen','mudaram',Object.keys(un).length)}${epChips}
       <span style="flex:1"></span><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
       <button class="btn" id="trkRefresh">atualizar</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</div>
     ${trkErr?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:''}
@@ -791,7 +818,7 @@ async function trkSelect(code){
 function trkBoardWire(body){
   const on=(id,fn)=>{ const b=body.querySelector('#'+id); if(b) b.onclick=fn; };
   { const qi=body.querySelector('#trkQ'); if(qi) qi.oninput=()=>{ trkQ=qi.value; issRender(); const n=$id('trkQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; }
-  body.querySelectorAll('[data-trkfilter]').forEach(b=>b.onclick=()=>{ trkFilter=b.dataset.trkfilter; issRender(); });
+  body.querySelectorAll('[data-trkfilter]').forEach(b=>b.onclick=()=>{ trkFilter=b.dataset.trkfilter; lsSet('trkFilter',trkFilter); issRender(); });
   on('trkRefresh', trkReload); on('trkMoreDone', ()=>{ trkMoreDone=true; issRender(); });
   on('trkNewBtn', trkNIOpen);
   body.querySelectorAll('[data-trkcode]').forEach(el=>{

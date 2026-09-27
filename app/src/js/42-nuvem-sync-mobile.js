@@ -10,11 +10,14 @@ function setView(v){ const b=document.querySelector('#viewSeg button[data-v="'+v
 function tmap(){ try{ return JSON.parse(lsGet('sb:tmap')||'{}'); }catch(_){ return {}; } }
 function tmapSet(localId, cloudId){ const m=tmap(); m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
 function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
-const CT_ST_PT={ backlog:'backlog', queued:'na fila', running:'rodando', thinking:'pensando', 'plan-review':'plano em revisão', review:'pronta pra review', delivered:'entregue', done:'concluída', merged:'mergeada', error:'erro', conflict:'conflito', aborted:'abortada', cancelled:'cancelada' };
-// backlog + autoStart + pré-requisitos = AGUARDANDO (começa sozinha — 46-epico-time: epicAutoStartTick)
+// nome PT do status = o MESMO de toda a app (00-util: STATUS_META/stLabel). Mantido como objeto porque
+// outras telas leem CT_ST_PT[st] direto; agora é só um espelho do STATUS_META.
+const CT_ST_PT=Object.fromEntries(Object.keys(STATUS_META).map(k=>[k, stLabel(k)]));
+// backlog + autoStart + pré-requisitos = NA ESPERA (começa sozinha — 46-epico-time: epicAutoStartTick).
+// "Aguardando você" é reservado pro que depende do HUMANO; tarefa esperando outra tarefa é "na espera".
 function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
-function ctStLabel(ct){ return ctWaiting(ct)?'aguardando':(CT_ST_PT[ct.status]||ct.status); }
-function ctStColor(st){ return st==='backlog'?'var(--muted)':(st==='review'||st==='delivered'||st==='done')?'var(--good)':(st==='merged')?'var(--accent)':(st==='error'||st==='conflict')?'var(--bad, #e5534b)':'var(--warn)'; }
+function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(ct.status); }
+function ctStColor(st){ return stColor(st); }
 
 async function cloudEnsureProject(){
   const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão do topo');
