@@ -34,7 +34,7 @@ function emRenderWhere(){
   }
   if(!nm){ el.innerHTML=''; return; }
   // o Rust diz o nome LIVRE (com -2, -3… se a pasta já existe); até responder, mostra o nome base
-  const tl=emTarget.split('/').pop(), shown=(tl===nm || (tl.startsWith(nm+'-') && /^\d+$/.test(tl.slice(nm.length+1)))) ? tl : nm;
+  const tl=pathBase(emTarget), shown=(tl===nm || (tl.startsWith(nm+'-') && /^\d+$/.test(tl.slice(nm.length+1)))) ? tl : nm;
   el.innerHTML=`Vou criar a pasta <span class="mono">~/Documents/Starfork/<b>${esc(shown)}</b></span> <span class="dim">·</span> <a id="emRename">mudar nome</a>`;
   bindClick('emRename', ()=>{ emName=nm; emNameCustom=true; emEditing=true; emRenderWhere(); });
   clearTimeout(emTargetTimer);

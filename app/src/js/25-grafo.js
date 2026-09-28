@@ -170,7 +170,7 @@ function renderRail(){
   // depois os outros repos salvos, e o total no rodapé.
   const el = $id("rail");
   const curPath=state.repo||'';
-  const curName=curPath.split('/').filter(Boolean).slice(-1)[0]||'projeto';
+  const curName=pathBase(curPath)||'projeto';
   // etiqueta e ponto = o status EFETIVO (taskSt: pergunta aberta vence, PR aberto = 'pr-open') com o nome curto e
   // a cor do STATUS_META — antes era um vocabulário próprio (exec/disc/rev/rasc/⏳) que juntava erro/conflito/abortada em "erro"
   const tagOf=(t)=>{ const st=taskSt(t); return [stShort(st), stColor(st), stLabel(st)]; };

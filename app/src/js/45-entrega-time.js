@@ -103,7 +103,7 @@ function ctPageRender(){
   main.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>lbOpen(ct.id, imgs.map(a=>a.name), +b.dataset.lb));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-cart]').forEach(b=>b.onclick=()=>openCloudArtifact(b.dataset.cart, b.dataset.cname));
-  main.querySelectorAll('[data-cdl]').forEach(b=>b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.cdl)); }catch(e){ alert('Falha ao abrir: '+(e.message||e)); } });
+  main.querySelectorAll('[data-cdl]').forEach(b=>b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.cdl)); }catch(e){ showErr(e, 'Falha ao abrir'); } });
   bindClick('ctpEdit', ()=>openCloudTask(ct));
   bindClick('ctpStart', ()=>{ if(window.epCardStart) epCardStart(ct, $id('ctpStart')); else teamClaimStart(ct, $id('ctpStart')); });
   bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
@@ -111,7 +111,7 @@ function ctPageRender(){
 }
 // Abre um artefato PUBLICADO (Storage) no mesmo visualizador dos artefatos locais.
 async function openCloudArtifact(storagePath, name){
-  let url; try{ url=await cloudSignedUrl(storagePath); }catch(e){ alert('Falha ao abrir: '+(e.message||e)); return; }
+  let url; try{ url=await cloudSignedUrl(storagePath); }catch(e){ showErr(e, 'Falha ao abrir'); return; }
   const isImg=/\.(png|jpe?g|gif|webp|svg)$/i.test(name), isPdf=/\.pdf$/i.test(name), isMd=/\.(md|markdown)$/i.test(name), isTxt=/\.(txt|json|csv|yaml|yml|log|html?)$/i.test(name);
   if(!(isImg||isPdf||isMd||isTxt)){ openExternal(url); return; }
   let body='';

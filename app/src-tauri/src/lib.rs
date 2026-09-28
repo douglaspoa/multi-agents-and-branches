@@ -159,26 +159,32 @@ fn node_bin() -> String {
     "node".to_string()
 }
 
-/// Acha o binário do `claude` sem depender do PATH (que pode estar stale via
-/// LSEnvironment): CARDUME_CLAUDE → ao lado do node → "claude" no PATH.
 /// Acha o `gh` sem depender do PATH (LaunchServices pode lançar com PATH mínimo).
-/// npm ao lado do node resolvido (nvm incluso) — app aberto pelo Finder tem
-/// PATH mínimo e um `npm` seco dá "No such file or directory" (Mac do Paulo).
-#[allow(dead_code)] // as checagens usam checks_path_env(); fica pra quem precisar do npm resolvido
-fn npm_cmd() -> Command {
-    let nb = node_bin();
-    let dir = std::path::Path::new(&nb).parent().map(|p| p.to_path_buf());
-    let npm = dir.as_ref().map(|d| d.join("npm")).filter(|p| p.is_file())
-        .map(|p| p.display().to_string())
-        .or_else(|| ["/opt/homebrew/bin/npm", "/usr/local/bin/npm"].iter().find(|p| std::path::Path::new(p).is_file()).map(|s| s.to_string()))
-        .unwrap_or_else(|| "npm".into());
-    let mut c = Command::new(npm);
-    // scripts do npm precisam achar o node no PATH
-    if let Some(d) = dir {
-        let path = std::env::var("PATH").unwrap_or_default();
-        c.env("PATH", format!("{}:{}", d.display(), path));
+/// E8 (bug #16): abre URL/arquivo/pasta no app padrão DO SISTEMA. Antes era `xdg-open` fora do Mac —
+/// no Windows todo link externo, artefato e o login pelo Google falhavam.
+/// macOS `open` · Windows `rundll32 url.dll,FileProtocolHandler` (aceita URL com `&`, que o `cmd /c start`
+/// quebraria) · Linux `xdg-open`.
+fn os_open(target: &std::ffi::OsStr) -> std::io::Result<std::process::Child> {
+    if cfg!(target_os = "macos") {
+        Command::new("open").arg(target).spawn()
+    } else if cfg!(target_os = "windows") {
+        Command::new("rundll32").arg("url.dll,FileProtocolHandler").arg(target).spawn()
+    } else {
+        Command::new("xdg-open").arg(target).spawn()
     }
-    c
+}
+/// Mostra o arquivo selecionado no gerenciador de arquivos (Finder `open -R` · Explorer `/select,`);
+/// no Linux abre a pasta que o contém.
+fn os_reveal(path: &std::path::Path) -> std::io::Result<std::process::Child> {
+    if cfg!(target_os = "macos") {
+        Command::new("open").arg("-R").arg(path).spawn()
+    } else if cfg!(target_os = "windows") {
+        let mut arg = std::ffi::OsString::from("/select,");
+        arg.push(path.as_os_str());
+        Command::new("explorer").arg(arg).spawn()
+    } else {
+        Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn()
+    }
 }
 
 fn gh_bin() -> String {
@@ -894,6 +900,8 @@ struct Snapshot {
     repo: Option<String>,
     /// false = pasta aberta sem repositório git (sem branch/PR/worktree até criar um)
     git: bool,
+    /// false = repositório só local (sem remote): "abrir PR" vira "publicar no GitHub" (E4)
+    remote: bool,
     tasks: Vec<Task>,
     events: Vec<Event>,
     claims: Vec<Claim>,
@@ -1384,6 +1392,62 @@ fn repo_is_git_cached(path: &str) -> bool {
     v
 }
 
+/// E4 (bug #5): o repositório tem remote? Projeto criado só local (gitGate / "Começar") não tem — e o push
+/// falhava com "Could not read from remote", que a tela lia como "sem internet". Cache de 30s (o snapshot é 1/s);
+/// publish_github limpa.
+fn remote_cache() -> &'static Mutex<HashMap<String, (bool, std::time::Instant)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn repo_has_remote(path: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("remote")
+        .output()
+        .map(|o| o.status.success() && !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        .unwrap_or(false)
+}
+fn repo_has_remote_cached(path: &str) -> bool {
+    if let Some((v, at)) = remote_cache().lock().unwrap_or_else(|e| e.into_inner()).get(path).copied() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return v;
+        }
+    }
+    let v = repo_has_remote(path);
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), (v, std::time::Instant::now()));
+    v
+}
+
+/// E4: publica o projeto ATIVO (repositório só local) no GitHub — `gh repo create --source --push`,
+/// o mesmo caminho do "novo projeto". O nome do repositório é o da pasta.
+#[tauri::command(async)]
+fn publish_github(state: State<AppState>, private: bool, owner: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let rs = repo.display().to_string();
+    if !repo_is_git(&rs) {
+        return Err("esta pasta ainda não é um repositório git".into());
+    }
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
+    if repo_has_remote(&rs) {
+        return Ok("o projeto já está no GitHub".into());
+    }
+    let slug = project_slug(repo.file_name().and_then(|n| n.to_str()).unwrap_or("projeto"));
+    let slug = if slug.is_empty() { "projeto".to_string() } else { slug };
+    let full = if owner.trim().is_empty() { slug } else { format!("{}/{}", owner.trim(), slug) };
+    let mut c = Command::new(gh_bin());
+    c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &rs, "--remote", "origin", "--push"]);
+    c.current_dir(&repo);
+    let out = output_timeout(c, 180)?;
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(format!("gh repo create: {}", if err.is_empty() { "sem detalhe do gh".to_string() } else { err }));
+    }
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok(if url.is_empty() { format!("publicado como {full}") } else { url })
+}
+
 /// A pasta é um repositório git? (pasta simples abre, mas sem branch/PR/worktree)
 fn repo_is_git(path: &str) -> bool {
     Command::new("git")
@@ -1853,8 +1917,7 @@ fn reveal_project(path: String) -> Result<(), String> {
     if !dir.is_dir() {
         return Err(format!("a pasta não existe mais: {path}"));
     }
-    let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(target_os = "windows") { "explorer" } else { "xdg-open" };
-    Command::new(opener).arg(&dir).spawn().map_err(|e| format!("não consegui abrir a pasta: {e}"))?;
+    os_open(dir.as_os_str()).map_err(|e| format!("não consegui abrir a pasta: {e}"))?;
     Ok(())
 }
 
@@ -2058,6 +2121,7 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
             return Ok(Snapshot {
                 repo: None,
                 git: true,
+                remote: true,
                 tasks: vec![],
                 events: vec![],
                 claims: vec![],
@@ -2254,7 +2318,8 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
         .map(|r| r.display().to_string());
 
     let git = repo.as_deref().map(repo_is_git_cached).unwrap_or(true);
-    Ok(Snapshot { repo, git, tasks, events, claims, diffs, reviews, pending, costs })
+    let remote = git && repo.as_deref().map(repo_has_remote_cached).unwrap_or(true);
+    Ok(Snapshot { repo, git, remote, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
@@ -3470,10 +3535,7 @@ fn save_doc(name: String, content: String) -> Result<String, String> {
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.'|' ') { c } else { '-' }).collect();
     let p = dir.join(safe.trim());
     std::fs::write(&p, content).map_err(|e| e.to_string())?;
-    #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg("-R").arg(&p).spawn();
-    #[cfg(not(target_os = "macos"))]
-    let _ = Command::new("xdg-open").arg(p.parent().unwrap_or(&p)).spawn();
+    let _ = os_reveal(&p);
     Ok(p.display().to_string())
 }
 
@@ -3499,10 +3561,7 @@ fn html_to_pdf(html: String, name: String) -> Result<String, String> {
         return Err(format!("Chrome não gerou o PDF: {}", String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()));
     }
     let _ = std::fs::remove_file(&html_path);
-    #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg(&pdf_path).spawn(); // abre no Preview
-    #[cfg(not(target_os = "macos"))]
-    let _ = Command::new("xdg-open").arg(&pdf_path).spawn(); // abre no leitor de PDF padrão
+    let _ = os_open(pdf_path.as_os_str()); // abre no leitor de PDF padrão (Preview no Mac)
     Ok(pdf_path.display().to_string())
 }
 
@@ -4693,6 +4752,10 @@ fn update_dest(cur_app: &std::path::Path, new_app: &std::path::Path) -> PathBuf 
 /// disco e relança. curl/ditto não aplicam quarantine → abre sem Gatekeeper.
 #[tauri::command(async)]
 fn apply_update(url: String) -> Result<(), String> {
+    // E8: o pacote do canal é um .app zipado (ditto/cp -R) — só serve no Mac
+    if !cfg!(target_os = "macos") {
+        return Err("a atualização automática só existe no Mac por enquanto — baixe a versão nova em starfork.com.br".to_string());
+    }
     if !url.starts_with("https://") {
         return Err("url inválida".to_string());
     }
@@ -5352,8 +5415,7 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
 #[tauri::command(async)]
 fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Result<(), String> {
     let path = artifact_path(&state, &task_id, &name)?;
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    Command::new(opener).arg(&path).spawn().map_err(|e| e.to_string())?;
+    os_open(path.as_os_str()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -5361,13 +5423,7 @@ fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
 #[tauri::command(async)]
 fn reveal_artifact(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
     let path = artifact_path(&state, &task_id, &name)?;
-    if cfg!(target_os = "macos") {
-        Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| e.to_string())?;
-    } else {
-        // fallback: abre a pasta que contém o arquivo
-        let dir = path.parent().unwrap_or(&path);
-        Command::new("xdg-open").arg(dir).spawn().map_err(|e| e.to_string())?;
-    }
+    os_reveal(&path).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -5377,11 +5433,7 @@ fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("url inválida".to_string());
     }
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    Command::new(opener)
-        .arg(&url)
-        .spawn()
-        .map_err(|e| format!("falha ao abrir o link: {e}"))?;
+    os_open(std::ffi::OsStr::new(&url)).map_err(|e| format!("falha ao abrir o link: {e}"))?;
     Ok(())
 }
 
@@ -5399,8 +5451,7 @@ fn oauth_wait_callback(authorize_url: String) -> Result<String, String> {
         .map_err(|e| format!("porta 8788 ocupada — feche outra tentativa de login e tente de novo ({e})"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     // abre o navegador na tela de login do Google (via Supabase)
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    let _ = Command::new(opener).arg(&authorize_url).spawn();
+    let _ = os_open(std::ffi::OsStr::new(&authorize_url));
     // espera o callback (teto de 3 min)
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
     loop {
@@ -6469,8 +6520,7 @@ fn save_deliverables(state: State<AppState>, task_id: String, names: Vec<String>
 fn open_folder(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !p.is_dir() { return Err("pasta não encontrada".into()); }
-    let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
-    Command::new(opener).arg(&p).spawn().map_err(|e| e.to_string())?;
+    os_open(p.as_os_str()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -7369,12 +7419,21 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Espelha o console do webview em /tmp/constellation-web.log — sem isso,
+/// Caminho do log do webview: no Mac fica /tmp/constellation-web.log (scripts e o time leem ali);
+/// no Windows/Linux, a pasta temporária do sistema (E10 — o /tmp fixo não existe no Windows).
+fn web_log_path() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/tmp/constellation-web.log")
+    } else {
+        std::env::temp_dir().join("constellation-web.log")
+    }
+}
+/// Espelha o console do webview no log acima — sem isso,
 /// erro de JS nos ticks é invisível e vira caça às cegas.
 #[tauri::command(async)]
 fn web_log(line: String) {
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/constellation-web.log") {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(web_log_path()) {
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let _ = writeln!(f, "{ts} {}", line.chars().take(600).collect::<String>());
     }
@@ -7679,6 +7738,7 @@ pub fn run() {
             tunnel_start,
             tunnel_stop,
             open_url,
+            publish_github,
             oauth_wait_callback,
             open_artifact,
             reveal_artifact,

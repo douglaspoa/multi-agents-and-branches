@@ -73,18 +73,6 @@ async function reorderFlow(dragId, targetId){
   try{ await invoke("reorder_tasks",{ ids }); lastSig=""; await refresh(); }
   catch(e){ console.error("reorder_tasks", e); }
 }
-function commitsBlock(taskId){
-  const c=commitsCache[taskId];
-  if(c===undefined){ loadCommits(taskId).then(()=>{ if(selected===taskId) renderSide(); }); return '<div class="seclbl">Commits</div><div class="dim" style="font-size:12px">…</div>'; }
-  if(!c.length) return '';
-  const ag=((state.tasks||[]).find(x=>x.id===taskId)||{}).agent||'';
-  return `<div class="seclbl">Commits <span class="n">${c.length}</span></div><div class="sidecommits">${c.map(x=>commitChip(x,ag)).join("")}</div>`;
-}
-function errBanner(t){
-  if(t.status!=='error' && t.status!=='conflict') return '';
-  const e = eventsOf(t.id).filter(x=>x.type==='error').slice(-1)[0];
-  return `<div class="errbox">${esc(e?e.text:(t.status==='conflict'?'conflito de merge — resolva manualmente':'erro no agente'))}</div>`;
-}
 
 function pendingOf(taskId){ return (state.pending||[]).filter(p=>p.taskId===taskId); }
 
@@ -117,23 +105,6 @@ function matchReqProofs(reqs, list){
     return list.find(x=>{ const m=reqNorm(x.req); return m&&(m.includes(n)||n.includes(m)); })||null;
   });
 }
-function reqsBlock(t){
-  const reqs=Array.isArray(t.requirements)?t.requirements:[]; if(!reqs.length) return '';
-  const c=reqProofCache[t.id];
-  if(c===undefined){ loadReqProofs(t.id).then(()=>{ if(selected===t.id) renderSide(); }); }
-  const matched=matchReqProofs(reqs, c&&c.list);
-  const rows=reqs.map((r,ri)=>{
-    const m=matched[ri];
-    const st=m?(m.status==='done'?'ok':'blk'):'na';
-    const icon= st==='ok'?`<span class="reqst ok">${IC.check}</span>` : st==='blk'?'<span class="reqst blk">!</span>' : '<span class="reqst na">·</span>';
-    const ev=(m&&Array.isArray(m.evidence)&&m.evidence.length)?`<span class="reqev">${m.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</span>`:'';
-    const note=(m&&m.note&&st==='blk')?`<div class="reqnote">${esc(m.note)}</div>`:'';
-    return `<div class="critrow2 ${st}">${icon}<div class="crt"><div>${esc(r)} ${ev}</div>${note}</div></div>`;
-  }).join('');
-  const canCheck=(!c||c.list===null)&&['review','error','aborted'].includes(t.status)&&(t.roles||[]).some(r=>r.engine==='claude');
-  const hint=(c&&c.list===null)?(canCheck?'<button class="btn sm" id="brReqCheck" style="margin-top:6px">verificar requisitos agora (gera as provas)</button>':'<div class="dim" style="font-size:10.5px;margin-top:4px">provas por requisito aparecem quando o agente gera o requirements.json</div>'):'';
-  return `<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${rows}${hint}`;
-}
 function artCategory(name){
   const n=name.toLowerCase();
   if(n.startsWith('proof')||n.includes('screenshot')||n.includes('print')) return 'Provas';
@@ -157,15 +128,10 @@ function artListHtml(a){
   for(const c of cats){ if(!by[c]||!by[c].length) continue; html+=`<div class="artcat">${c} · ${by[c].length}</div>`+by[c].map(artItemHtml).join(''); }
   return html+`</div>`;
 }
-function artifactsBlock(t){
-  const c = artifactsCache[t.id];
-  if(!c || c.status!==t.status){ loadArtifacts(t.id, t.status).then(()=>{ if(selected===t.id) renderSide(); }); return c ? artListHtml(c.list) : ''; }
-  return artListHtml(c.list);
-}
 async function openArtifact(taskId, name){
   let c;
   try{ c = await invoke("read_artifact",{ taskId, name }); }
-  catch(e){ alert("Falha ao abrir o artefato:\n"+e); return; }
+  catch(e){ showErr(e, 'Falha ao abrir o artefato'); return; }
   const isHtml=/\.html?$/i.test(name);
   const isPdf=c.kind==='pdf';
   const modal=document.querySelector('#artOverlay .modal'); if(modal) modal.classList.toggle('pdfmode', isPdf);
@@ -186,14 +152,14 @@ async function openArtifact(taskId, name){
   { const h=document.querySelector('#artOverlay .mhead'); ['artOpenExt','artSlack','artFinder','artMdPdf'].forEach(id=>{ const o=$id(id); if(o) o.remove(); });
     if(h){ const x=h.querySelector('#artClose');
       const fd=document.createElement('button'); fd.id='artFinder'; fd.className='btn sm'; fd.style.marginRight='8px'; fd.innerHTML=ic('folder')+'Finder';
-      fd.title='revelar o arquivo no Finder'; fd.onclick=()=>invoke('reveal_artifact',{ taskId, name }).catch(e=>alert('Falha ao revelar:\n'+e));
+      fd.title='revelar o arquivo no Finder'; fd.onclick=()=>invoke('reveal_artifact',{ taskId, name }).catch(e=>showErr(e, 'Falha ao revelar'));
       h.insertBefore(fd, x);
       const sl=document.createElement('button'); sl.id='artSlack'; sl.className='btn sm'; sl.style.marginRight='8px'; sl.innerHTML=ic('send')+'Slack';
       sl.title='enviar este arquivo pra um canal do Slack'; sl.onclick=()=>sendArtifactSlack(taskId, name);
       h.insertBefore(sl, x);
       if(/\.(md|markdown)$/i.test(name)){ const pb=document.createElement('button'); pb.id='artMdPdf'; pb.className='btn sm'; pb.style.marginRight='8px'; pb.innerHTML=ic('doc')+'exportar PDF'; pb.title='gera um PDF formatado deste documento'; pb.onclick=()=>mdArtifactPdf(taskId, name, pb); h.insertBefore(pb, x); }
-      if(isPdf){ const bx=document.createElement('button'); bx.id='artOpenExt'; bx.className='btn sm'; bx.style.marginRight='8px'; bx.textContent='↗ abrir no Preview'; bx.onclick=()=>invoke('open_artifact',{ taskId, name }).catch(e=>alert('Falha:\n'+e)); h.insertBefore(bx, x); } } }
-  bindClick('artExt', ()=>{ invoke('open_artifact',{ taskId, name }).catch(e=>alert('Falha ao abrir:\n'+e)); });
+      if(isPdf){ const bx=document.createElement('button'); bx.id='artOpenExt'; bx.className='btn sm'; bx.style.marginRight='8px'; bx.textContent='↗ abrir no Preview'; bx.onclick=()=>invoke('open_artifact',{ taskId, name }).catch(e=>showErr(e, 'Falha')); h.insertBefore(bx, x); } } }
+  bindClick('artExt', ()=>{ invoke('open_artifact',{ taskId, name }).catch(e=>showErr(e, 'Falha ao abrir')); });
   $id("artOverlay").style.display = "flex";
 }
 function closeArtifact(){ $id("artOverlay").style.display="none"; $id("artBody").innerHTML=""; const m=document.querySelector('#artOverlay .modal'); if(m) m.classList.remove('pdfmode'); ['artOpenExt','artSlack','artMdPdf'].forEach(id=>{ const e=$id(id); if(e) e.remove(); }); }
@@ -212,8 +178,8 @@ async function sendArtifactSlack(taskId, name){
     const comment=await askText('Comentário (opcional)','ex.: segue o documento de arquitetura', '');
     if(comment===null) return;
     const msg=await invoke('slack_send_artifact',{ taskId, name, channel:ch, comment });
-    alert('✔ '+msg);
-  }catch(e){ alert('Falhou o envio pro Slack:\n'+(e&&e.message||e)); }
+    toast(msg,'ok');
+  }catch(e){ showErr(e, 'Falhou o envio pro Slack'); }
 }
 // ---- editor de código reutilizável: mono + números de linha + Tab + prévia MD ----
 function mountEditor(ta, opts){
@@ -351,7 +317,7 @@ async function mdArtifactPdf(taskId, name, btn){
   const o=btn?btn.innerHTML:''; if(btn){ btn.disabled=true; btn.textContent='gerando PDF…'; }
   try{ const c=await invoke('read_artifact',{ taskId, name }); const p=await invoke('html_to_pdf',{ html: dailyPdfHtml(c.text||'', new Date().toLocaleDateString('pt-BR')), name:(taskId+'-'+name).replace(/\.(md|markdown)$/i,'').replace(/[\/\\]/g,'-') });
     toast('PDF salvo'+(p?' em '+p:''),'ok'); }
-  catch(e){ toast('Falhou o PDF: '+(e&&e.message||e),'err'); }
+  catch(e){ showErr(e, 'Falhou o PDF'); }
   finally{ if(btn){ btn.disabled=false; btn.innerHTML=o; } }
 }
 
@@ -362,28 +328,14 @@ async function sendRework(taskId, inputEl, prefix){
   try{
     await invoke("rework_task",{ taskId, text:(prefix||'')+v });
     inputEl.value=""; closeCommit(); lastSig=""; await refresh();
-  }catch(e){ alert("Falha ao pedir ajuste:\n"+e); }
+  }catch(e){ showErr(e, 'Falha ao pedir ajuste'); }
   finally{ if(inputEl){ inputEl.disabled=false; } }
-}
-async function sendInstruction(taskId){
-  const inp=$id('instrInput'); if(!inp) return;
-  const text=inp.value.trim(); if(!text) return;
-  inp.disabled=true;
-  try{ await invoke("add_instruction",{ taskId, text }); inp.value=""; lastSig=""; await refresh(); }
-  catch(e){ alert("Falha ao enviar instrução:\n"+e); }
-  finally{ const i2=$id('instrInput'); if(i2){ i2.disabled=false; i2.focus(); } }
 }
 async function resolvePending(id, answer){
   if(+id<0 && typeof budgetAnswer==='function') return budgetAnswer(+id, answer); // pergunta do teto de custo (sintética)
-  try{ await invoke("resolve_pending", { id, answer }); await refresh(); }
-  catch(e){ console.error("resolve_pending", e); }
+  // E2 (bug #2): o erro SOBE — quem chamou (fwSendMsg) devolve o texto digitado ao campo e mostra o erro.
+  // Antes era engolido aqui: o input já tinha sido limpo e a resposta sumia sem aviso.
+  await invoke("resolve_pending", { id, answer });
+  try{ await refresh(); }catch(_){ }
 }
 /** Bloco compacto no painel: preview da pergunta + botão que abre o MODAL. */
-function questionBlock(taskId){
-  const ps = pendingOf(taskId);
-  if(ps.length===0) return "";
-  return ps.map(p=>`<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} · aguardando você</div><div class="qq clamp3">${esc(p.prompt)}</div><div class="qc"><button class="btn primary sm" data-askopen="${p.id}">${IC.q} Responder ›</button></div></div>`).join("");
-}
-function wireQuestion(root){
-  root.querySelectorAll("[data-askopen]").forEach(b=>b.onclick=()=>openAsk(+b.dataset.askopen));
-}

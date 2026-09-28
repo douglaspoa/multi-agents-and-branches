@@ -10,7 +10,7 @@ function pcRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const th=$id('pcThread'); if(!th) return;
   const ms=pcMsgs();
-  const repo=esc((state.repo||'o projeto').split('/').pop());
+  const repo=esc(pathBase(state.repo)||'o projeto');
   const projOpts=(typeof projList==='function'?projList():[]).map(([path,name])=>`<option value="${escA(path)}"${path===state.repo?' selected':''}>${esc(name)}</option>`).join('');
   const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:var(--text-3)">limpar</button></div></div>`;
   let bodyHtml;
@@ -62,7 +62,7 @@ async function pcSend(){
 async function pcStop(){ if(!pcBusy) return; pcStopping=true; try{ await invoke('project_chat_stop'); }catch(_){ } }
 async function pcToTask(){
   const btn=$id('pcTask');
-  if(!pcMsgs().length){ alert('Converse primeiro — a spec nasce do papo.'); return; }
+  if(!pcMsgs().length){ toast('Converse primeiro — a spec nasce do papo.','warn'); return; }
   btn.disabled=true; btn.textContent='montando spec…';
   try{
     const r=await invoke('project_chat',{ prompt:'Com base APENAS na nossa conversa até aqui, monte a especificação de UMA tarefa executável. Responda SOMENTE um bloco ```json com {"title":"verbo + objeto (máx 60 chars)","objective":"o que fazer, onde e por quê (3-6 frases)","requirements":["critérios de aceite objetivos"]} — nada fora do bloco.', sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
@@ -76,7 +76,7 @@ async function pcToTask(){
     ntReq=[...new Set((spec.requirements||[]).map(x=>String(x).trim()).filter(Boolean))];
     renderNtList('ntRequirements',ntReq);
     $id('ntArtProof').checked=true;
-  }catch(e){ alert('Não consegui montar a spec:\n'+(e.message||e)); }
+  }catch(e){ showErr(e, 'Não consegui montar a spec'); }
   finally{ btn.disabled=false; btn.innerHTML=ic('compass')+'virar tarefa'; }
 }
 function openPc(){ $id('pcOverlay').style.display='flex'; chatPinBottom('pcThread'); pcRender(); setTimeout(()=>$id('pcInput').focus(),80); }
@@ -103,8 +103,8 @@ async function openPrefs(){
   // sem conta/remote: o documento do time fica indisponível, mas a proteção continua configurável
   { const ta=$id('prefsText'), sv=$id('prefsSave'); const box=ta&&(ta.closest('.ceditor')||ta); if(box) box.style.display=k?'':'none'; if(sv) sv.style.display=k?'':'none'; }
   if(!k){
-    if(!repoPath){ alert('Abra um projeto primeiro.'); return; }
-    $id('prefsRepo').textContent=repoPath.split('/').pop();
+    if(!repoPath){ toast('Abra um projeto primeiro.','warn'); return; }
+    $id('prefsRepo').textContent=pathBase(repoPath);
     $id('prefsMeta').textContent=cloudOk?'as convenções do time precisam de um repositório com git remote':'entre na sua conta pra escrever as convenções do time';
     ovShow(ov); return;
   }
@@ -177,7 +177,7 @@ async function chkCfgEditor(box, taskId, onSaved){
       try{ await invoke('checks_save',{ cfg:clean }); Object.keys(chkDraft).forEach(k=>delete chkDraft[k]);
         if(typeof chkCfg!=='undefined') Object.keys(chkCfg).forEach(k=>delete chkCfg[k]);
         toast('checagens salvas — valem pras próximas aprovações','ok'); if(onSaved) onSaved(); else chkCfgEditor(box, taskId); }
-      catch(e){ toast('Não salvou: '+(e&&e.message||e),'err'); el.disabled=false; el.textContent=o; }
+      catch(e){ showErr(e, 'Não salvou'); el.disabled=false; el.textContent=o; }
     });
   };
   paint();
@@ -252,7 +252,7 @@ async function dailyAISummary(){
     const md=await invoke('ai_daily',{ text: facts });
     $id('dailyAIOut').innerHTML=`<div class="prbox" style="margin:6px 0 12px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="dailyCopy">copiar pra daily</button></div></div>`;
     $id('dailyCopy').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
-  }catch(e){ alert('Falhou: '+e); }
+  }catch(e){ showErr(e, 'Falhou'); }
   btn.disabled=false; btn.innerHTML=o;
 }
 // ---- RELATÓRIO técnico do dia (DOC .md + PDF) ----

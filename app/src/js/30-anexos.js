@@ -7,7 +7,7 @@ async function attPick(taskId){
   const out=[];
   for(const p of (paths||[])){
     try{ out.push(await invoke('import_attachment',{ path:p, taskId:taskId||null })); }
-    catch(e){ console.error('import_attachment',e); alert('Não consegui importar '+String(p).split('/').pop()+':\n'+e); }
+    catch(e){ console.error('import_attachment',e); showErr(e, 'Não consegui importar '+pathBase(p)); }
   }
   return out;
 }
@@ -46,7 +46,7 @@ async function attImportFiles(files, taskId){
   const out=[];
   for(const f of files){
     try{ const b64=await attFileToB64(f); out.push(await invoke('import_attachment_data',{ name:attPastedName(f), dataB64:b64, taskId:taskId||null })); }
-    catch(e){ console.error('import_attachment_data',e); alert('Não consegui importar '+(f.name||'o conteúdo colado')+':\n'+e); }
+    catch(e){ console.error('import_attachment_data',e); showErr(e, 'Não consegui importar '+(f.name||'o conteúdo colado')); }
   }
   return out;
 }
@@ -166,7 +166,7 @@ function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?
 // lista de anexos genérica: prints/PDFs/docs em qualquer modo da Nova tarefa
 function renderRefsInto(elId, arr, emptyMsg){
   const el=$id(elId); if(!el) return;
-  el.innerHTML = arr.length ? arr.map((p,i)=>{ const name=(p||'').split('/').pop(); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">${IC.x}</button></div>`; }).join('') : `<div class="dim" style="font-size:12px;padding:2px">${emptyMsg}</div>`;
+  el.innerHTML = arr.length ? arr.map((p,i)=>{ const name=pathBase(p); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">${IC.x}</button></div>`; }).join('') : `<div class="dim" style="font-size:12px;padding:2px">${emptyMsg}</div>`;
   el.querySelectorAll('.refrm').forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.r,1); renderRefsInto(elId, arr, emptyMsg); });
 }
 function renderNtRefs(){ renderRefsInto('ntRefs', ntRefs, 'nenhum — anexe specs, PDFs ou um print do bug'); }

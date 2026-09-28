@@ -119,7 +119,7 @@ async function orqLoadList(){ const before=JSON.stringify((orq.list||[]).map(p=>
 // abre o grafo de um plano salvo (sidebar, quadro, chip da tarefa)
 async function orqOpenPlan(id, taskId){
   if(!orq.list) await orqLoadList();
-  const p=(orq.list||[]).find(x=>x.id===id); if(!p){ alert('plano não encontrado neste projeto.'); return; }
+  const p=(orq.list||[]).find(x=>x.id===id); if(!p){ toast('Plano não encontrado neste projeto.','warn'); return; }
   if(window.openTab){
     // aba que já mostra este plano → volta pra ela; senão, uma aba nova só pra ele
     window.openTab('orq', { reuse:t=>(t.id===activeTab && orq.plan && orq.plan.id===p.id) || (t.state && t.state.s && t.state.s.plan && t.state.s.plan.id===p.id) });
@@ -132,9 +132,8 @@ async function orqOpenPlan(id, taskId){
   orqRender();
 }
 window.orqOpenPlan=orqOpenPlan;
-function orqProjName(p){ return p&&p.repo?String(p.repo).split('/').filter(Boolean).slice(-1)[0]:''; }
+function orqProjName(p){ return p&&p.repo?pathBase(p.repo):''; }
 function orqOtherRepo(p){ return !!(p&&p.repo&&state.repo&&p.repo!==state.repo); }
-function orqPlansHere(){ return (orq.list||[]).filter(p=>p.status!=='planned'||(p.phases||[]).some(x=>x.taskId)).concat((orq.list||[]).filter(p=>p.status==='planned'&&!(p.phases||[]).some(x=>x.taskId))); }
 function orqPlanStats(p){ const ph=p.phases||[]; const st=ph.map(orqPhaseState); return { total:ph.length, done:st.filter(x=>x.key==='done').length, run:st.filter(x=>['running','queued'].includes(x.key)).length, err:st.filter(x=>x.key==='error').length, ask:st.filter(x=>x.key==='asking').length, rev:st.filter(x=>x.key==='review').length, st }; }
 // cor/rótulo do plano inteiro pra sidebar e quadro: pergunta pendente > erro > pra revisar > rodando > esperando
 function orqPlanTone(p, s){ if(p.status==='planned') return { col:'var(--muted)', label:'plano proposto · aguardando aprovação' }; if(p.status==='done') return { col:ORQ_ST.done, label:'concluído' };
@@ -288,7 +287,7 @@ function orqRenderPlan(body){
   const runN=stKeys.filter(k=>k==='running'||k==='queued').length, doneN=stKeys.filter(k=>k==='done').length, askN=stKeys.filter(k=>k==='asking').length, revN=stKeys.filter(k=>k==='review').length, errN=stKeys.filter(k=>k==='error').length;
   const footTx=[runN?`<span style="color:${ORQ_ST.running}">${runN} rodando</span>`:'', askN?`<span style="color:${ORQ_ST.asking}">${askN} esperando sua resposta</span>`:'', revN?`<span style="color:${ORQ_ST.review}">${revN} pra revisar</span>`:'', errN?`<span style="color:${ORQ_ST.error}">${errN} com erro</span>`:'', `<span style="color:${ORQ_ST.done}">${doneN}/${p.phases.length} prontas</span>`].filter(Boolean).join(' <span class="dim">·</span> ');
   const otherRepo=p.repo&&state.repo&&p.repo!==state.repo;
-  const html=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${otherRepo?`<span class="mono" style="font-size:11px;color:var(--warn);margin-right:12px" title="${escA(p.repo)}">plano do projeto ${esc(p.repo.split('/').pop())}</span>`:''}${orqStatusPill()}</div>
+  const html=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${otherRepo?`<span class="mono" style="font-size:11px;color:var(--warn);margin-right:12px" title="${escA(p.repo)}">plano do projeto ${esc(pathBase(p.repo))}</span>`:''}${orqStatusPill()}</div>
   <div class="orq-main">
     <div class="orq-canvaswrap">
       <div class="orq-tools"><button class="as-btn" id="orqAdd">+ subagente</button>
@@ -476,7 +475,7 @@ function orqWireInsp(body){
       orq.addOpen=false; orq.sel=key; orqSave(); orqRender();
       if(p.status!=='planned'){ // plano já aprovado: a fase nova vira tarefa agora (rascunho se depende de algo ainda não provado)
         (async()=>{ try{ const created={}; p.phases.forEach(x=>{ if(x.taskId) created[x.key]=x.taskId; }); await orqCreatePhaseTask(p, ph, created); if(p.status==='done') p.status='running'; orqSave(); lastSig=''; orqRender(); }
-          catch(e){ alert('Fase adicionada ao plano, mas não consegui criar a tarefa:\n'+(e&&e.message||e)); } })();
+          catch(e){ showErr(e, 'Fase adicionada ao plano, mas não consegui criar a tarefa'); } })();
       } });
     return;
   }
@@ -489,7 +488,7 @@ function orqWireInsp(body){
   const add=()=>{ const i=$id('orqNewObj'); const v=(i.value||'').trim(); if(!v) return; ph.objectives.push(v); orqSave(); orqRender(); const j=$id('orqNewObj'); if(j) j.focus(); };
   bindClick('orqAddObj', add); { const i=$id('orqNewObj'); if(i) i.onkeydown=e=>{ if(e.key==='Enter') add(); }; }
   body.querySelectorAll('[data-orqauto]').forEach(b=>b.onclick=()=>{ if(b.disabled) return; ph.autonomy=b.dataset.orqauto; orqSave(); orqRender(); });
-  body.querySelectorAll('[data-orqdep]').forEach(i=>i.onchange=()=>{ const k=i.dataset.orqdep; ph.dependsOn=(ph.dependsOn||[]).filter(x=>x!==k); if(i.checked){ if(orqWouldCycle(ph.key,k)){ alert('isso criaria um ciclo de dependência.'); i.checked=false; return; } ph.dependsOn.push(k); } orqSave(); orqRender(); });
+  body.querySelectorAll('[data-orqdep]').forEach(i=>i.onchange=()=>{ const k=i.dataset.orqdep; ph.dependsOn=(ph.dependsOn||[]).filter(x=>x!==k); if(i.checked){ if(orqWouldCycle(ph.key,k)){ toast('Isso criaria um ciclo de dependência.','warn'); i.checked=false; return; } ph.dependsOn.push(k); } orqSave(); orqRender(); });
   bindClick('orqRelease', ()=>{ ph.released=true; ph.releasedAt=Date.now(); orqSave(); orqRender(); orqTick().catch(()=>{}); });
   bindClick('orqUnrelease', ()=>{ delete ph.released; orqSave(); orqRender(); });
   bindClick('orqRmPhase', async()=>{ if(!await askYes('Remover a fase "'+ph.name+'" do plano?')) return; p.phases=p.phases.filter(x=>x!==ph); p.phases.forEach(x=>{ x.dependsOn=(x.dependsOn||[]).filter(k=>k!==ph.key); }); orq.sel=p.phases[0]?p.phases[0].key:'__orq'; orqSave(); orqRender(); });
@@ -557,7 +556,7 @@ async function orqCreatePhaseTask(p, ph, created){
 async function orqApprove(){
   const p=orq.plan; if(!p||orq.busy) return;
   // as tarefas nascem no projeto ATIVO — se o plano é de outro repo, trocar antes (senão as fases iriam pro lugar errado)
-  if(p.repo && state.repo && p.repo!==state.repo){ alert('Este plano é do projeto '+p.repo.split('/').pop()+' — o projeto ativo agora é '+state.repo.split('/').pop()+'.\n\nTroque pro projeto do plano na barra lateral antes de aprovar, senão as tarefas seriam criadas no repo errado.'); return; }
+  if(p.repo && state.repo && p.repo!==state.repo){ toast('Este plano é do projeto '+pathBase(p.repo)+' — o projeto ativo agora é '+pathBase(state.repo)+'. Troque pro projeto do plano antes de aprovar, senão as tarefas seriam criadas no repositório errado.','warn'); return; }
   const bad=p.phases.filter(x=>!(x.objectives||[]).length);
   if(bad.length && !await askYes(`${bad.length} fase(s) sem objetivos verificáveis (${bad.map(x=>x.name).join(', ')}). Criar mesmo assim? Sem objetivos, a fase seguinte começa assim que esta entregar.`)) return;
   orq.busy=true; orqRender();
@@ -569,7 +568,7 @@ async function orqApprove(){
       await invoke('patch_task_spec',{ taskId:ph.taskId, patch:{ orchestration:{ id:p.id, title:p.title, phase:ph.key, name:ph.name }, dependsOn:depIds, dependents:waitIds }, base:null }).catch(e=>console.error('patch_task_spec',e)); }
     p.status='running'; p.approvedAt=Date.now(); orqSave(); orqListAt=0;
     lastSig=''; await refresh();
-  }catch(e){ alert('Falha ao criar as tarefas do plano:\n'+(e&&e.message||e)); p.status=Object.values(created).length?'running':'planned'; orqSave(); }
+  }catch(e){ showErr(e, 'Falha ao criar as tarefas do plano'); p.status=Object.values(created).length?'running':'planned'; orqSave(); }
   orq.busy=false; orqRender();
 }
 

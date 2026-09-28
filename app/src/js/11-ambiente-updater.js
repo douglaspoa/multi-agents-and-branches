@@ -71,6 +71,9 @@ async function checkUpdate(manual){
   try{
     if(!SB.sess()){ updLast.ok=false; updLast.msg='sem sessão — entre na conta pra receber atualizações'; return updLast; }
     if(await invoke('is_dev_install')){ updLast.ok=true; updLast.dev=true; updLast.msg='instalação de desenvolvimento — não se auto-atualiza (use scripts/deploy-local.sh)'; return updLast; }
+    // E8 (bug #16): o canal só publica o .app do Mac (zip + ditto) — no Windows/Linux o "atualizar" falhava
+    // com "No such file or directory". Lá o botão não aparece e a tela diz onde baixar.
+    if(osKind()!=='mac'){ updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; } updLast.ok=true; updLast.msg='atualização automática só no Mac por enquanto — baixe a versão nova em starfork.com.br'; if(manual && typeof updRenderCfg==='function') updRenderCfg(); return updLast; }
     // sbFetch renova o token expirado sozinho (a checagem do boot caía no 401 e ficava muda por 6h)
     const j=await sbFetch('/storage/v1/object/releases/latest.json', { headers:{ 'Cache-Control':'no-store' } });
     const mine=Number(await invoke('build_info'))||0;
@@ -89,7 +92,7 @@ async function checkUpdate(manual){
   return updLast;
 }
 async function applyUpdate(btn){
-  if(!updInfo) return;
+  if(!updInfo || osKind()!=='mac') return;
   if(!await askYes('Atualizar o Starfork agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
   btn.disabled=true; btn.textContent='baixando…';
   try{
@@ -97,7 +100,7 @@ async function applyUpdate(btn){
     btn.textContent='instalando…';
     await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });
     btn.textContent='reabrindo…';
-  }catch(e){ alert('Atualização falhou:\n'+(e.message||e)+'\n\nBaixe o zip novo manualmente.'); btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; }
+  }catch(e){ showErr(e, 'Atualização falhou (dá pra baixar a versão nova manualmente em starfork.com.br)'); btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; }
 }
 $id('updBtn').onclick=function(){ applyUpdate(this); };
 // boot: tenta aos 5s e, enquanto não conseguir uma checagem válida (sessão ainda

@@ -199,9 +199,9 @@ async function epicToggleDone(ep, idx, on){
   const c=epCache[ep.id]; const started=!!(c&&(c.tasks||[]).some(t=>t.status!=='backlog'));
   const status= all ? 'done' : (ep.status==='done' ? (started?'in-progress':'open') : ep.status);
   try{ await epicPatch(ep, { spec, status }); }
-  catch(e){ alert('Falha ao marcar: '+(e.message||e)); epicPageRender(); }
+  catch(e){ showErr(e, 'Falha ao marcar'); epicPageRender(); }
 }
-async function epicSetStatus(ep, status){ try{ await epicPatch(ep, { status }); }catch(e){ alert('Falha: '+(e.message||e)); } }
+async function epicSetStatus(ep, status){ try{ await epicPatch(ep, { status }); }catch(e){ showErr(e, 'Falha'); } }
 // 1ª tarefa rodando → épico em andamento. Só sai de `open` (nunca reabre um `done` sozinho).
 async function epicMarkInProgress(epicId){
   if(!epicId) return;
@@ -525,7 +525,7 @@ async function epCardStart(ct, btn){
     if(left.length && !await askYes('Ainda depende de: '+left.map(a=>epQueue.titleOf[a]||a).join(', ')+' (não concluída).\n\nIniciar mesmo assim?')) return;
     await teamClaimStart(ct, btn||null);
     epicAutoStartTick();
-  }catch(e){ alert('Não deu pra iniciar:\n'+(e.message||e)); }
+  }catch(e){ showErr(e, 'Não deu pra iniciar'); }
 }
 // ✕ cancelar = tirar do backlog do time (as que dependiam dela deixam de esperar por ela)
 async function epCardCancel(ct){
@@ -545,5 +545,5 @@ async function epicAutoOn(ep){
   try{
     for(const t of list){ await sbFetch('/rest/v1/tasks?id=eq.'+t.id, { method:'PATCH', body: JSON.stringify({ spec:{ ...(t.spec||{}), autoStart:true } }) }); t.spec={ ...(t.spec||{}), autoStart:true }; }
     epicPageRender(); epicAutoStartTick();
-  }catch(e){ alert('Falhou: '+(e.message||e)); }
+  }catch(e){ showErr(e, 'Falhou'); }
 }
