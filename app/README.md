@@ -74,7 +74,8 @@ app/
       31-nova-demanda-form.js formulário por etapas, política do repo, épico, spec com IA
       32-planner.js           "Montar conversando" (chat + TASK.yaml ao vivo)
       33-switcher-projetos, 34-orquestrador (briefing → plano em grafo → tarefas por fase + coordenação por prova).js troca de projeto
-      40-nuvem-conta.js       Supabase: login, org, times
+      39-i18n-auth.js         textos da conta por idioma (T) + tradução única dos erros do Supabase Auth (authErrPt); testes em js/__tests__ (node --test)
+      40-nuvem-conta.js       Supabase: sessão (sbAuth/sbRefresh/sbLogout), org, times
       41-assinatura-chaves.js Stripe + chaves de modelo da conta
       42-nuvem-sync-mobile.js cartões compartilhados, túnel, pontes do celular, APNs
       43-espaco-times.js      espaço Times (visão geral, quadro, PRs, pessoas)

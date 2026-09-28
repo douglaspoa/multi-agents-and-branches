@@ -30,11 +30,44 @@ function sbNetErr(){
   else m+=' — verifique sua internet/VPN (a rede pode estar bloqueando o Supabase).';
   return new Error(m);
 }
-async function sbAuth(path, body){
-  const r = await fetch(SB.url()+'/auth/v1/'+path, { method:'POST', headers:{ 'apikey':SB.key(), 'Content-Type':'application/json' }, body: JSON.stringify(body) }).catch(()=>{ throw sbNetErr(); });
-  const j = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(j.error_description || j.msg || j.message || ('auth falhou ('+r.status+')'));
+// Erro de auth SEMPRE traduzido (39-i18n-auth): .message já vem no idioma do app; .info/.status/.code
+// guardam o que o GoTrue disse (pra tela decidir campo/ação e pro suporte rastrear). Nunca inglês na tela.
+function sbAuthError(status, j){
+  const info=authErrInfo({ status, body:j||{} });
+  const e=new Error(authErrPt(info)); e.info=info; e.status=status; e.code=info.code; e.authKey=info.key; e.raw=info.text;
+  return e;
+}
+// POST (ou GET/PUT via opts) em /auth/v1/… com teto de 20 s — fetch pendurado deixava o botão em "entrando…" pra sempre
+async function sbAuth(path, body, opts){
+  opts=opts||{};
+  const ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  const to=ctl?setTimeout(()=>ctl.abort(), opts.timeout||20000):null;
+  const headers={ 'apikey':SB.key(), 'Content-Type':'application/json' };
+  if(opts.token) headers['Authorization']='Bearer '+opts.token;
+  let r;
+  try{ r=await fetch(SB.url()+'/auth/v1/'+path, { method:opts.method||'POST', headers, body: body==null?undefined:JSON.stringify(body), signal:ctl?ctl.signal:undefined }); }
+  catch(e){
+    if(e&&e.name==='AbortError') throw sbAuthError(0,{ error_code:'timeout' });
+    const n=sbNetErr(); n.network=true; n.code='network'; n.info=authErrInfo(n); throw n;
+  }finally{ if(to) clearTimeout(to); }
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw sbAuthError(r.status, j);
   return j;
+}
+// o que o servidor de contas tem ligado (providers Google/GitHub etc.) — público, sem sessão; cache por execução
+let _sbAuthSettings=null;
+function sbAuthSettings(){
+  if(!_sbAuthSettings) _sbAuthSettings=sbAuth('settings', null, { method:'GET', timeout:8000 }).catch(()=>{ _sbAuthSettings=null; return null; });
+  return _sbAuthSettings;
+}
+// troca atributos da conta (senha) com o token da sessão — renova o token 1x se ele venceu
+async function sbAuthUpdate(attrs, retried){
+  const s=SB.sess(); if(!s||!s.access_token) throw sbAuthError(401,{ error_code:'session_not_found' });
+  try{ return await sbAuth('user', attrs, { method:'PUT', token:s.access_token }); }
+  catch(e){
+    if(!retried && (e.status===401 || (e.status===403 && e.authKey==='session_expired'))){ const n=await sbRefresh(); if(n) return sbAuthUpdate(attrs, true); }
+    throw e;
+  }
 }
 // ---- Login social Google (OAuth PKCE + callback local) ----
 function b64url(bytes){ return btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
@@ -44,7 +77,6 @@ async function pkcePair(){
   const hash=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
   return { verifier, challenge:b64url(new Uint8Array(hash)) };
 }
-async function loginGoogle(){ try{ return await loginOAuth('google'); }catch(_){ /* a mensagem já foi pra tela */ } }
 async function loginOAuth(provider){
   const g=$id('sbGoogle');
   try{
@@ -56,32 +88,60 @@ async function loginOAuth(provider){
       +'&code_challenge='+challenge+'&code_challenge_method=s256';
     cloudMsg='Abrindo o Google no navegador — conclua o login lá e volte.'; renderCloud();
     const query=await invoke('oauth_wait_callback',{ authorizeUrl:url });
-    const p=new URLSearchParams(query);
-    if(p.get('error')) throw new Error(p.get('error_description')||p.get('error'));
-    const code=p.get('code'); if(!code) throw new Error('o callback não trouxe o código de autorização');
+    const p=new URLSearchParams(query||'');
+    if(p.get('error')) throw sbAuthError(400,{ error_code:p.get('error_code')||p.get('error'), msg:p.get('error_description')||p.get('error') });
+    const code=p.get('code'); if(!code) throw sbAuthError(400,{ error_code:'bad_oauth_callback' });
     // troca o code por sessão (PKCE)
-    const r=await fetch(SB.url()+'/auth/v1/token?grant_type=pkce',{ method:'POST',
-      headers:{ 'apikey':SB.key(), 'Content-Type':'application/json' },
-      body: JSON.stringify({ auth_code:code, code_verifier:verifier }) });
-    const j=await r.json().catch(()=>({}));
-    if(!j.access_token) throw new Error(j.error_description||j.msg||j.message||('troca falhou (HTTP '+r.status+')'));
+    const j=await sbAuth('token?grant_type=pkce',{ auth_code:code, code_verifier:verifier });
+    if(!j.access_token) throw sbAuthError(400,{ error_code:'bad_oauth_callback' });
     SB.setSess(j); cloudMsg=''; await cloudLoad(); cloudBtnSync(); renderCloud(); try{ loginGateSync(); }catch(_){}
   }catch(e){
-    let m=e&&e.message||String(e);
-    if(/provider.*not.*enabled|unsupported provider/i.test(m)) m='o provider '+(provider||'google')+' ainda não está ligado no Supabase (Authentication → Providers).';
-    else if(/redirect/i.test(m)) m='a URL http://localhost:8788/callback precisa estar na allowlist do Supabase (Authentication → URL Configuration → Redirect URLs).';
-    cloudMsg='Falha no login: '+m; renderCloud(); throw e;
+    // erro do Rust (porta ocupada, 3 min sem retorno) já vem em pt-BR como string; o resto passa pelo tradutor
+    const pname=provider==='github'?'GitHub':'Google';
+    let m=(typeof e==='string')?e:(e&&e.info)?authErrPt(e,{ provider:pname }):(e&&e.message)||String(e);
+    const err=(e instanceof Error)?e:new Error(m); err.message=m; if(!err.info && typeof e==='string') err.info={ key:'oauth_failed', code:'', status:0, field:'', wait:null, min:8, text:m, rust:true };
+    cloudMsg=m; renderCloud(); throw err;
   }finally{ if(g){ g.disabled=false; g.style.opacity=''; } }
 }
-async function sbRefresh(){
-  const s = SB.sess(); if(!s || !s.refresh_token) return null;
-  try{ const j = await sbAuth('token?grant_type=refresh_token', { refresh_token: s.refresh_token }); SB.setSess(j); return j; }
-  catch(_){ SB.setSess(null); return null; }
+// Renova o token. UMA renovação por vez (várias chamadas 401 ao mesmo tempo gastavam o mesmo refresh_token →
+// "Already Used" → logout à toa). Só derruba a sessão quando o SERVIDOR diz que o refresh_token não vale mais;
+// sem rede / 5xx / 429 a sessão fica e a próxima chamada tenta de novo (antes: offline no boot = deslogado).
+let _sbRefreshing=null;
+function sbRefresh(){
+  const s = SB.sess(); if(!s || !s.refresh_token) return Promise.resolve(null);
+  if(_sbRefreshing) return _sbRefreshing;
+  _sbRefreshing=(async()=>{
+    try{ const j = await sbAuth('token?grant_type=refresh_token', { refresh_token: s.refresh_token }); SB.setSess(j); return j; }
+    catch(e){
+      if(e && (e.network || e.authKey==='timeout' || e.status===429 || e.status>=500)) return null;
+      const cur=SB.sess(); if(cur && cur.refresh_token!==s.refresh_token) return cur; // outra aba/chamada já renovou
+      SB.setSess(null); sbSessionEnded('expired'); return null;
+    }finally{ _sbRefreshing=null; }
+  })();
+  return _sbRefreshing;
+}
+// sessão caiu (refresh_token inválido): limpa o que é da conta e mostra o login com o aviso — nada de erro cru
+function sbSessionEnded(reason){
+  lsSet('sb:ended', reason||'expired');
+  cloudData=null; cloudAutoInvTried=false;
+  try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
+  try{ cloudBtnSync(); }catch(_){ }
+}
+// sair da conta: UM caminho só (cabeçalho, painel Conta e tela de entrada). Revoga o refresh_token no
+// servidor (melhor esforço, sem travar a UI) e limpa o estado da conta desta máquina.
+function sbLogout(){
+  const s=SB.sess();
+  SB.setSess(null); lsSet('sb:ended','');
+  cloudData=null; cloudAutoInvTried=false; cloudMsg='';
+  try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
+  if(s && s.access_token) sbAuth('logout?scope=local', null, { token:s.access_token, timeout:5000 }).catch(()=>{});
+  try{ cloudBtnSync(); }catch(_){ }
+  try{ renderCloud(); }catch(_){ }
 }
 async function sbFetch(path, opts, retried){
-  const s = SB.sess(); if(!s) throw new Error('não autenticado');
+  const s = SB.sess(); if(!s) throw new Error(T('auth.err.session_expired'));
   const r = await fetch(SB.url()+path, { ...(opts||{}), headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+s.access_token, 'Content-Type':'application/json', ...((opts||{}).headers||{}) } }).catch(()=>{ throw sbNetErr(); });
-  if(r.status===401 && !retried){ const n=await sbRefresh(); if(n) return sbFetch(path, opts, true); throw new Error('sessão expirou — entre de novo'); }
+  if(r.status===401 && !retried){ const n=await sbRefresh(); if(n) return sbFetch(path, opts, true); throw (SB.sess()?sbNetErr():new Error(T('auth.err.session_expired'))); }
   const tx = await r.text();
   let j=null; try{ j=tx?JSON.parse(tx):null; }catch(_){ }
   if(!r.ok) throw new Error((j&&(j.message||j.hint||j.details))||('erro '+r.status));
@@ -101,7 +161,7 @@ let cloudCfgOpen=false; // força a tela de backend mesmo com o default baked
 function openCloud(){ $id('cloudOverlay').style.display='flex'; renderCloud(); }
 // "sair" SEMPRE visível no cabeçalho quando logado (o do corpo ficava enterrado)
 { const b=$id('sbLogoutTop');
-  if(b) b.onclick=async()=>{ if(!await askYes('Sair da conta nesta máquina?')) return; SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+  if(b) b.onclick=async()=>{ if(!await askYes('Sair da conta nesta máquina?')) return; sbLogout(); };
   setInterval(()=>{ const e=$id('sbLogoutTop'); if(e) e.style.display=SB.sess()?'':'none'; }, 1500); }
 function closeCloud(){
   if(!SB.sess() && $id('cloudOverlay').dataset.lock==='1') return; // login é obrigatório
@@ -173,7 +233,7 @@ function loginGateSync(){
     if(x) x.style.display='';
   }
 }
-setTimeout(loginGateSync, 3000); // depois do refresh de sessão do boot
+setTimeout(()=>loginGateSync(), 3000); // depois do refresh de sessão do boot (arrow: usa a versão do 44-onboarding)
 
 function cloudMsgHtml(){ return cloudMsg ? `<div class="imhint" style="border-left:2px solid ${cloudMsg.startsWith('✓')?'var(--good)':'var(--warn)'};margin-bottom:12px">${esc(cloudMsg)}</div>` : ''; }
 
@@ -194,54 +254,15 @@ async function renderCloud(){
     $id('sbCfgCloud').onclick=()=>{ lsSet('sb:url',''); lsSet('sb:key',''); SB.setSess(null); cloudData=null; cloudCfgOpen=false; cloudMsg=''; renderCloud(); cloudBtnSync(); };
     return;
   }
-  // 2) sem sessão → login / criar conta
+  // 2) sem sessão → a tela de entrada (44-onboarding) é o ÚNICO formulário de conta: criar, entrar, código,
+  // esqueci a senha — com os erros traduzidos. Aqui fica só o atalho pra ela (+ "servidor…" pra dev/admin).
+  // (antes havia um 2º formulário aqui, com mínimo de 6 caracteres, Google sempre visível e erros em inglês)
   if(!SB.sess()){
     head.textContent='Conta e time · entrar';
     body.innerHTML = cloudMsgHtml()+`
-      <button class="btn" id="sbGoogle" style="width:100%;justify-content:center;gap:9px;padding:9px;font-weight:600"><svg viewBox="0 0 18 18" width="16" height="16"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>Entrar com Google</button>
-      <div style="display:flex;align-items:center;gap:10px;margin:14px 0"><span style="flex:1;height:1px;background:var(--border)"></span><span class="dim" style="font-size:11px">ou</span><span style="flex:1;height:1px;background:var(--border)"></span></div>
-      <label>E-mail</label><input class="in" id="sbEmail" placeholder="voce@empresa.com" value="${escA(lsGet('sb:email')||'')}">
-      <label style="margin-top:12px;display:flex;align-items:center">Senha<span style="flex:1"></span><a class="lnk" id="sbForgot" style="text-transform:none;letter-spacing:0;font-size:11px;cursor:pointer">esqueci a senha</a></label><input class="in" id="sbPass" type="password" placeholder="••••••••">
-      <div style="display:flex;gap:8px;margin-top:16px;align-items:center">${(canSeeDevTools()||lsGet('sb:url'))?'<button class="btn sm" id="sbCfgEdit" title="avançado: trocar o servidor da conta (dev/admin)">servidor…</button>':''}<span style="flex:1"></span><button class="btn" id="sbSignup">criar conta</button><button class="btn primary" id="sbLogin">entrar</button></div>
-      <div class="aihint dim" style="margin-top:10px">A conta é sua identidade no time — quem criou a tarefa, quem assumiu, quem entregou.</div>`;
-    const email=()=>$id('sbEmail').value.trim(), pass=()=>$id('sbPass').value;
-    const go=async(kind)=>{
-      cloudMsg='';
-      // validação clara ANTES do servidor (o erro cru do GoTrue confunde)
-      if(!email() || !email().includes('@')){ cloudMsg='Informe o e-mail — se você foi convidado, use o MESMO e-mail do convite.'; renderCloud(); $id('sbEmail').focus(); return; }
-      if((pass()||'').length<6){ cloudMsg='A senha precisa de pelo menos 6 caracteres.'; renderCloud(); $id('sbPass').focus(); return; }
-      try{
-        lsSet('sb:email', email());
-        if(kind==='up'){
-          const j=await sbAuth('signup',{ email:email(), password:pass() });
-          if(j.access_token){ SB.setSess(j); await cloudLoad(); }
-          else { cloudMsg='✓ conta criada — confirme o e-mail que o Supabase enviou e depois clique em entrar.'; }
-        } else {
-          const j=await sbAuth('token?grant_type=password',{ email:email(), password:pass() });
-          SB.setSess(j); await cloudLoad();
-        }
-      }catch(e){
-        let m=e.message||String(e);
-        if(/anonymous/i.test(m)) m='informe e-mail e senha.';
-        else if(/already registered|user_already/i.test(m)) m='este e-mail já tem conta — use "entrar".';
-        else if(/invalid login credentials/i.test(m)) m='e-mail ou senha incorretos (a conta existe? confirmou o e-mail?).';
-        else if(/email not confirmed/i.test(m)) m='confirme o e-mail primeiro — procure o link na sua caixa de entrada.';
-        cloudMsg='Falhou: '+m;
-      }
-      cloudBtnSync(); renderCloud();
-    };
-    $id('sbLogin').onclick=()=>go('in');
-    $id('sbSignup').onclick=()=>go('up');
-    bindClick('sbGoogle', loginGoogle);
-    { const f=$id('sbForgot'); if(f) f.onclick=async()=>{
-        if(!email() || !email().includes('@')){ cloudMsg='Digite seu e-mail acima primeiro — o link de recuperação vai pra ele.'; renderCloud(); $id('sbEmail').focus(); return; }
-        f.textContent='enviando…';
-        // mesmo fluxo do onboarding: código de 6 dígitos → nova senha (auRecover em 44-onboarding.js)
-        try{ await auRecover(email()); cloudMsg=''; }
-        catch(e){ cloudMsg='Falhou ao enviar recuperação: '+esc(e&&e.message||String(e)); }
-        renderCloud();
-      }; }
-    $id('sbPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go('in'); });
+      <div class="imhint">${esc(T('auth.cloud.nosess'))}</div>
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center">${(canSeeDevTools()||lsGet('sb:url'))?'<button class="btn sm" id="sbCfgEdit" title="avançado: trocar o servidor da conta (dev/admin)">servidor…</button>':''}<span style="flex:1"></span><button class="btn primary" id="sbOpenAuth">${esc(T('auth.cloud.open'))}</button></div>`;
+    bindClick('sbOpenAuth', ()=>{ if(typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup'); });
     bindClick('sbCfgEdit', ()=>{ cloudCfgOpen=true; renderCloud(); });
     return;
   }
@@ -271,7 +292,7 @@ async function renderCloud(){
       catch(e){ cloudMsg='Falhou: '+e.message; }
       renderCloud();
     };
-    $id('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+    $id('sbLogout').onclick=()=>sbLogout();
     return;
   }
   // 4) home: gestão da org — times, membros por time, convites, catálogo, visão
@@ -364,7 +385,7 @@ async function renderCloud(){
         $id('sbInvCopy').onclick=function(){ navigator.clipboard.writeText(msg); this.textContent='copiado ✓'; };
       }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
     }; }
-  $id('sbLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync(); renderCloud(); };
+  $id('sbLogout').onclick=()=>sbLogout();
   bindClick('sbPassChange', ()=>auShow('newpass', { backTo: ()=>{ if(window.openTab) window.openTab('conta'); } }));
   cloudCatalog(d.org.id, isAdmin);
   if(isAdmin){
