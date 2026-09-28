@@ -89,7 +89,7 @@ async function loadArtifacts(taskId, status){
 // ---------- provas por requisito (requirements.json gerado pelo agente) ----------
 const reqProofCache={}; // taskId -> {list:[...]|null}
 async function loadReqProofs(taskId){
-  try{ const c=await invokeQuiet('read_artifact',{ taskId, name:'requirements.json' }); // opcional: tarefa sem requisitos não tem o arquivo (não é erro) const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
+  try{ const c=await invokeQuiet('read_artifact',{ taskId, name:'requirements.json' }); /* opcional: tarefa sem requisitos não tem o arquivo (não é erro) */ const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
   catch(_){ reqProofCache[taskId]={list:null}; }
 }
 function reqNorm(x){ return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
