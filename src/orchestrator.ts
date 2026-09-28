@@ -14,7 +14,7 @@ import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeM
 import { execFileSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
-import { ClaudeEngine } from "./engine/claude.ts";
+import { ClaudeEngine, claudeEnv, claudeErrText, resolveClaude } from "./engine/claude.ts";
 import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
@@ -392,8 +392,7 @@ export class Orchestrator {
   /** Roda o Haiku headless (destiladores). "" em qualquer falha. */
   private async haiku(prompt: string): Promise<string> {
     try {
-      const claude = process.env.CARDUME_CLAUDE || "claude";
-      const { stdout } = await run(claude, ["-p", prompt, "--model", "claude-haiku-4-5-20251001"]);
+      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv() });
       return stdout.trim();
     } catch { return ""; }
   }
@@ -531,6 +530,10 @@ export class Orchestrator {
    * o trabalho parcial está na worktree — continuar faz sentido, igual à inatividade. */
   private static networkDeath(text: string): boolean {
     return /socket connection was closed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|other side closed|Connection error/i.test(text || "");
+  }
+  /** `--resume <id>` sem a sessão no disco (Claude guarda por pasta; histórico apagado/outra máquina). */
+  private static sessionMissing(text: string): boolean {
+    return /no conversation found|session (id )?.{0,60}not found|could not find session/i.test(text || "");
   }
   private static retriableDeath(text: string): boolean {
     return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text) || Orchestrator.networkDeath(text);
@@ -1290,13 +1293,11 @@ export class Orchestrator {
   }
 
   private async talkToAgentInner(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
+    // a conversa SEMPRE pode ser retomada: worktree removida (merge, "liberar
+    // espaço", cancelada…) é RECRIADA no mesmo caminho antes do turno.
+    const recreated = await this.ensureTaskWorktree(taskId);
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
-    // mergeada NÃO impede conversar se a worktree ainda existe (o merge nem sempre
-    // remove) — só barra quando a worktree sumiu de verdade.
-    if (task.status === "merged" && !existsSync(task.worktree)) {
-      throw new Error("tarefa mergeada e a worktree já foi removida — abra uma correção linkada pra continuar.");
-    }
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     // pedido novo vira REQUISITO da tarefa (checklist cresce e cobra evidência)
     if (asReq && message.trim()) {
@@ -1317,7 +1318,8 @@ export class Orchestrator {
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec, message) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
-    const prev = task.status;
+    // recriada → ao fim do turno volta pra "pronta pra revisar" (não pro limbo mergeada-sem-worktree)
+    const prev: AgentStatus = recreated && ["merged", "done", "aborted", "cancelled", "error"].includes(task.status) ? "review" : task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `Você: ${message}`, true);
     this.store.setStatus(taskId, "thinking");
@@ -1328,7 +1330,7 @@ export class Orchestrator {
       const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext() };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
-        : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };
+        : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${this.historyDigest(taskId)}${chatRule}` };
       let deathText = "";
       for await (const ev of engine.run(input)) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
@@ -1339,6 +1341,14 @@ export class Orchestrator {
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
           this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok);
         }
+      }
+      // sessão não existe mais (histórico do Claude apagado/outra máquina) →
+      // sessão NOVA semeada com o histórico da conversa (historyDigest)
+      if (sid && deathText && Orchestrator.sessionMissing(deathText)) {
+        this.store.setSession(taskId, "");
+        this.store.addEvent(taskId, "Sistema", "note", "A sessão anterior do agente não foi encontrada — continuando numa sessão nova com o resumo da conversa.", true);
+        this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+        return this.talkToAgentInner(taskId, message, false, agentName);
       }
       // sessão do chat estourou os tokens → recomeça SOZINHO com sessão nova
       // (sid vazio na re-entrada → caminho fresco; sem risco de loop)
@@ -1351,6 +1361,12 @@ export class Orchestrator {
       }
     } catch (err) {
       const msg = (err as Error).message;
+      if (sid && Orchestrator.sessionMissing(msg)) {
+        this.store.setSession(taskId, "");
+        this.store.addEvent(taskId, "Sistema", "note", "A sessão anterior do agente não foi encontrada — continuando numa sessão nova com o resumo da conversa.", true);
+        this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+        return this.talkToAgentInner(taskId, message, false, agentName);
+      }
       if (sid && Orchestrator.retriableDeath(msg)) {
         const why = Orchestrator.tokenDeath(msg) ? "estourou o limite de tokens" : (Orchestrator.networkDeath(msg) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
         this.store.setSession(taskId, "");
@@ -1383,11 +1399,86 @@ export class Orchestrator {
     this.store.setStatus(taskId, next);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
     else notify("Starfork", `${role.name} respondeu`, task.title);
-    // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
     // notas que o agente escreveu neste turno → cérebro do projeto
     this.harvestBrain(task.worktree, taskId, task.title);
     // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
     if (!asReq) void this.learnFromMessage(message, task.title, taskId);
+  }
+
+  /**
+   * Garante que a worktree da tarefa EXISTE — se foi removida (merge, "liberar
+   * espaço", cancelada/abortada limpa), RECRIA no MESMO caminho (a sessão do
+   * Claude é guardada por pasta → `--resume` continua valendo), re-semeia o
+   * ambiente e o TASK.yaml. Mergeada → branch NOVA da base (<branch>-cont) e o
+   * PR antigo vai pro histórico (spec.prHistory) — o próximo push abre PR novo.
+   * Retorna true se recriou.
+   */
+  async ensureTaskWorktree(taskId: string): Promise<boolean> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const wt = task.worktree;
+    if (spec.kind === "review") {
+      // review de PR: pasta simples (sem git) — só garante que existe
+      if (existsSync(wt)) return false;
+      await mkdir(join(wt, ".cardume"), { recursive: true });
+      await writeFile(join(wt, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      this.store.addEvent(taskId, "Sistema", "note", "Recriei a pasta de trabalho desta revisão — a conversa continua.", true);
+      return true;
+    }
+    if (existsSync(join(wt, ".git"))) return false;
+    if (existsSync(wt)) {
+      // sobra sem git (ex.: só .cardume/ ficou) — só apaga dentro de .cardume/worktrees
+      const root = this.ws.worktrees + "/";
+      if (!wt.startsWith(root)) throw new Error(`a pasta de trabalho da tarefa (${wt}) existe mas não é uma cópia git — remova-a e tente de novo.`);
+      await rm(wt, { recursive: true, force: true });
+    }
+    const merged = task.status === "merged";
+    const base = task.base || (spec.base && spec.base.trim()) || (await this.git.defaultBase());
+    await this.git.ensureExcluded([".cardume/", ".constellation/"]);
+    let r: { branch: string; from: string; reused: boolean };
+    try {
+      r = await this.git.recreateWorktree(wt, { branch: task.branch, base, merged });
+    } catch (err) {
+      throw new Error(`não consegui recriar a cópia de trabalho desta tarefa: ${(err as Error).message}`);
+    }
+    await mkdir(join(wt, ".cardume"), { recursive: true });
+    try { await this.seedWorktreeEnv(wt, spec.light === true); } catch { /* best-effort */ }
+    if (merged && spec.prUrl) {
+      spec.prHistory = [...(spec.prHistory ?? []).filter((u) => u !== spec.prUrl), spec.prUrl];
+      delete spec.prUrl;
+      this.store.updateSpec(taskId, JSON.stringify(spec));
+    }
+    await writeFile(join(wt, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+    if (r.branch !== task.branch) this.store.setBranch(taskId, r.branch);
+    const from = r.reused ? `branch ${r.branch}` : r.from;
+    this.store.addEvent(taskId, "Sistema", "note", `Recriei a cópia de trabalho desta tarefa a partir de ${from} — a conversa continua.`, true);
+    if (merged) {
+      this.store.addEvent(taskId, "Sistema", "note", `A tarefa já tinha sido mergeada: os novos ajustes vão na branch ${r.branch} (vira um PR novo quando você fizer commit & push; o PR anterior fica no histórico).`, true);
+    } else if (!r.reused) {
+      this.store.addEvent(taskId, "Sistema", "note", `A branch ${task.branch} não existia mais (nem local nem no origin) — a cópia nasceu de ${r.from}; o que não tinha sido enviado se perdeu.`, false);
+    }
+    return true;
+  }
+
+  /** Resumo curto da conversa (últimas mensagens) pra semear uma sessão NOVA do agente. */
+  private historyDigest(taskId: string): string {
+    try {
+      const evs = this.store.eventsForTask(taskId).filter((e) => (e.type === "think" || e.type === "done" || (e.type === "note" && e.agent === "Você")) && e.text && e.text.trim());
+      if (!evs.length) return "";
+      const lines: string[] = [];
+      let size = 0;
+      for (let i = evs.length - 1; i >= 0 && lines.length < 24; i--) {
+        const who = evs[i].agent === "Você" ? "" : `${evs[i].agent}: `;
+        const l = (who + evs[i].text.replace(/\s+/g, " ").trim()).slice(0, 400);
+        if (size + l.length > 5000) break;
+        lines.unshift(`- ${l}`);
+        size += l.length;
+      }
+      return `\n\n[HISTÓRICO DA CONVERSA — sessão anterior não disponível; use como contexto, confira o estado real com git log/git status]\n${lines.join("\n")}`;
+    } catch {
+      return "";
+    }
   }
 
   /**
@@ -1457,15 +1548,14 @@ export class Orchestrator {
       const prompt =
         `Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n` +
         `Objetivo da tarefa: ${spec.objective}\n${dels}\nDiff:\n${diff}`;
-      const claude = process.env.CARDUME_CLAUDE || "claude";
-      const { stdout } = await run(claude, ["-p", prompt], { cwd: worktree });
+      const { stdout } = await run(resolveClaude(), ["-p", prompt], { cwd: worktree, env: claudeEnv() });
       const s = stdout.trim();
       if (s) {
         this.store.addCommitSummary(hash, s);
         this.store.addEvent(taskId, spec.agent, "note", "resumo técnico do commit gerado", true);
       }
     } catch (err) {
-      this.store.addEvent(taskId, spec.agent, "note", `resumo IA do commit falhou: ${(err as Error).message}`, false);
+      this.store.addEvent(taskId, spec.agent, "note", `resumo IA do commit falhou: ${claudeErrText(err)}`, false);
     }
   }
 
