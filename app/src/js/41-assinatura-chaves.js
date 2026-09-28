@@ -69,7 +69,7 @@ async function payCheckout(plan,btn){
     if(payPollT) clearInterval(payPollT);
     payPollT=setInterval(billingSync, 5000);
     setTimeout(()=>{ if(payPollT){ clearInterval(payPollT); payPollT=null; } }, 10*60*1000);
-  }catch(e){ alert('Não consegui abrir o checkout:\n'+e); }
+  }catch(e){ showErr(e, 'Não consegui abrir o checkout'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent='Começar o teste'; } }
 }
 async function payPortal(btn){
@@ -80,7 +80,7 @@ async function payPortal(btn){
     const j=await r.json();
     if(!j.url) throw new Error(j.error||('HTTP '+r.status));
     try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
-  }catch(e){ alert('Não consegui abrir o portal:\n'+e); }
+  }catch(e){ showErr(e, 'Não consegui abrir o portal'); }
   finally{ if(btn) btn.disabled=false; }
 }
 // seção "Assinatura" dentro da Conta (cloudOverlay)

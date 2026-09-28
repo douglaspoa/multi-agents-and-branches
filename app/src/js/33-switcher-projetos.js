@@ -10,14 +10,13 @@ async function loadProjects(){
 }
 function renderProjName(){
   const active = projects.find(p=>p.active);
-  const nm = active ? active.name : (state.repo ? state.repo.split("/").filter(Boolean).slice(-1)[0] : "sem projeto");
+  const nm = active ? active.name : (state.repo ? pathBase(state.repo) : "sem projeto");
   const el=$id("projName"); if(el) el.textContent = nm;
   const dot=$id("projDot"); if(dot) dot.classList.toggle("live", connected && (state.tasks||[]).length>0);
 }
 function projMenuOpen(){ const m=$id("projMenu"); return m && m.style.display!=="none"; }
-function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) alert(projErr); return; } renderProjMenu(); m.style.display="block"; }
+function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) showErr(projErr, 'Não consegui abrir o projeto'); return; } renderProjMenu(); m.style.display="block"; }
 function closeProjMenu(){ const m=$id("projMenu"); if(m) m.style.display="none"; }
-function toggleProjMenu(){ projMenuOpen()?closeProjMenu():openProjMenu(); }
 function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos é uma aba); fica só se algum HTML antigo tiver #projMenu
   const m=$id("projMenu"); if(!m) return;
   const rows = projects.length ? projects.map(p=>`<div class="prow${p.active?' on':''}" data-path="${escA(p.path)}">
@@ -29,7 +28,7 @@ function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos 
     `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`+
     `<div class="projadd projmanage" id="projManage"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Gerenciar projetos</div>`;
   m.querySelectorAll('.prow').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.px')) return; switchProject(r.dataset.path); });
-  m.querySelectorAll('.px').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke("remove_project",{path:b.dataset.rm}); }catch(_){}; await loadProjects(); });
+  m.querySelectorAll('.px').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const wasActive=b.dataset.rm===state.repo; try{ await invoke("remove_project",{path:b.dataset.rm}); }catch(_){}; if(wasActive){ selected=null; lastSig=""; clearProjectCaches(); await refresh(); } await loadProjects(); });
   $id("projAdd").onclick = pickFolder;
   bindClick("projManage", ()=>{ closeProjMenu(); if(window.openTab) window.openTab('projetos'); });
 }
@@ -111,7 +110,7 @@ $id("ntCreate").onclick = ()=>{
 $id('ntOverlay').addEventListener('input', ntGate);
 $id("ntDraft").onclick = ()=>submitNewTask(false);
 document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMode(b.dataset.mode));
-$id("ntAI").onclick = openPlanner;
+$id("ntAI").onclick = ()=>{ if(window.openTab) window.openTab("planner",{replace:true}); else openPlanner(); }; // mesma aba vira o planner (BUG-8: o planner não fecha mais o formulário)
 $id("emAbrir").onclick = pickFolder;
 bindClick("emNovo", ()=>openNewProject());
 $id("ntImport").onclick = importTaskMd;
@@ -129,7 +128,7 @@ document.querySelectorAll('[data-aititle]').forEach(b=>{
     if(!text.trim()){ const s=$id(src); if(s){ s.focus(); s.placeholder='escreva a descrição primeiro — o título sai dela'; } return; }
     const orig=b.innerHTML; b.disabled=true; b.textContent='gerando…';
     try{ const t=await invoke('ai_title',{ text }); const d=$id(dst); if(d){ d.value=t; d.focus(); } }
-    catch(err){ alert('Não deu pra gerar o título:\n'+err); }
+    catch(err){ showErr(err, 'Não deu pra gerar o título'); }
     finally{ b.disabled=false; b.innerHTML=orig; }
   };
 });
@@ -257,7 +256,7 @@ function renderWf(){
       await sbFetch('/rest/v1/org_workflows?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:w.id, name:w.name, steps:w.steps||[] }) });
       b.textContent='✓ no catálogo do time';
       setTimeout(()=>{ b.disabled=false; b.textContent=o; }, 3000);
-    }catch(e){ alert('Falhou: '+(e.message||e)); b.disabled=false; b.textContent=o; }
+    }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent=o; }
   });
   el.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows[+b.dataset.wi].steps.splice(+b.dataset.rm,1); renderWf(); });
   // chips arrastáveis (reordenar etapas, inclusive entre equipes)
@@ -288,7 +287,7 @@ function parseAgentMd(filename, content){
 }
 async function importAgents(){
   let files;
-  try{ files = await invoke("import_agent_files"); }catch(e){ alert("Falha ao importar:\n"+e); return; }
+  try{ files = await invoke("import_agent_files"); }catch(e){ showErr(e, 'Falha ao importar'); return; }
   if(!files || !files.length) return;
   for(const f of files) cfgEdit.agents.push(parseAgentMd(f.filename, f.content));
   renderAg(); renderWf();
@@ -298,7 +297,7 @@ async function saveConfig(){
   cfgEdit.workflows.forEach(w=>{ if(!w.id) w.id=agSlug(w.name); if(!w.steps) w.steps=[]; });
   const btn=$id("agSave"); btn.disabled=true; btn.textContent="salvando…";
   try{ await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); lastSig=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
-  catch(e){ alert("Falha ao salvar catálogo:\n"+e); }
+  catch(e){ showErr(e, 'Falha ao salvar catálogo'); }
   finally{ btn.disabled=false; btn.textContent="salvar catálogo"; }
 }
 $id("agentsBtn").onclick = openAgents;
@@ -310,10 +309,10 @@ $id("agImport").onclick = importAgents;
 $id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Nova equipe", steps:[] }); renderWf(); };
 $id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
 
-// rede de segurança global: um erro solto (ex.: invoke que rejeitou sem catch,
-// rede caída) não deve deixar a UI num estado quebrado — só loga.
-window.addEventListener("error", e=>{ console.error("erro global:", e.error||e.message); });
-window.addEventListener("unhandledrejection", e=>{ console.error("promise sem catch:", e.reason); e.preventDefault(); });
+// rede de segurança global: o registro de erro solto/promise sem catch fica no 52-erros (app_errors) e no
+// 10-core (web_log) — aqui só evita o aviso padrão do WebView pra rejeição sem catch (o console.error
+// que havia aqui duplicava o mesmo erro nos dois registros).
+window.addEventListener("unhandledrejection", e=>{ e.preventDefault(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 initNotifs();
@@ -321,6 +320,26 @@ refresh().then(loadProjects).then(restoreMainView).catch(e=>console.error("boot:
 // poll blindado: uma volta que falhe não derruba o ciclo
 // um refresh por vez (o tick de 1s empilhava vários em paralelo), mas a trava NUNCA fica presa: se um refresh
 // não voltar em 6s (IPC perdido, SQLite ocupado), o próximo tick segue — antes a tela parava de atualizar pra sempre
-let refreshBusyAt=0;
-setInterval(()=>{ if(refreshBusyAt && Date.now()-refreshBusyAt<6000) return; const my=refreshBusyAt=Date.now();
-  refresh().catch(e=>console.error("refresh:", e)).finally(()=>{ if(refreshBusyAt===my) refreshBusyAt=0; }); }, 1000);
+// Carimbo antes do snapshot: `snapshot_stamp` (Rust, só stat do state.sqlite/-wal) é quase grátis; o snapshot
+// inteiro (~0,5 MB de JSON serializado, cruzando IPC e parseado aqui) só vem quando o banco mudou, quando
+// alguém pediu redesenho (lastSig mexido fora daqui), logo após um clique (render segurado pelo uiHold) ou
+// a cada 3s (pid vivo, cache multi-projeto — o que não mora no banco). Janela escondida: 1 volta a cada 4s
+// e snapshot completo no máx. a cada 12s. Sem o comando (build antigo / harness) = sempre snapshot.
+let refreshBusyAt=0, stampBusyAt=0, pollAt=0, snapStamp=null, snapFullAt=0, snapSigMark=null;
+setInterval(async()=>{
+  const now=Date.now();
+  if(refreshBusyAt && now-refreshBusyAt<6000) return;
+  if(stampBusyAt && now-stampBusyAt<6000) return;
+  const hidden=document.hidden;
+  if(hidden && now-pollAt<4000) return;
+  pollAt=now;
+  let stamp=null;
+  stampBusyAt=now; try{ stamp=await invoke("snapshot_stamp"); }catch(_){ stamp=null; } finally{ stampBusyAt=0; }
+  if(stamp && stamp===snapStamp && lastSig===snapSigMark && Date.now()-snapFullAt<(hidden?12000:3000) && Date.now()-uiHoldUntil>1500){
+    if(typeof loadAllTasks==='function') loadAllTasks(); // cache multi-projeto segue no ritmo dele (throttle de 4s próprio)
+    return;
+  }
+  const my=refreshBusyAt=Date.now(); const before=state;
+  refresh().then(()=>{ if(state!==before){ snapStamp=stamp; snapFullAt=Date.now(); snapSigMark=lastSig; } })
+    .catch(e=>console.error("refresh:", e)).finally(()=>{ if(refreshBusyAt===my) refreshBusyAt=0; });
+}, 1000);

@@ -207,6 +207,10 @@ body{
 /* toast global */
 .apptoast{position:fixed;right:20px;bottom:44px;z-index:9999;max-width:440px;background:var(--surface-3);border:1px solid var(--border-strong);border-left:3px solid var(--info);border-radius:10px;padding:11px 14px;font-size:12.5px;color:var(--text);box-shadow:var(--shadow);display:none}
 .apptoast.ok{border-left-color:var(--good)} .apptoast.warn{border-left-color:var(--warn)} .apptoast.err{border-left-color:var(--crit)}
+.apptoast-acts{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
+.apptoast-btn{font:inherit;font-size:12px;padding:4px 10px;border-radius:7px;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);cursor:pointer}
+.apptoast-btn:hover{background:var(--surface)}
+.apptoast-btn.ghost{background:none;border-color:transparent;color:var(--muted);text-decoration:underline;padding:4px 4px}
 /* estados que faltavam: desabilitado parece desabilitado; foco por teclado visível */
 .btn:disabled,.btn[disabled],.iconbtn:disabled,.as-btn:disabled,.au-btn:disabled{opacity:.45;cursor:not-allowed;filter:none;box-shadow:none}
 :where(button,.btn,.iconbtn,[role=tab],[tabindex]):focus-visible{outline:none;box-shadow:var(--ring)}

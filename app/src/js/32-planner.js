@@ -31,7 +31,7 @@ let plPend=[]; // anexos importados, ainda não enviados
 function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; }
 function plRenderRefs(){
   const el=$id('plRefsBar'); if(!el) return;
-  el.innerHTML = plRefs.map((p,i)=>{ const n=(p||'').split('/').pop(); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">${IC.x}</button></span>`; }).join('');
+  el.innerHTML = plRefs.map((p,i)=>{ const n=pathBase(p); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">${IC.x}</button></span>`; }).join('');
   el.querySelectorAll('.plrefx').forEach(b=>b.onclick=()=>{ plRefs.splice(+b.dataset.r,1); plRenderRefs(); });
 }
 // anexos do planner: composer único; o que entra também vira ref da tarefa criada
@@ -47,7 +47,9 @@ function plDraftJson(){ let input=''; try{ const i=document.getElementById('plIn
 // mensagem: o raciocínio fica no disco ANTES da IA responder, então uma queda de
 // luz / fechamento no meio não perde o que você acabou de escrever.
 function plAutoSave(immediate){ if(plQuiet) return; clearTimeout(plSaveTimer); const save=()=>{ try{ invoke('save_draft',{ json: plDraftJson() }); }catch(_){} }; if(immediate){ save(); } else { plSaveTimer=setTimeout(save,400); } }
+let plOpenSeq=0, plOpenDone=0; // plStartWith espera o openPlanner (async: lê o rascunho) terminar antes de enviar
 async function openPlanner(){
+  const seq=++plOpenSeq;
   plReset();
   $id('plannerOverlay').style.display='flex';
   let draft=null; try{ draft=await invoke('load_draft'); }catch(_){}
@@ -61,7 +63,30 @@ async function openPlanner(){
   if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê? (se for grande e tiver várias frentes, eu proponho um épico com tarefas em paralelo pra você aprovar)'}); plMsgs.push({who:'bot', kind:'model'}); }
   renderPlanner(); plRenderRefs();
   const i=$id('plInput'); if(i) i.focus();
+  plOpenDone=seq;
 }
+// abre uma aba NOVA de "Montar conversando" com o pedido do usuário já ENVIADO como 1ª mensagem
+// (tela vazia "O que você quer fazer?" e a caixa única da Nova demanda). Se o projeto tinha um rascunho
+// de conversa, não mistura: o texto fica na caixa e um aviso explica. opts vai pro openTab (ex.: {replace:true}).
+function plStartWith(text, opts){
+  text=String(text||'').trim(); if(!window.openTab) return;
+  const before=plOpenSeq;
+  window.openTab('planner', opts||{});
+  let n=0; const go=()=>{
+    const o=$id('plannerOverlay'), t=(typeof tabById==='function')?tabById(activeTab):null;
+    const ready=plOpenSeq>before && plOpenDone===plOpenSeq && o && o.style.display!=='none' && t && t.kind==='planner';
+    if(!ready){ if(++n<60) setTimeout(go,100); return; }
+    if(!text) return;
+    if(plMsgs.some(m=>m.who==='you') || plBusy){
+      const i=$id('plInput'); if(i){ if(!i.value.trim()) i.value=text; i.dispatchEvent(new Event('input')); i.focus(); }
+      toast('Havia uma conversa em rascunho neste projeto — seu pedido ficou na caixa. Envie ou clique "novo" pra começar do zero.','warn');
+      return;
+    }
+    plSend(text);
+  };
+  setTimeout(go,60);
+}
+window.plStartWith=plStartWith;
 async function plNew(){
   try{ await invoke('clear_draft'); }catch(_){}
   plReset(); plMsgs.push({who:'bot', text:'Novo. Qual é o objetivo — o que precisa ser feito e por quê?'}); plMsgs.push({who:'bot', kind:'model'});
@@ -114,10 +139,11 @@ function renderPlanner(){
       return `<div class="plfield ${st}"${f.tip?` title="${escA(f.tip)}"`:''}><div class="plfhead"><span class="pldot"></span><span class="plfk">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`;
     }).join('')+
     `<details class="plraw" id="plRaw"${plRawOpen?' open':''}><summary>ver como arquivo <span class="mono">TASK.yaml</span></summary><pre class="mono">${esc(plYaml())}</pre></details>`+
-    `<div class="plmeshfoot"><button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
+    `<div class="plmeshfoot">${plCostHtml()}<button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
   mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
   bindClick('plCreate', plCreate);
+  if(typeof budgetFieldWire==='function') budgetFieldWire('plBudget');
   { const d=$id('plRaw'); if(d) d.ontoggle=()=>{ plRawOpen=d.open; }; }
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
 }
@@ -260,10 +286,10 @@ function plWirePlanCard(){
 }
 async function plCreateEpic(){
   if(!PLP()) return;
-  if(!(SB.sess() && cloudTeamId())){ alert('Épico usa o backlog do time — entre na conta e escolha um time primeiro (botão Conta, no rodapé da barra lateral).'); return; }
+  if(!(SB.sess() && cloudTeamId())){ toast('Épico usa o backlog do time — entre na conta e escolha um time primeiro.','warn',{ label:'abrir Conta', fn:ERR_ACTIONS.conta }); return; }
   plWaves(PLP().tasks); plSortWaves(PLP().tasks); // ondas finais só com o que está marcado
   const picked=PLP().tasks.filter(x=>x.on);
-  if(!picked.length){ alert('Marque pelo menos uma tarefa do épico.'); return; }
+  if(!picked.length){ toast('Marque pelo menos uma tarefa do épico.','warn'); return; }
   const name=(PLP().epic||'').trim()||'Épico';
   PLP().locked=true; plPlanRerender(); // trava o card: nenhuma edição nem segundo clique enquanto os inserts rodam
   try{
@@ -273,9 +299,19 @@ async function plCreateEpic(){
       doneWhen:(PLP().doneWhen||[]).map(t=>String(t).trim()).filter(Boolean).map((t,i)=>({ id:'D'+(i+1), text:t })), boundaries:PLP().boundaries||[],
       // a CONVERSA do "montar conversando" viaja com o épico: o rascunho é apagado ao criar, e sem isto o raciocínio sumia
       conversation: plPlanCtx.origin ? undefined : plMsgs.filter(m=>(m.who==='you'||m.who==='bot') && m.text).slice(-60).map(m=>({ who:m.who, text:String(m.text).slice(0,4000) })) };
-    const ep=await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId(), spec });
+    // E7 (bug #11): criação IDEMPOTENTE. Se cair no meio (rede, 3º insert), o "aprovar" de novo RETOMA:
+    // o épico e as tarefas já criados ficam guardados no próprio plano (PLP()._made) e não são postados de novo
+    // (antes: 2º épico + tarefas repetidas no backlog do time).
+    const P=PLP(); const made=P._made=(P._made&&P._made.team===cloudTeamId())?P._made:{ team:cloudTeamId(), ep:null, rows:{} };
+    const resumed=!!made.ep;
+    if(resumed) toast('Retomando o épico "'+name+'" — o que já foi criado não é repetido','info');
+    const ep=made.ep?[made.ep]:await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId(), spec });
+    if(!ep||!ep[0]) throw new Error('a nuvem não devolveu o épico criado');
+    made.ep=ep[0]; plPlanSave();
     const created=[], idOf={}; // idx no plano → id na nuvem: `after` das tarefas vira ids reais (picked está em ordem de onda, então o pré-requisito já existe)
     for(const x of picked){
+      const key=x.idx!=null?'i'+x.idx:'t'+x.title;
+      if(made.rows[key]){ const row=made.rows[key]; created.push({ row, wave:x.wave }); if(x.idx!=null) idOf[x.idx]=row.id; continue; } // já criada na tentativa anterior
       const wanted=plAfterOn(x), after=wanted.map(a=>idOf[a]).filter(Boolean);
       if(after.length<wanted.length) console.warn('épico: pré-requisito sem id na nuvem, dependência perdida', x.title, wanted);
       const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
@@ -288,19 +324,19 @@ async function plCreateEpic(){
           hitl:x.hitl||undefined, boundaries:(x.boundaries&&x.boundaries.length)?x.boundaries:undefined,
           // onda 2+: fica AGUARDANDO e começa sozinha quando os pré-requisitos mergearem (epicAutoStartTick)
           autoStart:after.length?true:undefined } });
-      if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; }
+      if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; made.rows[key]=rows[0]; plPlanSave(); }
     }
     // painel de issues ligado: épico vira issue pai + filhas com bloqueio (só se o conector tem pai; senão fica como hoje)
     try{ if(window.trkPublishEpic) await trkPublishEpic(ep[0], created); }catch(e){ console.warn('publicar épico', e); }
     const ctx=plPlanCtx; if(ctx.origin) bdPlan=null; else plPlan=null; plPlanRender=null; plPlanCtx={};
-    if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); }
+    if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); } // BUG-8: não fecha/zera a aba "Preencher eu mesmo" (outra demanda)
     lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; setView('team');
     const w1=created.filter(c=>c.wave===1);
     const nLater=created.length-w1.length;
     if(w1.length && await askYes(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo)`+(nLater?`\n\nAs outras ${nLater} ficam AGUARDANDO e começam sozinhas aqui quando as anteriores forem mergeadas.`:''))){
       for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
     }
-  }catch(e){ alert('Falha ao criar o épico:\n'+(e.message||e)); { const P=PLP(); if(P){ P.locked=false; plPlanRerender(); } } }
+  }catch(e){ showErr(e, 'Falha ao criar o épico (clique em aprovar de novo: o que já foi criado não se repete)'); { const P=PLP(); if(P){ P.locked=false; plPlanRerender(); } } }
 }
 // atualiza só o medidor/estado sem re-render pesado (ao editar campo à mão)
 function renderPlannerMeterOnly(){
@@ -377,6 +413,13 @@ async function plSend(text){
     renderPlanner(); plAutoSave();
   }).catch(e=>{ console.error('planner: aplicar resposta', e); plBusy=false; plMsgs.push({who:'sys', text:'⚠ algo falhou ao mostrar a resposta — envie de novo.'}); renderPlanner(); });
 }
+// previsão de custo (grosseira: time padrão × faixa do modelo) em US$ e ≈ R$ + o teto desta tarefa
+function plCostHtml(){
+  if(typeof roughEstimate!=='function') return '';
+  const n=Math.max(1, (((state.config&&state.config.workflows)||[])[0]||{steps:[1,2,3,4]}).steps.length||4);
+  const [lo,hi]=roughEstimate(n, String(plFields.model||'').toLowerCase().replace(/.*(opus|sonnet|haiku).*/,'$1'));
+  return `<div class="plcost"><div class="plcostl">deve custar <b>${esc(fmtCostRange(lo,hi))}</b> <span class="dim">· ${n} agentes · varia com o tamanho</span></div>${budgetFieldHtml('plBudget')}</div>`;
+}
 async function plCreate(){
   if(!plReady()) return;
   const b=$id('plCreate'); if(b){ b.disabled=true; b.textContent='criando…'; }
@@ -396,11 +439,12 @@ async function plCreate(){
     // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova
     requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
-    refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined };
+    refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: plFields.issueUrl || undefined }; // BUG-8: não lê o campo de issue do FORMULÁRIO (outra aba)
   // tarefas referenciadas com "/" em qualquer mensagem sua viram contexto da tarefa criada
   if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n'));
-  try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
-  catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
+  try{ const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof budgetApply==='function') await budgetApply(nid); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
+  await refresh(); }
+  catch(e){ showErr(e, 'Falha ao criar'); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;
 $id('plNew').onclick=plNew;
@@ -418,6 +462,7 @@ async function ntApplyShare(payload){
   const share=($id("ntShareRow").style.display!=='none')?$id("ntShare").value:'local';
   if(share==='team'){ await cloudShareTask(payload); return true; }
   const localId=await invoke('new_task', await trkBeforeNewTask(payload));
+  if(typeof budgetApply==='function') await budgetApply(localId); // teto escolhido no "Como executar?"
   if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
   return false;
 }
@@ -433,7 +478,10 @@ async function cloudPrReviewCheck(prUrl){
     return { name:(p&&(p.name||p.email))||String(who).slice(0,8), when:agoTx(r.updated_at), mine:who===cloudUserId() };
   }catch(_){ return null; }
 }
-async function submitNewTask(start=true){
+// BUG-18: duplo clique criava 2 tarefas (o overlapCheck tem await antes de desativar o botão) — uma submissão por vez
+let ntSubmitting=false;
+async function submitNewTask(start=true){ if(ntSubmitting) return; ntSubmitting=true; try{ return await submitNewTaskInner(start); } finally{ ntSubmitting=false; } }
+async function submitNewTaskInner(start=true){
   if(ntMode==='review'){
     const pr = $id("ntPr").value.trim();
     if(!pr){ $id("ntPr").focus(); return; }
@@ -442,7 +490,7 @@ async function submitNewTask(start=true){
     const done=await cloudPrReviewCheck(pr).catch(()=>null);
     if(done && !await askYes('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
     try{ await invoke("review_pr", { prUrl: pr, agents }); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
-    catch(e){ alert("Falha ao iniciar o review:\n"+e); }
+    catch(e){ showErr(e, 'Falha ao iniciar o review'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
   }
@@ -454,7 +502,7 @@ async function submitNewTask(start=true){
     const team=$id('ntFixTeam').value;
     const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
-    catch(e){ alert("Falha ao criar o fix:\n"+e); }
+    catch(e){ showErr(e, 'Falha ao criar o fix'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
   }
@@ -464,12 +512,12 @@ async function submitNewTask(start=true){
     const what=$id("ntDzObj").value.trim();
     const screens=$id("ntDzScreens").value.trim();
     const mock=$id("ntDzMock").checked, docCk=$id("ntDzDoc").checked;
-    if(!mock && !docCk){ alert('Escolha pelo menos um entregável (mockup ou DESIGN.md).'); return; }
+    if(!mock && !docCk){ toast('Escolha pelo menos um entregável (mockup ou DESIGN.md).','warn'); return; }
     let n=0;
     const objective =
       `TAREFA DE DESIGN — projete ANTES de existir código. PROIBIDO implementar ou alterar arquivos do produto; você só escreve em .cardume/artifacts/.\n\n`+
       `${what||dt}\n\n`+(screens?`Telas/estados a cobrir: ${screens}\n\n`:'')+
-      (ntDzRefs.length?`ANEXOS em .cardume/refs/ (${ntDzRefs.map(p=>p.split('/').pop()).join(', ')}): são os prints/referências de ONDE e DO QUE se trata — ABRA e analise cada um ANTES de desenhar; o mockup deve conversar com o que aparece neles.\n\n`:'')+
+      (ntDzRefs.length?`ANEXOS em .cardume/refs/ (${ntDzRefs.map(pathBase).join(', ')}): são os prints/referências de ONDE e DO QUE se trata — ABRA e analise cada um ANTES de desenhar; o mockup deve conversar com o que aparece neles.\n\n`:'')+
       `Explore o codebase pra entender a identidade visual do produto (cores, tipografia, espaçamento, componentes) e siga-a. Entregue em .cardume/artifacts/:\n`+
       (mock?`${++n}) mockup.html — mockup NAVEGÁVEL num arquivo só (HTML+CSS+JS inline, SEM libs externas): todas as telas/estados pedidos com navegação clicável entre elas, dados de exemplo realistas do domínio.\n`:'')+
       (docCk?`${++n}) DESIGN.md — as decisões de UX/UI: fluxo, hierarquia, estados (vazio/carregando/erro), acessibilidade, e o PORQUÊ de cada escolha. Termine com "Perguntas em aberto" se houver.\n`:'');
@@ -480,7 +528,7 @@ async function submitNewTask(start=true){
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
     const payload={ start:true, title:dt, workflow:null, agents:$id('ntDzAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
-    catch(e){ alert("Falha ao criar o design:\n"+e); }
+    catch(e){ showErr(e, 'Falha ao criar o design'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
   }
@@ -492,7 +540,7 @@ async function submitNewTask(start=true){
     const objective =
       `TAREFA DE INVESTIGAÇÃO — descobrir a CAUSA RAIZ, não corrigir. PROIBIDO alterar arquivos do produto; você só escreve em .cardume/artifacts/ (scripts de reprodução são bem-vindos ALI).\n\n`+
       `${what||it}\n\n`+
-      (ntInvRefs.length?`ANEXOS em .cardume/refs/ (${ntInvRefs.map(p=>p.split('/').pop()).join(', ')}): mostram ONDE o problema aparece — ABRA e analise cada um antes de começar.\n\n`:'')+
+      (ntInvRefs.length?`ANEXOS em .cardume/refs/ (${ntInvRefs.map(pathBase).join(', ')}): mostram ONDE o problema aparece — ABRA e analise cada um antes de começar.\n\n`:'')+
       `MÉTODO: 1) ${repro?'REPRODUZA o problema de verdade no ambiente real (as envs existem — sem mock); ':''}2) rastreie a causa pelo código/logs/telemetria com EVIDÊNCIAS (trechos, saídas, queries); 3) descarte hipóteses com fatos, não com achismo. Travou em algo (env, acesso, dado)? PERGUNTE via ask_human — não conclua sem evidência.\n\n`+
       `Entregue em .cardume/artifacts/:\n`+
       `1) INVESTIGATION.md — sintoma; ${repro?'reprodução passo a passo com a SAÍDA REAL; ':''}CAUSA RAIZ apontando arquivo:linha; evidências; hipóteses descartadas e por quê; RECOMENDAÇÃO de correção (o menor diff que resolve).\n`+
@@ -504,7 +552,7 @@ async function submitNewTask(start=true){
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="investigando…";
     const payload={ start:true, title:it, workflow:null, agents:$id('ntInvAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
-    catch(e){ alert("Falha ao criar a investigação:\n"+e); }
+    catch(e){ showErr(e, 'Falha ao criar a investigação'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
   }
@@ -567,7 +615,7 @@ async function submitNewTask(start=true){
       closeNewTask(); resetNewTask(); lastSig=""; await refresh();
     }
   }
-  catch(e){ alert("Falha ao criar tarefa:\n"+e); }
+  catch(e){ showErr(e, 'Falha ao criar tarefa'); }
   finally{ btn.innerHTML=orig; $id("ntCreate").disabled=false; $id("ntDraft").disabled=false; }
 }
 function parseTaskMd(content, filename){
@@ -588,7 +636,7 @@ function parseTaskMd(content, filename){
   };
 }
 async function importTaskMd(){
-  let files; try{ files = await invoke("import_agent_files"); }catch(e){ alert("Falha ao importar:\n"+e); return; }
+  let files; try{ files = await invoke("import_agent_files"); }catch(e){ showErr(e, 'Falha ao importar'); return; }
   if(!files || !files.length) return;
   const t = parseTaskMd(files[0].content, files[0].filename);
   $id("ntTitle").value = t.title||"";

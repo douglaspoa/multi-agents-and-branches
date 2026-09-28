@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
+import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
 
 /**
  * Perfil do Chrome pra este agente. O perfil é PERSISTENTE por repo (login feito uma vez
@@ -239,9 +240,12 @@ export class ClaudeEngine implements AgentEngine {
     // reinjeta a lista por turno, como groundRule/doneRule. Fresh/promptOverride já a
     // recebem via --append-system-prompt (systemContext), então aqui só o resume precisa.
     const skillsRule = input.skillsRule ?? "";
+    // Modo protegido (padrão do projeto; "Livre" em Preferências do projeto → CARDUME_PROTECT=0)
+    const protectOn = protectEnabled();
+    const protectRule = protectOn ? PROTECT_RULE : "";
     const prompt = input.resume
-      ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule
-      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule : baseline);
+      ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule + protectRule
+      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule + protectRule : baseline + protectRule);
 
     // Escreve o mcp.json que injeta o servidor MCP do Starfork neste run.
     // Dev: src/mcp/server.ts ao lado do fonte. App empacotado: o bundle vira
@@ -309,6 +313,9 @@ export class ClaudeEngine implements AgentEngine {
       "--mcp-config",
       mcpConfigPath,
       "--strict-mcp-config",
+      // MODO PROTEGIDO (padrão): regras de negação valem MESMO em bypassPermissions.
+      // Variádico — fica ANTES de outra flag pra não engolir nada.
+      ...protectArgs(protectOn),
       "--permission-mode",
       "bypassPermissions", // auto-aprova ações; o humano entra via ask_human
     ];

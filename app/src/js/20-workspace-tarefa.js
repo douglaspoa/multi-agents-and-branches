@@ -32,7 +32,8 @@ function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'
 function fwChatSubText(t){
   if(pendingOf(t.id).length) return 'aguardando sua resposta';
   if(fwIsWorking(t)) return 'trabalhando…';
-  if(t.status==='error') return 'parou com erro — mande uma mensagem pra ele tentar seguir, ou rode de novo';
+  if(t.status==='error'){ const ev=lastEventOf(t.id), h=ev?humanErr(ev.text):null; // E1: diz O QUE deu errado quando é um erro conhecido
+    return (h&&h.id!=='generic'?h.msg+' ':'parou com erro — ')+(h&&h.action?'('+h.action.label+') e depois mande uma mensagem pra ele seguir':'mande uma mensagem pra ele tentar seguir, ou rode de novo'); }
   if(t.status==='aborted') return 'abortada — mande uma mensagem pra retomar, ou rode de novo';
   if(t.status==='conflict') return 'conflito com a base — resolva o conflito pra seguir';
   if(t.status==='paused') return 'pausada — clique em continuar';
@@ -44,7 +45,7 @@ async function fwResolveConflict(taskId, btn){
   if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return;
   if(btn){ btn.disabled=true; btn.textContent='resolvendo…'; }
   try{ await invoke('resolve_conflict',{ taskId }); lastSig=''; await refresh(); }
-  catch(err){ alert('Falhou: '+(err&&err.message||err)); if(btn) btn.disabled=false; }
+  catch(err){ showErr(err, 'Falhou'); if(btn) btn.disabled=false; }
   renderWorkspace();
 }
 // pinta a seleção de linhas durante o arraste sem re-render completo (leve)
@@ -56,11 +57,17 @@ function fwPaintSel(){
 }
 async function fwSaveFile(){
   const ta=$id('fwText'); if(!ta) return; const v=ta.value; const b=$id('fwSave'); if(b) b.disabled=true;
-  try{ await invoke('write_file',{ taskId:fwTask, path:fwPath, content:v }); fwContent=v; fwEditing=false; fileCache[fwTask]=undefined; lastSig=''; await refresh(); }
-  catch(e){ alert('Falha ao salvar:\n'+e); if(b) b.disabled=false; return; } // falhou: o editor (e o texto) ficam
+  try{ await invoke('write_file',{ taskId:fwTask, path:fwPath, content:v }); fwContent=v; fwEditing=false; lastSig=''; await refresh(); }
+  catch(e){ showErr(e, 'Falha ao salvar'); if(b) b.disabled=false; return; } // falhou: o editor (e o texto) ficam
   renderWorkspace();
 }
 // sair do editor: se há alteração não salva, PERGUNTA antes de descartar
+// E11a: tarefa de documentos com arquivos entregues que ainda não foram salvos na pasta do usuário
+function fwArchiveNeedsSave(t){
+  if(!t || typeof entregaArts!=='function') return false;
+  if(lsGet('entregaSaved:'+t.id)) return false;
+  return entregaArts(t).length>0;
+}
 async function fwLeaveEditor(){
   if(!fwEditing) return true;
   const ta=$id('fwText');
@@ -112,6 +119,8 @@ let fwMode='conversa';   // conversa | codigo | revisao | pr (modos da tela de e
 let fwDiffCache={};      // taskId:path → texto do diff (tela de Revisão)
 // abre a tarefa como ABA própria (uma por tarefa) — mantém o chrome do app
 function openWorkspace(taskId, path){
+  // E6: abrir OUTRA tarefa com um arquivo em edição (fwOpenInner zera o editor) → pergunta antes de descartar
+  if(fwEditing && fwTask && fwTask!==taskId){ fwLeaveEditor().then(ok=>{ if(ok) openWorkspace(taskId, path); }); return; }
   tabTaskPath=path||null;
   const id='task:'+taskId;
   const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
@@ -315,7 +324,10 @@ function fwPrimaryAction(t){
   if(taskIsDone(t)) return null;
   if(['review','delivered'].includes(t.status)){
     const rev=reviewOf(t.id);
-    return fwArtOnly(t) ? { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' }
+    // E11a: investigação/design — o fim é "salvar entregáveis na pasta" (Entrega, FT-6) e concluir
+    return fwArtOnly(t) ? ((fwArchiveNeedsSave(t))
+        ? { id:'fwArchive', html:`${IC.check} salvar e concluir`, title:'salva os arquivos entregues numa pasta sua e conclui (investigação/design não abrem PR)' }
+        : { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' })
       : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo → commit & push → cria o PR' };
   }
   return null;
@@ -340,10 +352,25 @@ function fwMoreItems(t){
   }
   if(pv){ it.push({ k:'pv', label:'abrir o preview', hint:pv.replace(/^https?:\/\//,'').slice(0,40) });
     it.push(tun?{ k:'pvoff', label:'fechar o acesso do celular', warn:true }:{ k:'pvmob', label:'abrir o preview no celular', hint:'túnel criptografado' }); }
+  // ações que moravam no painel lateral (removido) — voltam aqui, só na fase em que fazem sentido
+  const ty=(typeof taskType==='function')?taskType(t):'feat';
+  if(ACTIVE_ST.has(t.status)) it.push({ k:'pause', label:'pausar', hint:'congela o agente — "continuar" retoma de onde parou' });
+  if((ty==='design'||ty==='invest') && ['review','delivered','merged','error','aborted'].includes(t.status))
+    it.push({ k:'fromdz', label:ty==='design'?'criar entrega a partir deste design':'criar entrega a partir desta investigação', hint:ty==='design'?'mockup + DESIGN.md viram referência obrigatória':'INVESTIGATION.md + evidências viram referência' });
+  if(t.kind!=='review' && ['draft','review','delivered','merged'].includes(t.status))
+    it.push({ k:'breakdown', label:'desdobrar em épico', hint:'a IA propõe sub-tarefas no backlog do time' });
+  if(t.kind!=='review' && ['review','delivered','merged','error','aborted','conflict'].includes(t.status))
+    it.push({ k:'linkfix', label:'abrir correção linkada', hint:'algo quebrou? nova tarefa ligada a esta' });
+  { const cid=(typeof tmap==='function')?tmap()[t.id]:null, ac=(typeof artifactsCache!=='undefined')?artifactsCache[t.id]:null;
+    if(cid && typeof SB!=='undefined' && SB.sess() && ac && (ac.list||[]).length && typeof cloudPublishProofs==='function')
+      it.push({ k:'pubproofs', label:`publicar provas no time · ${ac.list.length}`, hint:'envia os artefatos pro card do time' }); }
+  (t.status!=='draft'&&Array.isArray(t.refs)?t.refs:[]).slice(0,6).forEach((r,i)=>{ const n=String(r).split('/').pop();
+    it.push({ k:'ref:'+i, label:`ver referência · ${n}`, hint:'anexo da tarefa' }); });
   if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
   if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${modelFriendly(t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
   const cost=taskCost(t.id);
-  it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtUsd(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}`, info:true });
+  { const cap=(typeof budgetOf==='function')?budgetOf(t):0;
+    it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtCost(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}${cap>0?' · teto '+fmtCost(cap,{usdOnly:true}):''}`, info:true }); }
   if(fwTreeHidden()) it.push({ k:'tree', label:'mostrar arquivos e artefatos', hint:'⌘B' });
   it.push({ k:'close', label:'fechar a aba', hint:'esc' });
   return it;
@@ -375,6 +402,12 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='push') await fwPushTask();
   else if(k==='model') openModelMenu(t.id, anchor);
   else if(k==='tree') fwToggleTree();
+  else if(k==='pause') await pauseTask(t.id);
+  else if(k==='fromdz') await openFromDesign(t);
+  else if(k==='breakdown') await openBreakdown(t);
+  else if(k==='linkfix') await openLinkedFix(t);
+  else if(k==='pubproofs') await cloudPublishProofs(t, null);
+  else if(k.startsWith('ref:')){ const r=(t.refs||[])[+k.slice(4)]; if(r) await openRef(t.id, String(r).split('/').pop()); }
   else if(k==='close'){ if(await fwLeaveEditor()) closeWorkspace(); }
 }
 function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
@@ -391,7 +424,7 @@ async function fwPushTask(){
   const t=fwTaskObj(); if(!t) return;
   toast('commitando e enviando a branch…');
   try{ const msg=await invoke('push_task',{ taskId:t.id }); prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig=''; toast('✓ '+msg,'ok'); }
-  catch(e){ toast('Commit & push falhou: '+e,'err'); }
+  catch(e){ showErr(e, 'Commit & push falhou'); }
 }
 const FW_SCROLLERS=['#fwCode','.fwdiff','.prleft','.prright','.fwwhyt'];
 function fwGrabScroll(root){ const o={ _:root.scrollTop }; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el) o[s]=[el.scrollTop, el.scrollLeft]; }); return o; }
@@ -415,6 +448,8 @@ function renderWorkspace(){
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
   { const te=$id('fwTaskEpic'); if(te){ const h=(typeof epTaskBadge==='function')?epTaskBadge(t):''; if(te.innerHTML!==h) te.innerHTML=h;
       te.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); } }
+  // selo do modo protegido (mesa 27/09): o que o agente NÃO pode fazer, no tooltip
+  { const tp=$id('fwTaskProt'); if(tp && typeof protectBadgeHtml==='function'){ const h=protectBadgeHtml(t); if(tp.innerHTML!==h) tp.innerHTML=h; } }
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
   if(typeof orqTaskChips==='function') orqTaskChips(t);
   // barra do topo: [🌐 preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
@@ -426,8 +461,15 @@ function renderWorkspace(){
       fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
       bindClick('fwAnswer', ()=>fwAskFix());
       bindClick('fwStopTop', ()=>stopTask(t.id));
-      bindClick('fwApprove', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
-      bindClick('fwArchive', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); b.disabled=false; } renderWorkspace(); });
+      // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
+      if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
+      bindClick('fwApprove', ()=>{ if(typeof chkApproveClick==='function') chkApproveClick(t); else prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
+      bindClick('fwArchive', async(e)=>{ const b=e.currentTarget;
+        // E11a: com entregáveis ainda não salvos, leva pra Entrega com a barra "Salvar entregáveis na pasta" (salva e conclui lá)
+        if(fwArchiveNeedsSave(t)){ fwMode='entrega'; fwRememberTab(); renderWorkspace();
+          setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-save'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
+          toast('Salve os entregáveis numa pasta sua e conclua — ou use "só concluir".','info'); return; }
+        b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
       bindClick('fwResume', async()=>{ await resumeTask(t.id); renderWorkspace(); });
       bindClick('fwApprovePlan', async()=>{ await startTask(t.id); renderWorkspace(); });
@@ -449,7 +491,7 @@ function renderWorkspace(){
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const tActive=ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy;
   const cost=taskCost(t.id);
-  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtUsd(cost.usd):'—'}</b></div></div>`;
+  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div></div>`;
   // Entregas & provas (artefatos) — sempre à mão (1 carga em voo por tarefa: antes cada render disparava outra)
   const artC=artifactsCache[t.id];
   if((!artC || artC.status!==t.status) && !fwArtLoading[t.id]){ fwArtLoading[t.id]=1; loadArtifacts(t.id, t.status).finally(()=>{ delete fwArtLoading[t.id]; if(fwTask===t.id) renderWorkspace(); }); }
@@ -588,7 +630,7 @@ function renderWorkspace(){
   { const pp=$id('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
     const ao=e.target.closest('[data-askopt]');
-    if(ao){ const p=pendingOf(t.id)[0]; if(p){ ao.disabled=true; resolvePending(p.id, ao.dataset.askopt); } return; }
+    if(ao){ const p=pendingOf(t.id)[0]; if(p){ ao.disabled=true; resolvePending(p.id, ao.dataset.askopt).catch(err=>{ ao.disabled=false; showErr(err, 'Não consegui enviar a resposta'); }); } return; }
     const cp=e.target.closest('.ccopy');
     if(cp){ const bub=cp.parentElement; const cl=bub.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove()); try{ navigator.clipboard.writeText(cl.innerText.trim()); cp.textContent='✓'; setTimeout(()=>{cp.textContent='⧉';},900); }catch(_){} return; }
     const a=e.target.closest('[data-art]'); if(a){ openArtifact(t.id, a.dataset.art); return; }
@@ -719,15 +761,6 @@ const TOOL_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stro
 const TOOL_DONE_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.5 8.5l3 3 6-6.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 // parece nome técnico de ferramenta? (um token só, com __ ou CamelCase interno)
 function looksLikeTool(tx){ const s=String(tx||'').trim(); return !/\s/.test(s) && s.length>1 && (s.includes('__') || /[a-z][A-Z]/.test(s)); }
-// nome técnico → rótulo amigável em PT
-function prettyTool(tx){
-  const raw=String(tx||'').replace(/^mcp__[a-z0-9]*__/i,'').replace(/^mcp__/i,'').trim();
-  const key=raw.toLowerCase().replace(/[_\s]/g,'');
-  const MAP={ toolsearch:'buscou uma ferramenta', addrequirement:'registrou um requisito', adddeliverable:'registrou um entregável', askhuman:'perguntou ao humano', claim:'reivindicou um arquivo', websearch:'buscou na web', webfetch:'abriu uma página', todowrite:'atualizou o plano', task:'delegou a um subagente', bash:'rodou um comando', read:'leu um arquivo', grep:'buscou no código', glob:'listou arquivos', edit:'editou um arquivo', write:'escreveu um arquivo' };
-  if(MAP[key]) return MAP[key];
-  // humaniza: separa camelCase, troca _ por espaço, minúsculo
-  return raw.replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/[_]+/g,' ').toLowerCase().trim();
-}
 function toolChip(label, done){
   return `<div class="ctool${done?' done':''}"><span class="ctool-ic">${done?TOOL_DONE_IC:TOOL_IC}</span><span class="ctool-tx">${esc(label)}</span></div>`;
 }
@@ -853,7 +886,7 @@ async function fwSendText(taskId, text){
     if(pend.length){ await resolvePending(pend[0].id, text); }
     else { if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){ } } await invoke('talk_task',{ taskId:t.id, message:text, asReq:false, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined; }
     artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; await refresh(); renderWorkspace();
-  }catch(e){ alert('Falha ao enviar:\n'+e); }
+  }catch(e){ showErr(e, 'Falha ao enviar'); }
 }
 const fwPend={}; // taskId → anexos importados ainda não enviados
 async function fwSendMsg(queueOnly){
@@ -886,7 +919,7 @@ async function fwSendMsg(queueOnly){
   }catch(e){
     // falhou: o texto e os anexos VOLTAM pro composer (antes a mensagem sumia)
     fwDraft[t.id]=typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
-    alert('Falha ao enviar:\n'+e); }
+    showErr(e, 'Não consegui enviar — o texto voltou pro campo'); }
   finally{ inp.disabled=false; renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); }
 }
 // fechar pelo botão: pergunta antes de jogar fora uma edição não salva

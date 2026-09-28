@@ -23,7 +23,7 @@
 /* R5-6: mesmo "■ parar" vermelho do composer compartilhado (.trk-stop, 82-issues) */
 .fwhead .fwstopbtn{color:var(--crit);border-color:color-mix(in srgb,var(--crit) 55%,transparent)}
 /* menu ⋯ do cabeçalho (ações secundárias) */
-.fwmenu{position:fixed;z-index:9000;min-width:250px;max-width:340px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.45);padding:5px;display:flex;flex-direction:column}
+.fwmenu{position:fixed;z-index:9000;min-width:250px;max-width:340px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.45);padding:5px;display:flex;flex-direction:column;max-height:calc(100vh - 70px);overflow-y:auto}
 .fwmenu .fwmi{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer}
 .fwmenu button.fwmi:hover{background:var(--surface-2)}
 .fwmenu .fwmi.warn{color:var(--warn)}
@@ -564,3 +564,16 @@ textarea.plfv{resize:vertical;line-height:1.5}
 /* cabeçalho do arquivo: +/− e autor não quebram; o caminho cede com … */
 .fwmhead .fwmadd,.fwmhead .fwmby{white-space:nowrap;flex:none}
 .fwmhead .fwmpath{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---- teto de custo por tarefa + modo protegido (mesa 27/09) ---- */
+/* label/input do formulário têm regra global (maiúsculas, 100%): aqui é uma linha só */
+label.budgetfld{display:flex!important;align-items:center;gap:7px;flex-wrap:wrap;font-size:11.5px!important;font-weight:400!important;color:var(--text-2);text-transform:none!important;letter-spacing:0!important;margin:0!important}
+label.budgetfld .in{width:72px!important;flex:0 0 auto;padding:3px 6px!important;font-size:12px!important;margin:0!important}
+.plcost{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;font-size:11.5px}
+.plcost b{color:var(--text-2);font-weight:600}
+.protbadge{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:1px 7px;border-radius:999px;font:500 10.5px var(--code);color:var(--good);border:1px solid color-mix(in srgb,var(--good) 45%,transparent);background:color-mix(in srgb,var(--good) 10%,transparent);cursor:help;white-space:nowrap;vertical-align:middle}
+.protbadge.off{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.protopts{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.protopts label.howopt{text-transform:none!important;letter-spacing:0!important;font-weight:400!important;font-size:12.5px!important;display:flex!important;gap:10px;align-items:flex-start;cursor:pointer}
+.protopts .ht{font-weight:600;font-size:13px}
+.protopts .hd{color:var(--text-2);margin-top:3px;line-height:1.45}

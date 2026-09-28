@@ -43,10 +43,17 @@ function cosmosRun(c){
     requestAnimationFrame(frame);
   };
   resize();
-  if(window.IntersectionObserver){ const io=new IntersectionObserver(es=>{ visible=es.some(e=>e.isIntersecting); if(!c.isConnected){ io.disconnect(); return; } kick(); }); io.observe(c); }
+  // observers saem junto com o canvas (antes o ResizeObserver nunca desconectava: 1 vazado por tela de loading)
+  let io=null, ro=null;
+  const stop=()=>{ if(io) io.disconnect(); if(ro) ro.disconnect(); io=ro=null; _cosmosLive.delete(c); };
+  _cosmosLive.set(c, stop);
+  if(window.IntersectionObserver){ io=new IntersectionObserver(es=>{ visible=es.some(e=>e.isIntersecting); if(!c.isConnected){ stop(); return; } kick(); }); io.observe(c); }
   else { visible=true; kick(); }
-  if(window.ResizeObserver) new ResizeObserver(()=>requestAnimationFrame(resize)).observe(c);
+  if(window.ResizeObserver){ ro=new ResizeObserver(()=>{ if(!c.isConnected){ stop(); return; } requestAnimationFrame(resize); }); ro.observe(c); }
 }
+const _cosmosLive=new Map(); // canvas → stop()
 // no máximo 1 varredura por quadro (antes: querySelectorAll no documento inteiro a CADA mutação — dezenas por segundo com agentes rodando)
 let _cosmosQ=0;
-new MutationObserver(()=>{ if(_cosmosQ) return; _cosmosQ=requestAnimationFrame(()=>{ _cosmosQ=0; cosmosStart(); }); }).observe(document.documentElement, { childList:true, subtree:true });
+new MutationObserver(()=>{ if(_cosmosQ) return; _cosmosQ=requestAnimationFrame(()=>{ _cosmosQ=0;
+  for(const [c, stop] of _cosmosLive) if(!c.isConnected) stop(); // canvas removido: solta os observers
+  cosmosStart(); }); }).observe(document.documentElement, { childList:true, subtree:true });

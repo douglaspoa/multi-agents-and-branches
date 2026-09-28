@@ -7,8 +7,48 @@
    - sync: status/etapa/custo/branch/PR/provas do cartão, a cada 6s
    ========================================================================= */
 function setView(v){ const b=document.querySelector('#viewSeg button[data-v="'+v+'"]'); if(b) b.click(); }
-function tmap(){ try{ return JSON.parse(lsGet('sb:tmap')||'{}'); }catch(_){ return {}; } }
-function tmapSet(localId, cloudId){ const m=tmap(); m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
+// tmap/feedPos: JSON do localStorage parseado UMA vez por mudança (antes: JSON.parse a cada chamada,
+// inclusive dentro de .find por tarefa). Quem altera sempre grava de volta (tmapSet/feedPosSet).
+function lsJsonMemo(key){
+  let raw=null, obj={};
+  return ()=>{ const r=lsGet(key)||'{}'; if(r!==raw){ raw=r; try{ obj=JSON.parse(r)||{}; }catch(_){ obj={}; } } return obj; };
+}
+const tmap=lsJsonMemo('sb:tmap');
+function tmapSet(localId, cloudId){ const m={ ...tmap() }; m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
+// ---- ticks da nuvem: UM laço por tick, sem sobreposição ----
+// setInterval empilhava voltas quando a rede demorava (volta de 30s num intervalo de 7s = 4–5 voltas
+// concorrentes → posts e pushes duplicados). Aqui a próxima volta só é agendada quando a atual termina;
+// com a janela escondida o ritmo cai (×3, mín. 15s) — o celular continua atendido, só mais devagar.
+// `ms` pode ser função (ritmo adaptativo). Volta presa > 2 min libera a trava (rede morta não congela o laço).
+const TICKS={};
+function tickLoop(name, fn, ms, firstMs){
+  const L=TICKS[name]={ busy:false, timer:0 };
+  const per=()=>{ const v=typeof ms==='function'?ms():ms; return document.hidden?Math.max(v*3,15000):v; };
+  L.run=async()=>{
+    if(L.busy) return; L.busy=true; clearTimeout(L.timer);
+    try{ await Promise.race([ Promise.resolve().then(fn), new Promise(r=>setTimeout(r,120000)) ]); }
+    catch(e){ tickErr(name,e); }
+    finally{ L.busy=false; clearTimeout(L.timer); L.timer=setTimeout(L.run, per()); }
+  };
+  L.timer=setTimeout(L.run, firstMs==null?per():firstMs);
+}
+// janela voltou a aparecer: adianta as voltas (não espera o ritmo lento de fundo)
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) return;
+  let i=0; for(const k in TICKS){ const L=TICKS[k]; if(!L.busy){ clearTimeout(L.timer); L.timer=setTimeout(L.run, 300+(i++)*250); } }
+});
+// tarefas do PROJETO ABERTO com cartão, das mais novas pras mais antigas (state.tasks vem por created_at).
+// live=true: só as que ainda recebem ação do celular (fora merged/done/aborted/rascunho/finalizada).
+// Antes os ticks usavam o tmap inteiro (toda tarefa de todo projeto, pra sempre) e `ids.slice(0,40)`
+// pegava as 40 MAIS ANTIGAS — intenção do celular em tarefa nova era ignorada.
+const CLOUD_ENDED=new Set(['merged','done','aborted','draft']);
+function cloudTaskIds(m, n, live){
+  const out=[]; const ts=state.tasks||[];
+  for(let i=ts.length-1; i>=0 && out.length<n; i--){ const t=ts[i];
+    if(m[t.id] && (!live || (t.flag!=='closed' && !CLOUD_ENDED.has(t.status)))) out.push(t.id); }
+  return out;
+}
+const pgIn=ids=>'('+ids.map(x=>'"'+x+'"').join(',')+')';
 function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
 // nome PT do status = o MESMO de toda a app (00-util: STATUS_META/stLabel). Mantido como objeto porque
 // outras telas leem CT_ST_PT[st] direto; agora é só um espelho do STATUS_META.
@@ -17,7 +57,6 @@ const CT_ST_PT=Object.fromEntries(Object.keys(STATUS_META).map(k=>[k, stLabel(k)
 // "Aguardando você" é reservado pro que depende do HUMANO; tarefa esperando outra tarefa é "na espera".
 function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
 function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(typeof tsSt==='function'?tsSt(ct):ct.status); } // R5-1: status efetivo (PR aberto/pergunta)
-function ctStColor(st){ return stColor(st); }
 
 async function cloudEnsureProject(){
   const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão Conta (rodapé da barra lateral)');
@@ -136,18 +175,19 @@ let tunnelSweepDone=false;
 async function cloudAutoTunnelTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
-  // boot: túneis morreram com o app anterior — limpa previewUrl órfão dos cartões
+  // boot: túneis morreram com o app anterior — limpa previewUrl órfão dos cartões (as 40 mapeadas mais recentes)
   if(!tunnelSweepDone){
     tunnelSweepDone=true;
     try{
-      const stale=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3EpreviewUrl=not.is.null&limit=10');
+      const stale=await sbGet('tasks?select=id,spec&id=in.'+pgIn(ids.slice(-40))+'&spec-%3E%3EpreviewUrl=not.is.null&limit=10');
       for(const r of stale){ await sbFetch('/rest/v1/tasks?id=eq.'+r.id,{method:'PATCH',body:JSON.stringify({spec:{...(r.spec||{}),previewUrl:null}})}).catch(()=>{}); }
     }catch(_){ }
   }
   // ABERTURA E FECHO SÃO DECISÃO DO HUMANO: só atende pedidos explícitos
   // (tunnelWanted/tunnelClose vindos do celular; no Mac o chip chama direto).
+  const live=cloudTaskIds(m, 40, true); if(!live.length) return;
   try{
-    const rows=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&or=(spec-%3E%3EtunnelWanted.not.is.null,spec-%3E%3EtunnelClose.not.is.null)&limit=10');
+    const rows=await sbGet('tasks?select=id,spec&id=in.'+pgIn(live.map(l=>m[l]))+'&or=(spec-%3E%3EtunnelWanted.not.is.null,spec-%3E%3EtunnelClose.not.is.null)&limit=10');
     for(const r of rows){
       const lid=Object.keys(m).find(k=>m[k]===r.id); if(!lid) continue;
       const sp=r.spec||{};
@@ -176,7 +216,7 @@ async function cloudAutoTunnelTick(){
     }
   }catch(_){ }
 }
-setInterval(()=>{ cloudAutoTunnelTick().catch(e=>tickErr('cloudAutoTunnelTick',e)); }, 9000);
+tickLoop('cloudAutoTunnelTick', cloudAutoTunnelTick, 9000);
 
 // ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
 const cloudSyncSigs={}, prProbed=new Set();
@@ -187,9 +227,9 @@ const intentBusy={};
 const prPubAt={};
 async function cloudIntentTick(){
   if(!SB.sess() || !cloudTeamId()) return;
-  const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
+  const m=tmap(); const live=cloudTaskIds(m, 40, true); if(!live.length) return;
   let rows=[];
-  try{ rows=await sbGet('tasks?select=id,spec,pr_url&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3Eintent=not.is.null&limit=6'); }catch(_){ return; }
+  try{ rows=await sbGet('tasks?select=id,spec,pr_url&id=in.'+pgIn(live.map(l=>m[l]))+'&spec-%3E%3Eintent=not.is.null&limit=6'); }catch(_){ return; }
   for(const r of rows){
     const lid=Object.keys(m).find(k=>m[k]===r.id); if(!lid || intentBusy[lid]) continue;
     const sp=r.spec||{}; const it=sp.intent||{}; const kind=it.kind;
@@ -274,8 +314,8 @@ async function cloudPrStatTick(){
     }catch(_){ }
   }
 }
-setInterval(()=>{ cloudIntentTick().catch(e=>tickErr('cloudIntentTick',e)); }, 6000);
-setInterval(()=>{ cloudPrStatTick().catch(e=>tickErr('cloudPrStatTick',e)); }, 30000);
+tickLoop('cloudIntentTick', cloudIntentTick, 6000);
+tickLoop('cloudPrStatTick', cloudPrStatTick, 30000);
 async function cloudSyncTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   await cloudAutoPublish().catch(()=>{});
@@ -283,6 +323,10 @@ async function cloudSyncTick(){
   // descobre o PR de UMA tarefa por tick (gh) — persiste no spec e o sync leva pro cartão
   const probe=ids.find(lid=>{ const t=(state.tasks||[]).find(x=>x.id===lid); return t && !t.prUrl && ['review','merged','error'].includes(t.status) && !prProbed.has(lid); });
   if(probe){ prProbed.add(probe); invoke('pr_status',{ taskId: probe }).catch(()=>{}); }
+  // boot da sessão: os cartões ainda sem assinatura vêm num GET só (antes: 1 GET por tarefa)
+  const bootCards={};
+  { const need=cloudTaskIds(m, 400, false).filter(l=>cloudSyncSigs[l]===undefined && !(teamTasks||[]).some(c=>c.id===m[l])).map(l=>m[l]);
+    for(let i=0; i<need.length; i+=50){ try{ (await sbGet('tasks?select=id,status,flag,pr_url&id=in.'+pgIn(need.slice(i,i+50)))).forEach(c=>bootCards[c.id]=c); }catch(_){ } } }
   for(const lid of ids){
     const t=(state.tasks||[]).find(x=>x.id===lid); if(!t) continue;
     // itens do "pronto quando" que o agente revisor marcou (tool check_done_when) → espelho no épico do time
@@ -298,7 +342,7 @@ async function cloudSyncTick(){
       // compara com o cartão real ANTES de cachear a assinatura (sem o quadro
       // carregado, busca só este cartão; senão tarefa rápida ficava presa).
       cloudSyncSigs[lid]=sig;
-      let card=(teamTasks||[]).find(c=>c.id===m[lid]);
+      let card=(teamTasks||[]).find(c=>c.id===m[lid]) || bootCards[m[lid]];
       if(!card){ try{ card=(await sbGet('tasks?select=status,flag,pr_url&id=eq.'+m[lid]))[0]; }catch(_){ } }
       if(!card) continue;
       const same=card.status===t.status && (card.flag||null)===(t.flag||null) && (card.pr_url||null)===(t.prUrl||null);
@@ -321,7 +365,7 @@ async function cloudSyncTick(){
     catch(e){ console.error('sync '+lid+':', e.message); }
   }
 }
-setInterval(()=>{ cloudSyncTick().catch(e=>tickErr('cloudSyncTick',e)); }, 6000);
+tickLoop('cloudSyncTick', cloudSyncTick, 6000);
 setInterval(()=>{ railProjTick().catch(e=>tickErr('railProjTick',e)); }, 15000);
 setTimeout(()=>{ railProjTick().catch(e=>tickErr('railProjTick',e)); }, 2500);
 
@@ -360,48 +404,54 @@ async function pushReadyTick(){
 }
 const bootAt=Date.now();
 setInterval(()=>{ pushReadyTick().catch(e=>tickErr('pushReadyTick',e)); }, 6000);
+const qNotified=new Set(); // push de pergunta: UMA vez por pergunta, mesmo que o upsert se repita
 async function cloudQuestionsTick(){
   if(!SB.sess() || !cloudTeamId()) return;
-  const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
-  for(const lid of ids){
-    const cid=m[lid];
-    const pend=(state.pending||[]).filter(p=>p.taskId===lid);
-    // 1) publica perguntas abertas (upsert por task+pending_id)
-    for(const p of pend){
-      const key=cid+'|'+p.id;
-      if(qPushed.has(key)) continue;
-      try{
-        const qrows=await sbFetch('/rest/v1/questions?on_conflict=task_id,local_pending_id', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ task_id:cid, local_pending_id:p.id, agent:p.agent||'', prompt:(p.prompt||'').slice(0,2000), options:Array.isArray(p.options)?p.options:[], status:'open' }) });
-        qPushed.add(key);
-        // push REAL: responder direto da notificação, com o app fechado
-        const qid=(Array.isArray(qrows)&&qrows[0]&&qrows[0].id)?String(qrows[0].id):'';
-        apnsNotify('Precisa de você — '+(p.agent||'agente'), String(p.prompt||'').slice(0,160), { taskId:cid, questionId:qid, category:'QUESTION' });
-      }catch(err){
-        // erro visível: sem isso a ponte falha em silêncio e ninguém fica sabendo
-        if(!qPushed.has('err|'+key)){ qPushed.add('err|'+key); sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'error', text:'⚠ pergunta não subiu pro celular: '+String(err.message||err).slice(0,180) }).catch(()=>{}); }
-      }
-    }
+  const m=tmap(); const pendAll=state.pending||[];
+  // 1) publica perguntas abertas (upsert por task+pending_id)
+  for(const p of pendAll){
+    const cid=m[p.taskId]; if(!cid) continue;
+    const key=cid+'|'+p.id;
+    if(qPushed.has(key)) continue;
     try{
-      // 2) respostas vindas do celular → entrega ao agente e fecha
-      const answered=await sbGet('questions?select=id,local_pending_id,answer&task_id=eq.'+cid+'&status=eq.answered');
-      for(const q of answered){
-        if(pend.some(p=>p.id===q.local_pending_id)){
-          try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; }
+      const qrows=await sbFetch('/rest/v1/questions?on_conflict=task_id,local_pending_id', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ task_id:cid, local_pending_id:p.id, agent:p.agent||'', prompt:(p.prompt||'').slice(0,2000), options:Array.isArray(p.options)?p.options:[], status:'open' }) });
+      qPushed.add(key);
+      // push REAL: responder direto da notificação, com o app fechado
+      const qid=(Array.isArray(qrows)&&qrows[0]&&qrows[0].id)?String(qrows[0].id):'';
+      if(!qNotified.has(key)){ qNotified.add(key); apnsNotify('Precisa de você — '+(p.agent||'agente'), String(p.prompt||'').slice(0,160), { taskId:cid, questionId:qid, category:'QUESTION' }); }
+    }catch(err){
+      // erro visível: sem isso a ponte falha em silêncio e ninguém fica sabendo
+      if(!qPushed.has('err|'+key)){ qPushed.add('err|'+key); sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'error', text:'⚠ pergunta não subiu pro celular: '+String(err.message||err).slice(0,180) }).catch(()=>{}); }
+    }
+  }
+  // 2+3) UMA consulta (antes: 2 GETs × cada tarefa do tmap a cada 7s, crescendo pra sempre): perguntas
+  // abertas/respondidas das tarefas VIVAS do projeto aberto + as que têm pergunta pendente aqui
+  const lids=[...new Set(cloudTaskIds(m, 80, true).concat(pendAll.map(p=>p.taskId).filter(l=>m[l])))];
+  if(!lids.length) return;
+  const lidOf={}; lids.forEach(l=>{ lidOf[m[l]]=l; });
+  let rows=[];
+  try{ rows=await sbGet('questions?select=id,task_id,local_pending_id,answer,status&task_id=in.'+pgIn(lids.map(l=>m[l]))+'&status=in.(open,answered)&order=id&limit=200'); }catch(_){ return; }
+  for(const q of rows){
+    const lid=lidOf[q.task_id]; if(!lid) continue;
+    const isPend=pendAll.some(p=>p.taskId===lid && p.id===q.local_pending_id);
+    try{
+      if(q.status==='answered'){
+        // resposta vinda do celular → entrega ao agente e fecha
+        if(isPend){
+          // id negativo = pergunta do TETO de custo (sintética, 53-teto-protecao) — não existe no banco
+          if(+q.local_pending_id<0 && typeof budgetAnswer==='function') await budgetAnswer(+q.local_pending_id, q.answer||'');
+          else { try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; } }
         }
         await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
         lastSig='';
-      }
-      // 3) pergunta respondida NO DESKTOP (sumiu do pending local) → fecha na nuvem
-      const open=await sbGet('questions?select=id,local_pending_id&task_id=eq.'+cid+'&status=eq.open');
-      for(const q of open){
-        if(!pend.some(p=>p.id===q.local_pending_id)){
-          await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
-        }
+      } else if(!isPend){
+        // pergunta respondida NO DESKTOP (sumiu do pending local) → fecha na nuvem
+        await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
       }
     }catch(_){ }
   }
 }
-setInterval(()=>{ cloudQuestionsTick().catch(e=>tickErr('cloudQuestionsTick',e)); }, 7000);
+tickLoop('cloudQuestionsTick', cloudQuestionsTick, 7000);
 
 // ---- MOBILE AO VIVO: o celular escreve intenções, ESTE Mac executa ----
 // 1) tarefa pedida do celular (status='requested', minha) → cria e RODA aqui
@@ -437,23 +487,29 @@ async function cloudRemoteStartTick(){
     }catch(e){ remoteStartFails[ct.id]=(remoteStartFails[ct.id]||0)+1; console.error('remoteStart', e.message); }
   }
 }
-setInterval(()=>{ cloudRemoteStartTick().catch(e=>tickErr('cloudRemoteStartTick',e)); }, 6000);
+tickLoop('cloudRemoteStartTick', cloudRemoteStartTick, 6000);
 
 // 2) feed condensado ao vivo: eventos novos das MINHAS tarefas mapeadas → task_feed
-function feedPos(){ try{ return JSON.parse(lsGet('sb:feedpos')||'{}'); }catch(_){ return {}; } }
-function feedPosSet(lid, id){ const m=feedPos(); m[lid]=id; lsSet('sb:feedpos', JSON.stringify(m)); }
+const feedPos=lsJsonMemo('sb:feedpos');
+function feedPosSet(lid, id){ const m={ ...feedPos() }; m[lid]=id; lsSet('sb:feedpos', JSON.stringify(m)); }
 const FEED_KINDS=new Set(['think','note','bash','error','done','edit','write']);
 async function cloudFeedTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   await cloudFeedRepair();
   const m=tmap(); const pos=feedPos();
-  for(const lid of Object.keys(m)){
-    const evs=(state.events||[]).filter(e=>(e.taskId||e.task_id)===lid && e.id>(pos[lid]||0) && FEED_KINDS.has(e.type||e.kind)).slice(0,8);
-    if(!evs.length) continue;
+  // eventos novos agrupados por tarefa numa passada só (antes: filtro dos 1200 eventos × cada tarefa do tmap)
+  const byLid={};
+  for(const e of (state.events||[])){
+    const lid=e.taskId||e.task_id;
+    if(!m[lid] || !(e.id>(pos[lid]||0)) || !FEED_KINDS.has(e.type||e.kind)) continue;
+    const a=byLid[lid]||(byLid[lid]=[]); if(a.length<8) a.push(e);
+  }
+  for(const lid in byLid){
+    const evs=byLid[lid];
     try{
-      for(const e of evs){
-        await sbPost('task_feed',{ task_id:m[lid], agent:e.agent||'', kind:(e.type||e.kind), text:String(e.text||'').slice(0,300) });
-      }
+      // 1 POST em lote por tarefa (antes: 1 por evento, em série) e o cursor avança logo depois:
+      // a volta seguinte nunca reposta o mesmo evento (o laço não sobrepõe — tickLoop)
+      await sbPost('task_feed', evs.map(e=>({ task_id:m[lid], agent:e.agent||'', kind:(e.type||e.kind), text:String(e.text||'').slice(0,300) })));
       feedPosSet(lid, evs[evs.length-1].id);
       invoke('web_log',{line:'[feed] +'+evs.length+' → '+lid}).catch(()=>{});
     }catch(err){
@@ -464,14 +520,15 @@ async function cloudFeedTick(){
     }
   }
 }
-setInterval(()=>{ cloudFeedTick().catch(e=>tickErr('cloudFeedTick',e)); }, 4000);
+tickLoop('cloudFeedTick', cloudFeedTick, 4000);
 
 // 3) chat do celular → entrega ao agente (fila do motor cuida do turno ocupado)
 const msgDelivering=new Set();
 async function cloudMsgTick(){
   if(!SB.sess() || !cloudTeamId()) return;
-  const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
-  const rows=await sbGet('task_messages?select=id,task_id,body,author&delivered_at=is.null&task_id=in.('+ids.map(x=>'"'+x+'"').join(',')+')&order=id&limit=5').catch(()=>[]);
+  // tarefas do projeto aberto (mais novas primeiro, até 60) — antes a URL levava TODOS os ids do tmap
+  const m=tmap(); const lids=cloudTaskIds(m, 60, false); if(!lids.length) return;
+  const rows=await sbGet('task_messages?select=id,task_id,body,author&delivered_at=is.null&task_id=in.'+pgIn(lids.map(l=>m[l]))+'&order=id&limit=5').catch(()=>[]);
   for(const msg of rows){
     if(msgDelivering.has(msg.id)) continue; msgDelivering.add(msg.id);
     const lid=Object.keys(m).find(k=>m[k]===msg.task_id); if(!lid) continue;
@@ -495,7 +552,7 @@ async function cloudMsgTick(){
     }catch(e){ console.error('msg', e.message); }
   }
 }
-setInterval(()=>{ cloudMsgTick().catch(e=>tickErr('cloudMsgTick',e)); }, 5000);
+tickLoop('cloudMsgTick', cloudMsgTick, 5000);
 
 // ---- backlog do time (aba Time) ----
 let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];

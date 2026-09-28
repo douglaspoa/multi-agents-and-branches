@@ -94,13 +94,13 @@ window.openNewProject=openNewProject;
 async function skSetAll(on){
   (skList||[]).forEach(s=>s.active=on);
   const active=on?(skList||[]).map(x=>({name:x.name,description:x.description||''})):[];
-  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ alert('Falhou: '+(e&&e.message||e)); }
+  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ showErr(e, 'Falhou'); }
   skRender();
 }
 async function skToggle(name, on){
   const s=(skList||[]).find(x=>x.name===name); if(s) s.active=on;
   const active=(skList||[]).filter(x=>x.active).map(x=>({ name:x.name, description:x.description||'' }));
-  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ alert('Falhou salvar as skills: '+(e&&e.message||e)); if(s) s.active=!on; }
+  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ showErr(e, 'Falhou salvar as skills'); if(s) s.active=!on; }
   skRender();
 }
 function skGitVals(){ return { url:($id('skGitUrl')||{}).value||'', branch:($id('skGitBranch')||{}).value||'', subpath:($id('skGitSub')||{}).value||'' }; }
@@ -108,7 +108,7 @@ async function skGitDetect(){
   const {url,branch,subpath}=skGitVals(); if(!url.trim()){ toast('Cole a URL do repositório.','warn'); ($id('skGitUrl')||{focus(){}}).focus(); return; }
   const b=$id('skGitDetect'); if(b){ b.disabled=true; b.textContent='clonando…'; }
   try{ const r=await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks:null }); skGitFound=r.found||[]; skRender(); }
-  catch(e){ alert('Falhou: '+(e&&e.message||e)); if(b){ b.disabled=false; b.textContent='detectar skills'; } }
+  catch(e){ showErr(e, 'Falhou'); if(b){ b.disabled=false; b.textContent='detectar skills'; } }
 }
 async function skGitImport(){
   const {url,branch,subpath}=skGitVals();
@@ -116,19 +116,19 @@ async function skGitImport(){
   if(!picks.length){ toast('Marque ao menos uma skill.','warn'); return; }
   const b=$id('skGitImport'); if(b){ b.disabled=true; b.textContent='importando…'; }
   try{ await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks }); skAddOpen=false; skGitFound=null; await openSkills(); }
-  catch(e){ alert('Falhou importar: '+(e&&e.message||e)); if(b){ b.disabled=false; b.textContent='importar selecionadas'; } }
+  catch(e){ showErr(e, 'Falhou importar'); if(b){ b.disabled=false; b.textContent='importar selecionadas'; } }
 }
 async function skDoCreate(){
   const name=($id('skNewName')||{}).value||'', desc=($id('skNewDesc')||{}).value||'', bodyv=($id('skNewBody')||{}).value||'';
   if(!name.trim()||!desc.trim()){ toast('Preencha nome e "quando usar".','warn'); return; }
   try{ await invoke('create_skill',{ name:name.trim(), description:desc.trim(), body:bodyv }); skAddOpen=false; await openSkills(); toast('Skill criada na biblioteca','ok'); }
-  catch(e){ alert('Falhou criar: '+(e&&e.message||e)); }
+  catch(e){ showErr(e, 'Falhou criar'); }
 }
 async function skDoImport(){
   const md=($id('skImpMd')||{}).value||'';
   if(!md.trim()){ toast('Cole o conteúdo do SKILL.md.','warn'); return; }
   try{ await invoke('import_skill_md',{ content:md }); skAddOpen=false; await openSkills(); }
-  catch(e){ alert('Falhou importar: '+(e&&e.message||e)); }
+  catch(e){ showErr(e, 'Falhou importar'); }
 }
 bindClick('skillsBtn', openSkills);
 bindClick('skClose', ()=>{ ovHide('skOverlay'); });
@@ -171,11 +171,15 @@ function projetosRender(ov){
   if(projNewOpen) projNewWire(ov);
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
   body.querySelectorAll('[data-pjsk]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjsk; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('skills'); });
-  body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('open_url',{url:'file://'+b.dataset.pjfx}).catch(()=>{}));
-  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ if(!await askYes('Remover '+projShort(b.dataset.pjrm)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:b.dataset.pjrm}); }catch(_){}; openProjetos(); });
+  // BUG-15: open_url só aceita http(s) — o Finder abre pela reveal_project (e o erro aparece, não some calado)
+  body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('reveal_project',{path:b.dataset.pjfx}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')));
+  // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
+  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:p}); }catch(_){}
+    if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
+    if(window.loadProjects) await window.loadProjects(); openProjetos(); });
 }
 // ---- novo projeto do zero: pasta + git init + (opcional) repositório no GitHub ----
-let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:true, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='';
+let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:false, ghTouched:false, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='', projNewGhFail=''; // projNewGhFail: pasta criada cujo GitHub falhou (BUG-10)
 function projNewHtml(){
   const owners=ghOwnersCache||[];
   const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:160px">${owners.map(o=>`<option value="${escA(o)}"${(projNew.owner||owners[0])===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`:`<span class="dim" style="font-size:12px">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
@@ -186,6 +190,7 @@ function projNewHtml(){
       <label style="display:block"><span class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">pasta onde vai morar</span><div style="display:flex;gap:8px;margin-top:5px"><input class="in mono" id="pnParent" readonly placeholder="escolha uma pasta (ex.: ~/Documents/GitHub)" value="${escA(projNew.parent)}" style="flex:1;font-size:12px"><button class="btn sm" id="pnPick">escolher…</button></div></label>
     </div>
     <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="pnGh"${projNew.github?' checked':''}> criar o repositório no GitHub e fazer o push</label>
+    ${(ghOwnersCache&&!ghOwnersCache.length)?`<div class="dim" id="pnGhHint" style="font-size:12px;margin:6px 0 0 24px">GitHub não conectado — o projeto fica só no seu computador (dá pra publicar depois, na hora do PR). <a id="pnGhEnv" style="cursor:pointer;text-decoration:underline">conectar o GitHub</a></div>`:''}
     <div id="pnGhOpts" style="display:${projNew.github?'flex':'none'};gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0 0 24px">
       <span class="dim" style="font-size:12px">dono:</span>${ownerSel}
       <label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="private"${projNew.private?' checked':''}> privado</label>
@@ -193,24 +198,34 @@ function projNewHtml(){
       <a class="dim" id="pnGhCfg" style="font-size:12px;cursor:pointer;text-decoration:underline">outra conta do GitHub?</a>
     </div>
     ${projNewMsg?`<div style="margin-top:12px;font-size:12.5px;color:var(--warn);white-space:pre-wrap">${esc(projNewMsg)}</div>`:''}
+    ${projNewGhFail?`<div style="margin-top:10px"><button class="as-btn" id="pnOpenLocal">abrir mesmo assim, sem GitHub</button></div>`:''}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="as-btn" id="pnCancel">cancelar</button><button class="as-btn primary" id="pnCreate"${projNewBusy?' disabled':''}>${projNewBusy?'criando…':'criar projeto'}</button></div>
   </div>`;
 }
 function projNewWire(ov){
-  if(ghOwnersCache===null){ invoke('gh_owners').then(o=>{ ghOwnersCache=o||[]; if(projNewOpen) { projetosRender(ov); } }).catch(()=>{ ghOwnersCache=[]; if(projNewOpen) projetosRender(ov); }); }
+  // E11c: "criar no GitHub" só vem marcado quando o gh está logado (antes vinha marcado sempre e o create falhava)
+  const ghSettle=(o)=>{ ghOwnersCache=o||[]; if(!projNew.ghTouched) projNew.github=ghOwnersCache.length>0; if(projNewOpen){ projetosRender(ov); projNewWire(ov); } };
+  if(ghOwnersCache===null){ invoke('gh_owners').then(ghSettle).catch(()=>ghSettle([])); }
+  bindClick('pnGhEnv', ()=>{ if(window.openTab) window.openTab('env'); });
   const nm=$id('pnName'); if(nm) nm.oninput=()=>{ projNew.name=nm.value; };
   bindClick('pnPick', async()=>{ try{ const d=await invoke('pick_folder'); if(d){ projNew.parent=d; lsSet('projParent',d); $id('pnParent').value=d; } }catch(_){} });
-  const gh=$id('pnGh'); if(gh) gh.onchange=()=>{ projNew.github=gh.checked; $id('pnGhOpts').style.display=gh.checked?'flex':'none'; };
+  const gh=$id('pnGh'); if(gh) gh.onchange=()=>{ projNew.github=gh.checked; projNew.ghTouched=true; $id('pnGhOpts').style.display=gh.checked?'flex':'none'; };
   const ow=$id('pnOwner'); if(ow) ow.onchange=()=>{ projNew.owner=ow.value; };
   document.querySelectorAll('input[name=pnVis]').forEach(r=>r.onchange=()=>{ projNew.private=r.value==='private'; });
   bindClick('pnGhCfg', ()=>{ if(window.openTab) window.openTab('cfg'); });
-  bindClick('pnCancel', ()=>{ projNewOpen=false; projNewMsg=''; projetosRender(ov); });
+  bindClick('pnCancel', ()=>{ projNewOpen=false; projNewMsg=''; projNewGhFail=''; projetosRender(ov); });
+  bindClick('pnOpenLocal', async()=>{ const path=projNewGhFail; if(!path) return;
+    try{ await invoke('open_project',{ path }); projNewGhFail=''; projNewMsg=''; projNewOpen=false; projNew.name='';
+      selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
+      await refresh(); if(window.loadProjects) await window.loadProjects(); await openProjetos();
+      toast('Projeto aberto só no seu computador. Dá pra ligar o GitHub depois.','ok');
+    }catch(e){ projNewMsg='Não deu pra abrir: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); } });
   bindClick('pnCreate', async()=>{
     projNew.name=($id('pnName')||{}).value||projNew.name;
     if(!projNew.name.trim()){ projNewMsg='dê um nome ao projeto.'; projetosRender(ov); projNewWire(ov); return; }
     if(!projNew.parent){ projNewMsg='escolha a pasta onde o projeto vai morar.'; projetosRender(ov); projNewWire(ov); return; }
     const owner=($id('pnOwner')||{}).value||projNew.owner||'';
-    projNewBusy=true; projNewMsg=''; projetosRender(ov); projNewWire(ov);
+    projNewBusy=true; projNewMsg=''; projNewGhFail=''; projetosRender(ov); projNewWire(ov);
     try{
       const path=await invoke('create_project',{ parent:projNew.parent, name:projNew.name.trim(), github:!!projNew.github, private:!!projNew.private, owner });
       projNewBusy=false; projNewOpen=false; projNew.name='';
@@ -218,7 +233,10 @@ function projNewWire(ov){
       await refresh(); if(window.loadProjects) await window.loadProjects();
       await openProjetos();
       toast('Projeto criado em '+path,'ok');
-    }catch(e){ projNewBusy=false; projNewMsg='Falhou: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); }
+    }catch(e){ projNewBusy=false; const m=String((e&&e.message)||e||'');
+      const gf=m.match(/^GH_FAIL::(.+?)::([\s\S]*)$/); // pasta+git criados, só o GitHub falhou: oferece abrir local
+      if(gf){ projNewGhFail=gf[1]; projNewMsg=gf[2]; } else projNewMsg='Falhou: '+m;
+      projetosRender(ov); projNewWire(ov); }
   });
 }
 bindClick('projetosClose', ()=>{ ovHide('projetosOverlay'); });

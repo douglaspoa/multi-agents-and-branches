@@ -97,7 +97,7 @@ const IC = {
 const icEm = s => s.replace('<svg ', '<svg width="1em" height="1em" style="vertical-align:-.125em;flex:none" aria-hidden="true" ');
 IC.x = icEm(IC.xs); IC.ok = icEm(IC.check);
 // helper: ícone + rótulo num botão (substitui os emojis por SVG da biblioteca)
-async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
+async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ showErr(e, 'Não consegui abrir o link'); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
 // cores de status vêm do dicionário único (STATUS_META em 00-util.js)
@@ -133,6 +133,8 @@ function devUiSync(){ const b=$id('pubRelBtn'); if(b) b.style.display=canSeeDevT
 setTimeout(()=>{ invokeQuiet('is_dev_install').then(v=>{ devInstall=!!v; devUiSync(); }).catch(()=>{}); }, 0);
 // ---- pasta aberta SEM git: o app abre, mas branch/PR/worktree só depois de criar o repositório ----
 function repoHasGit(){ return !state || !state.repo || state.git!==false; }
+// E4: repositório com remote (GitHub)? Projeto criado só local não tem — o PR vira "publicar no GitHub"
+function repoHasRemote(){ return !state || !state.repo || state.git===false || state.remote!==false; }
 function gitUiSync(){
   const off=!repoHasGit();
   document.body.classList.toggle('nogit', off);
@@ -143,10 +145,10 @@ function gitUiSync(){
 // Devolve true quando pode seguir.
 async function gitGate(){
   if(repoHasGit()) return true;
-  const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
+  const name=pathBase(state.repo)||'esta pasta';
   if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Starfork precisa de um repositório. Criar agora?\n\n(cria o repositório na branch main, deixa a pasta de trabalho do Starfork fora do versionamento e faz o 1º commit com o conteúdo atual)`)) return false;
   try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
-  catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
+  catch(e){ showErr(e, 'Não consegui criar o repositório'); return false; }
 }
 // etiqueta na barra lateral: "sem git · criar repositório"
 function gitRailTag(){
@@ -214,7 +216,8 @@ function detectNotifs(snap){
       if(prev!==undefined && prev!==t.status){
         // status mudou → commits/PR podem ter mudado (fim de turno commita)
         commitsStale[t.id]=true; prCache[t.id]=undefined;
-        if(t.status==='review') pushNotif('Pronta para review ✓', t.title, t.id);
+        // parada pelo humano (■ parar) ou pelo teto de custo NÃO é "pronta" — era notificação falsa
+        if(t.status==='review'){ if(!(typeof budgetQuiet!=='undefined' && budgetQuiet.delete(t.id))) pushNotif('Pronta para review ✓', t.title, t.id); }
         else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title, t.id);
         else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title, t.id);
         else if(t.status==='merged') pushNotif('Mergeada na base ✓', t.title, t.id);
@@ -228,13 +231,13 @@ function detectNotifs(snap){
   prevStatus={}; tasks.forEach(t=>{ prevStatus[t.id]=t.status; prevPr[t.id]=t.prUrl||null; });
   prevPending=new Set(pend.map(p=>p.id));
   notifReady=true;
-  // guarda-custos: avisa UMA vez quando a tarefa cruza o limite (padrão $25)
+  // guarda-custos: AVISO (só notifica) UMA vez quando a tarefa cruza o limite (padrão $25).
+  // O TETO que pausa e pergunta é outro mecanismo (budgetWatch, 53-teto-protecao) — o antigo
+  // "teto rígido" chamava stop_task e jogava a tarefa em "pronta pra revisar" (bug #13).
   try{
     const lim=parseFloat(lsGet('costWarn')||'25');
-    const hardCap=lsGet('costHardCap')==='1';
     if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id);
-      if(hardCap){ pushNotif('⛔ Teto de custo — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — PAUSADA automaticamente (teto rígido)'); try{ stopTask(t.id); }catch(_){ } }
-      else { pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); }
+      pushNotif('⚠ Custo alto — '+fmtCost(c.usd), t.title+' passou de '+fmtCost(lim)+' — avalie pausar/encerrar');
     } } } }
   }catch(_){ }
   // eventos novos numa tarefa → a lista de commits pode estar defasada
@@ -248,13 +251,18 @@ async function refresh(){
   let snap;
   try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
   catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); } return; }
+  // pergunta do teto de custo = pendência sintética; entra ANTES do detectNotifs (vira "Precisa de você")
+  if(typeof budgetInject==='function') try{ budgetInject(snap); }catch(e){ tickErr('budgetInject', e); }
   detectNotifs(snap);
   const prevGraph = state.graph, prevCfg = state.config, prevRepo = state.repo;
   state = snap;
   // R5-5: o snapshot não traz o catálogo (config) — antes cada refresh o apagava e as cores dos agentes caíam no hash
   if(prevCfg && !state.config && prevRepo===snap.repo) state.config = prevCfg;
   connected = !!snap.repo;
+  if(typeof budgetWatch==='function') try{ budgetWatch(); }catch(e){ tickErr('budgetWatch', e); }
+  if(typeof protectLoad==='function' && !protectLoaded) protectLoad();
   gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
+  if(typeof noProjSync==='function') noProjSync(); // sem projeto: apaga Skills/Issues/Agentes/Chat/Daily (36-comecar)
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
   if(typeof trkSyncTasks==='function') trkSyncTasks(); // painel de issues: status da issue acompanha a tarefa
   // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
@@ -262,7 +270,7 @@ async function refresh(){
   else state.graph = prevGraph || [];
   const conn = $id("conn");
   conn.classList.toggle("live", connected && state.tasks.length>0);
-  $id("connTxt").textContent = snap.repo ? snap.repo.split("/").slice(-2).join("/") : "sem repo";
+  $id("connTxt").textContent = snap.repo ? snap.repo.split(/[\\/]+/).filter(Boolean).slice(-2).join("/") : "sem repo";
   if(snap.repo && $id("repoInput").value==="") $id("repoInput").value = snap.repo;
   // header enxuto: com repo aberto, o caminho + "abrir" viram redundantes (o chip já mostra o repo)
   const hasRepo=!!snap.repo;

@@ -7,7 +7,7 @@ let projFilter = lsGet('projFilter')||'all'; // 'all' (integrado) | caminho de u
 let allTasksCache = [];   // tarefas de TODOS os projetos (list_all_tasks), pro board integrado
 let allTasksSig = '';
 let allTasksAt = 0;       // throttle: list_all_tasks abre o sqlite de CADA projeto (I/O)
-function projShort(p){ return String(p||'').split('/').filter(Boolean).slice(-1)[0]||''; }
+function projShort(p){ return pathBase(p); } // E10: aceita C:\… também
 // lista [caminho, nome] dos projetos conhecidos (ativo + os do cache multi-projeto)
 function projList(){ const m=new Map(); if(state.repo) m.set(state.repo, projShort(state.repo)); (allTasksCache||[]).forEach(t=>{ if(t.repo) m.set(t.repo, t.proj||projShort(t.repo)); }); return [...m.entries()]; }
 function projColor(p){ // cor estável por projeto (hash → hue)
@@ -62,6 +62,20 @@ function openTaskById(id){
   const t=src.find(x=>x.id===id); if(!t) return;
   if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, id); return; }
   selected=id; render(); openOrEdit(t);
+}
+// E5 (bug #7): ação num cartão de OUTRO projeto (filtro "Todos os projetos", o padrão). As ações (abrir PR,
+// menu ⋯, concluir) leem state.tasks e gravam no banco do projeto ATIVO — antes não faziam nada, ou gravavam
+// no projeto errado. Agora troca pro projeto dono (avisando) e só então roda.
+async function crossRun(id, fn){
+  let src; try{ src=boardSource(); }catch(_){ src=[]; }
+  const t=src.find(x=>x.id===id);
+  if(t && t._cross && t.repo && t.repo!==state.repo){
+    toast('abrindo o projeto '+(t.proj||projShort(t.repo))+'…','info');
+    if(window.switchProject) await window.switchProject(t.repo);
+    if(state.repo!==t.repo || !(state.tasks||[]).some(x=>x.id===id)){ toast('Não consegui abrir o projeto '+(t.proj||projShort(t.repo))+' — abra ele na barra lateral e tente de novo.','warn'); return; }
+    selected=id; lastSig=''; render();
+  } else if(!(state.tasks||[]).some(x=>x.id===id)) return;
+  return fn();
 }
 let flowPeriod = lsGet('flowPeriod')||'all';   // all | today | week | month
 let flowAgent  = lsGet('flowAgent')||'all';    // 'all' | nome do agente
@@ -410,6 +424,8 @@ async function openTaskSummary(taskId){
 }
 function renderTaskSummary(t){
   const pct=taskPct(t);
+  // E11b: mesma regra da linha e do workspace — investigação/design (ou entrega só de documentos) não abrem PR
+  const sumArtOnly=['invest','design'].includes(taskType(t)) || (typeof entregaNonCode==='function' && entregaNonCode(t));
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   const m=matchReqProofs(reqs,(reqProofCache[t.id]||{}).list);
   const doneR=m.filter(x=>x&&x.status==='done').length;
@@ -432,7 +448,7 @@ function renderTaskSummary(t){
       <div style="flex:1;height:8px;border-radius:99px;background:var(--border-strong);overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--good);border-radius:99px"></i></div>
       <b class="mono" style="font-size:15px">${pct}%</b>
     </div>
-    <div class="dim" style="font-size:11.5px;margin-bottom:12px">fase atual: <b>${esc(PHASES[ph-1])}</b> · ${esc(t.branch||'')}${cost.usd>0?' · '+fmtUsd(cost.usd):''}</div>
+    <div class="dim" style="font-size:11.5px;margin-bottom:12px">fase atual: <b>${esc(PHASES[ph-1])}</b> · ${esc(t.branch||'')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</div>
     ${t.objective?`<div class="seclbl2">Objetivo</div><div style="font-size:12.5px;margin-bottom:12px">${esc(t.objective)}</div>`:''}
     <div class="seclbl2">O que já foi feito</div>
     ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?'✓':'○'}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
@@ -443,61 +459,23 @@ function renderTaskSummary(t){
     <div class="seclbl2" style="margin-top:14px">O que falta pra finalizar</div>
     ${falta.length?li(falta,'→','var(--warn)'):'<div style="font-size:12.5px;color:var(--good)">nada — pronta pra fechar ✓</div>'}
     <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span>
-      ${['review','delivered'].includes(t.status)&&!t.prUrl?`<button class="btn primary sm" id="sumPr">${IC.check} aprovar e abrir PR</button>`:''}
+      ${['review','delivered'].includes(t.status)&&!t.prUrl&&t.flag!=='closed'?(sumArtOnly
+        ?`<button class="btn primary sm" id="sumArch" title="investigação/design não abrem PR — o fim é salvar os entregáveis e concluir">${IC.check} concluir</button>`
+        :`<button class="btn primary sm" id="sumPr">${IC.check} aprovar e abrir PR</button>`):''}
       <button class="btn sm" id="sumOpen">abrir a tarefa</button></div>`;
   bindClick('sumOpen', ()=>{ $id('sumOverlay').style.display='none'; selected=t.id; render(); openWorkspace(t.id); });
   bindClick('sumPr', ()=>{ $id('sumOverlay').style.display='none'; prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
-}
-// linha compacta da Central (redesign p2): dot · título · projeto · progresso · status · avatar · tempo
-function flowTaskRow(t){
-  const asking=pendingOf(t.id);
-  const ph=taskPhase(t);
-  const pct=taskPct(t);
-  const done=['merged','done'].includes(t.status)||t.flag==='closed';
-  const dot= asking.length||t.status==='plan-review'?'var(--warn)'
-    : ['error','conflict'].includes(t.status)?'var(--crit)'
-    : (ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)'
-    : ['review','delivered'].includes(t.status)?'var(--warn)'
-    : 'var(--muted)';
-  const segs=[1,2,3,4,5].map(i=>`<i class="${i<=ph?((asking.length&&i===ph)?'on warn':'on'):''}"></i>`).join('');
-  const ev=lastEventOf(t.id);
-  const prN=(String(t.prUrl||'').match(/\/pull\/(\d+)/)||[])[1];
-  const msg= asking.length ? `${esc(asking[0].agent||t.agent)} perguntou — ${esc((asking[0].prompt||'').slice(0,70))}`
-    : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
-    : t.status==='draft' ? 'rascunho — clique pra editar · ▶ inicia'
-    : done ? (prN?`PR #${prN} · merged`:'concluída')
-    : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
-    : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${nPl(diffFiles(diffOf(t.id)),'arquivo')}`
-    : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,70))}`
-    : 'iniciando…';
-  const proj=t.proj||(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'';
-  const pcol=projColor(t.repo||state.repo);
-  const agoP=(ms)=>{ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; };
-  const tm=agoP(ev?+new Date(ev.ts):(t.createdAt||t.created_at));
-  const play=t.status==='draft'?`<button class="kplay" data-rowplay="${escA(t.id)}" title="iniciar">${IC.cright}</button>`:'';
-  // ações rápidas direto da home: abrir PR (qualquer tarefa viva sem PR) · link do PR/issue · site local
-  const readyPr=['review','delivered'].includes(t.status);
-  const artOnly=['invest','design'].includes(taskType(t)); // sem PR — o "pronto" delas é arquivar
-  const quick=(!done && t.status!=='draft' && !t.prUrl)
-    ? (artOnly
-        ? (readyPr?`<button class="btn primary sm" data-arch="${escA(t.id)}" title="conclui e tira da fila" style="padding:3px 10px;font-size:10.5px;flex:none">✓ concluir</button>`:'')
-        : `<button class="btn ${readyPr?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 10px;font-size:10.5px;flex:none">${IC.merge} abrir PR</button>`) : '';
-  const pvChip=pvChips(t, true);
-  return `<div class="frow${done?' done':''}" data-id="${t.id}">
-    <span class="d" style="background:${dot}"></span>
-    ${play}<span class="ti">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}
-    <span class="prj"><span class="prjd" style="background:${pcol}"></span>${esc(proj)}</span>
-    <span class="pctwrap" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><i style="width:${pct}%;background:${asking.length?'var(--warn)':'var(--good)'}"></i></span><span class="pctn mono" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito">${pct}%</span>
-    <span class="msg">${msg}</span>
-    ${pvChip}${quick}${linkChips(t)}
-    <span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
-    <span class="tm">${tm}</span>
-    <button class="btn sm" data-tmenu="${escA(t.id)}" title="mudar status / encerrar" style="padding:2px 7px;font-size:11px;flex:none">⋯</button>
-  </div>`;
+  // E11b: investigação/design → o "concluir" leva pra Entrega (salvar entregáveis na pasta), igual ao cabeçalho da tarefa
+  bindClick('sumArch', ()=>{ $id('sumOverlay').style.display='none'; selected=t.id; render(); openWorkspace(t.id); setTimeout(()=>{ try{ fwMode='entrega'; renderWorkspace(); }catch(_){ } }, 50); });
 }
 // menu ⋯ da home: mudar status/flag sem abrir a tarefa
 function openTaskMenu(taskId, anchor){
-  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  const t=(state.tasks||[]).find(x=>x.id===taskId);
+  // E5 (bug #7): cartão de OUTRO projeto ("Todos os projetos") — antes o ⋯ não fazia nada. Troca pro projeto
+  // dono e reabre o menu lá (as ações gravam no banco do projeto ATIVO). O retângulo é guardado antes: o
+  // re-render da troca tira o botão original do DOM.
+  if(!t){ const r=anchor&&anchor.getBoundingClientRect?anchor.getBoundingClientRect():null;
+    crossRun(taskId, ()=>openTaskMenu(taskId, r?{ getBoundingClientRect:()=>r }:anchor)); return; }
   $id('tmenuPop')?.remove();
   const pop=document.createElement('div');
   pop.id='tmenuPop';
@@ -505,7 +483,7 @@ function openTaskMenu(taskId, anchor){
   const item=(label,fn,danger)=>{ const b=document.createElement('button');
     b.textContent=label; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ pop.remove(); try{ await fn(); lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
+    b.onclick=async()=>{ pop.remove(); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
     pop.appendChild(b); };
   const ty=taskType(t);
   const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
@@ -515,14 +493,17 @@ function openTaskMenu(taskId, anchor){
   if(t.flag==='closed') item('↩ reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}));
   if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como mergeada', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
-  if(['review','delivered','merged'].includes(t.status)) item('↻ voltar pra em andamento', ()=>invoke('mark_task_status',{taskId,status:'running'}));
+  // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
+  if(['review','delivered'].includes(t.status)) item('↻ voltar pra em andamento · o agente continua', ()=>taskBackToRunning(taskId));
   if(t.flag!=='blocked') item('❙❙ bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}));
   else item('▶ desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(['error','aborted','conflict'].includes(t.status)){
     item('↻ tentar seguir · continua de onde parou', ()=>invoke('talk_task',{taskId, message:'A execução anterior foi interrompida (timeout de inatividade/erro). CONTINUE de onde você parou: confira git status, git diff, .cardume/PLAN.md e os requisitos em .cardume/TASK.yaml, e finalize o que falta — não recomece do zero. Se for rodar algo demorado, vá reportando progresso pra não ser encerrado por inatividade.', asReq:false, agent:null}));
-    item('↻ re-rodar do zero · descarta o parcial', ()=>invoke('rerun_task',{taskId}));
+    item('↻ re-rodar do zero · descarta o parcial', ()=>rerunTask(taskId)); // E3: com a confirmação do rerunTask
   }
-  item('✕ abortar agora', ()=>invoke('abort_task',{taskId}), true);
+  // E3 (bug #4): abortar só faz sentido com o agente vivo (antes aparecia até em mergeada e trocava 'merged' por 'aborted');
+  // e passa pelo abortTask(), que confirma antes
+  if(ACTIVE_ST.has(t.status)||t.status==='paused'||t.status==='plan-review'||t.status==='asking'||t.busy) item('✕ abortar agora', ()=>abortTask(taskId), true);
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
@@ -547,7 +528,8 @@ function openStatusMenu(taskId, anchor){
   const setSt=(status)=>()=>invoke('mark_task_status',{taskId,status});
   const opts=[
     // nomes = STATUS_META (stLabel/stColor); fechar = "concluir" em toda a app
-    { key:'running', label:'▶ Em andamento',        col:stColor('running'), act:setSt('running') },
+    // E9: "em andamento" chama o agente de novo (pergunta antes); marcar só o status deixava um card "rodando" sem processo
+    { key:'running', label:'▶ Em andamento',        col:stColor('running'), act:async()=>{ if(!await taskBackToRunning(taskId)) throw null; } },
     { key:'review',  label:'◆ Pronta pra revisar',  col:stColor('review'),  act:setSt('review') },
     { key:'merged',  label:'✓ Mergeada',            col:stColor('merged'),  act:setSt('merged') },
     { key:'finished',label:'★ Concluir · sai da fila', col:stColor('done'), act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
@@ -563,14 +545,14 @@ function openStatusMenu(taskId, anchor){
     b.innerHTML=`<span style="color:${o.col}">${o.label}</span>${on?'<span style="margin-left:auto;opacity:.7">●</span>':''}`;
     b.style.cssText='display:flex;align-items:center;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
-    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
+    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };
     pop.appendChild(b); });
   // encerrada: oferece reabrir explicitamente no rodapé
   if(closed){ const b=document.createElement('button');
     b.textContent='↩ reabrir (volta pra fila)';
     b.style.cssText='display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--border);margin-top:4px;padding:8px 10px;background:none;color:var(--text);font:inherit;font-size:12px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ pop.remove(); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ alert('Falhou: '+e); } };
+    b.onclick=async()=>{ pop.remove(); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Falhou'); } };
     pop.appendChild(b); }
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
@@ -691,9 +673,10 @@ function renderFlow(){
     row.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(row.dataset.id, e.target); });
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
-  el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); prPrepOpen(b.dataset.rowpr, lsGet('prBase:'+b.dataset.rowpr)||'main'); });
-  el.querySelectorAll('[data-resolveconf]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return; b.disabled=true; b.textContent='resolvendo…'; try{ await invoke('resolve_conflict',{ taskId:b.dataset.resolveconf }); lastSig=''; await refresh(); }catch(err){ alert('Falhou: '+(err&&err.message||err)); b.disabled=false; } });
-  el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke('set_task_flag',{taskId:b.dataset.arch,flag:'closed'}); lastSig=''; await refresh(); }catch(err){ alert('Falhou: '+err); } });
+  el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowpr; crossRun(id, ()=>prPrepOpen(id, lsGet('prBase:'+id)||'main')); });
+  el.querySelectorAll('[data-resolveconf]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return; b.disabled=true; b.textContent='resolvendo…'; try{ await invoke('resolve_conflict',{ taskId:b.dataset.resolveconf }); lastSig=''; await refresh(); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } });
+  // "✓ concluir" grava a flag no banco do projeto DONO da tarefa (crossRun troca antes, se for de outro projeto)
+  el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.arch; crossRun(id, async()=>{ try{ await invoke('set_task_flag',{taskId:id,flag:'closed'}); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Não deu pra concluir'); } }); });
   el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
   // 📱 da home: cria o túnel pro celular (ou fecha, se já estiver aberto)
   el.querySelectorAll('[data-pvmob]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation();
@@ -711,7 +694,7 @@ function renderFlow(){
     }
     lastSig=''; renderFlow();
   });
-  el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskSummary(b.dataset.sum); });
+  el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.sum; crossRun(id, ()=>openTaskSummary(id)); });
   el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openWorkspace(t.id); });
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('[data-stmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openStatusMenu(b.dataset.stmenu, b); });

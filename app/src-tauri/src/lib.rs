@@ -159,25 +159,32 @@ fn node_bin() -> String {
     "node".to_string()
 }
 
-/// Acha o binário do `claude` sem depender do PATH (que pode estar stale via
-/// LSEnvironment): CARDUME_CLAUDE → ao lado do node → "claude" no PATH.
 /// Acha o `gh` sem depender do PATH (LaunchServices pode lançar com PATH mínimo).
-/// npm ao lado do node resolvido (nvm incluso) — app aberto pelo Finder tem
-/// PATH mínimo e um `npm` seco dá "No such file or directory" (Mac do Paulo).
-fn npm_cmd() -> Command {
-    let nb = node_bin();
-    let dir = std::path::Path::new(&nb).parent().map(|p| p.to_path_buf());
-    let npm = dir.as_ref().map(|d| d.join("npm")).filter(|p| p.is_file())
-        .map(|p| p.display().to_string())
-        .or_else(|| ["/opt/homebrew/bin/npm", "/usr/local/bin/npm"].iter().find(|p| std::path::Path::new(p).is_file()).map(|s| s.to_string()))
-        .unwrap_or_else(|| "npm".into());
-    let mut c = Command::new(npm);
-    // scripts do npm precisam achar o node no PATH
-    if let Some(d) = dir {
-        let path = std::env::var("PATH").unwrap_or_default();
-        c.env("PATH", format!("{}:{}", d.display(), path));
+/// E8 (bug #16): abre URL/arquivo/pasta no app padrão DO SISTEMA. Antes era `xdg-open` fora do Mac —
+/// no Windows todo link externo, artefato e o login pelo Google falhavam.
+/// macOS `open` · Windows `rundll32 url.dll,FileProtocolHandler` (aceita URL com `&`, que o `cmd /c start`
+/// quebraria) · Linux `xdg-open`.
+fn os_open(target: &std::ffi::OsStr) -> std::io::Result<std::process::Child> {
+    if cfg!(target_os = "macos") {
+        Command::new("open").arg(target).spawn()
+    } else if cfg!(target_os = "windows") {
+        Command::new("rundll32").arg("url.dll,FileProtocolHandler").arg(target).spawn()
+    } else {
+        Command::new("xdg-open").arg(target).spawn()
     }
-    c
+}
+/// Mostra o arquivo selecionado no gerenciador de arquivos (Finder `open -R` · Explorer `/select,`);
+/// no Linux abre a pasta que o contém.
+fn os_reveal(path: &std::path::Path) -> std::io::Result<std::process::Child> {
+    if cfg!(target_os = "macos") {
+        Command::new("open").arg("-R").arg(path).spawn()
+    } else if cfg!(target_os = "windows") {
+        let mut arg = std::ffi::OsString::from("/select,");
+        arg.push(path.as_os_str());
+        Command::new("explorer").arg(arg).spawn()
+    } else {
+        Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn()
+    }
 }
 
 fn gh_bin() -> String {
@@ -419,6 +426,25 @@ mod stoppable_tests {
 }
 
 #[cfg(test)]
+mod quick_project_tests {
+    use super::{project_slug, unique_child};
+    #[test]
+    fn nome_livre_com_sufixo() {
+        let tmp = std::env::temp_dir().join(format!("starfork-quick-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app");
+        std::fs::create_dir_all(tmp.join("app")).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app-2");
+        std::fs::create_dir_all(tmp.join("app-2")).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app-3");
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(project_slug("  App de Aulas "), "app-de-aulas");
+        assert_eq!(project_slug("Painel Finanças — Ação"), "painel-financas-acao");
+    }
+}
+
+#[cfg(test)]
 mod slug_tests {
     use super::slug_id;
     #[test]
@@ -629,6 +655,90 @@ fn signal_group(pid: i32, sig: i32) {
     }
 }
 
+/// MODO PROTEGIDO — regras de NEGAÇÃO do Claude Code (`--disallowedTools`), que valem
+/// MESMO em `--permission-mode bypassPermissions` (as regras de deny são avaliadas antes
+/// do modo). ESPELHO de src/engine/protect.ts (denyRules) — o teste TS confere a lista.
+const PROTECT_DENY: [&str; 50] = [
+    "Read(**/.env)",
+    "Edit(**/.env)",
+    "Read(**/.env.local)",
+    "Edit(**/.env.local)",
+    "Read(**/.env.*.local)",
+    "Edit(**/.env.*.local)",
+    "Read(**/.env.development*)",
+    "Edit(**/.env.development*)",
+    "Read(**/.env.production*)",
+    "Edit(**/.env.production*)",
+    "Read(**/.env.staging*)",
+    "Edit(**/.env.staging*)",
+    "Read(**/.env.test*)",
+    "Edit(**/.env.test*)",
+    "Read(**/*.pem)",
+    "Edit(**/*.pem)",
+    "Read(**/*.key)",
+    "Edit(**/*.key)",
+    "Read(**/id_rsa*)",
+    "Edit(**/id_rsa*)",
+    "Read(**/id_ed25519*)",
+    "Edit(**/id_ed25519*)",
+    "Read(~/.ssh/**)",
+    "Edit(~/.ssh/**)",
+    "Read(~/.aws/**)",
+    "Edit(~/.aws/**)",
+    "Read(**/.ssh/**)",
+    "Edit(**/.ssh/**)",
+    "Read(**/.aws/**)",
+    "Edit(**/.aws/**)",
+    "Bash(rm -rf /)",
+    "Bash(rm -rf / *)",
+    "Bash(rm -rf ~)",
+    "Bash(rm -rf ~/)",
+    "Bash(rm -rf ~/*)",
+    "Bash(rm -rf $HOME*)",
+    "Bash(git push --force*)",
+    "Bash(git push -f*)",
+    "Bash(git push * --force*)",
+    "Bash(git push * -f)",
+    "Bash(git push * -f *)",
+    "Bash(curl * | sh*)",
+    "Bash(curl * | bash*)",
+    "Bash(wget * | sh*)",
+    "Bash(wget * | bash*)",
+    "Bash(sudo *)",
+    "Bash(cat *.env)",
+    "Bash(cat *.env.local)",
+    "Bash(cat *.pem)",
+    "Bash(cat *id_rsa*)",
+];
+/// Projeto "Protegido" (padrão) ou "Livre" — Preferências do projeto grava
+/// `protect:<caminho do repo>` = "0" em ~/.constellation/settings.json pra desligar.
+fn protect_on(repo: &std::path::Path) -> bool {
+    setting_get(&format!("protect:{}", repo.display())).map(|v| v.trim() != "0").unwrap_or(true)
+}
+/// Args a pôr ANTES de `--permission-mode` (a flag é variádica: outra flag encerra a lista).
+fn protect_args(on: bool) -> Vec<String> {
+    if !on { return vec![]; }
+    let mut v = vec!["--disallowedTools".to_string()];
+    v.extend(PROTECT_DENY.iter().map(|s| s.to_string()));
+    v
+}
+#[cfg(test)]
+mod protect_tests {
+    use super::*;
+    #[test]
+    fn livre_nao_passa_nada() { assert!(protect_args(false).is_empty()); }
+    #[test]
+    fn protegido_bloqueia_segredos_e_destrutivos() {
+        let a = protect_args(true);
+        assert_eq!(a[0], "--disallowedTools");
+        assert_eq!(a.len(), 1 + PROTECT_DENY.len());
+        for must in ["Read(**/.env)", "Edit(**/.env)", "Read(**/*.pem)", "Bash(rm -rf /)", "Bash(git push --force*)", "Bash(sudo *)"] {
+            assert!(a.iter().any(|x| x == must), "{must}");
+        }
+        assert!(a[1..].iter().all(|r| !r.starts_with('-') && !r.contains(',')));
+    }
+}
+
 /// Spawna um processo de tarefa em um NOVO grupo (setsid) e o registra por id,
 /// pra podermos pausar/abortar a árvore inteira. Uma thread limpa o registro
 /// quando o processo termina naturalmente (evita PID reciclado no mapa).
@@ -639,6 +749,9 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     cmd.env("CARDUME_NOTIFY", "0");
     // intervalo (min) pra retomar sozinho quando bate o limite de uso da IA
     if let Some(m) = setting_get("limitRetryMin") { cmd.env("CARDUME_LIMIT_RETRY_MIN", m); }
+    // modo protegido do PROJETO (padrão ligado) → o motor passa as regras de negação ao claude
+    let protect = repo_of(state).map(|r| protect_on(&r)).unwrap_or(true);
+    cmd.env("CARDUME_PROTECT", if protect { "1" } else { "0" });
     // novo grupo/sessão: o node vira líder e o claude herda o grupo
     detach_new_group(&mut cmd);
     // stdout/stderr ficam como o CHAMADOR configurou (ex.: new_task redireciona
@@ -787,6 +900,8 @@ struct Snapshot {
     repo: Option<String>,
     /// false = pasta aberta sem repositório git (sem branch/PR/worktree até criar um)
     git: bool,
+    /// false = repositório só local (sem remote): "abrir PR" vira "publicar no GitHub" (E4)
+    remote: bool,
     tasks: Vec<Task>,
     events: Vec<Event>,
     claims: Vec<Claim>,
@@ -1131,16 +1246,6 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     Ok(commits)
 }
 
-#[tauri::command(async)]
-fn current_repo(state: State<AppState>) -> Option<String> {
-    state
-        .db
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-        .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
-}
-
 /// Resolve o repo do projeto ativo (parent do .cardume/state.sqlite).
 fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
@@ -1148,26 +1253,33 @@ fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
 }
 
 /// Métricas de coordenação (conflitos, colisões, reworks) — baseline do "caos".
-/// Proxy do CLI `cardume metrics --json`: a lógica mora no núcleo TS (fonte única).
+/// Mesmo JSON do `cardume metrics --json` (Store.coordinationMetrics no núcleo TS), mas feito AQUI
+/// com 3 COUNTs read-only: antes spawnava `node cli.mjs metrics` a cada 20s (e a cada 2s quando
+/// falhava), abrindo o Store com migrate() no MESMO sqlite em que os agentes escrevem.
 #[tauri::command(async)]
 fn coordination_metrics(state: State<AppState>) -> Result<String, String> {
-    let repo = active_repo(&state)?;
-    let out = Command::new(node_bin())
-        .args([
-            "--disable-warning=ExperimentalWarning".to_string(),
-            cli_path(&repo),
-            "metrics".to_string(),
-            "--repo".to_string(),
-            repo.display().to_string(),
-            "--json".to_string(),
-        ])
-        .current_dir(&repo)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0) };
+    let mut by_status = serde_json::Map::new();
+    let mut total: i64 = 0;
+    if let Ok(mut st) = conn.prepare("SELECT status, COUNT(*) FROM task GROUP BY status") {
+        if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+            for (k, n) in rows.flatten() {
+                total += n;
+                by_status.insert(k, serde_json::json!(n));
+            }
+        }
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let conflict = by_status.get("conflict").and_then(|v| v.as_i64()).unwrap_or(0);
+    let m = serde_json::json!({
+        "totalTasks": total,
+        "byStatus": by_status,
+        "conflictTasks": conflict,
+        "collisionEvents": count("SELECT COUNT(*) FROM event WHERE type = 'collision'"),
+        "reworkCount": count("SELECT COUNT(*) FROM work_queue WHERE kind = 'rework'"),
+    });
+    Ok(m.to_string())
 }
 
 /// Checa sobreposição de escopo de uma demanda nova contra tarefas ativas.
@@ -1263,6 +1375,79 @@ fn open_project(state: State<AppState>, path: String) -> Result<String, String> 
     open_project_at(&state, &path)
 }
 
+/// Cache do "é git?" por pasta (30s): o snapshot perguntava a cada 1s = fork+exec de
+/// `git rev-parse` por segundo. git_init_repo limpa; o TTL cobre `git init` feito fora do app.
+fn git_cache() -> &'static Mutex<HashMap<String, (bool, std::time::Instant)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn repo_is_git_cached(path: &str) -> bool {
+    if let Some((v, at)) = git_cache().lock().unwrap_or_else(|e| e.into_inner()).get(path).copied() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return v;
+        }
+    }
+    let v = repo_is_git(path);
+    git_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), (v, std::time::Instant::now()));
+    v
+}
+
+/// E4 (bug #5): o repositório tem remote? Projeto criado só local (gitGate / "Começar") não tem — e o push
+/// falhava com "Could not read from remote", que a tela lia como "sem internet". Cache de 30s (o snapshot é 1/s);
+/// publish_github limpa.
+fn remote_cache() -> &'static Mutex<HashMap<String, (bool, std::time::Instant)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn repo_has_remote(path: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("remote")
+        .output()
+        .map(|o| o.status.success() && !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        .unwrap_or(false)
+}
+fn repo_has_remote_cached(path: &str) -> bool {
+    if let Some((v, at)) = remote_cache().lock().unwrap_or_else(|e| e.into_inner()).get(path).copied() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return v;
+        }
+    }
+    let v = repo_has_remote(path);
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), (v, std::time::Instant::now()));
+    v
+}
+
+/// E4: publica o projeto ATIVO (repositório só local) no GitHub — `gh repo create --source --push`,
+/// o mesmo caminho do "novo projeto". O nome do repositório é o da pasta.
+#[tauri::command(async)]
+fn publish_github(state: State<AppState>, private: bool, owner: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let rs = repo.display().to_string();
+    if !repo_is_git(&rs) {
+        return Err("esta pasta ainda não é um repositório git".into());
+    }
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
+    if repo_has_remote(&rs) {
+        return Ok("o projeto já está no GitHub".into());
+    }
+    let slug = project_slug(repo.file_name().and_then(|n| n.to_str()).unwrap_or("projeto"));
+    let slug = if slug.is_empty() { "projeto".to_string() } else { slug };
+    let full = if owner.trim().is_empty() { slug } else { format!("{}/{}", owner.trim(), slug) };
+    let mut c = Command::new(gh_bin());
+    c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &rs, "--remote", "origin", "--push"]);
+    c.current_dir(&repo);
+    let out = output_timeout(c, 180)?;
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(format!("gh repo create: {}", if err.is_empty() { "sem detalhe do gh".to_string() } else { err }));
+    }
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok(if url.is_empty() { format!("publicado como {full}") } else { url })
+}
+
 /// A pasta é um repositório git? (pasta simples abre, mas sem branch/PR/worktree)
 fn repo_is_git(path: &str) -> bool {
     Command::new("git")
@@ -1281,6 +1466,7 @@ fn repo_is_git(path: &str) -> bool {
 fn git_init_repo(state: State<AppState>) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let rs = repo.display().to_string();
+    git_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
     if repo_is_git(&rs) { return Ok("já é um repositório git".into()); }
     let out = Command::new("git").args(["init", "-q", "-b", "main"]).arg(&repo).output().map_err(|e| e.to_string())?;
     if !out.status.success() {
@@ -1367,14 +1553,96 @@ fn create_project(
     private: bool,
     owner: String,
 ) -> Result<String, String> {
-    let slug: String = name
+    create_project_in(&state, parent, name, github, private, owner)
+}
+
+/// Pasta padrão dos projetos criados pelo "Começar" da tela vazia: ~/Documents/Starfork
+fn starfork_projects_dir() -> PathBuf {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join("Documents").join("Starfork")
+}
+
+/// Nome livre dentro de `parent`: `slug`, senão `slug-2`, `slug-3`…
+fn unique_child(parent: &std::path::Path, slug: &str) -> String {
+    if !parent.join(slug).exists() { return slug.to_string(); }
+    let mut n = 2;
+    loop {
+        let c = format!("{slug}-{n}");
+        if !parent.join(&c).exists() { return c; }
+        n += 1;
+    }
+}
+
+/// letra acentuada → letra base (sem crate de Unicode: cobre o português e o espanhol)
+fn fold_accent(c: char) -> char {
+    match c {
+        'á' | 'à' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+        'é' | 'è' | 'ê' | 'ë' => 'e',
+        'í' | 'ì' | 'î' | 'ï' => 'i',
+        'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+        'ú' | 'ù' | 'û' | 'ü' => 'u',
+        'ç' => 'c',
+        'ñ' => 'n',
+        'ý' | 'ÿ' => 'y',
+        _ => c,
+    }
+}
+
+fn project_slug(name: &str) -> String {
+    let raw: String = name
         .trim()
         .to_lowercase()
         .chars()
+        .map(fold_accent)
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' { c } else { '-' })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string();
+        .collect();
+    // sem "--" repetido nem hífen nas pontas
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        if c == '-' && out.ends_with('-') { continue; }
+        out.push(c);
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// git instalado e funcionando? (no Mac sem as ferramentas de linha de comando, o /usr/bin/git existe mas falha)
+fn git_available() -> bool {
+    Command::new("git").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+}
+const GIT_MISSING_MSG: &str = "O git não está instalado neste computador (o Starfork usa o git por baixo pra guardar cada versão do seu trabalho).\n\nNo Mac: abra o app Terminal, cole  xcode-select --install  e aperte Enter; aceite a instalação. No Windows/Linux: instale pelo site git-scm.com.\n\nDepois clique em Começar de novo.";
+
+/// Onde o "Começar" vai criar a pasta (sem criar nada): ~/Documents/Starfork/<nome livre>
+#[tauri::command(async)]
+fn quick_project_target(name: String) -> Result<String, String> {
+    let slug = project_slug(&name);
+    if slug.is_empty() { return Err("dê um nome ao projeto".into()); }
+    let dir = starfork_projects_dir();
+    Ok(dir.join(unique_child(&dir, &slug)).display().to_string())
+}
+
+/// "Começar sem portões": cria ~/Documents/Starfork/<nome> (com sufixo -2… se já existir),
+/// git init + 1º commit, SEM GitHub e sem gh — e abre como projeto ativo.
+#[tauri::command(async)]
+fn quick_create_project(state: State<AppState>, name: String) -> Result<String, String> {
+    if !git_available() { return Err(GIT_MISSING_MSG.into()); }
+    let slug = project_slug(&name);
+    if slug.is_empty() { return Err("dê um nome ao projeto".into()); }
+    let dir = starfork_projects_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("não consegui criar a pasta {}: {e}", dir.display()))?;
+    let free = unique_child(&dir, &slug);
+    create_project_in(&state, dir.display().to_string(), free, false, true, String::new())
+}
+
+fn create_project_in(
+    state: &AppState,
+    parent: String,
+    name: String,
+    github: bool,
+    private: bool,
+    owner: String,
+) -> Result<String, String> {
+    // BUG-22: acentos viram a letra base ("Painel Finanças" → painel-financas, não painel-finan-as)
+    let slug = project_slug(&name);
     if slug.is_empty() {
         return Err("dê um nome ao projeto".into());
     }
@@ -1383,10 +1651,6 @@ fn create_project(
         return Err(format!("pasta não existe: {parent}"));
     }
     let repo = parent_p.join(&slug);
-    if repo.exists() {
-        return Err(format!("já existe uma pasta {} em {}", slug, parent));
-    }
-    std::fs::create_dir_all(&repo).map_err(|e| format!("não consegui criar a pasta: {e}"))?;
     let run = |args: &[&str]| -> Result<String, String> {
         let out = Command::new("git")
             .arg("-C")
@@ -1399,36 +1663,52 @@ fn create_project(
         }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     };
-    run(&["init", "-b", "main"])?;
-    std::fs::write(repo.join("README.md"), format!("# {}
-
-Projeto criado pelo Starfork.
-", name.trim()))
-        .map_err(|e| e.to_string())?;
-    std::fs::write(repo.join(".gitignore"), ".DS_Store
-node_modules/
-.env
-.cardume/
-").map_err(|e| e.to_string())?;
-    run(&["add", "-A"])?;
-    run(&["-c", "user.name=Starfork", "-c", "user.email=starfork@local", "commit", "-q", "-m", "chore: projeto criado pelo Starfork"])
-        .or_else(|_| run(&["commit", "-q", "-m", "chore: projeto criado pelo Starfork"]))?;
-    if github {
+    // BUG-10: a pasta já existe? Se é um repositório git (ex.: tentativa anterior em que só o GitHub falhou),
+    // REAPROVEITA em vez de travar em "já existe"; pasta com outras coisas e sem git continua recusada.
+    let reuse = repo.exists() && repo_is_git(&repo.display().to_string());
+    if repo.exists() && !reuse {
+        let empty = std::fs::read_dir(&repo).map(|mut d| d.next().is_none()).unwrap_or(false);
+        if !empty {
+            return Err(format!("já existe uma pasta {} em {} (e ela não é um projeto git). Escolha outro nome ou use \"abrir existente…\".", slug, parent));
+        }
+    }
+    if !reuse {
+        std::fs::create_dir_all(&repo).map_err(|e| format!("não consegui criar a pasta: {e}"))?;
+        run(&["init", "-b", "main"])?;
+        std::fs::write(repo.join("README.md"), format!("# {}\n\nProjeto criado pelo Starfork.\n", name.trim()))
+            .map_err(|e| e.to_string())?;
+        std::fs::write(repo.join(".gitignore"), ".DS_Store\nnode_modules/\n.env\n.cardume/\n").map_err(|e| e.to_string())?;
+        run(&["add", "-A"])?;
+        // BUG-22: autor do 1º commit = a identidade do git do usuário; o "Starfork <starfork@local>" só quando não há nenhuma
+        let has_ident = run(&["config", "user.email"]).map(|o| !o.trim().is_empty()).unwrap_or(false);
+        if has_ident {
+            run(&["commit", "-q", "-m", "chore: projeto criado pelo Starfork"])?;
+        } else {
+            run(&["-c", "user.name=Starfork", "-c", "user.email=starfork@local", "commit", "-q", "-m", "chore: projeto criado pelo Starfork"])?;
+        }
+    }
+    let has_origin = run(&["remote", "get-url", "origin"]).is_ok();
+    if github && !has_origin {
         let full = if owner.trim().is_empty() { slug.clone() } else { format!("{}/{}", owner.trim(), slug) };
         let mut c = Command::new(gh_bin());
         c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &repo.display().to_string(), "--remote", "origin", "--push"]);
         c.current_dir(&repo);
-        let out = output_timeout(c, 120)?;
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let fail = match output_timeout(c, 120) {
+            Ok(out) if out.status.success() => None,
+            Ok(out) => Some(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Some(e),
+        };
+        if let Some(err) = fail {
+            // prefixo GH_FAIL::<pasta>:: → a tela oferece "abrir mesmo assim sem GitHub" (a pasta e o git já existem)
             return Err(format!(
-                "pasta e git criados em {}, mas o GitHub falhou: {}\n\nConfira a conta ativa do gh em Configurações → GitHub.",
+                "GH_FAIL::{}::A pasta e o git foram criados em {}, mas o GitHub recusou criar o repositório.\n\nMotivo: {}\n\nConfira a conta do GitHub em Configurações → GitHub e tente de novo (a pasta é reaproveitada), ou abra o projeto agora só no seu computador.",
                 repo.display(),
-                err
+                repo.display(),
+                if err.is_empty() { "sem detalhe do gh".to_string() } else { err }
             ));
         }
     }
-    open_project_at(&state, &repo.display().to_string())
+    open_project_at(state, &repo.display().to_string())
 }
 
 // ---------- contas do GitHub (gh auth) ----------
@@ -1612,11 +1892,33 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
 
 /// Remove um projeto da lista (não apaga nada do repo em disco).
 #[tauri::command(async)]
-fn remove_project(path: String) -> Vec<String> {
+fn remove_project(state: State<AppState>, path: String) -> Vec<String> {
     let mut list = read_project_list();
     list.retain(|p| p != &path);
     write_project_list(&list);
+    // BUG-20: tirar o projeto ATIVO da lista também o fecha — vai pro próximo da lista (ou pro estado vazio).
+    // Antes ele seguia aberto e o list_projects o devolvia pra lista no refresh seguinte.
+    if active_repo_of(&state).as_deref() == Some(path.as_str()) {
+        let next = list.iter().map(|p| PathBuf::from(p).join(".cardume").join("state.sqlite")).find(|db| db.exists());
+        if let Some(db) = &next { ensure_app_schema(db); }
+        *state.db.lock().unwrap_or_else(|e| e.into_inner()) = next;
+    }
     list
+}
+
+/// Abre a pasta de um projeto DA LISTA no Finder/Explorer (o open_url só aceita http/https — BUG-15).
+#[tauri::command(async)]
+fn reveal_project(path: String) -> Result<(), String> {
+    // só pastas que já são projetos conhecidos: o webview não pode mandar abrir um caminho qualquer
+    if !read_project_list().iter().any(|p| p == &path) {
+        return Err("esse projeto não está na lista".into());
+    }
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("a pasta não existe mais: {path}"));
+    }
+    os_open(dir.as_os_str()).map_err(|e| format!("não consegui abrir a pasta: {e}"))?;
+    Ok(())
 }
 
 // ---------- artefatos da tarefa (docs/provas produzidos pelo agente) ----------
@@ -1782,6 +2084,27 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+/// "Carimbo" barato do estado: caminho do DB + (mtime, tamanho) do state.sqlite e do -wal.
+/// Qualquer escrita do motor muda o -wal (ou o arquivo principal no checkpoint). O poll de 1s
+/// do front (33-switcher) só pede o snapshot inteiro (~0,5 MB de JSON) quando o carimbo muda
+/// (ou a cada poucos segundos, pelo que não mora no DB: pid vivo, cache multi-projeto).
+#[tauri::command(async)]
+fn snapshot_stamp(state: State<AppState>) -> String {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(p) = path else { return "none".into() };
+    let st = |f: &std::path::Path| -> String {
+        std::fs::metadata(f)
+            .map(|m| {
+                let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+                format!("{t}:{}", m.len())
+            })
+            .unwrap_or_else(|_| "-".into())
+    };
+    let mut wal = p.clone().into_os_string();
+    wal.push("-wal");
+    format!("{}|{}|{}", p.display(), st(&p), st(std::path::Path::new(&wal)))
+}
+
 #[tauri::command(async)]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
     let __t0 = std::time::Instant::now();
@@ -1798,6 +2121,7 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
             return Ok(Snapshot {
                 repo: None,
                 git: true,
+                remote: true,
                 tasks: vec![],
                 events: vec![],
                 claims: vec![],
@@ -1810,11 +2134,25 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
     };
     let conn = open(&path)?;
 
-    // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only)
-    let has_busy: bool = conn
-        .query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name='busy_pid'", [], |r| r.get::<_, i64>(0))
-        .map(|n| n > 0)
-        .unwrap_or(false);
+    // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only).
+    // Coluna não some: "tem" fica em cache pra sempre por DB; "não tem" é reconferido a cada 30s.
+    let has_busy: bool = {
+        static HB: std::sync::OnceLock<Mutex<HashMap<PathBuf, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+        let hb = HB.get_or_init(|| Mutex::new(HashMap::new()));
+        let hit = hb.lock().unwrap_or_else(|e| e.into_inner()).get(&path).copied();
+        match hit {
+            Some((true, _)) => true,
+            Some((false, at)) if at.elapsed() < std::time::Duration::from_secs(30) => false,
+            _ => {
+                let v = conn
+                    .query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name='busy_pid'", [], |r| r.get::<_, i64>(0))
+                    .map(|n| n > 0)
+                    .unwrap_or(false);
+                hb.lock().unwrap_or_else(|e| e.into_inner()).insert(path.clone(), (v, std::time::Instant::now()));
+                v
+            }
+        }
+    };
     let tasks = conn
         .prepare(&format!(
             "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{} \
@@ -1979,8 +2317,9 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|d| d.parent())
         .map(|r| r.display().to_string());
 
-    let git = repo.as_deref().map(repo_is_git).unwrap_or(true);
-    Ok(Snapshot { repo, git, tasks, events, claims, diffs, reviews, pending, costs })
+    let git = repo.as_deref().map(repo_is_git_cached).unwrap_or(true);
+    let remote = git && repo.as_deref().map(repo_has_remote_cached).unwrap_or(true);
+    Ok(Snapshot { repo, git, remote, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
@@ -2032,9 +2371,12 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
 fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // 1) encerra o processo atual, se houver
-    if let Some(p) = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() } {
+    if let Some(p) = live_task_pid(&state, &task_id) {
         signal_group(p, procsig::CONT);
         signal_group(p, procsig::TERM);
+        // espera morrer (o motor novo recusa rodar com o lock busy_pid de um processo vivo)
+        for _ in 0..20 { if !pid_alive(p) { break; } std::thread::sleep(std::time::Duration::from_millis(100)); }
+        if pid_alive(p) { signal_group(p, procsig::KILL); std::thread::sleep(std::time::Duration::from_millis(200)); }
         if let Ok(mut m) = state.procs.lock() { m.remove(&task_id); }
     }
     // 2) worktree + base
@@ -2046,7 +2388,7 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
-    let _ = conn.execute("UPDATE task SET done_roles=0, status='queued', session_id=NULL WHERE id=?1", params![task_id]);
+    let _ = conn.execute("UPDATE task SET done_roles=0, status='queued', session_id=NULL, busy_pid=NULL WHERE id=?1", params![task_id]);
     for tbl in ["event", "claim", "review", "pending", "cost", "diffstat"] {
         let _ = conn.execute(&format!("DELETE FROM {tbl} WHERE task_id=?1"), params![task_id]);
     }
@@ -2480,6 +2822,11 @@ fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String>
 /// Inicia uma tarefa em rascunho (roda a equipe). Detached, como new_task.
 #[tauri::command(async)]
 fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    // duplo clique em ▶ / "aprovar plano" subia DOIS times na mesma worktree
+    // (olha o lock do turno, não o processo: um node terminando de fechar não deve travar o ▶)
+    if busy_task_pid(&state, &task_id).is_some() {
+        return Err("essa tarefa já está rodando".into());
+    }
     let repo = repo_of(&state)?;
     let mut cmd = Command::new(node_bin());
     cmd.args([
@@ -2650,10 +2997,32 @@ fn task_events(state: State<AppState>, task_id: String, since_id: Option<i64>) -
 
 // ---------- controles por execução (pausar / retomar / abortar) ----------
 
+/// PID VIVO do processo da tarefa: o mapa `procs` (spawn desta sessão do app) ou, depois
+/// de reiniciar o app (o mapa zera, mas o motor segue vivo via setsid), o lock `busy_pid`
+/// do banco. Usado por iniciar/pausar/retomar/parar/abortar — antes só o parar tinha o fallback.
+fn live_task_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let from_map = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(task_id).copied() };
+    if let Some(p) = from_map { if pid_alive(p) { return Some(p); } }
+    busy_task_pid(state, task_id)
+}
+/// Só o LOCK do motor (task.busy_pid, gravado enquanto um turno roda e limpo ao fim):
+/// é o que diz "tem um time trabalhando nesta worktree agora".
+fn busy_task_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone(); // trava solta já aqui
+    let path = db_path_now?;
+    let conn = open(&path).ok()?;
+    let bp: Option<i64> = conn
+        .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| r.get::<_, Option<i64>>(0))
+        .ok()
+        .flatten();
+    let bp = bp? as i32;
+    if bp > 0 && pid_alive(bp) { Some(bp) } else { None }
+}
+
 /// Congela a árvore de processos do agente (SIGSTOP no grupo) e marca 'paused'.
 #[tauri::command(async)]
 fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    let pid = live_task_pid(&state, &task_id);
     match pid {
         Some(p) => {
             signal_group(p, procsig::STOP);
@@ -2667,7 +3036,7 @@ fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// segue e atualiza o status conforme avança nas etapas.
 #[tauri::command(async)]
 fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    let pid = live_task_pid(&state, &task_id);
     match pid {
         Some(p) => {
             signal_group(p, procsig::CONT);
@@ -2682,28 +3051,9 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
 #[tauri::command(async)]
 fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let mut pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
-    // vivo (setsid) — fallback: o lock busy_pid do banco diz quem matar.
-    if pid.is_none() {
-        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone(); // trava solta já aqui
-        {
-            if let Some(path) = db_path_now {
-                if let Ok(conn) = open(&path) {
-                    if let Ok(Some(bp)) = conn
-                        .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| {
-                            r.get::<_, Option<i64>>(0)
-                        })
-                    {
-                        let bp = bp as i32;
-                        if pid_alive(bp) {
-                            pid = Some(bp);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
+    let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
         signal_group(p, procsig::CONT);
         signal_group(p, procsig::TERM);
@@ -2729,7 +3079,7 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
 #[tauri::command(async)]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
+    let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
         signal_group(p, procsig::CONT); // caso esteja pausado, destrava pra poder morrer
         signal_group(p, procsig::TERM);
@@ -3185,10 +3535,7 @@ fn save_doc(name: String, content: String) -> Result<String, String> {
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.'|' ') { c } else { '-' }).collect();
     let p = dir.join(safe.trim());
     std::fs::write(&p, content).map_err(|e| e.to_string())?;
-    #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg("-R").arg(&p).spawn();
-    #[cfg(not(target_os = "macos"))]
-    let _ = Command::new("xdg-open").arg(p.parent().unwrap_or(&p)).spawn();
+    let _ = os_reveal(&p);
     Ok(p.display().to_string())
 }
 
@@ -3214,10 +3561,7 @@ fn html_to_pdf(html: String, name: String) -> Result<String, String> {
         return Err(format!("Chrome não gerou o PDF: {}", String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()));
     }
     let _ = std::fs::remove_file(&html_path);
-    #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg(&pdf_path).spawn(); // abre no Preview
-    #[cfg(not(target_os = "macos"))]
-    let _ = Command::new("xdg-open").arg(&pdf_path).spawn(); // abre no leitor de PDF padrão
+    let _ = os_open(pdf_path.as_os_str()); // abre no leitor de PDF padrão (Preview no Mac)
     Ok(pdf_path.display().to_string())
 }
 
@@ -3323,10 +3667,12 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
         // read-only: o planner INVESTIGA o código (lê/grep/git) mas NÃO edita nada.
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
-        // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
-        "--permission-mode".to_string(),
-        "bypassPermissions".to_string(),
     ];
+    // bypass NÃO respeita o --allowedTools acima (só as regras de NEGAÇÃO valem) → modo protegido
+    args.extend(protect_args(protect_on(&repo)));
+    // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
+    args.push("--permission-mode".to_string());
+    args.push("bypassPermissions".to_string());
     if let Some(sid) = &session_id {
         if !sid.is_empty() {
             args.push("--resume".to_string());
@@ -3774,17 +4120,8 @@ fn issue_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
     Ok(repo_of(state)?.join(".cardume").join("issue.json"))
 }
 
-/// Config de "criar issue ao abrir demanda" deste repo (espelho local do que o
-/// time compartilha na nuvem). O motor lê esse arquivo em Orchestrator.issueContext.
-#[tauri::command(async)]
-fn get_issue_config(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let p = issue_json_path(&state)?;
-    let txt = std::fs::read_to_string(&p)
-        .unwrap_or_else(|_| "{\"enabled\":false,\"instructions\":\"\",\"titleTemplate\":\"\",\"bodyTemplate\":\"\"}".into());
-    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!({ "enabled": false, "instructions": "", "titleTemplate": "", "bodyTemplate": "" })))
-}
-
-/// Grava a config de issue do repo (o app mantém isto sincronizado com a nuvem).
+/// Grava a config de "criar issue ao abrir demanda" do repo (espelho local do que o time
+/// compartilha na nuvem; o app mantém sincronizado). O motor lê em Orchestrator.issueContext.
 #[tauri::command(async)]
 fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
     let p = issue_json_path(&state)?;
@@ -3922,7 +4259,8 @@ fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, 
     if !docs.trim().is_empty() { prompt.push_str(&format!("\n\nDOCUMENTAÇÃO:\n{docs}")); }
     let mut c = claude_cmd(&claude_bin());
     c.args(["-p", &prompt]);
-    if !files.is_empty() { c.args(["--allowedTools", "Read", "--permission-mode", "bypassPermissions"]); }
+    // sem repo aqui: sempre protegido (só lê a documentação que você escolheu)
+    if !files.is_empty() { c.arg("--allowedTools").arg("Read").args(protect_args(true)).args(["--permission-mode", "bypassPermissions"]); }
     let out = c.stdin(Stdio::null()).output().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
@@ -3943,8 +4281,10 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
         "--append-system-prompt".to_string(), sys,
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
-        "--permission-mode".to_string(), "bypassPermissions".to_string(),
     ];
+    args.extend(protect_args(protect_on(&repo))); // bypass ignora o allowedTools; negação vale
+    args.push("--permission-mode".to_string());
+    args.push("bypassPermissions".to_string());
     if let Some(m) = model.filter(|m| !m.trim().is_empty()) { args.push("--model".to_string()); args.push(m); }
     if let Some(sid) = &session_id { if !sid.is_empty() { args.push("--resume".to_string()); args.push(sid.clone()); } }
     let mut cmd = claude_cmd(&claude_bin());
@@ -4036,14 +4376,6 @@ fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
         serde_json::json!({ "name": n, "description": d, "source": s, "active": is_active })
     }).collect();
     Ok(serde_json::json!(arr))
-}
-
-/// Skills ATIVAS pra este repo (array de {name, description}).
-#[tauri::command(async)]
-fn get_active_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let p = skills_json_path(&state)?;
-    let txt = std::fs::read_to_string(&p).unwrap_or_else(|_| "[]".into());
-    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!([])))
 }
 
 /// Grava as skills ativas do repo (o motor injeta no contexto do agente).
@@ -4420,6 +4752,10 @@ fn update_dest(cur_app: &std::path::Path, new_app: &std::path::Path) -> PathBuf 
 /// disco e relança. curl/ditto não aplicam quarantine → abre sem Gatekeeper.
 #[tauri::command(async)]
 fn apply_update(url: String) -> Result<(), String> {
+    // E8: o pacote do canal é um .app zipado (ditto/cp -R) — só serve no Mac
+    if !cfg!(target_os = "macos") {
+        return Err("a atualização automática só existe no Mac por enquanto — baixe a versão nova em starfork.com.br".to_string());
+    }
     if !url.starts_with("https://") {
         return Err("url inválida".to_string());
     }
@@ -5079,8 +5415,7 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
 #[tauri::command(async)]
 fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Result<(), String> {
     let path = artifact_path(&state, &task_id, &name)?;
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    Command::new(opener).arg(&path).spawn().map_err(|e| e.to_string())?;
+    os_open(path.as_os_str()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -5088,13 +5423,7 @@ fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
 #[tauri::command(async)]
 fn reveal_artifact(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
     let path = artifact_path(&state, &task_id, &name)?;
-    if cfg!(target_os = "macos") {
-        Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| e.to_string())?;
-    } else {
-        // fallback: abre a pasta que contém o arquivo
-        let dir = path.parent().unwrap_or(&path);
-        Command::new("xdg-open").arg(dir).spawn().map_err(|e| e.to_string())?;
-    }
+    os_reveal(&path).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -5104,11 +5433,7 @@ fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("url inválida".to_string());
     }
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    Command::new(opener)
-        .arg(&url)
-        .spawn()
-        .map_err(|e| format!("falha ao abrir o link: {e}"))?;
+    os_open(std::ffi::OsStr::new(&url)).map_err(|e| format!("falha ao abrir o link: {e}"))?;
     Ok(())
 }
 
@@ -5126,8 +5451,7 @@ fn oauth_wait_callback(authorize_url: String) -> Result<String, String> {
         .map_err(|e| format!("porta 8788 ocupada — feche outra tentativa de login e tente de novo ({e})"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     // abre o navegador na tela de login do Google (via Supabase)
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    let _ = Command::new(opener).arg(&authorize_url).spawn();
+    let _ = os_open(std::ffi::OsStr::new(&authorize_url));
     // espera o callback (teto de 3 min)
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
     loop {
@@ -5707,47 +6031,589 @@ struct RepoCheck {
     detail: String,
 }
 
-/// Checagens pré-PR na worktree da tarefa (modal "Preparando o PR"):
-/// roda lint/test do package.json quando existem. Sem scripts → lista vazia.
-#[tauri::command(async)]
-fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>, String> {
+// ---------- Gate de verificação: checagens do projeto (testes, lint, tipos, build) ----------
+// O projeto declara as checagens em <repo>/.cardume/checks.json (Preferências do projeto →
+// "Checagens antes de aprovar"). Sem arquivo, vale o que for DETECTADO na cópia da tarefa
+// (package.json, Cargo.toml, pytest, go.mod). Cada checagem roda NA WORKTREE da tarefa, num
+// grupo de processo próprio (detach_new_group) com tempo-limite (signal_group mata a árvore),
+// e devolve exit code, duração e as últimas ~200 linhas do log — não um .txt que o agente escreveu.
+
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct CheckDef {
+    id: String,
+    label: String,
+    cmd: String,
+    #[serde(default)]
+    on: bool,
+    /// de onde veio: "package.json", "Cargo.toml", "pytest", "go.mod" ou "custom"
+    #[serde(default)]
+    source: String,
+}
+
+/// Checagens que dá pra deduzir dos arquivos do projeto. `on` = ligada por padrão
+/// (build fica desligado: costuma ser lento e o typecheck já pega o grosso).
+fn detect_checks_in(dir: &Path) -> Vec<CheckDef> {
+    let mut out: Vec<CheckDef> = vec![];
+    let def = |id: &str, label: &str, cmd: String, on: bool, source: &str| CheckDef { id: id.into(), label: label.into(), cmd, on, source: source.into() };
+    if let Ok(txt) = std::fs::read_to_string(dir.join("package.json")) {
+        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
+            let pm = if dir.join("pnpm-lock.yaml").is_file() { "pnpm" }
+                else if dir.join("yarn.lock").is_file() { "yarn" }
+                else if dir.join("bun.lockb").is_file() || dir.join("bun.lock").is_file() { "bun" }
+                else { "npm" };
+            let run = |s: &str| match pm {
+                "pnpm" => format!("pnpm run {s}"),
+                "yarn" => format!("yarn {s}"),
+                "bun" => format!("bun run {s}"),
+                _ => format!("npm run {s} --silent"),
+            };
+            let scripts = &j["scripts"];
+            let has = |s: &str| scripts[s].as_str().map(|v| !v.trim().is_empty()).unwrap_or(false);
+            if has("lint") { out.push(def("npm:lint", "Linter", run("lint"), true, "package.json")); }
+            if let Some(tc) = ["typecheck", "type-check", "check-types", "tsc"].iter().find(|s| has(s)) {
+                out.push(def("npm:typecheck", "Tipos (typecheck)", run(tc), true, "package.json"));
+            }
+            // o "test" que o `npm init` cria ("no test specified && exit 1") não é teste
+            if has("test") && !scripts["test"].as_str().unwrap_or("").contains("no test specified") {
+                out.push(def("npm:test", "Testes", run("test"), true, "package.json"));
+            }
+            if has("build") { out.push(def("npm:build", "Build", run("build"), false, "package.json")); }
+        }
+    }
+    if dir.join("Cargo.toml").is_file() {
+        out.push(def("cargo:test", "Testes (Rust)", "cargo test".into(), true, "Cargo.toml"));
+    }
+    let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap_or_default();
+    let pytest = dir.join("pytest.ini").is_file()
+        || dir.join("conftest.py").is_file()
+        || read("pyproject.toml").contains("pytest")
+        || read("setup.cfg").contains("[tool:pytest]")
+        || read("tox.ini").contains("[pytest]");
+    if pytest {
+        let py = if cfg!(windows) { "python" } else { "python3" };
+        out.push(def("py:pytest", "Testes (Python)", format!("{py} -m pytest -q"), true, "pytest"));
+    }
+    if dir.join("go.mod").is_file() {
+        out.push(def("go:test", "Testes (Go)", "go test ./...".into(), true, "go.mod"));
+    }
+    out
+}
+
+/// Detectadas + configuração do projeto → lista final (com `on` resolvido).
+/// cfg = { "enabled": { "<id>": bool }, "custom": [{ id?, label, cmd, on? }], "timeoutMin": n }
+fn effective_checks(detected: &[CheckDef], cfg: &serde_json::Value) -> Vec<CheckDef> {
+    let mut out: Vec<CheckDef> = detected
+        .iter()
+        .map(|d| CheckDef { on: cfg["enabled"][&d.id].as_bool().unwrap_or(d.on), ..d.clone() })
+        .collect();
+    if let Some(arr) = cfg["custom"].as_array() {
+        for (i, c) in arr.iter().enumerate() {
+            let cmd = c["cmd"].as_str().unwrap_or("").trim().to_string();
+            if cmd.is_empty() { continue; }
+            let id = c["id"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()).unwrap_or_else(|| format!("custom:{i}"));
+            let label = c["label"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or(&cmd).to_string();
+            out.push(CheckDef { id, label, cmd, on: c["on"].as_bool().unwrap_or(true), source: "custom".into() });
+        }
+    }
+    out
+}
+
+fn checks_cfg_path(repo: &Path) -> PathBuf { repo.join(".cardume").join("checks.json") }
+fn read_checks_cfg(repo: &Path) -> serde_json::Value {
+    std::fs::read_to_string(checks_cfg_path(repo))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+fn checks_timeout_secs(cfg: &serde_json::Value) -> u64 {
+    cfg["timeoutMin"].as_u64().filter(|m| *m >= 1 && *m <= 120).unwrap_or(10) * 60
+}
+
+/// Últimas N linhas do log, sem cores ANSI e com cada linha limitada — memória
+/// constante mesmo com teste que cospe megabytes.
+struct LineTail {
+    max_lines: usize,
+    max_cols: usize,
+    lines: std::collections::VecDeque<String>,
+    total: usize,
+}
+impl LineTail {
+    fn new(max_lines: usize, max_cols: usize) -> Self { LineTail { max_lines, max_cols, lines: Default::default(), total: 0 } }
+    fn push(&mut self, raw: &str) {
+        let mut s = strip_ansi(raw.trim_end_matches(['\r', '\n']));
+        if s.chars().count() > self.max_cols {
+            s = s.chars().take(self.max_cols).collect::<String>() + "…";
+        }
+        self.total += 1;
+        self.lines.push_back(s);
+        while self.lines.len() > self.max_lines { self.lines.pop_front(); }
+    }
+    fn text(&self) -> String {
+        let cut = self.total.saturating_sub(self.lines.len());
+        let head = if cut > 0 { format!("… ({cut} linhas antes cortadas)\n") } else { String::new() };
+        head + &self.lines.iter().cloned().collect::<Vec<_>>().join("\n")
+    }
+}
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\u{1b}' {
+            if it.peek() == Some(&'[') {
+                it.next();
+                while let Some(&n) = it.peek() { it.next(); if ('@'..='~').contains(&n) { break; } }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// FNV-1a 64 (estável entre versões do app — vai pro cache do front).
+fn fnv64(parts: &[&[u8]]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for p in parts { for b in p.iter() { h ^= *b as u64; h = h.wrapping_mul(0x0100_0000_01b3); } }
+    h
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct TaskFingerprint {
+    fingerprint: String,
+    head: String,
+    dirty: bool,
+}
+/// "Versão" do código da tarefa: HEAD + (se houver) hash das mudanças não commitadas.
+/// Mudou → as checagens anteriores ficam desatualizadas. `.cardume/` fica de fora
+/// (relatório/prints do agente não invalidam teste).
+fn wt_fingerprint(wt: &Path) -> Result<TaskFingerprint, String> {
+    let git = |args: &[&str]| -> Result<Vec<u8>, String> {
+        let o = Command::new("git").arg("-C").arg(wt).args(args).output().map_err(|e| e.to_string())?;
+        if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).trim().to_string()); }
+        Ok(o.stdout)
+    };
+    let head = String::from_utf8_lossy(&git(&["rev-parse", "HEAD"])?).trim().to_string();
+    let st = git(&["status", "--porcelain=v1", "--untracked-files=all", "--", ".", ":(exclude).cardume"])?;
+    let dirty = !st.iter().all(|b| b.is_ascii_whitespace());
+    let short: String = head.chars().take(12).collect();
+    if !dirty {
+        return Ok(TaskFingerprint { fingerprint: short, head, dirty });
+    }
+    let diff = git(&["diff", "HEAD", "--", ".", ":(exclude).cardume"]).unwrap_or_default();
+    // untracked: o diff não mostra o conteúdo — tamanho + mtime bastam pra perceber a mudança
+    let mut extra = String::new();
+    for line in String::from_utf8_lossy(&st).lines() {
+        if let Some(p) = line.strip_prefix("?? ") {
+            if let Ok(m) = std::fs::metadata(wt.join(p.trim_matches('"'))) {
+                let mt = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0);
+                extra.push_str(&format!("{p}:{}:{mt}\n", m.len()));
+            }
+        }
+    }
+    let h = fnv64(&[&st, &diff, extra.as_bytes()]);
+    Ok(TaskFingerprint { fingerprint: format!("{short}+{h:016x}"), head, dirty })
+}
+
+fn task_worktree(state: &State<AppState>, task_id: &str) -> Result<PathBuf, String> {
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("sem projeto aberto")?;
     let conn = open(&db)?;
     let wt: String = conn
         .query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    let mut out: Vec<RepoCheck> = vec![];
-    let pkg = PathBuf::from(&wt).join("package.json");
-    if let Ok(txt) = std::fs::read_to_string(&pkg) {
-        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
-            for (script, label) in [("lint", "Linter"), ("test", "Testes")] {
-                if j["scripts"][script].as_str().is_some() {
-                    let mut c = npm_cmd();
-                    c.args(["run", script, "--silent"]).current_dir(&wt);
-                    match output_timeout(c, 300) {
-                        Ok(o) => {
-                            let ok = o.status.success();
-                            let tail = |b: &[u8]| -> String {
-                                let s = String::from_utf8_lossy(b);
-                                s.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
-                            };
-                            out.push(RepoCheck {
-                                name: label.to_string(),
-                                ok,
-                                detail: if ok { "passou".into() } else { tail(&o.stderr).chars().take(500).collect() },
-                            });
-                        }
-                        Err(e) => out.push(RepoCheck {
-                            name: label.to_string(),
-                            ok: false,
-                            detail: if e.contains("os error 2") { "npm não encontrado nesta máquina — instale o Node (brew install node) e verifique o Ambiente".into() } else { e },
-                        }),
-                    }
+    let p = PathBuf::from(&wt);
+    if wt.is_empty() || !p.is_dir() {
+        return Err("a cópia de trabalho desta tarefa não existe mais (já foi limpa?)".into());
+    }
+    Ok(p)
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct CheckResult {
+    id: String,
+    label: String,
+    cmd: String,
+    ok: bool,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    timed_out: bool,
+    stopped: bool,
+    log: String,
+}
+
+/// pid do grupo da checagem em andamento por tarefa (pra "parar") + tarefas canceladas.
+static CHECK_PIDS: std::sync::OnceLock<Mutex<HashMap<String, i32>>> = std::sync::OnceLock::new();
+static CHECK_STOPS: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+fn check_pids() -> &'static Mutex<HashMap<String, i32>> { CHECK_PIDS.get_or_init(|| Mutex::new(HashMap::new())) }
+fn check_stops() -> &'static Mutex<std::collections::HashSet<String>> { CHECK_STOPS.get_or_init(|| Mutex::new(Default::default())) }
+
+/// PATH pras checagens: app aberto pelo Finder tem PATH mínimo — junta o node
+/// resolvido (nvm incluso), Homebrew, cargo e go.
+fn checks_path_env() -> String {
+    let mut dirs: Vec<String> = vec![];
+    if let Some(d) = Path::new(&node_bin()).parent() { dirs.push(d.display().to_string()); }
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin"] { dirs.push(d.into()); }
+    if !home.is_empty() {
+        dirs.push(format!("{home}/.cargo/bin"));
+        dirs.push(format!("{home}/go/bin"));
+        dirs.push(format!("{home}/.local/bin"));
+    }
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let cur = std::env::var("PATH").unwrap_or_default();
+    format!("{}{sep}{cur}", dirs.join(sep))
+}
+
+/// Roda UMA checagem no diretório, num grupo próprio; tempo-limite → mata a árvore.
+fn run_one_check(task_id: &str, dir: &Path, def: &CheckDef, secs: u64) -> CheckResult {
+    use std::io::BufRead;
+    let started = std::time::Instant::now();
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(format!("{} 2>&1", def.cmd));
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(format!("exec 2>&1\n{}", def.cmd));
+        c
+    };
+    // CI=1: vitest/jest/etc. rodam uma vez (sem modo watch); sem cor no log
+    cmd.current_dir(dir).env("PATH", checks_path_env()).env("CI", "1").env("FORCE_COLOR", "0").env("NO_COLOR", "1");
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    detach_new_group(&mut cmd);
+    let fail = |msg: String, started: std::time::Instant| CheckResult {
+        id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(), ok: false, exit_code: None,
+        duration_ms: started.elapsed().as_millis() as u64, timed_out: false, stopped: false, log: msg,
+    };
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return fail(format!("não consegui rodar o comando: {e}"), started),
+    };
+    let pid = child.id() as i32;
+    check_pids().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string(), pid);
+    let tail = Arc::new(Mutex::new(LineTail::new(200, 400)));
+    if let Some(out) = child.stdout.take() {
+        let t2 = tail.clone();
+        // a thread pode ficar presa se um neto escapar do grupo e segurar o pipe — por isso
+        // NÃO é joinada: o resultado lê o que já chegou.
+        std::thread::spawn(move || {
+            let mut r = std::io::BufReader::new(out);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match r.read_until(b'\n', &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => t2.lock().unwrap_or_else(|e| e.into_inner()).push(&String::from_utf8_lossy(&buf)),
                 }
             }
-        }
+        });
     }
-    Ok(out)
+    let deadline = started + std::time::Duration::from_secs(secs);
+    let (mut timed_out, mut stopped) = (false, false);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) => {}
+            Err(_) => break None,
+        }
+        if check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) {
+            stopped = true;
+            signal_group(pid, procsig::KILL);
+            break child.wait().ok();
+        }
+        if std::time::Instant::now() >= deadline {
+            timed_out = true;
+            signal_group(pid, procsig::KILL);
+            break child.wait().ok();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    };
+    // sobras em segundo plano (servidor de teste etc.) morrem junto com o grupo
+    signal_group(pid, procsig::KILL);
+    check_pids().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    std::thread::sleep(std::time::Duration::from_millis(150)); // últimas linhas do pipe
+    let mut log = tail.lock().unwrap_or_else(|e| e.into_inner()).text();
+    if timed_out { log.push_str(&format!("\n⏱ passou de {} min — a checagem foi interrompida", secs / 60)); }
+    if stopped { log.push_str("\n■ interrompida por você"); }
+    let exit_code = status.and_then(|s| s.code());
+    CheckResult {
+        id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(),
+        ok: !timed_out && !stopped && exit_code == Some(0),
+        exit_code, duration_ms: started.elapsed().as_millis() as u64, timed_out, stopped, log,
+    }
+}
+
+/// Roda as checagens LIGADAS na worktree, em ordem; `on_step(i, Some(res))` depois de cada uma.
+fn run_checks_in(task_id: &str, wt: &Path, defs: &[CheckDef], secs: u64, mut on_step: impl FnMut(&CheckDef, Option<&CheckResult>)) -> Vec<CheckResult> {
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    let mut out = vec![];
+    for d in defs.iter().filter(|d| d.on) {
+        if check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) { break; }
+        on_step(d, None);
+        let r = run_one_check(task_id, wt, d, secs);
+        on_step(d, Some(&r));
+        out.push(r);
+    }
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    out
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChecksConfig {
+    detected: Vec<CheckDef>,
+    effective: Vec<CheckDef>,
+    cfg: serde_json::Value,
+    file: String,
+    dir: String,
+}
+/// Checagens do projeto: detectadas (na cópia da tarefa, se `task_id`; senão no repo)
+/// + a configuração salva. O front mostra/edita; `run_checks` usa a mesma conta.
+#[tauri::command(async)]
+fn checks_config(state: State<AppState>, task_id: Option<String>) -> Result<ChecksConfig, String> {
+    let repo = repo_of(&state)?;
+    let dir = task_id.as_deref().filter(|s| !s.is_empty()).and_then(|t| task_worktree(&state, t).ok()).unwrap_or_else(|| repo.clone());
+    let cfg = read_checks_cfg(&repo);
+    let detected = detect_checks_in(&dir);
+    let effective = effective_checks(&detected, &cfg);
+    Ok(ChecksConfig { detected, effective, cfg, file: checks_cfg_path(&repo).display().to_string(), dir: dir.display().to_string() })
+}
+
+#[tauri::command(async)]
+fn checks_save(state: State<AppState>, cfg: serde_json::Value) -> Result<String, String> {
+    if !cfg.is_object() { return Err("configuração inválida".into()); }
+    let repo = repo_of(&state)?;
+    let p = checks_cfg_path(&repo);
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(p.display().to_string())
+}
+
+#[tauri::command(async)]
+fn task_fingerprint(state: State<AppState>, task_id: String) -> Result<TaskFingerprint, String> {
+    wt_fingerprint(&task_worktree(&state, &task_id)?)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChecksRun {
+    fingerprint: String,
+    head: String,
+    dirty: bool,
+    at: i64,
+    results: Vec<CheckResult>,
+}
+/// Roda as checagens ligadas do projeto na worktree da tarefa. Progresso sai no
+/// evento `checks-progress` ({ taskId, id, label, phase: "start"|"done", result }).
+#[tauri::command(async)]
+fn run_checks(app: tauri::AppHandle, state: State<AppState>, task_id: String) -> Result<ChecksRun, String> {
+    use tauri::Emitter;
+    let repo = repo_of(&state)?;
+    let wt = task_worktree(&state, &task_id)?;
+    if check_pids().lock().unwrap_or_else(|e| e.into_inner()).contains_key(&task_id) {
+        return Err("as checagens desta tarefa já estão rodando".into());
+    }
+    let cfg = read_checks_cfg(&repo);
+    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let fp = wt_fingerprint(&wt)?; // ANTES de rodar: é esta versão que foi verificada
+    let tid = task_id.clone();
+    let results = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |d, r| {
+        let _ = app.emit("checks-progress", serde_json::json!({ "taskId": tid, "id": d.id, "label": d.label, "phase": if r.is_some() { "done" } else { "start" }, "result": r }));
+    });
+    Ok(ChecksRun { fingerprint: fp.fingerprint, head: fp.head, dirty: fp.dirty, at: now_ms(), results })
+}
+
+#[tauri::command(async)]
+fn run_checks_stop(task_id: String) -> bool {
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.clone());
+    let pid = check_pids().lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    if let Some(p) = pid { signal_group(p, procsig::KILL); true } else { false }
+}
+
+/// "Aprovar mesmo assim": registra o motivo no projeto (.cardume/checks-overrides.jsonl).
+#[tauri::command(async)]
+fn checks_override_log(state: State<AppState>, task_id: String, reason: String, fingerprint: String, failing: Vec<String>) -> Result<(), String> {
+    use std::io::Write;
+    let repo = repo_of(&state)?;
+    let p = repo.join(".cardume").join("checks-overrides.jsonl");
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    let line = serde_json::json!({ "at": now_ms(), "taskId": task_id, "reason": reason, "fingerprint": fingerprint, "failing": failing });
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| e.to_string())?;
+    writeln!(f, "{line}").map_err(|e| e.to_string())
+}
+
+/// Checagens pré-PR (modal "Preparando o PR" antigo e aprovação pelo celular): agora usa
+/// as MESMAS checagens do projeto (detectadas + .cardume/checks.json). Sem nenhuma → lista vazia.
+#[tauri::command(async)]
+fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>, String> {
+    let repo = repo_of(&state)?;
+    let wt = task_worktree(&state, &task_id)?;
+    let cfg = read_checks_cfg(&repo);
+    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let res = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |_, _| {});
+    Ok(res
+        .into_iter()
+        .map(|r| {
+            let detail = if r.ok { "passou".to_string() } else {
+                let lines: Vec<&str> = r.log.lines().collect();
+                let tail = lines[lines.len().saturating_sub(8)..].join("\n");
+                if tail.contains("os error 2") || tail.contains("not found") && r.exit_code == Some(127) {
+                    format!("comando não encontrado nesta máquina ({}) — verifique o Ambiente", r.cmd)
+                } else { tail.chars().take(600).collect() }
+            };
+            RepoCheck { name: r.label, ok: r.ok, detail }
+        })
+        .collect())
+}
+
+// ---------- Entrega sem código: salvar os entregáveis numa pasta do usuário ----------
+fn home_dir_s() -> String { std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into()) }
+/// Pasta padrão das entregas: ~/Documents/Starfork/Entregas
+#[tauri::command(async)]
+fn deliverables_default_dir() -> String {
+    PathBuf::from(home_dir_s()).join("Documents").join("Starfork").join("Entregas").display().to_string()
+}
+/// Um nome de pasta seguro (sem barra, dois-pontos, ..; no máx. 80 caracteres).
+fn safe_dir_component(s: &str) -> String {
+    let c: String = s.chars().map(|ch| if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || ch.is_control() { ' ' } else { ch }).collect();
+    let c = c.split_whitespace().collect::<Vec<_>>().join(" ");
+    let c = c.trim_matches('.').trim().chars().take(80).collect::<String>();
+    if c.is_empty() { "entrega".into() } else { c }
+}
+/// Caminho livre: "x.pdf" já existe → "x (2).pdf".
+fn free_path(p: PathBuf) -> PathBuf {
+    if !p.exists() { return p; }
+    let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    for i in 2..1000 {
+        let c = dir.join(format!("{stem} ({i}){ext}"));
+        if !c.exists() { return c; }
+    }
+    p
+}
+/// Copia os artefatos da tarefa pra <base>/<sub…>/ (sub = "projeto/2026-09-27 título",
+/// cada parte higienizada). Devolve a pasta final.
+#[tauri::command(async)]
+fn save_deliverables(state: State<AppState>, task_id: String, names: Vec<String>, base: Option<String>, sub: String) -> Result<String, String> {
+    let base = base.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()).unwrap_or_else(deliverables_default_dir);
+    let base = if let Some(rest) = base.strip_prefix("~/") { PathBuf::from(home_dir_s()).join(rest) } else { PathBuf::from(&base) };
+    if !base.is_absolute() { return Err("escolha uma pasta com o caminho completo".into()); }
+    let mut dest = base;
+    for part in sub.split('/').filter(|p| !p.trim().is_empty()) { dest.push(safe_dir_component(part)); }
+    std::fs::create_dir_all(&dest).map_err(|e| format!("não consegui criar a pasta {}: {e}", dest.display()))?;
+    let mut n = 0;
+    for name in names.iter().filter(|n| n.as_str() != "requirements.json") {
+        let src = artifact_path(&state, &task_id, name)?;
+        let fname = Path::new(name).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| "arquivo".into());
+        std::fs::copy(&src, free_path(dest.join(fname))).map_err(|e| format!("falhou copiar {name}: {e}"))?;
+        n += 1;
+    }
+    if n == 0 { return Err("nenhum entregável pra salvar".into()); }
+    Ok(dest.display().to_string())
+}
+/// Abre uma pasta no Finder/gerenciador de arquivos.
+#[tauri::command(async)]
+fn open_folder(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_dir() { return Err("pasta não encontrada".into()); }
+    os_open(p.as_os_str()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod checks_tests {
+    use super::*;
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sf-checks-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    #[test]
+    fn detecta_scripts_do_package_json_e_ignora_test_placeholder() {
+        let d = tmp("pkg");
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"lint":"eslint .","typecheck":"tsc --noEmit","test":"echo \"Error: no test specified\" && exit 1","build":"vite build"}}"#).unwrap();
+        let c = detect_checks_in(&d);
+        let ids: Vec<&str> = c.iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(ids, vec!["npm:lint", "npm:typecheck", "npm:build"]);
+        assert_eq!(c[0].cmd, "npm run lint --silent");
+        assert!(!c[2].on, "build desligado por padrão");
+        std::fs::write(d.join("pnpm-lock.yaml"), "").unwrap();
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"test":"vitest"}}"#).unwrap();
+        let c = detect_checks_in(&d);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].cmd, "pnpm run test");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn detecta_cargo_pytest_e_go() {
+        let d = tmp("multi");
+        std::fs::write(d.join("Cargo.toml"), "[package]\nname='x'").unwrap();
+        std::fs::write(d.join("pyproject.toml"), "[tool.pytest.ini_options]\n").unwrap();
+        std::fs::write(d.join("go.mod"), "module x").unwrap();
+        let ids: Vec<String> = detect_checks_in(&d).into_iter().map(|x| x.id).collect();
+        assert_eq!(ids, vec!["cargo:test", "py:pytest", "go:test"]);
+        let vazio = tmp("vazio");
+        assert!(detect_checks_in(&vazio).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&vazio);
+    }
+    #[test]
+    fn config_liga_desliga_e_soma_comandos_proprios() {
+        let det = vec![
+            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: "npm run lint".into(), on: true, source: "package.json".into() },
+            CheckDef { id: "npm:build".into(), label: "Build".into(), cmd: "npm run build".into(), on: false, source: "package.json".into() },
+        ];
+        let cfg = serde_json::json!({ "enabled": { "npm:lint": false, "npm:build": true }, "custom": [ { "label": "E2E", "cmd": "npx playwright test" }, { "cmd": "  " } ] });
+        let e = effective_checks(&det, &cfg);
+        assert_eq!(e.len(), 3);
+        assert!(!e[0].on && e[1].on);
+        assert_eq!((e[2].id.as_str(), e[2].label.as_str(), e[2].on, e[2].source.as_str()), ("custom:0", "E2E", true, "custom"));
+        assert_eq!(checks_timeout_secs(&cfg), 600);
+        assert_eq!(checks_timeout_secs(&serde_json::json!({ "timeoutMin": 3 })), 180);
+    }
+    #[test]
+    fn log_guarda_so_as_ultimas_linhas_sem_cor_e_cortadas() {
+        let mut t = LineTail::new(200, 10);
+        for i in 0..250 { t.push(&format!("linha {i}\n")); }
+        let s = t.text();
+        assert!(s.starts_with("… (50 linhas antes cortadas)"));
+        assert!(s.ends_with("linha 249"));
+        assert_eq!(s.lines().count(), 201);
+        let mut t = LineTail::new(5, 10);
+        t.push("\u{1b}[31mFALHOU\u{1b}[0m um teste bem comprido");
+        assert_eq!(t.text(), "FALHOU um …");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn roda_checagem_com_exit_code_e_mata_no_tempo_limite() {
+        let d = tmp("run");
+        let ok = CheckDef { id: "a".into(), label: "A".into(), cmd: "echo oi; echo erro >&2; exit 0".into(), on: true, source: "custom".into() };
+        let r = run_one_check("t-test-a", &d, &ok, 30);
+        assert!(r.ok);
+        assert_eq!(r.exit_code, Some(0));
+        assert!(r.log.contains("oi") && r.log.contains("erro"), "stderr vai junto no log: {}", r.log);
+        let bad = CheckDef { cmd: "echo quebrou; exit 3".into(), ..ok.clone() };
+        let r = run_one_check("t-test-b", &d, &bad, 30);
+        assert!(!r.ok);
+        assert_eq!(r.exit_code, Some(3));
+        let slow = CheckDef { cmd: "sleep 30".into(), ..ok.clone() };
+        let t0 = std::time::Instant::now();
+        let r = run_one_check("t-test-c", &d, &slow, 1);
+        assert!(r.timed_out && !r.ok);
+        assert!(t0.elapsed().as_secs() < 10);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn nome_de_pasta_seguro() {
+        assert_eq!(safe_dir_component("Relatório: agosto/2026?"), "Relatório agosto 2026");
+        assert_eq!(safe_dir_component(".."), "entrega");
+        assert_eq!(safe_dir_component("  "), "entrega");
+    }
 }
 
 #[derive(Serialize)]
@@ -6553,12 +7419,21 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Espelha o console do webview em /tmp/constellation-web.log — sem isso,
+/// Caminho do log do webview: no Mac fica /tmp/constellation-web.log (scripts e o time leem ali);
+/// no Windows/Linux, a pasta temporária do sistema (E10 — o /tmp fixo não existe no Windows).
+fn web_log_path() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/tmp/constellation-web.log")
+    } else {
+        std::env::temp_dir().join("constellation-web.log")
+    }
+}
+/// Espelha o console do webview no log acima — sem isso,
 /// erro de JS nos ticks é invisível e vira caça às cegas.
 #[tauri::command(async)]
 fn web_log(line: String) {
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/constellation-web.log") {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(web_log_path()) {
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let _ = writeln!(f, "{ts} {}", line.chars().take(600).collect::<String>());
     }
@@ -6754,13 +7629,21 @@ pub fn run() {
             set_repo,
             workspace_usage,
             workspace_clean,
-            current_repo,
             coordination_metrics,
             overlap_check,
             resolve_conflict,
             list_projects,
             projects_overview,
             repo_checks,
+            checks_config,
+            checks_save,
+            task_fingerprint,
+            run_checks,
+            run_checks_stop,
+            checks_override_log,
+            deliverables_default_dir,
+            save_deliverables,
+            open_folder,
             file_diff,
             pr_body_ai,
             ai_spec,
@@ -6773,9 +7656,7 @@ pub fn run() {
             write_llm_env,
             route_ai_ping,
             list_skills,
-            get_active_skills,
             set_active_skills,
-            get_issue_config,
             set_issue_config,
             repo_remote_of,
             tracker_local_get,
@@ -6800,6 +7681,9 @@ pub fn run() {
             open_project,
             git_init_repo,
             create_project,
+            quick_project_target,
+            quick_create_project,
+            reveal_project,
             ai_orchestrate,
             ai_orchestrate_chat,
             ai_file_why,
@@ -6818,6 +7702,7 @@ pub fn run() {
             switch_project,
             remove_project,
             snapshot,
+            snapshot_stamp,
             task_events,
             build_info,
             graph,
@@ -6853,6 +7738,7 @@ pub fn run() {
             tunnel_start,
             tunnel_stop,
             open_url,
+            publish_github,
             oauth_wait_callback,
             open_artifact,
             reveal_artifact,

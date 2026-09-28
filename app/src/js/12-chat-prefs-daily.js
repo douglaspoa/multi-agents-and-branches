@@ -10,7 +10,7 @@ function pcRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const th=$id('pcThread'); if(!th) return;
   const ms=pcMsgs();
-  const repo=esc((state.repo||'o projeto').split('/').pop());
+  const repo=esc(pathBase(state.repo)||'o projeto');
   const projOpts=(typeof projList==='function'?projList():[]).map(([path,name])=>`<option value="${escA(path)}"${path===state.repo?' selected':''}>${esc(name)}</option>`).join('');
   const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:var(--text-3)">limpar</button></div></div>`;
   let bodyHtml;
@@ -62,7 +62,7 @@ async function pcSend(){
 async function pcStop(){ if(!pcBusy) return; pcStopping=true; try{ await invoke('project_chat_stop'); }catch(_){ } }
 async function pcToTask(){
   const btn=$id('pcTask');
-  if(!pcMsgs().length){ alert('Converse primeiro — a spec nasce do papo.'); return; }
+  if(!pcMsgs().length){ toast('Converse primeiro — a spec nasce do papo.','warn'); return; }
   btn.disabled=true; btn.textContent='montando spec…';
   try{
     const r=await invoke('project_chat',{ prompt:'Com base APENAS na nossa conversa até aqui, monte a especificação de UMA tarefa executável. Responda SOMENTE um bloco ```json com {"title":"verbo + objeto (máx 60 chars)","objective":"o que fazer, onde e por quê (3-6 frases)","requirements":["critérios de aceite objetivos"]} — nada fora do bloco.', sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
@@ -76,7 +76,7 @@ async function pcToTask(){
     ntReq=[...new Set((spec.requirements||[]).map(x=>String(x).trim()).filter(Boolean))];
     renderNtList('ntRequirements',ntReq);
     $id('ntArtProof').checked=true;
-  }catch(e){ alert('Não consegui montar a spec:\n'+(e.message||e)); }
+  }catch(e){ showErr(e, 'Não consegui montar a spec'); }
   finally{ btn.disabled=false; btn.innerHTML=ic('compass')+'virar tarefa'; }
 }
 function openPc(){ $id('pcOverlay').style.display='flex'; chatPinBottom('pcThread'); pcRender(); setTimeout(()=>$id('pcInput').focus(),80); }
@@ -95,11 +95,23 @@ async function prefsPull(){ // nuvem → .cardume/PREFS.md local (todo mundo peg
 }
 async function openPrefs(){
   const ov=$id('prefsOverlay');
-  if(!SB.sess()||!(cloudData&&cloudData.org)){ alert('Entre na sua conta e escolha uma organização pra usar as preferências do projeto.'); return; }
-  const k=await prefsKey(); if(!k){ alert('Abra um projeto (repositório com git remote) primeiro.'); return; }
+  // Proteção dos agentes é LOCAL (vale nesta máquina, por pasta do projeto) — não depende de conta/nuvem
+  const repoPath=(state&&state.repo)||'';
+  { const h=$id('prefsProtHost'); if(h){ if(repoPath && typeof protectPrefsHtml==='function'){ if(!protectLoaded) await protectLoad(); h.innerHTML=protectPrefsHtml(repoPath); protectPrefsWire(repoPath); } else h.innerHTML=''; } }
+  const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org);
+  const k=cloudOk?await prefsKey():null;
+  // sem conta/remote: o documento do time fica indisponível, mas a proteção continua configurável
+  { const ta=$id('prefsText'), sv=$id('prefsSave'); const box=ta&&(ta.closest('.ceditor')||ta); if(box) box.style.display=k?'':'none'; if(sv) sv.style.display=k?'':'none'; }
+  if(!k){
+    if(!repoPath){ toast('Abra um projeto primeiro.','warn'); return; }
+    $id('prefsRepo').textContent=pathBase(repoPath);
+    $id('prefsMeta').textContent=cloudOk?'as convenções do time precisam de um repositório com git remote':'entre na sua conta pra escrever as convenções do time';
+    ovShow(ov); return;
+  }
   $id('prefsRepo').textContent=k.repo.replace(/^https?:\/\/[^/]+\//,'').replace(/\.git$/,'');
   $id('prefsMeta').textContent='carregando…';
   ovShow(ov); // depois do await: respeita o modo aba
+  if(typeof prefsChecksRender==='function') prefsChecksRender(); // FT-5a: seção Checagens
   mountEditor($id('prefsText'), { markdown:true });
   try{
     const rows=await sbGet('project_prefs?select=content,updated_by,updated_at&org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo));
@@ -125,6 +137,54 @@ $id('prefsSave').onclick=async()=>{
   }catch(e){ $id('prefsMeta').textContent='falhou: '+(e.message||e); }
   finally{ b.disabled=false; b.textContent='salvar pro time'; }
 };
+// ---- Preferências do projeto → "Checagens antes de aprovar" (FT-5a) ----
+// Detectadas na cópia da tarefa/repo (package.json, Cargo, pytest, go.mod) com liga/desliga + comandos
+// próprios. Salvo em <repo>/.cardume/checks.json (local, sem precisar de conta). O mesmo editor aparece
+// dentro da Entrega ("checagens") — quem não usa a nuvem também configura.
+const chkDraft={}; // chave → { detected, file, cfg } (rascunho sobrevive a re-render da tela)
+async function chkCfgEditor(box, taskId, onSaved){
+  if(!box) return;
+  const key=(taskId||'repo')+'@'+(state.repo||'');
+  let d=chkDraft[key];
+  if(!d){
+    box.innerHTML='<div class="dim" style="font-size:12px">lendo as checagens do projeto…</div>';
+    try{ const c=await invoke('checks_config',{ taskId:taskId||null });
+      d=chkDraft[key]={ detected:(c&&c.detected)||[], file:(c&&c.file)||'', cfg:JSON.parse(JSON.stringify((c&&c.cfg)||{})) }; }
+    catch(e){ box.innerHTML=`<div class="dim" style="font-size:12px">não consegui ler as checagens: ${esc(String(e&&e.message||e))}</div>`; return; }
+  }
+  const cfg=d.cfg; cfg.enabled=cfg.enabled||{}; cfg.custom=Array.isArray(cfg.custom)?cfg.custom:[];
+  const paint=()=>{
+    const on=x=>cfg.enabled[x.id]!==undefined?!!cfg.enabled[x.id]:!!x.on;
+    box.innerHTML=`<div class="ckcfg">
+      <div class="ckh"><b>Checagens antes de aprovar</b><span class="dim">rodam na cópia de cada tarefa; com alguma falhando, "aprovar e abrir PR" fica bloqueado (dá pra liberar com um motivo)</span></div>
+      ${d.detected.length?d.detected.map(x=>`<label class="ckrow"><input type="checkbox" data-ckon="${escA(x.id)}"${on(x)?' checked':''}><b>${esc(x.label)}</b><span class="mono ckcmd">${esc(x.cmd)}</span><span class="cksrc">detectado · ${esc(x.source)}</span></label>`).join('')
+        :'<div class="dim ckempty">nada detectado automaticamente (sem package.json com lint/test, Cargo.toml, pytest ou go.mod) — adicione um comando abaixo</div>'}
+      ${cfg.custom.map((x,i)=>`<div class="ckrow ckcustom"><input type="checkbox" data-ccon="${i}"${x.on===false?'':' checked'}><input class="in" data-cclabel="${i}" value="${escA(x.label||'')}" placeholder="nome (ex.: Testes E2E)"><input class="in mono" data-cccmd="${i}" value="${escA(x.cmd||'')}" placeholder="comando (ex.: npx playwright test)"><button class="btn sm ghost" data-ccdel="${i}" title="remover">✕</button></div>`).join('')}
+      <div class="ckfoot"><button class="btn sm" data-ccadd="1">+ comando próprio</button>
+        <span class="dim">tempo-limite</span><input class="in" type="number" min="1" max="120" data-cktime="1" value="${escA(String(cfg.timeoutMin||10))}"><span class="dim">min cada</span>
+        <span style="flex:1"></span><span class="dim mono ckfile" title="${escA(d.file)}">.cardume/checks.json</span><button class="btn sm primary" data-cksave="1">salvar checagens</button></div>
+    </div>`;
+    box.querySelectorAll('[data-ckon]').forEach(el=>el.onchange=()=>{ cfg.enabled[el.dataset.ckon]=el.checked; });
+    box.querySelectorAll('[data-ccon]').forEach(el=>el.onchange=()=>{ cfg.custom[+el.dataset.ccon].on=el.checked; });
+    box.querySelectorAll('[data-cclabel]').forEach(el=>el.oninput=()=>{ cfg.custom[+el.dataset.cclabel].label=el.value; });
+    box.querySelectorAll('[data-cccmd]').forEach(el=>el.oninput=()=>{ cfg.custom[+el.dataset.cccmd].cmd=el.value; });
+    box.querySelectorAll('[data-ccdel]').forEach(el=>el.onclick=()=>{ cfg.custom.splice(+el.dataset.ccdel,1); paint(); });
+    box.querySelectorAll('[data-ccadd]').forEach(el=>el.onclick=()=>{ cfg.custom.push({ id:'custom:'+Date.now().toString(36), label:'', cmd:'', on:true }); paint(); const i=box.querySelectorAll('[data-cclabel]'); if(i.length) i[i.length-1].focus(); });
+    box.querySelectorAll('[data-cktime]').forEach(el=>el.oninput=()=>{ const n=Math.round(+el.value); if(n>=1&&n<=120) cfg.timeoutMin=n; });
+    box.querySelectorAll('[data-cksave]').forEach(el=>el.onclick=async()=>{
+      el.disabled=true; const o=el.textContent; el.textContent='salvando…';
+      const clean={ ...cfg, custom:cfg.custom.filter(x=>String(x.cmd||'').trim()).map(x=>({ ...x, label:String(x.label||'').trim()||String(x.cmd).trim(), cmd:String(x.cmd).trim() })) };
+      try{ await invoke('checks_save',{ cfg:clean }); Object.keys(chkDraft).forEach(k=>delete chkDraft[k]);
+        if(typeof chkCfg!=='undefined') Object.keys(chkCfg).forEach(k=>delete chkCfg[k]);
+        toast('checagens salvas — valem pras próximas aprovações','ok'); if(onSaved) onSaved(); else chkCfgEditor(box, taskId); }
+      catch(e){ showErr(e, 'Não salvou'); el.disabled=false; el.textContent=o; }
+    });
+  };
+  paint();
+}
+{ const mb=document.querySelector('#prefsOverlay .mbody');
+  if(mb && !$id('prefsChecks')){ const sec=document.createElement('div'); sec.className='prefs-sec'; sec.id='prefsChecks'; mb.appendChild(sec); } }
+function prefsChecksRender(){ const box=$id('prefsChecks'); if(!box || !state.repo) return; delete chkDraft['repo@'+state.repo]; chkCfgEditor(box, null); }
 $id('pcClose').onclick=()=>{ ovHide('pcOverlay'); };
 $id('pcSend').onclick=pcSend;
 $id('pcTask').onclick=pcToTask;
@@ -165,7 +225,7 @@ function renderDaily(){
     return `<div class="as-card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
         <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>
-        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtUsd(t.usd):''}</span></div>
+        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtCost(t.usd):''}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
         <div style="padding:14px 18px;border-right:1px solid rgba(255,255,255,.06)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>
@@ -192,7 +252,7 @@ async function dailyAISummary(){
     const md=await invoke('ai_daily',{ text: facts });
     $id('dailyAIOut').innerHTML=`<div class="prbox" style="margin:6px 0 12px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="dailyCopy">copiar pra daily</button></div></div>`;
     $id('dailyCopy').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
-  }catch(e){ alert('Falhou: '+e); }
+  }catch(e){ showErr(e, 'Falhou'); }
   btn.disabled=false; btn.innerHTML=o;
 }
 // ---- RELATÓRIO técnico do dia (DOC .md + PDF) ----

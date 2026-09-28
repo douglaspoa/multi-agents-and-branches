@@ -1,8 +1,7 @@
 // Starfork — 21-pull-request
 // ---------- Pull Request (GitHub) ----------
-const prCache={}; let branchList=null;
+const prCache={};
 const prLoading={}; // taskId → Promise da carga em voo (1 por vez; o poll não empilha gh)
-async function loadBranches(){ if(branchList) return branchList; try{ branchList=await invoke("list_branches"); }catch(e){ branchList=["main"]; } return branchList; }
 async function loadPr(taskId, force){
   if(prCache[taskId]!==undefined && prCache[taskId]!==null && !force) return prCache[taskId];
   if(prLoading[taskId]) return prLoading[taskId];
@@ -22,10 +21,9 @@ async function loadPr(taskId, force){
 // dados do PR com mais de 60s → a tela que mostra o PR busca de novo sozinha
 function prIsStale(taskId){ const i=prCache[taskId]; return !!(i && i._at && Date.now()-i._at>60000 && !prLoading[taskId]); }
 function prAgoTx(at){ if(!at) return ''; const s=Math.max(0,(Date.now()-at)/1000); return s<15?'atualizado agora':s<60?`atualizado há ${Math.round(s)}s`:s<3600?`atualizado há ${Math.round(s/60)} min`:`atualizado há ${Math.round(s/3600)}h`; }
-// re-pinta quem estiver mostrando o PR desta tarefa (aba da tarefa e/ou painel lateral)
+// re-pinta quem estiver mostrando o PR desta tarefa (a aba da tarefa)
 function prRerender(taskId){
   try{ if(typeof fwTask!=='undefined' && fwTask===taskId && typeof renderWorkspace==='function') renderWorkspace(); }catch(e){ console.error('prRerender ws', e); }
-  try{ if(typeof selected!=='undefined' && selected===taskId && typeof renderSide==='function'){ lastSig=''; renderSide(); } }catch(e){ console.error('prRerender side', e); }
 }
 // ---- selos do PR (mesma cara no painel lateral e na página do PR) ----
 function prStateBadge(info){
@@ -74,9 +72,6 @@ function prRevKey(r,i){ return String(r.id||('idx:'+i)); }
 // pedidas, não ignorado) é pendência; aprovou/comentou/antigo vão pro grupo dos resolvidos
 function prRevList(info){ const all=((info&&info.reviews)||[]); return all.map((r,i)=>({ r, key:prRevKey(r,i) })).filter(x=>String(x.r.body||'').trim()); }
 function prRevOpen(info, x, ign){ return x.r.state==='CHANGES_REQUESTED' && !x.r.superseded && (info&&info.decision)==='CHANGES_REQUESTED' && !ign.has(x.key); }
-// o que está em aberto — a MESMA conta do botão "corrigir N em aberto" e do que vai pro agente (rework_from_pr)
-function prOpenComments(taskId, info){ const ign=prIgnSet(taskId); return prRoots(info).filter(c=>!prCmtDone(c,ign)); }
-function prOpenCount(taskId, info){ const ign=prIgnSet(taskId); return prOpenComments(taskId, info).length + prRevList(info).filter(x=>prRevOpen(info,x,ign)).length; }
 function prIsReviewCmt(c){ return !!(c.threadId || c.path); } // inline (thread de review) × conversa do PR
 function prCommentsHtml(t, info, opts){
   const compact=!!(opts&&opts.compact);
@@ -136,55 +131,7 @@ async function prResolveThread(taskId, threadId, btn){
     toast('conversa marcada como resolvida no GitHub','ok');
     prRerender(taskId);
     loadPr(taskId,true).then(()=>prRerender(taskId));
-  }catch(err){ toast('não consegui resolver no GitHub: '+err,'err'); if(btn){ btn.disabled=false; btn.textContent='resolver'; } }
-}
-function prBlock(t, full){
-  if(t.kind==='review'){
-    // tarefa do tipo "revisar PR": a aba PR mostra o PR revisado
-    return full && t.prUrl ? `<div class="seclbl">Pull Request revisado</div><div class="prreview"><span class="prnum">${esc(t.branch)}</span><button class="btn sm" id="revPrOpen">${IC.extlink} abrir PR</button></div>` : '';
-  }
-  if(!full && !(t.status==='review'||t.status==='error')) return '';
-  const info=prCache[t.id];
-  const loadingHtml='<div class="seclbl">Pull Request</div><div class="dim" style="font-size:12px;padding:2px">verificando no GitHub…</div>';
-  // gh/rede falhou ≠ "não tem PR": diz isso e oferece tentar de novo (antes oferecia abrir OUTRO PR)
-  const errHtml=i=>`<div class="seclbl">Pull Request</div><div class="prbox"><div class="ihint" style="color:var(--warn)">não consegui falar com o GitHub</div><div class="mono dim" style="font-size:10.5px;margin-top:4px;white-space:pre-wrap">${esc(String(i.error||'').slice(0,220))}</div><div class="prrow" style="margin-top:8px"><button class="btn sm" id="prRefresh">↻ tentar de novo</button></div></div>`;
-  // na aba PR, com a task ainda rodando: se o PR JÁ EXISTE (aberto manualmente
-  // ou pelo agente), mostra ele de verdade — só cai no aviso se não existir.
-  if(full && !(t.status==='review'||t.status==='error'||t.status==='merged'||t.status==='conflict')){
-    if(info===undefined){ loadBranches(); loadPr(t.id).then(()=>{ if(selected===t.id) renderSide(); }); return loadingHtml; }
-    if(info===null) return loadingHtml;
-    if(!info.exists && info.error) return errHtml(info);
-    if(!info.exists){
-      const mode=t.autoPr||'ask';
-      const modeTx = mode==='auto'?'vai <b>abrir o PR sozinho</b> ao concluir — só se não houver requisito pendente':mode==='no'?'<b>não</b> vai abrir PR automaticamente':'vai <b>te perguntar</b> quando ficar pronta';
-      return `<div class="seclbl">Pull Request</div><div class="prbox"><div class="ihint">Nenhum PR aberto ainda — a tarefa está em andamento e ${modeTx}.</div><div class="prrow" style="margin-top:8px"><button class="btn sm" id="prRefresh">verificar de novo</button></div></div>`;
-    }
-  }
-  if(info===undefined){ loadBranches(); loadPr(t.id).then(()=>{ if(selected===t.id) renderSide(); }); return loadingHtml; }
-  if(info===null) return loadingHtml;
-  if(!info.exists && info.error) return errHtml(info);
-  if(!info.exists){
-    const saved=lsGet('prBase:'+t.id)||'main';
-    const opts=(branchList||['main']).map(b=>`<option value="${escA(b)}"${b===saved?' selected':''}>${esc(b)}</option>`).join('');
-    return `<div class="seclbl">Pull Request</div><div class="prbox">
-      <div class="prrow"><span class="prlbl">base</span><select class="sel" id="prBase">${opts}</select><button class="btn primary sm" id="prOpen">${IC.merge} Abrir PR</button></div>
-      <div class="ihint" style="margin-top:7px">Faz push da branch <b>${esc(t.branch)}</b> e abre o PR na base escolhida.</div>
-    </div>`;
-  }
-  // dados velhos (>60s) com o painel aberto → atualiza em segundo plano
-  if(prIsStale(t.id)) loadPr(t.id,true).then(()=>{ if(selected===t.id){ lastSig=''; renderSide(); } });
-  const cm=prCommentsHtml(t, info, { compact:true });
-  const descHtml = (info.body||'').trim()?`<details${cm.total?'':' open'}><summary class="dim" style="cursor:pointer;font-size:11.5px;margin-top:8px">descrição do PR — o quê · entregáveis · como testar</summary><div class="prdesc">${chatMd(info.body)}</div></details>`:'';
-  const base=info.baseRefName||lsGet('prBase:'+t.id)||'main';
-  return `<div class="seclbl">Pull Request <span class="n">#${info.number}</span></div><div class="prbox">
-    <div class="prrow"><button class="prlink mono" id="prLink" title="${escA(info.url)}">${IC.extlink} #${info.number}</button>${prStateBadge(info)}${prDecisionBadge(info)}<span class="grow"></span><button class="btn sm" id="prCopy" title="copiar link">copiar</button><button class="btn sm" id="prRefresh">atualizar</button></div>
-    <div class="prrow prbadges" style="margin-top:6px"><span class="dim mono" style="font-size:10.5px">→ ${esc(base)}</span>${prChecksBadges(info)}<span class="grow"></span><span class="dim" style="font-size:10.5px">${prAgoTx(info._at)}${info.staleErr?' · <span style="color:var(--warn)">sem conexão agora</span>':''}</span></div>
-    ${descHtml}
-    ${cm.total?`<div class="prcmtsh"><span class="prcmtsn">comentários · ${cm.countTx}</span>${cm.toggle}</div>`:''}
-    <div class="prcmts" style="margin-top:6px">${cm.html}</div>
-    <div class="prrow" style="margin-top:10px">${cm.open?`<button class="btn primary sm" id="prRework">${IC.ai} corrigir ${cm.open} comentário${cm.open===1?'':'s'} em aberto</button>`:cm.total?`<span class="dim" style="font-size:11.5px">${IC.ok} todos os comentários resolvidos</span>`:''}<span class="grow"></span>${prMergeBtnHtml(info,'prMerge','sm')}</div>
-    ${prMergeWhyHtml(info)}
-  </div>`;
+  }catch(err){ showErr(err, 'Não consegui resolver no GitHub'); if(btn){ btn.disabled=false; btn.textContent='resolver'; } }
 }
 function prIgnSet(taskId){ try{ return new Set(JSON.parse(lsGet('prIgn:'+taskId)||'[]')); }catch(_){ return new Set(); } }
 function prIgnAdd(taskId,key){ const s=prIgnSet(taskId); s.add(key); lsSet('prIgn:'+taskId, JSON.stringify([...s])); }
@@ -220,18 +167,149 @@ function prBodyOf(t){
     (rev?`## Resumo\n${(rev.summary||'').slice(0,400)}\n\n## Como testar\n${(rev.howToTest||'').slice(0,600)}\n\n`:'')+
     `_Aberto pelo Starfork._`;
 }
-// ---- "Preparando o PR" (redesign p13): checagens reais → push → criar ----
+// ---- GATE DE VERIFICAÇÃO (FT-5): checagens reais do projeto, rodadas na cópia da tarefa ----
+// Config por projeto (Preferências → Checagens; .cardume/checks.json) + detecção (package.json, Cargo, pytest, go).
+// Resultado guardado por tarefa + "versão" do código (HEAD + mudanças soltas): o agente mexeu → desatualizada.
+// Aprovar só com verificação verde da versão atual; liberar sem isso exige um motivo (vai no PR e fica registrado).
+const chkCfg={};   // taskId → { at, data:{ detected, effective, cfg, file } }
+const chkFpC={};   // taskId → { at, fp:{ fingerprint, head, dirty } } | { at, err }
+const chkLive={};  // taskId → { cur:{id,label}|null, done:[CheckResult] } enquanto roda
+const chkLoading={};
+function chkJson(k){ try{ return JSON.parse(lsGet(k)||'null'); }catch(_){ return null; } }
+function chkResGet(id){ return chkJson('chk:'+id); }
+function chkOvGet(id){ return chkJson('chkOv:'+id); }
+function chkCfgSig(eff){ return (eff||[]).filter(c=>c.on).map(c=>c.id+'='+c.cmd).join('|'); }
+function chkDur(ms){ ms=+ms||0; return ms<1000?ms+' ms':ms<60000?(ms/1000).toFixed(ms<10000?1:0).replace('.',',')+' s':Math.floor(ms/60000)+' min '+String(Math.round(ms%60000/1000)).padStart(2,'0')+' s'; }
+async function chkLoadCfg(taskId, force){
+  const c=chkCfg[taskId]; if(!force && c && Date.now()-c.at<30000) return c.data;
+  const data=await invoke('checks_config',{ taskId }); chkCfg[taskId]={ at:Date.now(), data:data||{ detected:[], effective:[], cfg:{} } }; return chkCfg[taskId].data;
+}
+async function chkLoadFp(taskId, force){
+  const c=chkFpC[taskId]; if(!force && c && Date.now()-c.at<5000) return c;
+  try{ chkFpC[taskId]={ at:Date.now(), fp:await invoke('task_fingerprint',{ taskId }) }; }
+  catch(e){ chkFpC[taskId]={ at:Date.now(), err:String(e&&e.message||e) }; }
+  return chkFpC[taskId];
+}
+// dispara as leituras em segundo plano e re-renderiza a tela da tarefa quando algo MUDA (sem laço)
+function chkRefresh(taskId){
+  if(chkLoading[taskId]) return; chkLoading[taskId]=1;
+  const before=JSON.stringify(chkGate({ id:taskId }));
+  Promise.all([chkLoadCfg(taskId).catch(()=>null), chkLoadFp(taskId)]).finally(()=>{ delete chkLoading[taskId];
+    if(JSON.stringify(chkGate({ id:taskId }))!==before) chkRerender(taskId); });
+}
+function chkRerender(taskId){ try{ if(typeof fwTask!=='undefined' && fwTask===taskId && typeof renderWorkspace==='function') renderWorkspace(); }catch(e){ console.error('chkRerender', e); } }
+// estado do gate (síncrono, a partir dos caches): none · loading · running · notrun · stale · fail · pass · override · err
+function chkGate(t){
+  const c=chkCfg[t.id]; if(!c) return { st:'loading', on:[] };
+  const on=(c.data.effective||[]).filter(x=>x.on);
+  if(!on.length) return { st:'none', on };
+  if(chkLive[t.id]) return { st:'running', on, live:chkLive[t.id] };
+  const f=chkFpC[t.id]; if(!f) return { st:'loading', on };
+  if(f.err) return { st:'err', on, err:f.err };
+  const cur=f.fp.fingerprint, r=chkResGet(t.id), ov=chkOvGet(t.id);
+  let g;
+  if(!r) g={ st:'notrun', on };
+  else if(r.fp!==cur || r.cfgSig!==chkCfgSig(c.data.effective)) g={ st:'stale', on, r };
+  else { const bad=(r.results||[]).filter(x=>!x.ok); g=bad.length?{ st:'fail', on, r, bad }:{ st:'pass', on, r }; }
+  if(['notrun','stale','fail'].includes(g.st) && ov && ov.fp===cur) return Object.assign(g, { st:'override', was:g.st, ov });
+  return g;
+}
+async function chkEnsure(t, force){ await chkLoadCfg(t.id, force); await chkLoadFp(t.id, force); return chkGate(t); }
+function chkCanApprove(g){ return ['none','pass','override'].includes(g.st); }
+function chkBlockWhy(g){
+  return g.st==='fail' ? `a verificação falhou (${g.bad.map(b=>b.label).join(', ')}) — corrija, ou use "aprovar mesmo assim" com um motivo`
+    : g.st==='notrun' ? 'rode a verificação (testes e checagens automáticas) antes de aprovar'
+    : g.st==='stale' ? 'o código mudou depois da última verificação — rode de novo pra liberar'
+    : g.st==='running' ? 'a verificação está rodando…'
+    : g.st==='err' ? 'não deu pra conferir a verificação: '+g.err
+    : g.st==='loading' ? 'conferindo a verificação…' : '';
+}
+async function chkRun(t){
+  if(chkLive[t.id]) return null;
+  chkLive[t.id]={ cur:null, done:[] }; chkRerender(t.id);
+  try{
+    const cfg=await chkLoadCfg(t.id, true);
+    const res=await invoke('run_checks',{ taskId:t.id });
+    chkResSetRun(t.id, res, cfg);
+    const bad=(res.results||[]).filter(x=>!x.ok);
+    toast(bad.length?`verificação: ${bad.length} de ${res.results.length} falhou`:`verificação passou ✓ (${res.results.length})`, bad.length?'warn':'ok');
+    return res;
+  }catch(e){ showErr(e, 'Não deu pra rodar a verificação'); return null; }
+  finally{ delete chkLive[t.id]; await chkLoadFp(t.id, true); chkRerender(t.id); }
+}
+function chkResSetRun(taskId, res, cfg){
+  lsSet('chk:'+taskId, JSON.stringify({ fp:res.fingerprint, head:res.head, dirty:res.dirty, at:res.at||Date.now(), cfgSig:chkCfgSig(cfg&&cfg.effective), results:res.results||[] }));
+}
+async function chkStop(t){ try{ await invoke('run_checks_stop',{ taskId:t.id }); }catch(_){ } }
+// progresso ao vivo (evento do Rust): qual checagem está rodando + as que já terminaram
+function chkOnProgress(p){
+  if(!p||!p.taskId) return; const L=chkLive[p.taskId]; if(!L) return;
+  if(p.phase==='start') L.cur={ id:p.id, label:p.label };
+  else if(p.result){ L.done.push(p.result); L.cur=null; }
+  const d=$id('prep1d'); if(d && prepTaskId===p.taskId && p.phase==='start') d.innerHTML=`rodando <b>${esc(p.label)}</b>… (${L.done.length+1} de ${(chkGate({id:p.taskId}).on||[]).length||'?'})`;
+  chkRerender(p.taskId);
+}
+try{ window.__TAURI__.event.listen('checks-progress', ev=>chkOnProgress(ev&&ev.payload)); }catch(_){ }
+// "aprovar mesmo assim": exige motivo — vai pra descrição do PR e fica registrado (local + .cardume/checks-overrides.jsonl)
+async function chkOverride(t, g){
+  const what=g.st==='fail'?'com a verificação falhando':'sem a verificação da versão atual';
+  const reason=await askText('Aprovar mesmo assim', `por que aprovar ${what}? (vai na descrição do PR e fica registrado)`, '');
+  if(!reason) return false;
+  const f=await chkLoadFp(t.id, true); const fp=(f&&f.fp&&f.fp.fingerprint)||'';
+  const failing=g.st==='fail'?(g.bad||[]).map(b=>b.label):[];
+  lsSet('chkOv:'+t.id, JSON.stringify({ fp, reason, at:Date.now(), failing, was:g.st }));
+  invoke('checks_override_log',{ taskId:t.id, reason, fingerprint:fp, failing }).catch(()=>{});
+  return true;
+}
+// bloco "## Verificação" anexado à descrição do PR (o revisor vê o que rodou de verdade)
+function chkPrBodyExtra(t){
+  const g=chkGate(t); if(g.st==='none'||g.st==='loading') return '';
+  const r=g.r||chkResGet(t.id);
+  let s='\n\n## Verificação\n';
+  if(r && (g.st==='pass'||g.st==='fail'||(g.st==='override'&&g.was==='fail'))) s+=(r.results||[]).map(x=>`- ${x.ok?'✓':'✕'} ${x.label} — \`${x.cmd}\` · ${chkDur(x.durationMs)}${x.ok?'':x.timedOut?' · passou do tempo-limite':' · exit '+(x.exitCode==null?'?':x.exitCode)}`).join('\n')+'\n_rodadas pelo Starfork na cópia da tarefa_\n';
+  else s+='_não rodou na versão final_\n';
+  if(g.st==='override') s+=`\n⚠ aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${g.ov.reason}\n`;
+  return s;
+}
+// cabeçalho da tarefa (20): o botão "aprovar e abrir PR" reflete o gate — bloqueado leva pra Verificação na Entrega
+function chkDecorateApprove(btn, t){
+  if(!btn||!t) return;
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ btn.innerHTML=`${IC.check} salvar entregáveis`; btn.title='salva os arquivos entregues numa pasta sua e conclui (sem PR)'; return; }
+  chkRefresh(t.id);
+  const g=chkGate(t); const ok=chkCanApprove(g);
+  btn.classList.toggle('is-gated', !ok); btn.setAttribute('aria-disabled', ok?'false':'true');
+  if(!ok) btn.title=chkBlockWhy(g)+' · clique pra ver a verificação';
+}
+function chkApproveClick(t){
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); return; }
+  const g=chkGate(t);
+  if(!chkCanApprove(g)){ toast(chkBlockWhy(g),'warn'); fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
+    setTimeout(()=>{ const v=$id('enVerif'); if(v) v.scrollIntoView({ block:'center', behavior:'smooth' }); }, 60); return; }
+  prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
+}
+// ---- "Preparando o PR" (redesign p13): verificação real → push → criar ----
+let prepTaskId='';
 function prPrepOpen(taskId, base){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  // BUG-17: investigação/design (e entrega só de documentos) não abre PR — o fim é salvar os entregáveis
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){
+    toast('esta tarefa entrega documentos, não código — o fim é "salvar entregáveis na pasta"','info');
+    if(typeof openWorkspace==='function'){ openWorkspace(t.id); setTimeout(()=>{ try{ fwMode='entrega'; renderWorkspace(); }catch(_){ } }, 50); }
+    return;
+  }
+  prepTaskId=taskId;
   lsSet('prBase:'+taskId, base||'main'); // lembra a base escolhida (antes nunca era salva — a página sempre dizia "main")
   const ov=$id('prepOverlay'); ov.style.display='flex';
+  // E4 (bug #5): projeto só local (sem remote) — o push caía em "Could not read from remote" e a tela dizia
+  // "sem internet", com "tentar de novo" em loop. Agora diz o que é e oferece publicar no GitHub.
+  if(typeof repoHasRemote==='function' && !repoHasRemote()){ prNoRemoteBody(t, base); return; }
   $id('prepBody').innerHTML=`
-    <div class="dim" style="font-size:12.5px;margin-bottom:6px">Rodando as checagens do repo antes de abrir</div>
-    <div class="prepstep" id="prep1"><span class="ps run">◌</span><div style="flex:1"><b>Checagens do repo</b><div class="dim psd" id="prep1d" style="font-size:11.5px">rodando lint/testes na worktree…</div></div></div>
+    <div class="dim" style="font-size:12.5px;margin-bottom:6px">Conferindo a verificação antes de abrir</div>
+    <div class="prepstep" id="prep1"><span class="ps run">◌</span><div style="flex:1"><b>Verificação</b> <span class="dim" style="font-size:11px">testes e checagens automáticas</span><div class="dim psd" id="prep1d" style="font-size:11.5px">conferindo…</div></div></div>
     <div class="prepstep" id="prep2"><span class="ps">·</span><div style="flex:1"><b>Commit &amp; push</b><div class="dim psd" id="prep2d" style="font-size:11.5px">aguardando</div></div></div>
     <div class="prepstep" id="prep3"><span class="ps">·</span><div style="flex:1"><b>Abrir o PR</b><div class="dim psd" id="prep3d" style="font-size:11.5px">base <b>${esc(base||'main')}</b></div></div></div>
     <div class="dim" style="font-size:11px;text-align:center;margin-top:12px">isso leva alguns segundos — pode continuar em outra aba</div>
-    <div style="display:flex;gap:8px;margin-top:12px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn primary" id="prepForce" style="display:none">abrir mesmo assim</button></div>`;
+    <div style="display:flex;gap:8px;margin-top:12px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn" id="prepForce" style="display:none" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button></div>`;
   const close=()=>{ ov.style.display='none'; };
   $id('prepClose').onclick=close;
   $id('prepCancelB').onclick=close;
@@ -243,26 +321,61 @@ function prepMark(n, st, txt){ // st: run|ok|fail|skip
   if(txt!=null){ const d=$id('prep'+n+'d'); if(d) d.innerHTML=txt; }
 }
 async function prPrepRun(t, base){
-  // 1. checagens (lint/test do package.json da worktree, quando existem)
-  let checks=[];
-  try{ checks=await invoke('repo_checks',{ taskId:t.id }); }catch(_){ }
-  const bad=checks.filter(c=>!c.ok);
-  if(!checks.length) prepMark(1,'ok','sem lint/testes configurados no repo — seguindo');
-  else if(!bad.length) prepMark(1,'ok', checks.map(c=>c.name+' ✓').join(' · '));
+  // 1. verificação (FT-5): mesma regra da Entrega — verde na versão atual, ou liberação com motivo
+  let g;
+  try{ g=await chkEnsure(t, true); }catch(e){ g={ st:'err', err:String(e&&e.message||e) }; }
+  if(g.st==='notrun' || g.st==='stale'){
+    prepMark(1,'run', g.st==='stale'?'o código mudou desde a última verificação — rodando de novo…':'rodando a verificação na cópia da tarefa…');
+    await chkRun(t); g=chkGate(t);
+  }
+  const resHtml=r=>(r&&r.results||[]).map(x=>`${x.ok?'✓':'✕'} ${esc(x.label)} <span class="dim">${chkDur(x.durationMs)}</span>`).join(' · ');
+  if(g.st==='none') prepMark(1,'ok','sem checagens configuradas no projeto — seguindo');
+  else if(g.st==='pass') prepMark(1,'ok', resHtml(g.r));
+  else if(g.st==='override') prepMark(1,'ok', `<span style="color:var(--warn)">⚠ aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${esc(g.ov.reason)}</span>`);
   else {
-    prepMark(1,'fail', bad.map(c=>`<b>${esc(c.name)} falhou</b><div class="mono" style="white-space:pre-wrap;font-size:10.5px;margin-top:4px;color:var(--crit)">${esc(c.detail.slice(0,400))}</div>`).join(''));
+    const det = g.st==='fail' ? g.bad.map(c=>`<b>${esc(c.label)} falhou</b> <span class="dim">· ${c.timedOut?'passou do tempo-limite':'exit '+(c.exitCode==null?'?':c.exitCode)}</span><div class="mono" style="white-space:pre-wrap;font-size:10.5px;margin-top:4px;color:var(--crit);max-height:120px;overflow:auto">${esc(String(c.log||'').split('\n').slice(-12).join('\n'))}</div>`).join('')
+      : esc(chkBlockWhy(g)||'não deu pra conferir a verificação');
+    prepMark(1,'fail', det);
     const f=$id('prepForce');
-    if(f){ f.style.display=''; f.onclick=()=>{ f.style.display='none'; prPrepFinish(t, base); }; }
-    return; // decisão do humano: corrigir antes ou abrir mesmo assim
+    if(f){ f.style.display=''; f.onclick=async()=>{ if(!await chkOverride(t, g.st==='fail'?g:{ st:'notrun' })) return; f.style.display='none';
+      prepMark(1,'ok', `<span style="color:var(--warn)">⚠ aprovado mesmo assim</span>`); prPrepFinish(t, base); }; }
+    return; // decisão do humano: corrigir antes ou liberar com motivo
   }
   await prPrepFinish(t, base);
 }
-// reconhece falha de REDE (DNS/conexão) — dá mensagem clara em vez do erro cru do git
-function prNetHint(e){
-  const s=String(e||'');
-  if(/could not resolve host|couldn'?t resolve|failed to connect|could not read from remote|connection timed out|connection refused|network is unreachable|temporary failure in name resolution|unable to access/i.test(s))
-    return 'Sem conexão com o GitHub agora — cheque a internet/VPN e tente de novo. O commit local já foi feito; o botão só re-envia.';
-  return null;
+// E4: "Preparando o PR" de um projeto que ainda não está no GitHub
+function prNoRemoteBody(t, base){
+  $id('prepBody').innerHTML=`
+    <div class="prepstep" id="prepNoRemote"><span class="ps fail">!</span><div style="flex:1"><b>Este projeto ainda não está no GitHub</b>
+      <div class="dim psd" style="font-size:11.5px;margin-top:3px">O PR é aberto no GitHub, então o projeto precisa estar lá primeiro. Publicar cria um repositório <b>privado</b> na sua conta do GitHub e envia o código — o trabalho desta tarefa continua salvo aqui.</div></div></div>
+    <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn primary" id="prepPublish">publicar no GitHub</button></div>`;
+  const close=()=>{ $id('prepOverlay').style.display='none'; };
+  $id('prepClose').onclick=close; $id('prepCancelB').onclick=close;
+  $id('prepPublish').onclick=async(ev)=>{ const b=ev.currentTarget; b.disabled=true; b.textContent='publicando…';
+    const ok=await publishGithub(); if(ok) prPrepOpen(t.id, base); else { b.disabled=false; b.textContent='publicar no GitHub'; } };
+}
+// E4: publica o projeto ativo (só local) no GitHub pela conta ativa do gh. Devolve true se ficou publicado.
+async function publishGithub(){
+  if(typeof repoHasGit==='function' && !repoHasGit() && !await gitGate()) return false;
+  let owners=[]; try{ owners=(await invoke('gh_owners'))||[]; }catch(_){ }
+  if(!owners.length){ toast('Conecte sua conta do GitHub primeiro — depois é só publicar.','warn',{ label:'abrir Ambiente', fn:ERR_ACTIONS.env }); return false; }
+  const name=pathBase(state.repo)||'projeto';
+  if(!await askYes(`Publicar "${name}" no GitHub?\n\nCria o repositório PRIVADO ${owners[0]}/${name} (conta ativa do gh) e envia o código. Depois disso os PRs funcionam normalmente.`)) return false;
+  toast('publicando no GitHub…','info');
+  try{ const r=await invoke('publish_github',{ private:true, owner:owners[0] }); lastSig=''; await refresh(); toast('Projeto publicado no GitHub ✓'+(r&&/^https?:/.test(r)?' · '+r:''),'ok'); return true; }
+  catch(e){ showErr(e, 'Não consegui publicar no GitHub'); return false; }
+}
+// falha de um passo do PR: mensagem do catálogo (humanErr) + o texto cru pequeno + o botão que resolve.
+// Rede = "tentar de novo"; sem remote = "publicar no GitHub" (e aí refaz); login do gh = "abrir Ambiente".
+function prFail(n, e, retry, noRetry){
+  const h=humanErr(e), raw=errText(e);
+  const head=h.id==='generic' ? esc(errFirstLine(raw)) : `<b>${esc(h.msg)}</b>`+(h.id==='network'&&n===2?' <span class="dim">O commit local já foi feito; o botão só re-envia.</span>':'');
+  prepMark(n,'fail', head+((h.id==='generic' && raw.trim()===errFirstLine(raw))?'':`<div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(raw.slice(0,240))}</div>`)
+    +(h.action?`<div style="margin-top:8px"><button class="btn primary sm" id="prepFixAct${n}">${esc(h.action.label)}</button></div>`:''));
+  const b=$id('prepFixAct'+n);
+  if(b) b.onclick=async()=>{ b.disabled=true; let ok=false; try{ ok=await h.action.fn(); }catch(err){ showErr(err); } b.disabled=false; if(h.id==='no-remote' && ok) retry(); };
+  if(!noRetry && h.id!=='no-remote') prShowRetry(retry);
+  return h;
 }
 // mostra/atualiza um botão "tentar de novo" no rodapé do modal
 function prShowRetry(fn){
@@ -276,31 +389,30 @@ async function prPrepFinish(t, base){
   prHideRetry();
   prepMark(2,'run','commitando e enviando a branch…');
   try{ const msg=await invoke('push_task',{ taskId:t.id }); prepMark(2,'ok', esc(msg)); }
-  catch(e){ const h=prNetHint(e);
-    prepMark(2,'fail', (h?`<b>${esc(h)}</b><div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(String(e).slice(0,240))}</div>`:esc(String(e))));
-    prShowRetry(()=>prPrepFinish(t, base)); return; }
+  catch(e){ prFail(2, e, ()=>prPrepFinish(t, base)); return; }
   prepMark(3,'run','escrevendo a descrição do PR (o quê · o que foi feito · como testar)…');
   let prBody;
   try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
   catch(_){ prBody=prBodyOf(t); }
+  prBody=String(prBody||prBodyOf(t))+chkPrBodyExtra(t); // verificação real + "⚠ aprovado com checagem falhando: motivo"
   prepMark(3,'run','criando o PR no GitHub…');
   try{
     const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });
     prepMark(3,'ok', url?`<button class="btn sm" onclick="openExternal('${escA(url)}')" style="margin-top:4px">${esc(url.replace('https://',''))} ↗</button>`:'PR aberto');
     prHideRetry();
-    prCache[t.id]=undefined; await loadPr(t.id,true); lastSig=''; renderSide();
+    prCache[t.id]=undefined; await loadPr(t.id,true); lastSig='';
     if(typeof renderWorkspace==='function'&&fwTask===t.id){ fwMode='pr'; renderWorkspace(); }
-  }catch(e){ const s=String(e); const h=prNetHint(e);
+  }catch(e){ const s=errText(e);
     // gh sem acesso/SSO ao repo (comum em quem não é membro da org ou sem SSO): o
     // push funcionou, então dá pra criar o PR no NAVEGADOR (a sessão do dev tem acesso).
-    const ghAccess=/could not resolve to a repository|graphql|sso|not authorized|não enxerga/i.test(s);
-    prepMark(3,'fail', (h?`<b>${esc(h)}</b><div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(s.slice(0,240))}</div>`:esc(s)));
-    if(ghAccess && !h){
+    const ghAccess=/could not resolve to a repository|graphql|sso|not authorized|não enxerga/i.test(s) && humanErr(e).id!=='network';
+    prFail(3, e, ()=>prPrepFinish(t, base), true);
+    if(ghAccess){
       try{ const cu=await invoke('pr_compare_url',{ taskId:t.id, base }); const d=$id('prep3d');
         if(d&&cu){ d.insertAdjacentHTML('beforeend', `<div style="margin-top:8px"><button class="btn primary sm" data-prweb="${escA(cu)}" title="a branch já foi enviada — abre a página do GitHub pra criar o PR, onde a SUA conta tem acesso à org">criar o PR no navegador ↗</button></div>`);
           const wb=d.querySelector('[data-prweb]'); if(wb) wb.onclick=()=>invoke('open_url',{url:wb.dataset.prweb}).catch(()=>{}); }
       }catch(_){ prShowRetry(()=>prPrepFinish(t, base)); }
-    } else {
+    } else if(humanErr(e).id!=='no-remote'){
       // a branch já foi enviada — re-tentar só a criação do PR (ex.: falha de rede)
       prShowRetry(()=>prPrepFinish(t, base));
     }
@@ -322,23 +434,14 @@ async function reworkFromPr(taskId, btnEl){
     prCache[taskId]=undefined; lastSig=''; await refresh();
     return true;
   }
-  catch(e){ toast('Falha ao mandar corrigir: '+e,'err'); if(btn){ btn.disabled=false; btn.innerHTML=orig; } return false; }
+  catch(e){ showErr(e, 'Falha ao mandar corrigir'); if(btn){ btn.disabled=false; btn.innerHTML=orig; } return false; }
 }
 // merge SEMPRE squash (mesmo método em todas as telas do desktop)
 async function mergePr(taskId){
   const why=prMergeBlock(prCache[taskId]); if(prCache[taskId] && why){ toast('Não dá pra mergear agora: '+why,'warn'); return false; }
   if(!await askYes('Mergear o PR no GitHub (squash + apaga a branch remota)?')) return false;
   try{ await invoke('merge_pr',{ taskId, method:'squash' }); prCache[taskId]=undefined; lastSig=''; await refresh(); toast('PR mergeado','ok'); return true; }
-  catch(e){ alert('Merge do PR falhou:\n'+e); return false; }
-}
-function costBlock(taskId){
-  const cs=costsOf(taskId); if(!cs.length) return '';
-  const tc=taskCost(taskId);
-  const byAgent={};
-  for(const c of cs){ const k=c.agent||'?'; (byAgent[k]||(byAgent[k]={usd:0,tok:0}));  byAgent[k].usd+=c.usd||0; byAgent[k].tok+=(c.inTok||0)+(c.outTok||0); }
-  return `<div class="seclbl">Custo <span class="n">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span></div><div class="costlist">`+
-    Object.entries(byAgent).map(([a,v])=>`<div class="costrow"><span class="cav" style="background:${agentColor(a)}">${agentBadge(a)}</span><span class="cnm">${esc(a)}</span><span class="ctok">${fmtTok(v.tok)} tok</span><span class="cusd">${fmtUsd(v.usd)}</span></div>`).join('')+
-    `</div>`;
+  catch(e){ showErr(e, 'Merge do PR falhou'); return false; }
 }
 const ROLE_PT = { planner:"planejamento", builder:"construção", reviewer:"revisão" };
 
@@ -352,7 +455,6 @@ function render(){
     $id("graphPane").style.display="none";
     $id("feedPane").style.display="none";
     $id("rail").innerHTML='';
-    $id("side").innerHTML='';
     $id("busSummary").innerHTML='<span class="dim">—</span>';
     return;
   }
@@ -371,7 +473,7 @@ function render(){
   $id("feedPane").style.display = v==="feed"?"block":"none";
   $id("teamPane").style.display = v==="team"?"block":"none";
   // cada painel isolado: um erro num deles não derruba os outros nem o poll
-  safe(renderRail); safe(renderSide); safe(renderBus);
+  safe(renderRail); safe(renderBus);
   // só renderiza o painel central ativo (os outros ficam ocultos)
   if(v==="graph") safe(renderGraph);
   else if(v==="feed") safe(renderFeed);

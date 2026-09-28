@@ -1,0 +1,170 @@
+[
+ {
+  "id": "FT-1",
+  "area": "Features da mesa",
+  "titulo": "Começar sem portões: a tela sem projeto pergunta \"O que você quer fazer?\"",
+  "antes": "Sem projeto aberto, a tela dizia \"Nenhum projeto aberto\" com \"Abrir pasta\" e \"Criar projeto novo\". O segundo exigia escolher a pasta-mãe e vinha com o GitHub marcado (gh logado), antes de qualquer valor.",
+  "depois": "Agora a tela traz o título \"O que você quer fazer?\", uma caixa grande e 3 exemplos clicáveis (um app de agendamento de aulas, um site de portfólio, um relatório a partir de uma planilha), além do botão Começar (ou ⌘↵). Enquanto a pessoa digita, o nome da pasta sai do texto, sem IA: tira acentos e palavras vazias e fica com até 4 palavras. Aparece \"Vou criar a pasta ~/Documents/Starfork/<nome> · mudar nome\", e o nome dá pra editar ali mesmo. O Começar cria a pasta, com o sufixo -2, -3… se ela já existir, faz o git init e o 1º commit, SEM GitHub e sem gh. Depois abre como projeto ativo e abre o \"Montar conversando\" com o pedido JÁ ENVIADO como 1ª mensagem. Sem git, a mensagem em pt-BR ensina o conserto (xcode-select --install / git-scm.com). \"Abrir uma pasta que já tenho\" e \"Criar projeto com GitHub…\" continuam como links secundários. A Nova demanda sem projeto (botão e ⌘N) agora leva para esta caixa, não mais para Projetos.",
+  "motivo": "Proposta mais votada da mesa (17 pontos: Bia 5, Marcos 5, Carla 4, Rafa 2, Júlia 1). Atende o veto da Carla (nada de exigir GitHub, gh ou terminal de quem não programa) e a frase do Marcos (\"o aha está a 4 portões\"). A Bia pediu \"a porta de entrada sem repo\".",
+  "arquivos": [
+   "app/src/index.html",
+   "app/src/js/36-comecar.js",
+   "app/src/js/32-planner.js",
+   "app/src/js/15-config-abas-onboarding.js",
+   "app/src/css/30-refino-macos.css",
+   "app/src-tauri/src/lib.rs",
+   "app/README.md"
+  ],
+  "como_ver": "Feche todos os projetos (ou comece sem nenhum) e escreva \"um app de agendamento de aulas\". A linha \"Vou criar a pasta ~/Documents/Starfork/app-agendamento-aulas\" aparece. Clique em Começar: a pasta é criada, o projeto abre e o Montar conversando já chega com a sua mensagem enviada.",
+  "estado_mock": "Harness, cena empty-no-project (snapshot sem repo). O mock não tem quick_project_target nem quick_create_project, então a prévia mostra o nome base e o Começar não troca de projeto. A criação real foi validada só por cargo build e teste (unique_child/project_slug), não no app instalado.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/A-before/empty-no-project.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/A-after/empty-typed.png"
+  }
+ },
+ {
+  "id": "FT-1b",
+  "area": "Features da mesa",
+  "titulo": "Sem projeto, os itens da barra lateral que não funcionam ficam apagados",
+  "antes": "Sem projeto, Skills, Issues, Agentes & Equipes, Chat do projeto e Daily ficavam com cara de ativos e abriam telas vazias ou sem destino.",
+  "depois": "Sem projeto, esses itens ficam apagados (opacidade .42) com o tooltip \"abra ou crie um projeto primeiro\" e aria-disabled. Clicar mostra um aviso e leva o foco para a caixa \"O que você quer fazer?\". Nenhum item foi removido. Com projeto aberto, tudo volta ao normal, inclusive o tooltip original.",
+  "motivo": "Mesma decisão do item 1 da mesa: menos becos sem saída antes do primeiro valor (Bia e Marcos). A regra da Júlia foi mantida: nada de segunda UI nem de esconder itens.",
+  "arquivos": [
+   "app/src/js/36-comecar.js",
+   "app/src/js/10-core.js",
+   "app/src/css/30-refino-macos.css"
+  ],
+  "como_ver": "Sem projeto aberto, passe o mouse em Skills e clique.",
+  "estado_mock": "Harness, cena empty-no-project.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/A-before/empty-no-project.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/A-after/empty-sidebar-click.png"
+  }
+ },
+ {
+  "id": "FT-2",
+  "area": "Features da mesa",
+  "titulo": "Nova demanda numa caixa só",
+  "antes": "A aba Nova demanda abria em \"Que tipo de demanda é essa?\", com 6 cartões de tipo e 3 métodos (conversando / formulário / vários agentes) antes de escrever qualquer coisa.",
+  "depois": "A aba agora abre com \"no projeto: <seletor de projeto>\", o título \"O que precisa ser feito?\" e UMA caixa (\"Descreva o que você quer (em português normal)…\"), mais o botão Continuar (ou ⌘↵). O Continuar vira, na mesma aba, o \"Montar conversando\" com o texto já enviado, e a IA decide entre tarefa única e épico. Os 6 tipos, os 3 métodos, o importar .md e o Continuar antigo foram para \"Mais opções (tipo de demanda, formulário, dividir entre agentes)\" e continuam funcionando. O disclosure lembra se foi aberto (localStorage nd:more), então quem prefere o formulário o encontra aberto. O texto digitado sobrevive à troca de aba e de projeto. ⌘N, o botão Nova demanda e openTab('nova') seguem iguais. Se o projeto já tinha um rascunho de conversa, o pedido não se mistura com ele: fica na caixa do planner, com um aviso.",
+  "motivo": "Segunda proposta mais votada (13 pontos: Júlia 5, Bia 4, Marcos 4). A Júlia a pôs como nº 1 (\"apaga 3 das 4 portas e 6 tipos da primeira tela\"). O Marcos pediu \"um caminho só de Nova demanda (planner decide tipo/épico)\". Os devs mantêm tudo em Mais opções, que atende o Rafa.",
+  "arquivos": [
+   "app/src/js/14-nova-demanda-inicio.js",
+   "app/src/js/32-planner.js",
+   "app/src/css/30-refino-macos.css"
+  ],
+  "como_ver": "Clique em Nova demanda (⌘N), escreva \"o botão de pagar some no celular\" e clique em Continuar: a mesma aba vira Montar conversando com a mensagem enviada. Em Mais opções ficam os tipos e os métodos.",
+  "estado_mock": "Harness, cena nova-demanda. O mock tem rascunho de planner (cai no caminho \"texto na caixa + aviso\"). Com load_draft=null, a mensagem sai enviada (shot nova-demanda-autoenvio.png). O \"(sem resposta)\" é do formato do mock do ai_chat.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/A-before/nova-demanda.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/A-after/nova-demanda.png"
+  }
+ },
+ {
+  "id": "BUG-8",
+  "area": "Bugs de jornada",
+  "titulo": "O planner não fecha nem zera mais a aba \"Preencher eu mesmo\"",
+  "antes": "plCreate e plCreateEpic chamavam closeNewTask() e resetNewTask(), e isso fechava a última aba de formulário aberta (outra demanda), que perdia o texto. plCreate também lia ntIssueUrl do DOM do formulário, e a issue de outra aba ia parar na tarefa.",
+  "depois": "O planner fecha só a si mesmo. O issueUrl sai de plFields. O botão \"Montar conversando\" do cabeçalho do formulário (#ntAI) troca a MESMA aba para o planner (openTab replace), em vez de abrir o planner por cima do formulário.",
+  "motivo": "Achado do bug hunt (bugs-jornada.md #8).",
+  "arquivos": [
+   "app/src/js/32-planner.js",
+   "app/src/js/33-switcher-projetos.js"
+  ],
+  "como_ver": "Abra uma aba Preencher eu mesmo com texto e outra Montar conversando. Crie pela conversa: a aba do formulário continua lá, com o texto.",
+  "estado_mock": "Revisão de código + node --check. Sem shot.",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "BUG-10",
+  "area": "Bugs de jornada",
+  "titulo": "Projeto novo com GitHub que falha não vira mais beco sem saída",
+  "antes": "create_project criava a pasta, o git e o commit e só depois rodava o gh. Se o gh falhasse, voltava erro sem abrir o projeto, e a nova tentativa dizia \"já existe uma pasta X\".",
+  "depois": "Se a pasta já existe e é um repositório git, ela é REAPROVEITADA: não há novo init, e o gh só roda se não houver origin. Pasta com outros arquivos e sem git continua recusada, com mensagem em pt-BR. Quando o gh falha, o erro vem com o marcador GH_FAIL::<pasta>::, e a tela de Projetos mostra o motivo em pt-BR e o botão \"abrir mesmo assim, sem GitHub\" (open_project).",
+  "motivo": "Achado do bug hunt (#10); é o mesmo espírito do veto da Carla.",
+  "arquivos": [
+   "app/src-tauri/src/lib.rs",
+   "app/src/js/13-skills-projetos.js"
+  ],
+  "como_ver": "Projetos → + novo projeto com o GitHub marcado e o gh deslogado: aparece o motivo + \"abrir mesmo assim, sem GitHub\". Clicar em \"criar projeto\" de novo reaproveita a pasta.",
+  "estado_mock": "Validado só por cargo build/test. O mock devolve sucesso no create_project.",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "BUG-15",
+  "area": "Bugs de jornada",
+  "titulo": "O botão Finder em Projetos abre a pasta",
+  "antes": "Chamava open_url com file://…, e o open_url recusa o que não é http(s). O erro sumia num .catch vazio.",
+  "depois": "Novo comando reveal_project(path), async e registrado: só aceita pastas que estão na lista de projetos e abre com open, explorer ou xdg-open. O erro aparece num toast.",
+  "motivo": "Achado do bug hunt (#15).",
+  "arquivos": [
+   "app/src-tauri/src/lib.rs",
+   "app/src/js/13-skills-projetos.js"
+  ],
+  "como_ver": "Projetos → Finder num cartão.",
+  "estado_mock": "cargo build. O mock não tem reveal_project (vira warn [mock-missing]).",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "BUG-18",
+  "area": "Bugs de jornada",
+  "titulo": "Duplo clique em \"iniciar\" no formulário não cria 2 tarefas",
+  "antes": "submitNewTask fazia await Coordenacao.overlapCheck (e o askYes) antes de desativar o botão, então 2 cliques criavam 2 tarefas.",
+  "depois": "submitNewTask virou um invólucro com a trava ntSubmitting: uma submissão por vez, em todos os modos (review/fix/design/invest/build). O corpo foi para submitNewTaskInner.",
+  "motivo": "Achado do bug hunt (#18).",
+  "arquivos": [
+   "app/src/js/32-planner.js"
+  ],
+  "como_ver": "Formulário com escopo declarado → dois cliques rápidos em iniciar: sai 1 tarefa.",
+  "estado_mock": "Revisão de código + node --check.",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "BUG-20",
+  "area": "Bugs de jornada",
+  "titulo": "Remover o projeto ativo fecha o projeto",
+  "antes": "remove_project só tirava o projeto da lista. O projeto seguia aberto, e o list_projects o devolvia à lista no refresh seguinte.",
+  "depois": "Se o projeto removido é o ativo, o Rust passa para o próximo da lista que tenha workspace, ou para nenhum (estado vazio \"O que você quer fazer?\"). O front recarrega o snapshot e a lista (aba Projetos e menu legado).",
+  "motivo": "Achado do bug hunt (#20).",
+  "arquivos": [
+   "app/src-tauri/src/lib.rs",
+   "app/src/js/13-skills-projetos.js",
+   "app/src/js/33-switcher-projetos.js"
+  ],
+  "como_ver": "Projetos → remover o projeto ativo: a Central troca para o próximo projeto ou mostra a tela inicial.",
+  "estado_mock": "cargo build. O mock não muda de estado.",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "BUG-22",
+  "area": "Bugs de jornada",
+  "titulo": "Nome com acento vira slug certo, e o 1º commit usa a identidade do usuário",
+  "antes": "\"Painel Finanças\" virava painel-finan-as. O 1º commit sempre saía como \"Starfork <starfork@local>\", porque o -c era tentado primeiro.",
+  "depois": "project_slug troca a letra acentuada pela letra base (á→a, ç→c, ñ→n…) e colapsa hífens: \"Painel Finanças — Ação\" vira painel-financas-acao (coberto por teste). O commit inicial usa a identidade do git quando ela existe, e o fallback Starfork só entra quando não há user.email, como o git_init_repo já fazia.",
+  "motivo": "Achado do bug hunt (#22).",
+  "arquivos": [
+   "app/src-tauri/src/lib.rs"
+  ],
+  "como_ver": "Criar o projeto \"Painel Finanças\" e rodar git log -1 --format=%an na pasta.",
+  "estado_mock": "cargo test (quick_project_tests::nome_livre_com_sufixo).",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ }
+]

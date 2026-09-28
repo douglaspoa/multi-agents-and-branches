@@ -8,9 +8,9 @@ detalhe da tarefa (reivindicações, diff, log) e o barramento de coordenação.
 - **Tauri v2** → no macOS usa o **WKWebView do sistema** (mesmo motor do Safari), binário
   pequeno, feel nativo. Multiplataforma de graça quando quisermos ligar Windows/Linux.
 - **Backend Rust** (`src-tauri/src/lib.rs`) lê o SQLite via `rusqlite` (read-only) e expõe
-  os comandos `set_repo`, `current_repo`, `snapshot`.
-- **Frontend** (`src/index.html`) é 100% offline (sem Google Fonts), poll de `snapshot()`
-  a cada 700ms.
+  os comandos `set_repo`, `snapshot_stamp`, `snapshot` (entre outros).
+- **Frontend** (`src/index.html`) é 100% offline (sem Google Fonts), poll de `snapshot_stamp()`
+  a cada 1s; `snapshot()` inteiro só quando o carimbo muda (ou a cada 3s).
 
 ## Pré-requisitos (uma vez)
 
@@ -53,7 +53,7 @@ app/
       50-workspace-planner.css  tela da tarefa (3 colunas), planner, PR, artefatos
       60-grafo-times-nova-demanda.css  grafo, espaço Times, formulário da Nova demanda
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
-      00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH — helpers usados por todos
+      00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH, pathBase/pathDir, osKind, toast (com ação) e o catálogo de erros pt-BR humanErr/showErr — helpers usados por todos
       05-cosmos.js          céu estrelado dos loadings (cosmosHtml/cosmosStart)
       10-core.js            invoke, ícones, refresh() do snapshot, notificações
       11-ambiente-updater.js  preflight (node/git/claude/gh) e updater
@@ -74,11 +74,13 @@ app/
       31-nova-demanda-form.js formulário por etapas, política do repo, épico, spec com IA
       32-planner.js           "Montar conversando" (chat + TASK.yaml ao vivo)
       33-switcher-projetos, 34-orquestrador (briefing → plano em grafo → tarefas por fase + coordenação por prova).js troca de projeto
-      40-nuvem-conta.js       Supabase: login, org, times
+      39-i18n-auth.js         textos da conta por idioma (T) + tradução única dos erros do Supabase Auth (authErrPt); testes em js/__tests__ (node --test)
+      40-nuvem-conta.js       Supabase: sessão (sbAuth/sbRefresh/sbLogout), org, times
       41-assinatura-chaves.js Stripe + chaves de modelo da conta
       42-nuvem-sync-mobile.js cartões compartilhados, túnel, pontes do celular, APNs
       43-espaco-times.js      espaço Times (visão geral, quadro, PRs, pessoas)
       44-onboarding.js        entrada e assinatura: criar conta, entrar, código de e-mail, senha, planos, pagamento, pronto
+      53-teto-protecao.js     teto de custo por tarefa (pausa + pergunta sintética em "aguardando você") e modo protegido (selo + Preferências do projeto); fmtCost/fmtCostRange ficam no 00-util
   src-tauri/
     Cargo.toml              deps: tauri, rusqlite (bundled), serde
     tauri.conf.json         janela, frontendDist=../src, withGlobalTauri
@@ -108,3 +110,4 @@ vivo, claims, diff, log e as colisões do barramento — atualizando em tempo re
 - Trocar o poll por **push** (o Rust observa o arquivo e emite evento pro webview).
 - **Empacotar** (`npm run build`) com ícones `.icns` completos e assinatura.
       35-ref-tarefa.js        "/" na descrição da Nova demanda/planner referencia tarefa JÁ FEITA (busca, projeto) → contexto + docs no spec
+      36-comecar.js           "Começar sem portões": tela sem projeto = "O que você quer fazer?" → cria ~/Documents/Starfork/<nome> (git, sem GitHub) e abre o planner com o pedido enviado; apaga itens da sidebar sem projeto

@@ -73,18 +73,6 @@ async function reorderFlow(dragId, targetId){
   try{ await invoke("reorder_tasks",{ ids }); lastSig=""; await refresh(); }
   catch(e){ console.error("reorder_tasks", e); }
 }
-function commitsBlock(taskId){
-  const c=commitsCache[taskId];
-  if(c===undefined){ loadCommits(taskId).then(()=>{ if(selected===taskId) renderSide(); }); return '<div class="seclbl">Commits</div><div class="dim" style="font-size:12px">…</div>'; }
-  if(!c.length) return '';
-  const ag=((state.tasks||[]).find(x=>x.id===taskId)||{}).agent||'';
-  return `<div class="seclbl">Commits <span class="n">${c.length}</span></div><div class="sidecommits">${c.map(x=>commitChip(x,ag)).join("")}</div>`;
-}
-function errBanner(t){
-  if(t.status!=='error' && t.status!=='conflict') return '';
-  const e = eventsOf(t.id).filter(x=>x.type==='error').slice(-1)[0];
-  return `<div class="errbox">${esc(e?e.text:(t.status==='conflict'?'conflito de merge — resolva manualmente':'erro no agente'))}</div>`;
-}
 
 function pendingOf(taskId){ return (state.pending||[]).filter(p=>p.taskId===taskId); }
 
@@ -101,7 +89,7 @@ async function loadArtifacts(taskId, status){
 // ---------- provas por requisito (requirements.json gerado pelo agente) ----------
 const reqProofCache={}; // taskId -> {list:[...]|null}
 async function loadReqProofs(taskId){
-  try{ const c=await invoke('read_artifact',{ taskId, name:'requirements.json' }); const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
+  try{ const c=await invokeQuiet('read_artifact',{ taskId, name:'requirements.json' }); /* opcional: tarefa sem requisitos não tem o arquivo (não é erro) */ const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
   catch(_){ reqProofCache[taskId]={list:null}; }
 }
 function reqNorm(x){ return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
@@ -116,23 +104,6 @@ function matchReqProofs(reqs, list){
     if(list.length===reqs.length && list[i]) return list[i];
     return list.find(x=>{ const m=reqNorm(x.req); return m&&(m.includes(n)||n.includes(m)); })||null;
   });
-}
-function reqsBlock(t){
-  const reqs=Array.isArray(t.requirements)?t.requirements:[]; if(!reqs.length) return '';
-  const c=reqProofCache[t.id];
-  if(c===undefined){ loadReqProofs(t.id).then(()=>{ if(selected===t.id) renderSide(); }); }
-  const matched=matchReqProofs(reqs, c&&c.list);
-  const rows=reqs.map((r,ri)=>{
-    const m=matched[ri];
-    const st=m?(m.status==='done'?'ok':'blk'):'na';
-    const icon= st==='ok'?`<span class="reqst ok">${IC.check}</span>` : st==='blk'?'<span class="reqst blk">!</span>' : '<span class="reqst na">·</span>';
-    const ev=(m&&Array.isArray(m.evidence)&&m.evidence.length)?`<span class="reqev">${m.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</span>`:'';
-    const note=(m&&m.note&&st==='blk')?`<div class="reqnote">${esc(m.note)}</div>`:'';
-    return `<div class="critrow2 ${st}">${icon}<div class="crt"><div>${esc(r)} ${ev}</div>${note}</div></div>`;
-  }).join('');
-  const canCheck=(!c||c.list===null)&&['review','error','aborted'].includes(t.status)&&(t.roles||[]).some(r=>r.engine==='claude');
-  const hint=(c&&c.list===null)?(canCheck?'<button class="btn sm" id="brReqCheck" style="margin-top:6px">verificar requisitos agora (gera as provas)</button>':'<div class="dim" style="font-size:10.5px;margin-top:4px">provas por requisito aparecem quando o agente gera o requirements.json</div>'):'';
-  return `<div class="seclbl">Critérios de aceite <span class="n">${reqs.length}</span></div>${rows}${hint}`;
 }
 function artCategory(name){
   const n=name.toLowerCase();
@@ -157,15 +128,10 @@ function artListHtml(a){
   for(const c of cats){ if(!by[c]||!by[c].length) continue; html+=`<div class="artcat">${c} · ${by[c].length}</div>`+by[c].map(artItemHtml).join(''); }
   return html+`</div>`;
 }
-function artifactsBlock(t){
-  const c = artifactsCache[t.id];
-  if(!c || c.status!==t.status){ loadArtifacts(t.id, t.status).then(()=>{ if(selected===t.id) renderSide(); }); return c ? artListHtml(c.list) : ''; }
-  return artListHtml(c.list);
-}
 async function openArtifact(taskId, name){
   let c;
   try{ c = await invoke("read_artifact",{ taskId, name }); }
-  catch(e){ alert("Falha ao abrir o artefato:\n"+e); return; }
+  catch(e){ showErr(e, 'Falha ao abrir o artefato'); return; }
   const isHtml=/\.html?$/i.test(name);
   const isPdf=c.kind==='pdf';
   const modal=document.querySelector('#artOverlay .modal'); if(modal) modal.classList.toggle('pdfmode', isPdf);
@@ -183,19 +149,20 @@ async function openArtifact(taskId, name){
   $id("artTitle").textContent = name;
   $id("artBody").innerHTML = extBtn + body;
   // cabeçalho: abrir no Preview (PDF) + enviar pro Slack (qualquer artefato)
-  { const h=document.querySelector('#artOverlay .mhead'); ['artOpenExt','artSlack','artFinder'].forEach(id=>{ const o=$id(id); if(o) o.remove(); });
+  { const h=document.querySelector('#artOverlay .mhead'); ['artOpenExt','artSlack','artFinder','artMdPdf'].forEach(id=>{ const o=$id(id); if(o) o.remove(); });
     if(h){ const x=h.querySelector('#artClose');
       const fd=document.createElement('button'); fd.id='artFinder'; fd.className='btn sm'; fd.style.marginRight='8px'; fd.innerHTML=ic('folder')+'Finder';
-      fd.title='revelar o arquivo no Finder'; fd.onclick=()=>invoke('reveal_artifact',{ taskId, name }).catch(e=>alert('Falha ao revelar:\n'+e));
+      fd.title='revelar o arquivo no Finder'; fd.onclick=()=>invoke('reveal_artifact',{ taskId, name }).catch(e=>showErr(e, 'Falha ao revelar'));
       h.insertBefore(fd, x);
       const sl=document.createElement('button'); sl.id='artSlack'; sl.className='btn sm'; sl.style.marginRight='8px'; sl.innerHTML=ic('send')+'Slack';
       sl.title='enviar este arquivo pra um canal do Slack'; sl.onclick=()=>sendArtifactSlack(taskId, name);
       h.insertBefore(sl, x);
-      if(isPdf){ const bx=document.createElement('button'); bx.id='artOpenExt'; bx.className='btn sm'; bx.style.marginRight='8px'; bx.textContent='↗ abrir no Preview'; bx.onclick=()=>invoke('open_artifact',{ taskId, name }).catch(e=>alert('Falha:\n'+e)); h.insertBefore(bx, x); } } }
-  bindClick('artExt', ()=>{ invoke('open_artifact',{ taskId, name }).catch(e=>alert('Falha ao abrir:\n'+e)); });
+      if(/\.(md|markdown)$/i.test(name)){ const pb=document.createElement('button'); pb.id='artMdPdf'; pb.className='btn sm'; pb.style.marginRight='8px'; pb.innerHTML=ic('doc')+'exportar PDF'; pb.title='gera um PDF formatado deste documento'; pb.onclick=()=>mdArtifactPdf(taskId, name, pb); h.insertBefore(pb, x); }
+      if(isPdf){ const bx=document.createElement('button'); bx.id='artOpenExt'; bx.className='btn sm'; bx.style.marginRight='8px'; bx.textContent='↗ abrir no Preview'; bx.onclick=()=>invoke('open_artifact',{ taskId, name }).catch(e=>showErr(e, 'Falha')); h.insertBefore(bx, x); } } }
+  bindClick('artExt', ()=>{ invoke('open_artifact',{ taskId, name }).catch(e=>showErr(e, 'Falha ao abrir')); });
   $id("artOverlay").style.display = "flex";
 }
-function closeArtifact(){ $id("artOverlay").style.display="none"; $id("artBody").innerHTML=""; const m=document.querySelector('#artOverlay .modal'); if(m) m.classList.remove('pdfmode'); ['artOpenExt','artSlack'].forEach(id=>{ const e=$id(id); if(e) e.remove(); }); }
+function closeArtifact(){ $id("artOverlay").style.display="none"; $id("artBody").innerHTML=""; const m=document.querySelector('#artOverlay .modal'); if(m) m.classList.remove('pdfmode'); ['artOpenExt','artSlack','artMdPdf'].forEach(id=>{ const e=$id(id); if(e) e.remove(); }); }
 // envia um artefato pro Slack (bot token no cofre da conta; canal salvo local)
 async function sendArtifactSlack(taskId, name){
   try{
@@ -211,8 +178,8 @@ async function sendArtifactSlack(taskId, name){
     const comment=await askText('Comentário (opcional)','ex.: segue o documento de arquitetura', '');
     if(comment===null) return;
     const msg=await invoke('slack_send_artifact',{ taskId, name, channel:ch, comment });
-    alert('✔ '+msg);
-  }catch(e){ alert('Falhou o envio pro Slack:\n'+(e&&e.message||e)); }
+    toast(msg,'ok');
+  }catch(e){ showErr(e, 'Falhou o envio pro Slack'); }
 }
 // ---- editor de código reutilizável: mono + números de linha + Tab + prévia MD ----
 function mountEditor(ta, opts){
@@ -258,17 +225,31 @@ function editorSet(ta, val){
   if(wrap){ const edit=wrap.querySelector('[data-cev="edit"]'); if(edit) edit.click(); }
   ta.dispatchEvent(new Event('input'));
 }
-// mini-renderer de Markdown (headings, listas, code, bold/italic, links, hr)
+// mini-renderer de Markdown (headings, listas, code, bold/italic, links, hr, tabelas)
+// SEGURANÇA (BUG-1): o texto vem de fora (comentário de PR, saída do agente, artefato) e o app roda com
+// csp:null + withGlobalTauri — escapa TUDO (inclusive aspas) e só aceita link http(s)/mailto. O link não
+// usa target=_blank (o WKWebView ignora): leva data-exthref e o clique delegado abaixo abre fora (BUG-12).
+function mdSafeHref(u){ const raw=String(u||'').replace(/&amp;/g,'&').trim(); return /^(https?:\/\/|mailto:)/i.test(raw)?raw:''; }
 function mdToHtml(md){
-  const e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const inline=s=>e(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  const e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const link=(m,label,url)=>{ const h=mdSafeHref(url); return h?`<a href="${e(h)}" data-exthref="${e(h)}" rel="noreferrer">${label}</a>`:label; };
+  const inline=s=>e(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,link);
   const lines=String(md).replace(/\r\n/g,'\n').split('\n');
   let html='', inCode=false, code=[], list=null, para=[];
   const fp=()=>{ if(para.length){ html+='<p>'+inline(para.join(' '))+'</p>'; para=[]; } };
   const fl=()=>{ if(list){ html+='</'+list+'>'; list=null; } };
-  for(const line of lines){
+  const isRow=l=>/^\s*\|.*\|\s*$/.test(l), isSep=l=>/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  const cells=l=>l.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>c.trim());
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
     if(line.trim().startsWith('```')){ if(inCode){ html+='<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>'; code=[]; inCode=false; } else { fp(); fl(); inCode=true; } continue; }
     if(inCode){ code.push(line); continue; }
+    if(isRow(line) && i+1<lines.length && isSep(lines[i+1])){ // tabela GFM
+      fp(); fl(); const head=cells(line); i++;
+      const body=[]; while(i+1<lines.length && isRow(lines[i+1])){ i++; body.push(cells(lines[i])); }
+      html+='<div class="mdtablew"><table class="mdtable"><thead><tr>'+head.map(c=>'<th>'+inline(c)+'</th>').join('')+'</tr></thead><tbody>'+body.map(r=>'<tr>'+r.map(c=>'<td>'+inline(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';
+      continue;
+    }
     const h=line.match(/^(#{1,6})\s+(.*)$/);
     if(h){ fp(); fl(); const lv=h[1].length; html+='<h'+lv+'>'+inline(h[2])+'</h'+lv+'>'; continue; }
     if(/^\s*[-*+]\s+/.test(line)){ fp(); if(list!=='ul'){ fl(); html+='<ul>'; list='ul'; } html+='<li>'+inline(line.replace(/^\s*[-*+]\s+/,''))+'</li>'; continue; }
@@ -280,6 +261,65 @@ function mdToHtml(md){
   fp(); fl(); if(inCode&&code.length) html+='<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>';
   return html;
 }
+// BUG-12: links do Markdown renderizado (e qualquer <a target=_blank> http) abrem no navegador do sistema
+document.addEventListener('click', ev=>{
+  const a=ev.target&&ev.target.closest&&ev.target.closest('a[data-exthref],a[target="_blank"][href^="http"]'); if(!a) return;
+  const href=a.getAttribute('data-exthref')||a.getAttribute('href')||''; if(!/^(https?:\/\/|mailto:)/i.test(href)) return;
+  ev.preventDefault(); if(/^mailto:/i.test(href)) return; // o open_url só abre http/https
+  if(typeof openExternal==='function') openExternal(href);
+});
+// ---- PRÉVIA REAL de um entregável (Entrega): imagem · PDF · Markdown · CSV/TSV em tabela · HTML · texto ----
+const PV_MAX_ROWS=200;
+// CSV/TSV → linhas (aspas, "" escapado, quebra de linha dentro de aspas). Separador: tab, ; ou , (o mais frequente na 1ª linha)
+function csvParse(text, sep){
+  const s=String(text||'').replace(/^﻿/,'');
+  if(!sep){ const first=s.split('\n')[0]||''; const cnt=c=>first.split(c).length-1; sep=['\t',';',','].reduce((b,c)=>cnt(c)>cnt(b)?c:b, ','); }
+  const rows=[]; let row=[], cell='', q=false;
+  for(let i=0;i<s.length;i++){
+    const ch=s[i];
+    if(q){ if(ch==='"'){ if(s[i+1]==='"'){ cell+='"'; i++; } else q=false; } else cell+=ch; continue; }
+    if(ch==='"' && cell===''){ q=true; continue; }
+    if(ch===sep){ row.push(cell); cell=''; continue; }
+    if(ch==='\n'||ch==='\r'){ if(ch==='\r'&&s[i+1]==='\n') i++; row.push(cell); rows.push(row); row=[]; cell=''; continue; }
+    cell+=ch;
+  }
+  if(cell!==''||row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r=>!(r.length===1&&r[0]===''));
+}
+function csvTableHtml(text, name){
+  const rows=csvParse(text, /\.tsv$/i.test(name||'')?'\t':null);
+  if(!rows.length) return '<div class="en-empty">planilha vazia</div>';
+  const head=rows[0], body=rows.slice(1, PV_MAX_ROWS+1);
+  const more=rows.length-1-body.length;
+  return `<div class="pvtable-w"><table class="pvtable"><thead><tr><th class="rn">#</th>${head.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${body.map((r,i)=>`<tr><td class="rn">${i+1}</td>${head.map((_,j)=>`<td>${esc(r[j]==null?'':r[j])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`+
+    `<div class="pvnote">${rows.length-1} linha${rows.length-1===1?'':'s'} · ${head.length} coluna${head.length===1?'':'s'}${more>0?` · mostrando as primeiras ${PV_MAX_ROWS} — abra no app padrão pra ver tudo`:''}</div>`;
+}
+function pvKind(name){ const n=String(name||'').toLowerCase();
+  return /\.(png|jpe?g|gif|webp|svg)$/.test(n)?'image' : /\.pdf$/.test(n)?'pdf' : /\.(md|markdown)$/.test(n)?'md' : /\.(csv|tsv)$/.test(n)?'csv'
+    : /\.html?$/.test(n)?'html' : /\.(txt|log|json|ya?ml|xml|js|ts|py|sql|sh|toml|ini)$/.test(n)?'text' : 'other'; }
+// conteúdo já lido (read_artifact) → HTML da prévia
+function artPreviewHtml(name, c){
+  const k=pvKind(name);
+  if(!c) return '<div class="en-empty">carregando a prévia…</div>';
+  if(c.err) return `<div class="en-empty" style="color:var(--warn)">não consegui ler o arquivo: ${esc(c.err)}</div>`;
+  if(k==='image' && c.dataUrl) return `<div class="pvimg"><img src="${c.dataUrl}" alt="${escA(name)}"></div>`;
+  if(k==='pdf' && c.dataUrl) return `<iframe class="pvpdf" src="${c.dataUrl}#zoom=page-width" title="${escA(name)}"></iframe>`;
+  const tx=c.text==null?null:String(c.text);
+  if(tx==null) return `<div class="en-empty">este formato não tem prévia aqui — use <b>abrir no app padrão</b></div>`;
+  const big=tx.length>400000; const t=big?tx.slice(0,400000):tx;
+  if(k==='md') return `<div class="mdview pvmd">${mdToHtml(t)}</div>`;
+  if(k==='csv') return csvTableHtml(t, name);
+  if(k==='html') return `<iframe class="pvhtml" sandbox="" srcdoc="${escA(t)}" title="${escA(name)}"></iframe>`; // sandbox vazio: sem script
+  return `<pre class="artpre pvtext">${esc(t)}</pre>${big?'<div class="pvnote">arquivo grande — mostrando o começo</div>':''}`;
+}
+// BUG-23: Markdown → PDF (mesmo gerador do daily/relatório)
+async function mdArtifactPdf(taskId, name, btn){
+  const o=btn?btn.innerHTML:''; if(btn){ btn.disabled=true; btn.textContent='gerando PDF…'; }
+  try{ const c=await invoke('read_artifact',{ taskId, name }); const p=await invoke('html_to_pdf',{ html: dailyPdfHtml(c.text||'', new Date().toLocaleDateString('pt-BR')), name:(taskId+'-'+name).replace(/\.(md|markdown)$/i,'').replace(/[\/\\]/g,'-') });
+    toast('PDF salvo'+(p?' em '+p:''),'ok'); }
+  catch(e){ showErr(e, 'Falhou o PDF'); }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=o; } }
+}
 
 async function sendRework(taskId, inputEl, prefix){
   if(!inputEl) return;
@@ -288,27 +328,14 @@ async function sendRework(taskId, inputEl, prefix){
   try{
     await invoke("rework_task",{ taskId, text:(prefix||'')+v });
     inputEl.value=""; closeCommit(); lastSig=""; await refresh();
-  }catch(e){ alert("Falha ao pedir ajuste:\n"+e); }
+  }catch(e){ showErr(e, 'Falha ao pedir ajuste'); }
   finally{ if(inputEl){ inputEl.disabled=false; } }
 }
-async function sendInstruction(taskId){
-  const inp=$id('instrInput'); if(!inp) return;
-  const text=inp.value.trim(); if(!text) return;
-  inp.disabled=true;
-  try{ await invoke("add_instruction",{ taskId, text }); inp.value=""; lastSig=""; await refresh(); }
-  catch(e){ alert("Falha ao enviar instrução:\n"+e); }
-  finally{ const i2=$id('instrInput'); if(i2){ i2.disabled=false; i2.focus(); } }
-}
 async function resolvePending(id, answer){
-  try{ await invoke("resolve_pending", { id, answer }); await refresh(); }
-  catch(e){ console.error("resolve_pending", e); }
+  if(+id<0 && typeof budgetAnswer==='function') return budgetAnswer(+id, answer); // pergunta do teto de custo (sintética)
+  // E2 (bug #2): o erro SOBE — quem chamou (fwSendMsg) devolve o texto digitado ao campo e mostra o erro.
+  // Antes era engolido aqui: o input já tinha sido limpo e a resposta sumia sem aviso.
+  await invoke("resolve_pending", { id, answer });
+  try{ await refresh(); }catch(_){ }
 }
 /** Bloco compacto no painel: preview da pergunta + botão que abre o MODAL. */
-function questionBlock(taskId){
-  const ps = pendingOf(taskId);
-  if(ps.length===0) return "";
-  return ps.map(p=>`<div class="qbox"><div class="qh">${IC.q} ${esc(p.agent)} · aguardando você</div><div class="qq clamp3">${esc(p.prompt)}</div><div class="qc"><button class="btn primary sm" data-askopen="${p.id}">${IC.q} Responder ›</button></div></div>`).join("");
-}
-function wireQuestion(root){
-  root.querySelectorAll("[data-askopen]").forEach(b=>b.onclick=()=>openAsk(+b.dataset.askopen));
-}

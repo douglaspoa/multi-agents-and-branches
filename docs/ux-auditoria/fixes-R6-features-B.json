@@ -1,0 +1,86 @@
+[
+  {
+    "id": "FT-3a",
+    "area": "Features da mesa",
+    "titulo": "Custo antes da execução, em US$ e ≈ R$",
+    "antes": "A estimativa do 'Como executar?' só aparecia em dólar ('~$0.45–$1.95'), e o planner (Montar conversando) não mostrava estimativa nenhuma. O custo da tarefa, do rodapé, do Time e do daily também saía só em US$.",
+    "depois": "Um helper só (fmtCost/fmtCostRange no 00-util) mostra 'US$ 5 (≈ R$ 27,50)' e '~US$ 0,45–1,95 (≈ R$ 2–11)'. O planner ganhou a linha 'deve custar …' acima do 'criar e rodar'. O mesmo formato vale no custo da tarefa (menu ⋯ e rodapé da árvore), na barra de status, no Time/Visão geral, no resumo da tarefa e no daily. A cotação é editável em Configurações ('Cotação do dólar usada nas estimativas', padrão 5,5).",
+    "motivo": "Decisão 3 da mesa (10 pontos: Rafa 4, Carla 3, Bia 2, Marcos 1). Bia: 'deve custar ~R$ 15–25' antes de aprovar; Marcos: o paywall por paralelismo só funciona com custo em R$ antes.",
+    "arquivos": ["app/src/js/00-util.js", "app/src/js/32-planner.js", "app/src/js/31-nova-demanda-form.js", "app/src/js/15-config-abas-onboarding.js", "app/src/js/20-workspace-tarefa.js", "app/src/js/22-quadro-fluxo.js", "app/src/js/26-sidebar-projetos.js", "app/src/js/43-espaco-times.js", "app/src/js/12-chat-prefs-daily.js", "app/src/js/53-teto-protecao.js"],
+    "como_ver": "Nova demanda → Montar conversando: rodapé do resumo à direita. Ou Preencher eu mesmo → etapa 'Quem executa?': linha 'Estimativa grosseira'. Configurações: campo da cotação.",
+    "estado_mock": "harness: cena planner (rola até .plmeshfoot) e o formulário na etapa how; cena cfg",
+    "shots": { "before": "r6shots/B-planner-before.png, r6shots/B-como-executar-before.png", "after": "r6shots/B-planner-after.png, r6shots/B-como-executar-after.png" }
+  },
+  {
+    "id": "FT-3b",
+    "area": "Features da mesa",
+    "titulo": "Teto por tarefa: pausa e pergunta em 'Aguardando você'",
+    "antes": "Havia um 'limite de custo' global que só notificava e um 'teto rígido' opcional que chamava stop_task: a tarefa estourada ia para 'Pronta pra revisar' e ainda disparava 'Pronta para review ✓'. Não dava pra definir teto por tarefa.",
+    "depois": "Configurações tem 'Teto por tarefa: US$ 5 (0 = sem teto)'. Na criação (planner e 'Quem executa?') há o campo 'parar e me perguntar se passar de US$ [5] ≈ R$ 27,50', gravado no spec da tarefa (spec.budgetUsd via patch_task_spec, sobrevive a reinício). Quando o custo acumulado chega no teto, o app PAUSA a tarefa (pause_task = SIGSTOP; no Windows, onde pausar não existe, para a tarefa) e marca spec.budgetHit. A pergunta aparece como pendência em 'Aguardando você': 'A tarefa X chegou no teto de US$ 5 (≈ R$ 27,50)…' com os botões 'Continuar com mais US$ 5' / 'Parar aqui'. Continuar sobe o teto e retoma; parar encerra o turno sem a notificação falsa de 'pronta'. Dispara uma vez por teto. A pergunta também vai pro celular, e a resposta de lá é tratada.",
+    "motivo": "Decisão 3 da mesa. Rafa: 'teto, alerta… vou ter que justificar a conta pro meu head'. Bia r2: 'Paralelismo só vale se eu não tiver medo da fatura'.",
+    "arquivos": ["app/src/js/53-teto-protecao.js", "app/src/js/10-core.js", "app/src/js/23-kanban-artefatos-editor.js", "app/src/js/42-nuvem-sync-mobile.js", "app/src/js/32-planner.js", "app/src/js/31-nova-demanda-form.js", "app/src/js/15-config-abas-onboarding.js", "app/src/index.html", "src/types.ts"],
+    "como_ver": "Tarefa rodando com custo ≥ teto → ela vai pra 'Aguardando você' na Central; abra a tarefa: card 'STARFORK · PERGUNTA PENDENTE' com os dois botões.",
+    "estado_mock": "harness: invoke('snapshot') embrulhado; t-paused com spec.budgetHit {usd:5.12, cap:5, mode:'paused'} e custo US$ 5,12",
+    "shots": { "before": "r6shots/B-teto-workspace-before.png, r6shots/B-teto-central-before.png, r6shots/B-cfg-before.png", "after": "r6shots/B-teto-workspace-after.png, r6shots/B-teto-central-after.png, r6shots/B-cfg-after.png" }
+  },
+  {
+    "id": "FT-4a",
+    "area": "Features da mesa",
+    "titulo": "Modo protegido por padrão, valendo mesmo com bypassPermissions",
+    "antes": "O motor rodava `claude -p … --permission-mode bypassPermissions` sem nenhuma regra. O agente podia ler .env e chaves, dar git push --force, rm -rf ~ e sudo. O planner e o chat de issues também usam bypass, e nesse modo o --allowedTools 'só leitura' deles NÃO restringe nada.",
+    "depois": "src/engine/protect.ts monta `--disallowedTools` com 50 regras: Read/Edit de .env, .env.local, .env.*.local, .env.development/production/staging/test*, *.pem, *.key, id_rsa*, id_ed25519*, ~/.ssh, ~/.aws; Bash de rm -rf / e ~, git push --force/-f, curl|sh, wget|sh, sudo e cat de .env/.pem/id_rsa. .env.example continua legível, e rm -rf de caminho absoluto (a worktree) não é bloqueado. O engine liga pelas envs CARDUME_PROTECT (o Rust passa em todo spawn de tarefa). As 3 chamadas diretas com bypass no lib.rs (planner ai_chat, issue_chat, tracker_ai_build) recebem a mesma lista (PROTECT_DENY espelhada e conferida por teste). O prompt do agente ganhou a regra 'se uma ação for NEGADA, não contorne: chame ask_human'. PROVA com o CLI real (2.1.280) contra uma API falsa local, sem custo: em bypassPermissions o Read de .env voltou 'Permission to read …/.env has been denied', o Write de .env voltou 'File is covered by a Read deny rule', e sudo, git push --force, cat .env e rm -rf ~ foram negados. No controle (Livre), o Read devolveu o conteúdo. rm -rf de um caminho da worktree passou.",
+    "motivo": "Decisão 4 da mesa (Júlia 3 + Rafa 3). Rafa r1: 'bypassPermissions por padrão… em fintech isso é auditoria reprovada'. Júlia r2: 'Segurança é confiabilidade'. Rafa r2 pediu a versão pequena: trocar o padrão e bloquear .env, sem aba Regras.",
+    "arquivos": ["src/engine/protect.ts", "src/engine/protect.test.ts", "src/engine/claude.ts", "app/src-tauri/src/lib.rs", "package.json"],
+    "como_ver": "`npm test` (4 testes, incluindo o espelho do lib.rs) e `cargo test protect_tests`. Prova ponta a ponta: scratchpad/r6/probe.mjs + fakeapi.mjs; saída em r6shots/B-prova-deny-bypass.txt.",
+    "estado_mock": "sem UI: prova com o binário claude real, API falsa em 127.0.0.1, CLAUDE_CONFIG_DIR temporário",
+    "shots": { "before": "", "after": "r6shots/B-prova-deny-bypass.txt" }
+  },
+  {
+    "id": "FT-4b",
+    "area": "Features da mesa",
+    "titulo": "Selo '🛡 protegido' na tarefa + chave Protegido/Livre nas Preferências do projeto",
+    "antes": "Nada na tela dizia o que o agente podia fazer. As Preferências do projeto exigiam conta e organização para abrir.",
+    "depois": "O cabeçalho da tarefa mostra o selo '🛡 protegido' (verde) ou 'livre' (âmbar), com um tooltip que lista o que está bloqueado. As Preferências do projeto ganharam 'Proteção dos agentes': Protegido (PADRÃO) ou Livre, com a explicação de cada um. A escolha é salva por pasta do projeto em ~/.constellation/settings.json (protect:<repo>) e vale para as próximas execuções, inclusive o planner. Sem conta, a tela abre mesmo assim: só o documento do time fica escondido.",
+    "motivo": "Decisão 4: 'selo visível na tarefa'. Veto da Júlia: nada de toggle global de modo; a chave é por projeto.",
+    "arquivos": ["app/src/js/53-teto-protecao.js", "app/src/js/20-workspace-tarefa.js", "app/src/js/12-chat-prefs-daily.js", "app/src/index.html", "app/src/css/50-workspace-planner.css", "app/src-tauri/src/lib.rs"],
+    "como_ver": "Abrir qualquer tarefa: selo ao lado do título (passe o mouse). Barra superior → Preferências do projeto → Proteção dos agentes.",
+    "estado_mock": "harness: cena workspace-conversa e openTab('prefs')",
+    "shots": { "before": "r6shots/B-workspace-header-before.png, r6shots/B-prefs-before.png", "after": "r6shots/B-workspace-header-after.png, r6shots/B-prefs-after.png" }
+  },
+  {
+    "id": "BUG-3",
+    "area": "Features da mesa",
+    "titulo": "Iniciar duas vezes subia dois times na mesma worktree",
+    "antes": "start_task só fazia spawn, e runTask não checava o lock busy_pid. Um duplo clique em ▶ ou em 'aprovar plano' rodava dois times em paralelo na mesma worktree.",
+    "depois": "start_task recusa com 'essa tarefa já está rodando' quando o lock busy_pid do motor está vivo. runTask faz a mesma checagem e sai sem mexer no lock alheio. No front, startTask ignora um segundo clique enquanto o primeiro está em voo e desativa ▶ e 'aprovar plano'. A recusa vira um toast, sem alert. rerun_task agora mata o processo antigo, inclusive um de antes de reiniciar o app, espera ele morrer e limpa o busy_pid.",
+    "motivo": "Bug #3 [ALTA] da caça de bugs da jornada (audit2/bugs-jornada.md)",
+    "arquivos": ["app/src-tauri/src/lib.rs", "src/orchestrator.ts", "app/src/js/24-perguntas-agente.js"],
+    "como_ver": "Com uma tarefa rodando, chamar start_task de novo: vem o erro 'essa tarefa já está rodando' e o toast.",
+    "estado_mock": "sem UI nova (comportamento)",
+    "shots": { "before": "", "after": "" }
+  },
+  {
+    "id": "BUG-6",
+    "area": "Features da mesa",
+    "titulo": "Pausar/retomar/abortar voltam a funcionar depois de reiniciar o app",
+    "antes": "pause_task, resume_task e abort_task só olhavam o mapa de processos da sessão. Depois de reiniciar o app, 'continuar' dava 'tarefa não está pausada' e o processo ficava congelado para sempre.",
+    "depois": "O helper live_task_pid busca o PID no mapa e, se não achar, no lock busy_pid do banco com pid_alive. Pausar, retomar, parar, abortar e re-rodar usam esse helper. O parar antes tinha a mesma lógica escrita inline e agora usa o helper também.",
+    "motivo": "Bug #6 da caça de bugs da jornada",
+    "arquivos": ["app/src-tauri/src/lib.rs"],
+    "como_ver": "Pausar uma tarefa, fechar e reabrir o app, clicar ▶ continuar: ela retoma.",
+    "estado_mock": "sem UI nova",
+    "shots": { "before": "", "after": "" }
+  },
+  {
+    "id": "BUG-13",
+    "area": "Features da mesa",
+    "titulo": "'Teto rígido' dizia PAUSA mas mandava a tarefa para 'Pronta pra revisar'",
+    "antes": "10-core.js chamava stopTask no teto rígido: a tarefa ia para 'Prontas pra revisar' com 'aprovar e abrir PR' e disparava 'Pronta para review ✓'. O '■ parar' do workspace fazia a mesma notificação falsa.",
+    "depois": "Sobrou um mecanismo de teto só (FT-3b): ele pausa e pergunta em 'Aguardando você'. O checkbox 'teto rígido' saiu. O limite antigo virou 'Aviso de custo (só notifica)'. Quando a parada vem do humano ou do teto, a próxima transição para review não notifica 'pronta' (budgetQuiet).",
+    "motivo": "Bug #13 da caça de bugs da jornada",
+    "arquivos": ["app/src/js/10-core.js", "app/src/js/24-perguntas-agente.js", "app/src/js/53-teto-protecao.js", "app/src/js/15-config-abas-onboarding.js"],
+    "como_ver": "■ parar numa tarefa rodando: sem a notificação 'Pronta para review ✓'. Configurações: 'Teto por tarefa' e 'Aviso de custo' separados.",
+    "estado_mock": "harness: cena cfg",
+    "shots": { "before": "r6shots/B-cfg-before.png", "after": "r6shots/B-cfg-after.png" }
+  }
+]
