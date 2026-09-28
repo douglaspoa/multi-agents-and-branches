@@ -36,3 +36,15 @@ test('CSV com aspas, separador ; e quebra dentro de aspas', () => {
   assert.deepEqual(csvParse('nome,obs\r\nAna,"linha1\nlinha2"'), [['nome', 'obs'], ['Ana', 'linha1\nlinha2']]);
   assert.deepEqual(csvParse('a\tb\n1\t2', '\t'), [['a', 'b'], ['1', '2']]);
 });
+
+test('HTML do GitHub (comentário de bot) não aparece cru', () => {
+  const body = '<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- review_stack_entry_start -->\n\n<a href="https://app.coderabbit.ai/x"><img src="s.svg" alt="Review" width="220"></a>\n\n## Walkthrough\nMudou o **painel**<br>e o chat';
+  const h = mdToHtml(body);
+  assert.ok(!h.includes('&lt;!--') && !h.includes('<!--'), h);
+  assert.ok(!/&lt;(a|img)\b/.test(h), h);
+  assert.ok(h.includes('Walkthrough') && h.includes('<strong>painel</strong>'), h);
+});
+test('link HTML vira link seguro', () => {
+  const h = mdToHtml('veja <a href="https://github.com/o/r/pull/1">o PR</a>');
+  assert.ok(/<a [^>]*href="https:\/\/github.com\/o\/r\/pull\/1"[^>]*>o PR<\/a>/.test(h), h);
+});

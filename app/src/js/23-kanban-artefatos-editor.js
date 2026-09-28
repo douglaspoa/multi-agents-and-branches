@@ -230,7 +230,19 @@ function editorSet(ta, val){
 // csp:null + withGlobalTauri — escapa TUDO (inclusive aspas) e só aceita link http(s)/mailto. O link não
 // usa target=_blank (o WKWebView ignora): leva data-exthref e o clique delegado abaixo abre fora (BUG-12).
 function mdSafeHref(u){ const raw=String(u||'').replace(/&amp;/g,'&').trim(); return /^(https?:\/\/|mailto:)/i.test(raw)?raw:''; }
+// HTML do GitHub dentro do markdown (comentários de bot, corpo de PR): tira comentários <!-- -->, vira
+// <a href> em link markdown, <img alt> no texto alternativo, <br> em quebra, e remove o resto das tags
+function ghHtmlClean(md){
+  return String(md==null?'':md)
+    .replace(/<!--[\s\S]*?-->/g,'')
+    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,(m,h,l)=>{ const t=l.replace(/<[^>]+>/g,'').trim(); return t?'['+t+']('+h+')':''; })
+    .replace(/<img\b[^>]*alt=["']([^"']*)["'][^>]*>/gi,(m,a)=>a||'')
+    .replace(/<br\s*\/?>/gi,'\n')
+    .replace(/<\/?(details|summary|div|p|span|sub|sup|b|i|strong|em|table|thead|tbody|tr|td|th|img|picture|source|h[1-6])\b[^>]*>/gi,'')
+    .replace(/\n{3,}/g,'\n\n').trim();
+}
 function mdToHtml(md){
+  md=ghHtmlClean(md);
   const e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   const link=(m,label,url)=>{ const h=mdSafeHref(url); return h?`<a href="${e(h)}" data-exthref="${e(h)}" rel="noreferrer">${label}</a>`:label; };
   const inline=s=>e(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,link);
