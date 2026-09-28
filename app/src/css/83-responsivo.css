@@ -84,3 +84,11 @@
 /* issues: no cabeçalho do grupo do épico o título ganha … e a contagem fica sempre visível */
 .trk-epgh .trk-ept{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
 .trk-epgh em{flex:none}
+/* composer do chat numa coluna estreita: os botões de enviar descem juntos em vez de sair da coluna */
+.cc.cc .cc-row{flex-wrap:wrap;row-gap:6px}
+.cc.cc .cc-row #fwSendBtns{margin-left:auto;display:inline-flex;gap:6px}
+/* Entrega: cabeçalho da seção (Verificação etc.) quebra em linhas em vez de espremer a descrição */
+.en-sec .seclbl2{flex-wrap:wrap;row-gap:6px}
+.en-sec .seclbl2 .dim{flex:1 1 220px;min-width:0}
+.en-sec .seclbl2 .btn,.en-sec .seclbl2 .vf-pill{white-space:nowrap;flex:none}
+.en-sec{min-width:0}
