@@ -46,6 +46,17 @@ function budgetWatch(){
     if(budgetBusy.has(t.id)) continue;
     const sp=t.spec||{}, cap=budgetOf(t), spent=taskCost(t.id).usd;
     const active=['running','thinking','queued'].includes(t.status);
+    // reparo: tarefa ANTERIOR ao teto, pausada pelo teto padrão aplicado retroativamente (bug do PR #31,
+    // o snapshot nem mostrava a pergunta) → desfaz a pausa indevida: teto a partir do gasto atual + retoma
+    if(sp.budgetHit && (sp.budgetUsd==null || sp.budgetUsd==='') && taskCreatedMs(t)<BUDGET_SINCE_MS){
+      budgetBusy.add(t.id);
+      (async()=>{
+        await invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, budgetUsd:+(spent+(costCapDefault()||5)).toFixed(2) } });
+        if(t.status==='paused'){ try{ await invoke('resume_task',{ taskId:t.id }); }catch(e){ console.error('teto: retomar', e); } }
+        lastSig=''; await refresh();
+      })().catch(e=>console.error('teto', e)).finally(()=>budgetBusy.delete(t.id));
+      continue;
+    }
     if(sp.budgetHit){
       // retomada por outro caminho (▶ retomar, nova mensagem): a pergunta caducou → libera mais um teto
       if(active){ budgetBusy.add(t.id); invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, budgetUsd:Math.max(cap, spent)+(costCapDefault()||cap||5) } }).catch(e=>console.error('teto', e)).finally(()=>budgetBusy.delete(t.id)); }
