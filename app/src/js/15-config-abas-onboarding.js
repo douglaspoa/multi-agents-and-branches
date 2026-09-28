@@ -433,7 +433,8 @@ async function openRef(taskId, name){
 }
 function costsOf(taskId){ return (state.costs||[]).filter(c=>c.taskId===taskId); }
 function taskCost(taskId){ const cs=costsOf(taskId); return { usd: cs.reduce((s,c)=>s+(c.usd||0),0), tok: cs.reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0) }; }
-function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2); }
+// formato compacto (KPIs, listas): mesma régua do fmtCost ("US$ 1,25") — antes "$1.25" convivia com "US$ 1,25 (≈ R$ …)"
+function fmtUsd(u){ return fmtCost(u,{usdOnly:true}); }
 function fmtTok(n){ n=Number(n)||0; const u=(d,s)=>{ const v=n/d; return (v>=100?v.toFixed(0):v>=10?v.toFixed(1).replace(/\.0$/,''):v.toFixed(1).replace(/\.0$/,''))+s; };
   return n>=1e9?u(1e9,'B'):n>=1e6?u(1e6,'M'):n>=1000?u(1e3,'k'):String(n); }
 

@@ -266,11 +266,11 @@ function fwRenderEntrega(t, main){
   const kpis = nonCode
     ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
        <div class="en-kpi"><b>${arts.length}</b><span>${arts.length===1?'arquivo entregue':'arquivos entregues'}</span></div>
-       <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${cost.usd>0?fmtUsd(cost.usd):'duração'}</span></div>`
+       <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${cost.usd>0?fmtCost(cost.usd):'duração'}</span></div>`
     : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
         <div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
-        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtUsd(cost.usd):''}</span></div>`;
+        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
   const pvSec=enPvHtml(t, nonCode?arts:docs);
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">

@@ -80,7 +80,7 @@ async function budgetAnswer(pendId, answer){
       else await invoke('resume_task',{ taskId:t.id });
       toast('Teto ampliado pra '+fmtCost(next),'ok');
     }
-  }catch(e){ toast('Não deu pra aplicar: '+((e&&e.message)||e),'err'); }
+  }catch(e){ showErr(e, 'Não deu pra aplicar a resposta do teto'); }
   finally{ budgetBusy.delete(t.id); lastSig=''; await refresh(); }
 }
 // teto escolhido na criação (planner / Como executar) → vai pro spec depois do new_task
@@ -146,6 +146,6 @@ function protectPrefsWire(repo){
   box.querySelectorAll('input[name="protmode"]').forEach(r=>r.onchange=async()=>{
     box.querySelectorAll('.howopt').forEach(l=>l.classList.toggle('on', l.querySelector('input').checked));
     try{ await protectSet(repo, r.value==='1'); toast(r.value==='1'?'Agentes em modo protegido':'Agentes em modo livre — sem bloqueios', r.value==='1'?'ok':'info'); lastSig=''; }
-    catch(e){ toast('Não salvou: '+((e&&e.message)||e),'err'); }
+    catch(e){ showErr(e, 'Não salvou'); }
   });
 }
