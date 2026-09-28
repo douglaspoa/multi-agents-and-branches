@@ -487,7 +487,7 @@ function trkColCards(items, byCode){
   const groups=new Map(), loose=[];
   items.forEach(i=>{ if(i.epicCode){ if(!groups.has(i.epicCode)) groups.set(i.epicCode,[]); groups.get(i.epicCode).push(i); } else loose.push(i); });
   const gh=[...groups.entries()].map(([code,kids])=>{ const par=byCode[code];
-    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?` · ${esc(String(par.title).slice(0,48))}`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
+    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?`<span class="trk-ept"> · ${esc(String(par.title).slice(0,48))}</span>`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
   return gh+loose.map(i=>trkCardHtml(i, false)).join('');
 }
 function trkBoardHtml(){

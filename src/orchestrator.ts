@@ -293,7 +293,7 @@ export class Orchestrator {
     if (spec.covers?.length) out += `Requisitos do épico que ela cobre: ${spec.covers.join(", ")}\n`;
     if (spec.boundaries?.length) out += `NÃO muda: ${spec.boundaries.join("; ")}\n`;
     if (dw.length) {
-      out += `"Pronto quando" do épico (o épico só fecha com tudo marcado):\n` + dw.map((d) => `- ${checked.has(String(d).split(":")[0].trim().toUpperCase()) ? "☑" : "☐"} ${d}`).join("\n") + "\n";
+      out += `"Pronto quando" do épico (o épico só fecha com tudo marcado):\n` + dw.map((d) => `- ${checked.has(String(d).split(":")[0].trim().toUpperCase()) ? "[x]" : "[ ]"} ${d}`).join("\n") + "\n";
       out += `PAPEL REVISOR: ao terminar a revisão, se a sua evidência PROVA um desses itens (teste rodado, tela vista, comando executado), chame mcp__cardume__check_done_when({ id: "D<n>", evidence }) — um chamado por item, só com prova real. Builder e outros papéis NÃO chamam essa tool.\n`;
     }
     return out;

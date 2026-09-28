@@ -81,3 +81,6 @@
 @media (max-width:1180px){ #fwTaskEpic .epw{display:none} }
 .tsepc.epbadge .epn{min-width:1.2em}
 .dcard .dc-req .dc-rt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* issues: no cabeçalho do grupo do épico o título ganha … e a contagem fica sempre visível */
+.trk-epgh .trk-ept{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
+.trk-epgh em{flex:none}
