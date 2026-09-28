@@ -52,10 +52,12 @@ app/
       40-sidebar-quadro.css sidebar, Central de execuções (fluxo/kanban/filtros)
       50-workspace-planner.css  tela da tarefa (3 colunas), planner, PR, artefatos
       60-grafo-times-nova-demanda.css  grafo, espaço Times, formulário da Nova demanda
+      70-orquestrador.css · 80-ajustes-cards.css · 81-chat.css · 82-issues.css  orquestrador, cards da Central, composer dos chats, painel de issues
+      83-responsivo.css     (R7, por último) regras gerais de redimensionamento: título com prioridade, selos (épico/protegido/branch) encolhem com …, nada mais largo que a coluna
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
       00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH, pathBase/pathDir, osKind, toast (com ação) e o catálogo de erros pt-BR humanErr/showErr — helpers usados por todos
       05-cosmos.js          céu estrelado dos loadings (cosmosHtml/cosmosStart)
-      10-core.js            invoke, ícones, refresh() do snapshot, notificações
+      10-core.js            invoke, ícones (IC.* — SVG; nada de emoji como ícone), refresh() do snapshot, notificações, evNorm (eventos antigos com emoji no prefixo → formato novo)
       11-ambiente-updater.js  preflight (node/git/claude/gh) e updater
       12-chat-prefs-daily.js  chat do projeto, preferências do projeto, daily/relatório
       13-skills-projetos.js   skills por projeto + hub de projetos

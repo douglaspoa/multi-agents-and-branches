@@ -54,7 +54,7 @@ function stageStepper(t){
 // MODO DESIGN (estilo Claude Design): diagnóstico → perguntas com opções
 // concretas → iterações curtas com preview ao vivo → aprovação do humano.
 const DESIGN_PROMPT = 'MODO DESIGN — refine o VISUAL desta entrega comigo, agindo como um designer sênior de produto:\n'
-  +'1) Suba o ambiente (siga o .cardume/RUNBOOK.md) e ANUNCIE "🌐 preview: <url da tela em questão>" pra eu acompanhar ao vivo (também vejo do celular).\n'
+  +'1) Suba o ambiente (siga o .cardume/RUNBOOK.md) e ANUNCIE numa linha "PREVIEW: <url da tela em questão>" pra eu acompanhar ao vivo (também vejo do celular).\n'
   +'2) Faça um DIAGNÓSTICO visual objetivo da tela atual: hierarquia, espaçamento, tipografia, cores, estados vazios, consistência com o design system JÁ EXISTENTE no projeto (procure tokens/tema/componentes antes de inventar). Liste os 3 piores problemas em ordem.\n'
   +'3) ANTES de mexer, pergunte via mcp__cardume__ask_human O QUE PRIORIZAR — sempre com OPÇÕES CONCRETAS e mutuamente exclusivas (ex.: "mais denso ou mais respiro?", "seguir a paleta da tela X ou propor nova?", "manter esse layout e polir, ou redesenhar o bloco?"). NUNCA pergunta genérica tipo "o que você quer mudar?". Se referência visual ajudar, peça um print/link.\n'
   +'4) Aplique em ITERAÇÕES CURTAS: UM ajuste por vez, re-anuncie o preview depois de cada um e pergunte via ask_human "melhorou? sigo pro próximo?" com opções (aprovar / ajustar isso / voltar atrás).\n'
@@ -63,20 +63,20 @@ const DESIGN_PROMPT = 'MODO DESIGN — refine o VISUAL desta entrega comigo, agi
 // SKILLS DO CHAT: digite "/" e escolha — cada uma é um prompt lapidado.
 const CHAT_SKILLS=[
   { id:'design',     label:'design', desc:'refinar o visual comigo — diagnóstico, opções e iterações com preview', prompt:()=>DESIGN_PROMPT },
-  { id:'preview',    label:'preview', desc:'subir o ambiente e me dar o link ao vivo', prompt:()=>'Suba o ambiente local desta branch AGORA (siga o .cardume/RUNBOOK.md) e ANUNCIE "🌐 preview: <url da tela desta tarefa>". Mantenha rodando e re-anuncie se trocar de página.' },
+  { id:'preview',    label:'preview', desc:'subir o ambiente e me dar o link ao vivo', prompt:()=>'Suba o ambiente local desta branch AGORA (siga o .cardume/RUNBOOK.md) e ANUNCIE "PREVIEW: <url da tela desta tarefa>". Mantenha rodando e re-anuncie se trocar de página.' },
   { id:'requisitos', label:'requisitos', desc:'verificar cada requisito e gerar as provas', prompt:()=>'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json. Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.' },
   { id:'testes',     label:'testes', desc:'rodar a suíte real e anexar a saída', prompt:()=>'Rode os testes REAIS na suíte do projeto pra esta branch (comandos do .cardume/RUNBOOK.md). Salve .cardume/artifacts/tests.md com os comandos e a SAÍDA literal. Falhou algo? Investigue a causa e corrija antes de me responder.' },
-  { id:'provas',     label:'provas', desc:'provar na UI real com screenshots', prompt:()=>'Prove que a entrega funciona NA UI REAL: suba o ambiente (RUNBOOK), execute o fluxo desta tarefa de ponta a ponta e capture screenshots reais em .cardume/artifacts/ (antes/depois quando fizer sentido). Anuncie o 🌐 preview enquanto estiver de pé.' },
+  { id:'provas',     label:'provas', desc:'provar na UI real com screenshots', prompt:()=>'Prove que a entrega funciona NA UI REAL: suba o ambiente (RUNBOOK), execute o fluxo desta tarefa de ponta a ponta e capture screenshots reais em .cardume/artifacts/ (antes/depois quando fizer sentido). Anuncie o PREVIEW: <url> enquanto estiver de pé.' },
   { id:'resumo',     label:'resumo', desc:'estado atual em 1 minuto de leitura', prompt:()=>'Me dê um resumo executivo do estado ATUAL desta tarefa: o que já foi feito (com os arquivos), o que falta, riscos/decisões em aberto. NÃO execute nada novo — só leia e resuma.' },
   { id:'seguranca',  label:'segurança', desc:'auditar riscos no diff da branch', prompt:()=>'Audite o diff desta branch (contra a base) com olhar de segurança: injeção, authz/escopo de tenant, segredos expostos, dados sensíveis em log. Liste os achados por severidade com arquivo:linha e a correção proposta. NÃO corrija ainda — me apresente primeiro via ask_human.' },
 ];
 
-// URL de preview mais recente que o agente anunciou ('🌐 preview: http://…')
+// URL de preview mais recente que o agente anunciou ('PREVIEW: http://…')
 function taskPreviewUrl(taskId){
   const evs=state.events||[];
   for(let i=evs.length-1;i>=0;i--){
     const e=evs[i]; if((e.taskId||e.task_id)!==taskId) continue;
-    const m=(e.text||'').match(/🌐 preview:\s*(https?:\/\/[^\s'"”)]+)/);
+    const m=(e.text||'').match(PREVIEW_RE);
     if(m) return m[1];
   }
   return null;
@@ -93,7 +93,7 @@ async function mobilePreview(taskId, url, silent){
       try{
         const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{};
         await sbFetch('/rest/v1/tasks?id=eq.'+cid, { method:'PATCH', body: JSON.stringify({ spec: { ...(cur.spec||{}), previewUrl: pub, tunnelWanted: null } }) });
-        sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'note', text:'📱 preview no celular: '+pub }).catch(()=>{});
+        sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'note', text:'preview no celular: '+pub }).catch(()=>{});
       }catch(_){ }
     }
     return pub;
@@ -124,7 +124,7 @@ function renderBus(){
   const claims=state.claims||[], yields=claims.filter(c=>c.yieldedTo);
   const seen=new Set(); const uniq=[];
   for(const c of yields){ const k=c.agent+'|'+c.path+'|'+c.yieldedTo; if(!seen.has(k)){ seen.add(k); uniq.push(c); } }
-  if(uniq.length) parts.push(`<span class="warn">⚠ ${uniq.length} arquivo${uniq.length===1?'':'s'} disputado${uniq.length===1?'':'s'}</span>`);
+  if(uniq.length) parts.push(`<span class="warn">${IC.warn} ${uniq.length} arquivo${uniq.length===1?'':'s'} disputado${uniq.length===1?'':'s'}</span>`);
   setHtmlGuarded(el, parts.join(' &nbsp;·&nbsp; '));
   const tip=[
     `${nPl(live.length,'tarefa viva','tarefas vivas')} ${allProj?'em todos os projetos':'neste projeto'} (mesma contagem da Central): ${fc.aguardando} aguardando você · ${fc.andamento} em andamento (${fc.rodando} executando agora) · ${fc.prontas} prontas pra revisar · ${fc.praberto} com PR aberto · ${fc.rascunho} rascunho${fc.rascunho===1?'':'s'}`,

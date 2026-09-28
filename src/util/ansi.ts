@@ -48,9 +48,9 @@ export function eventGlyph(type: string): string {
     bash: "$",
     note: "»",
     claim: "⊞",
-    collision: "⚠",
-    error: "✖",
-    done: "✔",
+    collision: "!",
+    error: "✕",
+    done: "✓",
   };
   return map[type] ?? "·";
 }

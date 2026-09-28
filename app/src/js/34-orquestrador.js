@@ -144,7 +144,7 @@ function orqRailRows(){
   const list=(orq.list||[]).filter(p=>p.status!=='done'&&!orqOtherRepo(p));
   if(!list.length){ if(!orq.list) orqLoadList(); return ''; }
   return list.slice(0,4).map(p=>{ const s=orqPlanStats(p); const tone=orqPlanTone(p, s); const col=tone.col;
-    const tag=p.status==='planned'?'plano':s.ask?'❓ '+s.ask:s.rev?'revise':`${s.done}/${s.total}`;
+    const tag=p.status==='planned'?'plano':s.ask?'pergunta: '+s.ask:s.rev?'revise':`${s.done}/${s.total}`;
     return `<div class="prow2 orqrow" data-orq="${escA(p.id)}" title="${escA(tone.label)} — abrir o grafo"><span class="d" style="background:${col}"></span><span class="tt">◉ ${esc(p.title||'plano')}</span><span class="tg mono" style="color:${col}">${tag}</span></div>`; }).join('');
 }
 // quadro (Execução): cartão por plano com as fases e o progresso
@@ -214,7 +214,7 @@ function orqRenderBrief(body){
   </div></div>`;
   const briefHint=()=>orq.briefing.trim().length<12?'escreva pelo menos uma frase completa · ⌘Enter monta o plano · ⌘V ou arraste pra anexar':'⌘Enter monta o plano · nada roda antes de você aprovar · ⌘V ou arraste pra anexar';
   if(typeof attRenderPend==='function') attRenderPend('orqPend', orq.atts, ()=>orqRender());
-  // mesmo composer dos chats (📎 · extras · enviar + dica); aqui Enter quebra linha e ⌘Enter monta o plano
+  // mesmo composer dos chats (anexo · extras · enviar + dica); aqui Enter quebra linha e ⌘Enter monta o plano
   chatComposer({ input:'orqTa', attach:'orqAtt', pend:()=>orq.atts, taskId:()=>null, rerender:()=>orqRender(), onSend:orqPlanNow, hint:briefHint(),
     onKey:e=>{ if(e.key!=='Enter'||e.isComposing) return; if(e.metaKey||e.ctrlKey){ e.preventDefault(); orqPlanNow(); } return true; } });
   const ta=$id('orqTa'); if(ta){ ta.oninput=()=>{ orq.briefing=ta.value; const g=$id('orqGo'); if(g) g.disabled=ta.value.trim().length<12; const h=ta.closest('.cc'); if(h) chatHintLine(h, briefHint(), false); }; ta.focus(); }
@@ -258,7 +258,7 @@ function orqRenderPlan(body){
     const deps=(ph.dependsOn||[]).map(k=>byKey[k]).filter(Boolean);
     const idle = st.key==='done' ? `entregou · ${done}/${tot} objetivos provados`
       : st.key==='review' ? `entregou · ${done}/${tot} provados — revise a entrega`
-      : st.key==='asking' ? `❓ ${String((st.ask&&st.ask.prompt)||'perguntou ao humano').replace(/\s+/g,' ').slice(0,140)}`
+      : st.key==='asking' ? `pergunta: ${String((st.ask&&st.ask.prompt)||'perguntou ao humano').replace(/\s+/g,' ').slice(0,140)}`
       : st.key==='error' ? 'falhou — abra a tarefa'
       : (deps.length&&st.key==='waiting') ? `aguardando ${deps.map(d=>d.key).join(', ')} · ${deps[0].name.toLowerCase()}`
       : t ? (st.key==='waiting'?'pronta pra começar':'iniciando…') : 'aguardando aprovação do plano';
@@ -316,7 +316,7 @@ async function orqLoadEvents(taskId, force){
   const c=orqEv[taskId]||(orqEv[taskId]={ lastId:0, lines:[], at:0, loading:false });
   if(c.loading) return; if(!force && Date.now()-c.at<6000) return;
   c.loading=true;
-  try{ const rows=(await invoke('task_events',{ taskId, sinceId:c.lastId }))||[];
+  try{ const rows=evNormAll((await invoke('task_events',{ taskId, sinceId:c.lastId }))||[]);
     for(const e of rows){ if(e.id>c.lastId) c.lastId=e.id; if(!ORQ_EV_TYPES.has(e.type)) continue; c.lines.push((e.type==='bash'?'$ ':e.type==='status'?'· ':'')+String(e.text||'').split('\n')[0].slice(0,90)); }
     if(c.lines.length>40) c.lines=c.lines.slice(-40);
     c.at=Date.now(); if(rows.length && orqOpen()) orqRender();
@@ -408,7 +408,7 @@ async function orqChatSend(){
       const last=p.chat[p.chat.length-1]; if(last&&last.who==='you'&&last.text===text) p.chat.pop();
       p.chat.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
       if(!orq.chatDraft) orq.chatDraft=text; orq.chatAtts=(orq.chatAtts||[]).concat(atts);
-    } else p.chat.push({who:'sys', text:'⚠ '+msg});
+    } else p.chat.push({who:'sys', text:msg});
   }
   orq.chatBusy=false; orq.chatStopping=false; orqSave(); orqRender();
   const ta=$id('orqChatTa'); if(ta) ta.focus();
@@ -431,7 +431,7 @@ function orqInspHtml(){
   const term=t?orqLastLines(t.id,8):[];
   return `<div class="orq-ih"><span class="orq-badge" style="--c:${orqColor(ph.kind)}">${orqBadge(ph.kind)}</span><div style="min-width:0;flex:1"><b>${locked?esc(ph.name):`<input class="orq-namein" id="orqName" value="${escA(ph.name)}">`}</b><div class="orq-meta mono"><span style="color:${st.color}">${esc(st.label)}</span><span class="dim">· ${esc(ph.agent)}</span></div></div>${t?`<button class="as-btn sm" data-orqtask="${escA(t.id)}">abrir tarefa ↗</button>`:''}</div>
     ${locked&&t&&t.branch?`<div class="orq-branch mono" title="${escA(t.branch)}">${esc(t.branch)}</div>`:''}
-    ${orqIsIntegration(p, ph)?(()=>{ const src=orqIntegrationSources(p, ph); const r=ph.integration; return `<div class="orq-integ"><b>fase de integração</b> · branch a partir da main com o merge de ${src.map(x=>`<span class="orq-depchip" style="--c:${orqColor('build')}">IM ${esc(x.d.name)}</span>`).join('')} — testa tudo junto e o PR final sai daqui${r?(r.conflicts&&r.conflicts.length?`<div class="orq-integwarn">⚠ conflito de merge deixado pro agente resolver: ${esc(r.conflicts.join(' · '))}</div>`:`<div class="dim" style="margin-top:4px">${(r.merged||[]).length} merge(s) feitos${(r.skipped||[]).length?` · ${(r.skipped||[]).length} já contida(s)/ignorada(s)`:''}</div>`):''}</div>`; })():''}
+    ${orqIsIntegration(p, ph)?(()=>{ const src=orqIntegrationSources(p, ph); const r=ph.integration; return `<div class="orq-integ"><b>fase de integração</b> · branch a partir da main com o merge de ${src.map(x=>`<span class="orq-depchip" style="--c:${orqColor('build')}">IM ${esc(x.d.name)}</span>`).join('')} — testa tudo junto e o PR final sai daqui${r?(r.conflicts&&r.conflicts.length?`<div class="orq-integwarn">${IC.warn} conflito de merge deixado pro agente resolver: ${esc(r.conflicts.join(' · '))}</div>`:`<div class="dim" style="margin-top:4px">${(r.merged||[]).length} merge(s) feitos${(r.skipped||[]).length?` · ${(r.skipped||[]).length} já contida(s)/ignorada(s)`:''}</div>`):''}</div>`; })():''}
     ${locked?`<p class="orq-p">${esc(ph.objective)}</p>`:`<textarea class="orq-objta" id="orqObjective" placeholder="o que essa fase entrega">${esc(ph.objective)}</textarea>
     <div class="orq-kindrow">${Object.entries(ORQ_KINDS).map(([k,v])=>`<button class="orq-kind${ph.kind===k?' on':''}" data-orqkind="${k}" style="--c:${v.color}">${v.label}</button>`).join('')}</div>`}
     <div class="ndeyebrow" style="margin-top:14px">objetivos <span class="dim" style="text-transform:none;letter-spacing:0">${locked?'· provados com evidência pelo subagente':'· edite, marque ou adicione'}</span></div>

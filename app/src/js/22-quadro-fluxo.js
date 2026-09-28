@@ -121,7 +121,7 @@ function taskType(t){
 const TYPE_PT={ feat:'Feature', fix:'Fix', docs:'Docs', chore:'Chore', refactor:'Refactor', perf:'Perf', design:'Design', invest:'Investigação', review:'Review', build:'Entrega' };
 const TYPE_COLOR={ feat:'var(--accent)', fix:'var(--crit)', docs:'var(--info)', chore:'var(--muted)', refactor:'var(--warn)', perf:'#c99cdb', design:'#7cd0b8', invest:'var(--warn)', review:'var(--info)' };
 const TYPE_ORDER=['feat','fix','docs','refactor','perf','chore','design','invest','review'];
-// código da issue (FND-853) direto da branch; link usa a base configurada em ⚙
+// código da issue (FND-853) direto da branch; link usa a base configurada nas configurações
 function issueCodeOf(t){ const m=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/); return m?m[1]:null; }
 function issueUrlOf(t){ const c=issueCodeOf(t); const b=(lsGet('issueBase')||'').trim(); return (c&&b)?(b.replace(/\/+$/,'')+'/'+c):null; }
 function linkChips(t, small){
@@ -130,7 +130,7 @@ function linkChips(t, small){
   if(t.prUrl) h+=`<button class="${cls}" data-lk="${escA(t.prUrl)}" title="abrir o Pull Request" style="padding:3px 9px;font-size:10.5px;color:var(--accent)">PR ↗</button>`;
   const iu=t.issueUrl||issueUrlOf(t), ic=issueCodeOf(t);
   if(iu) h+=`<button class="${cls} mono" data-lk="${escA(iu)}" title="abrir a issue" style="padding:3px 9px;font-size:10.5px">${esc(ic||'issue')} ↗</button>`;
-  else if(ic) h+=`<button class="${cls} mono" data-lkcfg="1" title="configure a URL base das issues em ⚙ pra este código virar link" style="padding:3px 9px;font-size:10.5px;color:var(--muted)">${esc(ic)}</button>`;
+  else if(ic) h+=`<button class="${cls} mono" data-lkcfg="1" title="configure a URL base das issues nas configurações pra este código virar link" style="padding:3px 9px;font-size:10.5px;color:var(--muted)">${esc(ic)}</button>`;
   return h;
 }
 function wireLinkChips(root){
@@ -441,7 +441,7 @@ function renderTaskSummary(t){
   if(!t.prUrl && !['merged','done'].includes(t.status) && t.flag!=='closed') falta.push(ph<4?'concluir a execução e trazer pra revisão':'aprovar a entrega e abrir o PR');
   if(t.prUrl && t.status!=='merged') falta.push('review do time e merge do PR #'+(prN||''));
   // últimas falas relevantes (o "diário" do que foi feito)
-  const notas=eventsOf(t.id).filter(e=>['done','note'].includes(e.type)&&(e.text||'').length>30&&!/^(💬|❓|perguntou ao humano|humano respondeu)/.test(e.text||'')).slice(-5);
+  const notas=eventsOf(t.id).filter(e=>['done','note'].includes(e.type)&&(e.text||'').length>30&&!/^(Você:|perguntou ao humano|humano respondeu)/.test(e.text||'')).slice(-5);
   const li=(arr,ic,co)=>arr.map(x=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${co};flex:none">${ic}</span><span>${esc(x)}</span></div>`).join('');
   $id('sumBody').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
@@ -489,8 +489,8 @@ function openTaskMenu(taskId, anchor){
   const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
   // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
   if(t.flag!=='closed') item('✓ concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
-  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='⚙ trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); pop.remove(); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
-  if(t.flag==='closed') item('↩ reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
+  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); pop.remove(); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
+  if(t.flag==='closed') item('reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}));
   if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como mergeada', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
   // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
@@ -549,7 +549,7 @@ function openStatusMenu(taskId, anchor){
     pop.appendChild(b); });
   // encerrada: oferece reabrir explicitamente no rodapé
   if(closed){ const b=document.createElement('button');
-    b.textContent='↩ reabrir (volta pra fila)';
+    b.textContent='reabrir (volta pra fila)';
     b.style.cssText='display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--border);margin-top:4px;padding:8px 10px;background:none;color:var(--text);font:inherit;font-size:12px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
     b.onclick=async()=>{ pop.remove(); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Falhou'); } };
@@ -678,7 +678,7 @@ function renderFlow(){
   // "✓ concluir" grava a flag no banco do projeto DONO da tarefa (crossRun troca antes, se for de outro projeto)
   el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.arch; crossRun(id, async()=>{ try{ await invoke('set_task_flag',{taskId:id,flag:'closed'}); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Não deu pra concluir'); } }); });
   el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
-  // 📱 da home: cria o túnel pro celular (ou fecha, se já estiver aberto)
+  // botão do celular da home: cria o túnel pro celular (ou fecha, se já estiver aberto)
   el.querySelectorAll('[data-pvmob]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation();
     const id=b.dataset.pvmob;
     const up=(typeof tunnelUp!=='undefined')?tunnelUp[id]:null;

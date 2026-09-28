@@ -92,7 +92,7 @@ export function buildReview(diff: string, byAgent: string): Review {
 
   // --- redundância / código morto (heurística best-effort a partir do próprio diff) ---
   const redundancy = findRedundancy(functions, exportedNames, addedCode);
-  const summary = base + (redundancy.length ? ` ⚠ Possível redundância: ${redundancy.slice(0, 5).join("; ")}.` : "");
+  const summary = base + (redundancy.length ? ` Atenção — possível redundância: ${redundancy.slice(0, 5).join("; ")}.` : "");
 
   return { summary, functions, files: fileList, howToTest, byAgent };
 }

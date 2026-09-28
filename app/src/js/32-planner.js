@@ -241,7 +241,7 @@ function plPlanCardHtml(bare){
       <span class="pptitle"><label for="pptask-${i}">${esc(x.title)}</label><select class="ppsel pprisk ${x.risk||''}" data-pprisk="${i}" title="risco"${dis}>${['','low','medium','high'].map(r=>`<option value="${r}"${(x.risk||'')===r?' selected':''}>${r?plRiskLabel[r]:'risco ?'}</option>`).join('')}</select></span>${x.objective?`<span class="ppobj">${esc(x.objective)}</span>`:''}
       <span class="ppverify">✓ prova: <input class="ppedit" data-ppverify="${i}" maxlength="240" value="${escA(x.verify||'')}" placeholder="como alguém checa que esta tarefa entregou (1 linha)"${dis}>${(x.covers&&x.covers.length)?` <span class="mono ppcov">${esc(x.covers.join(' '))}</span>`:''}</span>
       ${others.length?`<span class="ppafter">↳ depois de: ${others.map(o=>`<button type="button" class="ppchip${after.includes(o.idx)?' on':''}" data-ppafter="${i}:${o.idx}" title="${escA(o.title)}"${dis}>${esc(o.title.length>28?o.title.slice(0,27)+'…':o.title)}</button>`).join('')}</span>`:''}
-      ${(x.boundaries&&x.boundaries.length)?`<span class="ppafter">⊘ não muda: ${esc(x.boundaries.join(' · '))}</span>`:''}${x.hitl?`<span class="ppafter">👤 parte precisa de uma pessoa</span>`:''}
+      ${(x.boundaries&&x.boundaries.length)?`<span class="ppafter">⊘ não muda: ${esc(x.boundaries.join(' · '))}</span>`:''}${x.hitl?`<span class="ppafter">parte precisa de uma pessoa</span>`:''}
       ${(x.requirements&&x.requirements.length)?`<span class="ppreq">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</span>`:''}
       ${x.owns?`<span class="ppowns mono">⛶ ${esc(x.owns)}</span>`:''}</span></div>`;
   });
@@ -387,7 +387,7 @@ async function plSend(text){
     if(err){ const e=err; plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim();
       if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; plMsgs.pop(); plMsgs.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'}); if(here){ const i=$id('plInput'); if(i&&!i.value) i.value=text; } renderPlanner(); plAutoSave(true); return; }
       if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.';
-      plMsgs.push({who:'sys', text:'⚠ '+(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true);
+      plMsgs.push({who:'sys', text:(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true);
       renderPlanner(); plAutoSave(); return; }
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     plSid=r.sessionId||(r&&r.recovered?'':plSid);
@@ -411,7 +411,7 @@ async function plSend(text){
       plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
     }
     renderPlanner(); plAutoSave();
-  }).catch(e=>{ console.error('planner: aplicar resposta', e); plBusy=false; plMsgs.push({who:'sys', text:'⚠ algo falhou ao mostrar a resposta — envie de novo.'}); renderPlanner(); });
+  }).catch(e=>{ console.error('planner: aplicar resposta', e); plBusy=false; plMsgs.push({who:'sys', text:'Algo falhou ao mostrar a resposta — envie de novo.'}); renderPlanner(); });
 }
 // previsão de custo (grosseira: time padrão × faixa do modelo) em US$ e ≈ R$ + o teto desta tarefa
 function plCostHtml(){
@@ -428,7 +428,7 @@ async function plCreate(){
   // política do repo vale também pra quem cria conversando
   const minR=Math.max(1,+((typeof ntPolicy!=='undefined'&&ntPolicy.minRequirements)||1));
   if(plReqs.length<minR){
-    plMsgs.push({who:'sys', text:`⚠ A política deste repo exige pelo menos ${minR} requisito(s) verificáveis — feche os requisitos antes de criar.`});
+    plMsgs.push({who:'sys', text:`A política deste repo exige pelo menos ${minR} requisito(s) verificáveis — feche os requisitos antes de criar.`});
     renderPlanner(); if(b){ b.disabled=false; b.textContent='criar e rodar'; }
     return;
   }
@@ -488,7 +488,7 @@ async function submitNewTaskInner(start=true){
     const agents = $id("ntReviewer").value || null;
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="revisando…";
     const done=await cloudPrReviewCheck(pr).catch(()=>null);
-    if(done && !await askYes('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
+    if(done && !await askYes('Atenção: este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
     try{ await invoke("review_pr", { prUrl: pr, agents }); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
     catch(e){ showErr(e, 'Falha ao iniciar o review'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -594,7 +594,7 @@ async function submitNewTaskInner(start=true){
       if(ov && ov.length){
         const areas=[...new Set(ov.map(o=>`${o.theirs} — ${o.agent}`))].slice(0,4).map(s=>'  • '+s).join('\n');
         const extra=ov.length>4?`\n  • …e mais ${ov.length-4}`:'';
-        if(!await askYes(`⚠ Sobreposição de escopo com tarefa(s) ativa(s):\n\n${areas}${extra}\n\nDuas tarefas na mesma área tendem a dar conflito no merge.\nIniciar mesmo assim?  (Cancelar pra dividir o escopo ou rodar uma de cada vez.)`)){
+        if(!await askYes(`Sobreposição de escopo com tarefa(s) ativa(s):\n\n${areas}${extra}\n\nDuas tarefas na mesma área tendem a dar conflito no merge.\nIniciar mesmo assim?  (Cancelar pra dividir o escopo ou rodar uma de cada vez.)`)){
           return;
         }
       }

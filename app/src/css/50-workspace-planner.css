@@ -8,7 +8,7 @@
 .fwhead{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:nowrap;min-width:0}
 .fwhead b{font-size:13.5px}
 .fwhead .fwsub{font-size:11px;color:var(--muted)}
-/* cabeçalho FIXO (R3): título à esquerda com … · modos · [🌐] + UMA ação principal · ⋯ · ✕
+/* cabeçalho FIXO (R3): título à esquerda com … · modos · [preview] + UMA ação principal · ⋯ · ✕
    Nada quebra linha em modo nenhum: quem cede espaço é o título (e o que é informativo some antes). */
 #fwTaskName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:60px;max-width:min(30vw,420px)}
 #fwTaskBranch{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;flex:0 1 auto;min-width:0}

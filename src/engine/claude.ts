@@ -183,13 +183,13 @@ export class ClaudeEngine implements AgentEngine {
     const scratchRule =
       " HIGIENE DO DIFF: scripts DESCARTÁVEIS de sondagem/verificação (probe, check, explore, harness de uma vez) NÃO fazem parte da entrega — crie-os em .cardume/tmp/ (ignorado pelo commit) ou APAGUE antes de finalizar. O diff final deve conter APENAS o que o revisor precisa mergear; teste reutilizável vai pra suíte do projeto, evidência vai pra .cardume/artifacts/.";
     const previewRule =
-      " SERVIDOR LOCAL VISÍVEL: sempre que você SUBIR um servidor/ambiente pra testar (vite, uvicorn, next dev…), ANUNCIE numa linha de texto exatamente no formato '🌐 preview: http://127.0.0.1:PORTA/caminho' (use 127.0.0.1, não localhost) — e RE-ANUNCIE com o caminho novo quando mudar a página/subpágina que está testando. O humano clica nesse link pra acompanhar seu trabalho ao vivo (inclusive do celular).";
+      " SERVIDOR LOCAL VISÍVEL: sempre que você SUBIR um servidor/ambiente pra testar (vite, uvicorn, next dev…), ANUNCIE numa linha de texto exatamente no formato 'PREVIEW: http://127.0.0.1:PORTA/caminho' (use 127.0.0.1, não localhost) — e RE-ANUNCIE com o caminho novo quando mudar a página/subpágina que está testando. O humano clica nesse link pra acompanhar seu trabalho ao vivo (inclusive do celular).";
     const planRule =
       input.role === "builder" || input.role === "tester"
         ? " Se existir .cardume/PLAN.md, leia e SIGA o plano (o humano pode tê-lo revisado/ajustado)."
         : "";
     const adjustRule = input.spec.adjustment
-      ? `⚠ AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${input.spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
+      ? `ATENÇÃO — AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${input.spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
       : "";
     // REVIEW DE PR: não há repositório pra editar — o diff completo está em DIFF.patch.
     const prRule = input.spec.kind === "review" && input.spec.prUrl
@@ -356,7 +356,7 @@ export class ClaudeEngine implements AgentEngine {
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];
-    if (useAlt && alt) queue.push({ type: "note", text: `🔀 Route AI: rodando na ${alt.label} (${alt.model})` });
+    if (useAlt && alt) queue.push({ type: "note", text: `Route AI: rodando na ${alt.label} (${alt.model})` });
     let done = false;
     let notify: (() => void) | null = null;
     const wake = () => {
@@ -498,7 +498,7 @@ function mapLine(line: string): AgentEvent[] {
 
 function mapTool(name: string | undefined, inp: any): AgentEvent {
   const n = (name ?? "").toLowerCase();
-  if (n.includes("ask_human")) return { type: "note", text: "❓ perguntou ao humano: " + String(inp?.question ?? "") };
+  if (n.includes("ask_human")) return { type: "note", text: "perguntou ao humano: " + String(inp?.question ?? "") };
   if (n.includes("claim")) return { type: "claim", text: String(inp?.path ?? ""), path: inp?.path, mode: inp?.mode ?? "write" };
   if (n.includes("edit") || n.includes("str_replace") || n.includes("notebook")) return { type: "edit", text: fileOf(inp), ok: true };
   if (n.includes("write") || n.includes("create")) return { type: "write", text: fileOf(inp), ok: true };

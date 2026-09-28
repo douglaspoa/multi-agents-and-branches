@@ -57,7 +57,7 @@ function renderList(store: Store): string {
 
 function renderOverlaps(overlaps: ScopeOverlap[], selfId: string): string {
   const lines = [
-    c.yellow("⚠ sobreposição de escopo") +
+    c.yellow("! sobreposição de escopo") +
       c.dim(` — "${selfId}" toca área de tarefa(s) ativa(s):`),
   ];
   for (const o of overlaps) {
@@ -81,7 +81,7 @@ async function cmdInit(repo: string, noGit = false) {
   const git = new GitService(repo);
   if (!(await git.isRepo())) {
     if (!noGit) {
-      console.error(c.red(`✖ ${repo} não é um repositório git.`) + c.dim(" (use --no-git pra abrir a pasta mesmo assim)"));
+      console.error(c.red(`✕ ${repo} não é um repositório git.`) + c.dim(" (use --no-git pra abrir a pasta mesmo assim)"));
       process.exit(1);
     }
     console.log(c.yellow("!") + ` ${repo} não é um repositório git — workspace criado sem branches (crie o repositório quando quiser)`);
@@ -89,8 +89,8 @@ async function cmdInit(repo: string, noGit = false) {
   const ws = new Workspace(repo);
   ws.ensure();
   new Store(ws.dbFile).close();
-  console.log(c.green("✔") + ` workspace Starfork pronto em ${c.dim(ws.dir)}`);
-  if (ensureConfig(repo)) console.log(c.green("✔") + ` catálogo criado em ${c.dim("cardume.config.json")} (agentes + workflows)`);
+  console.log(c.green("✓") + ` workspace Starfork pronto em ${c.dim(ws.dir)}`);
+  if (ensureConfig(repo)) console.log(c.green("✓") + ` catálogo criado em ${c.dim("cardume.config.json")} (agentes + workflows)`);
   console.log(c.dim("  dica: adicione .cardume/ ao seu .gitignore"));
 }
 
@@ -156,7 +156,7 @@ function buildRolesInner(a: Args, repo: string): AgentRole[] {
 async function cmdNew(repo: string, a: Args) {
   const title = a.flags.title;
   if (!title) {
-    console.error(c.red("✖ use --title \"...\""));
+    console.error(c.red("✕ use --title \"...\""));
     process.exit(1);
   }
   // id pode vir do app (pra ele já rastrear o processo); senão, do título.
@@ -228,7 +228,7 @@ async function cmdNew(repo: string, a: Args) {
   await orch.createTask(spec, refSources);
   if (a.flags["no-start"]) {
     orch.store.setStatus(id, "draft");
-    console.log(c.green("✔") + ` rascunho ${c.bold(id)} criado — inicie quando quiser (${c.green("cardume start " + id)})`);
+    console.log(c.green("✓") + ` rascunho ${c.bold(id)} criado — inicie quando quiser (${c.green("cardume start " + id)})`);
     orch.close();
     return;
   }
@@ -243,7 +243,7 @@ async function cmdNew(repo: string, a: Args) {
 function openStore(repo: string): Store {
   const ws = new Workspace(repo);
   if (!existsSync(ws.dbFile)) {
-    console.error(c.red(`✖ nenhum workspace Starfork em ${repo}. Rode: cardume init`));
+    console.error(c.red(`✕ nenhum workspace Starfork em ${repo}. Rode: cardume init`));
     process.exit(1);
   }
   return new Store(ws.dbFile);
@@ -286,7 +286,7 @@ function cmdOverlap(repo: string, a: Args) {
       store.close();
       return;
     }
-    console.error(c.red('✖ use --owns "src/auth/**,src/api/*.ts" (padrões de escopo a checar)'));
+    console.error(c.red('✕ use --owns "src/auth/**,src/api/*.ts" (padrões de escopo a checar)'));
     process.exit(1);
   }
   const probe = {
@@ -301,7 +301,7 @@ function cmdOverlap(repo: string, a: Args) {
   }
   console.log("");
   if (overlaps.length === 0) {
-    console.log(c.green("✔") + ` sem sobreposição com tarefas ativas para: ${c.cyan(owns.join(", "))}\n`);
+    console.log(c.green("✓") + ` sem sobreposição com tarefas ativas para: ${c.cyan(owns.join(", "))}\n`);
   } else {
     console.log(renderOverlaps(overlaps, probe.id));
   }
@@ -319,7 +319,7 @@ function cmdLogs(repo: string, taskId: string) {
   const store = openStore(repo);
   const t = store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     process.exit(1);
   }
   console.log("\n" + c.bold(t.agent) + c.dim(`  ${t.branch}\n`));
@@ -336,7 +336,7 @@ function cmdReview(repo: string, taskId: string) {
   const store = openStore(repo);
   const t = store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     process.exit(1);
   }
   const r = store.getReview(taskId);
@@ -441,7 +441,7 @@ function cmdExport(repo: string, taskId: string, a: Args) {
   const store = openStore(repo);
   const t = store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     store.close();
     process.exit(1);
   }
@@ -449,7 +449,7 @@ function cmdExport(repo: string, taskId: string, a: Args) {
   const out = a.flags.out;
   if (out && out !== "true") {
     writeFileSync(out, md);
-    console.log(c.green("✔") + ` relatório gravado em ${c.dim(out)}`);
+    console.log(c.green("✓") + ` relatório gravado em ${c.dim(out)}`);
   } else {
     console.log(md);
   }
@@ -459,14 +459,14 @@ function cmdExport(repo: string, taskId: string, a: Args) {
 async function cmdRm(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   await orch.removeTask(taskId);
-  console.log(c.green("✔") + ` tarefa ${taskId} removida (worktree + branch + registros)`);
+  console.log(c.green("✓") + ` tarefa ${taskId} removida (worktree + branch + registros)`);
   orch.close();
 }
 
 async function cmdReviewPr(repo: string, a: Args) {
   const pr = a.flags.pr;
   if (!pr) {
-    console.error(c.red("✖ use --pr <url|número>"));
+    console.error(c.red("✕ use --pr <url|número>"));
     process.exit(1);
   }
   const engine = a.flags.engine ?? "claude"; // review sem Claude não faz sentido
@@ -493,7 +493,7 @@ async function cmdReviewPr(repo: string, a: Args) {
   const orch = new Orchestrator(repo);
   console.log(c.dim(`→ revisando ${pr} · revisor: ${roles.map((r) => r.name).join(", ")}`));
   await orch.reviewPr(spec, pr);
-  console.log(c.green("✔") + " review do PR pronto");
+  console.log(c.green("✓") + " review do PR pronto");
   orch.close();
 }
 
@@ -501,24 +501,24 @@ async function cmdDeliver(repo: string, taskId: string, kind?: string) {
   const k = kind === "tests" || kind === "proof" || kind === "all" ? kind : "doc";
   const orch = new Orchestrator(repo);
   if (!orch.store.getTask(taskId)) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
   console.log(c.dim(`→ gerando entregável (${k}) …`));
   await orch.deliverArtifact(taskId, k as "doc" | "tests" | "proof" | "all");
-  console.log(c.green("✔") + " entregável pronto — veja em Artefatos");
+  console.log(c.green("✓") + " entregável pronto — veja em Artefatos");
   orch.close();
 }
 
 async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false, agent?: string) {
   if (!msg || !msg.trim()) {
-    console.error(c.red('✖ use --msg "sua mensagem"'));
+    console.error(c.red('✕ use --msg "sua mensagem"'));
     process.exit(1);
   }
   const orch = new Orchestrator(repo);
   if (!orch.store.getTask(taskId)) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
@@ -529,11 +529,11 @@ async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false
     // grava o erro no FEED da task pra ele NÃO sumir (o app spawna com stderr→null)
     const em = (e as Error)?.message || String(e);
     try { orch.store.addEvent(taskId, "Sistema", "error", "não consegui falar com o agente: " + em, false); } catch { /* ignore */ }
-    console.error(c.red("✖ " + em));
+    console.error(c.red("✕ " + em));
     orch.close();
     process.exit(1);
   }
-  console.log(c.green("✔") + " o agente respondeu");
+  console.log(c.green("✓") + " o agente respondeu");
   orch.close();
 }
 
@@ -541,7 +541,7 @@ async function cmdStart(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   const t = orch.store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
@@ -554,16 +554,16 @@ async function cmdStart(repo: string, taskId: string) {
 async function cmdResolveConflict(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   if (!orch.store.getTask(taskId)) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
   try {
     console.log(c.dim(`→ pedindo pro agente resolver o conflito de merge …`));
     await orch.resolveConflict(taskId);
-    console.log(c.green("✔") + ` conflito endereçado em ${taskId} — confira o diff e mergeie`);
+    console.log(c.green("✓") + ` conflito endereçado em ${taskId} — confira o diff e mergeie`);
   } catch (err) {
-    console.error(c.red("✖ resolução falhou: " + (err as Error).message));
+    console.error(c.red("✕ resolução falhou: " + (err as Error).message));
     orch.close();
     process.exit(1);
   }
@@ -574,9 +574,9 @@ async function cmdRework(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   try {
     await orch.reworkTask(taskId);
-    console.log(c.green("✔") + ` ajuste aplicado em ${taskId} — pronto para review`);
+    console.log(c.green("✓") + ` ajuste aplicado em ${taskId} — pronto para review`);
   } catch (err) {
-    console.error(c.red("✖ rework falhou: " + (err as Error).message));
+    console.error(c.red("✕ rework falhou: " + (err as Error).message));
     orch.close();
     process.exit(1);
   }
@@ -587,9 +587,9 @@ async function cmdMerge(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   try {
     await orch.mergeTask(taskId);
-    console.log(c.green("✔") + ` ${taskId} mergeado na base (worktree e branch removidas)`);
+    console.log(c.green("✓") + ` ${taskId} mergeado na base (worktree e branch removidas)`);
   } catch (err) {
-    console.error(c.red("✖ merge falhou: " + (err as Error).message));
+    console.error(c.red("✕ merge falhou: " + (err as Error).message));
     console.error(c.dim("  (conflito? resolva manualmente na base e tente de novo)"));
     orch.close();
     process.exit(1);
@@ -606,7 +606,7 @@ async function cmdWatch(repo: string) {
     process.stdout.write("\n " + c.dim("barramento:") + "\n");
     for (const cl of store.allClaims().filter((x) => x.yielded_to)) {
       process.stdout.write(
-        `   ${c.yellow("⚠")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}\n`
+        `   ${c.yellow("!")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}\n`
       );
     }
     process.stdout.write("\n " + c.dim("ctrl+c para sair") + "\n");
@@ -689,7 +689,7 @@ async function cmdDemo() {
 
   console.log(" " + c.dim("barramento (colisões resolvidas):"));
   for (const cl of orch.store.allClaims().filter((x) => x.yielded_to)) {
-    console.log(`   ${c.yellow("⚠")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}`);
+    console.log(`   ${c.yellow("!")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}`);
   }
 
   console.log("\n " + c.dim("worktrees reais criadas:"));
@@ -805,6 +805,6 @@ ${c.dim("  (todos aceitam --repo <p>)")}
 }
 
 main().catch((err) => {
-  console.error(c.red("✖ " + (err?.stack ?? err?.message ?? String(err))));
+  console.error(c.red("✕ " + (err?.stack ?? err?.message ?? String(err))));
   process.exit(1);
 });

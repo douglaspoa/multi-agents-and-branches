@@ -167,7 +167,7 @@ async function cloudFeedRepair(){
   }
 }
 
-// ---- túnel AUTOMÁTICO: agente anunciou '🌐 preview:' numa tarefa ativa →
+// ---- túnel AUTOMÁTICO: agente anunciou 'PREVIEW: <url>' (antigo: globo + 'preview:') numa tarefa ativa →
 // cria o túnel sozinho e publica no cartão (nada manual; celular já abre).
 const autoTunneled={};       // último pedido atendido por tarefa
 const tunnelUp={};           // túneis vivos DESTA sessão: lid → url pública
@@ -203,7 +203,7 @@ async function cloudAutoTunnelTick(){
           // anúncio saiu da janela local de eventos → busca no feed da nuvem
           try{
             const notes=await sbGet('task_feed?select=text&task_id=eq.'+r.id+'&kind=eq.note&order=id.desc&limit=60');
-            for(const n of notes){ const mm=(n.text||'').match(/🌐 preview:\s*(https?:\/\/[^\s'"”)]+)/); if(mm){ pv=mm[1]; break; } }
+            for(const n of notes){ const mm=(n.text||'').match(PREVIEW_RE); if(mm){ pv=mm[1]; break; } }
           }catch(_){ }
         }
         if(!pv){ invoke('web_log',{line:'[tunnel] pedido sem preview anunciado: '+lid}).catch(()=>{}); continue; }
@@ -385,7 +385,7 @@ async function apnsNotify(title, body, extra){
     for(const tk of (apnsTokens||[])){
       invoke('apns_push',{ token:tk, title, body, category:(extra&&extra.category)||null, taskId:(extra&&extra.taskId)||null, questionId:(extra&&extra.questionId)||null })
         .then(()=>invoke('web_log',{line:'[apns] ✓ '+title.slice(0,40)}))
-        .catch(e=>invoke('web_log',{line:'[apns] ✖ '+String(e).slice(0,120)}));
+        .catch(e=>invoke('web_log',{line:'[apns] ✕ '+String(e).slice(0,120)}));
     }
   }catch(_){ }
 }
@@ -421,7 +421,7 @@ async function cloudQuestionsTick(){
       if(!qNotified.has(key)){ qNotified.add(key); apnsNotify('Precisa de você — '+(p.agent||'agente'), String(p.prompt||'').slice(0,160), { taskId:cid, questionId:qid, category:'QUESTION' }); }
     }catch(err){
       // erro visível: sem isso a ponte falha em silêncio e ninguém fica sabendo
-      if(!qPushed.has('err|'+key)){ qPushed.add('err|'+key); sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'error', text:'⚠ pergunta não subiu pro celular: '+String(err.message||err).slice(0,180) }).catch(()=>{}); }
+      if(!qPushed.has('err|'+key)){ qPushed.add('err|'+key); sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'error', text:'Atenção: pergunta não subiu pro celular: '+String(err.message||err).slice(0,180) }).catch(()=>{}); }
     }
   }
   // 2+3) UMA consulta (antes: 2 GETs × cada tarefa do tmap a cada 7s, crescendo pra sempre): perguntas
@@ -539,16 +539,16 @@ async function cloudMsgTick(){
       if(img){
         const local=await invoke('fetch_task_ref',{ taskId: lid, url:SB.url(), anon:SB.key(), token:SB.sess().access_token, path: img[1] });
         const cap=(img[2]||'').trim();
-        const m2=`📎 O humano anexou uma IMAGEM do celular em ${local} — ABRA e analise (tool Read) antes de responder.${cap?`\nLegenda: ${cap}`:''}`;
+        const m2=`[anexo] O humano anexou uma IMAGEM do celular em ${local} — ABRA e analise (tool Read) antes de responder.${cap?`\nLegenda: ${cap}`:''}`;
         await invoke('talk_task',{ taskId: lid, message: m2, asReq:false, agent:null });
-        sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 📎 imagem anexada'+(cap?': '+cap.slice(0,200):'') }).catch(()=>{});
+        sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: imagem anexada'+(cap?': '+cap.slice(0,200):'') }).catch(()=>{});
         continue;
       }
       // "[req] ..." vindo do celular = adicionar como REQUISITO da tarefa (checklist)
       const asReq=/^\[req\]\s*/i.test(String(msg.body||''));
       const body=String(msg.body||'').replace(/^\[req\]\s*/i,'');
       await invoke('talk_task',{ taskId: lid, message: body, asReq, agent:null });
-      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 '+body.slice(0,280) }).catch(()=>{});
+      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: '+body.slice(0,280) }).catch(()=>{});
     }catch(e){ console.error('msg', e.message); }
   }
 }

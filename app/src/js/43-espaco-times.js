@@ -149,7 +149,7 @@ function renderTeamBoard(){
     const fcT=flowCounts(all.map(tsNorm).filter(t=>t.flag!=='blocked'));
     const doing=all.filter(t=>tsBucket(t)==='andamento');
     const nDevs=members.filter(u=>tsRunningOf(u).length).length;
-    const asking=all.filter(t=>t.assignee===me&&false); // ✋ real vem do desktop de cada dev
+    const asking=all.filter(t=>t.assignee===me&&false); // pergunta real vem do desktop de cada dev
     const custo=inP.reduce((s,t)=>s+(+t.cost_usd||0),0);
     const activeEps=teamEpics.filter(e=>e.status!=='done'&&e.status!=='archived'); // B2: concluído não é "ativo"
     const eps=activeEps.length;
@@ -240,7 +240,7 @@ function renderTeamBoard(){
   wireLinkChips(el);
   el.querySelectorAll('[data-rev]').forEach(b=>{ b.onclick=async(e)=>{ e.stopPropagation(); const ct=all.find(x=>x.id===b.dataset.rev); if(!ct) return; b.disabled=true; b.textContent='criando review…';
     const done=await cloudPrReviewCheck(ct.pr_url).catch(()=>null);
-    if(done && !await askYes('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele.\n\nRodar OUTRO review mesmo assim?')){ b.disabled=false; b.textContent='revisar com agente'; return; }
+    if(done && !await askYes('Atenção: este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele.\n\nRodar OUTRO review mesmo assim?')){ b.disabled=false; b.textContent='revisar com agente'; return; }
     invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ showErr(err, 'Falha'); b.disabled=false; b.textContent='revisar com agente'; }); }; });
   el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;

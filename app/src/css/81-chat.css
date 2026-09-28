@@ -96,7 +96,7 @@
 
 /* ---------- COMPOSER ÚNICO (chatComposerHtml / chatNormalize em js/30-anexos.js) ----------
    Referência = chat da tarefa (.fwinput): caixa de texto em cima; embaixo UMA linha
-   📎 · extras · espaço · [■ parar] [enviar]; dica com as teclas em .kbd.
+   clipe · extras · espaço · [■ parar] [enviar]; dica com as teclas em .kbd.
    `.cc.cc` (0-2-0) vence .plinput/.chatinput/.orq-chatin antigos em 10/50/70/82. */
 .cc.cc { display: block; position: relative; padding: 10px 13px; border-top: 1px solid var(--border); background: var(--bg); }
 .cc.cc .cc-ta { display: block; width: 100%; flex: none; resize: none; min-height: 40px; line-height: 1.45; font-size: 13px; overflow-y: hidden; }

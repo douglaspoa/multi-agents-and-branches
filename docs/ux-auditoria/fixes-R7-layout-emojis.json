@@ -1,0 +1,98 @@
+[
+  {
+    "id": "L1",
+    "area": "Central · grade",
+    "titulo": "Card da grade: título não quebra mais uma palavra por linha e o status fica dentro do card",
+    "antes": "No card 'Aguardando você' o título 'Painel ativo vai junto com a mensagem' ficava numa coluna de ~70–90px (uma palavra por linha) porque o selo '◆ Chat enxerga e opera os arte · onda…' (flex:none, até 260px) e o status '? aguardando você ▾' dividiam a mesma linha sem ninguém ceder; o status vazava pra fora do card à direita.",
+    "depois": "O título tem largura mínima de 180px e ocupa a linha; o status fica alinhado à direita (desce pra linha de baixo, ainda dentro do card, se não couber); o selo do épico vai pra uma linha própria logo abaixo do título, com o NOME do épico ganhando … e a onda sempre visível.",
+    "motivo": "Print do dono no app instalado (1280/1440). Regra geral: o título tem prioridade; o que é secundário cede primeiro.",
+    "arquivos": ["app/src/css/83-responsivo.css", "app/src/js/46-epico-time.js"],
+    "como_ver": "Central › visão em grade › seção Aguardando você, com uma tarefa de épico de nome longo; redimensione a janela entre 1024 e 1920.",
+    "estado_mock": "t-asking renomeada para 'Painel ativo vai junto com a mensagem', com PR #47 e issue; épico ep2 renomeado para 'Chat enxerga e opera os artefatos · onda de integração com o painel' (harness/shim.js). Cena nova 'grid'.",
+    "shots": {"before": "r7shots/before-grid-1280.png", "after": "r7shots/after-grid-1280.png"}
+  },
+  {
+    "id": "L2",
+    "area": "Central · lista",
+    "titulo": "Card da lista: título legível em janela estreita; requisitos com …",
+    "antes": "Em 1024px o título do card virava 'P..' (16px de largura) porque o selo do épico e os chips à direita não encolhiam; os chips de requisito eram cortados na borda do card sem reticências.",
+    "depois": "Título com largura mínima (140px ou 32%); o selo do épico encolhe 4x mais rápido; abaixo de 1180px o nome do projeto sai da linha; cada requisito encolhe com …; busca e filtros descem juntos numa linha própria (antes 'Todos os tipos' ficava órfão).",
+    "motivo": "Mesmo princípio do L1 aplicado ao card padrão da lista.",
+    "arquivos": ["app/src/css/83-responsivo.css", "app/src/js/27-entregas.js"],
+    "como_ver": "Central em lista com a janela em 1024px.",
+    "estado_mock": "mesmo do L1",
+    "shots": {"before": "r7shots/before-home-1024.png", "after": "r7shots/after-home-1024.png"}
+  },
+  {
+    "id": "L3",
+    "area": "Tarefa · cabeçalho",
+    "titulo": "Cabeçalho da tarefa: selos secundários cedem antes do título e nada sai da tela",
+    "antes": "Título + selo do épico + '🛡 protegido' + modos + ação: o título era espremido a ~60px ('Painel ativo…'), o selo protegido encostava no do épico e em 1024px o ✕ de fechar/'responder' ficavam cortados fora da janela.",
+    "depois": "Título com largura mínima; o selo do épico encolhe (a onda sai abaixo de 1180px, fica no tooltip); o selo 'protegido' vira só o escudo SVG abaixo de 1360px (o tooltip explica); modos e botões compactam abaixo de 1180/1100px. Tudo cabe em 1024, 1280, 1440 e 1920.",
+    "motivo": "Print do dono: cabeçalho lotado.",
+    "arquivos": ["app/src/css/83-responsivo.css", "app/src/js/53-teto-protecao.js"],
+    "como_ver": "Abra uma tarefa de épico com nome longo em modo protegido; redimensione.",
+    "estado_mock": "t-asking (pergunta pendente, épico longo, PR).",
+    "shots": {"before": "r7shots/before-ws-asking-1280.png", "after": "r7shots/after-ws-asking-1280.png"}
+  },
+  {
+    "id": "L4",
+    "area": "Tarefa · PR / revisão",
+    "titulo": "Janela estreita: colunas laterais afinam e a página do PR empilha",
+    "antes": "Em 1024px o modo PR tinha 3 colunas (descrição, comentários, chat de 348px): os comentários ficavam com ~120px ('ana-/souza' quebrando), e o cabeçalho empurrava ⋯ e ✕ pra fora.",
+    "depois": "Abaixo de 1180px: árvore 210px, chat 300px, e a página do PR vira uma coluna (descrição em cima, merge e comentários embaixo) com rolagem única.",
+    "motivo": "Auditoria em 1024x720.",
+    "arquivos": ["app/src/css/83-responsivo.css"],
+    "como_ver": "Tarefa com PR › aba PR com a janela em 1024px.",
+    "estado_mock": "t-pr",
+    "shots": {"before": "r7shots/before-ws-pr-1024.png", "after": "r7shots/after-ws-pr-1024.png"}
+  },
+  {
+    "id": "L5",
+    "area": "Kanban · Issues",
+    "titulo": "Card nunca mais largo que a coluna; as 5 colunas de issues cabem em 1280",
+    "antes": "Kanban: o selo do épico (flex:none) deixava o card 280px numa coluna de 208px (rolagem horizontal dentro da coluna). Issues: colunas com mínimo de 200px cortavam 'Concluída' em 1280px; no cabeçalho do grupo do épico a contagem era cortada.",
+    "depois": "Selo do épico encolhe com … em qualquer linha flex; kcard com max-width:100%; colunas de issues com mínimo de 170px; título do grupo com … e contagem sempre visível.",
+    "motivo": "Auditoria automática (card mais largo que o contêiner).",
+    "arquivos": ["app/src/css/83-responsivo.css", "app/src/js/14-issues-projeto.js"],
+    "como_ver": "Central › Kanban; aba Issues › Quadro em 1280px.",
+    "estado_mock": "dados padrão do harness",
+    "shots": {"before": "r7shots/before-issues-1280.png", "after": "r7shots/after-issues-1280.png"}
+  },
+  {
+    "id": "E1",
+    "area": "Ícones",
+    "titulo": "Emoji usados como ícone viram SVG da biblioteca IC (ou texto)",
+    "antes": "'✋ responder', '🛡 protegido', '⚡ resolver conflito', '⏳ próximas ondas começam sozinhas', '⚠ …' em avisos, '💬3' nas issues, '✨'/'✎' de fallback, '⚙ trocar modelo', '↩ reabrir', status 'bloqueada' com ⏸, GLYPH do feed com ⚠ ✖ ✔.",
+    "depois": "Ícones SVG novos em IC (shield, clock, warn, lock, push, retry, route + variantes em 1em de hand/bolt/globe/phone/chat/clip/ai) nos mesmos lugares; onde o ícone não agregava virou texto ('Atenção: …', 'trocar modelo', 'reabrir'); GLYPH usa ! ✕ ✓; STATUS_META 'bloqueada' usa ⊘. Emoji (Emoji=Yes) em app/src: 117 → 46; em src/: 53 → 0.",
+    "motivo": "O dono notou '✋ responder' e '🛡 protegido': emoji desenham diferente em cada sistema e destoam do resto da interface.",
+    "arquivos": ["app/src/js/10-core.js", "app/src/js/20-workspace-tarefa.js", "app/src/js/21-pull-request.js", "app/src/js/22-quadro-fluxo.js", "app/src/js/27-entregas.js", "app/src/js/46-epico-time.js", "app/src/js/53-teto-protecao.js", "app/src/js/00-util.js", "e mais 15 arquivos de app/src/js"],
+    "como_ver": "Tarefa com pergunta pendente (botão responder), selo protegido, tarefa em conflito, aba Conta (licença/assentos), Ambiente em Mais.",
+    "estado_mock": "t-asking, t-conflict",
+    "shots": {"before": "r7shots/before-ws-asking-1440.png", "after": "r7shots/after-ws-asking-1440.png"}
+  },
+  {
+    "id": "E2",
+    "area": "Motor · conversa",
+    "titulo": "Eventos do motor em texto puro; histórico antigo normalizado ao ler",
+    "antes": "O motor gravava '💬 mensagem', '❓ perguntou ao humano', '⏳ pedido NA FILA (1º)…', '⏳ limite de uso…', '▶️ intervalo cumprido', '🔄 a sessão…', '🔀 Route AI…', '📦 entregável novo registrado', '🔗 issue registrada', '☑ pronto quando'; o chat e os resumos mostravam esses emoji.",
+    "depois": "Novos: 'Você: …', 'perguntou ao humano: …', 'Na fila (1º): …', 'Limite de uso da IA atingido…', '▶ intervalo cumprido', 'A sessão …', 'Route AI: …', 'entregável novo registrado: …'. No front, evNorm (10-core) reescreve os prefixos ANTIGOS ao chegar (snapshot, task_events da tarefa e do orquestrador) — todo parser só conhece o formato novo. Notas de sistema aparecem como linha de sistema com ícone (relógio, retomar, rota). Rust aceita os dois formatos (daily e resumo de entregas). O agente agora anuncia 'PREVIEW: <url>' (PREVIEW_RE aceita o antigo com globo). Texto escrito pelo agente/humano não é tocado.",
+    "motivo": "Pedido do dono; compatibilidade com o histórico já gravado.",
+    "arquivos": ["src/orchestrator.ts", "src/engine/claude.ts", "src/mcp/server.ts", "src/review.ts", "src/cli.ts", "src/util/ansi.ts", "app/src/js/10-core.js", "app/src/js/20-workspace-tarefa.js", "app/src/js/34-orquestrador.js", "app/src/js/26-sidebar-projetos.js", "app/src/js/42-nuvem-sync-mobile.js", "app/src-tauri/src/lib.rs"],
+    "como_ver": "Abra a Conversa de uma tarefa antiga que teve mensagem sua, fila e sessão retomada.",
+    "estado_mock": "t-running ganhou eventos antigos com '⏳ pedido NA FILA', '📦 entregável…', '🔄 a sessão caiu…' e uma mensagem nova 'Você: …'.",
+    "shots": {"before": "r7shots/before-ws-conversa-1280.png", "after": "r7shots/after-ws-conversa-1280.png"}
+  },
+  {
+    "id": "P1",
+    "area": "Tarefa · cabeçalho",
+    "titulo": "Botão 'push' visível de novo no cabeçalho da tarefa",
+    "antes": "Desde a R3 o 'commit & push' morava só no menu ⋯; o dono usa muito e não achava ('o botão de push também sumiu').",
+    "depois": "Botão secundário com seta SVG '↑ push' ao lado da ação principal quando a tarefa tem branch de código (git, não investigação/design), não está mergeada/concluída e tem commits ou diff; com o agente trabalhando, só aparece se já houver commits. Usa o mesmo push_task de antes (commita o que estiver solto e envia a branch) e continua no ⋯. Em janela <1180px vira só o ícone. Recusa por histórico divergente (non-fast-forward / fetch first) cai na mensagem 'conflict' em pt-BR do catálogo de erros.",
+    "motivo": "Feedback do dono.",
+    "arquivos": ["app/src/js/20-workspace-tarefa.js", "app/src/js/10-core.js", "app/src/css/83-responsivo.css"],
+    "como_ver": "Abra uma tarefa em andamento/revisão com commits: o 'push' aparece antes da ação principal; cabe em 1280.",
+    "estado_mock": "t-running (commits no mock), t-asking",
+    "shots": {"before": "r7shots/before-ws-conversa-1280.png", "after": "r7shots/after-ws-conversa-1280.png"}
+  }
+]

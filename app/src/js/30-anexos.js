@@ -64,12 +64,12 @@ function attWireComposer(cfg){
 }
 // ===== CHAT ÚNICO: o mesmo composer + a mesma bolha em todos os chats (planner, projeto, issues, orquestrador) =====
 // Layout ÚNICO = o do chat da tarefa (20-workspace): caixa de texto em cima; embaixo UMA linha com
-// 📎 · (extras da tela) · espaço · [■ parar] [enviar]; e a dica com as teclas em <span class="kbd">.
+// clipe · (extras da tela) · espaço · [■ parar] [enviar]; e a dica com as teclas em <span class="kbd">.
 // Quem monta o HTML usa chatComposerHtml(); marcação antiga (.plinput/.chatinput/.orq-chatin) é
 // normalizada por chatComposer() — então qualquer tela que chame chatComposer fica igual.
 const CHAT_HINT='Enter envia · ⇧Enter quebra linha · ⌘V ou arraste pra anexar';
 const CHAT_CLIP_SVG='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-// o: { input, attach, send, stop (ids) · placeholder · value · extras (HTML logo depois do 📎) · right (HTML antes do parar/enviar)
+// o: { input, attach, send, stop (ids) · placeholder · value · extras (HTML logo depois do clipe) · right (HTML antes do parar/enviar)
 //      · sendHtml (rótulo do enviar) · rows · cls (classe extra no contêiner) · attachTitle · stopTitle · disabled }
 function chatComposerHtml(o){
   const dis=o.disabled?' disabled':'';

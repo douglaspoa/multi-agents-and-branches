@@ -2,7 +2,7 @@
 // ===== Painel de Issues do TIME, em estágios =====
 //  1) CONEXÃO  — doc da API + chaves → a IA gera o CONECTOR declarativo (JSON) que o app executa
 //  2) PROJETOS E REGRAS — quais projetos usam o painel; criar issue ao abrir tarefa; sync de status; observar
-//  3) QUADRO   — kanban por status, quem está com a issue, mudanças/comentários, vínculo tarefa↔issue
+//  3) QUADRO   — kanban por status, quem está com a issue, mudanças/comentários, vínculo tarefa/issue
 // A config mora na nuvem (issue_trackers, uma por time) com cache local (~/.constellation/issue-tracker.json).
 // VALOR de chave nunca entra aqui: o conector cita {{secret.NOME}} e o Rust (tracker_http) preenche.
 let trk=null, trkView='board', trkMsg='', trkBusy='', trkDocFiles=[], trkLoadedFor=null;
@@ -169,7 +169,7 @@ function trkBadge(){
   if(d){ d.textContent=n>9?'9+':String(n); d.style.display=n?'':'none'; }
 }
 
-// ---------- vínculo tarefa ↔ issue ----------
+// ---------- vínculo tarefa / issue ----------
 function trkLinks(){ try{ return JSON.parse(lsGet('trk:links')||'{}'); }catch(_){ return {}; } }
 function trkTaskCode(t){ const l=trkLinks()[t.id]; if(l) return l; const c=(typeof issueCodeOf==='function')?issueCodeOf(t):null; if(c) return c;
   const u=t.issueUrl||''; const hit=u&&trkIssues.find(i=>i.url===u||u.endsWith('/'+i.code)); return hit?hit.code:null; }
@@ -478,7 +478,7 @@ function trkCardHtml(i, inGroup){
     <div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span>${i.epicCode&&!inGroup?`<span class="trk-epb" title="filha do épico ${escA(i.epicCode)}">◆ ${esc(i.epicCode)}</span>`:''}${i.priority!=null&&i.priority!==''?`<span class="trk-pri">${esc(String(i.priority))}</span>`:''}<span style="flex:1"></span>${un?`<span class="trk-new">${esc(un)}</span>`:''}</div>
     <div class="trk-it">${esc(i.title)}</div>
     ${tasks.length?`<div class="trk-tl"><span class="trk-task" style="--stc:${stColor(taskSt(tasks[0]))}" title="${escA('tarefa vinculada: '+tst)}">⎇ tarefa ${esc(tst)}</span></div>`:''}
-    <div class="trk-if">${p?`<span class="trk-av" title="${escA(p.full)}">${esc(p.ini)}</span><span class="trk-who" title="${escA(p.full)}">${esc(p.label)}</span>`:'<span class="dim trk-who">sem responsável</span>'}<span class="trk-sp"></span>${i.commentCount?`<span class="trk-cc" title="${escA(i.commentCount+' comentário(s)')}">💬${esc(String(i.commentCount))}</span>`:''}<span class="dim trk-ago">${trkAgo(i.updatedAt)}</span></div>
+    <div class="trk-if">${p?`<span class="trk-av" title="${escA(p.full)}">${esc(p.ini)}</span><span class="trk-who" title="${escA(p.full)}">${esc(p.label)}</span>`:'<span class="dim trk-who">sem responsável</span>'}<span class="trk-sp"></span>${i.commentCount?`<span class="trk-cc" title="${escA(i.commentCount+' comentário(s)')}">${IC.chat} ${esc(String(i.commentCount))}</span>`:''}<span class="dim trk-ago">${trkAgo(i.updatedAt)}</span></div>
   </div>`;
 }
 // F5: numa coluna, as filhas de um mesmo épico ficam juntas sob um cabeçalho "◆ CÓDIGO · título do pai · n"
@@ -487,7 +487,7 @@ function trkColCards(items, byCode){
   const groups=new Map(), loose=[];
   items.forEach(i=>{ if(i.epicCode){ if(!groups.has(i.epicCode)) groups.set(i.epicCode,[]); groups.get(i.epicCode).push(i); } else loose.push(i); });
   const gh=[...groups.entries()].map(([code,kids])=>{ const par=byCode[code];
-    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?` · ${esc(String(par.title).slice(0,48))}`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
+    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?`<span class="trk-ept"> · ${esc(String(par.title).slice(0,48))}</span>`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
   return gh+loose.map(i=>trkCardHtml(i, false)).join('');
 }
 function trkBoardHtml(){
@@ -521,7 +521,7 @@ function trkBoardHtml(){
       <span style="flex:1"></span><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
       <button class="btn" id="trkRefresh">atualizar</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</div>
     ${trkErr?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:''}
-    <div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(200px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
+    <div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
 }
 // JSON de IA, tolerante: cerca ```json (até o ÚLTIMO ``` — a fala pode ter cercas dentro), ou do 1º { ao último };
 // e conserta quebra de linha/tab crus dentro de strings.

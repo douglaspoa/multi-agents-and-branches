@@ -3,7 +3,7 @@
 let pcBusy=false, pcStopping=false;
 function pcKey(){ return 'pchat:'+(state.repo||''); }
 // role: user | assistant | sys (aviso: erro, parado, sessão recuperada — aparece na conversa mas NUNCA volta pro modelo)
-// conversas antigas guardavam o erro como se fosse a resposta da IA ("⚠ Falhou: …") → vira aviso ao ler
+// conversas antigas guardavam o erro como se fosse a resposta da IA ("Falhou: …" com o triângulo de aviso na frente) → vira aviso ao ler
 function pcMsgs(k){ let ms=[]; try{ ms=JSON.parse(lsGet(k||pcKey())||'[]'); }catch(_){ } return (Array.isArray(ms)?ms:[]).map(m=>m&&m.role==='assistant'&&/^⚠ Falhou:/.test(m.text||'')?{ role:'sys', text:m.text }:m).filter(Boolean); }
 function pcSave(ms,k){ lsSet(k||pcKey(), JSON.stringify(ms.slice(-60))); }
 function pcRender(){
@@ -54,7 +54,7 @@ async function pcSend(){
       const last=ms2[ms2.length-1]; if(last&&last.role==='user'&&last.text===text) ms2.pop();
       ms2.push({role:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
       const i=$id('pcInput'); if(i&&!i.value) i.value=text; pcPend.push(...atts);
-    } else ms2.push({role:'sys', text:'⚠ Não consegui responder: '+msg.slice(0,300)+(/expirou|timeout/i.test(msg)?' — a leitura do projeto demorou demais; tente uma pergunta mais específica.':' — sua pergunta ficou salva; é só enviar de novo.')});
+    } else ms2.push({role:'sys', text:'Não consegui responder: '+msg.slice(0,300)+(/expirou|timeout/i.test(msg)?' — a leitura do projeto demorou demais; tente uma pergunta mais específica.':' — sua pergunta ficou salva; é só enviar de novo.')});
     pcSave(ms2,key);
   }
   pcBusy=false; pcStopping=false; pcRender();
