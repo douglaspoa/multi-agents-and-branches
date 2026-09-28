@@ -47,7 +47,9 @@ function plDraftJson(){ let input=''; try{ const i=document.getElementById('plIn
 // mensagem: o raciocínio fica no disco ANTES da IA responder, então uma queda de
 // luz / fechamento no meio não perde o que você acabou de escrever.
 function plAutoSave(immediate){ if(plQuiet) return; clearTimeout(plSaveTimer); const save=()=>{ try{ invoke('save_draft',{ json: plDraftJson() }); }catch(_){} }; if(immediate){ save(); } else { plSaveTimer=setTimeout(save,400); } }
+let plOpenSeq=0, plOpenDone=0; // plStartWith espera o openPlanner (async: lê o rascunho) terminar antes de enviar
 async function openPlanner(){
+  const seq=++plOpenSeq;
   plReset();
   $id('plannerOverlay').style.display='flex';
   let draft=null; try{ draft=await invoke('load_draft'); }catch(_){}
@@ -61,7 +63,30 @@ async function openPlanner(){
   if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê? (se for grande e tiver várias frentes, eu proponho um épico com tarefas em paralelo pra você aprovar)'}); plMsgs.push({who:'bot', kind:'model'}); }
   renderPlanner(); plRenderRefs();
   const i=$id('plInput'); if(i) i.focus();
+  plOpenDone=seq;
 }
+// abre uma aba NOVA de "Montar conversando" com o pedido do usuário já ENVIADO como 1ª mensagem
+// (tela vazia "O que você quer fazer?" e a caixa única da Nova demanda). Se o projeto tinha um rascunho
+// de conversa, não mistura: o texto fica na caixa e um aviso explica. opts vai pro openTab (ex.: {replace:true}).
+function plStartWith(text, opts){
+  text=String(text||'').trim(); if(!window.openTab) return;
+  const before=plOpenSeq;
+  window.openTab('planner', opts||{});
+  let n=0; const go=()=>{
+    const o=$id('plannerOverlay'), t=(typeof tabById==='function')?tabById(activeTab):null;
+    const ready=plOpenSeq>before && plOpenDone===plOpenSeq && o && o.style.display!=='none' && t && t.kind==='planner';
+    if(!ready){ if(++n<60) setTimeout(go,100); return; }
+    if(!text) return;
+    if(plMsgs.some(m=>m.who==='you') || plBusy){
+      const i=$id('plInput'); if(i){ if(!i.value.trim()) i.value=text; i.dispatchEvent(new Event('input')); i.focus(); }
+      toast('Havia uma conversa em rascunho neste projeto — seu pedido ficou na caixa. Envie ou clique "novo" pra começar do zero.','warn');
+      return;
+    }
+    plSend(text);
+  };
+  setTimeout(go,60);
+}
+window.plStartWith=plStartWith;
 async function plNew(){
   try{ await invoke('clear_draft'); }catch(_){}
   plReset(); plMsgs.push({who:'bot', text:'Novo. Qual é o objetivo — o que precisa ser feito e por quê?'}); plMsgs.push({who:'bot', kind:'model'});
@@ -293,7 +318,7 @@ async function plCreateEpic(){
     // painel de issues ligado: épico vira issue pai + filhas com bloqueio (só se o conector tem pai; senão fica como hoje)
     try{ if(window.trkPublishEpic) await trkPublishEpic(ep[0], created); }catch(e){ console.warn('publicar épico', e); }
     const ctx=plPlanCtx; if(ctx.origin) bdPlan=null; else plPlan=null; plPlanRender=null; plPlanCtx={};
-    if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); }
+    if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); } // BUG-8: não fecha/zera a aba "Preencher eu mesmo" (outra demanda)
     lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; setView('team');
     const w1=created.filter(c=>c.wave===1);
     const nLater=created.length-w1.length;
@@ -396,10 +421,11 @@ async function plCreate(){
     // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova
     requirements:plReqs, doc:arts.doc?'ARCHITECTURE.md':null, proof:!!arts.proof||!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!arts.tests||!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired), autoPr:'ask', prBase:null,
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
-    refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined };
+    refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: plFields.issueUrl || undefined }; // BUG-8: não lê o campo de issue do FORMULÁRIO (outra aba)
   // tarefas referenciadas com "/" em qualquer mensagem sua viram contexto da tarefa criada
   if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n'));
-  try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); closeNewTask(); resetNewTask(); lastSig=''; await refresh(); }
+  try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
+  await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
 $id('plClose').onclick=closePlanner;
@@ -433,7 +459,10 @@ async function cloudPrReviewCheck(prUrl){
     return { name:(p&&(p.name||p.email))||String(who).slice(0,8), when:agoTx(r.updated_at), mine:who===cloudUserId() };
   }catch(_){ return null; }
 }
-async function submitNewTask(start=true){
+// BUG-18: duplo clique criava 2 tarefas (o overlapCheck tem await antes de desativar o botão) — uma submissão por vez
+let ntSubmitting=false;
+async function submitNewTask(start=true){ if(ntSubmitting) return; ntSubmitting=true; try{ return await submitNewTaskInner(start); } finally{ ntSubmitting=false; } }
+async function submitNewTaskInner(start=true){
   if(ntMode==='review'){
     const pr = $id("ntPr").value.trim();
     if(!pr){ $id("ntPr").focus(); return; }

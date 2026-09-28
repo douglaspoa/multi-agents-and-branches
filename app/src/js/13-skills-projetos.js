@@ -171,11 +171,15 @@ function projetosRender(ov){
   if(projNewOpen) projNewWire(ov);
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
   body.querySelectorAll('[data-pjsk]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjsk; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('skills'); });
-  body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('open_url',{url:'file://'+b.dataset.pjfx}).catch(()=>{}));
-  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ if(!await askYes('Remover '+projShort(b.dataset.pjrm)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:b.dataset.pjrm}); }catch(_){}; openProjetos(); });
+  // BUG-15: open_url só aceita http(s) — o Finder abre pela reveal_project (e o erro aparece, não some calado)
+  body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('reveal_project',{path:b.dataset.pjfx}).catch(e=>toast('Não deu pra abrir a pasta: '+(e&&e.message||e),'warn')));
+  // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
+  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:p}); }catch(_){}
+    if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
+    if(window.loadProjects) await window.loadProjects(); openProjetos(); });
 }
 // ---- novo projeto do zero: pasta + git init + (opcional) repositório no GitHub ----
-let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:true, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='';
+let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:true, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='', projNewGhFail=''; // projNewGhFail: pasta criada cujo GitHub falhou (BUG-10)
 function projNewHtml(){
   const owners=ghOwnersCache||[];
   const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:160px">${owners.map(o=>`<option value="${escA(o)}"${(projNew.owner||owners[0])===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`:`<span class="dim" style="font-size:12px">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
@@ -193,6 +197,7 @@ function projNewHtml(){
       <a class="dim" id="pnGhCfg" style="font-size:12px;cursor:pointer;text-decoration:underline">outra conta do GitHub?</a>
     </div>
     ${projNewMsg?`<div style="margin-top:12px;font-size:12.5px;color:var(--warn);white-space:pre-wrap">${esc(projNewMsg)}</div>`:''}
+    ${projNewGhFail?`<div style="margin-top:10px"><button class="as-btn" id="pnOpenLocal">abrir mesmo assim, sem GitHub</button></div>`:''}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="as-btn" id="pnCancel">cancelar</button><button class="as-btn primary" id="pnCreate"${projNewBusy?' disabled':''}>${projNewBusy?'criando…':'criar projeto'}</button></div>
   </div>`;
 }
@@ -204,13 +209,19 @@ function projNewWire(ov){
   const ow=$id('pnOwner'); if(ow) ow.onchange=()=>{ projNew.owner=ow.value; };
   document.querySelectorAll('input[name=pnVis]').forEach(r=>r.onchange=()=>{ projNew.private=r.value==='private'; });
   bindClick('pnGhCfg', ()=>{ if(window.openTab) window.openTab('cfg'); });
-  bindClick('pnCancel', ()=>{ projNewOpen=false; projNewMsg=''; projetosRender(ov); });
+  bindClick('pnCancel', ()=>{ projNewOpen=false; projNewMsg=''; projNewGhFail=''; projetosRender(ov); });
+  bindClick('pnOpenLocal', async()=>{ const path=projNewGhFail; if(!path) return;
+    try{ await invoke('open_project',{ path }); projNewGhFail=''; projNewMsg=''; projNewOpen=false; projNew.name='';
+      selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
+      await refresh(); if(window.loadProjects) await window.loadProjects(); await openProjetos();
+      toast('Projeto aberto só no seu computador. Dá pra ligar o GitHub depois.','ok');
+    }catch(e){ projNewMsg='Não deu pra abrir: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); } });
   bindClick('pnCreate', async()=>{
     projNew.name=($id('pnName')||{}).value||projNew.name;
     if(!projNew.name.trim()){ projNewMsg='dê um nome ao projeto.'; projetosRender(ov); projNewWire(ov); return; }
     if(!projNew.parent){ projNewMsg='escolha a pasta onde o projeto vai morar.'; projetosRender(ov); projNewWire(ov); return; }
     const owner=($id('pnOwner')||{}).value||projNew.owner||'';
-    projNewBusy=true; projNewMsg=''; projetosRender(ov); projNewWire(ov);
+    projNewBusy=true; projNewMsg=''; projNewGhFail=''; projetosRender(ov); projNewWire(ov);
     try{
       const path=await invoke('create_project',{ parent:projNew.parent, name:projNew.name.trim(), github:!!projNew.github, private:!!projNew.private, owner });
       projNewBusy=false; projNewOpen=false; projNew.name='';
@@ -218,7 +229,10 @@ function projNewWire(ov){
       await refresh(); if(window.loadProjects) await window.loadProjects();
       await openProjetos();
       toast('Projeto criado em '+path,'ok');
-    }catch(e){ projNewBusy=false; projNewMsg='Falhou: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); }
+    }catch(e){ projNewBusy=false; const m=String((e&&e.message)||e||'');
+      const gf=m.match(/^GH_FAIL::(.+?)::([\s\S]*)$/); // pasta+git criados, só o GitHub falhou: oferece abrir local
+      if(gf){ projNewGhFail=gf[1]; projNewMsg=gf[2]; } else projNewMsg='Falhou: '+m;
+      projetosRender(ov); projNewWire(ov); }
   });
 }
 bindClick('projetosClose', ()=>{ ovHide('projetosOverlay'); });

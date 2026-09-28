@@ -419,6 +419,25 @@ mod stoppable_tests {
 }
 
 #[cfg(test)]
+mod quick_project_tests {
+    use super::{project_slug, unique_child};
+    #[test]
+    fn nome_livre_com_sufixo() {
+        let tmp = std::env::temp_dir().join(format!("starfork-quick-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app");
+        std::fs::create_dir_all(tmp.join("app")).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app-2");
+        std::fs::create_dir_all(tmp.join("app-2")).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app-3");
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(project_slug("  App de Aulas "), "app-de-aulas");
+        assert_eq!(project_slug("Painel Finanças — Ação"), "painel-financas-acao");
+    }
+}
+
+#[cfg(test)]
 mod slug_tests {
     use super::slug_id;
     #[test]
@@ -1367,14 +1386,96 @@ fn create_project(
     private: bool,
     owner: String,
 ) -> Result<String, String> {
-    let slug: String = name
+    create_project_in(&state, parent, name, github, private, owner)
+}
+
+/// Pasta padrão dos projetos criados pelo "Começar" da tela vazia: ~/Documents/Starfork
+fn starfork_projects_dir() -> PathBuf {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join("Documents").join("Starfork")
+}
+
+/// Nome livre dentro de `parent`: `slug`, senão `slug-2`, `slug-3`…
+fn unique_child(parent: &std::path::Path, slug: &str) -> String {
+    if !parent.join(slug).exists() { return slug.to_string(); }
+    let mut n = 2;
+    loop {
+        let c = format!("{slug}-{n}");
+        if !parent.join(&c).exists() { return c; }
+        n += 1;
+    }
+}
+
+/// letra acentuada → letra base (sem crate de Unicode: cobre o português e o espanhol)
+fn fold_accent(c: char) -> char {
+    match c {
+        'á' | 'à' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+        'é' | 'è' | 'ê' | 'ë' => 'e',
+        'í' | 'ì' | 'î' | 'ï' => 'i',
+        'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+        'ú' | 'ù' | 'û' | 'ü' => 'u',
+        'ç' => 'c',
+        'ñ' => 'n',
+        'ý' | 'ÿ' => 'y',
+        _ => c,
+    }
+}
+
+fn project_slug(name: &str) -> String {
+    let raw: String = name
         .trim()
         .to_lowercase()
         .chars()
+        .map(fold_accent)
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' { c } else { '-' })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string();
+        .collect();
+    // sem "--" repetido nem hífen nas pontas
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        if c == '-' && out.ends_with('-') { continue; }
+        out.push(c);
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// git instalado e funcionando? (no Mac sem as ferramentas de linha de comando, o /usr/bin/git existe mas falha)
+fn git_available() -> bool {
+    Command::new("git").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+}
+const GIT_MISSING_MSG: &str = "O git não está instalado neste computador (o Starfork usa o git por baixo pra guardar cada versão do seu trabalho).\n\nNo Mac: abra o app Terminal, cole  xcode-select --install  e aperte Enter; aceite a instalação. No Windows/Linux: instale pelo site git-scm.com.\n\nDepois clique em Começar de novo.";
+
+/// Onde o "Começar" vai criar a pasta (sem criar nada): ~/Documents/Starfork/<nome livre>
+#[tauri::command(async)]
+fn quick_project_target(name: String) -> Result<String, String> {
+    let slug = project_slug(&name);
+    if slug.is_empty() { return Err("dê um nome ao projeto".into()); }
+    let dir = starfork_projects_dir();
+    Ok(dir.join(unique_child(&dir, &slug)).display().to_string())
+}
+
+/// "Começar sem portões": cria ~/Documents/Starfork/<nome> (com sufixo -2… se já existir),
+/// git init + 1º commit, SEM GitHub e sem gh — e abre como projeto ativo.
+#[tauri::command(async)]
+fn quick_create_project(state: State<AppState>, name: String) -> Result<String, String> {
+    if !git_available() { return Err(GIT_MISSING_MSG.into()); }
+    let slug = project_slug(&name);
+    if slug.is_empty() { return Err("dê um nome ao projeto".into()); }
+    let dir = starfork_projects_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("não consegui criar a pasta {}: {e}", dir.display()))?;
+    let free = unique_child(&dir, &slug);
+    create_project_in(&state, dir.display().to_string(), free, false, true, String::new())
+}
+
+fn create_project_in(
+    state: &AppState,
+    parent: String,
+    name: String,
+    github: bool,
+    private: bool,
+    owner: String,
+) -> Result<String, String> {
+    // BUG-22: acentos viram a letra base ("Painel Finanças" → painel-financas, não painel-finan-as)
+    let slug = project_slug(&name);
     if slug.is_empty() {
         return Err("dê um nome ao projeto".into());
     }
@@ -1383,10 +1484,6 @@ fn create_project(
         return Err(format!("pasta não existe: {parent}"));
     }
     let repo = parent_p.join(&slug);
-    if repo.exists() {
-        return Err(format!("já existe uma pasta {} em {}", slug, parent));
-    }
-    std::fs::create_dir_all(&repo).map_err(|e| format!("não consegui criar a pasta: {e}"))?;
     let run = |args: &[&str]| -> Result<String, String> {
         let out = Command::new("git")
             .arg("-C")
@@ -1399,36 +1496,52 @@ fn create_project(
         }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     };
-    run(&["init", "-b", "main"])?;
-    std::fs::write(repo.join("README.md"), format!("# {}
-
-Projeto criado pelo Starfork.
-", name.trim()))
-        .map_err(|e| e.to_string())?;
-    std::fs::write(repo.join(".gitignore"), ".DS_Store
-node_modules/
-.env
-.cardume/
-").map_err(|e| e.to_string())?;
-    run(&["add", "-A"])?;
-    run(&["-c", "user.name=Starfork", "-c", "user.email=starfork@local", "commit", "-q", "-m", "chore: projeto criado pelo Starfork"])
-        .or_else(|_| run(&["commit", "-q", "-m", "chore: projeto criado pelo Starfork"]))?;
-    if github {
+    // BUG-10: a pasta já existe? Se é um repositório git (ex.: tentativa anterior em que só o GitHub falhou),
+    // REAPROVEITA em vez de travar em "já existe"; pasta com outras coisas e sem git continua recusada.
+    let reuse = repo.exists() && repo_is_git(&repo.display().to_string());
+    if repo.exists() && !reuse {
+        let empty = std::fs::read_dir(&repo).map(|mut d| d.next().is_none()).unwrap_or(false);
+        if !empty {
+            return Err(format!("já existe uma pasta {} em {} (e ela não é um projeto git). Escolha outro nome ou use \"abrir existente…\".", slug, parent));
+        }
+    }
+    if !reuse {
+        std::fs::create_dir_all(&repo).map_err(|e| format!("não consegui criar a pasta: {e}"))?;
+        run(&["init", "-b", "main"])?;
+        std::fs::write(repo.join("README.md"), format!("# {}\n\nProjeto criado pelo Starfork.\n", name.trim()))
+            .map_err(|e| e.to_string())?;
+        std::fs::write(repo.join(".gitignore"), ".DS_Store\nnode_modules/\n.env\n.cardume/\n").map_err(|e| e.to_string())?;
+        run(&["add", "-A"])?;
+        // BUG-22: autor do 1º commit = a identidade do git do usuário; o "Starfork <starfork@local>" só quando não há nenhuma
+        let has_ident = run(&["config", "user.email"]).map(|o| !o.trim().is_empty()).unwrap_or(false);
+        if has_ident {
+            run(&["commit", "-q", "-m", "chore: projeto criado pelo Starfork"])?;
+        } else {
+            run(&["-c", "user.name=Starfork", "-c", "user.email=starfork@local", "commit", "-q", "-m", "chore: projeto criado pelo Starfork"])?;
+        }
+    }
+    let has_origin = run(&["remote", "get-url", "origin"]).is_ok();
+    if github && !has_origin {
         let full = if owner.trim().is_empty() { slug.clone() } else { format!("{}/{}", owner.trim(), slug) };
         let mut c = Command::new(gh_bin());
         c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &repo.display().to_string(), "--remote", "origin", "--push"]);
         c.current_dir(&repo);
-        let out = output_timeout(c, 120)?;
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let fail = match output_timeout(c, 120) {
+            Ok(out) if out.status.success() => None,
+            Ok(out) => Some(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Some(e),
+        };
+        if let Some(err) = fail {
+            // prefixo GH_FAIL::<pasta>:: → a tela oferece "abrir mesmo assim sem GitHub" (a pasta e o git já existem)
             return Err(format!(
-                "pasta e git criados em {}, mas o GitHub falhou: {}\n\nConfira a conta ativa do gh em Configurações → GitHub.",
+                "GH_FAIL::{}::A pasta e o git foram criados em {}, mas o GitHub recusou criar o repositório.\n\nMotivo: {}\n\nConfira a conta do GitHub em Configurações → GitHub e tente de novo (a pasta é reaproveitada), ou abra o projeto agora só no seu computador.",
                 repo.display(),
-                err
+                repo.display(),
+                if err.is_empty() { "sem detalhe do gh".to_string() } else { err }
             ));
         }
     }
-    open_project_at(&state, &repo.display().to_string())
+    open_project_at(state, &repo.display().to_string())
 }
 
 // ---------- contas do GitHub (gh auth) ----------
@@ -1612,11 +1725,34 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
 
 /// Remove um projeto da lista (não apaga nada do repo em disco).
 #[tauri::command(async)]
-fn remove_project(path: String) -> Vec<String> {
+fn remove_project(state: State<AppState>, path: String) -> Vec<String> {
     let mut list = read_project_list();
     list.retain(|p| p != &path);
     write_project_list(&list);
+    // BUG-20: tirar o projeto ATIVO da lista também o fecha — vai pro próximo da lista (ou pro estado vazio).
+    // Antes ele seguia aberto e o list_projects o devolvia pra lista no refresh seguinte.
+    if active_repo_of(&state).as_deref() == Some(path.as_str()) {
+        let next = list.iter().map(|p| PathBuf::from(p).join(".cardume").join("state.sqlite")).find(|db| db.exists());
+        if let Some(db) = &next { ensure_app_schema(db); }
+        *state.db.lock().unwrap_or_else(|e| e.into_inner()) = next;
+    }
     list
+}
+
+/// Abre a pasta de um projeto DA LISTA no Finder/Explorer (o open_url só aceita http/https — BUG-15).
+#[tauri::command(async)]
+fn reveal_project(path: String) -> Result<(), String> {
+    // só pastas que já são projetos conhecidos: o webview não pode mandar abrir um caminho qualquer
+    if !read_project_list().iter().any(|p| p == &path) {
+        return Err("esse projeto não está na lista".into());
+    }
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("a pasta não existe mais: {path}"));
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(target_os = "windows") { "explorer" } else { "xdg-open" };
+    Command::new(opener).arg(&dir).spawn().map_err(|e| format!("não consegui abrir a pasta: {e}"))?;
+    Ok(())
 }
 
 // ---------- artefatos da tarefa (docs/provas produzidos pelo agente) ----------
@@ -6800,6 +6936,9 @@ pub fn run() {
             open_project,
             git_init_repo,
             create_project,
+            quick_project_target,
+            quick_create_project,
+            reveal_project,
             ai_orchestrate,
             ai_orchestrate_chat,
             ai_file_why,

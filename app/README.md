@@ -108,3 +108,4 @@ vivo, claims, diff, log e as colisões do barramento — atualizando em tempo re
 - Trocar o poll por **push** (o Rust observa o arquivo e emite evento pro webview).
 - **Empacotar** (`npm run build`) com ícones `.icns` completos e assinatura.
       35-ref-tarefa.js        "/" na descrição da Nova demanda/planner referencia tarefa JÁ FEITA (busca, projeto) → contexto + docs no spec
+      36-comecar.js           "Começar sem portões": tela sem projeto = "O que você quer fazer?" → cria ~/Documents/Starfork/<nome> (git, sem GitHub) e abre o planner com o pedido enviado; apaga itens da sidebar sem projeto

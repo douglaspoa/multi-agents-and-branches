@@ -221,6 +221,8 @@ function openTab(kind, opts){
   opts=opts||{};
   // criar demanda/plano exige um projeto aberto: sem projeto, leva pra Projetos em vez de abrir um formulário sem destino
   if(['nova','form','planner','orq'].includes(kind) && typeof state!=='undefined' && !state.repo){
+    // "Começar sem portões": a tela inicial já cria o projeto a partir do pedido — leva pra lá, não pra Projetos
+    if($id('emWhat')){ toast('Diga aqui o que você quer fazer — o projeto é criado junto.','warn'); openTab('flow'); setTimeout(()=>{ const t=$id('emWhat'); if(t) t.focus(); },60); return; }
     toast('Abra ou crie um projeto primeiro — a demanda roda dentro dele.','warn');
     openTab('projetos'); return; }
   // criar demanda/plano exige branch: pasta sem git passa pelo "criar repositório" antes
