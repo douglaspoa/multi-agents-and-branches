@@ -23,7 +23,7 @@
 /* R5-6: mesmo "■ parar" vermelho do composer compartilhado (.trk-stop, 82-issues) */
 .fwhead .fwstopbtn{color:var(--crit);border-color:color-mix(in srgb,var(--crit) 55%,transparent)}
 /* menu ⋯ do cabeçalho (ações secundárias) */
-.fwmenu{position:fixed;z-index:9000;min-width:250px;max-width:340px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.45);padding:5px;display:flex;flex-direction:column}
+.fwmenu{position:fixed;z-index:9000;min-width:250px;max-width:340px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.45);padding:5px;display:flex;flex-direction:column;max-height:calc(100vh - 70px);overflow-y:auto}
 .fwmenu .fwmi{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer}
 .fwmenu button.fwmi:hover{background:var(--surface-2)}
 .fwmenu .fwmi.warn{color:var(--warn)}

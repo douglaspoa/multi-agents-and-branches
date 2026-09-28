@@ -425,6 +425,7 @@ async function cloudPublishProofs(t, btn){
     }
     sbPost('task_activity',{ task_id:cid, user_id:cloudUserId(), kind:'delivered', body:sent+' artefato(s) publicados' }).catch(()=>{});
     await cloudPubList(cid, true);
+    if(!btn) toast(sent+' artefato(s) publicados no time','ok');
     if(btn){ btn.textContent='✓ '+sent+' publicados'; setTimeout(()=>{ btn.disabled=false; btn.innerHTML=window.ic('cloud')+'publicar provas pro time'; }, 3500); }
     lastSig='';
   }catch(e){ showErr(e, 'Falha ao publicar'); if(btn){ btn.disabled=false; btn.innerHTML=window.ic('cloud')+'publicar provas pro time'; } }

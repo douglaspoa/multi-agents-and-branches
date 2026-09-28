@@ -352,6 +352,20 @@ function fwMoreItems(t){
   }
   if(pv){ it.push({ k:'pv', label:'abrir o preview', hint:pv.replace(/^https?:\/\//,'').slice(0,40) });
     it.push(tun?{ k:'pvoff', label:'fechar o acesso do celular', warn:true }:{ k:'pvmob', label:'abrir o preview no celular', hint:'túnel criptografado' }); }
+  // ações que moravam no painel lateral (removido) — voltam aqui, só na fase em que fazem sentido
+  const ty=(typeof taskType==='function')?taskType(t):'feat';
+  if(ACTIVE_ST.has(t.status)) it.push({ k:'pause', label:'pausar', hint:'congela o agente — "continuar" retoma de onde parou' });
+  if((ty==='design'||ty==='invest') && ['review','delivered','merged','error','aborted'].includes(t.status))
+    it.push({ k:'fromdz', label:ty==='design'?'criar entrega a partir deste design':'criar entrega a partir desta investigação', hint:ty==='design'?'mockup + DESIGN.md viram referência obrigatória':'INVESTIGATION.md + evidências viram referência' });
+  if(t.kind!=='review' && ['draft','review','delivered','merged'].includes(t.status))
+    it.push({ k:'breakdown', label:'desdobrar em épico', hint:'a IA propõe sub-tarefas no backlog do time' });
+  if(t.kind!=='review' && ['review','delivered','merged','error','aborted','conflict'].includes(t.status))
+    it.push({ k:'linkfix', label:'abrir correção linkada', hint:'algo quebrou? nova tarefa ligada a esta' });
+  { const cid=(typeof tmap==='function')?tmap()[t.id]:null, ac=(typeof artifactsCache!=='undefined')?artifactsCache[t.id]:null;
+    if(cid && typeof SB!=='undefined' && SB.sess() && ac && (ac.list||[]).length && typeof cloudPublishProofs==='function')
+      it.push({ k:'pubproofs', label:`publicar provas no time · ${ac.list.length}`, hint:'envia os artefatos pro card do time' }); }
+  (t.status!=='draft'&&Array.isArray(t.refs)?t.refs:[]).slice(0,6).forEach((r,i)=>{ const n=String(r).split('/').pop();
+    it.push({ k:'ref:'+i, label:`ver referência · ${n}`, hint:'anexo da tarefa' }); });
   if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
   if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${modelFriendly(t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
   const cost=taskCost(t.id);
@@ -388,6 +402,12 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='push') await fwPushTask();
   else if(k==='model') openModelMenu(t.id, anchor);
   else if(k==='tree') fwToggleTree();
+  else if(k==='pause') await pauseTask(t.id);
+  else if(k==='fromdz') await openFromDesign(t);
+  else if(k==='breakdown') await openBreakdown(t);
+  else if(k==='linkfix') await openLinkedFix(t);
+  else if(k==='pubproofs') await cloudPublishProofs(t, null);
+  else if(k.startsWith('ref:')){ const r=(t.refs||[])[+k.slice(4)]; if(r) await openRef(t.id, String(r).split('/').pop()); }
   else if(k==='close'){ if(await fwLeaveEditor()) closeWorkspace(); }
 }
 function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
