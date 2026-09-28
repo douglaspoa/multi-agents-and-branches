@@ -126,6 +126,73 @@ export class GitService {
     await run("git", ["-C", this.repo, "worktree", "add", "-b", branch, path, base]);
   }
 
+  /** A ref existe (branch local, remota, hash…)? */
+  async refExists(ref: string): Promise<boolean> {
+    try {
+      await run("git", ["-C", this.repo, "rev-parse", "--verify", "--quiet", ref]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * RECRIA a worktree de uma tarefa no MESMO caminho (a sessão do Claude é
+   * guardada por pasta — mesmo caminho = `--resume` continua valendo).
+   *
+   * - Tarefa NÃO mergeada: reaproveita a branch dela (local; senão busca
+   *   origin/<branch>). Se a branch sumiu de todo lado, nasce da base.
+   * - Tarefa MERGEADA: o trabalho já está na base, e a branch antiga tem um PR
+   *   MERGED preso a ela (o `gh pr view <branch>` acharia esse PR e o app
+   *   marcaria a tarefa como mergeada de novo, apagando a worktree). Então nasce
+   *   uma branch NOVA da base: `<branch>-cont` (ou -cont2, -cont3…) → PR novo.
+   *
+   * Pré-condição: `path` não existe (o chamador limpa sobras).
+   */
+  async recreateWorktree(
+    path: string,
+    opts: { branch: string; base: string; merged: boolean },
+  ): Promise<{ branch: string; from: string; reused: boolean }> {
+    // registro velho da worktree apagada (senão o git diz "already registered"/"already checked out")
+    try { await run("git", ["-C", this.repo, "worktree", "prune"]); } catch { /* ok */ }
+    if (!opts.merged) {
+      if (await this.refExists(`refs/heads/${opts.branch}`)) {
+        await run("git", ["-C", this.repo, "worktree", "add", path, opts.branch]);
+        return { branch: opts.branch, from: opts.branch, reused: true };
+      }
+      try { await run("git", ["-C", this.repo, "fetch", "origin", opts.branch, "--no-tags"]); } catch { /* offline/sem remoto/branch apagada */ }
+      if (await this.refExists(`refs/remotes/origin/${opts.branch}`)) {
+        await run("git", ["-C", this.repo, "worktree", "add", "-b", opts.branch, path, `origin/${opts.branch}`]);
+        return { branch: opts.branch, from: `origin/${opts.branch}`, reused: true };
+      }
+    }
+    const baseRef = await this.freshBaseRef(opts.base);
+    let name = opts.branch;
+    if (opts.merged) {
+      const stem = opts.branch.replace(/-cont\d*$/, "");
+      for (let i = 1; i < 100; i++) {
+        name = `${stem}-cont${i === 1 ? "" : i}`;
+        if (!(await this.refExists(`refs/heads/${name}`)) && !(await this.remoteBranchExists(name))) break;
+      }
+    } else if (await this.refExists(`refs/heads/${name}`)) {
+      // (não deveria: tratado acima) — nunca sobrescreve branch existente
+      name = `${name}-cont`;
+    }
+    await run("git", ["-C", this.repo, "worktree", "add", "-b", name, path, baseRef]);
+    return { branch: name, from: baseRef, reused: false };
+  }
+
+  /** Branch existe no origin? (sem remoto/offline → olha só o que já foi buscado). */
+  private async remoteBranchExists(name: string): Promise<boolean> {
+    if (await this.refExists(`refs/remotes/origin/${name}`)) return true;
+    try {
+      const { stdout } = await run("git", ["-C", this.repo, "ls-remote", "--heads", "origin", name], { timeout: 15000 });
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   async worktreeRemove(path: string): Promise<void> {
     await run("git", ["-C", this.repo, "worktree", "remove", "--force", path]);
   }

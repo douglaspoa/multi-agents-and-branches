@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
@@ -92,7 +92,7 @@ function hasOpenAsk(dbFile: string, taskId: string): boolean {
   }
 }
 
-function resolveClaude(): string {
+export function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
   // Ao lado do node em uso PRIMEIRO (nvm/dev — o claude que o dono atualiza);
   // depois os locais padrão pra PATH mínimo de app GUI (instalador nativo etc.).
@@ -116,6 +116,36 @@ function resolveClaude(): string {
     /* ignora */
   }
   return "claude";
+}
+
+/**
+ * Ambiente pra QUALQUER spawn do claude fora do motor (resumo de commit,
+ * destilador de memória…): sem marcadores de sessão aninhada e sem API key
+ * (quem paga é a assinatura) + PATH com a pasta do binário (o claude instalado
+ * via npm/nvm é um script `#!/usr/bin/env node` — com o PATH mínimo de app GUI
+ * o `env node` não acha o node).
+ */
+export function claudeEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.CLAUDE_CODE_SSE_PORT;
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  const dirs = [dirname(process.execPath)];
+  const bin = resolveClaude();
+  if (bin !== "claude") dirs.push(dirname(bin));
+  const cur = (env.PATH || "").split(delimiter).filter(Boolean);
+  env.PATH = [...dirs.filter((d) => !cur.includes(d)), ...cur].join(delimiter);
+  return env;
+}
+
+/** Erro de spawn do claude em pt-BR (bate com o catálogo `claude-missing` do app). */
+export function claudeErrText(err: unknown): string {
+  const e = err as { code?: string; message?: string };
+  const m = e?.message || String(err);
+  if (e?.code === "ENOENT" || /ENOENT/.test(m)) return "O Claude Code não está instalado neste computador (veja Mais › Ambiente).";
+  return m;
 }
 
 /**

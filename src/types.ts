@@ -125,6 +125,8 @@ export interface TaskSpec {
   /** Só para kind="review": link e número do PR sendo revisado. */
   prUrl?: string;
   prNumber?: number;
+  /** PRs anteriores desta tarefa (ex.: PR já MERGEADO antes de a conversa ser retomada numa branch nova). */
+  prHistory?: string[];
   /**
    * Link da ISSUE do tracker desta demanda (visível pro time). Preenchido pelo
    * humano na Nova demanda (issue já existente) OU pelo agente via mcp__cardume__set_issue
