@@ -1,6 +1,6 @@
 /* Starfork — 30-refino-macos (fatia 3/6; a ORDEM dos arquivos importa: cascata) */
 /* ===================== refinamento macOS (override) ===================== */
-.mono,.br,.feed .fl,.log,.log .ts,#graphSvg text,.hash,.gsub,.glabel,.claim{font-family:var(--mono)}
+.mono,.br,.feed .fl,.log,.log .ts,#graphSvg text,.hash,.claim{font-family:var(--mono)}
 .top{gap:9px;padding:9px 14px;border-bottom:.5px solid var(--border);background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);position:relative;z-index:40}
 .brand{font-weight:700;font-size:15px;letter-spacing:-.015em;color:var(--text);gap:8px}
 .brand .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(160deg,var(--accent),var(--accent-2));display:grid;place-items:center;color:#fff;box-shadow:var(--shadow-sm)}
@@ -17,8 +17,8 @@
 .btn.sm{padding:5px 9px;font-size:12px}
 .iconbtn{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-xs);color:var(--muted);box-shadow:var(--shadow-sm);display:inline-flex;align-items:center;justify-content:center;padding:6px}
 .iconbtn svg{width:15px;height:15px}
-.in,.repoinput,.sel,.askinput,.ta,.agpersona{border:.5px solid var(--border-strong);border-radius:var(--r-sm);background:var(--surface);font-size:12.5px}
-.in:focus,.repoinput:focus,.sel:focus,.askinput:focus,.ta:focus,.agpersona:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.in,.repoinput,.sel,.ta,.agpersona{border:.5px solid var(--border-strong);border-radius:var(--r-sm);background:var(--surface);font-size:12.5px}
+.in:focus,.repoinput:focus,.sel:focus,.ta:focus,.agpersona:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
 .repoinput{width:230px}
 .seg2{border:0;background:var(--surface-3);border-radius:8px;padding:2px;gap:2px}
 .seg2 button{border-radius:6px;color:var(--text-2);font-weight:500;padding:4px 12px}
@@ -27,19 +27,17 @@
 .side{border-left:.5px solid var(--border)}
 .feed{background:var(--surface-2)}
 .lbl{font-weight:600;letter-spacing:.02em}
-.arow{border-radius:var(--r-sm);margin:2px 8px;padding:8px 10px;border:.5px solid transparent}
-.arow:hover{background:var(--surface-3)}
-.arow.sel{background:var(--accent);border-color:transparent}
-.arow.sel .nm,.arow.sel .br{color:#fff}
 .nm::before{content:none}
 .ini{border-radius:7px;font-weight:600}
 .br{font-size:11px}
-.card,.agcard,.wfrow,.qbox,.diff,.log,.claim,.wfprev,.bus-note{border-radius:var(--r-sm)}
-.agcard,.wfrow{border:.5px solid var(--border);box-shadow:var(--shadow-sm)}
+.card,.wfrow,.qbox,.diff,.log,.claim,.wfprev{border-radius:var(--r-sm)}
+.wfrow{border:.5px solid var(--border);box-shadow:var(--shadow-sm)}
 .pill{border-radius:var(--r-pill);font-weight:600}
 .mergedtag{border-radius:var(--r-pill)}
 .stepchip{border-radius:var(--r-pill);box-shadow:var(--shadow-sm);border:.5px solid var(--border)}
 .overlay{background:rgba(0,0,0,.32);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+/* aba de tela cheia tem fundo opaco: o blur da viewport inteira era custo sem efeito visível */
+.overlay.astab{backdrop-filter:none;-webkit-backdrop-filter:none}
 .modal{border-radius:var(--r);border:.5px solid var(--border-strong);box-shadow:var(--shadow)}
 .mhead{border-bottom:.5px solid var(--border);font-weight:600;font-size:15px;padding:14px 18px}
 .mhead .x{border-radius:var(--r-pill);width:26px;height:26px;display:grid;place-items:center;background:var(--surface-3);color:var(--muted);font-size:0}
@@ -51,16 +49,12 @@
 .two{gap:14px}
 .wfprev{background:var(--surface-2)}
 .agpersona{color:var(--text-2)}
-.askopt,.asksend{border-radius:var(--r-sm);font-weight:500;box-shadow:var(--shadow-sm)}
-.qbadge{color:var(--warn);display:inline-flex;vertical-align:-2px}
-.qbadge svg{width:14px;height:14px}
+.askopt{border-radius:var(--r-sm);font-weight:500;box-shadow:var(--shadow-sm)}
 .bus{border-top:.5px solid var(--border);font-size:12px}
 .bus .live{border-radius:var(--r-pill);font-weight:600}
-.iconbtn.sm-ic{padding:3px}
-.stepchip .mv svg,.stepchip .rm svg{width:11px;height:11px;display:block}
+.stepchip .rm svg{width:11px;height:11px;display:block}
 .qbox .qh svg,.mergedtag svg{width:13px;height:13px;vertical-align:-2px;margin-right:4px}
 .qbox .qh{display:flex;align-items:center;gap:5px}
-.revok{color:var(--good);display:inline-flex;vertical-align:-2px} .revok svg{width:12px;height:12px}
 .acts .btn svg{width:14px;height:14px}
 .iconbtn svg{width:14px;height:14px}
 .stepchip .cdot{box-shadow:0 0 0 1px rgba(0,0,0,.05)}
@@ -96,9 +90,6 @@
 .cmsub{font-size:15px;font-weight:600;line-height:1.35}
 .cmmeta{font-size:11.5px;color:var(--muted);margin-top:5px}
 .cmbody-txt{font-size:12.5px;color:var(--text-2);margin-top:11px;line-height:1.55;background:var(--surface-2);border:.5px solid var(--border);border-radius:var(--r-sm);padding:10px 12px}
-.cmfiles{display:flex;flex-direction:column;gap:4px;margin-top:6px}
-.cmfile{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;padding:6px 9px;background:var(--surface-2);border:.5px solid var(--border);border-radius:var(--r-xs)}
-.cmfile .mono{font-size:11px}
 .modal.cm{width:min(720px,100%)}
 .cmtask{margin-top:12px;border:.5px solid color-mix(in srgb,var(--accent) 40%,var(--border));background:color-mix(in srgb,var(--accent) 7%,var(--surface));border-radius:var(--r-sm);padding:10px 12px}
 .cmtask-h{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);font-weight:700;margin-bottom:5px}
@@ -189,7 +180,6 @@
 .foot1 .btn{white-space:nowrap}
 .btn.danger.ghost{background:transparent;border-color:transparent;color:var(--crit);opacity:.85}
 .btn.danger.ghost:hover{background:color-mix(in srgb,var(--crit) 10%,transparent);opacity:1}
-.flagrow{margin-top:7px}
 .delivrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
 .fchip svg{width:12px;height:12px}
 .flagbadge{display:inline-flex;align-items:center;gap:4px}
@@ -230,7 +220,6 @@
 .sech .n{color:var(--good)}
 .sech.warn .n{color:var(--warn)}
 .sech::after{content:"";flex:1;height:1px;background:var(--border);opacity:.6}
-.sech .dim2{color:var(--text-2);opacity:.7;text-transform:none;letter-spacing:0;font-weight:400}
 /* Nova demanda spec-first: chat à esquerda, spec à direita */
 #ntOverlay .modal{max-width:1120px;width:min(95vw,1120px)}
 #ntOverlay .mbody{display:flex;gap:22px;align-items:stretch}
@@ -263,12 +252,7 @@
 .phst .plabel{margin-left:3px;color:var(--text)}
 /* abas de sessão no workspace */
 /* recuo dos semáforos do macOS + área de arrasto da janela (páginas em tela cheia) */
-.fwtabs{display:none} /* as tarefas abertas agora vivem na barra de abas do topo */
-.fwtabs.legacy{display:flex;gap:6px;align-items:center;padding:8px 14px 4px 86px;overflow-x:auto;min-height:34px}
 #ntOverlay .mhead{padding-left:86px}
-.fwtab{display:flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:11.5px;color:var(--text-2);white-space:nowrap}
-.fwtab.on{border-color:var(--accent);color:var(--text)}
-.fwtab .td{width:7px;height:7px;border-radius:50%}
 /* modal Como executar? */
 .howopt{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:8px}
 .howopt.on{border-color:var(--accent)}
@@ -276,13 +260,14 @@
 .howopt .ht{font-weight:600}
 .howopt .hd{font-size:12px;color:var(--text-2);margin-top:2px}
 .howopt .rec{font-family:var(--mono,ui-monospace,monospace);font-size:10px;color:var(--good);letter-spacing:.08em;margin-left:auto}
-/* agente esperando resposta: borda âmbar pulsando + badge */
-.fcard.asking{border-color:var(--warn);animation:askpulse 1.6s ease-in-out infinite}
-@keyframes askpulse{0%,100%{box-shadow:0 0 0 0 rgba(224,179,77,.0)}50%{box-shadow:0 0 0 4px rgba(224,179,77,.22);border-color:var(--warn)}}
-.askingbadge{font-size:10px;font-weight:700;color:#0b0e0d;background:var(--warn);padding:2px 8px;border-radius:var(--r-pill);white-space:nowrap;animation:askblink 1.6s ease-in-out infinite}
-@keyframes askblink{0%,100%{opacity:1}50%{opacity:.55}}
-@media (prefers-reduced-motion: reduce){ .fcard.asking,.askingbadge,.kcard.asking{animation:none} .fcard.asking,.kcard.asking{box-shadow:0 0 0 3px rgba(224,179,77,.2)} }
-.kcard.asking{border-color:var(--warn);animation:askpulse 1.6s ease-in-out infinite}
+/* agente esperando resposta: borda âmbar pulsando.
+   O pulso é um anel FIXO num ::after que só anima opacity (compositor) — antes animava box-shadow +
+   border-color do cartão inteiro = repaint do cartão a 60fps enquanto houvesse pergunta aberta. */
+.fcard.asking,.kcard.asking,.tscard.asking{border-color:var(--warn);position:relative}
+.fcard.asking::after,.kcard.asking::after,.tscard.asking::after{content:"";position:absolute;inset:-1px;border-radius:inherit;box-shadow:0 0 0 4px rgba(224,179,77,.22);opacity:0;pointer-events:none;animation:askpulse 1.6s ease-in-out infinite}
+.tscard.asking::after{animation-duration:1.8s}
+@keyframes askpulse{0%,100%{opacity:0}50%{opacity:1}}
+@media (prefers-reduced-motion: reduce){  .fcard.asking::after,.kcard.asking::after,.tscard.asking::after{animation:none;display:none} .fcard.asking,.kcard.asking{box-shadow:0 0 0 3px rgba(224,179,77,.2)} }
 .fcard:hover{border-color:var(--border-strong)}
 .fcard.sel{border-color:var(--accent);box-shadow:var(--ring)}
 .fcard.dragging{opacity:.4;cursor:grabbing}
@@ -333,10 +318,6 @@
 .fcommit .chash{color:var(--muted);font-size:10.5px;flex:none}
 .fcommit .csub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .sidecommits{display:flex;flex-direction:column;gap:1px;margin-top:4px}
-.fgh{display:flex;align-items:center;gap:9px;margin:0 2px 9px;padding-bottom:8px;border-bottom:1px solid var(--border)}
-.fgh b{font-size:14px;font-weight:700}
-.fgav{width:26px;height:26px;border-radius:8px;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none;box-shadow:var(--shadow-sm)}
-.fgn{margin-left:auto;font-size:11px;color:var(--muted)}
 .fclabel{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;margin-top:11px;border-top:.5px dashed var(--border);padding-top:9px}
 .fclabel .dim{text-transform:none;letter-spacing:0;font-weight:400}
 .fcommits{border-top:0 !important;padding-top:3px !important;margin-top:3px !important}
@@ -349,7 +330,6 @@
 html:not(.os-mac) .app.railcol .top{padding-left:16px}
 html:not(.os-mac) .app.railcol .tabbar{padding-left:16px}
 html:not(.os-mac) #ntOverlay .mhead{padding-left:20px}
-html:not(.os-mac) .fwtabs.legacy{padding-left:14px}
 
 /* barra de status "Agora": o detalhe (tarefas, custo em tokens, arquivos reservados) mora no tooltip */
 #busSummary{cursor:help;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

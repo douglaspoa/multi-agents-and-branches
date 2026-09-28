@@ -20,23 +20,8 @@
 #teamPane>#teamBoard{height:100%;min-height:0}
 .tspace{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);height:100%;min-height:0} /* rows 1fr → o .tmain ganha altura e scrolla */
 .tspace>*{min-width:0}
-.tside{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;overflow:auto}
-.tslbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 8px 6px}
-.tslbl:first-child{margin-top:2px}
-.tsnav{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;background:none;color:var(--text-2);font:inherit;font-size:13px;border-radius:8px;cursor:pointer;text-align:left}
-.tsnav:hover{background:var(--surface-2);color:var(--text)}
-.tsnav.on{background:var(--surface-3);color:var(--text);font-weight:600}
-.tsnav .n{margin-left:auto;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-.tsnav .n.hot{color:#0b0e0d;background:var(--warn);border-radius:var(--r-pill);padding:0 6px;font-weight:700}
-.tsep{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:8px;cursor:pointer}
-.tsep:hover{background:var(--surface-2)}
-.tsep .nm{font-size:12px;color:var(--text-2);display:flex;justify-content:space-between;gap:6px}
-.tsep .nm b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tsep.on{background:var(--surface-3)}
 .tsbar{height:4px;border-radius:var(--r-pill);background:var(--border);overflow:hidden}
 .tsbar i{display:block;height:100%;background:var(--accent)}
-.tsmem{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;color:var(--text-2)}
-.tsmem .r{margin-left:auto;font-size:10px;color:var(--muted)}
 .tsav{width:22px;height:22px;border-radius:var(--r-pill);display:grid;place-items:center;font-size:9.5px;font-weight:800;color:#0b0e0d;flex:none;position:relative}
 .tsav.on::after{content:"";position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:var(--r-pill);background:var(--accent);border:2px solid var(--surface);animation:tsblip 1.6s infinite}
 @keyframes tsblip{50%{opacity:.4}}
@@ -72,8 +57,6 @@
 .tsph{font-family:var(--mono,ui-monospace,monospace);font-size:10px;letter-spacing:.11em;color:var(--text-2)}
 .tsph::after{content:"";flex:1;height:1px;background:var(--border)}
 .tskh{font-family:var(--mono,ui-monospace,monospace);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-2)}
-.tslbl{font-family:var(--mono,ui-monospace,monospace);letter-spacing:.11em}
-.tsnav.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--text)}
 .tskpi{border-radius:14px}
 .tskpi .v{font-family:var(--mono,ui-monospace,monospace);font-size:17px;font-weight:700}
 .tspanel{border-radius:14px}
@@ -90,7 +73,6 @@
 .tskh .n{margin-left:auto;color:var(--muted);font-weight:600}
 .tscard{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 11px;margin-bottom:8px;cursor:pointer;transition:border-color .12s}
 .tscard:hover{border-color:var(--border-strong)}
-.tscard.asking{border-color:var(--warn);animation:askpulse 1.8s infinite}
 .tscard .tt{font-size:12px;font-weight:600;line-height:1.35;margin-bottom:6px}
 .tscard .meta{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);flex-wrap:wrap}
 .tscard .foot{display:flex;align-items:center;gap:6px;margin-top:8px}
@@ -511,7 +493,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .nogittag{font:600 9.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:5px;padding:1px 6px}
 .nogitbtn{font:500 11px var(--display);color:var(--accent);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline dotted}
 .nogitbtn:hover{color:var(--text)}
-body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpen{display:none!important}
+body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 
 /* página do ÉPICO (46-epico-time) */
 .fchipgrp{display:inline-flex;align-items:stretch}

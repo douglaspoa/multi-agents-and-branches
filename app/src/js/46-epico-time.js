@@ -310,7 +310,7 @@ document.addEventListener('keydown', e=>{
 // no quadro (epBoardHtml) e inicia sozinha a tarefa com spec.autoStart cujos pré-requisitos (spec.after)
 // estão TODOS mergeados — só na máquina de quem CRIOU o cartão (claim_task ainda protege de corrida).
 const EP_AUTO_READY=new Set(['merged','done']);
-let epAutoBusy=false; const epAutoWarned=new Set();
+let epAutoBusy=false, epAutoIdle=false; const epAutoWarned=new Set();
 let epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, progOf:{}, sibsOf:{}, here:'', at:0 };
 // pronta = mergeada/concluída OU FINALIZADA (flag closed): finalizar é o "terminei" do usuário — antes só merged/done
 // contava e a onda seguinte nunca começava depois de você finalizar a anterior (24/09)
@@ -322,22 +322,26 @@ async function epicAutoStartTick(){
   try{
     const rows=await sbGet('tasks?select=*&team_id=eq.'+cloudTeamId()+'&status=eq.backlog&epic_id=not.is.null&order=created_at.asc')||[];
     const dep=[...new Set(rows.flatMap(t=>Array.isArray((t.spec||{}).after)?t.spec.after:[]))];
-    const deps=dep.length?(await sbGet('tasks?select=id,title,status,flag,local_id,pr_url,team_id&id=in.('+dep.join(',')+')')||[]):[];
     const eids=[...new Set(rows.map(t=>t.epic_id))], pids=[...new Set(rows.map(t=>t.project_id).filter(Boolean))];
     // nomes: épicos da fila + épicos das tarefas LOCAIS já iniciadas (selo "◆ nome · onda N" no quadro)
     const localEids=[...new Set(((typeof state!=='undefined'&&state.tasks)||[]).map(t=>t.epic&&t.epic.epicId).filter(Boolean))];
+    epAutoIdle=!rows.length && !localEids.length; // nada de épico por aqui → o laço desacelera (60s)
     const nameIds=[...new Set(eids.concat(localEids))].slice(0,40);
-    const eps=nameIds.length?(await sbGet('epics?select=id,name&id=in.('+nameIds.join(',')+')')||[]):[];
     // progresso por épico da fila (cabeçalho "x/y entregues · onda N"): uma consulta leve por tick
     // R3-C1: a linha inteira (título/local_id) — o cabeçalho do grupo resume o épico TODO com um ponto por tarefa
     // inclui os épicos só com tarefas LOCAIS em andamento (fila vazia): sem isso o resumo "Épicos em andamento" contava só esta máquina
     const sibIds=[...new Set(eids.concat(localEids))].slice(0,20);
-    const sibs=sibIds.length?(await sbGet('tasks?select=*&epic_id=in.('+sibIds.join(',')+')&order=created_at.asc').catch(()=>[])||[]):[];
+    // as 4 consultas seguintes só dependem da fila → em paralelo (antes: em série, até 6 idas e voltas)
+    const [deps, eps, sibs, projs]=await Promise.all([
+      dep.length?sbGet('tasks?select=id,title,status,flag,local_id,pr_url,team_id&id=in.('+dep.join(',')+')').then(x=>x||[]):[],
+      nameIds.length?sbGet('epics?select=id,name&id=in.('+nameIds.join(',')+')').then(x=>x||[]):[],
+      sibIds.length?sbGet('tasks?select=*&epic_id=in.('+sibIds.join(',')+')&order=created_at.asc').then(x=>x||[]).catch(()=>[]):[],
+      pids.length?sbGet('projects?select=id,name,repo_remote&id=in.('+pids.join(',')+')').then(x=>x||[]):[],
+    ]);
     const progOf={}, sibsOf={};
     sibs.forEach(t=>{ (sibsOf[t.epic_id]=sibsOf[t.epic_id]||[]).push(t); const p=progOf[t.epic_id]||(progOf[t.epic_id]={ n:0, ok:0, wave:0 });
       const ok=epDelivered(t); p.n++; if(ok) p.ok++; // R5-2: regra única de entregue
       const w=Math.max(1, parseInt((t.spec||{}).wave,10)||1); if(!ok && (!p.wave || w<p.wave)) p.wave=w; });
-    const projs=pids.length?(await sbGet('projects?select=id,name,repo_remote&id=in.('+pids.join(',')+')')||[]):[];
     let here=''; try{ here=await invoke('repo_remote'); }catch(_){ }
     const sig=JSON.stringify([rows.map(r=>r.id+(r.spec&&r.spec.autoStart?'a':'')), deps.map(d=>d.id+d.status+(d.flag||'')), here, eps.map(e=>e.id+e.name), progOf, sibs.map(t=>t.id+t.status+(t.flag||'')+(t.pr_url?'p':''))]);
     const changed=sig!==epQueue.sig;
@@ -363,8 +367,7 @@ async function epicAutoStartTick(){
   }catch(e){ tickErr('epicAutoStart', e); }
   finally{ epAutoBusy=false; }
 }
-setInterval(()=>{ epicAutoStartTick(); }, 20000);
-setTimeout(()=>{ epicAutoStartTick(); }, 3000);
+tickLoop('epicAutoStart', epicAutoStartTick, ()=>epAutoIdle?60000:20000, 3000); // 42: sem sobreposição; 60s sem épico nenhum
 // seção do quadro de Tarefas (22-quadro-fluxo: renderFlow) — só na aba de execução, do projeto aberto
 // tipo do cartão da nuvem (mesmas chaves do filtro de tipo da Central: 22 taskType)
 function epqType(ct){

@@ -17,7 +17,6 @@ function renderProjName(){
 function projMenuOpen(){ const m=$id("projMenu"); return m && m.style.display!=="none"; }
 function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) alert(projErr); return; } renderProjMenu(); m.style.display="block"; }
 function closeProjMenu(){ const m=$id("projMenu"); if(m) m.style.display="none"; }
-function toggleProjMenu(){ projMenuOpen()?closeProjMenu():openProjMenu(); }
 function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos é uma aba); fica só se algum HTML antigo tiver #projMenu
   const m=$id("projMenu"); if(!m) return;
   const rows = projects.length ? projects.map(p=>`<div class="prow${p.active?' on':''}" data-path="${escA(p.path)}">
@@ -310,10 +309,10 @@ $id("agImport").onclick = importAgents;
 $id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Nova equipe", steps:[] }); renderWf(); };
 $id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
 
-// rede de segurança global: um erro solto (ex.: invoke que rejeitou sem catch,
-// rede caída) não deve deixar a UI num estado quebrado — só loga.
-window.addEventListener("error", e=>{ console.error("erro global:", e.error||e.message); });
-window.addEventListener("unhandledrejection", e=>{ console.error("promise sem catch:", e.reason); e.preventDefault(); });
+// rede de segurança global: o registro de erro solto/promise sem catch fica no 52-erros (app_errors) e no
+// 10-core (web_log) — aqui só evita o aviso padrão do WebView pra rejeição sem catch (o console.error
+// que havia aqui duplicava o mesmo erro nos dois registros).
+window.addEventListener("unhandledrejection", e=>{ e.preventDefault(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 initNotifs();
@@ -321,6 +320,26 @@ refresh().then(loadProjects).then(restoreMainView).catch(e=>console.error("boot:
 // poll blindado: uma volta que falhe não derruba o ciclo
 // um refresh por vez (o tick de 1s empilhava vários em paralelo), mas a trava NUNCA fica presa: se um refresh
 // não voltar em 6s (IPC perdido, SQLite ocupado), o próximo tick segue — antes a tela parava de atualizar pra sempre
-let refreshBusyAt=0;
-setInterval(()=>{ if(refreshBusyAt && Date.now()-refreshBusyAt<6000) return; const my=refreshBusyAt=Date.now();
-  refresh().catch(e=>console.error("refresh:", e)).finally(()=>{ if(refreshBusyAt===my) refreshBusyAt=0; }); }, 1000);
+// Carimbo antes do snapshot: `snapshot_stamp` (Rust, só stat do state.sqlite/-wal) é quase grátis; o snapshot
+// inteiro (~0,5 MB de JSON serializado, cruzando IPC e parseado aqui) só vem quando o banco mudou, quando
+// alguém pediu redesenho (lastSig mexido fora daqui), logo após um clique (render segurado pelo uiHold) ou
+// a cada 3s (pid vivo, cache multi-projeto — o que não mora no banco). Janela escondida: 1 volta a cada 4s
+// e snapshot completo no máx. a cada 12s. Sem o comando (build antigo / harness) = sempre snapshot.
+let refreshBusyAt=0, stampBusyAt=0, pollAt=0, snapStamp=null, snapFullAt=0, snapSigMark=null;
+setInterval(async()=>{
+  const now=Date.now();
+  if(refreshBusyAt && now-refreshBusyAt<6000) return;
+  if(stampBusyAt && now-stampBusyAt<6000) return;
+  const hidden=document.hidden;
+  if(hidden && now-pollAt<4000) return;
+  pollAt=now;
+  let stamp=null;
+  stampBusyAt=now; try{ stamp=await invoke("snapshot_stamp"); }catch(_){ stamp=null; } finally{ stampBusyAt=0; }
+  if(stamp && stamp===snapStamp && lastSig===snapSigMark && Date.now()-snapFullAt<(hidden?12000:3000) && Date.now()-uiHoldUntil>1500){
+    if(typeof loadAllTasks==='function') loadAllTasks(); // cache multi-projeto segue no ritmo dele (throttle de 4s próprio)
+    return;
+  }
+  const my=refreshBusyAt=Date.now(); const before=state;
+  refresh().then(()=>{ if(state!==before){ snapStamp=stamp; snapFullAt=Date.now(); snapSigMark=lastSig; } })
+    .catch(e=>console.error("refresh:", e)).finally(()=>{ if(refreshBusyAt===my) refreshBusyAt=0; });
+}, 1000);
