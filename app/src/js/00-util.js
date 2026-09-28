@@ -128,8 +128,8 @@ const ERR_ACTIONS={
 const ERR_CATALOG=[
   { id:'claude-missing', re:/spawn claude ENOENT|claude:?\s*(command )?not found|n[aã]o (encontrei|achei) o (bin[aá]rio do )?claude|claude (code )?n[aã]o (est[aá] )?instalado|claude[^\n]{0,40}ENOENT/i,
     msg:'O Claude Code não está instalado neste computador.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
-  { id:'claude-login', re:/please run \/login|run \/login|invalid api key|not logged in|n[aã]o est[aá] logado no claude|authentication_error|oauth token (has )?expired|x-api-key/i,
-    msg:'O Claude Code precisa de login.', act:'env', label:'abrir Ambiente' },
+  { id:'claude-login', re:/please run \/login|run \/login|invalid api key|not logged in|n[aã]o est[aá] logado no claude|authentication_error|oauth token (has )?expired|oauth session expired|failed to authenticate|login do claude( code)? expirou|claude auth login|x-api-key/i,
+    msg:'O Claude Code precisa de login (ou o login expirou) — abra um terminal, rode `claude` e digite /login (ou `claude auth login`), depois envie de novo.', act:'env', label:'abrir Ambiente' },
   { id:'gh-missing', re:/spawn gh ENOENT|\bgh:?\s*(command )?not found|gh n[aã]o (est[aá] )?instalado|github cli n[aã]o/i,
     msg:'O GitHub CLI (gh) não está instalado.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
   { id:'gh-auth', re:/gh auth login|authentication required|not logged into any github|bad credentials|requires authentication|gh sem login|to get started with github cli/i,

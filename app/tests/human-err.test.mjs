@@ -108,3 +108,10 @@ test('pathBase/pathDir: / e \\ (Windows — E10)', () => {
   assert.equal(pathDir('C:\\Users\\ana\\loja\\a.png'), 'C:\\Users\\ana\\loja');
   assert.equal(pathDir('/Users/ana/loja/a.png'), '/Users/ana/loja');
 });
+
+test('login do Claude Code expirado (mensagem do Rust em pt-BR e erro OAuth) vira "login", não rede', () => {
+  const a = humanErr('Login do Claude Code expirou — abra um terminal, rode `claude` e digite /login (ou `claude auth login`), depois tente de novo aqui. (Failed to authenticate: OAuth session expired and could not be refreshed)');
+  assert.equal(a.id, 'claude-login');
+  assert.ok(a.action);
+  assert.equal(humanErr('Failed to authenticate: OAuth session expired').id, 'claude-login');
+});
