@@ -111,6 +111,8 @@ async function openPrefs(){
   // Proteção dos agentes é LOCAL (vale nesta máquina, por pasta do projeto) — não depende de conta/nuvem
   const repoPath=(state&&state.repo)||'';
   { const h=$id('prefsProtHost'); if(h){ if(repoPath && typeof protectPrefsHtml==='function'){ if(!protectLoaded) await protectLoad(); h.innerHTML=protectPrefsHtml(repoPath); protectPrefsWire(repoPath); } else h.innerHTML=''; } }
+  // memória do projeto: onde salvar as memórias novas (time/local/só local) — mesmo seletor da aba Memória
+  if(typeof memPrefsRender==='function') memPrefsRender();
   const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org);
   const k=cloudOk?await prefsKey():null;
   // sem conta/remote: o documento do time fica indisponível, mas a proteção continua configurável

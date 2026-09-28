@@ -1,5 +1,5 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { globsOverlap } from "./glob.ts";
@@ -10,6 +10,9 @@ import { buildReview } from "./review.ts";
 import { ghBin, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
+import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
+import { execFileSync } from "node:child_process";
+import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine, claudeEnv, claudeErrText, resolveClaude } from "./engine/claude.ts";
 import { CodexEngine } from "./engine/codex.ts";
@@ -177,6 +180,13 @@ export class Orchestrator {
         seeded.push(`.cardume/${doc}`);
       } catch { /* ainda não existe no projeto */ }
     }
+    // CÉREBRO do projeto (notas .md): cópia de leitura na worktree + manifesto (hash de cada
+    // nota semeada) — o agente faz grep e pode criar/atualizar notas; harvestBrain leva de volta
+    // SÓ o que ele mudou desde a semeadura.
+    try {
+      const n = Object.keys(seedWorktree(this.brain(), worktree)).length;
+      if (n) seeded.push(`.cardume/memoria/ (cérebro do projeto, ${n} nota(s))`);
+    } catch { /* memória nunca derruba a criação da tarefa */ }
     // FAIXA LEVE: mudança pequena não vale o custo de linkar deps + rodar setup.sh
     // (o VoC aponta: "não vale a pena pra uma correção que a IA faz em 10min").
     if (!light) {
@@ -200,21 +210,23 @@ export class Orchestrator {
   }
 
   // ---------------------------------------------------------------------------
-  // MEMÓRIA DO PROJETO: decisões e correções do humano que valem pra SEMPRE
-  // (.cardume/MEMORY.md na raiz do repo). Entra no contexto de TODO turno de
-  // TODO agente — e cresce sozinha: cada mensagem de chat do humano passa por
-  // um destilador (Haiku) que extrai regras duradouras e as anexa (com dedup).
+  // MEMÓRIA DO PROJETO = CÉREBRO (src/memory.ts): notas .md ligadas por [[links]]
+  // em .cardume/memoria/ (local) e .cardume/memoria/time/ (espelho do time).
+  // Entra no contexto de TODO turno como índice + notas relevantes à tarefa (com
+  // teto) e cresce sozinha: correções do humano no chat e aprendizados do fim da
+  // tarefa viram notas (com dedup, links e rastro de quem gravou).
   // ---------------------------------------------------------------------------
-  private memoryFile(): string {
-    return join(this.ws.dir, "MEMORY.md");
+  brain(): Brain {
+    return new Brain(this.ws.dir);
   }
 
-  projectMemory(): string {
+  projectMemory(spec?: TaskSpec, extra = ""): string {
     let out = "";
     try {
-      const txt = readFileSync(this.memoryFile(), "utf8").trim();
-      if (txt) out += `## MEMÓRIA DO PROJETO — decisões do humano que você DEVE obedecer (aprendidas em tarefas anteriores)\n${txt.slice(0, 6000)}\n\n`;
-    } catch { /* sem memória ainda */ }
+      const q = spec ? [spec.title, spec.objective, ...(spec.requirements ?? []), ...(spec.scope?.owns ?? []), extra].join(" ") : extra;
+      const ctx = this.brain().context(q);
+      if (ctx) out += ctx.trimEnd() + "\n\n";
+    } catch { /* memória nunca derruba o turno */ }
     try {
       const rb = readFileSync(join(this.ws.dir, "RUNBOOK.md"), "utf8").trim();
       if (rb) out += `## RUNBOOK — como SUBIR O AMBIENTE deste projeto (validado em tarefas anteriores; siga ANTES de redescobrir qualquer coisa)\n${rb.slice(0, 4000)}\n\n`;
@@ -355,35 +367,130 @@ export class Orchestrator {
     } catch { /* histórico é best-effort */ }
   }
 
-  /** Destila uma mensagem do humano em regra duradoura e anexa à memória. */
-  private async learnFromMessage(message: string): Promise<void> {
+  /** Nome de quem fala com os agentes nesta máquina (rastro das notas). */
+  private humanName(): string {
+    if (this._human) return this._human;
+    let n = (process.env.CARDUME_USER_NAME || "").trim();
+    if (!n) {
+      try {
+        n = execFileSync("git", ["-C", this.ws.repo, "config", "user.name"], { encoding: "utf8", timeout: 3000 }).trim();
+      } catch { /* sem git config */ }
+    }
+    if (!n) { try { n = userInfo().username; } catch { /* sem usuário */ } }
+    this._human = n || "você";
+    return this._human;
+  }
+  private _human = "";
+
+  /** Títulos das notas existentes (pra o destilador ligar e não duplicar). */
+  private brainCatalog(): string {
+    try {
+      return this.brain().list(true).slice(0, 80).map((n: Note) => `- ${n.slug}: ${n.title} (${n.type})`).join("\n");
+    } catch { return ""; }
+  }
+
+  /** Roda o Haiku headless (destiladores). "" em qualquer falha. */
+  private async haiku(prompt: string): Promise<string> {
+    try {
+      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv() });
+      return stdout.trim();
+    } catch { return ""; }
+  }
+
+  private noteFromJson(o: any, by: string): NoteInput | null {
+    if (!o || typeof o !== "object") return null;
+    const title = String(o.title ?? "").trim();
+    const body = String(o.body ?? "").trim();
+    if (title.length < 4 || body.length < 8 || title.length > 140 || body.length > 2000) return null;
+    return {
+      title,
+      type: String(o.type ?? "contexto"),
+      tags: Array.isArray(o.tags) ? o.tags.map(String).slice(0, 6) : [],
+      body,
+      by,
+      origem: "agente",
+    };
+  }
+
+  /**
+   * Destila uma mensagem do humano no chat em NOTA duradoura (regra/decisão…) do
+   * cérebro: cria ou atualiza (dedup) com [[links]] pras notas que já existem.
+   * Fire-and-forget: nunca quebra o turno.
+   */
+  private async learnFromMessage(message: string, taskTitle = "", taskId?: string): Promise<void> {
     const msg = message.trim();
     if (msg.length < 12) return;
     try {
+      const catalog = this.brainCatalog();
       const prompt =
         `Mensagem de um dev pro agente de IA durante uma tarefa:\n"""${msg.slice(0, 800)}"""\n\n` +
-        `Se ela contém uma REGRA/PREFERÊNCIA DURADOURA de trabalho (vale pra tarefas futuras — ex.: como testar, onde ficam credenciais, convenção de git/PR, decisão de produto), responda SÓ a regra em UMA linha imperativa e geral, EM PORTUGUÊS (sem mencionar a tarefa específica). Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
-      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv() });
-      const rule = stdout.trim().split("\n").pop()?.trim() ?? "";
-      if (!rule || /^skip\b/i.test(rule) || rule.length < 10 || rule.length > 300) return;
-      // dedup ingênuo: não anexa se já existe linha muito parecida
-      let cur = "";
-      try { cur = readFileSync(this.memoryFile(), "utf8"); } catch { /* primeira regra */ }
-      const norm = (s: string) => s.toLowerCase().replace(/[^a-zà-ú0-9]+/g, " ").trim();
-      const nrule = norm(rule);
-      const words = new Set(nrule.split(" "));
-      for (const line of cur.split("\n")) {
-        const nl = norm(line.replace(/^[-*]\s*/, ""));
-        if (!nl) continue;
-        const lw = nl.split(" ");
-        const overlap = lw.filter((w) => words.has(w)).length;
-        if (overlap >= Math.min(words.size, lw.length) * 0.75) return; // já sabemos disso
-      }
-      const stamp = new Date().toISOString().slice(0, 10);
-      appendFileSync(this.memoryFile(), `${cur && !cur.endsWith("\n") ? "\n" : ""}- ${rule} _(aprendido ${stamp})_\n`);
+        `Notas que já existem no cérebro do projeto (slug: título):\n${catalog || "(nenhuma)"}\n\n` +
+        `Se a mensagem contém uma REGRA/PREFERÊNCIA/DECISÃO DURADOURA de trabalho (vale pra tarefas futuras — ex.: como testar, ferramenta a usar, convenção de git/PR, decisão de produto), ` +
+        `responda SÓ um JSON {"title":"título curto e geral","type":"regra|decisão|gotcha|contexto|glossário|pessoa","tags":["tema"],"body":"1-3 frases em português, imperativas e gerais (sem citar a tarefa), com [[slug]] pras notas existentes relacionadas e/ou [[tema]] pro assunto (ex.: [[ferramentas]])"}. ` +
+        `Se já existe nota sobre o MESMO assunto, use exatamente o título dela. NUNCA inclua segredos, chaves, senhas ou valores de .env. ` +
+        `Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
+      const out = await this.haiku(prompt);
+      if (!out || /^skip\b/i.test(out.split("\n").pop()?.trim() ?? "")) return;
+      const who = this.humanName();
+      const note = this.noteFromJson(extractJson(out), `destilador · correção de ${who}${taskTitle ? ` no chat da tarefa "${taskTitle.slice(0, 60)}"` : ""}`);
+      if (note && this.brain().write(note)?.action === "secret") this.noteSecretDropped(taskId, "uma correção do chat");
     } catch {
       /* aprender é melhor-esforço — nunca quebra o turno */
     }
+  }
+
+  /**
+   * FIM DA TAREFA: destila decisões e gotchas do que aconteceu (resumo + notas do
+   * agente) em 0-3 notas do cérebro. Melhor-esforço, fire-and-forget.
+   */
+  private async distillTask(taskId: string): Promise<void> {
+    try {
+      const t = this.store.getTask(taskId);
+      if (!t) return;
+      const spec = JSON.parse(t.spec_json) as TaskSpec;
+      const evs = this.store
+        .eventsForTask(taskId)
+        .filter((e) => e.type === "done" || e.type === "note")
+        .slice(-25)
+        .map((e) => `- ${e.agent}: ${String(e.text).replace(/\s+/g, " ").slice(0, 300)}`)
+        .join("\n");
+      if (!evs) return;
+      const prompt =
+        `Tarefa concluída por agentes de IA num projeto de software.\nTítulo: ${spec.title}\nObjetivo: ${String(spec.objective ?? "").slice(0, 600)}\n` +
+        `O que aconteceu (eventos):\n${evs.slice(0, 5000)}\n\n` +
+        `Notas que já existem no cérebro do projeto (slug: título):\n${this.brainCatalog() || "(nenhuma)"}\n\n` +
+        `Extraia de 0 a 3 APRENDIZADOS DURADOUROS que valem pra tarefas FUTURAS deste projeto: decisões de arquitetura/produto tomadas, gotchas (armadilhas descobertas, com a causa), regras de trabalho. ` +
+        `Nada pontual da tarefa, nada óbvio, NUNCA segredos/chaves/valores de .env. Responda SÓ um JSON array: ` +
+        `[{"title":"título curto","type":"decisão|gotcha|regra|contexto|glossário","tags":["tema"],"body":"1-4 frases em português com [[slug]] pras notas relacionadas"}] — ou [] se não houver nada que valha.`;
+      const out = await this.haiku(prompt);
+      const arr = extractJson(out);
+      if (!Array.isArray(arr)) return;
+      const brain = this.brain();
+      for (const o of arr.slice(0, 3)) {
+        const note = this.noteFromJson(o, `agente · fim da tarefa "${String(spec.title).slice(0, 60)}" (${taskId})`);
+        if (note && brain.write(note)?.action === "secret") this.noteSecretDropped(taskId, "um aprendizado do fim da tarefa");
+      }
+    } catch { /* melhor-esforço */ }
+  }
+
+  /** Nota descartada por parecer segredo: avisa no chat da tarefa (nunca some calada). */
+  private noteSecretDropped(taskId: string | undefined, what: string): void {
+    const msg = `memória: descartei ${what} — parecia conter segredo (chave/senha/.env); nada foi gravado no cérebro`;
+    console.warn(`[memória] ${msg}`);
+    if (taskId) { try { this.store.addEvent(taskId, "Sistema", "note", msg, false); } catch { /* sem store */ } }
+  }
+
+  /**
+   * O agente pode CRIAR/ATUALIZAR notas em .cardume/memoria/ na worktree — aqui volta pro
+   * cérebro do repo principal SÓ o que mudou desde a semeadura (manifesto), com rastro da
+   * tarefa. Nunca apaga nem ressuscita nota apagada; se o humano editou depois, ele vence.
+   */
+  private harvestBrain(worktree: string, taskId: string, taskTitle: string): void {
+    try {
+      const r = harvestWorktree(this.ws.dir, worktree, readManifest(worktree), `agente · tarefa "${taskTitle.slice(0, 60)}" (${taskId})`);
+      writeManifest(worktree, r.manifest);
+      for (const k of r.secrets) this.noteSecretDropped(taskId, `a nota ${k}.md`);
+    } catch { /* colher memória é melhor-esforço */ }
   }
 
   // ---------------------------------------------------------------------------
@@ -643,7 +750,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -822,6 +929,8 @@ export class Orchestrator {
     if (usesClaude) notify("Starfork", "Pronta para review ✓", task.title);
     this.appendHistory(taskId);      // memória de issues: entra no índice pesquisável
     this.harvestRunbook(task.worktree); // aprendizado de ambiente volta pro repo
+    this.harvestBrain(task.worktree, taskId, task.title); // notas que o agente escreveu → cérebro
+    void this.distillTask(taskId);   // decisões/gotchas da tarefa viram notas (fire-and-forget)
     await this.maybeOpenPr(taskId, task, spec);
   }
 
@@ -913,7 +1022,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -1119,7 +1228,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -1208,7 +1317,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec, message) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     // recriada → ao fim do turno volta pra "pronta pra revisar" (não pro limbo mergeada-sem-worktree)
     const prev: AgentStatus = recreated && ["merged", "done", "aborted", "cancelled", "error"].includes(task.status) ? "review" : task.status;
     const sid = switching ? "" : (task.session_id || "");
@@ -1290,8 +1399,10 @@ export class Orchestrator {
     this.store.setStatus(taskId, next);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
     else notify("Starfork", `${role.name} respondeu`, task.title);
+    // notas que o agente escreveu neste turno → cérebro do projeto
+    this.harvestBrain(task.worktree, taskId, task.title);
     // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
-    if (!asReq) void this.learnFromMessage(message);
+    if (!asReq) void this.learnFromMessage(message, task.title, taskId);
   }
 
   /**
