@@ -1,6 +1,17 @@
 // Starfork — 12-chat-prefs-daily
 // ---------- chat do projeto ----------
 let pcBusy=false, pcStopping=false;
+// o que a IA está fazendo AGORA (evento project-chat-activity do Rust: "lendo X", "procurando Y") + há quanto tempo.
+// Antes era só "lendo o projeto…" por minutos — parecia travado.
+let pcActs=[], pcStartedAt=0, pcTick=null;
+function pcActsHtml(){
+  const s=pcStartedAt?Math.max(0,Math.round((Date.now()-pcStartedAt)/1000)):0;
+  const tempo=s<60?s+'s':Math.floor(s/60)+'min '+String(s%60).padStart(2,'0')+'s';
+  const acts=pcActs.slice(-6).map((l,i,a)=>`<div class="${i===a.length-1?'cur':''}">${esc(l)}</div>`).join('');
+  return `<div class="dim" style="font-size:11px;margin-bottom:3px">lendo o projeto · ${tempo}${pcActs.length?' · '+nPl(pcActs.length,'ação','ações'):''}</div>`+(acts||'<div class="cur">abrindo a sessão da IA…</div>');
+}
+function pcActsPaint(){ const el=$id('pcActs'); if(el) el.innerHTML=pcActsHtml(); }
+try{ window.__TAURI__.event.listen('project-chat-activity', ev=>{ if(!pcBusy) return; const l=String((ev&&ev.payload&&ev.payload.line)||'').trim(); if(!l) return; pcActs.push(l); if(pcActs.length>60) pcActs.shift(); pcActsPaint(); }); }catch(_){ }
 function pcKey(){ return 'pchat:'+(state.repo||''); }
 // role: user | assistant | sys (aviso: erro, parado, sessão recuperada — aparece na conversa mas NUNCA volta pro modelo)
 // conversas antigas guardavam o erro como se fosse a resposta da IA ("Falhou: …" com o triângulo de aviso na frente) → vira aviso ao ler
@@ -15,7 +26,7 @@ function pcRender(){
   const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="sel" id="pcProj" title="sobre qual projeto você quer conversar" style="max-width:220px">${projOpts}</select><button class="as-btn" id="pcTask2">virar tarefa</button><button class="as-btn" id="pcClear2" style="border-color:transparent;color:var(--text-3)">limpar</button></div></div>`;
   let bodyHtml;
   if(ms.length){
-    bodyHtml=`<div class="pc-thread">${ms.map(chatMsgHtml).join('')}${pcBusy?chatThinkHtml('<span class="pltyping"><i></i><i></i><i></i></span> lendo o projeto…'):''}</div>`;
+    bodyHtml=`<div class="pc-thread">${ms.map(chatMsgHtml).join('')}${pcBusy?chatThinkHtml('<span class="pltyping"><i></i><i></i><i></i></span><div class="placts" id="pcActs">'+pcActsHtml()+'</div>'):''}</div>`;
   } else {
     const sugg=[['ARQUITETURA','como o autocomplete resolve o ranking hoje?'],['ONDE FICA','onde fica a lógica de autenticação?'],['POR QUÊ','por que o cache é invalidado desse jeito?'],['IDEIA','como eu adicionaria rate limiting aqui?']];
     bodyHtml=`<div class="pc-empty"><div class="pc-empty-t">Pergunte qualquer coisa sobre <span class="as-mono" style="color:var(--accent)">${repo}</span></div><div class="pc-empty-d">Arquitetura, "onde fica X", "por que Y é assim", ideias. Gostou de uma resposta? <b style="color:var(--text)">virar tarefa</b> transforma a conversa numa spec pronta.</div><div class="pc-sugg">${sugg.map(s=>`<button class="pc-sc" data-sg="${escA(s[1])}"><span class="pc-sc-t">${esc(s[0])}</span><span class="pc-sc-x">${esc(s[1])}</span></button>`).join('')}</div></div>`;
@@ -40,7 +51,7 @@ async function pcSend(){
   if(!text && atts.length) text='Anexei estes arquivos — leia e considere no contexto do projeto.';
   if(!text) return;
   const key=pcKey(), sidKey='pcsid:'+(state.repo||''); // presos ao projeto de ONDE saiu a pergunta
-  const ms=pcMsgs(key); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms,key); inp.value=''; pcBusy=true; pcStopping=false; chatPinBottom('pcThread'); pcRender();
+  const ms=pcMsgs(key); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms,key); inp.value=''; pcBusy=true; pcStopping=false; pcActs=[]; pcStartedAt=Date.now(); clearInterval(pcTick); pcTick=setInterval(()=>{ if(!pcBusy){ clearInterval(pcTick); pcTick=null; return; } pcActsPaint(); }, 1000); chatPinBottom('pcThread'); pcRender();
   try{
     const hist=pcMsgs(key).slice(0,-1).filter(m=>m.role!=='sys'); // aviso/erro NUNCA volta pro modelo como se fosse fala
     const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'' }), lsGet(sidKey)||'', text+attPromptBlock(atts), hist);
@@ -61,7 +72,7 @@ async function pcSend(){
   }
   pcBusy=false; pcStopping=false; pcRender();
 }
-async function pcStop(){ if(!pcBusy) return; pcStopping=true; try{ await invoke('project_chat_stop'); }catch(_){ } }
+async function pcStop(){ if(!pcBusy) return; pcStopping=true; pcActs.push('parando…'); pcActsPaint(); try{ await invoke('project_chat_stop'); }catch(_){ } }
 async function pcToTask(){
   const btn=$id('pcTask');
   if(!pcMsgs().length){ toast('Converse primeiro — a spec nasce do papo.','warn'); return; }
