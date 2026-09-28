@@ -53,6 +53,7 @@ app/
       50-workspace-planner.css  tela da tarefa (3 colunas), planner, PR, artefatos
       60-grafo-times-nova-demanda.css  grafo, espaço Times, formulário da Nova demanda
       70-orquestrador.css · 80-ajustes-cards.css · 81-chat.css · 82-issues.css  orquestrador, cards da Central, composer dos chats, painel de issues
+      82-memoria.css        aba Memória do projeto (lista, nota, editor, grafo)
       83-responsivo.css     (R7, por último) regras gerais de redimensionamento: título com prioridade, selos (épico/protegido/branch) encolhem com …, nada mais largo que a coluna
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
       00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH, pathBase/pathDir, osKind, toast (com ação) e o catálogo de erros pt-BR humanErr/showErr — helpers usados por todos
@@ -113,3 +114,4 @@ vivo, claims, diff, log e as colisões do barramento — atualizando em tempo re
 - **Empacotar** (`npm run build`) com ícones `.icns` completos e assinatura.
       35-ref-tarefa.js        "/" na descrição da Nova demanda/planner referencia tarefa JÁ FEITA (busca, projeto) → contexto + docs no spec
       36-comecar.js           "Começar sem portões": tela sem projeto = "O que você quer fazer?" → cria ~/Documents/Starfork/<nome> (git, sem GitHub) e abre o planner com o pedido enviado; apaga itens da sidebar sem projeto
+      37-memoria.js           aba "Memória do projeto": cérebro de notas .md ligadas por [[links]] (lista/busca, nota com backlinks, editor, grafo, time⇄local, Obsidian) + sync com brain_notes; Rust em src-tauri/src/memoria.rs, motor em src/memory.ts; testes em app/tests/memoria.test.mjs
