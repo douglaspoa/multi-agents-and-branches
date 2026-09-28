@@ -511,6 +511,21 @@ fn claude_friendly_error(msg: &str) -> String {
 }
 
 #[cfg(test)]
+mod budget_spec_tests {
+    use super::*;
+    #[test]
+    fn snapshot_carries_budget_keys_only() {
+        let sp = serde_json::json!({"kind":"build","budgetUsd":7.5,"budgetHit":{"cap":5,"mode":"paused"},"deliverables":[]});
+        let b = task_budget_spec(&sp).expect("tem teto");
+        assert_eq!(b["budgetUsd"], 7.5);
+        assert_eq!(b["budgetHit"]["mode"], "paused");
+        assert!(b.get("kind").is_none());
+        assert!(task_budget_spec(&serde_json::json!({"kind":"build"})).is_none());
+        assert!(task_budget_spec(&serde_json::json!({"budgetHit":null})).is_none());
+    }
+}
+
+#[cfg(test)]
 mod claude_json_tests {
     use super::*;
     #[cfg(unix)]
@@ -790,6 +805,15 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
     Ok(())
 }
 
+/// chaves do teto de custo que o front precisa ver no snapshot (None quando a tarefa não tem nenhuma)
+fn task_budget_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
+    let mut m = serde_json::Map::new();
+    for k in ["budgetUsd", "budgetHit"] {
+        if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
+    }
+    if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Task {
@@ -822,6 +846,9 @@ struct Task {
     /// tal como estão no spec — None numa tarefa comum. O front espalha isso de volta na nuvem.
     epic: Option<serde_json::Value>,
     depends_on: Vec<String>,
+    /// Só as chaves do TETO de custo do spec (budgetUsd, budgetHit) — o front (53-teto-protecao) lê
+    /// `t.spec`; sem isto a pausa acontecia mas a pergunta "continuar/parar" nunca aparecia.
+    spec: Option<serde_json::Value>,
     /// Um turno do MOTOR está rodando agora (lock busy_pid vivo) — pode ser um
     /// turno de fundo (verificar provas, rework) mesmo com status 'review'.
     busy: bool,
@@ -2197,6 +2224,7 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
                     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
                 },
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
+                spec: task_budget_spec(&spec),
                 busy: r
                     .get::<_, Option<i64>>(16)
                     .unwrap_or(None)
