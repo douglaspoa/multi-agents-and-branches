@@ -132,10 +132,35 @@
 .fwln:hover{background:var(--surface-2)}
 .fwln.add{background:color-mix(in srgb,var(--good) 12%,transparent)}
 .fwln.sel{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+/* a classe global .sel (select estilizado) vazava na linha selecionada: borda, padding e a seta */
+.fwln.sel{border:0;border-radius:0;padding:0;background-image:none;font-size:inherit;box-shadow:none}
 .fwnum{color:var(--muted);text-align:right;padding:0 12px 0 8px;user-select:none;position:sticky;left:0;background:var(--surface);border-right:1px solid var(--border)}
 .fwln.add .fwnum{background:color-mix(in srgb,var(--good) 12%,var(--surface))}
 .fwln.sel .fwnum{background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
 .fwtxt{padding:0 14px;white-space:pre}
+.fwvtg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-right:8px;flex:none}
+/* R8: diff unificado ÚNICO (Código "só mudanças" + Revisão): nº antigo | nº novo | ± | texto */
+.fwvtg button{background:transparent;border:0;color:var(--muted);font:500 11.5px var(--ui);padding:4px 10px;cursor:pointer}
+.fwvtg button+button{border-left:1px solid var(--border)}
+.fwvtg button.on{background:var(--surface-2);color:var(--text)}
+.fwln.dv{grid-template-columns:44px 44px 16px 1fr}
+.fwln.dv .fwnum{padding:0 8px 0 4px;border-right:0}
+.fwln.dv .fwnum:not(.dvo){left:44px;border-right:1px solid var(--border)}
+.fwln.dv .dvs{color:var(--muted);text-align:center;user-select:none}
+.fwln.dv.add{background:color-mix(in srgb,var(--good) 12%,transparent)}
+.fwln.dv.add .fwnum{background:color-mix(in srgb,var(--good) 12%,var(--surface))}
+.fwln.dv.add .dvs{color:var(--good)}
+.fwln.dv.del{background:color-mix(in srgb,var(--crit) 12%,transparent);cursor:default}
+.fwln.dv.del .fwnum{background:color-mix(in srgb,var(--crit) 12%,var(--surface))}
+.fwln.dv.del .dvs,.fwln.dv.del .fwtxt{color:color-mix(in srgb,var(--crit) 75%,var(--text))}
+.fwln.dv.sel,.fwln.dv.sel .fwnum{background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
+.dvhunk{display:flex;gap:10px;align-items:baseline;padding:10px 14px 4px;color:var(--muted);font:600 11px var(--ui);position:sticky;left:0;width:max-content;min-width:100%;box-sizing:border-box}
+.dvhunk .dvctx{font-weight:400;opacity:.8;font-size:11px}
+.dvgap{display:block;width:100%;text-align:left;background:color-mix(in srgb,var(--muted) 7%,transparent);border:0;border-top:1px dashed var(--border);border-bottom:1px dashed var(--border);color:var(--muted);font:500 11.5px var(--ui);padding:5px 14px 5px 110px;cursor:pointer;margin:4px 0}
+.dvgap:hover{color:var(--text)}
+.dvgap.off{cursor:default}
+.fwdiff.fwdv{padding:4px 0}
+.fwdiff.fwdv .fwln{cursor:text;width:max-content;min-width:100%}
 .fwselbar{border-top:1px solid var(--border);padding:8px 14px;font-size:11.5px;color:var(--muted);background:var(--surface-2)}
 .fwselbar b{color:var(--accent)}
 .fwchat{border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--surface-2)}

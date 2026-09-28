@@ -2965,7 +2965,7 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
                 let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
                 let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
                 // mergeada: a worktree já não serve — cancelada fica (dá pra retomar/inspecionar; a limpeza manual tira)
-                if status == "merged" { if let Ok(repo) = repo_of(&state) { remove_task_worktree(&repo, &conn, &task_id); } }
+                if status == "merged" { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
             }
         }
     }
@@ -6027,7 +6027,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
                     params![task_id],
                 ).unwrap_or(0);
                 // worktree mergeada não serve mais — libera o disco na hora
-                if flipped > 0 { if let Ok(repo) = repo_of(&state) { remove_task_worktree(&repo, &conn, &task_id); } }
+                if flipped > 0 { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
             }
         }
     }
@@ -7025,6 +7025,7 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     if let Some(path) = db_path_now {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+            preview_kill(&state.procs, &task_id);
             remove_task_worktree(&repo, &conn, &task_id);
             let _ = conn.execute("UPDATE task SET status='merged' WHERE id=?1", params![task_id]);
         }
@@ -7432,6 +7433,7 @@ async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
 #[tauri::command(async)]
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
+    preview_kill(&state.procs, &task_id); // o preview que o app subiu não fica órfão
     Command::new(node_bin())
         .args([
             "--disable-warning=ExperimentalWarning",
@@ -7503,6 +7505,375 @@ fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Op
             .title(title)
             .body(body)
             .show();
+    }
+}
+
+// ===================== PREVIEW: "o app caiu → subir de novo" =====================
+// O agente sobe o servidor de preview DENTRO do grupo de processos dele — quando o turno
+// acaba, o motor mata o grupo e o link anunciado ('PREVIEW: http://127.0.0.1:PORTA/…')
+// morre junto. Aqui o app (1) sabe se o preview está no ar (preview_alive), (2) sabe COMO
+// subir (preview_info: .cardume/preview.json gravado pelo agente, ou um palpite pelo
+// package.json/manage.py) e (3) sobe num grupo PRÓPRIO, que sobrevive ao fim do turno
+// (preview_start/preview_stop/preview_log_tail). Só roda com clique explícito do humano.
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct PreviewInfo {
+    cmd: String,
+    cwd: String,
+    url: Option<String>,
+    env: HashMap<String, String>,
+    guessed: bool,
+}
+
+/// Saída de um preview que o app subiu e que JÁ terminou (task_id → código), pra UI
+/// distinguir "subindo" de "morreu no caminho".
+static PREVIEW_EXITS: std::sync::OnceLock<Mutex<HashMap<String, Option<i32>>>> = std::sync::OnceLock::new();
+fn preview_exits() -> &'static Mutex<HashMap<String, Option<i32>>> { PREVIEW_EXITS.get_or_init(|| Mutex::new(HashMap::new())) }
+
+/// host:porta de uma URL de preview — SÓ loopback (127.0.0.1 / localhost / [::1]) e http(s).
+/// Qualquer outro host é recusado: o app nunca sonda/abre máquina de terceiros por aqui.
+fn preview_host_port(url: &str) -> Result<(String, u16), String> {
+    let u = url.trim();
+    let (rest, def_port) = if let Some(r) = u.strip_prefix("http://") { (r, 80u16) }
+        else if let Some(r) = u.strip_prefix("https://") { (r, 443u16) }
+        else { return Err("preview precisa ser http(s)".into()) };
+    let auth = rest.split(|c| c == '/' || c == '?' || c == '#').next().unwrap_or("");
+    if auth.is_empty() || auth.contains('@') { return Err("url de preview inválida".into()); }
+    let (host, port) = if let Some(r) = auth.strip_prefix('[') {
+        let end = r.find(']').ok_or("url de preview inválida")?;
+        let h = &r[..end];
+        let tail = &r[end + 1..];
+        let p = if let Some(p) = tail.strip_prefix(':') { p.parse::<u16>().map_err(|_| "porta inválida")? } else if tail.is_empty() { def_port } else { return Err("url de preview inválida".into()) };
+        (h.to_string(), p)
+    } else {
+        match auth.rsplit_once(':') {
+            Some((h, p)) => (h.to_string(), p.parse::<u16>().map_err(|_| "porta inválida")?),
+            None => (auth.to_string(), def_port),
+        }
+    };
+    let h = host.to_ascii_lowercase();
+    if !matches!(h.as_str(), "127.0.0.1" | "localhost" | "::1") {
+        return Err("só dá pra checar preview local (127.0.0.1 / localhost)".into());
+    }
+    if port == 0 { return Err("porta inválida".into()); }
+    Ok((h, port))
+}
+
+/// TCP connect com teto curto. `localhost` tenta 127.0.0.1 e ::1 (Node 17+ às vezes só escuta no ::1).
+fn preview_alive_url(url: &str, timeout_ms: u64) -> Result<bool, String> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+    let (host, port) = preview_host_port(url)?;
+    let ips: Vec<IpAddr> = match host.as_str() {
+        "127.0.0.1" => vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        "::1" => vec![IpAddr::V6(Ipv6Addr::LOCALHOST)],
+        _ => vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)],
+    };
+    let to = std::time::Duration::from_millis(timeout_ms);
+    Ok(ips.into_iter().any(|ip| TcpStream::connect_timeout(&SocketAddr::new(ip, port), to).is_ok()))
+}
+
+/// Lê .cardume/preview.json da worktree (gravado pelo agente quando sobe o servidor).
+fn preview_read_json(wt: &Path) -> Option<PreviewInfo> {
+    let raw = std::fs::read_to_string(wt.join(".cardume").join("preview.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let cmd = v.get("cmd").and_then(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())?;
+    let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ".".into());
+    let url = v.get("url").and_then(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| preview_host_port(s).is_ok());
+    let mut env = HashMap::new();
+    if let Some(o) = v.get("env").and_then(|x| x.as_object()) {
+        for (k, val) in o {
+            // PATH do projeto não substitui o do app (senão some o node/npm) — o resto passa
+            if k.eq_ignore_ascii_case("PATH") || k.is_empty() { continue; }
+            let s = match val { serde_json::Value::String(s) => s.clone(), serde_json::Value::Null => continue, other => other.to_string() };
+            env.insert(k.clone(), s);
+        }
+    }
+    Some(PreviewInfo { cmd, cwd, url, env, guessed: false })
+}
+
+/// Palpite quando o agente não gravou o preview.json (tarefas antigas): scripts do
+/// package.json (dev → start, com o gerenciador do lockfile), vite/next soltos, Django
+/// (manage.py) e FastAPI óbvio (main.py com FastAPI()). Procura na raiz e em pastas
+/// de front comuns.
+fn preview_guess(wt: &Path) -> Option<PreviewInfo> {
+    let dirs = [".", "frontend", "web", "app", "client", "ui"];
+    for d in dirs {
+        let dir = if d == "." { wt.to_path_buf() } else { wt.join(d) };
+        let pj = dir.join("package.json");
+        let Ok(raw) = std::fs::read_to_string(&pj) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+        let has = |f: &str| dir.join(f).is_file() || wt.join(f).is_file();
+        let pm = if has("pnpm-lock.yaml") { "pnpm" } else if has("yarn.lock") { "yarn" } else if has("bun.lockb") || has("bun.lock") { "bun" } else { "npm" };
+        let scripts = v.get("scripts").and_then(|s| s.as_object());
+        let script = |n: &str| scripts.and_then(|s| s.get(n)).and_then(|x| x.as_str()).is_some();
+        let cmd = if script("dev") {
+            match pm { "npm" => "npm run dev".to_string(), "bun" => "bun run dev".to_string(), p => format!("{p} dev") }
+        } else if script("start") {
+            match pm { "bun" => "bun run start".to_string(), p => format!("{p} start") }
+        } else {
+            let dep = |n: &str| ["dependencies", "devDependencies"].iter().any(|k| v.get(k).and_then(|o| o.get(n)).is_some());
+            if dep("vite") { "npx vite".to_string() } else if dep("next") { "npx next dev".to_string() } else { continue }
+        };
+        return Some(PreviewInfo { cmd, cwd: d.to_string(), url: None, env: HashMap::new(), guessed: true });
+    }
+    let py = if cfg!(windows) { "python" } else { "python3" };
+    if wt.join("manage.py").is_file() {
+        return Some(PreviewInfo { cmd: format!("{py} manage.py runserver 127.0.0.1:8000"), cwd: ".".into(), url: None, env: HashMap::new(), guessed: true });
+    }
+    for (file, module) in [("main.py", "main:app"), ("app/main.py", "app.main:app")] {
+        if let Ok(src) = std::fs::read_to_string(wt.join(file)) {
+            if src.contains("FastAPI(") {
+                return Some(PreviewInfo { cmd: format!("{py} -m uvicorn {module} --host 127.0.0.1 --port 8000"), cwd: ".".into(), url: None, env: HashMap::new(), guessed: true });
+            }
+        }
+    }
+    None
+}
+
+/// preview.json → senão palpite. A URL anunciada no chat (se houver) completa o palpite.
+fn preview_info_for(wt: &Path, url: Option<String>) -> Option<PreviewInfo> {
+    let announced = url.filter(|u| preview_host_port(u).is_ok());
+    if let Some(mut i) = preview_read_json(wt) {
+        if i.url.is_none() { i.url = announced; }
+        return Some(i);
+    }
+    preview_guess(wt).map(|mut i| { i.url = announced; i })
+}
+
+/// Pasta de trabalho do preview DENTRO da worktree (sem '..', sem caminho absoluto fora dela).
+fn preview_cwd(wt: &Path, cwd: &str) -> Result<PathBuf, String> {
+    let rel = Path::new(cwd.trim());
+    if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir)) {
+        return Err(format!("pasta do preview fora da tarefa: {cwd}"));
+    }
+    let p = if cwd.trim().is_empty() || cwd.trim() == "." { wt.to_path_buf() } else { wt.join(rel) };
+    if !p.is_dir() { return Err(format!("a pasta do preview não existe: {cwd}")); }
+    Ok(p)
+}
+
+fn preview_log_path(wt: &Path) -> PathBuf { wt.join(".cardume").join("logs").join("preview.log") }
+
+/// Mata o preview rastreado da tarefa (se houver). true = havia um.
+fn preview_kill(procs: &Arc<Mutex<HashMap<String, i32>>>, task_id: &str) -> bool {
+    let pid = procs.lock().ok().and_then(|mut m| m.remove(&format!("preview:{task_id}")));
+    if let Some(p) = pid {
+        signal_group(p, procsig::TERM);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if pid_alive(p) { signal_group(p, procsig::KILL); }
+        true
+    } else { false }
+}
+
+/// Sobe o preview num grupo PRÓPRIO (não morre com o turno do agente); stdout+stderr no
+/// .cardume/logs/preview.log (zerado a cada subida). Devolve o pid do líder do grupo.
+fn preview_spawn(procs: &Arc<Mutex<HashMap<String, i32>>>, task_id: &str, wt: &Path, info: &PreviewInfo) -> Result<i32, String> {
+    use std::io::Write;
+    preview_kill(procs, task_id);
+    let dir = preview_cwd(wt, &info.cwd)?;
+    let logp = preview_log_path(wt);
+    if let Some(d) = logp.parent() { std::fs::create_dir_all(d).map_err(|e| format!("não criei a pasta de log: {e}"))?; }
+    let mut log = std::fs::File::create(&logp).map_err(|e| format!("não abri o log do preview: {e}"))?;
+    let _ = writeln!(log, "$ {}   (em {})", info.cmd, if info.cwd.is_empty() { "." } else { &info.cwd });
+    let err = log.try_clone().map_err(|e| e.to_string())?;
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(&info.cmd);
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(&info.cmd);
+        c
+    };
+    // PATH do app (node/nvm/homebrew) + binários locais do projeto (.venv, node_modules/.bin)
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let bin = if cfg!(windows) { "Scripts" } else { "bin" };
+    let mut local: Vec<String> = vec![];
+    for base in [dir.clone(), wt.to_path_buf()] {
+        for sub in [base.join("node_modules").join(".bin"), base.join(".venv").join(bin)] {
+            if sub.is_dir() { let s = sub.display().to_string(); if !local.contains(&s) { local.push(s); } }
+        }
+    }
+    let path = if local.is_empty() { checks_path_env() } else { format!("{}{sep}{}", local.join(sep), checks_path_env()) };
+    cmd.current_dir(&dir).env("PATH", path).env("BROWSER", "none").env("NO_COLOR", "1").env("FORCE_COLOR", "0");
+    for (k, v) in &info.env { cmd.env(k, v); }
+    cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(err));
+    detach_new_group(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("não consegui rodar o comando do preview: {e}"))?;
+    let pid = child.id() as i32;
+    if let Ok(mut m) = procs.lock() { m.insert(format!("preview:{task_id}"), pid); }
+    if let Ok(mut m) = preview_exits().lock() { m.remove(task_id); }
+    let (procs2, tid) = (procs.clone(), task_id.to_string());
+    std::thread::spawn(move || {
+        let code = child.wait().ok().and_then(|s| s.code());
+        // só limpa se ainda é ESTE processo (uma nova subida pode já ter trocado o pid)
+        let mine = procs2.lock().ok().map(|mut m| {
+            let k = format!("preview:{tid}");
+            if m.get(&k) == Some(&pid) { m.remove(&k); true } else { false }
+        }).unwrap_or(false);
+        if mine { if let Ok(mut m) = preview_exits().lock() { m.insert(tid, code); } }
+    });
+    Ok(pid)
+}
+
+/// Últimas `n` linhas do log do preview.
+fn preview_tail(wt: &Path, n: usize) -> String {
+    let raw = std::fs::read(preview_log_path(wt)).unwrap_or_default();
+    let s = String::from_utf8_lossy(&raw);
+    let lines: Vec<&str> = s.lines().collect();
+    let from = lines.len().saturating_sub(n);
+    lines[from..].iter().map(|l| l.chars().take(400).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+/// O preview está no ar? Só loopback; TCP connect com ~800ms de teto.
+#[tauri::command(async)]
+fn preview_alive(url: String) -> Result<bool, String> {
+    preview_alive_url(&url, 800)
+}
+
+/// Como subir o preview desta tarefa: .cardume/preview.json (do agente) ou palpite
+/// (`guessed: true`). `url` = a última anunciada no chat, completa o palpite. null = não sei.
+#[tauri::command(async)]
+fn preview_info(state: State<AppState>, task_id: String, url: Option<String>) -> Result<Option<PreviewInfo>, String> {
+    let wt = match task_worktree(&state, &task_id) { Ok(w) => w, Err(_) => return Ok(None) };
+    Ok(preview_info_for(&wt, url))
+}
+
+/// Sobe o preview (clique do humano). Retorna rápido; a UI checa preview_alive até subir.
+#[tauri::command(async)]
+fn preview_start(state: State<AppState>, task_id: String, url: Option<String>) -> Result<PreviewInfo, String> {
+    let wt = task_worktree(&state, &task_id)?;
+    let info = preview_info_for(&wt, url).ok_or("não sei como subir este app — peça pro agente subir e gravar .cardume/preview.json")?;
+    preview_spawn(&state.procs, &task_id, &wt, &info)?;
+    web_log(format!("[preview] {task_id}: subindo `{}` em {}", info.cmd, info.cwd));
+    Ok(info)
+}
+
+/// Derruba o preview que o app subiu (se houver).
+#[tauri::command(async)]
+fn preview_stop(state: State<AppState>, task_id: String) -> Result<bool, String> {
+    Ok(preview_kill(&state.procs, &task_id))
+}
+
+/// Final do log + estado do processo que o app subiu: {log, running, exited, exitCode}.
+#[tauri::command(async)]
+fn preview_log_tail(state: State<AppState>, task_id: String) -> Result<serde_json::Value, String> {
+    let wt = task_worktree(&state, &task_id)?;
+    let pid = state.procs.lock().ok().and_then(|m| m.get(&format!("preview:{task_id}")).copied());
+    let running = pid.map(pid_alive).unwrap_or(false);
+    let exit = preview_exits().lock().ok().and_then(|m| m.get(&task_id).copied());
+    Ok(serde_json::json!({ "log": preview_tail(&wt, 60), "running": running, "exited": exit.is_some(), "exitCode": exit.flatten() }))
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sf-pv-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    #[test]
+    fn host_validation_only_loopback() {
+        assert_eq!(preview_host_port("http://127.0.0.1:5173/x?y=1").unwrap(), ("127.0.0.1".into(), 5173));
+        assert_eq!(preview_host_port("http://localhost:3000").unwrap(), ("localhost".into(), 3000));
+        assert_eq!(preview_host_port("http://[::1]:8080/").unwrap(), ("::1".into(), 8080));
+        assert_eq!(preview_host_port("https://127.0.0.1/").unwrap(), ("127.0.0.1".into(), 443));
+        assert_eq!(preview_host_port("http://LOCALHOST:1/").unwrap().1, 1);
+        for bad in ["http://example.com:80/", "http://10.0.0.2:3000", "http://127.0.0.1.evil.com:80/", "http://evil@127.0.0.1:80/",
+                    "ftp://127.0.0.1:21", "file:///etc/passwd", "http://0.0.0.0:3000", "http://127.0.0.1:0/", "http://127.0.0.1:abc", "http://[::2]:80/", ""] {
+            assert!(preview_host_port(bad).is_err(), "devia recusar {bad}");
+            assert!(preview_alive_url(bad, 50).is_err());
+        }
+    }
+    #[test]
+    fn guess_from_package_json_and_python() {
+        let d = tmp("guess");
+        assert!(preview_guess(&d).is_none());
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"start":"node s.js","dev":"vite"}}"#).unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "npm run dev");
+        std::fs::write(d.join("pnpm-lock.yaml"), "").unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "pnpm dev");
+        std::fs::remove_file(d.join("pnpm-lock.yaml")).unwrap();
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"start":"node s.js"}}"#).unwrap();
+        std::fs::write(d.join("yarn.lock"), "").unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "yarn start");
+        std::fs::write(d.join("package.json"), r#"{"devDependencies":{"vite":"5"}}"#).unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "npx vite");
+        // front numa subpasta
+        let d2 = tmp("guess2");
+        std::fs::create_dir_all(d2.join("frontend")).unwrap();
+        std::fs::write(d2.join("frontend/package.json"), r#"{"scripts":{"dev":"next dev"}}"#).unwrap();
+        let g = preview_guess(&d2).unwrap();
+        assert_eq!((g.cmd.as_str(), g.cwd.as_str(), g.guessed), ("npm run dev", "frontend", true));
+        // python
+        let d3 = tmp("guess3");
+        std::fs::write(d3.join("manage.py"), "").unwrap();
+        assert!(preview_guess(&d3).unwrap().cmd.contains("manage.py runserver"));
+        let d4 = tmp("guess4");
+        std::fs::write(d4.join("main.py"), "app = FastAPI()\n").unwrap();
+        assert!(preview_guess(&d4).unwrap().cmd.contains("uvicorn main:app"));
+        for x in [d, d2, d3, d4] { let _ = std::fs::remove_dir_all(x); }
+    }
+    #[test]
+    fn json_wins_over_guess_and_cwd_is_confined() {
+        let d = tmp("json");
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"dev":"vite"}}"#).unwrap();
+        std::fs::create_dir_all(d.join(".cardume")).unwrap();
+        std::fs::write(d.join(".cardume/preview.json"), r#"{"cmd":"npm run dev -- --port 5190","cwd":".","url":"http://127.0.0.1:5190/x","env":{"A":"1","PATH":"/nope","N":2}}"#).unwrap();
+        let i = preview_info_for(&d, Some("http://127.0.0.1:9/".into())).unwrap();
+        assert_eq!(i.cmd, "npm run dev -- --port 5190");
+        assert_eq!(i.url.as_deref(), Some("http://127.0.0.1:5190/x"));
+        assert!(!i.guessed);
+        assert_eq!(i.env.get("A").map(|s| s.as_str()), Some("1"));
+        assert_eq!(i.env.get("N").map(|s| s.as_str()), Some("2"));
+        assert!(!i.env.contains_key("PATH"));
+        // url de outro host no json é ignorada; a anunciada completa
+        std::fs::write(d.join(".cardume/preview.json"), r#"{"cmd":"x","url":"http://evil.com/"}"#).unwrap();
+        assert_eq!(preview_info_for(&d, Some("http://127.0.0.1:9/".into())).unwrap().url.as_deref(), Some("http://127.0.0.1:9/"));
+        assert!(preview_cwd(&d, "../").is_err());
+        assert!(preview_cwd(&d, "/etc").is_err());
+        assert!(preview_cwd(&d, "nao-existe").is_err());
+        assert_eq!(preview_cwd(&d, ".").unwrap(), d);
+        let _ = std::fs::remove_dir_all(d);
+    }
+    /// Teste FUNCIONAL de verdade: sobe um http.server (python) via preview.json, espera
+    /// ficar no ar, confere o log e derruba — nada fica rodando.
+    #[test]
+    fn real_start_alive_stop() {
+        if Command::new("python3").arg("--version").output().is_err() { eprintln!("sem python3 — pulando"); return; }
+        let d = tmp("real");
+        let port = { let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap(); l.local_addr().unwrap().port() };
+        let url = format!("http://127.0.0.1:{port}/");
+        std::fs::create_dir_all(d.join(".cardume")).unwrap();
+        std::fs::create_dir_all(d.join("site")).unwrap();
+        std::fs::write(d.join("site/index.html"), "ola").unwrap();
+        std::fs::write(d.join(".cardume/preview.json"), format!(r#"{{"cmd":"python3 -m http.server {port} --bind 127.0.0.1","cwd":"site","url":"{url}"}}"#)).unwrap();
+        assert_eq!(preview_alive_url(&url, 300), Ok(false));
+        let procs: Arc<Mutex<HashMap<String, i32>>> = Arc::new(Mutex::new(HashMap::new()));
+        let info = preview_info_for(&d, None).unwrap();
+        let pid = preview_spawn(&procs, "t1", &d, &info).unwrap();
+        let mut up = false;
+        for _ in 0..50 { if preview_alive_url(&url, 300) == Ok(true) { up = true; break; } std::thread::sleep(std::time::Duration::from_millis(200)); }
+        assert!(up, "o http.server não subiu; log:\n{}", preview_tail(&d, 60));
+        assert!(pid_alive(pid));
+        assert!(preview_tail(&d, 60).contains("python3 -m http.server"));
+        // nova subida mata a anterior (um preview por tarefa)
+        assert!(preview_kill(&procs, "t1"));
+        let mut down = false;
+        for _ in 0..25 { if preview_alive_url(&url, 200) == Ok(false) { down = true; break; } std::thread::sleep(std::time::Duration::from_millis(200)); }
+        assert!(down, "o preview não caiu depois do stop");
+        assert!(!preview_kill(&procs, "t1"));
+        // comando que morre na hora → exit registrado (a UI mostra "falhou" + log)
+        std::fs::write(d.join(".cardume/preview.json"), r#"{"cmd":"echo quebrou; exit 3"}"#).unwrap();
+        let info2 = preview_info_for(&d, None).unwrap();
+        preview_spawn(&procs, "t2", &d, &info2).unwrap();
+        let mut code = None;
+        for _ in 0..25 { if let Some(c) = preview_exits().lock().unwrap().get("t2").copied() { code = Some(c); break; } std::thread::sleep(std::time::Duration::from_millis(100)); }
+        assert_eq!(code, Some(Some(3)));
+        assert!(preview_tail(&d, 60).contains("quebrou"));
+        let _ = std::fs::remove_dir_all(d);
     }
 }
 
@@ -7655,6 +8026,11 @@ pub fn run() {
         .manage(AppState::from_env())
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            preview_alive,
+            preview_info,
+            preview_start,
+            preview_stop,
+            preview_log_tail,
             workspace_usage,
             workspace_clean,
             coordination_metrics,

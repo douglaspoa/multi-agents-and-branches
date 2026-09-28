@@ -230,14 +230,169 @@ function enWirePv(t, main){
   bindClick('pvReveal', ()=>invoke('reveal_artifact',{ taskId:t.id, name:nm() }).catch(e=>showErr(e, 'Não achei o arquivo')));
   bindClick('pvPdf', (e)=>mdArtifactPdf(t.id, nm(), e.currentTarget));
 }
+// ---- Preview "caiu → subir de novo" (R8) ----
+// O agente sobe o servidor DENTRO do grupo de processos dele: quando o turno acaba, o motor mata
+// o grupo e o link anunciado morre. Aqui: health-check leve (TCP, só loopback) enquanto a faixa
+// "Ver funcionando" ou o globo do topo estão à vista; caiu → "subir de novo" (preview_start roda o
+// comando que o agente gravou em .cardume/preview.json — ou um palpite pelo package.json — num
+// grupo PRÓPRIO, que sobrevive ao turno). Sem comando conhecido → "pedir pro agente subir".
+const PV_POLL_MS=5000, PV_BOOT_MS=90000;
+const pvHealth={};  // url → { st:'on'|'off'|'na', at }
+const pvBusy={};    // url → checagem em voo (1 por vez)
+const pvRun={};     // taskId → { phase:'subindo'|'falhou'|null, byApp, log, exitCode, err }
+const pvInfoC={};   // taskId → { v:PreviewInfo|null, at }
+const pvSleep=ms=>new Promise(r=>setTimeout(r, ms));
+// URL do preview: a última anunciada no chat → senão a gravada no .cardume/preview.json
+function taskPreviewTarget(t){ if(!t) return null; return taskPreviewUrl(t.id) || ((pvInfoC[t.id]||{}).v||{}).url || null; }
+function pvInfoEnsure(t){
+  const c=pvInfoC[t.id]; if(c && (c.busy || Date.now()-c.at<30000)) return;
+  pvInfoC[t.id]=Object.assign({ v:null, at:0 }, c, { busy:true });
+  invoke('preview_info',{ taskId:t.id, url:taskPreviewUrl(t.id) }).then(v=>v||null).catch(()=>null).then(v=>{
+    const old=JSON.stringify((c||{}).v||null); pvInfoC[t.id]={ v, at:Date.now() };
+    if(JSON.stringify(v)!==old) pvRerender(t.id);
+  });
+}
+// estado exibido: online | caiu | subindo | falhou | checando
+function pvState(t){
+  const url=taskPreviewTarget(t); if(!url) return null;
+  const r=pvRun[t.id]; if(r && r.phase) return r.phase;
+  const h=pvHealth[url]; if(!h || h.st==='na') return 'checando';
+  return h.st==='on'?'online':'caiu';
+}
+async function pvCheck(url, taskId){
+  if(!url) return null;
+  if(pvBusy[url]) return pvHealth[url]||null;
+  pvBusy[url]=1; const prev=(pvHealth[url]||{}).st;
+  try{ const ok=await invoke('preview_alive',{ url }); pvHealth[url]={ st:ok?'on':'off', at:Date.now() }; }
+  catch(_){ pvHealth[url]={ st:'na', at:Date.now() }; } // host que não é local: não dá pra saber — não acusa "caiu"
+  finally{ delete pvBusy[url]; }
+  if(prev!==pvHealth[url].st && taskId) pvRerender(taskId);
+  return pvHealth[url];
+}
+// 1ª checagem na hora em que o preview aparece na tela (sem esperar o tick de 5s)
+function pvKick(t, url){ if(!url || pvHealth[url] || pvBusy[url] || taskIsDone(t)) return; setTimeout(()=>pvCheck(url, t.id), 0); }
+// repinta só o que mostra o preview: a Entrega (render com guarda de html) e o globo do topo
+function pvRerender(taskId){
+  if(fwTask!==taskId) return;
+  const t=fwTaskObj(); if(!t) return;
+  if(fwMode==='entrega'){ renderWorkspace(); return; }
+  const url=taskPreviewTarget(t), b=$id('fwPv');
+  if(!!url !== !!b || (b && b.dataset.url!==url)){ renderWorkspace(); return; }
+  pvDecorateGlobe(t);
+}
+function pvGlobeHtml(t){
+  const pv=taskPreviewTarget(t); if(!pv) return '';
+  const st=pvState(t)||'checando';
+  pvKick(t, pv);
+  return `<button class="btn sm fwpvic pv-${st}" id="fwPv" data-url="${escA(pv)}" title="${escA(pvGlobeTip(st, pv))}">${IC.globe}<i class="fwpv-dot"></i></button>`;
+}
+function pvGlobeTip(st, pv){
+  return st==='caiu'?'o app parou (o turno do agente terminou) — clique pra subir de novo'
+    : st==='falhou'?'o app não subiu — clique pra ver o log'
+    : st==='subindo'?'subindo o app…'
+    : `abrir o site que o agente subiu — ${pv} (celular: no ⋯)`;
+}
+function pvDecorateGlobe(t){
+  const b=$id('fwPv'); if(!b) return;
+  const st=pvState(t)||'checando', cls='btn sm fwpvic pv-'+st;
+  if(b.className!==cls) b.className=cls;
+  const tip=pvGlobeTip(st, b.dataset.url); if(b.title!==tip) b.title=tip;
+}
+// globo do topo: no ar → abre; fora do ar → leva pra Entrega, onde está o "subir de novo"
+function pvGlobeClick(t, url){
+  const st=pvState(t);
+  if(st==='online' || st==='checando'){ invoke('open_url',{ url }).catch(()=>{}); return; }
+  fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
+  setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-live'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
+}
+async function pvLoadLog(taskId){
+  try{ const r=await invoke('preview_log_tail',{ taskId }); if(r && pvRun[taskId]){ pvRun[taskId].log=r.log||''; pvRun[taskId].exitCode=r.exitCode; } return r; }catch(_){ return null; }
+}
+async function pvStartUp(t){
+  const url0=taskPreviewTarget(t);
+  let info=(pvInfoC[t.id]||{}).v;
+  if(!info){ info=await invoke('preview_info',{ taskId:t.id, url:taskPreviewUrl(t.id) }).catch(()=>null); pvInfoC[t.id]={ v:info||null, at:Date.now() }; }
+  if(!info){ await pvAskAgent(t); return; }
+  // 1ª vez (ou comando novo): mostra EXATAMENTE o que vai rodar antes de rodar
+  const okKey='pvOk:'+t.id;
+  if(lsGet(okKey)!==info.cmd){
+    const where=(!info.cwd||info.cwd==='.')?'na pasta da tarefa':`em ${info.cwd.replace(/\/$/,'')}/`;
+    const ok=await askYes(`Vai rodar: ${info.cmd}\n${where}${info.guessed?'\n\n(comando deduzido do projeto — o agente não deixou registrado)':''}\n\nO app fica no ar até você parar ou a tarefa ser concluída.`, 'Subir o app de novo');
+    if(!ok) return; lsSet(okKey, info.cmd);
+  }
+  const t0=Date.now(); pvRun[t.id]={ phase:'subindo', byApp:true, t0 }; pvRerender(t.id);
+  try{ await invoke('preview_start',{ taskId:t.id, url:taskPreviewUrl(t.id) }); }
+  catch(e){ pvRun[t.id]={ phase:'falhou', byApp:false, err:String(e&&e.message||e) }; await pvLoadLog(t.id); pvRerender(t.id); showErr(e, 'Não subiu o app'); return; }
+  const url=url0||info.url;
+  while(Date.now()-t0<PV_BOOT_MS){
+    await pvSleep(1500);
+    const r=pvRun[t.id]; if(!r || r.t0!==t0 || r.phase!=='subindo') return; // cancelado / outra subida
+    if(url){ const h=await pvCheck(url); if(h && h.st==='on'){ pvRun[t.id]={ phase:null, byApp:true }; pvRerender(t.id); toast('o app está no ar de novo','ok'); return; } }
+    const lg=await pvLoadLog(t.id);
+    if(lg && lg.exited){ pvRun[t.id].phase='falhou'; pvRerender(t.id); return; }
+    if(!url && Date.now()-t0>8000 && lg && lg.running){ pvRun[t.id]={ phase:null, byApp:true }; pvRerender(t.id); toast('app subindo — o endereço aparece quando o agente anunciar','info'); return; }
+  }
+  if(pvRun[t.id] && pvRun[t.id].t0===t0){ await pvLoadLog(t.id); pvRun[t.id].phase='falhou'; pvRun[t.id].err='não respondeu em 90s'; pvRerender(t.id); }
+}
+async function pvStop(t){
+  try{ await invoke('preview_stop',{ taskId:t.id }); }catch(e){ showErr(e, 'Não parou o app'); return; }
+  delete pvRun[t.id]; const url=taskPreviewTarget(t); if(url) delete pvHealth[url];
+  toast('app parado','ok'); pvRerender(t.id); if(url) pvCheck(url, t.id);
+}
+async function pvAskAgent(t){
+  const msg='Suba de novo o servidor de preview desta tarefa e anuncie PREVIEW: http://127.0.0.1:PORTA/caminho, gravando também .cardume/preview.json (cmd, cwd, url) pra eu conseguir subir sozinho da próxima vez.';
+  if(typeof fwSendText!=='function') return;
+  await fwSendText(t.id, msg); toast('pedido enviado ao agente','ok');
+}
+// tick: só com a tarefa aberta, app visível e 1 checagem por vez
+function pvTick(){
+  if(document.hidden || !fwTask) return;
+  const ov=$id('fwOverlay'); if(!ov || ov.style.display==='none') return;
+  const t=fwTaskObj(); if(!t || taskIsDone(t)) return;
+  pvInfoEnsure(t);
+  if(fwMode!=='entrega' && !$id('fwPv')) return;
+  const r=pvRun[t.id]; if(r && r.phase==='subindo') return; // o laço da subida já checa
+  const url=taskPreviewTarget(t); if(url) pvCheck(url, t.id);
+}
+setInterval(pvTick, PV_POLL_MS);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) pvTick(); });
 // ---- "Ver funcionando": o app que o agente subiu, no topo da Entrega ----
 function enLiveHtml(t){
   if(taskIsDone(t)) return '';
-  const pv=taskPreviewUrl(t.id); if(!pv) return '';
+  pvInfoEnsure(t);
+  const pv=taskPreviewTarget(t); if(!pv) return '';
+  const st=pvState(t); pvKick(t, pv);
+  const info=(pvInfoC[t.id]||{}).v, r=pvRun[t.id]||{};
+  const host=`<span class="mono">${esc(pv.replace(/^https?:\/\//,''))}</span>`;
+  const ask=`<button class="btn sm ghost" id="enLiveAsk" title="manda uma mensagem pro agente subir o servidor e anunciar o endereço">${ic('chat')} pedir pro agente subir</button>`;
+  const cmdTip=info?`vai rodar: ${info.cmd}${info.cwd&&info.cwd!=='.'?' em '+info.cwd.replace(/\/$/,'')+'/':''}`:'';
+  if(st==='caiu'){
+    return `<section class="en-live off" data-pv="caiu"><span class="en-live-dot"></span><div class="en-live-t"><b>O app parou</b><span class="dim">o turno do agente terminou e o servidor caiu junto · ${host}</span></div><span style="flex:1"></span>
+      ${info?`${ask.replace('btn sm ghost','btn sm ghost en-live-sec')}<button class="btn primary" id="enLiveUp" title="${escA(cmdTip)}">${IC.retry||''} subir de novo</button>`:ask.replace('btn sm ghost','btn primary')}</section>`;
+  }
+  if(st==='subindo'){
+    return `<section class="en-live up" data-pv="subindo"><span class="spin"></span><div class="en-live-t"><b>Subindo o app…</b><span class="dim">${info?`<span class="mono">${esc(info.cmd)}</span> · `:''}pode levar até 90s</span></div><span style="flex:1"></span>
+      <button class="btn sm ghost" id="enLiveStop">cancelar</button></section>`;
+  }
+  if(st==='falhou'){
+    const lines=String(r.log||'').trim();
+    return `<section class="en-live bad" data-pv="falhou"><span class="en-live-dot"></span><div class="en-live-t"><b>O app não subiu</b><span class="dim">${esc(r.err||(r.exitCode!=null?`o comando terminou com código ${r.exitCode}`:'o processo terminou antes de responder'))}${info?` · <span class="mono">${esc(info.cmd)}</span>`:''}</span>
+      ${lines?`<details class="en-live-log"><summary>ver o log (últimas linhas)</summary><pre class="mono">${esc(lines)}</pre></details>`:''}</div><span style="flex:1"></span>
+      ${ask}${info?`<button class="btn primary" id="enLiveUp" title="${escA(cmdTip)}">${IC.retry||''} tentar de novo</button>`:''}</section>`;
+  }
   const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
-  return `<section class="en-live"><span class="en-live-dot"></span><div class="en-live-t"><b>Ver funcionando</b><span class="dim">o agente deixou o app rodando — teste antes de aprovar · <span class="mono">${esc(pv.replace(/^https?:\/\//,''))}</span></span></div><span style="flex:1"></span>
+  return `<section class="en-live${st==='checando'?' chk':''}" data-pv="${st}"><span class="en-live-dot"></span><div class="en-live-t"><b>Ver funcionando</b><span class="dim">${r.byApp?'o app subiu o servidor de novo':'o agente deixou o app rodando'} — teste antes de aprovar · ${host}${r.byApp?' · <button class="linkbtn" id="enLiveStop">parar</button>':''}</span></div><span style="flex:1"></span>
     <button class="btn sm" id="enLiveMob" title="${tun?'o celular já tem acesso — clique pra fechar':'abre este site no seu celular (túnel criptografado)'}">${IC.phone} ${tun?'fechar no celular':'no celular'}</button>
     <button class="btn primary" id="enLiveOpen">${IC.globe} abrir o app</button></section>`;
+}
+function enWireLive(t){
+  bindClick('enLiveOpen', ()=>{ const pv=taskPreviewTarget(t); if(pv) invoke('open_url',{ url:pv }).catch(()=>{}); });
+  bindClick('enLiveMob', async()=>{ const pv=taskPreviewTarget(t); if(!pv) return; const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+    if(tun){ if(typeof fwTunnelOff==='function') await fwTunnelOff(t); return; }
+    toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); });
+  bindClick('enLiveUp', (e)=>{ e.currentTarget.disabled=true; pvStartUp(t); });
+  bindClick('enLiveAsk', (e)=>{ e.currentTarget.disabled=true; pvAskAgent(t); });
+  bindClick('enLiveStop', (e)=>{ e.preventDefault(); pvStop(t); });
 }
 function fwRenderEntrega(t, main){
   const done=taskIsDone(t);
@@ -306,10 +461,7 @@ function fwRenderEntrega(t, main){
   bindClick('enSave', (e)=>enSaveDeliverables(t, !done, e.currentTarget));
   bindClick('enJustClose', async(e)=>{ e.currentTarget.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); } renderWorkspace(); });
   bindClick('enChDir', async()=>{ const p=await enPickDir(enBaseDir()); if(p&&String(p).trim()){ lsSet('entregaDir', String(p).trim()); renderWorkspace(); } });
-  bindClick('enLiveOpen', ()=>{ const pv=taskPreviewUrl(t.id); if(pv) invoke('open_url',{ url:pv }).catch(()=>{}); });
-  bindClick('enLiveMob', async()=>{ const pv=taskPreviewUrl(t.id); if(!pv) return; const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
-    if(tun){ if(typeof fwTunnelOff==='function') await fwTunnelOff(t); return; }
-    toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); });
+  enWireLive(t);
   if(!nonCode) enWireVerif(t, main);
   enWirePv(t, main);
 }

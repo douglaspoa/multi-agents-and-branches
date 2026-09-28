@@ -44,12 +44,10 @@
 #fwTaskEpic .epbadge{max-width:100%}
 #fwTaskProt{flex:none;display:inline-flex}
 .protbadge svg{width:11px;height:11px}
-.fwhead .fwpushbtn{display:inline-flex;align-items:center;gap:5px}
-.fwhead .fwpushbtn svg{width:13px;height:13px}
 .fwhead #fwAnswer svg{width:14px;height:14px}
 /* estreito: o selo "protegido" vira só o escudo (o tooltip explica); "livre" (sem ícone) mantém o texto */
 @media (max-width:1360px){ .protbadge:not(.off) .pbt{display:none} .protbadge:not(.off){padding:2px 5px;margin-left:4px} }
-@media (max-width:1180px){ .fwhead .fwpushbtn .fwpl{display:none} .fwhead .fwpushbtn{padding-left:8px;padding-right:8px} .fwhead{gap:7px;padding-left:12px;padding-right:12px} }
+@media (max-width:1180px){ .fwhead{gap:7px;padding-left:12px;padding-right:12px} }
 @media (max-width:1100px){ .fwhead .fwmodes{margin-left:2px} .fwhead .fwmodes button{padding-left:6px;padding-right:6px} }
 
 /* ---- workspace em janela estreita: colunas laterais mais finas; página do PR empilha ---- */
@@ -101,3 +99,5 @@
 .cfgsavebar{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:10px;margin:20px calc(-1 * var(--page-pad, 34px)) 0;padding:12px var(--page-pad, 34px);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-top:1px solid var(--border)}
 .cfgsavebar .dim{font-size:11.5px}
 #cfgOverlay #cfgBody{padding-bottom:0} /* a área rolável tinha 44px de padding embaixo: a barra fixa parava 44px antes do fim da janela */
+/* R8: faixa do preview (subir de novo / pedir pro agente) quebra linha no estreito */
+@media (max-width:1100px){ .en-live{flex-wrap:wrap} .en-live>span[style*="flex:1"]{display:none} }
