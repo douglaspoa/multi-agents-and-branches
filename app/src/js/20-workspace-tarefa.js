@@ -246,7 +246,7 @@ async function fwLiveUpdate(){
   fwLiveSig=sig;
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
   // no renderWorkspace → o botão de preview nunca aparecia com a aba aberta
-  if((taskPreviewUrl(t.id)||null)!==fwPvShown){ renderWorkspace(); return; }
+  if((taskPreviewTarget(t)||null)!==fwPvShown){ renderWorkspace(); return; }
   // a fase mudou (rodando → revisão, pergunta chegou…): a ação principal do topo muda junto
   if(((fwPrimaryAction(t)||{}).id||'')!==fwPrimShown){ renderWorkspace(); return; }
   const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
@@ -332,28 +332,16 @@ function fwPrimaryAction(t){
   }
   return null;
 }
-// R7: "push" VISÍVEL ao lado da ação principal (o dono usa muito e não achava no ⋯ desde a R3).
-// Só com branch de código (git, não investigação/design), antes de mergear, e — com o agente trabalhando —
-// só se já houver commits dele. Continua também no ⋯. Mesmo fluxo de sempre: push_task.
-function fwPushVisible(t){
-  if(!t || t.status==='draft' || t.flag==='closed' || taskIsDone(t) || !t.branch) return false;
-  if(document.body.classList.contains('nogit') || fwArtOnly(t)) return false;
-  const d=diffOf(t.id), c=commitsCache[t.id];
-  if(c===undefined && typeof loadCommits==='function') loadCommits(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
-  const nC=(c||[]).length;
-  if(fwIsWorking(t)) return nC>0;
-  return nC>0 || diffFiles(d)>0;
-}
+// R8: o "push" VISÍVEL no topo (R7) saiu a pedido do dono — "commit & push" fica só no ⋯ (fwMoreItems).
 function fwActionHtml(t){
   const a=fwPrimaryAction(t);
-  const push=fwPushVisible(t) ? `<button class="btn sm fwpushbtn" id="fwPushTop" title="commita o que estiver solto na worktree e envia a branch${t.prUrl?' — o PR atualiza na hora':''} (também no ⋯)">${IC.push}<span class="fwpl">push</span></button>` : '';
-  return push + (a ? `<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}">${a.html}</button>` : '');
+  return (a ? `<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}">${a.html}</button>` : '');
 }
 // itens do ⋯ (secundários) — só o que faz sentido na fase atual
 function fwMoreItems(t){
   const it=[], done=taskIsDone(t), nogit=document.body.classList.contains('nogit');
   const prim=(fwPrimaryAction(t)||{}).id;
-  const pv=taskPreviewUrl(t.id), tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+  const pv=taskPreviewTarget(t), tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
   it.push({ k:'sum', label:`resumo e progresso · ${taskPct(t)}%`, hint:'tudo que já foi feito + o que falta' });
   if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
   if(t.prUrl){ const n=fwPrNum(t);
@@ -402,7 +390,7 @@ function fwOpenMore(t, anchor){
   pop.querySelectorAll('[data-fwm]').forEach(b=>b.onclick=async()=>{ const k=b.dataset.fwm; close(); await fwMoreDo(t, k, anchor); });
 }
 async function fwMoreDo(t, k, anchor){
-  const pv=taskPreviewUrl(t.id);
+  const pv=taskPreviewTarget(t);
   if(k==='sum') openTaskSummary(t.id);
   else if(k==='askfix') fwAskFix();
   else if(k==='prgo'){ fwMode='pr'; fwRememberTab(); renderWorkspace(); }
@@ -468,12 +456,11 @@ function renderWorkspace(){
   // barra do topo: [preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
   { const rb=$id('fwReviewBar');
     if(rb){
-      const pv=taskPreviewUrl(t.id); fwPvShown=pv||null;
-      const pvBtn=pv?`<button class="btn sm fwpvic" id="fwPv" data-url="${escA(pv)}" title="abrir o site que o agente subiu — ${escA(pv)} (celular: no ⋯)">${IC.globe}</button>`:'';
+      const pv=taskPreviewTarget(t); fwPvShown=pv||null;
+      const pvBtn=pvGlobeHtml(t); // R8: bolinha verde (no ar) / vermelha (caiu); caiu → leva pro "subir de novo" na Entrega
       rb.innerHTML=pvBtn+fwActionHtml(t);
       fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
       bindClick('fwAnswer', ()=>fwAskFix());
-      bindClick('fwPushTop', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await fwPushTask(); } finally{ b.disabled=false; } });
       bindClick('fwStopTop', ()=>stopTask(t.id));
       // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
       if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
@@ -490,7 +477,7 @@ function renderWorkspace(){
       bindClick('fwResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
       bindClick('fwPrGo', ()=>{ fwMode='pr'; fwRememberTab(); renderWorkspace(); });
       bindClick('fwPrGh', ()=>openExternal(t.prUrl));
-      bindClick('fwPv', (e)=>invoke('open_url',{ url:e.currentTarget.dataset.url }).catch(()=>{}));
+      bindClick('fwPv', (e)=>pvGlobeClick(t, e.currentTarget.dataset.url));
     }
     const mb=$id('fwMore'); if(mb) mb.onclick=(e)=>{ e.stopPropagation(); const tt=fwTaskObj(); if(tt) fwOpenMore(tt, mb); };
   }

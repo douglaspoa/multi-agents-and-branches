@@ -1,0 +1,79 @@
+[
+ {
+  "id": "PV1",
+  "area": "Tarefa · Entrega · Ver funcionando",
+  "titulo": "O app entende que o preview caiu e oferece \"subir de novo\"",
+  "antes": "A faixa \"Ver funcionando\" aparecia sempre que o agente tinha anunciado PREVIEW:, mesmo com o servidor morto — o dev server roda no grupo de processos do agente e morre quando o turno termina. \"abrir o app\" abria um link morto e não havia como subir de novo sem conversar com o agente.",
+  "depois": "Enquanto a faixa (ou o globo do topo) está à vista, o app checa a porta local a cada 5s (TCP, só 127.0.0.1/localhost/[::1], pausa com a janela escondida, 1 checagem por vez). Estados: no ar → \"abrir o app\" + celular (e \"parar\" se foi o app que subiu); caiu → \"O app parou · o turno do agente terminou\" + \"subir de novo\" (roda o comando que o agente gravou em .cardume/preview.json num grupo PRÓPRIO, que sobrevive ao turno) e \"pedir pro agente subir\"; subindo… (até 90s, com cancelar); falhou → código de saída + log recolhível (últimas 60 linhas de .cardume/logs/preview.log) + \"tentar de novo\" + \"pedir pro agente\". Sem comando conhecido → só \"pedir pro agente subir\". Na 1ª vez (ou comando novo) o app mostra exatamente o que vai rodar: \"Vai rodar: npm run dev em frontend/\".",
+  "motivo": "Bug do Douglas: \"clico em Ver funcionando mas muitas vezes o agente encerra o turno e o site não está mais no ar — sempre deve ter a opção de subir quando cair\".",
+  "arquivos": [
+   "src/engine/claude.ts",
+   "app/src-tauri/src/lib.rs",
+   "app/src/js/27-entregas.js",
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/60-grafo-times-nova-demanda.css",
+   "app/src/css/83-responsivo.css"
+  ],
+  "como_ver": "Tarefa com PREVIEW anunciado › aba Entrega. Mate o servidor (ou espere o turno acabar): em ≤5s a faixa vira \"O app parou\". Clique \"subir de novo\" → confirmação com o comando → \"Subindo o app…\" → volta pra \"Ver funcionando\" com \"parar\".",
+  "estado_mock": "harness/shim.js: t-review ganhou o evento 'PREVIEW: http://127.0.0.1:5173/admin/pedidos' e mocks preview_alive/preview_info/preview_start/preview_stop/preview_log_tail controlados por window.__PV. Cenas novas pv-online, pv-caiu, pv-semcmd, pv-subindo, pv-falhou, pv-voltou (scenes.js).",
+  "shots": {
+   "online": "r8shots/pv-online.png",
+   "caiu": "r8shots/pv-caiu.png",
+   "sem_comando": "r8shots/pv-semcmd.png",
+   "subindo": "r8shots/pv-subindo.png",
+   "falhou": "r8shots/pv-falhou.png",
+   "voltou_pelo_app": "r8shots/pv-voltou.png"
+  }
+ },
+ {
+  "id": "PV2",
+  "area": "Tarefa · cabeçalho · globo do preview",
+  "titulo": "Globo do topo com bolinha de status; fora do ar leva pro \"subir de novo\"",
+  "antes": "O globo #fwPv sempre abria a URL anunciada — mesmo morta.",
+  "depois": "Bolinha verde (no ar), vermelha (caiu/falhou), amarela (subindo), cinza (checando). Clique no ar → abre o site; clique fora do ar → vai pra Entrega e destaca a faixa com \"subir de novo\". O globo também aparece quando só existe .cardume/preview.json (sem anúncio no chat).",
+  "motivo": "Mesmo bug do PV1 — o app deve entender que caiu antes de abrir um link morto.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/27-entregas.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Qualquer aba da tarefa com preview: olhe o globo ao lado da ação principal.",
+  "estado_mock": "cenas pv-online / pv-caiu (window.__PV.alive).",
+  "shots": {
+   "online": "r8shots/crop-globe-pv-online.png",
+   "caiu": "r8shots/crop-globe-pv-caiu.png"
+  }
+ },
+ {
+  "id": "PV3",
+  "area": "Motor · prompt do agente",
+  "titulo": "O agente grava COMO subir o preview em .cardume/preview.json",
+  "antes": "O agente só anunciava 'PREVIEW: http://127.0.0.1:PORTA/…'; o app não tinha como saber o comando.",
+  "depois": "previewRule pede também {cmd, cwd, url, env} em .cardume/preview.json (sobrescrito quando muda). Sem o arquivo (tarefas antigas), o Rust deduz: scripts dev/start do package.json (pnpm/yarn/bun pelo lockfile, na raiz ou em frontend/web/app/client/ui), vite/next soltos, manage.py runserver, FastAPI óbvio (uvicorn) — marcado como palpite na confirmação.",
+  "motivo": "Base do \"subir de novo\" sem depender do agente.",
+  "arquivos": [
+   "src/engine/claude.ts",
+   "app/src-tauri/src/lib.rs"
+  ],
+  "como_ver": "Nova tarefa web: ao subir o servidor o agente cria .cardume/preview.json na worktree.",
+  "estado_mock": "—",
+  "shots": {}
+ },
+ {
+  "id": "PUSH1",
+  "area": "Tarefa · cabeçalho",
+  "titulo": "push só no ⋯, a pedido do Douglas",
+  "antes": "R7 tinha colocado um botão \"↑ push\" visível ao lado da ação principal do topo.",
+  "depois": "O botão saiu (JS fwPushVisible/fwPushTop e CSS .fwpushbtn removidos). \"commit & push\" continua no menu ⋯ exatamente como estava.",
+  "motivo": "O dono achou o \"commit & push\" no ⋯ e prefere lá; o botão extra poluía o topo.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/83-responsivo.css"
+  ],
+  "como_ver": "Abra qualquer tarefa com commits: o topo mostra [globo] [ação principal] [⋯] [×]; o ⋯ tem \"commit & push\".",
+  "estado_mock": "cena workspace-conversa (t-running).",
+  "shots": {
+   "depois": "r8shots/crop-header-sem-push.png"
+  }
+ }
+]
