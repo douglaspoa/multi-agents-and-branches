@@ -1,6 +1,6 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { globsOverlap } from "./glob.ts";
 import { GitService } from "./git.ts";
@@ -10,7 +10,7 @@ import { buildReview } from "./review.ts";
 import { ghBin, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
-import { Brain, extractJson, parseNote as parseNoteText, type Note, type NoteInput, type Scope } from "./memory.ts";
+import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
@@ -180,15 +180,12 @@ export class Orchestrator {
         seeded.push(`.cardume/${doc}`);
       } catch { /* ainda não existe no projeto */ }
     }
-    // CÉREBRO do projeto (notas .md): cópia de leitura na worktree — o agente faz grep
-    // e pode criar/atualizar notas; harvestBrain leva as mudanças de volta pro repo.
+    // CÉREBRO do projeto (notas .md): cópia de leitura na worktree + manifesto (hash de cada
+    // nota semeada) — o agente faz grep e pode criar/atualizar notas; harvestBrain leva de volta
+    // SÓ o que ele mudou desde a semeadura.
     try {
-      const brain = this.brain();
-      brain.migrateLegacy();
-      if (existsSync(brain.root)) {
-        await cp(brain.root, join(worktree, ".cardume", "memoria"), { recursive: true });
-        seeded.push(".cardume/memoria/ (cérebro do projeto)");
-      }
+      const n = Object.keys(seedWorktree(this.brain(), worktree)).length;
+      if (n) seeded.push(`.cardume/memoria/ (cérebro do projeto, ${n} nota(s))`);
     } catch { /* memória nunca derruba a criação da tarefa */ }
     // FAIXA LEVE: mudança pequena não vale o custo de linkar deps + rodar setup.sh
     // (o VoC aponta: "não vale a pena pra uma correção que a IA faz em 10min").
@@ -421,7 +418,7 @@ export class Orchestrator {
    * cérebro: cria ou atualiza (dedup) com [[links]] pras notas que já existem.
    * Fire-and-forget: nunca quebra o turno.
    */
-  private async learnFromMessage(message: string, taskTitle = ""): Promise<void> {
+  private async learnFromMessage(message: string, taskTitle = "", taskId?: string): Promise<void> {
     const msg = message.trim();
     if (msg.length < 12) return;
     try {
@@ -437,7 +434,7 @@ export class Orchestrator {
       if (!out || /^skip\b/i.test(out.split("\n").pop()?.trim() ?? "")) return;
       const who = this.humanName();
       const note = this.noteFromJson(extractJson(out), `destilador · correção de ${who}${taskTitle ? ` no chat da tarefa "${taskTitle.slice(0, 60)}"` : ""}`);
-      if (note) this.brain().write(note);
+      if (note && this.brain().write(note)?.action === "secret") this.noteSecretDropped(taskId, "uma correção do chat");
     } catch {
       /* aprender é melhor-esforço — nunca quebra o turno */
     }
@@ -472,51 +469,28 @@ export class Orchestrator {
       const brain = this.brain();
       for (const o of arr.slice(0, 3)) {
         const note = this.noteFromJson(o, `agente · fim da tarefa "${String(spec.title).slice(0, 60)}" (${taskId})`);
-        if (note) brain.write(note);
+        if (note && brain.write(note)?.action === "secret") this.noteSecretDropped(taskId, "um aprendizado do fim da tarefa");
       }
     } catch { /* melhor-esforço */ }
   }
 
+  /** Nota descartada por parecer segredo: avisa no chat da tarefa (nunca some calada). */
+  private noteSecretDropped(taskId: string | undefined, what: string): void {
+    const msg = `memória: descartei ${what} — parecia conter segredo (chave/senha/.env); nada foi gravado no cérebro`;
+    console.warn(`[memória] ${msg}`);
+    if (taskId) { try { this.store.addEvent(taskId, "Sistema", "note", msg, false); } catch { /* sem store */ } }
+  }
+
   /**
-   * O agente pode CRIAR/ATUALIZAR notas em .cardume/memoria/ na worktree — aqui
-   * elas voltam pro cérebro do repo principal (com rastro da tarefa). Nunca apaga:
-   * nota sumida da worktree é ignorada. Se o arquivo principal é MAIS NOVO que o da
-   * worktree (o humano editou depois), o principal vence.
+   * O agente pode CRIAR/ATUALIZAR notas em .cardume/memoria/ na worktree — aqui volta pro
+   * cérebro do repo principal SÓ o que mudou desde a semeadura (manifesto), com rastro da
+   * tarefa. Nunca apaga nem ressuscita nota apagada; se o humano editou depois, ele vence.
    */
   private harvestBrain(worktree: string, taskId: string, taskTitle: string): void {
     try {
-      const brain = this.brain();
-      for (const scope of ["local", "time"] as Scope[]) {
-        const wdir = scope === "time" ? join(worktree, ".cardume", "memoria", "time") : join(worktree, ".cardume", "memoria");
-        let names: string[] = [];
-        try { names = readdirSync(wdir); } catch { continue; }
-        for (const f of names) {
-          if (!f.endsWith(".md") || f.startsWith(".") || f.startsWith("_")) continue;
-          try {
-            const wp = join(wdir, f);
-            const wst = statSync(wp);
-            if (!wst.isFile()) continue;
-            const wtxt = readFileSync(wp, "utf8");
-            const mp = join(brain.dirOf(scope), f);
-            let mtxt = "";
-            let mtime = 0;
-            try { mtxt = readFileSync(mp, "utf8"); mtime = statSync(mp).mtimeMs; } catch { /* nota nova */ }
-            if (wtxt.trim() === mtxt.trim()) continue;
-            if (mtxt && mtime > wst.mtimeMs) continue; // o humano editou depois: vence o mais recente
-            const n = parseNoteText(wtxt, f.slice(0, -3), scope);
-            const r = brain.write(
-              { title: n.title, type: n.type, tags: n.tags, body: n.body, by: `agente · tarefa "${taskTitle.slice(0, 60)}" (${taskId})`, origem: "agente", scope: mtxt || scope === "time" ? scope : undefined },
-              { slug: mtxt ? n.slug : undefined, replace: !!mtxt, newSlug: n.slug },
-            );
-            if (!r) continue; // segredo: descartado
-            // a worktree passa a ter a versão gravada (mesmo nome/escopo) → o próximo harvest não regrava
-            const wtarget = join(r.scope === "time" ? join(worktree, ".cardume", "memoria", "time") : join(worktree, ".cardume", "memoria"), `${r.slug}.md`);
-            mkdirSync(dirname(wtarget), { recursive: true });
-            writeFileSync(wtarget, readFileSync(join(brain.dirOf(r.scope), `${r.slug}.md`), "utf8"), "utf8");
-            if (wtarget !== wp) rmSync(wp, { force: true }); // só a cópia da worktree (o cérebro nunca perde nota)
-          } catch { /* uma nota ruim não para as outras */ }
-        }
-      }
+      const r = harvestWorktree(this.ws.dir, worktree, readManifest(worktree), `agente · tarefa "${taskTitle.slice(0, 60)}" (${taskId})`);
+      writeManifest(worktree, r.manifest);
+      for (const k of r.secrets) this.noteSecretDropped(taskId, `a nota ${k}.md`);
     } catch { /* colher memória é melhor-esforço */ }
   }
 
@@ -1413,7 +1387,7 @@ export class Orchestrator {
     // notas que o agente escreveu neste turno → cérebro do projeto
     this.harvestBrain(task.worktree, taskId, task.title);
     // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
-    if (!asReq) void this.learnFromMessage(message, task.title);
+    if (!asReq) void this.learnFromMessage(message, task.title, taskId);
   }
 
   /**

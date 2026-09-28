@@ -1,4 +1,4 @@
-/* Starfork — aba Memória do projeto (cérebro de notas ligadas por [[links]]) */
+/* Starfork — 84-memoria: aba Memória do projeto (cérebro de notas ligadas por [[links]]) */
 #memOverlay.astab .mhead{display:none} /* a tela tem H1 próprio */
 #memOverlay.astab .mbody{max-width:none;margin:0;padding:0;overflow:hidden}
 #memOverlay .mbody{padding:0}
@@ -73,3 +73,4 @@ a.memlink.broken::after{content:" · criar esta nota";font-size:10.5px;color:var
   .memside{max-height:40vh}
   .memmain{min-height:420px}
 }
+.membadge.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}

@@ -53,7 +53,7 @@ app/
       50-workspace-planner.css  tela da tarefa (3 colunas), planner, PR, artefatos
       60-grafo-times-nova-demanda.css  grafo, espaço Times, formulário da Nova demanda
       70-orquestrador.css · 80-ajustes-cards.css · 81-chat.css · 82-issues.css  orquestrador, cards da Central, composer dos chats, painel de issues
-      82-memoria.css        aba Memória do projeto (lista, nota, editor, grafo)
+      84-memoria.css        aba Memória do projeto (lista, nota, editor, grafo)
       83-responsivo.css     (R7, por último) regras gerais de redimensionamento: título com prioridade, selos (épico/protegido/branch) encolhem com …, nada mais largo que a coluna
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
       00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH, pathBase/pathDir, osKind, toast (com ação) e o catálogo de erros pt-BR humanErr/showErr — helpers usados por todos

@@ -1,18 +1,48 @@
 /* ===== MEMÓRIA DO PROJETO — o cérebro (notas .md ligadas por [[links]], compatível com Obsidian) =====
    Aba "memoria": lista + busca, nota renderizada com [[links]] clicáveis e backlinks, editor, nova nota,
    grafo, mover entre time/local e "abrir no Obsidian". Os arquivos moram em <repo>/.cardume/memoria/
-   (local) e .cardume/memoria/time/ (espelho do cérebro do TIME, tabela brain_notes — sync mais-recente-vence).
-   Rust: app/src-tauri/src/memoria.rs · motor: src/memory.ts. */
+   (local) e .cardume/memoria/time/ (espelho do cérebro do TIME, tabela brain_notes — sync mais-recente-vence,
+   apagar = lápide). Rust: app/src-tauri/src/memoria.rs · motor: src/memory.ts. */
 
 // @puro-inicio — funções sem DOM (testadas em app/tests/memoria.test.mjs)
 const MEM_TYPES=['decisão','regra','gotcha','contexto','pessoa','glossário'];
+const MEM_KNOWN_KEYS=['title','type','tags','updated','by','origem','atualizada_por'];
 function memFold(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
-function memSlug(s){ const o=memFold(s).replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60).replace(/-+$/,''); return o||'nota'; }
+function memFnv(s){ let h=0x811c9dc5; for(const b of new TextEncoder().encode(s)){ h^=b; h=Math.imul(h,0x01000193)>>>0; } return h.toString(16).padStart(8,'0'); }
+// igual ao slugify do motor/Rust (título só com escrita não latina → nota-<hash>)
+function memSlug(s){ const o=memFold(s).replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60).replace(/-+$/,''); if(o) return o; const t=String(s==null?'':s).trim(); return t?'nota-'+memFnv(t):'nota'; }
 function memYaml(s){ const t=String(s==null?'':s).replace(/\s+/g,' ').trim(); return (/^[\wÀ-ſ][\wÀ-ſ .,()/·-]*$/.test(t) && !/:\s|\s#/.test(t))?t:JSON.stringify(t); }
-// mesmo formato do src/memory.ts (serializeNote): frontmatter + corpo
+function memUnquote(v){ const t=String(v).trim(); if(t.length>=2&&t[0]==='"'&&t.endsWith('"')){ try{ return JSON.parse(t); }catch(_){ return t.slice(1,-1); } } if(t.length>=2&&t[0]==="'"&&t.endsWith("'")) return t.slice(1,-1).replace(/''/g,"'"); return t; }
+// frontmatter igual ao parseFrontmatter do src/memory.ts
+function memParseFm(text){
+  const src=String(text==null?'':text).replace(/^﻿/,'').replace(/\r\n/g,'\n'); const data={};
+  if(!src.startsWith('---\n')) return { data, body:src };
+  const end=src.indexOf('\n---',4); if(end<0) return { data, body:src };
+  let body=src.slice(end+4); if(body.startsWith('\n')) body=body.slice(1);
+  let last='';
+  for(const line of src.slice(4,end).split('\n')){
+    const it=line.match(/^\s+-\s+(.*)$/);
+    if(it&&last){ const c=data[last]; data[last]=[...(Array.isArray(c)?c:c?[c]:[]), memUnquote(it[1])]; continue; }
+    const m=line.match(/^([A-Za-zÀ-ú_][\wÀ-ú-]*)\s*:\s*(.*)$/); if(!m) continue;
+    last=m[1]; const v=m[2].trim();
+    data[last]=(v.startsWith('[')&&v.endsWith(']'))?v.slice(1,-1).split(',').map(memUnquote).filter(Boolean):memUnquote(v);
+  }
+  return { data, body };
+}
+// nota do arquivo → campos do editor (+ chaves que o app não conhece, preservadas no salvar)
+function memFromFile(text){
+  const { data, body }=memParseFm(text); const s=k=>(Array.isArray(data[k])?data[k].join(', '):String(data[k]==null?'':data[k])).trim();
+  const tr=data.tags; const tags=(Array.isArray(tr)?tr:tr?String(tr).split(/[,\s]+/):[]).map(t=>t.replace(/^#/,'').trim()).filter(Boolean);
+  const extra={}; for(const k of Object.keys(data)) if(!MEM_KNOWN_KEYS.includes(k)) extra[k]=data[k];
+  const t=memFold(s('type')); const type=MEM_TYPES.find(x=>memFold(x)===t)||(/^decis/.test(t)?'decisão':/^glos/.test(t)?'glossário':'contexto');
+  return { title:s('title'), type, tags, updated:s('updated'), by:s('by'), origem:s('origem')==='agente'?'agente':'pessoa', atualizadaPor:s('atualizada_por'), extra, body:body.trim() };
+}
+// mesmo formato do src/memory.ts (serializeNote): frontmatter + chaves extras + corpo
 function memSerialize(n){
-  const tags=(n.tags||[]).map(memYaml).join(', ');
-  return '---\ntitle: '+memYaml(n.title)+'\ntype: '+(n.type||'contexto')+'\ntags: ['+tags+']\nupdated: '+(n.updated||'')+'\nby: '+memYaml(n.by||'')+'\norigem: '+(n.origem==='agente'?'agente':'pessoa')+'\n---\n'+String(n.body||'').trim()+'\n';
+  const list=v=>'['+(v||[]).map(memYaml).join(', ')+']';
+  let extra=''; for(const [k,v] of Object.entries(n.extra||{})) extra+=k+': '+(Array.isArray(v)?list(v):memYaml(v))+'\n';
+  return '---\ntitle: '+memYaml(n.title)+'\ntype: '+(n.type||'contexto')+'\ntags: '+list(n.tags)+'\nupdated: '+(n.updated||'')+'\nby: '+memYaml(n.by||'')+'\norigem: '+(n.origem==='agente'?'agente':'pessoa')+'\n'+
+    (n.atualizadaPor?'atualizada_por: '+memYaml(n.atualizadaPor)+'\n':'')+extra+'---\n'+String(n.body||'').trim()+'\n';
 }
 function memToday(d){ d=d||new Date(); const p=x=>String(x).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 // resolve um alvo de [[link]] numa nota (mesmo escopo primeiro; aceita slug, título ou nome do arquivo)
@@ -45,9 +75,12 @@ function memFilter(notes, q, type){
     return t.every(w=>hay.includes(w));
   });
 }
-// layout por força simples (repulsão + mola nas arestas + gravidade pro centro), determinístico
+// layout por força simples (repulsão + mola + gravidade), determinístico. Custo ~N²·iters: as iterações
+// caem com N (teto de ~3M pares por desenho) — cérebro grande não trava a janela.
+function memForceIters(N){ return Math.max(12, Math.min(260, Math.floor(3e6/Math.max(1,N*N)))); }
 function memForceLayout(nodes, edges, w, h, iters){
-  iters=iters||260; const N=nodes.length; if(!N) return [];
+  const N=nodes.length; if(!N) return [];
+  iters=iters||memForceIters(N);
   const pos=nodes.map((n,i)=>{ const a=i*2.399963, r=Math.sqrt(i+.5)/Math.sqrt(N)*Math.min(w,h)*.42; return { x:w/2+Math.cos(a)*r, y:h/2+Math.sin(a)*r }; });
   const idx={}; nodes.forEach((n,i)=>{ idx[n.id]=i; });
   const E=edges.map(e=>[idx[e.from],idx[e.to]]).filter(e=>e[0]!=null&&e[1]!=null&&e[0]!==e[1]);
@@ -63,6 +96,39 @@ function memForceLayout(nodes, edges, w, h, iters){
       pos[i].x=Math.max(20,Math.min(w-20,pos[i].x)); pos[i].y=Math.max(20,Math.min(h-20,pos[i].y)); }
   }
   return pos;
+}
+/* Decisão do sync do cérebro do TIME, nota a nota (sem I/O):
+   local = notas de .cardume/memoria/time/ ({slug, mtimeMs, body}); rows = brain_notes ({slug, body, updated_at, deleted_at});
+   known = slugs sincronizados com sucesso da última vez; localEmpty = espelho vazio (1º sync: só puxa, NUNCA apaga);
+   lastSync = quando o último sync completo começou (edição do colega depois disso vence a nossa remoção local).
+   → pull (nuvem → arquivo), push (arquivo → nuvem), delLocal (lápide mais nova que o arquivo),
+     tombstoneCloud (apagado aqui, fora do app), rename (nota local nova com o MESMO nome de uma do colega:
+     vira <slug>-N em vez de sobrescrever), keep (já iguais). */
+function memSyncPlan(local, rows, known, localEmpty, lastSync){
+  const L={}; (local||[]).forEach(n=>{ L[n.slug]=n; });
+  const P={ pull:[], push:[], delLocal:[], tombstoneCloud:[], rename:[], keep:[] };
+  const seen=new Set();
+  for(const r of rows||[]){
+    seen.add(r.slug); const l=L[r.slug]; const t=Date.parse(r.updated_at)||0;
+    if(r.deleted_at){
+      if(!l) continue;                                     // lápide e nada aqui: nada a fazer
+      const td=Date.parse(r.deleted_at)||t;
+      if(l.mtimeMs>td+2000) P.push.push(r.slug);           // editei depois da remoção: a edição revive a nota
+      else P.delLocal.push(r.slug);                        // remoção mais nova que a minha cópia
+      continue;
+    }
+    if(!l){
+      if(!localEmpty && known.has(r.slug) && t<=(lastSync||0)+2000) P.tombstoneCloud.push(r.slug); // apaguei aqui (fora do app)
+      else P.pull.push(r.slug);                            // nova do colega, ou editada por ele depois
+      continue;
+    }
+    if(!known.has(r.slug) && String(l.body||'').trim()!==String(r.body||'').trim()){ P.rename.push(r.slug); continue; } // mesmo nome, notas diferentes
+    if(t>l.mtimeMs+2000) P.pull.push(r.slug);
+    else if(l.mtimeMs>t+2000) P.push.push(r.slug);
+    else P.keep.push(r.slug);
+  }
+  for(const l of local||[]) if(!seen.has(l.slug)) P.push.push(l.slug); // nunca subiu (ou a linha sumiu): sobe
+  return P;
 }
 // @puro-fim
 
@@ -82,8 +148,8 @@ const MEM_IC={
 function memIc(n,sz){ sz=sz||13; return '<svg viewBox="0 0 16 16" width="'+sz+'" height="'+sz+'" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" aria-hidden="true">'+(MEM_IC[n]||'')+'</svg>'; }
 function memEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-const MEM={ notes:[], mode:'local', explicit:false, root:'', hasTeam:false, sel:null, q:'', type:'', view:'lista', edit:null, repo:'', syncing:false, syncMsg:'' };
-function memSeenKey(){ return 'memSeen:'+(state.repo||''); }
+const MEM={ notes:[], mode:'local', explicit:false, root:'', hasTeam:false, sel:null, q:'', type:'', view:'lista', edit:null, repo:'', syncMsg:'' };
+function memSeenKey(){ return 'memSeen:'+(MEM.repo||state.repo||''); }
 function memSeen(){ try{ return JSON.parse(lsGet(memSeenKey())||'{}')||{}; }catch(_){ return {}; } }
 function memIsNew(n){ return n.origem==='agente' && (memSeen()[n.scope+':'+n.slug]||0) < n.mtimeMs; }
 function memMarkSeen(n){ if(!n) return; const s=memSeen(); s[n.scope+':'+n.slug]=n.mtimeMs; lsSet(memSeenKey(), JSON.stringify(s)); }
@@ -92,10 +158,12 @@ function memWho(){
   return 'você (nesta máquina)';
 }
 function memSelNote(){ return MEM.sel ? MEM.notes.find(n=>n.scope===MEM.sel.scope && n.slug===MEM.sel.slug)||null : null; }
+function memVisible(){ const o=$id('memOverlay'); return !!(o && o.style.display!=='none'); }
 
-async function memLoad(){
-  const r=await invoke('memory_list',{ withBody:true });
-  MEM.notes=(r&&r.notes)||[]; MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; MEM.root=r.root||''; MEM.repo=state.repo||'';
+async function memLoad(repo){
+  repo=repo||MEM.repo||state.repo;
+  const r=await invoke('memory_list',{ repo, withBody:true });
+  MEM.notes=(r&&r.notes)||[]; MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; MEM.root=r.root||''; MEM.repo=repo;
 }
 async function memTeamAvailable(){ try{ return !!(SB.configured() && SB.sess() && cloudData && cloudData.org && await prefsKey()); }catch(_){ return false; } }
 
@@ -105,12 +173,14 @@ async function openMemoria(){
   if(MEM.repo && MEM.repo!==state.repo){ MEM.sel=null; MEM.edit=null; MEM.q=''; MEM.type=''; }
   ovShow(ov);
   const body=$id('memBody'); if(body && !MEM.notes.length) body.innerHTML='<div class="dim" style="padding:24px">carregando a memória…</div>';
-  try{ await memLoad(); }catch(e){ if(body) body.innerHTML='<div class="memempty">Não consegui ler a memória: '+memEsc(e&&e.message||e)+'</div>'; return; }
+  try{ await memLoad(state.repo); }catch(e){ if(body) body.innerHTML='<div class="memempty">Não consegui ler a memória: '+memEsc(e&&e.message||e)+'</div>'; return; }
   MEM.hasTeam=await memTeamAvailable();
   memRender();
-  if(MEM.hasTeam) memTeamSync().then(ch=>{ if(ch && $id('memOverlay').style.display!=='none' && !MEM.edit) memLoad().then(memRender).catch(()=>{}); });
+  if(MEM.hasTeam) memTeamSync().then(ch=>{ if(ch) memRefresh(); });
 }
 window.openMemoria=openMemoria;
+// recarrega e redesenha sem perder o que está sendo digitado
+async function memRefresh(){ if(!memVisible() || !MEM.repo) return; memCaptureEdit(); try{ await memLoad(MEM.repo); }catch(_){ return; } memRender(); }
 
 function memModeSeg(id){
   const opts=[['time','Time','sincroniza com o time (padrão quando o projeto está num time)'],['local','Local','só nesta máquina; os agentes ainda leem o time'],['so-local','Só local','os agentes ignoram o cérebro do time']];
@@ -118,27 +188,35 @@ function memModeSeg(id){
     const dis=v==='time' && !MEM.hasTeam;
     return '<button role="radio" aria-checked="'+(MEM.mode===v)+'" class="'+(MEM.mode===v?'on':'')+'" data-mmode="'+v+'" title="'+memEsc(dis?'entre num time (Conta e time) num projeto com git remote pra usar o cérebro do time':t)+'"'+(dis?' disabled':'')+'>'+l+'</button>'; }).join('')+'</div>';
 }
-async function memSetMode(mode){
-  try{ await invoke('memory_set_mode',{ mode }); MEM.mode=mode; MEM.explicit=true;
+async function memSetMode(mode, repo){
+  try{ await invoke('memory_set_mode',{ repo:repo||MEM.repo||state.repo, mode }); MEM.mode=mode; MEM.explicit=true;
     toast(mode==='time'?'Memórias novas vão pro cérebro do time.':mode==='local'?'Memórias novas ficam só nesta máquina.':'Modo só local: os agentes ignoram o cérebro do time.','ok');
   }catch(e){ showErr(e,'Não consegui trocar o modo'); }
 }
-function memWireMode(root){ if(!root) return; root.querySelectorAll('[data-mmode]').forEach(b=>b.onclick=async()=>{ await memSetMode(b.dataset.mmode); memRender(); memPrefsRender(); }); }
+function memWireMode(root, repoOf){ if(!root) return; root.querySelectorAll('[data-mmode]').forEach(b=>b.onclick=async()=>{ await memSetMode(b.dataset.mmode, repoOf&&repoOf()); memRender(); memPrefsRender(); }); }
+
+// o editor aberto guarda o que foi digitado no estado ANTES de qualquer redesenho (sync, modo, filtros…)
+function memCaptureEdit(){
+  const e=MEM.edit; if(!e) return;
+  const t=$id('meTitle'), ty=$id('meType'), tg=$id('meTags'), b=$id('meBody');
+  if(t) e.title=t.value; if(ty) e.type=ty.value; if(tg) e.tags=tg.value.split(/[,\s]+/).map(x=>x.replace(/^#/,'').trim()).filter(Boolean); if(b) e.body=b.value;
+}
 
 function memRender(){
   const body=$id('memBody'); if(!body) return;
+  memCaptureEdit();
   const list=memFilter(MEM.notes, MEM.q, MEM.type);
   const nNew=MEM.notes.filter(memIsNew).length;
   const sel=memSelNote();
   body.innerHTML=
     '<div class="memwrap">'+
     '<div class="memtop">'+
-      '<div class="memtitle">'+memIc('brain',22)+'<div><h1>Memória do projeto</h1><div class="dim memsub">'+memEsc(pathBase(state.repo))+' · '+MEM.notes.length+' nota'+(MEM.notes.length===1?'':'s')+(nNew?' · <span class="memnewtxt">'+nNew+' nova'+(nNew===1?'':'s')+'</span>':'')+(MEM.syncMsg?' · '+memEsc(MEM.syncMsg):'')+'</div></div></div>'+
+      '<div class="memtitle">'+memIc('brain',22)+'<div><h1>Memória do projeto</h1><div class="dim memsub">'+memEsc(pathBase(MEM.repo||state.repo))+' · '+MEM.notes.length+' nota'+(MEM.notes.length===1?'':'s')+(nNew?' · <span class="memnewtxt">'+nNew+' nova'+(nNew===1?'':'s')+'</span>':'')+(MEM.syncMsg?' · '+memEsc(MEM.syncMsg):'')+'</div></div></div>'+
       '<div class="memctl">'+
         '<span class="memlbl">salvar memórias novas em</span>'+memModeSeg('memMode')+
         '<div class="memseg" role="tablist"><button class="'+(MEM.view==='lista'?'on':'')+'" data-mview="lista" aria-label="Lista">'+memIc('list')+'Lista</button><button class="'+(MEM.view==='grafo'?'on':'')+'" data-mview="grafo" aria-label="Grafo">'+memIc('graph')+'Grafo</button></div>'+
         '<button class="btn" id="memObs" title="Abre a pasta .cardume/memoria como cofre do Obsidian (links e grafo funcionam lá também)">'+memIc('ext')+'Abrir no Obsidian</button>'+
-        (MEM.hasTeam?'<button class="btn" id="memSync" title="Sincronizar o cérebro do time agora">'+memIc('sync')+'</button>':'')+
+        (MEM.hasTeam?'<button class="btn" id="memSync" title="Sincronizar o cérebro do time agora" aria-label="Sincronizar">'+memIc('sync')+'</button>':'')+
         '<button class="btn primary" id="memNew">'+memIc('plus')+'Nova nota</button>'+
       '</div>'+
     '</div>'+
@@ -173,8 +251,9 @@ function memMainHtml(n){
       (canMove?'<button class="btn" id="memMove" title="Mover pro cérebro '+(other==='time'?'do time (sincroniza com todos)':'local (só nesta máquina)')+'">'+memIc('move')+'Mover pro '+(other==='time'?'time':'local')+'</button>':'')+
       '<button class="btn" id="memDel" aria-label="Apagar nota" title="Apagar nota">'+memIc('trash')+'</button></div></div>'+
     '<div class="memmeta"><span class="membadge type" style="--c:'+(MEM_COLORS[n.type]||'var(--muted)')+'">'+memEsc(n.type)+'</span><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+(memIsNew(n)?'<span class="membadge new">nova</span>':'')+
+      (n.secret?'<span class="membadge warn" title="Parece conter chave/senha/.env — não sobe pro time">segredo?</span>':'')+
       (n.tags||[]).map(t=>'<span class="memtag">#'+memEsc(t)+'</span>').join('')+
-      '<span class="dim">'+(n.by?'por '+memEsc(n.by):'')+(n.updated?' · '+memEsc(n.updated):'')+'</span></div>'+
+      '<span class="dim">'+(n.by?'por '+memEsc(n.by):'')+(n.atualizadaPor?' · atualizada por '+memEsc(n.atualizadaPor):'')+(n.updated?' · '+memEsc(n.updated):'')+'</span></div>'+
     '<div class="mdview memmd">'+html+'</div>'+
     '<div class="memback"><div class="memlbl">citada por</div>'+(back.length?back.map(b=>'<a class="memlink" data-mscope="'+memEsc(b.scope)+'" data-mslug="'+memEsc(b.slug)+'">'+memEsc(b.title)+'</a>').join(''):'<span class="dim">nenhuma nota liga pra esta ainda</span>')+'</div>'+
     '<div class="dim memfile">'+memEsc((n.scope==='time'?'.cardume/memoria/time/':'.cardume/memoria/')+n.slug+'.md')+'</div>'+
@@ -192,14 +271,14 @@ function memEditorHtml(){
   '</div>';
 }
 function memWire(body){
-  memWireMode(body.querySelector('#memMode'));
+  memWireMode(body.querySelector('#memMode'), ()=>MEM.repo);
   body.querySelectorAll('[data-mview]').forEach(b=>b.onclick=()=>{ MEM.view=b.dataset.mview; memRender(); });
   body.querySelectorAll('[data-mtype]').forEach(b=>b.onclick=()=>{ MEM.type=b.dataset.mtype; memRender(); });
   const q=body.querySelector('#memQ'); if(q){ q.oninput=()=>{ MEM.q=q.value; const l=$id('memList'); const sel=memSelNote(); const f=memFilter(MEM.notes,MEM.q,MEM.type); if(l){ l.innerHTML=f.length?f.map(n=>memRow(n,sel)).join(''):'<div class="memempty">Nada bate com a busca.</div>'; memWireLinks(l); } }; }
   memWireLinks(body);
   bindClick('memNew', ()=>memStartEdit(null));
-  bindClick('memObs', async()=>{ try{ const how=await invoke('memory_open_obsidian'); if(how==='pasta') toast('Obsidian não encontrado — abri a pasta. No Obsidian: "Abrir pasta como cofre" → .cardume/memoria','warn'); }catch(e){ showErr(e,'Não consegui abrir no Obsidian'); } });
-  bindClick('memSync', async()=>{ MEM.syncMsg='sincronizando…'; memRender(); const ok=await memTeamSync(); MEM.syncMsg=ok?'sincronizado':'não sincronizou'; await memLoad().catch(()=>{}); memRender(); });
+  bindClick('memObs', async()=>{ try{ const how=await invoke('memory_open_obsidian',{ repo:MEM.repo }); if(how==='pasta') toast('Abri a pasta da memória. No Obsidian: "Abrir pasta como cofre" → escolha .cardume/memoria (depois disso este botão abre direto no Obsidian).','warn'); }catch(e){ showErr(e,'Não consegui abrir no Obsidian'); } });
+  bindClick('memSync', async()=>{ MEM.syncMsg='sincronizando…'; memRender(); const r=await memTeamSync(); MEM.syncMsg=r===false&&memLastSyncErr?'não sincronizou':'sincronizado'; await memRefresh(); });
   bindClick('memEdit', ()=>memStartEdit(memSelNote()));
   bindClick('memMove', memMoveSel);
   bindClick('memDel', memDeleteSel);
@@ -207,7 +286,7 @@ function memWire(body){
     const ta=$id('meBody'); if(ta && typeof mountEditor==='function') mountEditor(ta,{ markdown:true });
     bindClick('meCancel', ()=>{ MEM.edit=null; memRender(); });
     bindClick('meSave', memSaveEdit);
-    const t=$id('meTitle'); if(t && !MEM.edit.slug) setTimeout(()=>t.focus(),30);
+    const t=$id('meTitle'); if(t && !MEM.edit.slug && !MEM.edit.focused){ MEM.edit.focused=true; setTimeout(()=>t.focus(),30); }
   }
 }
 function memWireLinks(root){
@@ -221,46 +300,64 @@ function memOpenNote(scope, slug){
   memRender();
   const r=document.querySelector('.memrow.on'); if(r && r.scrollIntoView) r.scrollIntoView({ block:'nearest' });
 }
+// o projeto da aba mudou (troca de projeto na barra lateral)? recarrega em vez de gravar no projeto errado
+function memRepoChanged(){ if(state.repo && MEM.repo && state.repo!==MEM.repo){ toast('Você trocou de projeto — recarreguei a Memória do projeto atual.','warn'); MEM.edit=null; MEM.sel=null; openMemoria(); return true; } return false; }
 
 async function memStartEdit(n, preset){
+  if(memRepoChanged()) return;
   if(n){
-    let content=null;
-    try{ const r=await invoke('memory_read',{ scope:n.scope, slug:n.slug }); content=r; }catch(e){ showErr(e,'Não consegui abrir a nota'); return; }
-    MEM.edit={ slug:n.slug, scope:n.scope, title:n.title, type:n.type, tags:n.tags||[], body:n.body||'', mtime:content.mtimeMs||n.mtimeMs, origem:n.origem };
+    let r;
+    try{ r=await invoke('memory_read',{ repo:MEM.repo, scope:n.scope, slug:n.slug }); }catch(e){ showErr(e,'Não consegui abrir a nota'); return; }
+    const f=memFromFile(r.content); // conteúdo FRESCO do arquivo (não o da lista) + chaves extras preservadas
+    MEM.edit={ slug:n.slug, scope:n.scope, title:f.title||n.title, type:f.type, tags:f.tags, body:f.body, mtime:r.mtimeMs||0, by:f.by, origem:f.origem, atualizadaPor:f.atualizadaPor, extra:f.extra };
   } else {
     const scope=MEM.mode==='time' && MEM.hasTeam ? 'time' : 'local';
-    MEM.edit={ slug:null, newSlug:(preset&&preset.slug)||null, scope, title:(preset&&preset.title)||'', type:'contexto', tags:[], body:'', mtime:0 };
+    MEM.edit={ slug:null, newSlug:(preset&&preset.slug)||null, scope, title:(preset&&preset.title)||'', type:'contexto', tags:[], body:'', mtime:0, extra:{} };
   }
   MEM.view='lista'; memRender();
 }
 async function memSaveEdit(){
+  memCaptureEdit();
   const e=MEM.edit; if(!e) return;
-  const title=($id('meTitle').value||'').trim(), body=$id('meBody').value||'';
+  if(memRepoChanged()) return;
+  const title=(e.title||'').trim(), body=e.body||'';
   if(!title){ $id('meMsg').textContent='dê um título pra nota'; $id('meTitle').focus(); return; }
   if(!body.trim()){ $id('meMsg').textContent='a nota está vazia'; return; }
-  const note={ title, type:$id('meType').value, tags:$id('meTags').value.split(/[,\s]+/).map(t=>t.replace(/^#/,'').trim()).filter(Boolean), updated:memToday(), by:memWho(), origem:'pessoa', body };
+  const who=memWho(), repo=MEM.repo;
+  const note={ title, type:e.type, tags:e.tags||[], updated:memToday(), body, extra:e.extra||{},
+    by:e.slug&&e.by?e.by:who, origem:e.slug&&e.by?(e.origem||'pessoa'):'pessoa',
+    atualizadaPor:e.slug&&e.by&&e.by!==who?who:(e.atualizadaPor||'') };
   const b=$id('meSave'); b.disabled=true; b.textContent='salvando…';
   try{
-    const r=await invoke('memory_write',{ scope:e.scope, slug:e.slug||e.newSlug||null, content:memSerialize(note), expectMtime:e.mtime||null });
+    // nota NOVA no time: puxa as do time antes, pra não pegar o nome de uma nota de colega ainda não baixada
+    if(!e.slug && e.scope==='time' && MEM.hasTeam) await memTeamSync();
+    const r=await invoke('memory_write',{ repo, scope:e.scope, slug:e.slug||e.newSlug||null, content:memSerialize(note), expectMtime:e.mtime||null, create:!e.slug });
     if(r.conflict) toast('Um agente atualizou esta nota enquanto você editava — a sua versão (a mais recente) foi salva.','warn');
     else toast('Nota salva · os agentes veem na próxima leitura.','ok');
     MEM.edit=null; MEM.sel={ scope:r.scope, slug:r.slug };
-    await memLoad(); const n=memSelNote(); if(n) memMarkSeen(n);
+    await memLoad(repo); const n=memSelNote(); if(n) memMarkSeen(n);
     memRender();
-    if(r.scope==='time') memTeamSync();
-  }catch(err){ showErr(err,'Não consegui salvar a nota'); b.disabled=false; b.textContent='salvar'; }
+    if(r.scope==='time') memTeamSync().then(ch=>{ if(ch) memRefresh(); });
+  }catch(err){ showErr(err,'Não consegui salvar a nota'); const bb=$id('meSave'); if(bb){ bb.disabled=false; bb.textContent='salvar'; } }
 }
 async function memMoveSel(){
+  if(memRepoChanged()) return;
   const n=memSelNote(); if(!n) return;
-  const to=n.scope==='time'?'local':'time';
+  const to=n.scope==='time'?'local':'time', repo=MEM.repo;
   if(to==='local' && !await askYes('A nota sai do cérebro do time (some pros colegas) e fica só nesta máquina. Mover?','Mover pro local')) return;
-  try{ const r=await invoke('memory_move',{ slug:n.slug, from:n.scope, to }); MEM.sel={ scope:r.scope, slug:r.slug }; await memLoad(); memRender(); toast(to==='time'?'Nota agora é do time.':'Nota agora é só local.','ok'); memTeamSync(); }
-  catch(e){ showErr(e,'Não consegui mover a nota'); }
+  try{
+    if(to==='time') await memTeamSync(); // nome livre no time (a nota de um colega com o mesmo nome já está aqui)
+    const r=await invoke('memory_move',{ repo, slug:n.slug, from:n.scope, to });
+    if(to==='local') await memCloudTombstone(repo, n.slug);
+    MEM.sel={ scope:r.scope, slug:r.slug }; await memLoad(repo); memRender(); toast(to==='time'?'Nota agora é do time.':'Nota agora é só local.','ok');
+    memTeamSync();
+  }catch(e){ showErr(e,'Não consegui mover a nota'); }
 }
 async function memDeleteSel(){
-  const n=memSelNote(); if(!n) return;
-  if(!await askYes('Apagar "'+n.title+'"? '+(n.scope==='time'?'Ela some do cérebro do time pra todos.':'Não dá pra desfazer.'),'Apagar nota')) return;
-  try{ await invoke('memory_delete',{ scope:n.scope, slug:n.slug }); MEM.sel=null; await memLoad(); memRender(); if(n.scope==='time') memTeamSync(); }
+  if(memRepoChanged()) return;
+  const n=memSelNote(); if(!n) return; const repo=MEM.repo;
+  if(!await askYes('Apagar "'+n.title+'"? '+(n.scope==='time'?'Ela some do cérebro do time pra todos (quem editar depois revive a nota).':'Não dá pra desfazer.'),'Apagar nota')) return;
+  try{ await invoke('memory_delete',{ repo, scope:n.scope, slug:n.slug }); if(n.scope==='time') await memCloudTombstone(repo, n.slug); MEM.sel=null; await memLoad(repo); memRender(); }
   catch(e){ showErr(e,'Não consegui apagar a nota'); }
 }
 
@@ -316,59 +413,97 @@ function memWireCanvas(cv){
     const k2=Math.max(.3,Math.min(3,memG.k*(ev.deltaY<0?1.1:1/1.1))); memG.tx=mx-(mx-memG.tx)*k2/memG.k; memG.ty=my-(my-memG.ty)*k2/memG.k; memG.k=k2; memPaint(); };
 }
 
-// ---- cérebro do TIME: .cardume/memoria/time/ ⇄ brain_notes (mais recente vence; apagar propaga) ----
-let memSyncBusy=false;
+// ---- cérebro do TIME: .cardume/memoria/time/ ⇄ brain_notes (mais recente vence; apagar = lápide) ----
+let memSyncBusy=false, memLastSyncErr='';
+const MEM_PAGE=500;
+async function memCloudCtx(repo){
+  if(!repo || !(SB.configured() && SB.sess() && cloudData && cloudData.org)) return null;
+  const k=await prefsKey(); if(!k || state.repo!==repo) return null; // prefsKey lê o projeto ATIVO
+  return { ...k, q:'org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo), knownKey:'memKnown:'+k.orgId+':'+k.repo+':'+repo, lastKey:'memLast:'+k.orgId+':'+k.repo+':'+repo };
+}
+// apagar/mover pra local na aba: lápide na nuvem NA HORA (não espera o sync inferir)
+async function memCloudTombstone(repo, slug){
+  try{ const c=await memCloudCtx(repo); if(!c) return;
+    await sbFetch('/rest/v1/brain_notes?'+c.q+'&slug=eq.'+encodeURIComponent(slug),{ method:'PATCH', body:JSON.stringify({ deleted_at:new Date().toISOString() }) });
+  }catch(e){ console.warn('memCloudTombstone', e); }
+}
 async function memTeamSync(){
-  if(memSyncBusy) return false; memSyncBusy=true;
-  let changed=false;
+  if(memSyncBusy) return false; memSyncBusy=true; memLastSyncErr='';
+  const repo=state.repo; // o sync inteiro é PRESO a este projeto
+  let changed=false, aborted=false, secrets=0;
+  let c=null, known=new Set(); const ok=new Set(), failed=new Set();
+  const alive=()=>{ if(state.repo!==repo){ aborted=true; return false; } return true; };
   try{
-    if(!(SB.configured() && SB.sess() && cloudData && cloudData.org)) return false;
-    const k=await prefsKey(); if(!k) return false;
-    const info=await invoke('memory_list',{ withBody:true });
-    const local={}; (info.notes||[]).filter(n=>n.scope==='time').forEach(n=>{ local[n.slug]=n; });
-    const q='org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo);
-    const rows=await sbGet('brain_notes?select=slug,title,type,tags,body,by,origem,updated_at&'+q) || [];
-    const knownKey='memKnown:'+k.orgId+':'+k.repo;
-    let known; try{ known=new Set(JSON.parse(lsGet(knownKey)||'[]')); }catch(_){ known=new Set(); }
-    const now=new Set();
-    const push=n=>sbFetch('/rest/v1/brain_notes?on_conflict=org_id,repo,slug',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
-      body:JSON.stringify({ org_id:k.orgId, repo:k.repo, slug:n.slug, title:n.title, type:n.type, tags:n.tags||[], body:n.body||'', by:n.by||'', origem:n.origem||'pessoa', updated_by:cloudUserId(), updated_at:new Date(n.mtimeMs||Date.now()).toISOString() }) });
-    const pull=r=>invoke('memory_write',{ scope:'time', slug:r.slug, content:memSerialize({ title:r.title, type:r.type, tags:r.tags||[], updated:String(r.updated_at||'').slice(0,10), by:r.by, origem:r.origem, body:r.body }), setMtimeMs:Date.parse(r.updated_at)||null });
-    const cloud={};
-    for(const r of rows){ cloud[r.slug]=r;
-      const l=local[r.slug];
-      if(!l){
-        if(known.has(r.slug)){ await sbFetch('/rest/v1/brain_notes?'+q+'&slug=eq.'+encodeURIComponent(r.slug),{ method:'DELETE' }); changed=true; continue; } // apagada aqui
-        await pull(r); changed=true; now.add(r.slug); continue;
-      }
-      const t=Date.parse(r.updated_at)||0;
-      if(t>l.mtimeMs+2000){ await pull(r); changed=true; }
-      else if(l.mtimeMs>t+2000){ await push(l); }
-      now.add(r.slug);
+    c=await memCloudCtx(repo); if(!c) return false;
+    try{ known=new Set(JSON.parse(lsGet(c.knownKey)||'[]')); }catch(_){ known=new Set(); }
+    const lastSync=+(lsGet(c.lastKey)||0);
+    const startedAt=Date.now();
+    const info=await invoke('memory_list',{ repo, withBody:true });
+    const local=(info.notes||[]).filter(n=>n.scope==='time'); const L={}; local.forEach(n=>{ L[n.slug]=n; });
+    // TODAS as páginas antes de decidir qualquer coisa (decidir com metade da nuvem apagaria o resto)
+    const rows=[];
+    for(let off=0;;off+=MEM_PAGE){
+      const page=await sbGet('brain_notes?select=slug,title,type,tags,body,by,origem,updated_at,deleted_at&'+c.q+'&order=slug&limit='+MEM_PAGE+'&offset='+off)||[];
+      rows.push(...page); if(page.length<MEM_PAGE) break;
     }
-    for(const slug of Object.keys(local)){
-      if(cloud[slug]) continue;
-      if(known.has(slug)){ await invoke('memory_delete',{ scope:'time', slug }).catch(()=>{}); changed=true; continue; } // apagada por um colega
-      await push(local[slug]); now.add(slug);
+    if(!alive()) return false;
+    const R={}; rows.forEach(r=>{ R[r.slug]=r; });
+    const plan=memSyncPlan(local, rows, known, local.length===0, lastSync);
+    plan.keep.forEach(s=>ok.add(s));
+    const pull=async(r, extra)=>invoke('memory_write',{ repo, scope:'time', slug:r.slug, setMtimeMs:Date.parse(r.updated_at)||null,
+      content:memSerialize({ title:r.title, type:r.type, tags:r.tags||[], updated:String(r.updated_at||'').slice(0,10), by:r.by, origem:r.origem, body:r.body, extra:extra||{} }) });
+    const extraOf=async slug=>{ try{ return memFromFile((await invoke('memory_read',{ repo, scope:'time', slug })).content).extra; }catch(_){ return {}; } };
+    const push=async n=>{
+      const rows2=await sbFetch('/rest/v1/brain_notes?on_conflict=org_id,repo,slug',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' },
+        body:JSON.stringify({ org_id:c.orgId, repo:c.repo, slug:n.slug, title:n.title, type:n.type, tags:n.tags||[], body:n.body||'', by:n.by||'', origem:n.origem||'pessoa', deleted_at:null }) });
+      // o servidor carimba updated_at: o arquivo passa a ter essa data (senão o próximo sync "puxaria" de volta)
+      const at=rows2&&rows2[0]&&Date.parse(rows2[0].updated_at);
+      if(at){ const cur=await invoke('memory_read',{ repo, scope:'time', slug:n.slug }); await invoke('memory_write',{ repo, scope:'time', slug:n.slug, content:cur.content, setMtimeMs:at }); }
+    };
+    const step=async(slug, fn)=>{ if(!alive()) return false; try{ await fn(); return true; }catch(e){ console.warn('memTeamSync', slug, e); memLastSyncErr=String(e&&e.message||e); failed.add(slug); return false; } };
+    for(const s of plan.pull){ if(await step(s, async()=>pull(R[s], L[s]?await extraOf(s):{}))){ ok.add(s); changed=true; } }
+    for(const s of plan.push){ const n=L[s]; if(!n) continue; if(n.secret){ secrets++; continue; } if(await step(s, ()=>push(n))) ok.add(s); }
+    for(const s of plan.delLocal){ if(await step(s, ()=>invoke('memory_delete',{ repo, scope:'time', slug:s }))) changed=true; }
+    for(const s of plan.tombstoneCloud){ await step(s, ()=>sbFetch('/rest/v1/brain_notes?'+c.q+'&slug=eq.'+encodeURIComponent(s),{ method:'PATCH', body:JSON.stringify({ deleted_at:new Date().toISOString() }) })); }
+    for(const s of plan.rename){ // mesmo nome, notas diferentes: a minha vira <slug>-N; a do colega fica com o nome
+      const n=L[s]; if(!n || n.secret){ if(n) secrets++; continue; }
+      await step(s, async()=>{
+        const cur=await invoke('memory_read',{ repo, scope:'time', slug:s });
+        const w=await invoke('memory_write',{ repo, scope:'time', slug:s, content:cur.content, create:true });
+        await pull(R[s], {});
+        ok.add(s); changed=true;
+        const f=memFromFile(cur.content);
+        await push({ slug:w.slug, title:f.title||n.title, type:n.type, tags:f.tags, body:f.body, by:f.by, origem:f.origem });
+        ok.add(w.slug);
+      });
     }
-    lsSet(knownKey, JSON.stringify([...now]));
+    if(secrets) toast(secrets+' nota(s) do time parecem conter segredo (chave/senha/.env) e NÃO subiram pra nuvem — abra a Memória pra revisar.','warn');
     // D1: projeto num time → as memórias novas vão pro time por padrão (até a pessoa escolher outra coisa)
-    if(!info.explicitMode && info.mode!=='time'){ await invoke('memory_set_mode',{ mode:'time' }).catch(()=>{}); changed=true; }
+    if(alive() && !info.explicitMode && info.mode!=='time'){
+      await invoke('memory_set_mode',{ repo, mode:'time' }).catch(()=>{});
+      if(MEM.repo===repo){ MEM.mode='time'; MEM.explicit=true; changed=true; }
+    }
+    if(!aborted) lsSet(c.lastKey, String(startedAt));
     return changed;
-  }catch(e){ console.warn('memTeamSync', e); return false; }
-  finally{ memSyncBusy=false; }
+  }catch(e){ console.warn('memTeamSync', e); memLastSyncErr=String(e&&e.message||e); return false; }
+  finally{
+    // "conhecidas" = só as confirmadas agora (2xx) + as que falharam e já eram conhecidas (tentam de novo)
+    if(c){ const next=new Set(ok); for(const s of known) if(failed.has(s) || aborted) next.add(s); lsSet(c.knownKey, JSON.stringify([...next])); }
+    memSyncBusy=false;
+  }
 }
 window.memTeamSync=memTeamSync;
-setTimeout(()=>{ memTeamSync().catch(()=>{}); }, 20000);
-setInterval(()=>{ memTeamSync().catch(()=>{}); }, 10*60*1000);
+setTimeout(()=>{ memTeamSync().then(ch=>{ if(ch) memRefresh(); }).catch(()=>{}); }, 20000);
+setInterval(()=>{ memTeamSync().then(ch=>{ if(ch) memRefresh(); }).catch(()=>{}); }, 10*60*1000);
 
 // ---- Preferências do projeto: o mesmo seletor "onde salvar as memórias novas" ----
 async function memPrefsRender(){
   const h=$id('prefsMemHost'); if(!h) return;
-  if(!state.repo){ h.innerHTML=''; return; }
-  try{ const r=await invoke('memory_list',{}); MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; MEM.hasTeam=await memTeamAvailable();
+  const repo=state.repo; if(!repo){ h.innerHTML=''; return; }
+  try{ const r=await invoke('memory_list',{ repo }); if(MEM.repo!==repo){ MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; } else { MEM.mode=r.mode||MEM.mode; }
+    MEM.hasTeam=await memTeamAvailable();
     h.innerHTML='<div class="memprefs"><div class="seclbl2">Memória do projeto</div><div class="dim" style="font-size:12px;margin:4px 0 8px">Onde as memórias novas (dos agentes e as suas) são salvas. Os agentes leem o cérebro local e o do time juntos — menos no modo "só local". '+(r.notes||[]).length+' nota(s) hoje · <a href="#" id="prefsMemOpen">abrir a Memória</a></div>'+memModeSeg('prefsMemMode')+'</div>';
-    memWireMode(h.querySelector('#prefsMemMode'));
+    memWireMode(h.querySelector('#prefsMemMode'), ()=>repo);
     const a=h.querySelector('#prefsMemOpen'); if(a) a.onclick=ev=>{ ev.preventDefault(); if(window.openTab) window.openTab('memoria'); else openMemoria(); };
   }catch(_){ h.innerHTML=''; }
 }
@@ -377,4 +512,4 @@ window.memPrefsRender=memPrefsRender;
 bindClick('memBtn', ()=>{ if(window.openTab) window.openTab('memoria'); else openMemoria(); });
 { const ov=$id('memOverlay'); if(ov) ov.addEventListener('click',e=>{ if(e.target.id==='memOverlay') ovHide('memOverlay'); }); }
 bindClick('memClose', ()=>ovHide('memOverlay'));
-window.addEventListener('resize', ()=>{ if(MEM.view==='grafo' && $id('memCanvas') && $id('memOverlay').style.display!=='none') memDrawGraph(); });
+{ let t=null; window.addEventListener('resize', ()=>{ clearTimeout(t); t=setTimeout(()=>{ if(MEM.view==='grafo' && $id('memCanvas') && memVisible()) memDrawGraph(); }, 200); }); }
