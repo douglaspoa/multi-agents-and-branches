@@ -1,0 +1,73 @@
+[
+ {
+  "id": "I1",
+  "area": "Tarefa (menu ⋯)",
+  "titulo": "Ações órfãs do painel lateral voltam no menu ⋯ da tarefa",
+  "antes": "Com o painel lateral removido, pausar, criar entrega a partir do design/investigação, desdobrar em épico, correção linkada, publicar provas no time e abrir anexos de referência ficaram sem nenhum botão (funções vivas, mas inalcançáveis).",
+  "depois": "fwMoreItems ganha: 'pausar' (rodando/pensando/na fila), 'criar entrega a partir deste design/desta investigação' (design/invest em revisão, mergeada, erro ou abortada), 'desdobrar em épico' (rascunho/revisão/mergeada; não review de PR), 'abrir correção linkada' (revisão/mergeada/erro/abortada/conflito), 'publicar provas no time · N' (com sessão, cartão sincronizado e artefatos carregados) e 'ver referência · arquivo' (anexos da tarefa, até 6). O menu rola quando a janela é baixa e publicar provas confirma por toast.",
+  "motivo": "Remoção do painel lateral (pacote de limpeza) cortou a única entrada dessas ações.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/43-espaco-times.js",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Abra uma tarefa em revisão com branch design/… → ⋯ no topo; numa tarefa rodando aparece 'pausar'.",
+  "estado_mock": "harness: t-review com branch design/checkout e refs [print-tela.png, briefing.md]; t-running para pausar",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "I2",
+  "area": "Custo (todas as telas)",
+  "titulo": "Custo num formato só: fmtUsd passa a usar a régua do fmtCost",
+  "antes": "Depois do merge do pacote 'custo em R$', a Entrega, a Central (linha da tarefa), o Daily, o espaço Times e a conta ainda mostravam '$1.25' (fmtUsd antigo) ao lado de telas com 'US$ 1,25 (≈ R$ 6,88)'.",
+  "depois": "fmtUsd delega ao fmtCost compacto ('US$ 1,25', vírgula decimal); os KPIs da Entrega mostram o equivalente em R$ ('US$ 1,25 (≈ R$ 6,88)').",
+  "motivo": "Conflito semântico entre pacotes: a mesa decidiu 'uma regra pra toda tela que mostra custo'.",
+  "arquivos": [
+   "app/src/js/15-config-abas-onboarding.js",
+   "app/src/js/27-entregas.js"
+  ],
+  "como_ver": "Aba Entrega de qualquer tarefa com custo — KPI de duração/commits.",
+  "estado_mock": "harness cena workspace-entrega (t-review, custo US$ 1,25)",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "I3",
+  "area": "Erros",
+  "titulo": "Erros crus que escaparam do catálogo passam pelo showErr",
+  "antes": "Teto de custo ('Não deu pra aplicar: '+e), Preferências do projeto ('Não salvou: '+e), abrir pasta do projeto e checkout/portal do Stripe (alert com o erro cru) mostravam o texto do Rust/rede sem tradução nem ação.",
+  "depois": "Todos usam showErr(e, contexto): mensagem pt-BR do catálogo + botão que resolve + 'ver detalhes'.",
+  "motivo": "O pacote do catálogo e o do teto/proteção foram feitos em paralelo; o 53 nasceu depois do varrimento.",
+  "arquivos": [
+   "app/src/js/53-teto-protecao.js",
+   "app/src/js/13-skills-projetos.js",
+   "app/src/js/41-assinatura-chaves.js"
+  ],
+  "como_ver": "Desligar a rede e abrir o checkout em Conta › Assinatura → toast 'Sem conexão agora…'.",
+  "estado_mock": "—",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "I4",
+  "area": "Harness (scratchpad)",
+  "titulo": "Mocks dos comandos novos no shim do harness",
+  "antes": "snapshot_stamp, checks_config, task_fingerprint e deliverables_default_dir caíam em [mock-missing] (28 avisos por rodada).",
+  "depois": "shim.js responde os comandos novos (snapshot_stamp muda a cada 3s; checks_config com testes+lint; run_checks, quick_project_target/quick_create_project, publish_github). 28/28 cenas com 0 erro e 0 mock-missing.",
+  "motivo": "Validar a integração com os comandos novos renderizando de verdade.",
+  "arquivos": [],
+  "como_ver": "./build.sh WORKTREE final2 && ./shoot-all.sh final2 shots/final2",
+  "estado_mock": "—",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ }
+]
