@@ -1,0 +1,33 @@
+[
+ {
+  "id": "AU-S1",
+  "area": "Conta, login e senha",
+  "titulo": "Templates de e-mail — auditados, sem mudança",
+  "motivo": "confirmation/recovery/magic_link/invite/password_changed.html já estão em pt-BR (lang=\"pt-BR\"), marca Starfork, assuntos em pt-BR com o código no assunto (supabase-auth-mail.sh apply), e o de recuperação mostra o CÓDIGO {{ .Token }} com passo a passo (não só link). Validade \"10 minutos\" bate com mailer_otp_exp=600.",
+  "pendencia": "O botão \"Confirmar pelo navegador\" ({{ .ConfirmationURL }}) redireciona pro site_url constellation-ai-v1.lovable.app (nome antigo) — ver pendências de servidor."
+ },
+ {
+  "id": "AU-S2",
+  "area": "Conta, login e senha",
+  "titulo": "Telas planos/pagamento/pronto e coluna da esquerda ainda com texto fixo (não passam pelo T)",
+  "motivo": "Fora do escopo \"conta, login e senha\"; só pt-BR hoje. O dicionário já existe — migrar quando entrar o 2º idioma."
+ },
+ {
+  "id": "AU-S3",
+  "area": "Conta, login e senha",
+  "titulo": "Cancelar o login Google/GitHub não solta a porta 8788 no Rust",
+  "motivo": "oauth_wait_callback (lib.rs) espera até 3 min e não tem cancelamento; o \"cancelar\" solta a TELA, mas uma 2ª tentativa dentro desses 3 min recebe \"porta 8788 ocupada\" (mensagem já em pt-BR). Hoje irrelevante: providers desligados, botões escondidos. Precisa de um comando Rust de cancelamento."
+ },
+ {
+  "id": "AU-S4",
+  "area": "Conta, login e senha",
+  "titulo": "App iOS (mobile/ios/Constellation/Supa.swift) não auditado",
+  "motivo": "Pedido foi o app desktop; o iOS tem o próprio tradutor de erros em Swift."
+ },
+ {
+  "id": "AU-S5",
+  "area": "Conta, login e senha",
+  "titulo": "Verificação no app instalado",
+  "motivo": "Tudo foi exercitado no harness com GoTrue simulado (sem criar contas nem mandar e-mail de verdade, como pedido). Falta rodar deploy-local.sh e testar no /Applications com a nuvem (regra do projeto: validar no produto)."
+ }
+]

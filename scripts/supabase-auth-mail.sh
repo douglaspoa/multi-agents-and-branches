@@ -68,13 +68,14 @@ PY
 
 smtp(){
   : "${SMTP_HOST:?}" "${SMTP_PORT:?}" "${SMTP_USER:?}" "${SMTP_PASS:?}" "${SMTP_FROM:?}"
-  python3 - <<PY > /tmp/sb-smtp.json
+  # a senha do SMTP vai num arquivo temporário SÓ do usuário (0600), apagado mesmo se o curl falhar
+  local tmp; tmp=$(umask 077; mktemp); trap 'rm -f "$tmp"; trap - RETURN' RETURN
+  python3 - <<PY > "$tmp"
 import json,os
 print(json.dumps({"smtp_host":"$SMTP_HOST","smtp_port":int("$SMTP_PORT"),"smtp_user":"$SMTP_USER","smtp_pass":"$SMTP_PASS",
   "smtp_admin_email":"$SMTP_FROM","smtp_sender_name":"${SMTP_NAME:-Starfork}","smtp_max_frequency":10,"rate_limit_email_sent":200}))
 PY
-  curl -sf -X PATCH "${auth[@]}" "$API" --data-binary @/tmp/sb-smtp.json >/dev/null && echo "✓ SMTP próprio ligado ($SMTP_HOST, remetente $SMTP_FROM)"
-  rm -f /tmp/sb-smtp.json
+  curl -sf -X PATCH "${auth[@]}" "$API" --data-binary @"$tmp" >/dev/null && echo "✓ SMTP próprio ligado ($SMTP_HOST, remetente $SMTP_FROM)"
 }
 
 case "${1:-check}" in check) check;; apply) apply;; smtp) smtp;; *) echo "uso: $0 check|apply|smtp"; exit 2;; esac
