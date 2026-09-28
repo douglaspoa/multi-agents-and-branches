@@ -39,7 +39,7 @@
 
 /* ---- cabeçalho da tarefa: título legível; épico/protegido/branch cedem com … ---- */
 #fwTaskName{min-width:min(120px,14vw)}
-#fwTaskEpic{display:inline-flex;align-items:center;min-width:min(7.5em,8vw);flex:0 4 auto;overflow:hidden}
+#fwTaskEpic{display:inline-flex;align-items:center;min-width:min(13em,16vw);flex:0 2 auto;overflow:hidden}
 #fwTaskEpic:empty,#fwTaskProt:empty{display:none}
 #fwTaskEpic .epbadge{max-width:100%}
 #fwTaskProt{flex:none;display:inline-flex}
@@ -92,3 +92,7 @@
 .en-sec .seclbl2 .dim{flex:1 1 220px;min-width:0}
 .en-sec .seclbl2 .btn,.en-sec .seclbl2 .vf-pill{white-space:nowrap;flex:none}
 .en-sec{min-width:0}
+
+/* cabeçalho da tarefa: o nome do épico nunca vira só "C…" — mínimo de ~9 letras; o título cede primeiro */
+#fwTaskEpic .epn{min-width:9ch}
+@media (max-width:1180px){ #fwTaskEpic{min-width:min(7em,9vw);flex-shrink:6} #fwTaskEpic .epn{min-width:4ch} }
