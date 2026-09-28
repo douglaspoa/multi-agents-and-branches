@@ -168,7 +168,7 @@ function wizRender(){
   bindClick('wizSkip', ()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); });
   { const b=$id('wizNext'); if(b) b.onclick=()=>{
       if(last){ wizLaunch(); return; }
-      if(!st.ok()){ const m=$id('wizMiss'); if(m){ m.textContent='⚠ '+(st.miss||'complete esta etapa'); setTimeout(()=>{ if(m) m.textContent=''; },2600); } return; }
+      if(!st.ok()){ const m=$id('wizMiss'); if(m){ m.innerHTML=IC.warn+' '+esc(st.miss||'complete esta etapa'); setTimeout(()=>{ if(m) m.textContent=''; },2600); } return; }
       wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender();
     }; }
 }

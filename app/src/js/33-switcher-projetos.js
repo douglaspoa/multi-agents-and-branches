@@ -119,7 +119,7 @@ $id("ntDzRefAdd").onclick = ()=>pickRefsInto(ntDzRefs, renderDzRefs);
 $id("ntFixRefAdd").onclick = ()=>pickRefsInto(ntFixRefs, renderFixRefs);
 $id("ntInvRefAdd").onclick = ()=>pickRefsInto(ntInvRefs, renderInvRefs);
 $id("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
-// ✨ título por IA a partir da descrição (data-aititle="inputDoTitulo:inputDaDescricao")
+// título por IA a partir da descrição (data-aititle="inputDoTitulo:inputDaDescricao")
 document.querySelectorAll('[data-aititle]').forEach(b=>{
   b.onclick=async(e)=>{
     e.preventDefault();

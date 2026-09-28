@@ -40,7 +40,7 @@ function flowDemandCard(t){
   if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
   const rows=reqRows(t);
   const okN=rows.filter(r=>r.st==='ok').length;
-  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?'✓':r.st==='blk'?'!':'○'}</i>${esc(r.text)}</span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
+  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?'✓':r.st==='blk'?'!':'○'}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
   const msg= asking.length ? `<b>${esc(asking[0].agent||t.agent)} perguntou</b> — ${esc((asking[0].prompt||'').slice(0,90))}`
     : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
     : t.status==='draft' ? 'rascunho — clique pra editar'
@@ -56,7 +56,7 @@ function flowDemandCard(t){
   const nImg=arts.filter(a=>a.kind==='image').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
   const artOnly=['invest','design'].includes(ty)||entregaNonCode(t); // FT-6: entrega só de documentos também não abre PR
-  const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia">⚡ resolver conflito</button>`
+  const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia">${IC.bolt} resolver conflito</button>`
     : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.cright} iniciar</button>`
     : asking.length ? `<button class="btn primary sm" data-dcopen="${escA(t.id)}">responder</button>`
     : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">✓ ver e salvar</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
@@ -158,7 +158,7 @@ function enVerifHtml(t){
     : g.st==='stale' ? `<b>desatualizada</b>: o agente mexeu no código depois (verificada ${esc(short(r&&r.head))}${r&&r.dirty?'+':''}, agora ${esc(short(cur&&cur.head))}${cur&&cur.dirty?'+':''}). Rode de novo.`
     : g.st==='fail' ? `<b>${nPl(g.bad.length,'checagem')} falhou</b> na versão atual — a aprovação fica bloqueada até corrigir (ou liberar com um motivo)`
     : g.st==='pass' ? `tudo verde na versão atual <span class="mono dim">${esc(short(r.head))}${r.dirty?'+':''}</span> · ${esc(agoShort(r.at))==='agora'?'agora':'há '+esc(agoShort(r.at))}`
-    : g.st==='override' ? `⚠ liberada ${g.was==='fail'?'com checagem falhando':'sem verificação'}: <b>${esc(g.ov.reason)}</b>` : '';
+    : g.st==='override' ? `${IC.warn} liberada ${g.was==='fail'?'com checagem falhando':'sem verificação'}: <b>${esc(g.ov.reason)}</b>` : '';
   const byId=Object.fromEntries(((live?live.done:(r&&r.results))||[]).map(x=>[x.id,x]));
   const rows=(g.on||[]).map(c=>{
     const x=byId[c.id]; const running=live&&live.cur&&live.cur.id===c.id;
@@ -333,7 +333,7 @@ async function entregaFacts(t){
   if(commitsCache[t.id]===undefined) await loadCommits(t.id).catch(()=>{});
   if(t.prUrl && prCache[t.id]===undefined) await loadPr(t.id).catch(()=>{});
   const rows=reqRows(t); const d=diffOf(t.id); const rev=reviewOf(t.id); const c=commitsCache[t.id]||[]; const pr=prCache[t.id];
-  const notas=eventsOf(t.id).filter(e=>['done','note'].includes(e.type)&&(e.text||'').length>30&&!/^(💬|❓|perguntou ao humano|humano respondeu)|sess[aã]o iniciada|claude finaliz|timeout|rework/i.test(e.text||'')).slice(-12).map(e=>`- ${e.agent||''}: ${String(e.text).slice(0,220)}`);
+  const notas=eventsOf(t.id).filter(e=>['done','note'].includes(e.type)&&(e.text||'').length>30&&!/^(Você:|perguntou ao humano|humano respondeu)|sess[aã]o iniciada|claude finaliz|timeout|rework/i.test(e.text||'')).slice(-12).map(e=>`- ${e.agent||''}: ${String(e.text).slice(0,220)}`);
   const roles=(t.roles||[]).map(r=>`${r.name} (${r.role}, ${r.engine||''}${r.model?' '+r.model:''})`).join(', ');
   return [
     `DEMANDA: ${t.title}`, `TIPO: ${TYPE_PT[taskType(t)]||taskType(t)}`, `PROJETO: ${pathBase(state.repo)}`,

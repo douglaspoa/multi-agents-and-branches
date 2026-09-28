@@ -571,7 +571,7 @@ export class Orchestrator {
         taskId,
         "Sistema",
         "note",
-        `⏳ pedido NA FILA (${pos}º): ${this.queueLabel(kind, payload)} — o agente está no meio de um turno; executo automaticamente assim que ele terminar.`,
+        `Na fila (${pos}º): ${this.queueLabel(kind, payload)} — o agente está no meio de um turno; executo automaticamente assim que ele terminar.`,
         true,
       );
       return;
@@ -707,7 +707,7 @@ export class Orchestrator {
           if (altCfg && altCfg.fallback) {
             usingAlt = true;
             deathKind = "limit";
-            this.store.addEvent(taskId, "Sistema", "note", `🔀 Claude bateu o limite de uso — roteando esta tarefa para a ${altCfg.label} (${altCfg.model}) automaticamente e retomando agora.`, true);
+            this.store.addEvent(taskId, "Sistema", "note", `Claude bateu o limite de uso — roteando esta tarefa para a ${altCfg.label} (${altCfg.model}) automaticamente e retomando agora.`, true);
             this.store.setStatus(taskId, this.statusFor(r.role));
             sessionId = ""; attemptNo++;
             continue;
@@ -719,10 +719,10 @@ export class Orchestrator {
           deathKind = "limit";
           const at = new Date(Date.now() + LIMIT_MIN * 60000);
           const hhmm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-          this.store.addEvent(taskId, "Sistema", "note", `⏳ limite de uso da IA atingido — vou RETOMAR automaticamente em ${LIMIT_MIN}min (~${hhmm}). Tentativa ${limitWait}/${MAX_LIMIT_WAITS}.`, true);
+          this.store.addEvent(taskId, "Sistema", "note", `Limite de uso da IA atingido — vou RETOMAR automaticamente em ${LIMIT_MIN}min (~${hhmm}). Tentativa ${limitWait}/${MAX_LIMIT_WAITS}.`, true);
           this.store.setStatus(taskId, "queued");
           await new Promise((res) => setTimeout(res, LIMIT_MIN * 60000));
-          this.store.addEvent(taskId, "Sistema", "note", "▶️ intervalo cumprido — retomando de onde parou…", true);
+          this.store.addEvent(taskId, "Sistema", "note", "▶ intervalo cumprido — retomando de onde parou…", true);
           this.store.setStatus(taskId, this.statusFor(r.role));
           sessionId = ""; attemptNo++;
           continue;
@@ -732,7 +732,7 @@ export class Orchestrator {
           hardTry++;
           deathKind = Orchestrator.tokenDeath(deathText) ? "token" : "idle";
           const why = deathKind === "token" ? "estourou o limite de tokens" : (Orchestrator.networkDeath(deathText) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
-          this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${hardTry + 1}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
+          this.store.addEvent(taskId, "Sistema", "note", `A sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${hardTry + 1}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
           this.store.setStatus(taskId, this.statusFor(r.role));
           sessionId = ""; attemptNo++;
           continue;
@@ -1210,7 +1210,7 @@ export class Orchestrator {
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     const prev = task.status;
     const sid = switching ? "" : (task.session_id || "");
-    this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
+    this.store.addEvent(taskId, "Você", "note", `Você: ${message}`, true);
     this.store.setStatus(taskId, "thinking");
     let failed = false;
     try {
@@ -1236,7 +1236,7 @@ export class Orchestrator {
       if (sid && deathText && Orchestrator.retriableDeath(deathText)) {
         const why = Orchestrator.tokenDeath(deathText) ? "estourou o limite de tokens" : (Orchestrator.networkDeath(deathText) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
         this.store.setSession(taskId, "");
-        this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).`, true);
+        this.store.addEvent(taskId, "Sistema", "note", `A sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
         return this.talkToAgentInner(taskId, message, false, agentName);
       }
@@ -1245,7 +1245,7 @@ export class Orchestrator {
       if (sid && Orchestrator.retriableDeath(msg)) {
         const why = Orchestrator.tokenDeath(msg) ? "estourou o limite de tokens" : (Orchestrator.networkDeath(msg) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
         this.store.setSession(taskId, "");
-        this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova.`, true);
+        this.store.addEvent(taskId, "Sistema", "note", `A sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova.`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
         return this.talkToAgentInner(taskId, message, false, agentName);
       }

@@ -271,7 +271,7 @@ function chkPrBodyExtra(t){
   let s='\n\n## Verificação\n';
   if(r && (g.st==='pass'||g.st==='fail'||(g.st==='override'&&g.was==='fail'))) s+=(r.results||[]).map(x=>`- ${x.ok?'✓':'✕'} ${x.label} — \`${x.cmd}\` · ${chkDur(x.durationMs)}${x.ok?'':x.timedOut?' · passou do tempo-limite':' · exit '+(x.exitCode==null?'?':x.exitCode)}`).join('\n')+'\n_rodadas pelo Starfork na cópia da tarefa_\n';
   else s+='_não rodou na versão final_\n';
-  if(g.st==='override') s+=`\n⚠ aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${g.ov.reason}\n`;
+  if(g.st==='override') s+=`\nAtenção: aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${g.ov.reason}\n`;
   return s;
 }
 // cabeçalho da tarefa (20): o botão "aprovar e abrir PR" reflete o gate — bloqueado leva pra Verificação na Entrega
@@ -334,14 +334,14 @@ async function prPrepRun(t, base){
   const resHtml=r=>(r&&r.results||[]).map(x=>`${x.ok?'✓':'✕'} ${esc(x.label)} <span class="dim">${chkDur(x.durationMs)}</span>`).join(' · ');
   if(g.st==='none') prepMark(1,'ok','sem checagens configuradas no projeto — seguindo');
   else if(g.st==='pass') prepMark(1,'ok', resHtml(g.r));
-  else if(g.st==='override') prepMark(1,'ok', `<span style="color:var(--warn)">⚠ aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${esc(g.ov.reason)}</span>`);
+  else if(g.st==='override') prepMark(1,'ok', `<span style="color:var(--warn)">${IC.warn} aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${esc(g.ov.reason)}</span>`);
   else {
     const det = g.st==='fail' ? g.bad.map(c=>`<b>${esc(c.label)} falhou</b> <span class="dim">· ${c.timedOut?'passou do tempo-limite':'exit '+(c.exitCode==null?'?':c.exitCode)}</span><div class="mono" style="white-space:pre-wrap;font-size:10.5px;margin-top:4px;color:var(--crit);max-height:120px;overflow:auto">${esc(String(c.log||'').split('\n').slice(-12).join('\n'))}</div>`).join('')
       : esc(chkBlockWhy(g)||'não deu pra conferir a verificação');
     prepMark(1,'fail', det);
     const f=$id('prepForce');
     if(f){ f.style.display=''; f.onclick=async()=>{ if(!await chkOverride(t, g.st==='fail'?g:{ st:'notrun' })) return; f.style.display='none';
-      prepMark(1,'ok', `<span style="color:var(--warn)">⚠ aprovado mesmo assim</span>`); prPrepFinish(t, base); }; }
+      prepMark(1,'ok', `<span style="color:var(--warn)">${IC.warn} aprovado mesmo assim</span>`); prPrepFinish(t, base); }; }
     return; // decisão do humano: corrigir antes ou liberar com motivo
   }
   await prPrepFinish(t, base);
@@ -397,7 +397,7 @@ async function prPrepFinish(t, base){
   let prBody;
   try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
   catch(_){ prBody=prBodyOf(t); }
-  prBody=String(prBody||prBodyOf(t))+chkPrBodyExtra(t); // verificação real + "⚠ aprovado com checagem falhando: motivo"
+  prBody=String(prBody||prBodyOf(t))+chkPrBodyExtra(t); // verificação real + "Atenção: aprovado com checagem falhando: motivo"
   prepMark(3,'run','criando o PR no GitHub…');
   try{
     const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });
@@ -543,7 +543,7 @@ function flowTaskCard(t, acc){
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${typeof epTaskBadge==='function'?epTaskBadge(t):''}${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}<span class="fstatus stdrop" data-stmenu="${t.id}" style="color:${col}" title="mudar status da demanda"><i style="font-style:normal">${stIcon(st)}</i> ${esc(stLabel(st))}<span class="stcaret">▼</span></span></div>
     ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="mono">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta"><span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(t.proj||projShort(t.repo||state.repo))}</span>${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${t.status==='conflict'?`<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree" style="padding:3px 9px;font-size:10.5px">⚡ resolver conflito</button>`:''}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${nPl((t.deliverables||[]).length,'entregável','entregáveis')}</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?nPl(c.length,'commit'):'… commits'}</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta"><span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(t.proj||projShort(t.repo||state.repo))}</span>${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${t.status==='conflict'?`<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree" style="padding:3px 9px;font-size:10.5px">${IC.bolt} resolver conflito</button>`:''}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${nPl((t.deliverables||[]).length,'entregável','entregáveis')}</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">✓ review</span>':''}<span>${c!==undefined?nPl(c.length,'commit'):'… commits'}</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?'▾':'▸'}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;

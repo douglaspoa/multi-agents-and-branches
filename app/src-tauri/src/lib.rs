@@ -3202,7 +3202,7 @@ fn daily_digest(state: State<AppState>, from_ms: i64, to_ms: i64) -> Result<Vec<
         }
         // marcos do dia: status/notes relevantes (curtos, sem stream)
         if let Ok(mut ns) = conn.prepare(
-            "SELECT text FROM event WHERE task_id=?1 AND ts>=?2 AND ts<?3 AND type IN ('status','note') AND text NOT LIKE '⏳%' AND text NOT LIKE '▶%' ORDER BY id",
+            "SELECT text FROM event WHERE task_id=?1 AND ts>=?2 AND ts<?3 AND type IN ('status','note') AND text NOT LIKE '⏳%' AND text NOT LIKE 'Na fila (%' AND text NOT LIKE 'Limite de uso%' AND text NOT LIKE '▶%' ORDER BY id",
         ) {
             if let Ok(it) = ns.query_map(params![t.id, from_ms, to_ms], |r| r.get::<_, String>(0)) {
                 let mut v: Vec<String> = it.flatten().map(|s| s.chars().take(160).collect()).collect();
@@ -3903,7 +3903,7 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let r2 = output_timeout(c2, 60)?;
     let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
     if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
-    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram ⬆ atualizar no próximo boot ou em até 6h{warn}", size as f64 / 1048576.0))
+    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram o aviso de atualizar no próximo boot ou em até 6h{warn}", size as f64 / 1048576.0))
 }
 fn chrono_iso_now() -> String {
     let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();
@@ -5064,7 +5064,7 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
     // diário: últimas falas RELEVANTES do agente (o que foi feito de verdade)
     let mut notes: Vec<String> = vec![];
     if let Ok(mut st) = conn.prepare(
-        "SELECT substr(text,1,400) FROM event WHERE task_id=?1 AND type IN ('note','done') AND length(text)>40 AND text NOT LIKE '💬%' AND text NOT LIKE '❓%' AND text NOT LIKE 'perguntou%' AND text NOT LIKE 'humano%' AND text NOT LIKE 'requisito adicionado%' ORDER BY id DESC LIMIT 12",
+        "SELECT substr(text,1,400) FROM event WHERE task_id=?1 AND type IN ('note','done') AND length(text)>40 AND text NOT LIKE '💬%' AND text NOT LIKE 'Você:%' AND text NOT LIKE '❓%' AND text NOT LIKE 'perguntou%' AND text NOT LIKE 'humano%' AND text NOT LIKE 'requisito adicionado%' ORDER BY id DESC LIMIT 12",
     ) {
         if let Ok(rows) = st.query_map(params![task_id], |r| r.get::<_, String>(0)) {
             notes = rows.flatten().collect();
@@ -5374,7 +5374,7 @@ fn env_check() -> Vec<EnvCheck> {
         Ok(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "instalado mas SEM login".into(), fix: "gh auth login".into() }),
         Err(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install gh && gh auth login".into() }),
     }
-    // opcional: túnel do preview pro celular (📱). Sem ele o app funciona 100% —
+    // opcional: túnel do preview pro celular. Sem ele o app funciona 100% —
     // só o botão de abrir o preview no celular fica indisponível.
     let cf = ["/opt/homebrew/bin/cloudflared", "/opt/homebrew/opt/cloudflared/bin/cloudflared", "/usr/local/bin/cloudflared"]
         .iter()
@@ -5382,7 +5382,7 @@ fn env_check() -> Vec<EnvCheck> {
     out.push(EnvCheck {
         name: "Túnel do preview (opcional)".into(),
         ok: cf,
-        detail: if cf { "cloudflared instalado — botão 📱 celular disponível".into() } else { "sem cloudflared — o botão '📱 celular' do preview fica desativado (resto funciona normal)".into() },
+        detail: if cf { "cloudflared instalado — botão do celular disponível".into() } else { "sem cloudflared — o botão do celular no preview fica desativado (resto funciona normal)".into() },
         fix: if cf { String::new() } else { "brew install cloudflared".into() },
     });
     out

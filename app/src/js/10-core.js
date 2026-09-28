@@ -96,13 +96,61 @@ const IC = {
 // substituem os glifos soltos ✕ × ✖ ✓ ✔ ☑, que cada fonte desenha de um jeito
 const icEm = s => s.replace('<svg ', '<svg width="1em" height="1em" style="vertical-align:-.125em;flex:none" aria-hidden="true" ');
 IC.x = icEm(IC.xs); IC.ok = icEm(IC.check);
+// R7: ícones que substituem os emoji que eram usados como ícone (mão, escudo, ampulheta, aviso, cadeado, seta de push…) — em 1em, pra ir no meio do texto
+Object.assign(IC, {
+  shield: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.9l4.7 1.8v3.6c0 3-2 5.3-4.7 6.7-2.7-1.4-4.7-3.7-4.7-6.7V3.7z" stroke-linejoin="round"/></svg>'),
+  clock: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.7"/><path d="M8 4.9v3.3l2.2 1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  warn: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.3l6.1 10.9H1.9z" stroke-linejoin="round"/><path d="M8 6.5v3.1" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".45" fill="currentColor" stroke="none"/></svg>'),
+  lock: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.3"/><path d="M5.4 7V5.1a2.6 2.6 0 0 1 5.2 0V7" stroke-linecap="round"/></svg>'),
+  push: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 13V3.6M4.3 7.2L8 3.5l3.7 3.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  retry: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12.6 8a4.6 4.6 0 1 1-1.4-3.3M12.7 2.4V5H10.1" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  route: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h3.2l4.6 7h3.2M2.5 11.5h3.2l1.3-2M9.7 6.5l.6-2h3.2M11.6 2.8l1.9 1.7-1.9 1.7M11.6 9.8l1.9 1.7-1.9 1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  handEm: icEm(IC.hand), boltEm: icEm(IC.bolt), globeEm: icEm(IC.globe), phoneEm: icEm(IC.phone), chat: icEm(IC.q), clipEm: icEm(IC.clip), aiEm: icEm(IC.ai),
+});
+// R7: o motor escrevia eventos com emoji na frente (balão de fala, interrogação, ampulheta, setas de retomar…).
+// Os novos vêm em texto puro ("Você: …", "perguntou ao humano: …", "Na fila (1º): …"); aqui o histórico
+// ANTIGO é reescrito no mesmo formato ao chegar (snapshot/task_events) — assim toda tela e todo parser
+// só precisam conhecer o formato novo. Só prefixos que o PRÓPRIO app/motor escrevia; texto do agente fica intacto.
+const EV_LEGACY = [
+  [/^💬\s*(?:📎\s*)?/u, (e)=>e.agent==='Você'?'Você: ':null],
+  [/^❓\s*(?:perguntou ao humano:?\s*)?/u, ()=>'perguntou ao humano: '],
+  [/^⏳\s*pedido NA FILA\s*/u, ()=>'Na fila '],
+  [/^⏳\s*limite de uso/u, ()=>'Limite de uso'],
+  [/^⏳\s*/u, ()=>''],
+  [/^▶️\s*/u, ()=>'▶ '],
+  [/^(?:🔀|🔄)\s*/u, ()=>''],
+  [/^(?:📦|🛠️?|🔗|☑️?)\s*/u, (e)=>{ e.tool=true; return ''; }],
+  [/^📱\s*/u, ()=>''],
+  [/^⚠️?\s*/u, (e)=>e.agent==='Sistema'?'':null],
+];
+function evNorm(e){
+  if(!e || typeof e.text!=='string' || e._n) return e;
+  const tx=e.text; e._n=1;
+  const c=tx.charCodeAt(0); if(c<0x2190) return e; // começa com letra/ASCII: nada a fazer (caminho quente)
+  for(const [re, fn] of EV_LEGACY){ const m=tx.match(re); if(!m) continue; const r=fn(e); if(r===null) continue; e.text=r+tx.slice(m[0].length); break; }
+  return e;
+}
+function evNormAll(arr){ if(Array.isArray(arr)) for(const e of arr) evNorm(e); return arr; }
+// URL de preview que o agente anuncia numa linha "PREVIEW: http://…" (antes: globo emoji + "preview:")
+const PREVIEW_RE=/(?:🌐\s*)?\bpreview:\s*(https?:\/\/[^\s'"”)]+)/i;
+// mensagem digitada pelo humano no chat da tarefa (formato novo "Você: …"; o antigo com o balão de fala é normalizado acima)
+function evIsUserMsg(e){ return !!e && e.agent==='Você' && /^Você:\s/.test(String(e.text||'')); }
+function evUserText(tx){ return String(tx||'').replace(/^Você:\s*/,''); }
+// nota de sistema do motor → ícone (antes o emoji do prefixo fazia esse papel)
+function evSysIcon(tx){ const s=String(tx||'');
+  if(/^Na fila \(/.test(s)) return IC.clock;
+  if(/^Limite de uso/i.test(s)) return IC.clock;
+  if(/^▶ intervalo cumprido/.test(s)) return IC.retry;
+  if(/^A sessão( do chat)? /i.test(s)) return IC.retry;
+  if(/roteando esta tarefa|^Route AI:/i.test(s)) return IC.route;
+  return ''; }
 // helper: ícone + rótulo num botão (substitui os emojis por SVG da biblioteca)
 async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ showErr(e, 'Não consegui abrir o link'); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
 // cores de status vêm do dicionário único (STATUS_META em 00-util.js)
 const STATUS_COLOR = Object.fromEntries(Object.entries(STATUS_META).map(([k,v])=>[k,v.c]));
-const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
+const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"!", error:"✕", done:"✓" };
 const GCOLOR = { collision:"var(--crit)", error:"var(--crit)", claim:"var(--info)", done:"var(--good)", edit:"var(--good)", write:"var(--good)" };
 
 let state = { repo:null, tasks:[], events:[], claims:[], diffs:[] };
@@ -237,7 +285,7 @@ function detectNotifs(snap){
   try{
     const lim=parseFloat(lsGet('costWarn')||'25');
     if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id);
-      pushNotif('⚠ Custo alto — '+fmtCost(c.usd), t.title+' passou de '+fmtCost(lim)+' — avalie pausar/encerrar');
+      pushNotif('Custo alto — '+fmtCost(c.usd), t.title+' passou de '+fmtCost(lim)+' — avalie pausar/encerrar');
     } } } }
   }catch(_){ }
   // eventos novos numa tarefa → a lista de commits pode estar defasada
@@ -253,6 +301,7 @@ async function refresh(){
   catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); } return; }
   // pergunta do teto de custo = pendência sintética; entra ANTES do detectNotifs (vira "Precisa de você")
   if(typeof budgetInject==='function') try{ budgetInject(snap); }catch(e){ tickErr('budgetInject', e); }
+  evNormAll(snap&&snap.events); // R7: histórico antigo com emoji no prefixo → formato novo
   detectNotifs(snap);
   const prevGraph = state.graph, prevCfg = state.config, prevRepo = state.repo;
   state = snap;

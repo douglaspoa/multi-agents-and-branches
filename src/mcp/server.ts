@@ -149,7 +149,7 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
         const { join } = await import("node:path");
         await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
       } catch { /* worktree pode não existir */ }
-      store.addEvent(TASK, AGENT, "note", `📦 entregável novo registrado: ${item.slice(0, 120)}`, true);
+      store.addEvent(TASK, AGENT, "note", `entregável novo registrado: ${item.slice(0, 120)}`, true);
       return { text: `entregável registrado: ${item}` };
     } catch (e) {
       return { text: `falha registrando entregável: ${(e as Error).message}`, isError: true };
@@ -196,7 +196,7 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
         const { join } = await import("node:path");
         await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
       } catch { /* worktree pode não existir */ }
-      store.addEvent(TASK, AGENT, "note", `🔗 issue registrada: ${url}`, true);
+      store.addEvent(TASK, AGENT, "note", `issue registrada: ${url}`, true);
       return { text: `issue registrada e compartilhada com o time: ${url}` };
     } catch (e) {
       return { text: `falha registrando issue: ${(e as Error).message}`, isError: true };
@@ -227,7 +227,7 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
         const { join } = await import("node:path");
         await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
       } catch { /* worktree pode não existir */ }
-      store.addEvent(TASK, AGENT, "note", `☑ pronto quando ${id} — ${evidence}`, true);
+      store.addEvent(TASK, AGENT, "note", `pronto quando ${id} — ${evidence}`, true);
       return { text: `${id} marcado como provado (${evidence}). O app espelha no épico do time.` };
     } catch (e) {
       return { text: `falha marcando o item: ${(e as Error).message}`, isError: true };

@@ -150,7 +150,7 @@ function protectTip(on){
 }
 function protectBadgeHtml(t){
   const on=protectOnFor((t&&t.repo)||(state&&state.repo));
-  return `<span class="protbadge${on?'':' off'}" title="${escA(protectTip(on))}">${on?'🛡 protegido':'livre'}</span>`;
+  return `<span class="protbadge${on?'':' off'}" title="${escA(protectTip(on))}">${on?IC.shield:''}<span class="pbt">${on?'protegido':'livre'}</span></span>`;
 }
 // bloco de Preferências do projeto
 function protectPrefsHtml(repo){

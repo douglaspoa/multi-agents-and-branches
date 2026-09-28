@@ -40,7 +40,7 @@
     if (!overlaps || overlaps.length === 0) return "";
     const areas = [...new Set(overlaps.map((o) => o.theirs))].slice(0, 3).join(", ");
     const n = overlaps.length;
-    return `⚠ ${n} sobreposição${n > 1 ? "ões" : ""} de escopo (${areas}${overlaps.length > 3 ? "…" : ""}) — considere dividir ou sequenciar.`;
+    return `${n} sobreposição${n > 1 ? "ões" : ""} de escopo (${areas}${overlaps.length > 3 ? "…" : ""}) — considere dividir ou sequenciar.`;
   }
 
   window.Coordenacao = { metrics, overlapCheck, overlapSummary };

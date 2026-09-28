@@ -66,7 +66,7 @@ const STATUS_META={
   closed:       { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'✓' },
   error:        { pt:'erro',              short:'erro',     c:'var(--st-err)',    ic:'!' },
   conflict:     { pt:'conflito',          short:'conflito', c:'var(--st-err)',    ic:'!' },
-  blocked:      { pt:'bloqueada',         short:'bloqueada',c:'var(--warn)',      ic:'⏸' },
+  blocked:      { pt:'bloqueada',         short:'bloqueada',c:'var(--warn)',      ic:'⊘' },
   aborted:      { pt:'abortada',          short:'abortada', c:'var(--muted)',     ic:'×' },
   cancelled:    { pt:'cancelada',         short:'cancelada',c:'var(--muted)',     ic:'×' },
   waiting:      { pt:'na espera',         short:'espera',   c:'var(--muted)',     ic:'·' },

@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="css/80-ajustes-cards.css">
 <link rel="stylesheet" href="css/81-chat.css">
 <link rel="stylesheet" href="css/82-issues.css">
+<link rel="stylesheet" href="css/83-responsivo.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -345,7 +346,7 @@
     <div id="pubForm" style="margin-top:12px">
       <label>Notas da versão <span class="dim" style="text-transform:none;letter-spacing:0">(o time vê no aviso de atualização)</span></label>
       <textarea class="in ta" id="pubNotes" rows="3">Melhorias e correções.</textarea>
-      <div class="dim" style="font-size:11.5px;margin-top:8px">Sobe o zip empacotado (dist/) + o aviso de versão usando a sua sessão — os Macs do time mostram <b>⬆ atualizar</b> no próximo boot ou em até 6h.</div>
+      <div class="dim" style="font-size:11.5px;margin-top:8px">Sobe o zip empacotado (dist/) + o aviso de versão usando a sua sessão — os Macs do time mostram <b>atualizar</b> no próximo boot ou em até 6h.</div>
       <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="pubCancel">cancelar</button><button class="btn primary" id="pubGo">Publicar</button></div>
     </div>
     <div id="pubProg" style="display:none;margin-top:16px;align-items:center;gap:10px">

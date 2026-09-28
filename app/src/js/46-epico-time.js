@@ -23,7 +23,7 @@ function epNameOf(id){
 function epTaskBadge(t){
   const e=t&&t.epic, id=e&&e.epicId; if(!id) return '';
   const w=parseInt(e.wave,10)||0, nm=epNameOf(id)||'épico';
-  return `<span class="tsepc epbadge" data-epbadge="${escA(id)}" style="--epc:${epColor(id)}" title="${escA('tarefa do épico “'+nm+'”'+(w?' · onda '+w+' ('+EP_WAVE_TIP+')':'')+' — clique pra abrir o épico')}">◆ ${esc(nm.slice(0,28))}${w?' · onda '+w:''}</span>`;
+  return `<span class="tsepc epbadge" data-epbadge="${escA(id)}" style="--epc:${epColor(id)}" title="${escA('tarefa do épico “'+nm+'”'+(w?' · onda '+w+' ('+EP_WAVE_TIP+')':'')+' — clique pra abrir o épico')}">◆ <span class="epn">${esc(nm.slice(0,60))}</span>${w?'<span class="epw"> · onda '+w+'</span>':''}</span>`;
 }
 // R5-2: A regra ÚNICA de "entregue" no progresso de épico (página, cabeçalho da fila, KPI, Time):
 // mergeada/concluída/finalizada. Pronta pra revisar e PR aberto ainda NÃO contam (aparecem como "em revisão").
@@ -161,7 +161,7 @@ function epicPageRender(){
         <div class="seclbl2">Pronto quando <span class="dim">· D1, D2… = critérios; o épico só fecha com tudo marcado${can?'':' · só quem criou (ou admin) marca'}</span></div>${dwHtml}
         ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
-        ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">⏳ próximas ondas começam sozinhas</button></div>`:''}
+        ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas ondas começam sozinhas</button></div>`:''}
         ${!dw.length&&ep.status!=='done'&&can?`<div style="margin-top:14px"><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
       </section>
       <section class="en-sec"><div class="seclbl2">Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por onda (a próxima começa quando esta termina); clique pra abrir</span></div>${tasksHtml}</section>
@@ -227,7 +227,7 @@ async function epicCompileContext(epicId, forTask){
   const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Starfork ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', ''];
   L.push('## Objetivo', epCut(sp.outcome||sp.description||('Épico do time "'+ep.name+'".'),400)); if(sp.outcome&&sp.description) L.push(epCut(sp.description,300)); L.push('');
   if(reqs.length){ L.push('## Requisitos do épico'); reqs.slice(0,12).forEach(r=>L.push('- '+(r.id||'R?')+': '+epCut(r.text,200))); L.push(''); }
-  if(dw.length){ L.push('## Pronto quando (o épico só fecha com tudo marcado)'); dw.slice(0,8).forEach((d,i)=>L.push('- '+(d.checkedBy?'☑':'☐')+' '+(d.id||('D'+(i+1)))+': '+epCut(d.text,200))); L.push(''); }
+  if(dw.length){ L.push('## Pronto quando (o épico só fecha com tudo marcado)'); dw.slice(0,8).forEach((d,i)=>L.push('- '+(d.checkedBy?'[x]':'[ ]')+' '+(d.id||('D'+(i+1)))+': '+epCut(d.text,200))); L.push(''); }
   if(bounds.length){ L.push('## Não muda'); bounds.slice(0,8).forEach(b=>L.push('- '+epCut(b,160))); L.push(''); }
   if(sibs.length){
     L.push('## Tarefas do épico (as irmãs rodam em paralelo — fique no seu escopo)');
@@ -354,7 +354,7 @@ async function epicAutoStartTick(){
     for(const ct of ready){
       const pj=epQueue.projOf[ct.project_id]||{};
       if(pj.repo_remote && pj.repo_remote!==here){ // teamClaimStart roda no projeto ABERTO: outro repo espera (e avisa uma vez)
-        if(!epAutoWarned.has(ct.id)){ epAutoWarned.add(ct.id); pushNotif('⏳ Pronta pra começar', ct.title+' — abra o projeto '+(pj.name||pj.repo_remote)+' que ela começa sozinha', null); }
+        if(!epAutoWarned.has(ct.id)){ epAutoWarned.add(ct.id); pushNotif('Pronta pra começar', ct.title+' — abra o projeto '+(pj.name||pj.repo_remote)+' que ela começa sozinha', null); }
         continue;
       }
       const live=(state.tasks||[]).filter(x=>ACTIVE_ST.has(x.status)).length;

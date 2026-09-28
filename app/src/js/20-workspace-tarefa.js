@@ -164,7 +164,7 @@ async function fwOpenInner(taskId, path){
 async function fwFetchEvents(){
   if(!fwTask) return;
   const tk=fwTask;
-  try{ const rows=(await invoke('task_events',{ taskId:tk, sinceId:fwEvLast })||[]).filter(e=>e.id>fwEvLast);
+  try{ const rows=evNormAll((await invoke('task_events',{ taskId:tk, sinceId:fwEvLast })||[]).filter(e=>e.id>fwEvLast));
     if(fwTask!==tk) return; // trocou de tarefa no meio: não mistura os eventos
     if(rows.length){ fwEvents.push(...rows); fwEvLast=rows[rows.length-1].id; } }catch(_){ }
 }
@@ -232,7 +232,7 @@ function fwNowHtml(t){
 }
 let fwLiveSig='';
 let fwPrimShown=''; // id da ação principal que o topo está mostrando
-let fwPvShown=null; // preview (🌐) que o cabeçalho da tarefa está mostrando
+let fwPvShown=null; // preview (ícone de globo) que o cabeçalho da tarefa está mostrando
 async function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
   if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
@@ -245,7 +245,7 @@ async function fwLiveUpdate(){
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
   fwLiveSig=sig;
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
-  // no renderWorkspace → o botão 🌐 nunca aparecia com a aba aberta
+  // no renderWorkspace → o botão de preview nunca aparecia com a aba aberta
   if((taskPreviewUrl(t.id)||null)!==fwPvShown){ renderWorkspace(); return; }
   // a fase mudou (rodando → revisão, pergunta chegou…): a ação principal do topo muda junto
   if(((fwPrimaryAction(t)||{}).id||'')!==fwPrimShown){ renderWorkspace(); return; }
@@ -311,10 +311,10 @@ function fwPaintSendRow(t){
 function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
 function fwPrimaryAction(t){
   if(t.status==='draft') return null;
-  if(pendingOf(t.id).length) return { id:'fwAnswer', html:'✋ responder', title:'o agente fez uma pergunta — a resposta vai na conversa' };
+  if(pendingOf(t.id).length) return { id:'fwAnswer', html:`${IC.hand} responder`, title:'o agente fez uma pergunta — a resposta vai na conversa' };
   if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`■ parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
   if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
-  if(t.status==='conflict') return { id:'fwResolve', html:'⚡ resolver conflito', title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
+  if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
   if(t.status==='paused') return { id:'fwResume', html:'▶ continuar', title:'retoma a tarefa de onde parou' };
   if(t.status==='plan-review') return { id:'fwApprovePlan', html:'▶ aprovar plano', title:'o plano está pronto — aprovar deixa o time começar a construir' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
@@ -332,9 +332,22 @@ function fwPrimaryAction(t){
   }
   return null;
 }
+// R7: "push" VISÍVEL ao lado da ação principal (o dono usa muito e não achava no ⋯ desde a R3).
+// Só com branch de código (git, não investigação/design), antes de mergear, e — com o agente trabalhando —
+// só se já houver commits dele. Continua também no ⋯. Mesmo fluxo de sempre: push_task.
+function fwPushVisible(t){
+  if(!t || t.status==='draft' || t.flag==='closed' || taskIsDone(t) || !t.branch) return false;
+  if(document.body.classList.contains('nogit') || fwArtOnly(t)) return false;
+  const d=diffOf(t.id), c=commitsCache[t.id];
+  if(c===undefined && typeof loadCommits==='function') loadCommits(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
+  const nC=(c||[]).length;
+  if(fwIsWorking(t)) return nC>0;
+  return nC>0 || diffFiles(d)>0;
+}
 function fwActionHtml(t){
-  const a=fwPrimaryAction(t); if(!a) return '';
-  return `<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}">${a.html}</button>`;
+  const a=fwPrimaryAction(t);
+  const push=fwPushVisible(t) ? `<button class="btn sm fwpushbtn" id="fwPushTop" title="commita o que estiver solto na worktree e envia a branch${t.prUrl?' — o PR atualiza na hora':''} (também no ⋯)">${IC.push}<span class="fwpl">push</span></button>` : '';
+  return push + (a ? `<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}">${a.html}</button>` : '');
 }
 // itens do ⋯ (secundários) — só o que faz sentido na fase atual
 function fwMoreItems(t){
@@ -423,8 +436,8 @@ async function fwTunnelOff(t){
 async function fwPushTask(){
   const t=fwTaskObj(); if(!t) return;
   toast('commitando e enviando a branch…');
-  try{ const msg=await invoke('push_task',{ taskId:t.id }); prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig=''; toast('✓ '+msg,'ok'); }
-  catch(e){ showErr(e, 'Commit & push falhou'); }
+  try{ const msg=await invoke('push_task',{ taskId:t.id }); prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig=''; toast(msg,'ok'); }
+  catch(e){ showErr(e, 'Commit & push falhou'); } // recusa por histórico divergente (non-fast-forward/fetch first) → mensagem 'conflict' do ERR_CATALOG
 }
 const FW_SCROLLERS=['#fwCode','.fwdiff','.prleft','.prright','.fwwhyt'];
 function fwGrabScroll(root){ const o={ _:root.scrollTop }; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el) o[s]=[el.scrollTop, el.scrollLeft]; }); return o; }
@@ -452,7 +465,7 @@ function renderWorkspace(){
   { const tp=$id('fwTaskProt'); if(tp && typeof protectBadgeHtml==='function'){ const h=protectBadgeHtml(t); if(tp.innerHTML!==h) tp.innerHTML=h; } }
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
   if(typeof orqTaskChips==='function') orqTaskChips(t);
-  // barra do topo: [🌐 preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
+  // barra do topo: [preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
   { const rb=$id('fwReviewBar');
     if(rb){
       const pv=taskPreviewUrl(t.id); fwPvShown=pv||null;
@@ -460,6 +473,7 @@ function renderWorkspace(){
       rb.innerHTML=pvBtn+fwActionHtml(t);
       fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
       bindClick('fwAnswer', ()=>fwAskFix());
+      bindClick('fwPushTop', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await fwPushTask(); } finally{ b.disabled=false; } });
       bindClick('fwStopTop', ()=>stopTask(t.id));
       // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
       if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
@@ -544,7 +558,7 @@ function renderWorkspace(){
   const whyKey=t.id+'|'+(fwPath||'');
   const w=fwPath?fwWhyCache[whyKey]:undefined;
   const whyInner = !fwPath ? esc(objShort)
-    : w===undefined ? `${esc(objShort)}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai||'✨'} explicar este arquivo com IA</button></div>`
+    : w===undefined ? `${esc(objShort)}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai} explicar este arquivo com IA</button></div>`
     : w===null ? `<span class="dim">lendo o diff deste arquivo e escrevendo a explicação…</span>`
     : (w&&w.md) ? mdToHtml(w.md)
     : (w&&w.err) ? `<span style="color:var(--warn)">não consegui explicar este arquivo: ${esc(w.err)}</span> <a class="lnk" id="fwWhyRetry">tentar de novo</a>`
@@ -560,7 +574,7 @@ function renderWorkspace(){
     const headBtns = fwEditing
       ? `<button class="btn primary sm" id="fwSave">${IC.check} salvar</button><button class="btn sm" id="fwCancel">cancelar</button>`
       : (fwReadErr||loadingFile) ? '' // sem conteúdo real → sem "editar" (salvaria o erro/vazio por cima do arquivo)
-      : `<button class="btn sm" id="fwEditBtn">${IC.pencil||'✎'} editar</button>`;
+      : `<button class="btn sm" id="fwEditBtn">${IC.pencil} editar</button>`;
     const body = fwEditing
       ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
       : loadingFile ? `<div class="empty"><span class="spin"></span> abrindo o arquivo…</div>`
@@ -792,15 +806,17 @@ function fwThreadHtml(t){
   const flush=()=>{ if(act.length){ out.push(actLine(act)); act=[]; } };
   for(const e of evs){
     const tx=e.text||'';
-    if(e.agent==='Você' && tx.startsWith('💬')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^💬\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
+    if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; }
-    if(tx.startsWith('perguntou ao humano:')||tx.startsWith('❓')) continue; // a pergunta já aparece no card destacado
+    // nota de sistema do motor (fila, limite de uso, sessão retomada, rota de IA): linha de sistema com ícone
+    if(e.agent==='Sistema' && e.type==='note'){ const ic=evSysIcon(tx); if(ic){ flush(); out.push(`<div class="csys">${ic} ${esc(tx)}</div>`); continue; } }
+    if(tx.startsWith('perguntou ao humano:')) continue; // a pergunta já aparece no card destacado
     // chamada de ferramenta crua (ToolSearch, mcp__…): é ruído interno — o valor
-    // está no RESULTADO (📦/🛠 abaixo). Esconde a chamada, igual o Claude faz.
+    // está no RESULTADO (entregável/issue registrados, abaixo). Esconde a chamada, igual o Claude faz.
     if(e.type==='note' && looksLikeTool(tx)) continue;
-    // resultado de tool (📦 entregável / 🛠 …) → linha sutil "concluído"
-    if(e.type==='note' && /^(📦|🛠)/.test(tx)){ flush(); lastWho=''; out.push(toolChip(tx.replace(/^[📦🛠]\s*/,'').replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
+    // resultado de tool (entregável/issue/"pronto quando" registrados; os antigos vinham com emoji → e.tool) → linha sutil "concluído"
+    if(e.type==='note' && (e.tool || /^(entregável novo registrado|issue registrada|pronto quando )/.test(tx))){ flush(); lastWho=''; out.push(toolChip(tx.replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       flush();
       const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';

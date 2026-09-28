@@ -198,7 +198,7 @@ function routeAiCfgHtml(){
         <div class="rin"><b>Usar sempre <span class="dim" style="font-weight:400">(modo teste)</span></b><div class="dim" style="margin-top:2px">Todas as tarefas novas rodam na alternativa. Desligue pra voltar ao Claude.</div></div>
         ${sw('raAlways',always,!hasKey)}
       </div>
-      ${always?'<div class="rawarn" style="margin-top:10px;border-color:var(--warn,#9e6a03);color:var(--warn,#d29922)">⚠ Modo teste ligado — tudo está rodando na alternativa, não no Claude.</div>':''}
+      ${always?'<div class="rawarn" style="margin-top:10px;border-color:var(--warn,#9e6a03);color:var(--warn,#d29922)">${IC.warn} Modo teste ligado — tudo está rodando na alternativa, não no Claude.</div>':''}
       <div style="display:flex;gap:9px;align-items:center;margin-top:13px">
         <button class="btn sm" id="raTest"${hasKey?'':' disabled'}>testar conexão</button>
         <span class="dim" id="raTestMsg" style="font-size:11.5px"></span>
