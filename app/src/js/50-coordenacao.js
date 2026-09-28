@@ -1,6 +1,6 @@
 // Coordenação — API do front para o fosso (detecção de overlap + baseline de "caos").
-// Fina de propósito: só faz a ponte com os comandos Rust (coordination_metrics /
-// overlap_check), que por sua vez chamam o CLI (fonte única da lógica em TS).
+// Fina de propósito: só faz a ponte com os comandos Rust — coordination_metrics (3 COUNTs
+// read-only no próprio Rust, mesmo JSON do `cardume metrics --json`) e overlap_check (chama o CLI).
 // A fiação visual no fluxo "Nova demanda" e num painel dedicado entra depois,
 // consumindo estas funções — assim a UI existente não é tocada às cegas.
 (function () {
@@ -79,15 +79,18 @@
   else document.addEventListener("DOMContentLoaded", wireOwnsHint);
 
   // --- chip de coordenação na "Central de execuções" (#coordChip) ---
-  // Preenche o span (recriado a cada render do board) com métricas em cache,
-  // reconsultando o motor no máximo a cada 20s pra não spawnar node por render.
-  let mCache = null, mAt = 0;
+  // Preenche o span (recriado a cada render do board) com métricas em cache (20s). A consulta hoje é
+  // 3 COUNTs read-only no Rust (antes: spawn de `node cli.mjs metrics`); falha também conta como
+  // consulta feita (antes o cache nunca valia e reconsultava a cada 2s) e o intervalo dobra até 5 min.
+  let mCache = null, mAt = 0, mFails = 0, mBusy = false;
   async function fillCoordChip() {
     const chip = document.getElementById("coordChip");
-    if (!chip) return;
-    if (!mCache || Date.now() - mAt > 20000) {
-      const m = await metrics();
-      if (m) { mCache = m; mAt = Date.now(); }
+    if (!chip || mBusy) return;
+    const wait = mFails ? Math.min(300000, 20000 * 2 ** (mFails - 1)) : 20000;
+    if (Date.now() - mAt > wait) {
+      mBusy = true;
+      try { const m = await metrics(); mAt = Date.now(); if (m) { mCache = m; mFails = 0; } else mFails++; }
+      finally { mBusy = false; }
     }
     const m = mCache;
     if (!m) return;

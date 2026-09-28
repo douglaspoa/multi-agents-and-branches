@@ -8,9 +8,9 @@ detalhe da tarefa (reivindicações, diff, log) e o barramento de coordenação.
 - **Tauri v2** → no macOS usa o **WKWebView do sistema** (mesmo motor do Safari), binário
   pequeno, feel nativo. Multiplataforma de graça quando quisermos ligar Windows/Linux.
 - **Backend Rust** (`src-tauri/src/lib.rs`) lê o SQLite via `rusqlite` (read-only) e expõe
-  os comandos `set_repo`, `current_repo`, `snapshot`.
-- **Frontend** (`src/index.html`) é 100% offline (sem Google Fonts), poll de `snapshot()`
-  a cada 700ms.
+  os comandos `set_repo`, `snapshot_stamp`, `snapshot` (entre outros).
+- **Frontend** (`src/index.html`) é 100% offline (sem Google Fonts), poll de `snapshot_stamp()`
+  a cada 1s; `snapshot()` inteiro só quando o carimbo muda (ou a cada 3s).
 
 ## Pré-requisitos (uma vez)
 

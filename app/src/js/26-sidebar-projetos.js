@@ -8,11 +8,18 @@ async function railProjTick(){
 }
 function renderRailProj(){ safe(renderRail); } // a visão por projeto agora É a sidebar
 
+// guarda de innerHTML: só reescreve quando o HTML mudou de fato. O 1º filho entra na conferência:
+// se outro código escreveu direto no elemento (ex.: render() sem repo), o cache não vale mais.
+function setHtmlGuarded(el, html){
+  if(el.__html===html && el.__first===el.firstChild) return false;
+  el.innerHTML=html; el.__html=html; el.__first=el.firstChild; return true;
+}
 function renderFeed(){
   const el = $id("feed");
   const evs = state.events.slice(-200);
-  if(evs.length===0){ el.innerHTML = '<div class="empty">aguardando eventos…</div>'; return; }
-  el.innerHTML = evs.map(e=>{
+  let html;
+  if(evs.length===0) html = '<div class="empty">aguardando eventos…</div>';
+  else html = evs.map(e=>{
     const g = GLYPH[e.type]||"·";
     const gc = GCOLOR[e.type]||"var(--muted)";
     return `<div class="fl">
@@ -22,7 +29,7 @@ function renderFeed(){
       <span class="tx">${esc(e.text)}</span>
     </div>`;
   }).join("");
-  el.scrollTop = el.scrollHeight;
+  if(setHtmlGuarded(el, html) && evs.length) el.scrollTop = el.scrollHeight;
 }
 
 // Stepper vertical das etapas da tarefa — mostra "em que pé está".
@@ -100,6 +107,11 @@ async function mobilePreview(taskId, url, silent){
 }
 function renderSide(){
   const el = $id("side");
+  // o painel lateral está display:none em TODAS as vistas (.body.flowmode/.teamfull .side — 40-sidebar-quadro;
+  // render() sempre põe uma das duas classes): montar HTML invisível + disparar loaders (PR/commits/artefatos)
+  // a cada mudança de estado era trabalho jogado fora
+  const body=document.querySelector('.body');
+  if(!el || (body && (body.classList.contains('flowmode')||body.classList.contains('teamfull')))){ if(el&&el.firstChild) el.innerHTML=''; return; }
   const t = state.tasks.find(x=>x.id===selected);
   if(!t){ el.innerHTML = '<div class="empty">selecione uma tarefa</div>'; return; }
   // preserva foco/caret de inputs do painel entre re-renders (pra digitar sem perder)
@@ -280,7 +292,7 @@ function renderSide(){
 function renderBus(){
   const el = $id("busSummary"); if(!el) return;
   const tasks=state.tasks||[];
-  if(tasks.length===0){ el.innerHTML = '<span class="dim">nenhuma tarefa neste projeto ainda</span>'; el.title=''; return; }
+  if(tasks.length===0){ setHtmlGuarded(el, '<span class="dim">nenhuma tarefa neste projeto ainda</span>'); el.title=''; return; }
   // MESMA contagem da Central/Kanban/chips (flowCounts sobre boardSource) — antes contava por conta própria
   // ("3 rodando · 4 esperando você" contra "5 em andamento · 5 aguardando você" no cabeçalho)
   const live=flowLiveTasks();
@@ -299,14 +311,14 @@ function renderBus(){
   const seen=new Set(); const uniq=[];
   for(const c of yields){ const k=c.agent+'|'+c.path+'|'+c.yieldedTo; if(!seen.has(k)){ seen.add(k); uniq.push(c); } }
   if(uniq.length) parts.push(`<span class="warn">⚠ ${uniq.length} arquivo${uniq.length===1?'':'s'} disputado${uniq.length===1?'':'s'}</span>`);
-  el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+  setHtmlGuarded(el, parts.join(' &nbsp;·&nbsp; '));
   const tip=[
     `${nPl(live.length,'tarefa viva','tarefas vivas')} ${allProj?'em todos os projetos':'neste projeto'} (mesma contagem da Central): ${fc.aguardando} aguardando você · ${fc.andamento} em andamento (${fc.rodando} executando agora) · ${fc.prontas} prontas pra revisar · ${fc.praberto} com PR aberto · ${fc.rascunho} rascunho${fc.rascunho===1?'':'s'}`,
     (totUsd||totTok)?`Custo somado das tarefas deste projeto: ${fmtUsd(totUsd)} (${fmtTok(totTok)} tokens de IA)`:'',
     claims.length?`${claims.length} arquivo${claims.length===1?'':'s'} reservado${claims.length===1?'':'s'} por agentes agora (evita dois agentes editarem o mesmo arquivo ao mesmo tempo)`:'',
     ...uniq.slice(0,5).map(c=>`${c.agent} cedeu ${(c.path||'').split('/').pop()} para ${c.yieldedTo} — esperou o outro terminar em vez de sobrescrever`),
   ].filter(Boolean).join('\n');
-  el.title=tip;
+  if(el.title!==tip) el.title=tip;
 }
 
 $id("connectBtn").onclick = ()=>{

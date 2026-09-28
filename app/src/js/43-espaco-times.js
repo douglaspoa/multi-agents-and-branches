@@ -394,8 +394,7 @@ async function teamNotifTick(){
   teamNotifReady=true;
   if(activeIs('team')) renderTeamBoard();
 }
-setInterval(()=>{ teamNotifTick().catch(e=>tickErr('teamNotifTick',e)); }, 30000);
-setTimeout(()=>{ teamNotifTick().catch(e=>tickErr('teamNotifTick',e)); }, 4000);
+tickLoop('teamNotifTick', teamNotifTick, 30000, 4000); // 42: sem sobreposição, mais lento com a janela escondida
 
 /* ---- provas pro time: o DEV escolhe publicar (decisão Q2) ---- */
 const cloudPubCache={}; // cloudTaskId -> [{name,size}]

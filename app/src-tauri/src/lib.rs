@@ -1131,16 +1131,6 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     Ok(commits)
 }
 
-#[tauri::command(async)]
-fn current_repo(state: State<AppState>) -> Option<String> {
-    state
-        .db
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-        .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
-}
-
 /// Resolve o repo do projeto ativo (parent do .cardume/state.sqlite).
 fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
@@ -1148,26 +1138,33 @@ fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
 }
 
 /// Métricas de coordenação (conflitos, colisões, reworks) — baseline do "caos".
-/// Proxy do CLI `cardume metrics --json`: a lógica mora no núcleo TS (fonte única).
+/// Mesmo JSON do `cardume metrics --json` (Store.coordinationMetrics no núcleo TS), mas feito AQUI
+/// com 3 COUNTs read-only: antes spawnava `node cli.mjs metrics` a cada 20s (e a cada 2s quando
+/// falhava), abrindo o Store com migrate() no MESMO sqlite em que os agentes escrevem.
 #[tauri::command(async)]
 fn coordination_metrics(state: State<AppState>) -> Result<String, String> {
-    let repo = active_repo(&state)?;
-    let out = Command::new(node_bin())
-        .args([
-            "--disable-warning=ExperimentalWarning".to_string(),
-            cli_path(&repo),
-            "metrics".to_string(),
-            "--repo".to_string(),
-            repo.display().to_string(),
-            "--json".to_string(),
-        ])
-        .current_dir(&repo)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0) };
+    let mut by_status = serde_json::Map::new();
+    let mut total: i64 = 0;
+    if let Ok(mut st) = conn.prepare("SELECT status, COUNT(*) FROM task GROUP BY status") {
+        if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+            for (k, n) in rows.flatten() {
+                total += n;
+                by_status.insert(k, serde_json::json!(n));
+            }
+        }
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let conflict = by_status.get("conflict").and_then(|v| v.as_i64()).unwrap_or(0);
+    let m = serde_json::json!({
+        "totalTasks": total,
+        "byStatus": by_status,
+        "conflictTasks": conflict,
+        "collisionEvents": count("SELECT COUNT(*) FROM event WHERE type = 'collision'"),
+        "reworkCount": count("SELECT COUNT(*) FROM work_queue WHERE kind = 'rework'"),
+    });
+    Ok(m.to_string())
 }
 
 /// Checa sobreposição de escopo de uma demanda nova contra tarefas ativas.
@@ -1263,6 +1260,23 @@ fn open_project(state: State<AppState>, path: String) -> Result<String, String> 
     open_project_at(&state, &path)
 }
 
+/// Cache do "é git?" por pasta (30s): o snapshot perguntava a cada 1s = fork+exec de
+/// `git rev-parse` por segundo. git_init_repo limpa; o TTL cobre `git init` feito fora do app.
+fn git_cache() -> &'static Mutex<HashMap<String, (bool, std::time::Instant)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn repo_is_git_cached(path: &str) -> bool {
+    if let Some((v, at)) = git_cache().lock().unwrap_or_else(|e| e.into_inner()).get(path).copied() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return v;
+        }
+    }
+    let v = repo_is_git(path);
+    git_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), (v, std::time::Instant::now()));
+    v
+}
+
 /// A pasta é um repositório git? (pasta simples abre, mas sem branch/PR/worktree)
 fn repo_is_git(path: &str) -> bool {
     Command::new("git")
@@ -1281,6 +1295,7 @@ fn repo_is_git(path: &str) -> bool {
 fn git_init_repo(state: State<AppState>) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let rs = repo.display().to_string();
+    git_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
     if repo_is_git(&rs) { return Ok("já é um repositório git".into()); }
     let out = Command::new("git").args(["init", "-q", "-b", "main"]).arg(&repo).output().map_err(|e| e.to_string())?;
     if !out.status.success() {
@@ -1782,6 +1797,27 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+/// "Carimbo" barato do estado: caminho do DB + (mtime, tamanho) do state.sqlite e do -wal.
+/// Qualquer escrita do motor muda o -wal (ou o arquivo principal no checkpoint). O poll de 1s
+/// do front (33-switcher) só pede o snapshot inteiro (~0,5 MB de JSON) quando o carimbo muda
+/// (ou a cada poucos segundos, pelo que não mora no DB: pid vivo, cache multi-projeto).
+#[tauri::command(async)]
+fn snapshot_stamp(state: State<AppState>) -> String {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(p) = path else { return "none".into() };
+    let st = |f: &std::path::Path| -> String {
+        std::fs::metadata(f)
+            .map(|m| {
+                let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+                format!("{t}:{}", m.len())
+            })
+            .unwrap_or_else(|_| "-".into())
+    };
+    let mut wal = p.clone().into_os_string();
+    wal.push("-wal");
+    format!("{}|{}|{}", p.display(), st(&p), st(std::path::Path::new(&wal)))
+}
+
 #[tauri::command(async)]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
     let __t0 = std::time::Instant::now();
@@ -1810,11 +1846,25 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
     };
     let conn = open(&path)?;
 
-    // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only)
-    let has_busy: bool = conn
-        .query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name='busy_pid'", [], |r| r.get::<_, i64>(0))
-        .map(|n| n > 0)
-        .unwrap_or(false);
+    // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only).
+    // Coluna não some: "tem" fica em cache pra sempre por DB; "não tem" é reconferido a cada 30s.
+    let has_busy: bool = {
+        static HB: std::sync::OnceLock<Mutex<HashMap<PathBuf, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+        let hb = HB.get_or_init(|| Mutex::new(HashMap::new()));
+        let hit = hb.lock().unwrap_or_else(|e| e.into_inner()).get(&path).copied();
+        match hit {
+            Some((true, _)) => true,
+            Some((false, at)) if at.elapsed() < std::time::Duration::from_secs(30) => false,
+            _ => {
+                let v = conn
+                    .query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name='busy_pid'", [], |r| r.get::<_, i64>(0))
+                    .map(|n| n > 0)
+                    .unwrap_or(false);
+                hb.lock().unwrap_or_else(|e| e.into_inner()).insert(path.clone(), (v, std::time::Instant::now()));
+                v
+            }
+        }
+    };
     let tasks = conn
         .prepare(&format!(
             "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{} \
@@ -1979,7 +2029,7 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|d| d.parent())
         .map(|r| r.display().to_string());
 
-    let git = repo.as_deref().map(repo_is_git).unwrap_or(true);
+    let git = repo.as_deref().map(repo_is_git_cached).unwrap_or(true);
     Ok(Snapshot { repo, git, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
@@ -3774,17 +3824,8 @@ fn issue_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
     Ok(repo_of(state)?.join(".cardume").join("issue.json"))
 }
 
-/// Config de "criar issue ao abrir demanda" deste repo (espelho local do que o
-/// time compartilha na nuvem). O motor lê esse arquivo em Orchestrator.issueContext.
-#[tauri::command(async)]
-fn get_issue_config(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let p = issue_json_path(&state)?;
-    let txt = std::fs::read_to_string(&p)
-        .unwrap_or_else(|_| "{\"enabled\":false,\"instructions\":\"\",\"titleTemplate\":\"\",\"bodyTemplate\":\"\"}".into());
-    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!({ "enabled": false, "instructions": "", "titleTemplate": "", "bodyTemplate": "" })))
-}
-
-/// Grava a config de issue do repo (o app mantém isto sincronizado com a nuvem).
+/// Grava a config de "criar issue ao abrir demanda" do repo (espelho local do que o time
+/// compartilha na nuvem; o app mantém sincronizado). O motor lê em Orchestrator.issueContext.
 #[tauri::command(async)]
 fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
     let p = issue_json_path(&state)?;
@@ -4036,14 +4077,6 @@ fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
         serde_json::json!({ "name": n, "description": d, "source": s, "active": is_active })
     }).collect();
     Ok(serde_json::json!(arr))
-}
-
-/// Skills ATIVAS pra este repo (array de {name, description}).
-#[tauri::command(async)]
-fn get_active_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let p = skills_json_path(&state)?;
-    let txt = std::fs::read_to_string(&p).unwrap_or_else(|_| "[]".into());
-    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!([])))
 }
 
 /// Grava as skills ativas do repo (o motor injeta no contexto do agente).
@@ -6754,7 +6787,6 @@ pub fn run() {
             set_repo,
             workspace_usage,
             workspace_clean,
-            current_repo,
             coordination_metrics,
             overlap_check,
             resolve_conflict,
@@ -6773,9 +6805,7 @@ pub fn run() {
             write_llm_env,
             route_ai_ping,
             list_skills,
-            get_active_skills,
             set_active_skills,
-            get_issue_config,
             set_issue_config,
             repo_remote_of,
             tracker_local_get,
@@ -6818,6 +6848,7 @@ pub fn run() {
             switch_project,
             remove_project,
             snapshot,
+            snapshot_stamp,
             task_events,
             build_info,
             graph,

@@ -141,6 +141,21 @@ export class Store {
         /* coluna já existe */
       }
     }
+    // índices dos filtros quentes (o schema só tinha PK): eventos/custo/claims/fila POR TAREFA —
+    // task_events do app, daily digest, pr_body_ai, list_done_tasks (MAX(ts) correlato), custo por tarefa.
+    // Antes: varredura da tabela inteira (21 mil eventos num projeto real) a cada consulta.
+    for (const stmt of [
+      "CREATE INDEX IF NOT EXISTS ev_task ON event(task_id, id)",
+      "CREATE INDEX IF NOT EXISTS cost_task ON cost(task_id)",
+      "CREATE INDEX IF NOT EXISTS claim_task ON claim(task_id)",
+      "CREATE INDEX IF NOT EXISTS wq_task ON work_queue(task_id, status)",
+    ]) {
+      try {
+        this.db.exec(stmt);
+      } catch {
+        /* banco ocupado/só-leitura: tenta de novo na próxima abertura */
+      }
+    }
   }
 
   createTask(spec: TaskSpec, branch: string, worktree: string, base: string): void {
