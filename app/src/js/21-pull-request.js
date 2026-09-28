@@ -220,18 +220,146 @@ function prBodyOf(t){
     (rev?`## Resumo\n${(rev.summary||'').slice(0,400)}\n\n## Como testar\n${(rev.howToTest||'').slice(0,600)}\n\n`:'')+
     `_Aberto pelo Starfork._`;
 }
-// ---- "Preparando o PR" (redesign p13): checagens reais → push → criar ----
+// ---- GATE DE VERIFICAÇÃO (FT-5): checagens reais do projeto, rodadas na cópia da tarefa ----
+// Config por projeto (Preferências → Checagens; .cardume/checks.json) + detecção (package.json, Cargo, pytest, go).
+// Resultado guardado por tarefa + "versão" do código (HEAD + mudanças soltas): o agente mexeu → desatualizada.
+// Aprovar só com verificação verde da versão atual; liberar sem isso exige um motivo (vai no PR e fica registrado).
+const chkCfg={};   // taskId → { at, data:{ detected, effective, cfg, file } }
+const chkFpC={};   // taskId → { at, fp:{ fingerprint, head, dirty } } | { at, err }
+const chkLive={};  // taskId → { cur:{id,label}|null, done:[CheckResult] } enquanto roda
+const chkLoading={};
+function chkJson(k){ try{ return JSON.parse(lsGet(k)||'null'); }catch(_){ return null; } }
+function chkResGet(id){ return chkJson('chk:'+id); }
+function chkOvGet(id){ return chkJson('chkOv:'+id); }
+function chkCfgSig(eff){ return (eff||[]).filter(c=>c.on).map(c=>c.id+'='+c.cmd).join('|'); }
+function chkDur(ms){ ms=+ms||0; return ms<1000?ms+' ms':ms<60000?(ms/1000).toFixed(ms<10000?1:0).replace('.',',')+' s':Math.floor(ms/60000)+' min '+String(Math.round(ms%60000/1000)).padStart(2,'0')+' s'; }
+async function chkLoadCfg(taskId, force){
+  const c=chkCfg[taskId]; if(!force && c && Date.now()-c.at<30000) return c.data;
+  const data=await invoke('checks_config',{ taskId }); chkCfg[taskId]={ at:Date.now(), data:data||{ detected:[], effective:[], cfg:{} } }; return chkCfg[taskId].data;
+}
+async function chkLoadFp(taskId, force){
+  const c=chkFpC[taskId]; if(!force && c && Date.now()-c.at<5000) return c;
+  try{ chkFpC[taskId]={ at:Date.now(), fp:await invoke('task_fingerprint',{ taskId }) }; }
+  catch(e){ chkFpC[taskId]={ at:Date.now(), err:String(e&&e.message||e) }; }
+  return chkFpC[taskId];
+}
+// dispara as leituras em segundo plano e re-renderiza a tela da tarefa quando algo MUDA (sem laço)
+function chkRefresh(taskId){
+  if(chkLoading[taskId]) return; chkLoading[taskId]=1;
+  const before=JSON.stringify(chkGate({ id:taskId }));
+  Promise.all([chkLoadCfg(taskId).catch(()=>null), chkLoadFp(taskId)]).finally(()=>{ delete chkLoading[taskId];
+    if(JSON.stringify(chkGate({ id:taskId }))!==before) chkRerender(taskId); });
+}
+function chkRerender(taskId){ try{ if(typeof fwTask!=='undefined' && fwTask===taskId && typeof renderWorkspace==='function') renderWorkspace(); }catch(e){ console.error('chkRerender', e); } }
+// estado do gate (síncrono, a partir dos caches): none · loading · running · notrun · stale · fail · pass · override · err
+function chkGate(t){
+  const c=chkCfg[t.id]; if(!c) return { st:'loading', on:[] };
+  const on=(c.data.effective||[]).filter(x=>x.on);
+  if(!on.length) return { st:'none', on };
+  if(chkLive[t.id]) return { st:'running', on, live:chkLive[t.id] };
+  const f=chkFpC[t.id]; if(!f) return { st:'loading', on };
+  if(f.err) return { st:'err', on, err:f.err };
+  const cur=f.fp.fingerprint, r=chkResGet(t.id), ov=chkOvGet(t.id);
+  let g;
+  if(!r) g={ st:'notrun', on };
+  else if(r.fp!==cur || r.cfgSig!==chkCfgSig(c.data.effective)) g={ st:'stale', on, r };
+  else { const bad=(r.results||[]).filter(x=>!x.ok); g=bad.length?{ st:'fail', on, r, bad }:{ st:'pass', on, r }; }
+  if(['notrun','stale','fail'].includes(g.st) && ov && ov.fp===cur) return Object.assign(g, { st:'override', was:g.st, ov });
+  return g;
+}
+async function chkEnsure(t, force){ await chkLoadCfg(t.id, force); await chkLoadFp(t.id, force); return chkGate(t); }
+function chkCanApprove(g){ return ['none','pass','override'].includes(g.st); }
+function chkBlockWhy(g){
+  return g.st==='fail' ? `a verificação falhou (${g.bad.map(b=>b.label).join(', ')}) — corrija, ou use "aprovar mesmo assim" com um motivo`
+    : g.st==='notrun' ? 'rode a verificação (testes e checagens automáticas) antes de aprovar'
+    : g.st==='stale' ? 'o código mudou depois da última verificação — rode de novo pra liberar'
+    : g.st==='running' ? 'a verificação está rodando…'
+    : g.st==='err' ? 'não deu pra conferir a verificação: '+g.err
+    : g.st==='loading' ? 'conferindo a verificação…' : '';
+}
+async function chkRun(t){
+  if(chkLive[t.id]) return null;
+  chkLive[t.id]={ cur:null, done:[] }; chkRerender(t.id);
+  try{
+    const cfg=await chkLoadCfg(t.id, true);
+    const res=await invoke('run_checks',{ taskId:t.id });
+    chkResSetRun(t.id, res, cfg);
+    const bad=(res.results||[]).filter(x=>!x.ok);
+    toast(bad.length?`verificação: ${bad.length} de ${res.results.length} falhou`:`verificação passou ✓ (${res.results.length})`, bad.length?'warn':'ok');
+    return res;
+  }catch(e){ toast('Não deu pra rodar a verificação: '+(e&&e.message||e),'err'); return null; }
+  finally{ delete chkLive[t.id]; await chkLoadFp(t.id, true); chkRerender(t.id); }
+}
+function chkResSetRun(taskId, res, cfg){
+  lsSet('chk:'+taskId, JSON.stringify({ fp:res.fingerprint, head:res.head, dirty:res.dirty, at:res.at||Date.now(), cfgSig:chkCfgSig(cfg&&cfg.effective), results:res.results||[] }));
+}
+async function chkStop(t){ try{ await invoke('run_checks_stop',{ taskId:t.id }); }catch(_){ } }
+// progresso ao vivo (evento do Rust): qual checagem está rodando + as que já terminaram
+function chkOnProgress(p){
+  if(!p||!p.taskId) return; const L=chkLive[p.taskId]; if(!L) return;
+  if(p.phase==='start') L.cur={ id:p.id, label:p.label };
+  else if(p.result){ L.done.push(p.result); L.cur=null; }
+  const d=$id('prep1d'); if(d && prepTaskId===p.taskId && p.phase==='start') d.innerHTML=`rodando <b>${esc(p.label)}</b>… (${L.done.length+1} de ${(chkGate({id:p.taskId}).on||[]).length||'?'})`;
+  chkRerender(p.taskId);
+}
+try{ window.__TAURI__.event.listen('checks-progress', ev=>chkOnProgress(ev&&ev.payload)); }catch(_){ }
+// "aprovar mesmo assim": exige motivo — vai pra descrição do PR e fica registrado (local + .cardume/checks-overrides.jsonl)
+async function chkOverride(t, g){
+  const what=g.st==='fail'?'com a verificação falhando':'sem a verificação da versão atual';
+  const reason=await askText('Aprovar mesmo assim', `por que aprovar ${what}? (vai na descrição do PR e fica registrado)`, '');
+  if(!reason) return false;
+  const f=await chkLoadFp(t.id, true); const fp=(f&&f.fp&&f.fp.fingerprint)||'';
+  const failing=g.st==='fail'?(g.bad||[]).map(b=>b.label):[];
+  lsSet('chkOv:'+t.id, JSON.stringify({ fp, reason, at:Date.now(), failing, was:g.st }));
+  invoke('checks_override_log',{ taskId:t.id, reason, fingerprint:fp, failing }).catch(()=>{});
+  return true;
+}
+// bloco "## Verificação" anexado à descrição do PR (o revisor vê o que rodou de verdade)
+function chkPrBodyExtra(t){
+  const g=chkGate(t); if(g.st==='none'||g.st==='loading') return '';
+  const r=g.r||chkResGet(t.id);
+  let s='\n\n## Verificação\n';
+  if(r && (g.st==='pass'||g.st==='fail'||(g.st==='override'&&g.was==='fail'))) s+=(r.results||[]).map(x=>`- ${x.ok?'✓':'✕'} ${x.label} — \`${x.cmd}\` · ${chkDur(x.durationMs)}${x.ok?'':x.timedOut?' · passou do tempo-limite':' · exit '+(x.exitCode==null?'?':x.exitCode)}`).join('\n')+'\n_rodadas pelo Starfork na cópia da tarefa_\n';
+  else s+='_não rodou na versão final_\n';
+  if(g.st==='override') s+=`\n⚠ aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${g.ov.reason}\n`;
+  return s;
+}
+// cabeçalho da tarefa (20): o botão "aprovar e abrir PR" reflete o gate — bloqueado leva pra Verificação na Entrega
+function chkDecorateApprove(btn, t){
+  if(!btn||!t) return;
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ btn.innerHTML=`${IC.check} salvar entregáveis`; btn.title='salva os arquivos entregues numa pasta sua e conclui (sem PR)'; return; }
+  chkRefresh(t.id);
+  const g=chkGate(t); const ok=chkCanApprove(g);
+  btn.classList.toggle('is-gated', !ok); btn.setAttribute('aria-disabled', ok?'false':'true');
+  if(!ok) btn.title=chkBlockWhy(g)+' · clique pra ver a verificação';
+}
+function chkApproveClick(t){
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); return; }
+  const g=chkGate(t);
+  if(!chkCanApprove(g)){ toast(chkBlockWhy(g),'warn'); fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
+    setTimeout(()=>{ const v=$id('enVerif'); if(v) v.scrollIntoView({ block:'center', behavior:'smooth' }); }, 60); return; }
+  prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
+}
+// ---- "Preparando o PR" (redesign p13): verificação real → push → criar ----
+let prepTaskId='';
 function prPrepOpen(taskId, base){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  // BUG-17: investigação/design (e entrega só de documentos) não abre PR — o fim é salvar os entregáveis
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){
+    toast('esta tarefa entrega documentos, não código — o fim é "salvar entregáveis na pasta"','info');
+    if(typeof openWorkspace==='function'){ openWorkspace(t.id); setTimeout(()=>{ try{ fwMode='entrega'; renderWorkspace(); }catch(_){ } }, 50); }
+    return;
+  }
+  prepTaskId=taskId;
   lsSet('prBase:'+taskId, base||'main'); // lembra a base escolhida (antes nunca era salva — a página sempre dizia "main")
   const ov=$id('prepOverlay'); ov.style.display='flex';
   $id('prepBody').innerHTML=`
-    <div class="dim" style="font-size:12.5px;margin-bottom:6px">Rodando as checagens do repo antes de abrir</div>
-    <div class="prepstep" id="prep1"><span class="ps run">◌</span><div style="flex:1"><b>Checagens do repo</b><div class="dim psd" id="prep1d" style="font-size:11.5px">rodando lint/testes na worktree…</div></div></div>
+    <div class="dim" style="font-size:12.5px;margin-bottom:6px">Conferindo a verificação antes de abrir</div>
+    <div class="prepstep" id="prep1"><span class="ps run">◌</span><div style="flex:1"><b>Verificação</b> <span class="dim" style="font-size:11px">testes e checagens automáticas</span><div class="dim psd" id="prep1d" style="font-size:11.5px">conferindo…</div></div></div>
     <div class="prepstep" id="prep2"><span class="ps">·</span><div style="flex:1"><b>Commit &amp; push</b><div class="dim psd" id="prep2d" style="font-size:11.5px">aguardando</div></div></div>
     <div class="prepstep" id="prep3"><span class="ps">·</span><div style="flex:1"><b>Abrir o PR</b><div class="dim psd" id="prep3d" style="font-size:11.5px">base <b>${esc(base||'main')}</b></div></div></div>
     <div class="dim" style="font-size:11px;text-align:center;margin-top:12px">isso leva alguns segundos — pode continuar em outra aba</div>
-    <div style="display:flex;gap:8px;margin-top:12px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn primary" id="prepForce" style="display:none">abrir mesmo assim</button></div>`;
+    <div style="display:flex;gap:8px;margin-top:12px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn" id="prepForce" style="display:none" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button></div>`;
   const close=()=>{ ov.style.display='none'; };
   $id('prepClose').onclick=close;
   $id('prepCancelB').onclick=close;
@@ -243,17 +371,25 @@ function prepMark(n, st, txt){ // st: run|ok|fail|skip
   if(txt!=null){ const d=$id('prep'+n+'d'); if(d) d.innerHTML=txt; }
 }
 async function prPrepRun(t, base){
-  // 1. checagens (lint/test do package.json da worktree, quando existem)
-  let checks=[];
-  try{ checks=await invoke('repo_checks',{ taskId:t.id }); }catch(_){ }
-  const bad=checks.filter(c=>!c.ok);
-  if(!checks.length) prepMark(1,'ok','sem lint/testes configurados no repo — seguindo');
-  else if(!bad.length) prepMark(1,'ok', checks.map(c=>c.name+' ✓').join(' · '));
+  // 1. verificação (FT-5): mesma regra da Entrega — verde na versão atual, ou liberação com motivo
+  let g;
+  try{ g=await chkEnsure(t, true); }catch(e){ g={ st:'err', err:String(e&&e.message||e) }; }
+  if(g.st==='notrun' || g.st==='stale'){
+    prepMark(1,'run', g.st==='stale'?'o código mudou desde a última verificação — rodando de novo…':'rodando a verificação na cópia da tarefa…');
+    await chkRun(t); g=chkGate(t);
+  }
+  const resHtml=r=>(r&&r.results||[]).map(x=>`${x.ok?'✓':'✕'} ${esc(x.label)} <span class="dim">${chkDur(x.durationMs)}</span>`).join(' · ');
+  if(g.st==='none') prepMark(1,'ok','sem checagens configuradas no projeto — seguindo');
+  else if(g.st==='pass') prepMark(1,'ok', resHtml(g.r));
+  else if(g.st==='override') prepMark(1,'ok', `<span style="color:var(--warn)">⚠ aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${esc(g.ov.reason)}</span>`);
   else {
-    prepMark(1,'fail', bad.map(c=>`<b>${esc(c.name)} falhou</b><div class="mono" style="white-space:pre-wrap;font-size:10.5px;margin-top:4px;color:var(--crit)">${esc(c.detail.slice(0,400))}</div>`).join(''));
+    const det = g.st==='fail' ? g.bad.map(c=>`<b>${esc(c.label)} falhou</b> <span class="dim">· ${c.timedOut?'passou do tempo-limite':'exit '+(c.exitCode==null?'?':c.exitCode)}</span><div class="mono" style="white-space:pre-wrap;font-size:10.5px;margin-top:4px;color:var(--crit);max-height:120px;overflow:auto">${esc(String(c.log||'').split('\n').slice(-12).join('\n'))}</div>`).join('')
+      : esc(chkBlockWhy(g)||'não deu pra conferir a verificação');
+    prepMark(1,'fail', det);
     const f=$id('prepForce');
-    if(f){ f.style.display=''; f.onclick=()=>{ f.style.display='none'; prPrepFinish(t, base); }; }
-    return; // decisão do humano: corrigir antes ou abrir mesmo assim
+    if(f){ f.style.display=''; f.onclick=async()=>{ if(!await chkOverride(t, g.st==='fail'?g:{ st:'notrun' })) return; f.style.display='none';
+      prepMark(1,'ok', `<span style="color:var(--warn)">⚠ aprovado mesmo assim</span>`); prPrepFinish(t, base); }; }
+    return; // decisão do humano: corrigir antes ou liberar com motivo
   }
   await prPrepFinish(t, base);
 }
@@ -283,6 +419,7 @@ async function prPrepFinish(t, base){
   let prBody;
   try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
   catch(_){ prBody=prBodyOf(t); }
+  prBody=String(prBody||prBodyOf(t))+chkPrBodyExtra(t); // verificação real + "⚠ aprovado com checagem falhando: motivo"
   prepMark(3,'run','criando o PR no GitHub…');
   try{
     const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });

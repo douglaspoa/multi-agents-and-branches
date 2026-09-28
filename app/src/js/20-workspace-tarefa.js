@@ -426,7 +426,9 @@ function renderWorkspace(){
       fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
       bindClick('fwAnswer', ()=>fwAskFix());
       bindClick('fwStopTop', ()=>stopTask(t.id));
-      bindClick('fwApprove', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
+      // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
+      if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
+      bindClick('fwApprove', ()=>{ if(typeof chkApproveClick==='function') chkApproveClick(t); else prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
       bindClick('fwArchive', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
       bindClick('fwResume', async()=>{ await resumeTask(t.id); renderWorkspace(); });
