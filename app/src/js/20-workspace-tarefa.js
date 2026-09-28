@@ -26,7 +26,7 @@ function fwTreeOpenBtn(){
 }
 // guarda o arquivo/modo na ABA (voltar pra aba reabre onde você estava)
 function fwRememberTab(){ if(!fwTask||typeof tabById!=='function') return; const tab=tabById('task:'+fwTask); if(tab){ tab.path=fwPath||null; tab.mode=fwMode; } }
-function fwIsWorking(t){ return (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !pendingOf(t.id).length; }
+function fwIsWorking(t){ return t.status!=='paused' && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !pendingOf(t.id).length; } // pausada = processo congelado, não "trabalhando"
 function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'].includes(taskType(t)); }
 // subtítulo do chat conforme o ESTADO (antes dizia "ele lembra o que fez" até em erro)
 function fwChatSubText(t){
@@ -901,6 +901,8 @@ async function fwSendMsg(queueOnly){
   const asReq=!!($id('fwAsReq')&&$id('fwAsReq').checked);
   const full = ctx+v+attPromptBlock(atts);
   inp.value=''; inp.disabled=true; fwDraft[t.id]='';
+  // tarefa PAUSADA (processo congelado): sem retomar, a mensagem entrava numa fila que nunca andava
+  if(t.status==='paused' && t.busy){ try{ await invoke('resume_task',{ taskId:t.id }); lastSig=''; }catch(e){ console.error('retomar antes de enviar', e); } }
   try{
     const pend=pendingOf(t.id);
     if(pend.length){

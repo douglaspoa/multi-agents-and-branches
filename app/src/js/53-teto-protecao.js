@@ -33,6 +33,9 @@ function budgetInject(snap){
   }
 }
 const budgetBusy=new Set();
+// o teto entrou no app em 28/09/2026 03:17 UTC: tarefa criada ANTES dele não tinha teto nenhum
+const BUDGET_SINCE_MS=Date.UTC(2026,8,28,3,17);
+function taskCreatedMs(t){ const v=t&&(t.createdAt||t.created_at); const n=typeof v==='number'?v:Date.parse(v||''); return n>0&&n<1e12?n*1000:(n||0); }
 const IS_WIN=/win/i.test((navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||'');
 // vigia do refresh (custo vem no snapshot — barato). Dispara UMA vez por teto: marca spec.budgetHit,
 // e "continuar" sobe o teto. O custo entra no banco no FIM de cada turno de agente, então a
@@ -49,6 +52,13 @@ function budgetWatch(){
       continue;
     }
     if(!active || !(cap>0) || spent<cap) continue;
+    // tarefa que já tinha gastado além do teto PADRÃO antes de ter um teto próprio (ex.: criada antes do
+    // teto existir): não congela no meio do trabalho — o teto passa a contar a partir do gasto atual
+    if((sp.budgetUsd==null || sp.budgetUsd==='') && taskCreatedMs(t)<BUDGET_SINCE_MS){
+      budgetBusy.add(t.id);
+      invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetUsd:+(spent+cap).toFixed(2) } }).catch(e=>console.error('teto', e)).finally(()=>budgetBusy.delete(t.id));
+      continue;
+    }
     budgetBusy.add(t.id);
     (async()=>{
       let mode='paused';

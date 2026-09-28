@@ -65,7 +65,10 @@ function prMergeWhyHtml(info){ const why=(info&&info.state==='OPEN')?prMergeBloc
 // ---- comentários: UMA renderização (painel lateral e página do PR) ----
 function prCmtKey(c){ const m=String(c.url||'').match(/#issuecomment-(\d+)$/); return String(c.id ?? (m?m[1]:((c.author||'')+':'+(c.body||'').slice(0,40)))); }
 // resolvido = resolvido no GitHub, respondido (✔ / resposta sua na thread), desatualizado (o código mudou) ou ignorado aqui
-function prCmtDone(c, ign){ return !!(c.resolved || c.answered || c.outdated || ign.has(prCmtKey(c))); }
+// resumo AUTOMÁTICO de bot na conversa (CodeRabbit "summarize by coderabbit.ai", walkthrough etc.) é
+// informativo, não pedido de mudança: vai pros resolvidos (antes contava "1 em aberto" pra sempre)
+function prCmtAutoSummary(c){ return !!(c && c.isBot && !prIsReviewCmt(c) && /auto-generated comment|summarize by coderabbit|walkthrough|release notes by coderabbit/i.test(String(c.body||''))); }
+function prCmtDone(c, ign){ return !!(c.resolved || c.answered || c.outdated || prCmtAutoSummary(c) || ign.has(prCmtKey(c))); }
 function prRoots(info){ return ((info&&info.comments)||[]).filter(c=>!c.inReplyTo); }
 function prRevKey(r,i){ return String(r.id||('idx:'+i)); }
 // resumos de review com texto: SÓ o "pediu mudanças" que ainda vale (último do autor, PR ainda com mudanças
