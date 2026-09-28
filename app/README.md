@@ -79,6 +79,7 @@ app/
       42-nuvem-sync-mobile.js cartões compartilhados, túnel, pontes do celular, APNs
       43-espaco-times.js      espaço Times (visão geral, quadro, PRs, pessoas)
       44-onboarding.js        entrada e assinatura: criar conta, entrar, código de e-mail, senha, planos, pagamento, pronto
+      53-teto-protecao.js     teto de custo por tarefa (pausa + pergunta sintética em "aguardando você") e modo protegido (selo + Preferências do projeto); fmtCost/fmtCostRange ficam no 00-util
   src-tauri/
     Cargo.toml              deps: tauri, rusqlite (bundled), serde
     tauri.conf.json         janela, frontendDist=../src, withGlobalTauri

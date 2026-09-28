@@ -386,7 +386,9 @@ async function cloudQuestionsTick(){
       const answered=await sbGet('questions?select=id,local_pending_id,answer&task_id=eq.'+cid+'&status=eq.answered');
       for(const q of answered){
         if(pend.some(p=>p.id===q.local_pending_id)){
-          try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; }
+          // id negativo = pergunta do TETO de custo (sintética, 53-teto-protecao) — não existe no banco
+          if(+q.local_pending_id<0 && typeof budgetAnswer==='function') await budgetAnswer(+q.local_pending_id, q.answer||'');
+          else { try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; } }
         }
         await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
         lastSig='';

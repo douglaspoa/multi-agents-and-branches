@@ -203,7 +203,7 @@ async function wizLaunch(){
   if(pick&&src) src.value=pick.value;
   { const hm=$id('howModel'), nm=$id('ntModel'); if(hm&&nm&&hm.value) nm.value=hm.value; }
   ntModels=[...document.querySelectorAll('[data-agmodel]')].filter(s=>s.value).map(s=>`${s.dataset.agmodel}=${s.value}`).join(',');
-  { const hc=$id('howCost'); if(hc&&hc.value) lsSet('costWarn', String(Math.max(0, parseFloat(hc.value)||0))); }
+  { const hb=$id('howBudget'); if(hb) ntBudgetPending=Math.max(0, parseFloat(hb.value)||0); } // teto DESTA tarefa
   { const hs=$id('howSlots'); if(hs&&hs.value) setSlotMax(parseInt(hs.value,10)||slotMax); }
   const nReq=(ntMode==='fix'?ntFixReq:ntReq).filter(x=>x&&x.trim()).length;
   goShow(nReq);
@@ -250,7 +250,7 @@ function howPopulate(){
   $id('howModel').value=($id('ntModel')||{}).value||'';
   $id('howModel').onchange=howEstimateUpdate;
   howAgentsRender();
-  $id('howCost').value=parseFloat(lsGet('costWarn')||'25');
+  { const hb=$id('howBudgetHost'); if(hb){ ntBudgetPending=null; hb.innerHTML=budgetFieldHtml('howBudget'); budgetFieldWire('howBudget'); } }
   $id('howSlots').value=slotMax;
 }
 function closeHow(){ $id('ntRight').classList.remove('howview'); $id('ntOverlay').classList.remove('howmode'); }
@@ -269,8 +269,8 @@ function howEstimateUpdate(){
   const w=wfs.find(x=>x.id===wid);
   const n=w?((w.steps||[]).length||1):1;
   const model=(($id('howModel')||{}).value)||'';
-  const per=({opus:[0.40,1.60], sonnet:[0.12,0.50], haiku:[0.03,0.12]})[model]||[0.15,0.65];
-  el.innerHTML=`Estimativa grosseira: <b style="color:var(--text-2)">~${fmtUsd(per[0]*n)}–${fmtUsd(per[1]*n)}</b> · ${n} agente(s)${model?` · ${esc(model)}`:''} <span class="dim">(varia com o tamanho da tarefa)</span>`;
+  const [lo,hi]=roughEstimate(n, model);
+  el.innerHTML=`Estimativa grosseira: <b style="color:var(--text-2)">${esc(fmtCostRange(lo,hi))}</b> · ${n} agente(s)${model?` · ${esc(model)}`:''} <span class="dim">(varia com o tamanho da tarefa)</span>`;
 }
 function howAgentsRender(){
   howEstimateUpdate();
@@ -291,7 +291,7 @@ $id('howGo').onclick=()=>{
   if(pick && src) src.value=pick.value;
   const nm=$id('ntModel'); if(nm) nm.value=$id('howModel').value;
   ntModels=[...document.querySelectorAll('[data-agmodel]')].filter(s=>s.value).map(s=>`${s.dataset.agmodel}=${s.value}`).join(',');
-  lsSet('costWarn', String(Math.max(0, parseFloat($id('howCost').value)||0)));
+  { const hb=$id('howBudget'); if(hb) ntBudgetPending=Math.max(0, parseFloat(hb.value)||0); } // teto DESTA tarefa
   setSlotMax(parseInt($id('howSlots').value,10)||slotMax);
   closeHow();
   submitNewTask(true);

@@ -80,3 +80,30 @@ window.toast=toast;
 // nº de arquivos de um diff: o backend (Rust, struct Diff) manda `files` como NÚMERO;
 // versões antigas/mock mandavam lista — aceita os dois (antes saía "undefined arquivo(s)")
 function diffFiles(d){ if(!d) return 0; const f=d.files; return typeof f==='number'?f:(Array.isArray(f)?f.length:0); }
+
+// ===== custo em US$ com o equivalente em R$ (mesa 27/09: "custo antes, em R$") =====
+// A cotação é a de Configurações ("cotação do dólar usada nas estimativas", padrão 5,5).
+// UMA regra pra toda tela que mostra custo: fmtCost(usd) → "US$ 2,93 (≈ R$ 16,12)".
+function usdBrlRate(){ const v=parseFloat(String(lsGet('usdBrl')||'').replace(',','.')); return v>0?v:5.5; }
+// número no formato BR: inteiro sem casas ("5"), senão 2 casas ("27,50"); abaixo de 1 centavo, 4 casas
+function fmtNumBR(v, forceDec){
+  v=+v||0; const r=Math.round(v*100)/100;
+  if(v>0 && v<0.01) return v.toLocaleString('pt-BR',{ minimumFractionDigits:4, maximumFractionDigits:4 });
+  const dec=(forceDec||!Number.isInteger(r))?2:0;
+  return r.toLocaleString('pt-BR',{ minimumFractionDigits:dec, maximumFractionDigits:dec });
+}
+function fmtCost(usd, opts){
+  usd=+usd||0; const o=opts||{};
+  const us='US$ '+fmtNumBR(usd);
+  if(o.usdOnly) return us;
+  return us+' (≈ R$ '+fmtNumBR(usd*usdBrlRate(), usd>0)+')';
+}
+// faixa de estimativa: "~US$ 2–4 (≈ R$ 11–22)" — arredonda (é previsão, não centavo)
+function fmtCostRange(lo, hi){
+  const rate=usdBrlRate(), big=lo>=1;
+  const f=(v)=> big ? String(Math.round(v)) : fmtNumBR(v, true);
+  const rs=(lo*rate>=1) ? `${Math.floor(lo*rate)}–${Math.ceil(hi*rate)}` : `${fmtNumBR(lo*rate,true)}–${fmtNumBR(hi*rate,true)}`;
+  return `~US$ ${f(lo)}–${f(hi)} (≈ R$ ${rs})`;
+}
+// teto padrão por tarefa (US$; 0 = sem teto) — Configurações
+function costCapDefault(){ const raw=lsGet('costCap'); const v=parseFloat(raw==null||raw===''?'5':raw); return v>=0?v:5; }

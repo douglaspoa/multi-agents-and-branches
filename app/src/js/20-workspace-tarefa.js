@@ -343,7 +343,8 @@ function fwMoreItems(t){
   if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
   if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${modelFriendly(t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
   const cost=taskCost(t.id);
-  it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtUsd(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}`, info:true });
+  { const cap=(typeof budgetOf==='function')?budgetOf(t):0;
+    it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtCost(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}${cap>0?' · teto '+fmtCost(cap,{usdOnly:true}):''}`, info:true }); }
   if(fwTreeHidden()) it.push({ k:'tree', label:'mostrar arquivos e artefatos', hint:'⌘B' });
   it.push({ k:'close', label:'fechar a aba', hint:'esc' });
   return it;
@@ -415,6 +416,8 @@ function renderWorkspace(){
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
   { const te=$id('fwTaskEpic'); if(te){ const h=(typeof epTaskBadge==='function')?epTaskBadge(t):''; if(te.innerHTML!==h) te.innerHTML=h;
       te.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); } }
+  // selo do modo protegido (mesa 27/09): o que o agente NÃO pode fazer, no tooltip
+  { const tp=$id('fwTaskProt'); if(tp && typeof protectBadgeHtml==='function'){ const h=protectBadgeHtml(t); if(tp.innerHTML!==h) tp.innerHTML=h; } }
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
   if(typeof orqTaskChips==='function') orqTaskChips(t);
   // barra do topo: [🌐 preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
@@ -451,7 +454,7 @@ function renderWorkspace(){
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const tActive=ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy;
   const cost=taskCost(t.id);
-  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtUsd(cost.usd):'—'}</b></div></div>`;
+  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div></div>`;
   // Entregas & provas (artefatos) — sempre à mão (1 carga em voo por tarefa: antes cada render disparava outra)
   const artC=artifactsCache[t.id];
   if((!artC || artC.status!==t.status) && !fwArtLoading[t.id]){ fwArtLoading[t.id]=1; loadArtifacts(t.id, t.status).finally(()=>{ delete fwArtLoading[t.id]; if(fwTask===t.id) renderWorkspace(); }); }

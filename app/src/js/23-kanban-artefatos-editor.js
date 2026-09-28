@@ -374,6 +374,7 @@ async function sendInstruction(taskId){
   finally{ const i2=$id('instrInput'); if(i2){ i2.disabled=false; i2.focus(); } }
 }
 async function resolvePending(id, answer){
+  if(+id<0 && typeof budgetAnswer==='function') return budgetAnswer(+id, answer); // pergunta do teto de custo (sintética)
   try{ await invoke("resolve_pending", { id, answer }); await refresh(); }
   catch(e){ console.error("resolve_pending", e); }
 }

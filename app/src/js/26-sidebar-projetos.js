@@ -293,7 +293,7 @@ function renderBus(){
   parts.push(`<b style="color:${fc.andamento?'var(--st-run,var(--good))':'var(--text-2)'}">${fc.andamento} em andamento</b>`);
   if(fc.prontas) parts.push(`${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar`);
   if(fc.praberto) parts.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
-  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">${fmtUsd(totUsd)} no total</span>`);
+  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">${fmtCost(totUsd)} no total</span>`);
   // conflitos de arquivo entre agentes: resumo curto na barra, explicação no tooltip
   const claims=state.claims||[], yields=claims.filter(c=>c.yieldedTo);
   const seen=new Set(); const uniq=[];
@@ -302,7 +302,7 @@ function renderBus(){
   el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
   const tip=[
     `${nPl(live.length,'tarefa viva','tarefas vivas')} ${allProj?'em todos os projetos':'neste projeto'} (mesma contagem da Central): ${fc.aguardando} aguardando você · ${fc.andamento} em andamento (${fc.rodando} executando agora) · ${fc.prontas} prontas pra revisar · ${fc.praberto} com PR aberto · ${fc.rascunho} rascunho${fc.rascunho===1?'':'s'}`,
-    (totUsd||totTok)?`Custo somado das tarefas deste projeto: ${fmtUsd(totUsd)} (${fmtTok(totTok)} tokens de IA)`:'',
+    (totUsd||totTok)?`Custo somado das tarefas deste projeto: ${fmtCost(totUsd)} (${fmtTok(totTok)} tokens de IA)`:'',
     claims.length?`${claims.length} arquivo${claims.length===1?'':'s'} reservado${claims.length===1?'':'s'} por agentes agora (evita dois agentes editarem o mesmo arquivo ao mesmo tempo)`:'',
     ...uniq.slice(0,5).map(c=>`${c.agent} cedeu ${(c.path||'').split('/').pop()} para ${c.yieldedTo} — esperou o outro terminar em vez de sobrescrever`),
   ].filter(Boolean).join('\n');

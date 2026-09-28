@@ -649,6 +649,90 @@ fn signal_group(pid: i32, sig: i32) {
     }
 }
 
+/// MODO PROTEGIDO — regras de NEGAÇÃO do Claude Code (`--disallowedTools`), que valem
+/// MESMO em `--permission-mode bypassPermissions` (as regras de deny são avaliadas antes
+/// do modo). ESPELHO de src/engine/protect.ts (denyRules) — o teste TS confere a lista.
+const PROTECT_DENY: [&str; 50] = [
+    "Read(**/.env)",
+    "Edit(**/.env)",
+    "Read(**/.env.local)",
+    "Edit(**/.env.local)",
+    "Read(**/.env.*.local)",
+    "Edit(**/.env.*.local)",
+    "Read(**/.env.development*)",
+    "Edit(**/.env.development*)",
+    "Read(**/.env.production*)",
+    "Edit(**/.env.production*)",
+    "Read(**/.env.staging*)",
+    "Edit(**/.env.staging*)",
+    "Read(**/.env.test*)",
+    "Edit(**/.env.test*)",
+    "Read(**/*.pem)",
+    "Edit(**/*.pem)",
+    "Read(**/*.key)",
+    "Edit(**/*.key)",
+    "Read(**/id_rsa*)",
+    "Edit(**/id_rsa*)",
+    "Read(**/id_ed25519*)",
+    "Edit(**/id_ed25519*)",
+    "Read(~/.ssh/**)",
+    "Edit(~/.ssh/**)",
+    "Read(~/.aws/**)",
+    "Edit(~/.aws/**)",
+    "Read(**/.ssh/**)",
+    "Edit(**/.ssh/**)",
+    "Read(**/.aws/**)",
+    "Edit(**/.aws/**)",
+    "Bash(rm -rf /)",
+    "Bash(rm -rf / *)",
+    "Bash(rm -rf ~)",
+    "Bash(rm -rf ~/)",
+    "Bash(rm -rf ~/*)",
+    "Bash(rm -rf $HOME*)",
+    "Bash(git push --force*)",
+    "Bash(git push -f*)",
+    "Bash(git push * --force*)",
+    "Bash(git push * -f)",
+    "Bash(git push * -f *)",
+    "Bash(curl * | sh*)",
+    "Bash(curl * | bash*)",
+    "Bash(wget * | sh*)",
+    "Bash(wget * | bash*)",
+    "Bash(sudo *)",
+    "Bash(cat *.env)",
+    "Bash(cat *.env.local)",
+    "Bash(cat *.pem)",
+    "Bash(cat *id_rsa*)",
+];
+/// Projeto "Protegido" (padrão) ou "Livre" — Preferências do projeto grava
+/// `protect:<caminho do repo>` = "0" em ~/.constellation/settings.json pra desligar.
+fn protect_on(repo: &std::path::Path) -> bool {
+    setting_get(&format!("protect:{}", repo.display())).map(|v| v.trim() != "0").unwrap_or(true)
+}
+/// Args a pôr ANTES de `--permission-mode` (a flag é variádica: outra flag encerra a lista).
+fn protect_args(on: bool) -> Vec<String> {
+    if !on { return vec![]; }
+    let mut v = vec!["--disallowedTools".to_string()];
+    v.extend(PROTECT_DENY.iter().map(|s| s.to_string()));
+    v
+}
+#[cfg(test)]
+mod protect_tests {
+    use super::*;
+    #[test]
+    fn livre_nao_passa_nada() { assert!(protect_args(false).is_empty()); }
+    #[test]
+    fn protegido_bloqueia_segredos_e_destrutivos() {
+        let a = protect_args(true);
+        assert_eq!(a[0], "--disallowedTools");
+        assert_eq!(a.len(), 1 + PROTECT_DENY.len());
+        for must in ["Read(**/.env)", "Edit(**/.env)", "Read(**/*.pem)", "Bash(rm -rf /)", "Bash(git push --force*)", "Bash(sudo *)"] {
+            assert!(a.iter().any(|x| x == must), "{must}");
+        }
+        assert!(a[1..].iter().all(|r| !r.starts_with('-') && !r.contains(',')));
+    }
+}
+
 /// Spawna um processo de tarefa em um NOVO grupo (setsid) e o registra por id,
 /// pra podermos pausar/abortar a árvore inteira. Uma thread limpa o registro
 /// quando o processo termina naturalmente (evita PID reciclado no mapa).
@@ -659,6 +743,9 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     cmd.env("CARDUME_NOTIFY", "0");
     // intervalo (min) pra retomar sozinho quando bate o limite de uso da IA
     if let Some(m) = setting_get("limitRetryMin") { cmd.env("CARDUME_LIMIT_RETRY_MIN", m); }
+    // modo protegido do PROJETO (padrão ligado) → o motor passa as regras de negação ao claude
+    let protect = repo_of(state).map(|r| protect_on(&r)).unwrap_or(true);
+    cmd.env("CARDUME_PROTECT", if protect { "1" } else { "0" });
     // novo grupo/sessão: o node vira líder e o claude herda o grupo
     detach_new_group(&mut cmd);
     // stdout/stderr ficam como o CHAMADOR configurou (ex.: new_task redireciona
@@ -2169,9 +2256,12 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
 fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // 1) encerra o processo atual, se houver
-    if let Some(p) = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() } {
+    if let Some(p) = live_task_pid(&state, &task_id) {
         signal_group(p, procsig::CONT);
         signal_group(p, procsig::TERM);
+        // espera morrer (o motor novo recusa rodar com o lock busy_pid de um processo vivo)
+        for _ in 0..20 { if !pid_alive(p) { break; } std::thread::sleep(std::time::Duration::from_millis(100)); }
+        if pid_alive(p) { signal_group(p, procsig::KILL); std::thread::sleep(std::time::Duration::from_millis(200)); }
         if let Ok(mut m) = state.procs.lock() { m.remove(&task_id); }
     }
     // 2) worktree + base
@@ -2183,7 +2273,7 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
-    let _ = conn.execute("UPDATE task SET done_roles=0, status='queued', session_id=NULL WHERE id=?1", params![task_id]);
+    let _ = conn.execute("UPDATE task SET done_roles=0, status='queued', session_id=NULL, busy_pid=NULL WHERE id=?1", params![task_id]);
     for tbl in ["event", "claim", "review", "pending", "cost", "diffstat"] {
         let _ = conn.execute(&format!("DELETE FROM {tbl} WHERE task_id=?1"), params![task_id]);
     }
@@ -2617,6 +2707,11 @@ fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String>
 /// Inicia uma tarefa em rascunho (roda a equipe). Detached, como new_task.
 #[tauri::command(async)]
 fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    // duplo clique em ▶ / "aprovar plano" subia DOIS times na mesma worktree
+    // (olha o lock do turno, não o processo: um node terminando de fechar não deve travar o ▶)
+    if busy_task_pid(&state, &task_id).is_some() {
+        return Err("essa tarefa já está rodando".into());
+    }
     let repo = repo_of(&state)?;
     let mut cmd = Command::new(node_bin());
     cmd.args([
@@ -2787,10 +2882,32 @@ fn task_events(state: State<AppState>, task_id: String, since_id: Option<i64>) -
 
 // ---------- controles por execução (pausar / retomar / abortar) ----------
 
+/// PID VIVO do processo da tarefa: o mapa `procs` (spawn desta sessão do app) ou, depois
+/// de reiniciar o app (o mapa zera, mas o motor segue vivo via setsid), o lock `busy_pid`
+/// do banco. Usado por iniciar/pausar/retomar/parar/abortar — antes só o parar tinha o fallback.
+fn live_task_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let from_map = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(task_id).copied() };
+    if let Some(p) = from_map { if pid_alive(p) { return Some(p); } }
+    busy_task_pid(state, task_id)
+}
+/// Só o LOCK do motor (task.busy_pid, gravado enquanto um turno roda e limpo ao fim):
+/// é o que diz "tem um time trabalhando nesta worktree agora".
+fn busy_task_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone(); // trava solta já aqui
+    let path = db_path_now?;
+    let conn = open(&path).ok()?;
+    let bp: Option<i64> = conn
+        .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| r.get::<_, Option<i64>>(0))
+        .ok()
+        .flatten();
+    let bp = bp? as i32;
+    if bp > 0 && pid_alive(bp) { Some(bp) } else { None }
+}
+
 /// Congela a árvore de processos do agente (SIGSTOP no grupo) e marca 'paused'.
 #[tauri::command(async)]
 fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    let pid = live_task_pid(&state, &task_id);
     match pid {
         Some(p) => {
             signal_group(p, procsig::STOP);
@@ -2804,7 +2921,7 @@ fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// segue e atualiza o status conforme avança nas etapas.
 #[tauri::command(async)]
 fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    let pid = live_task_pid(&state, &task_id);
     match pid {
         Some(p) => {
             signal_group(p, procsig::CONT);
@@ -2819,28 +2936,9 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
 #[tauri::command(async)]
 fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let mut pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
-    // vivo (setsid) — fallback: o lock busy_pid do banco diz quem matar.
-    if pid.is_none() {
-        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone(); // trava solta já aqui
-        {
-            if let Some(path) = db_path_now {
-                if let Ok(conn) = open(&path) {
-                    if let Ok(Some(bp)) = conn
-                        .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| {
-                            r.get::<_, Option<i64>>(0)
-                        })
-                    {
-                        let bp = bp as i32;
-                        if pid_alive(bp) {
-                            pid = Some(bp);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
+    let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
         signal_group(p, procsig::CONT);
         signal_group(p, procsig::TERM);
@@ -2866,7 +2964,7 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
 #[tauri::command(async)]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
+    let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
         signal_group(p, procsig::CONT); // caso esteja pausado, destrava pra poder morrer
         signal_group(p, procsig::TERM);
@@ -3460,10 +3558,12 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
         // read-only: o planner INVESTIGA o código (lê/grep/git) mas NÃO edita nada.
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
-        // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
-        "--permission-mode".to_string(),
-        "bypassPermissions".to_string(),
     ];
+    // bypass NÃO respeita o --allowedTools acima (só as regras de NEGAÇÃO valem) → modo protegido
+    args.extend(protect_args(protect_on(&repo)));
+    // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
+    args.push("--permission-mode".to_string());
+    args.push("bypassPermissions".to_string());
     if let Some(sid) = &session_id {
         if !sid.is_empty() {
             args.push("--resume".to_string());
@@ -4059,7 +4159,8 @@ fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, 
     if !docs.trim().is_empty() { prompt.push_str(&format!("\n\nDOCUMENTAÇÃO:\n{docs}")); }
     let mut c = claude_cmd(&claude_bin());
     c.args(["-p", &prompt]);
-    if !files.is_empty() { c.args(["--allowedTools", "Read", "--permission-mode", "bypassPermissions"]); }
+    // sem repo aqui: sempre protegido (só lê a documentação que você escolheu)
+    if !files.is_empty() { c.arg("--allowedTools").arg("Read").args(protect_args(true)).args(["--permission-mode", "bypassPermissions"]); }
     let out = c.stdin(Stdio::null()).output().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
@@ -4080,8 +4181,10 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
         "--append-system-prompt".to_string(), sys,
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
-        "--permission-mode".to_string(), "bypassPermissions".to_string(),
     ];
+    args.extend(protect_args(protect_on(&repo))); // bypass ignora o allowedTools; negação vale
+    args.push("--permission-mode".to_string());
+    args.push("bypassPermissions".to_string());
     if let Some(m) = model.filter(|m| !m.trim().is_empty()) { args.push("--model".to_string()); args.push(m); }
     if let Some(sid) = &session_id { if !sid.is_empty() { args.push("--resume".to_string()); args.push(sid.clone()); } }
     let mut cmd = claude_cmd(&claude_bin());

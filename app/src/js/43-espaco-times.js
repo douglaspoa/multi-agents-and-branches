@@ -164,7 +164,7 @@ function renderTeamBoard(){
       <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">em andamento</div><div class="d">${fcT.aguardando?`${fcT.aguardando} aguardando alguém · `:''}${nPl(nDevs,'dev ativo','devs ativos')}</div></div>
       <div class="tskpi"><div class="v" style="color:#c678dd">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(epDelivered).length;return esc(e.name.split(' ')[0])+' '+dn+'/'+ts.length;}).join(' · ')||'—'}</div></div>
       <div class="tskpi"><div class="v" style="color:${prs.length?'var(--warn)':'var(--text)'}">${prs.length}</div><div class="l">PRs pra revisar</div><div class="d">${prs.length?'mais antigo '+agoTx(prs[prs.length-1].updated_at):'em dia ✓'}</div></div>
-      <div class="tskpi"><div class="v">${fmtUsd(custo)}</div><div class="l">custo no período</div><div class="d">${inP.length?fmtUsd(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
+      <div class="tskpi"><div class="v">${fmtCost(custo,{usdOnly:true})}</div><div class="l">custo no período · ≈ R$ ${fmtNumBR(custo*usdBrlRate(),true)}</div><div class="d">${inP.length?fmtCost(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
     </div>
     <div class="tscols"><div>
       <div class="tspanel"><div class="tsph">Agora no time <span style="flex:1"></span><span style="color:var(--accent);font-size:10px">● ao vivo</span></div>
@@ -203,7 +203,7 @@ function renderTeamBoard(){
         const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
         const teamTags=orgScope?teamsOf(uid).map(tid=>`<span class="tsteamtag">${esc(tsTeamName(tid))}</span>`).join(''):'';
         return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:13.5px">${esc(tmName(uid))}</b><div class="dim" style="font-size:10.5px">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
-          <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtUsd(u)}</b><span>custo</span></div></div>
+          <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div></div>
           <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div>
           ${(()=>{ // tarefas da pessoa com badge de TIPO + progresso (redesign p7)
             const act=mine.filter(t=>!['merged','done'].includes(t.status)&&t.flag!=='closed').slice(0,3);

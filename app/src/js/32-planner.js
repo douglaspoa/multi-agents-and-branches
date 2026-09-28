@@ -139,10 +139,11 @@ function renderPlanner(){
       return `<div class="plfield ${st}"${f.tip?` title="${escA(f.tip)}"`:''}><div class="plfhead"><span class="pldot"></span><span class="plfk">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`;
     }).join('')+
     `<details class="plraw" id="plRaw"${plRawOpen?' open':''}><summary>ver como arquivo <span class="mono">TASK.yaml</span></summary><pre class="mono">${esc(plYaml())}</pre></details>`+
-    `<div class="plmeshfoot"><button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
+    `<div class="plmeshfoot">${plCostHtml()}<button class="btn primary" id="plCreate"${plReady()?'':' disabled'}>${IC.cright} criar e rodar</button><div class="dim" style="font-size:10.5px;margin-top:6px">${plReady()?'campos obrigatórios fechados — pode criar':'faltam: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ')}</div></div>`;
   mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
   bindClick('plCreate', plCreate);
+  if(typeof budgetFieldWire==='function') budgetFieldWire('plBudget');
   { const d=$id('plRaw'); if(d) d.ontoggle=()=>{ plRawOpen=d.open; }; }
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
 }
@@ -402,6 +403,13 @@ async function plSend(text){
     renderPlanner(); plAutoSave();
   }).catch(e=>{ console.error('planner: aplicar resposta', e); plBusy=false; plMsgs.push({who:'sys', text:'⚠ algo falhou ao mostrar a resposta — envie de novo.'}); renderPlanner(); });
 }
+// previsão de custo (grosseira: time padrão × faixa do modelo) em US$ e ≈ R$ + o teto desta tarefa
+function plCostHtml(){
+  if(typeof roughEstimate!=='function') return '';
+  const n=Math.max(1, (((state.config&&state.config.workflows)||[])[0]||{steps:[1,2,3,4]}).steps.length||4);
+  const [lo,hi]=roughEstimate(n, String(plFields.model||'').toLowerCase().replace(/.*(opus|sonnet|haiku).*/,'$1'));
+  return `<div class="plcost"><div class="plcostl">deve custar <b>${esc(fmtCostRange(lo,hi))}</b> <span class="dim">· ${n} agentes · varia com o tamanho</span></div>${budgetFieldHtml('plBudget')}</div>`;
+}
 async function plCreate(){
   if(!plReady()) return;
   const b=$id('plCreate'); if(b){ b.disabled=true; b.textContent='criando…'; }
@@ -424,7 +432,7 @@ async function plCreate(){
     refs:plRefs.slice(), branchType:'feat', issue:null, issueUrl: plFields.issueUrl || undefined }; // BUG-8: não lê o campo de issue do FORMULÁRIO (outra aba)
   // tarefas referenciadas com "/" em qualquer mensagem sua viram contexto da tarefa criada
   if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n'));
-  try{ await invoke('new_task', await trkBeforeNewTask(payload)); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
+  try{ const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof budgetApply==='function') await budgetApply(nid); try{ await invoke('clear_draft'); }catch(_){} closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
   await refresh(); }
   catch(e){ alert('Falha ao criar:\n'+e); if(b){ b.disabled=false; b.textContent='criar e rodar'; } }
 }
@@ -444,6 +452,7 @@ async function ntApplyShare(payload){
   const share=($id("ntShareRow").style.display!=='none')?$id("ntShare").value:'local';
   if(share==='team'){ await cloudShareTask(payload); return true; }
   const localId=await invoke('new_task', await trkBeforeNewTask(payload));
+  if(typeof budgetApply==='function') await budgetApply(localId); // teto escolhido no "Como executar?"
   if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
   return false;
 }
