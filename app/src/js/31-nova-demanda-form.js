@@ -81,7 +81,7 @@ async function ntAiComplete(){
       const m=$id('wizMiss');
       if(m){ m.textContent='✦ preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
     }
-  }catch(e){ alert('Não consegui completar:\n'+e); }
+  }catch(e){ showErr(e, 'Não consegui completar'); }
   finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }
 }
 bindClick('ntAiFill', ntAiComplete);
@@ -413,14 +413,14 @@ async function openFromDesign(t){
     renderNtRefs();
     $id('ntArtProof').checked=true;
     $id('ntArtTests').checked=true;
-  }catch(e){ alert('Não consegui montar a entrega:\n'+(e&&e.message||e)); console.error('openFromDesign:', e); }
+  }catch(e){ showErr(e, 'Não consegui montar a entrega'); console.error('openFromDesign:', e); }
 }
 
 // ---------- desdobrar tarefa em ÉPICO (a IA propõe as sub-tarefas) ----------
 let bdTask=null, bdItems=null, bdRun=0; // bdRun: só a resposta da IA da ÚLTIMA abertura vale // bdItems: null = IA lendo · [] = sem proposta · 'plan' = card do épico (plPlan) na tela
 // Desdobrar = o MESMO card do planner (envelope + tarefas com verify/after/risk), hospedado no overlay do desdobrar.
 async function openBreakdown(t){
-  if(!SB.sess() || !cloudTeamId()){ alert('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro (botão Conta, no rodapé da barra lateral).'); return; }
+  if(!SB.sess() || !cloudTeamId()){ toast('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro.','warn',{ label:'abrir Conta', fn:ERR_ACTIONS.conta }); return; }
   bdTask=t; bdItems=null; const run=++bdRun;
   $id('bdOverlay').style.display='flex';
   renderBd();

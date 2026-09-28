@@ -1,0 +1,162 @@
+[
+ {
+  "id": "E1",
+  "area": "Erros (todas as telas)",
+  "titulo": "Catálogo de erros em pt-BR com ação: humanErr/showErr no lugar de alert('Falha…'+e)",
+  "antes": "Erro cru, em inglês e sem saída: alert('Falha ao iniciar:\\n'+e) em ~80 lugares; cartão da tarefa com 'claude saiu com código 1 — Invalid API key · Please run /login'; merge do PR com o stderr do gh num alert; toast('…: '+e,'err') com o texto do Rust.",
+  "depois": "Um único humanErr(e, ctx) no 00-util traduz o erro para {msg em pt-BR, action?}: Claude Code não instalado → 'ver como instalar (Mais › Ambiente)'; precisa de /login → 'abrir Ambiente'; gh não instalado ou sem login → 'Conecte sua conta do GitHub · abrir Ambiente'; 'not a git repository' → 'criar repositório'; sem remote → 'publicar no GitHub' (separado de rede); conflito de merge; permissão negada (arquivo, SSH, 403, branch protegida); rede (Failed to fetch, timeout, offline, DNS); limite de uso da IA (429/usage limit/overloaded); disco cheio; sessão da nuvem expirada → 'abrir Conta'. Qualquer outro erro vira 'Algo deu errado: <1ª linha curta>' com 'ver detalhes' (diálogo com o texto cru e o botão copiar). showErr(e, ctx) usa o toast, que agora aceita botão de ação (fica 12s e para com o mouse em cima). Foram trocados 76 alert(…+e), 13 toast(…+e,'err') e alguns alerts de validação viraram toast 'warn' (os que mandam entrar na conta têm o botão 'abrir Conta'). O cartão de tarefa com erro e o subtítulo do chat mostram a frase em pt-BR quando o erro é conhecido.",
+  "motivo": "Mesa de produto, votado pelas 5 personas (bug #14): quem não é dev não sabe o que fazer com 'spawn claude ENOENT'. Todo erro diz o que houve e tem o botão que resolve.",
+  "arquivos": "app/src/js/00-util.js (errText, errFirstLine, ERR_CATALOG, ERR_ACTIONS, humanErr, errDetails, showErr, toast com ação); app/src/css/10-base.css (.apptoast-acts/.apptoast-btn); sites trocados em 10, 11, 12, 13, 15, 20, 21, 22, 23, 24, 26, 27, 29, 30, 31, 32, 33, 34, 43, 45, 46; 27-entregas.js (cartão com erro); 20-workspace-tarefa.js (subtítulo do chat); app/tests/human-err.test.mjs (15 testes, 1 por padrão + genérico, contexto, formatos de entrada e pathBase)",
+  "como_ver": "Sem o Claude Code no PATH, iniciar uma tarefa: aparece o toast 'Falha ao iniciar — O Claude Code não está instalado neste computador.' com 'ver como instalar (Mais › Ambiente)' e 'ver detalhes'. Tarefa em erro por login: o cartão da Central diz 'O Claude Code precisa de login.'. node --test app/tests/human-err.test.mjs.",
+  "estado_mock": "Harness (build a3f2e44 × worktree), cena home. Um evento de erro 'claude saiu com código 1 — Invalid API key · Please run /login' é injetado na tarefa t-error, e o toast do depois é disparado com showErr('falha ao iniciar claude: spawn claude ENOENT', 'Falha ao iniciar'). O antes, que era um alert(), não aparece na captura headless: o antes mostra o cartão com o texto cru.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E1-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E1-after.png"
+  }
+ },
+ {
+  "id": "E2",
+  "area": "Pergunta do agente",
+  "titulo": "A resposta à pergunta do agente não some mais quando o envio falha",
+  "antes": "resolvePending engolia o erro (só console.error). fwSendMsg já tinha limpado o campo e o rascunho e contava com o catch para devolver o texto, mas o catch nunca disparava. Com o banco ocupado por mais de 8s, o texto sumia e a pergunta continuava aberta, sem aviso.",
+  "depois": "resolvePending deixa o erro subir. fwSendMsg devolve o texto e os anexos ao campo e mostra 'Não consegui enviar — o texto voltou pro campo: …'. O botão de opção da pergunta volta a ficar clicável e também mostra o erro.",
+  "motivo": "Bug #2 (alta): perda silenciosa do que o usuário escreveu.",
+  "arquivos": "app/src/js/23-kanban-artefatos-editor.js (resolvePending); app/src/js/20-workspace-tarefa.js (fwSendMsg, clique em data-askopt)",
+  "como_ver": "Com a tarefa aguardando resposta, deixe o state.sqlite travado (ou troque de projeto no meio) e responda: o texto volta ao campo e aparece o toast de erro.",
+  "estado_mock": "Sem foto: o mock responde null a resolve_pending, então a falha não se reproduz no harness. Validado por leitura do fluxo e por node --check.",
+  "shots": null
+ },
+ {
+  "id": "E3",
+  "area": "Central › menu ⋯",
+  "titulo": "Menu ⋯: 'abortar agora' só com o agente vivo, e com confirmação; re-rodar pede confirmação",
+  "antes": "'✕ abortar agora' aparecia em qualquer status, até em tarefa mergeada, e trocava 'merged' por 'aborted' sem perguntar. '↻ re-rodar do zero' chamava rerun_task direto (git reset --hard + clean -fd) sem o askYes.",
+  "depois": "Abortar só aparece com o agente rodando, pausado, com plano para aprovar, aguardando você ou ocupado, e passa por abortTask(), que confirma. Re-rodar usa rerunTask(), que confirma e explica que o parcial é descartado.",
+  "motivo": "Bug #4 (alta): ação destrutiva sem confirmação e fora de contexto.",
+  "arquivos": "app/src/js/22-quadro-fluxo.js (openTaskMenu)",
+  "como_ver": "Central › ⋯ numa tarefa pronta para revisar ou mergeada: não há 'abortar agora'. Numa tarefa com erro, '↻ re-rodar do zero' pergunta antes.",
+  "estado_mock": "Harness cena home, ⋯ de a-idem (review): o menu não tem abortar (ver E5-after.png).",
+  "shots": {
+   "before": null,
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E5-after.png"
+  }
+ },
+ {
+  "id": "E4",
+  "area": "Pull Request",
+  "titulo": "Projeto sem remote: 'ainda não está no GitHub · publicar no GitHub' em vez de 'sem internet'",
+  "antes": "Projeto criado só local (criar repositório / Começar) mostrava 'abrir PR'. O push falhava com \"'origin' does not appear… Could not read from remote\" e prNetHint lia isso como rede: 'Sem conexão com o GitHub — cheque a internet/VPN', com 'tentar de novo' em loop.",
+  "depois": "O snapshot traz remote (git remote, com cache de 30s como o 'é git?'), e repoHasRemote() fica no 10-core. 'Preparando o PR' num projeto sem remote mostra 'Este projeto ainda não está no GitHub' com 'publicar no GitHub'. O novo comando publish_github roda gh repo create <conta>/<pasta> --private --source --remote origin --push; se o gh não tem conta, o toast leva ao Ambiente. Publicou, o PR segue sozinho. Se o push falhar por falta de remote mesmo assim (cache), o passo mostra a mesma frase e o botão, sem 'tentar de novo'. prNetHint saiu: as falhas dos passos usam o catálogo (rede → 'tentar de novo'; login do gh → 'abrir Ambiente'; 403 → permissão).",
+  "motivo": "Bug #5 (alta): diagnóstico errado e sem saída para quem começou pelo 'Começar' (o caminho padrão de quem não é dev).",
+  "arquivos": "app/src-tauri/src/lib.rs (Snapshot.remote, remote_cache, repo_has_remote(_cached), publish_github + registro); app/src/js/10-core.js (repoHasRemote); app/src/js/21-pull-request.js (prNoRemoteBody, publishGithub, prFail; prPrepOpen/prPrepFinish)",
+  "como_ver": "Criar um projeto pelo 'Começar' (sem GitHub), rodar uma tarefa até 'pronta pra revisar' e clicar em 'aprovar e abrir PR': o modal diz 'Este projeto ainda não está no GitHub' e 'publicar no GitHub' cria o repositório privado e segue para o PR.",
+  "estado_mock": "Harness cena home. push_task é trocado por um que lança o erro real do git sem origin. No depois-1 (E4-after), state.remote=false antes de prPrepOpen('t-review'). No depois-2 (E4-after-push), o snapshot diz que tem remote e o push falha. O mock não tem publish_github nem gh_owners reais, então a publicação em si foi validada só por cargo build.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E4-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E4-after.png",
+   "after_push": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E4-after-push.png"
+  }
+ },
+ {
+  "id": "E5",
+  "area": "Central › Todos os projetos",
+  "titulo": "Cartões de outro projeto: abrir PR, ⋯, resumo e concluir trocam para o projeto dono antes de agir",
+  "antes": "Com o filtro 'Todos os projetos' (o padrão), 'aprovar e abrir PR', o ⋯, o menu de contexto e o % (resumo) de um cartão de outro projeto procuravam só em state.tasks e não faziam nada. '✓ concluir' gravava a flag no banco do projeto ativo, ou seja, no projeto errado.",
+  "depois": "crossRun(id, fn) acha o cartão em boardSource(). Se ele é de outro projeto, mostra o toast 'abrindo o projeto X…', chama switchProject e só roda a ação depois de confirmar que a tarefa está no projeto ativo; se não conseguir, avisa. Vale para data-rowpr, data-tmenu, o menu de contexto (via openTaskMenu), data-sum e data-arch. O menu reabre na mesma posição, porque o retângulo do botão é guardado antes do re-render.",
+  "motivo": "Bug #7 (média): botões mortos no quadro padrão e escrita no banco errado.",
+  "arquivos": "app/src/js/22-quadro-fluxo.js (crossRun, openTaskMenu, wiring do renderFlow)",
+  "como_ver": "Com 2 projetos com tarefas, filtro 'Todos os projetos': clicar em ⋯ ou 'aprovar e abrir PR' num cartão do outro projeto troca de projeto (toast) e abre o menu ou o 'Preparando o PR'.",
+  "estado_mock": "Harness cena home, cartão a-idem (api-pagamentos). O mock de switch_project não troca o snapshot, então no depois o switchProject é um dublê que põe a-idem em state.tasks. No antes, o clique não faz nada.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E5-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E5-after.png"
+  }
+ },
+ {
+  "id": "E6",
+  "area": "Tarefa › editor de arquivo",
+  "titulo": "Edição não salva não se perde mais no X da aba nem ao abrir outra tarefa",
+  "antes": "O X da aba chamava closeTab direto (só ⌘W e o botão fechar passavam por fwLeaveEditor). Ir para a aba de OUTRA tarefa, ou abrir outra tarefa pelo quadro, zerava fwEditing/fwContent em fwOpenInner sem perguntar.",
+  "depois": "tabLeaveGuard pergunta 'Descartar as alterações não salvas neste arquivo?' quando o X fecha a aba da tarefa em edição ou quando o clique vai para a aba de outra tarefa. openWorkspace(outra tarefa) também pergunta antes. Ir para o quadro ou para Configurações não pergunta: a edição continua intacta ao voltar.",
+  "motivo": "Bug #9 (média): perda de trabalho sem pergunta.",
+  "arquivos": "app/src/js/15-config-abas-onboarding.js (tabLeaveGuard, handlers data-tk/data-xk); app/src/js/20-workspace-tarefa.js (openWorkspace)",
+  "como_ver": "Abrir um arquivo da tarefa em edição, mudar o texto e clicar no X da aba, ou na aba de outra tarefa: aparece a confirmação.",
+  "estado_mock": "Sem foto (é o diálogo nativo askYes). Validado por leitura e por node --check.",
+  "shots": null
+ },
+ {
+  "id": "E7",
+  "area": "Montar conversando › épico",
+  "titulo": "Criar épico é idempotente: se cair no meio, 'aprovar' de novo retoma sem duplicar",
+  "antes": "plCreateEpic postava o épico e as tarefas uma a uma. Se o 3º sbPost caísse, o card destravava e o novo clique criava um 2º épico e as tarefas de novo no backlog do time.",
+  "depois": "O que já foi criado fica guardado no próprio plano (PLP()._made = {team, ep, rows por idx}) e é salvo no rascunho a cada insert. No retry, o épico e as tarefas existentes são reaproveitados (as dependências 'after' também), com o toast 'Retomando o épico … — o que já foi criado não é repetido'. A mensagem de erro diz que dá para clicar em aprovar de novo.",
+  "motivo": "Bug #11 (média): épico e tarefas duplicados na nuvem.",
+  "arquivos": "app/src/js/32-planner.js (plCreateEpic)",
+  "como_ver": "Com a rede caindo no meio da criação de um épico de 4 tarefas, clicar em 'aprovar' de novo: sai um épico só, com as 4 tarefas.",
+  "estado_mock": "Sem foto: exige falha de rede no meio da sequência de inserts. Validado por leitura e por node --check.",
+  "shots": null
+ },
+ {
+  "id": "E8",
+  "area": "Windows/Linux",
+  "titulo": "Abrir link, artefato, pasta, PDF e login do Google com o abridor de cada SO; updater só no Mac",
+  "antes": "open_url, open_artifact, reveal_artifact, save_doc, html_to_pdf e o OAuth do Google usavam xdg-open fora do Mac, o que no Windows quebra todo link externo e o login. O updater mostrava 'atualizar' em qualquer SO e aplicava um zip de .app com ditto ('No such file or directory').",
+  "depois": "os_open usa `open` no macOS, `rundll32 url.dll,FileProtocolHandler` no Windows (aceita URL com &, que o `cmd /c start` quebraria) e `xdg-open` no Linux. os_reveal usa `open -R`, `explorer /select,` e a pasta no Linux. Isso vale para open_url, open_artifact, reveal_artifact, reveal_project, open_folder, save_doc, html_to_pdf e oauth_wait_callback. apply_update recusa fora do Mac. No front, checkUpdate esconde o botão e diz 'atualização automática só no Mac por enquanto — baixe a versão nova em starfork.com.br' (osKind() no 00-util).",
+  "motivo": "Bug #16 (média): na porta Windows, nenhum link abria e o login pelo Google falhava.",
+  "arquivos": "app/src-tauri/src/lib.rs (os_open, os_reveal, apply_update); app/src/js/00-util.js (osKind); app/src/js/11-ambiente-updater.js",
+  "como_ver": "Build Windows (CI): clicar num link de PR ou 'Entrar com Google' abre o navegador padrão; Configurações › atualização mostra a mensagem 'só no Mac'.",
+  "estado_mock": "Sem foto. Compila no Mac (os ramos são cfg!() em tempo de execução, então o código de Windows/Linux também é checado pelo compilador). Não foi rodado em Windows.",
+  "shots": null
+ },
+ {
+  "id": "E9",
+  "area": "Central › status",
+  "titulo": "'Voltar pra em andamento' põe o agente para trabalhar de verdade (não deixa mais um card 'rodando' fantasma)",
+  "antes": "No menu ⋯ e no chip de status ('▶ Em andamento'), a opção só gravava mark_task_status running, sem processo. O card ficava 'rodando' para sempre.",
+  "depois": "taskBackToRunning pergunta ('o agente retoma a mesma conversa e continua de onde parou — tem custo; se quer só reabrir, use reabrir') e chama talk_task com 'continue de onde parou: git status, git diff, TASK.yaml'. O status vira running porque há um processo de verdade. Se o usuário cancela, nada muda (inclusive a flag de concluída). A opção sai das mergeadas.",
+  "motivo": "Bug #19 (baixa): estado mentiroso na Central.",
+  "arquivos": "app/src/js/24-perguntas-agente.js (taskBackToRunning); app/src/js/22-quadro-fluxo.js (openTaskMenu, openStatusMenu)",
+  "como_ver": "Tarefa pronta para revisar › ⋯ › 'voltar pra em andamento · o agente continua': confirma, e a tarefa volta a rodar com eventos novos.",
+  "estado_mock": "O menu com a opção nova aparece em E5-after.png (a-idem). A ação em si exige o motor real.",
+  "shots": {
+   "before": null,
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/r6shots/E5-after.png"
+  }
+ },
+ {
+  "id": "E10",
+  "area": "Windows › caminhos",
+  "titulo": "Nome de projeto/arquivo com \\ no Windows e log do webview no temp do sistema",
+  "antes": "Cerca de 20 split('/') em caminhos do sistema de arquivos (projShort, gitGate, connTxt, anexos, refs do planner, orquestrador, onboarding, Começar…) mostravam 'C:\\Users\\…\\loja' inteiro. web_log gravava em /tmp/constellation-web.log fixo, que não existe no Windows.",
+  "depois": "pathBase/pathDir no 00-util aceitam / e \\. Foram trocados só os caminhos de arquivo; URL, branch, remote e caminhos relativos do diff continuam com '/'. web_log_path() mantém /tmp/constellation-web.log no Mac (scripts dependem dele) e usa std::env::temp_dir() no Windows/Linux.",
+  "motivo": "Bug #21 (baixa).",
+  "arquivos": "app/src/js/00-util.js; 10-core, 12, 14, 15, 22, 25, 27, 30, 32, 33, 34, 36; app/src-tauri/src/lib.rs (web_log_path)",
+  "como_ver": "No Windows, a barra lateral mostra 'loja' (e não o caminho inteiro); o log fica em %TEMP%\\constellation-web.log.",
+  "estado_mock": "Teste unitário em app/tests/human-err.test.mjs (pathBase/pathDir com C:\\…). Sem foto.",
+  "shots": null
+ },
+ {
+  "id": "E11",
+  "area": "Sobras de jornada",
+  "titulo": "Investigação/design: 'concluir' leva a 'salvar entregáveis'; resumo sem 'abrir PR' para quem não tem código; 'criar no GitHub' desmarcado sem gh",
+  "antes": "(a) '✓ concluir' no topo de uma investigação/design fechava direto, sem oferecer o 'Salvar entregáveis na pasta' do FT-6. (b) O resumo (clique no %) mostrava 'aprovar e abrir PR' para investigação/design. (c) Em Projetos › novo projeto, 'criar no GitHub' vinha marcado mesmo com o gh sem login, e o create falhava. Além disso, os botões do formulário perdiam o handler quando a lista de contas do gh chegava.",
+  "depois": "(a) Com arquivos entregues ainda não salvos, o botão vira 'salvar e concluir' e leva à aba Entrega com a barra 'Salvar entregáveis na pasta' em destaque ('só concluir' continua lá); já salvos, conclui direto. (b) O resumo usa a mesma regra da linha (invest/design ou entregaNonCode): mostra '✓ concluir', que abre a Entrega. (c) 'criar no GitHub' só vem marcado quando o gh tem conta (se o usuário mexer, vale a escolha dele). Sem conta, aparece a dica 'GitHub não conectado — o projeto fica só no seu computador (dá pra publicar depois, na hora do PR) · conectar o GitHub'. O formulário é religado depois de carregar as contas.",
+  "motivo": "Sobras dos bugs #17 e #10 e do FT-6.",
+  "arquivos": "app/src/js/20-workspace-tarefa.js (fwArchiveNeedsSave, fwArchive); app/src/css/60-grafo-times-nova-demanda.css (.en-save.flash); app/src/js/22-quadro-fluxo.js (renderTaskSummary); app/src/js/13-skills-projetos.js (projNew, projNewWire)",
+  "como_ver": "Investigação pronta › '✓ salvar e concluir' abre a Entrega. Clique no % de uma investigação pronta: botão '✓ concluir'. Projetos › + novo projeto sem gh logado: caixa desmarcada e a dica.",
+  "estado_mock": "Sem foto dedicada. Cenas workspace-entrega e projetos rodaram sem erro.",
+  "shots": null
+ },
+ {
+  "id": "E12",
+  "area": "Código morto",
+  "titulo": "Painel lateral #side (nunca exibido) e helpers mortos removidos",
+  "antes": "renderSide (26) montava uma tela que nunca aparece (.body sempre tem flowmode/teamfull, e o .side fica display:none) e era chamado a cada render e pelos loaders. Também havia funções sem chamador: loadTaskFiles/filesListHtml/fileCache (15), prettyTool (20), prOpenComments/prOpenCount (21), flowTaskRow (22), orqPlansHere (34), npm_cmd (lib.rs, allow(dead_code)), além do #askBar e do #side no index.html.",
+  "depois": "Saíram renderSide, #side, #askBar e tudo o que só o painel usava: effEngine, fmtDur, sideTab, stMenuOpen e o listener dele, statusMenuItems, startRenameBranch, removeTask, deliverArtifact, deliverBlock, prBlock, costBlock, commitsBlock, reqsBlock, artifactsBlock, questionBlock, wireQuestion, sendInstruction, errBanner, activityBlock, refsBlock, cloudProofsBlock, claimsOf, loadBranches/branchList, mergeTask, markStatus, setFlag, fileCache. Também saíram os mortos da lista e npm_cmd. Ficaram, porque são funcionalidades que só o painel abria e agora não têm botão (decidir se voltam em outro lugar): openFromDesign ('criar entrega deste design/investigação'), openBreakdown ('desdobrar em épico' a partir da tarefa), openLinkedFix ('correção linkada'), openRef, cloudPublishProofs ('publicar provas pro time'), openAsk e pauseTask. Saldo: cerca de 470 linhas a menos no front.",
+  "motivo": "deadcode-perf.md A2/A4. Cada render deixa de chamar uma função que montava HTML invisível.",
+  "arquivos": "app/src/js/15, 20, 21, 22, 23, 24, 26, 34, 43; app/src/index.html; app/src-tauri/src/lib.rs (npm_cmd)",
+  "como_ver": "As 28 cenas do harness rodam com 0 erros de console. Um grep pelos nomes removidos não acha nada.",
+  "estado_mock": "Harness shoot-all (28 cenas) no build do worktree: 0 erro(s) em todas.",
+  "shots": null
+ }
+]

@@ -118,7 +118,7 @@ function openModelMenu(taskId, anchor){
   pop.style.cssText='position:fixed;z-index:9000;min-width:240px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   const cur=t.model||'';
   const head=document.createElement('div'); head.className='mono'; head.style.cssText='font-size:10px;letter-spacing:.08em;color:var(--muted);padding:6px 10px 4px;text-transform:uppercase'; head.textContent='modelo desta demanda'; pop.appendChild(head);
-  const apply=async(id)=>{ pop.remove(); try{ await invoke('set_task_model',{ taskId, model:id }); lastSig=''; await refresh(); if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===taskId) renderWorkspace(); }catch(e){ alert('Falhou: '+e); } };
+  const apply=async(id)=>{ pop.remove(); try{ await invoke('set_task_model',{ taskId, model:id }); lastSig=''; await refresh(); if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===taskId) renderWorkspace(); }catch(e){ showErr(e, 'Falhou'); } };
   const item=(label, id, on)=>{ const b=document.createElement('button'); b.innerHTML=`${on?'<span style="color:var(--accent)">✓</span> ':'<span style="opacity:0">✓</span> '}${esc(label)}`; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=()=>apply(id); pop.appendChild(b); };
   AI_CLAUDE_MODELS.forEach(m=>item(m.name+(m.tag?'  · '+m.tag:''), m.id, m.id===cur));
   if(cur && !AI_CLAUDE_MODELS.some(m=>m.id===cur)) item(cur+'  · id atual', cur, true);

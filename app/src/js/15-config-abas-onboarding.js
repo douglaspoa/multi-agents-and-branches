@@ -249,6 +249,14 @@ function openTab(kind, opts){
   activateTab(tab.id);
 }
 window.openTab=openTab;
+// E6 (bug #9): edição de arquivo aberta na aba de uma tarefa — fechar ESSA aba, ou ir pra aba de OUTRA tarefa
+// (fwOpenInner zera o editor), pergunta antes de descartar. Trocar pra quadro/config mantém a edição (volta intacta).
+async function tabLeaveGuard(targetId, closing){
+  if(typeof fwEditing==='undefined' || !fwEditing || typeof fwLeaveEditor!=='function' || typeof fwTask==='undefined' || !fwTask) return true;
+  const tg=tabById(targetId); if(!tg) return true;
+  const losing = closing ? (tg.kind==='task' && tg.taskId===fwTask) : (tg.kind==='task' && tg.taskId!==fwTask);
+  return losing ? await fwLeaveEditor() : true;
+}
 function closeTab(id){
   const i=TABS.findIndex(t=>t.id===id); if(i<0||TABS[i].pin) return;
   const kind=TABS[i].kind;
@@ -291,8 +299,9 @@ function renderTabs(){
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
     return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">${IC.x}</span>`}</span>`;
   }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
-  bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.xk) return; activateTab(el.dataset.tk); });
-  bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); closeTab(el.dataset.xk); });
+  bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=async e=>{ if(e.target.dataset.xk) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); });
+  // E6 (bug #9): o X da aba perguntava nada e jogava fora a edição não salva do arquivo (só ⌘W e o botão fechar perguntavam)
+  bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=async e=>{ e.stopPropagation(); const id=el.dataset.xk; if(!await tabLeaveGuard(id, true)) return; closeTab(id); });
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
   { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
@@ -335,7 +344,7 @@ function renderOb(){
     <h2 style="font-size:20px;margin:0 0 10px">${s.t}</h2>
     <p style="color:var(--text-2);font-size:14px;line-height:1.65;margin:0">${s.b}</p>
     ${s.env?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:12px">verificando o ambiente…</div></div>':''}
-    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${hasRepo?`<span class="dim" style="font-size:12.5px;align-self:center">✓ projeto aberto: <b style="color:var(--text)">${esc(String(state.repo).split('/').filter(Boolean).slice(-1)[0]||'')}</b></span>`:''}<button class="btn${hasRepo?'':' primary'}" id="obOpenDir">${ic('folder')}Abrir pasta</button><button class="btn" id="obNewProj">+ Criar projeto novo</button></div>`:''}
+    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${hasRepo?`<span class="dim" style="font-size:12.5px;align-self:center">✓ projeto aberto: <b style="color:var(--text)">${esc(pathBase(state.repo))}</b></span>`:''}<button class="btn${hasRepo?'':' primary'}" id="obOpenDir">${ic('folder')}Abrir pasta</button><button class="btn" id="obNewProj">+ Criar projeto novo</button></div>`:''}
     <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
       <button class="btn sm" id="obSkip">pular</button><span style="flex:1"></span>
       <button class="btn primary" id="obNext">${last?(hasRepo?'Começar':'depois'):'continuar'}</button>
@@ -407,19 +416,12 @@ document.addEventListener('keydown', async e=>{
 });
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
-function claimsOf(taskId){ return state.claims.filter(c=>c.taskId===taskId); }
 function diffOf(taskId){ return state.diffs.find(d=>d.taskId===taskId); }
 function reviewOf(taskId){ return (state.reviews||[]).find(r=>r.taskId===taskId); }
-function refsBlock(t){
-  const rs=Array.isArray(t.refs)?t.refs:[];
-  if(!rs.length) return '';
-  return `<div class="seclbl">Referências <span class="n">${rs.length}</span></div><div class="artlist">`+
-    rs.map(n=>`<button class="artitem" data-refopen="${escA(n)}"><span class="artic">${(/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(n)?IC.image:IC.doc)}</span><span class="artnm mono">${esc(n)}</span><span class="artkb dim">abrir</span></button>`).join('')+`</div>`;
-}
 async function openRef(taskId, name){
   let c;
   try{ c=await invoke('read_ref',{ taskId, name }); }
-  catch(e){ alert('Falha ao abrir a referência:\n'+e); return; }
+  catch(e){ showErr(e, 'Falha ao abrir a referência'); return; }
   const body = c.kind==='image' ? `<img class="artimg" src="${c.dataUrl}" alt="${escA(name)}">`
     : c.kind==='pdf' ? `<iframe class="pdfview" src="${c.dataUrl}" title="${escA(name)}"></iframe>`
     : c.kind==='doc' ? `<div class="mdview">${mdToHtml(c.text||'')}</div>`
@@ -435,43 +437,3 @@ function fmtUsd(u){ return u>0&&u<0.01 ? '$'+u.toFixed(4) : '$'+(u||0).toFixed(2
 function fmtTok(n){ n=Number(n)||0; const u=(d,s)=>{ const v=n/d; return (v>=100?v.toFixed(0):v>=10?v.toFixed(1).replace(/\.0$/,''):v.toFixed(1).replace(/\.0$/,''))+s; };
   return n>=1e9?u(1e9,'B'):n>=1e6?u(1e6,'M'):n>=1000?u(1e3,'k'):String(n); }
 
-const fileCache={}; // taskId -> {status, at, list}
-async function loadTaskFiles(taskId, status){
-  const c=fileCache[taskId];
-  // tarefas ativas: revalida a cada ~2.5s (o diff da worktree muda ao vivo)
-  const fresh = c && c.status===status && (!ACTIVE_ST.has(status) || (Date.now()-c.at < 2500));
-  if(fresh) return c.list;
-  try{ fileCache[taskId]={status, at:Date.now(), list: await invoke("task_files",{ taskId })}; }
-  catch(e){ fileCache[taskId]={status, at:Date.now(), list:[]}; }
-  return fileCache[taskId].list;
-}
-function activityBlock(t){
-  if(!ACTIVE_ST.has(t.status)) return '';
-  const evs=eventsOf(t.id); if(!evs.length) return '';
-  const t0=evs[0].ts||t.created_at;
-  const ms=Math.max(0, Date.now()-t0); const mins=Math.floor(ms/60000);
-  const elapsed = mins<1 ? Math.floor(ms/1000)+'s' : mins+' min';
-  const cnt=(ty)=>evs.filter(e=>e.type===ty).length;
-  const edits=cnt('edit')+cnt('write'), reads=cnt('read'), cmds=cnt('bash');
-  const fc=fileCache[t.id], files=fc?fc.list:[];
-  const add=files.reduce((s,f)=>s+(f.add||0),0), del=files.reduce((s,f)=>s+(f.del||0),0);
-  const diffLine = files.length ? `<span class="pchip live"><span style="color:var(--good)">+${add}</span> <span style="color:var(--crit)">−${del}</span> · ${files.length} arq</span>` : '';
-  // O QUÊ ele está fazendo: a própria narração do agente (último "pensamento")
-  // + as últimas ações concretas — não só quem/contadores.
-  const lastThink=[...evs].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
-  const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
-  const feed=evs.filter(e=>['bash','edit','write','read'].includes(e.type)).slice(-4)
-    .map(e=>`<div class="nowact"><span style="color:${GCOLOR[e.type]||'var(--muted)'}">${GLYPH[e.type]||'·'}</span><span class="mono">${esc(e.text||'')}</span></div>`).join('');
-  return `<div class="progbox">
-    <div class="progh"><span class="pulse" style="--pc:var(--good)"></span>Trabalhando há <b>${elapsed}</b></div>
-    ${narr}
-    ${feed?`<div class="nowfeed">${feed}</div>`:''}
-    <div class="progchips"><span class="pchip">${edits} edições</span><span class="pchip">${reads} leituras</span><span class="pchip">${cmds} comandos</span>${diffLine}</div>
-  </div>`;
-}
-function filesListHtml(files){
-  if(!files.length) return '<div class="seclbl">Arquivos alterados</div><div class="dim" style="font-size:11.5px">nenhum arquivo alterado ainda</div>';
-  return `<div class="seclbl">Arquivos alterados <span class="n">${files.length}</span></div>`+
-    `<div class="fileshint">Clique num arquivo pra <b>abrir, editar</b> e <b>falar com o agente linha a linha</b>.</div><div class="artlist">`+
-    files.map(f=>`<button class="artitem fileitem" data-file="${escA(f.path)}"><span class="artic">${IC.doc}</span><span class="artnm mono">${esc(f.path)}</span><span class="artkb"><span style="color:var(--good)">+${f.add}</span> <span style="color:var(--crit)">−${f.del}</span></span><span class="fileopen">abrir ›</span></button>`).join('')+`</div>`;
-}

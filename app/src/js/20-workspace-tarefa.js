@@ -32,7 +32,8 @@ function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'
 function fwChatSubText(t){
   if(pendingOf(t.id).length) return 'aguardando sua resposta';
   if(fwIsWorking(t)) return 'trabalhando…';
-  if(t.status==='error') return 'parou com erro — mande uma mensagem pra ele tentar seguir, ou rode de novo';
+  if(t.status==='error'){ const ev=lastEventOf(t.id), h=ev?humanErr(ev.text):null; // E1: diz O QUE deu errado quando é um erro conhecido
+    return (h&&h.id!=='generic'?h.msg+' ':'parou com erro — ')+(h&&h.action?'('+h.action.label+') e depois mande uma mensagem pra ele seguir':'mande uma mensagem pra ele tentar seguir, ou rode de novo'); }
   if(t.status==='aborted') return 'abortada — mande uma mensagem pra retomar, ou rode de novo';
   if(t.status==='conflict') return 'conflito com a base — resolva o conflito pra seguir';
   if(t.status==='paused') return 'pausada — clique em continuar';
@@ -44,7 +45,7 @@ async function fwResolveConflict(taskId, btn){
   if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return;
   if(btn){ btn.disabled=true; btn.textContent='resolvendo…'; }
   try{ await invoke('resolve_conflict',{ taskId }); lastSig=''; await refresh(); }
-  catch(err){ alert('Falhou: '+(err&&err.message||err)); if(btn) btn.disabled=false; }
+  catch(err){ showErr(err, 'Falhou'); if(btn) btn.disabled=false; }
   renderWorkspace();
 }
 // pinta a seleção de linhas durante o arraste sem re-render completo (leve)
@@ -56,11 +57,17 @@ function fwPaintSel(){
 }
 async function fwSaveFile(){
   const ta=$id('fwText'); if(!ta) return; const v=ta.value; const b=$id('fwSave'); if(b) b.disabled=true;
-  try{ await invoke('write_file',{ taskId:fwTask, path:fwPath, content:v }); fwContent=v; fwEditing=false; fileCache[fwTask]=undefined; lastSig=''; await refresh(); }
-  catch(e){ alert('Falha ao salvar:\n'+e); if(b) b.disabled=false; return; } // falhou: o editor (e o texto) ficam
+  try{ await invoke('write_file',{ taskId:fwTask, path:fwPath, content:v }); fwContent=v; fwEditing=false; lastSig=''; await refresh(); }
+  catch(e){ showErr(e, 'Falha ao salvar'); if(b) b.disabled=false; return; } // falhou: o editor (e o texto) ficam
   renderWorkspace();
 }
 // sair do editor: se há alteração não salva, PERGUNTA antes de descartar
+// E11a: tarefa de documentos com arquivos entregues que ainda não foram salvos na pasta do usuário
+function fwArchiveNeedsSave(t){
+  if(!t || typeof entregaArts!=='function') return false;
+  if(lsGet('entregaSaved:'+t.id)) return false;
+  return entregaArts(t).length>0;
+}
 async function fwLeaveEditor(){
   if(!fwEditing) return true;
   const ta=$id('fwText');
@@ -112,6 +119,8 @@ let fwMode='conversa';   // conversa | codigo | revisao | pr (modos da tela de e
 let fwDiffCache={};      // taskId:path → texto do diff (tela de Revisão)
 // abre a tarefa como ABA própria (uma por tarefa) — mantém o chrome do app
 function openWorkspace(taskId, path){
+  // E6: abrir OUTRA tarefa com um arquivo em edição (fwOpenInner zera o editor) → pergunta antes de descartar
+  if(fwEditing && fwTask && fwTask!==taskId){ fwLeaveEditor().then(ok=>{ if(ok) openWorkspace(taskId, path); }); return; }
   tabTaskPath=path||null;
   const id='task:'+taskId;
   const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
@@ -315,7 +324,10 @@ function fwPrimaryAction(t){
   if(taskIsDone(t)) return null;
   if(['review','delivered'].includes(t.status)){
     const rev=reviewOf(t.id);
-    return fwArtOnly(t) ? { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' }
+    // E11a: investigação/design — o fim é "salvar entregáveis na pasta" (Entrega, FT-6) e concluir
+    return fwArtOnly(t) ? ((fwArchiveNeedsSave(t))
+        ? { id:'fwArchive', html:`${IC.check} salvar e concluir`, title:'salva os arquivos entregues numa pasta sua e conclui (investigação/design não abrem PR)' }
+        : { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' })
       : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo → commit & push → cria o PR' };
   }
   return null;
@@ -392,7 +404,7 @@ async function fwPushTask(){
   const t=fwTaskObj(); if(!t) return;
   toast('commitando e enviando a branch…');
   try{ const msg=await invoke('push_task',{ taskId:t.id }); prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig=''; toast('✓ '+msg,'ok'); }
-  catch(e){ toast('Commit & push falhou: '+e,'err'); }
+  catch(e){ showErr(e, 'Commit & push falhou'); }
 }
 const FW_SCROLLERS=['#fwCode','.fwdiff','.prleft','.prright','.fwwhyt'];
 function fwGrabScroll(root){ const o={ _:root.scrollTop }; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el) o[s]=[el.scrollTop, el.scrollLeft]; }); return o; }
@@ -432,7 +444,12 @@ function renderWorkspace(){
       // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
       if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
       bindClick('fwApprove', ()=>{ if(typeof chkApproveClick==='function') chkApproveClick(t); else prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
-      bindClick('fwArchive', async(e)=>{ const b=e.currentTarget; b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); b.disabled=false; } renderWorkspace(); });
+      bindClick('fwArchive', async(e)=>{ const b=e.currentTarget;
+        // E11a: com entregáveis ainda não salvos, leva pra Entrega com a barra "Salvar entregáveis na pasta" (salva e conclui lá)
+        if(fwArchiveNeedsSave(t)){ fwMode='entrega'; fwRememberTab(); renderWorkspace();
+          setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-save'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
+          toast('Salve os entregáveis numa pasta sua e conclua — ou use "só concluir".','info'); return; }
+        b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
       bindClick('fwResume', async()=>{ await resumeTask(t.id); renderWorkspace(); });
       bindClick('fwApprovePlan', async()=>{ await startTask(t.id); renderWorkspace(); });
@@ -593,7 +610,7 @@ function renderWorkspace(){
   { const pp=$id('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
     const ao=e.target.closest('[data-askopt]');
-    if(ao){ const p=pendingOf(t.id)[0]; if(p){ ao.disabled=true; resolvePending(p.id, ao.dataset.askopt); } return; }
+    if(ao){ const p=pendingOf(t.id)[0]; if(p){ ao.disabled=true; resolvePending(p.id, ao.dataset.askopt).catch(err=>{ ao.disabled=false; showErr(err, 'Não consegui enviar a resposta'); }); } return; }
     const cp=e.target.closest('.ccopy');
     if(cp){ const bub=cp.parentElement; const cl=bub.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove()); try{ navigator.clipboard.writeText(cl.innerText.trim()); cp.textContent='✓'; setTimeout(()=>{cp.textContent='⧉';},900); }catch(_){} return; }
     const a=e.target.closest('[data-art]'); if(a){ openArtifact(t.id, a.dataset.art); return; }
@@ -724,15 +741,6 @@ const TOOL_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stro
 const TOOL_DONE_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.5 8.5l3 3 6-6.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 // parece nome técnico de ferramenta? (um token só, com __ ou CamelCase interno)
 function looksLikeTool(tx){ const s=String(tx||'').trim(); return !/\s/.test(s) && s.length>1 && (s.includes('__') || /[a-z][A-Z]/.test(s)); }
-// nome técnico → rótulo amigável em PT
-function prettyTool(tx){
-  const raw=String(tx||'').replace(/^mcp__[a-z0-9]*__/i,'').replace(/^mcp__/i,'').trim();
-  const key=raw.toLowerCase().replace(/[_\s]/g,'');
-  const MAP={ toolsearch:'buscou uma ferramenta', addrequirement:'registrou um requisito', adddeliverable:'registrou um entregável', askhuman:'perguntou ao humano', claim:'reivindicou um arquivo', websearch:'buscou na web', webfetch:'abriu uma página', todowrite:'atualizou o plano', task:'delegou a um subagente', bash:'rodou um comando', read:'leu um arquivo', grep:'buscou no código', glob:'listou arquivos', edit:'editou um arquivo', write:'escreveu um arquivo' };
-  if(MAP[key]) return MAP[key];
-  // humaniza: separa camelCase, troca _ por espaço, minúsculo
-  return raw.replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/[_]+/g,' ').toLowerCase().trim();
-}
 function toolChip(label, done){
   return `<div class="ctool${done?' done':''}"><span class="ctool-ic">${done?TOOL_DONE_IC:TOOL_IC}</span><span class="ctool-tx">${esc(label)}</span></div>`;
 }
@@ -858,7 +866,7 @@ async function fwSendText(taskId, text){
     if(pend.length){ await resolvePending(pend[0].id, text); }
     else { if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){ } } await invoke('talk_task',{ taskId:t.id, message:text, asReq:false, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined; }
     artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; await refresh(); renderWorkspace();
-  }catch(e){ alert('Falha ao enviar:\n'+e); }
+  }catch(e){ showErr(e, 'Falha ao enviar'); }
 }
 const fwPend={}; // taskId → anexos importados ainda não enviados
 async function fwSendMsg(queueOnly){
@@ -891,7 +899,7 @@ async function fwSendMsg(queueOnly){
   }catch(e){
     // falhou: o texto e os anexos VOLTAM pro composer (antes a mensagem sumia)
     fwDraft[t.id]=typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
-    alert('Falha ao enviar:\n'+e); }
+    showErr(e, 'Não consegui enviar — o texto voltou pro campo'); }
   finally{ inp.disabled=false; renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); }
 }
 // fechar pelo botão: pergunta antes de jogar fora uma edição não salva

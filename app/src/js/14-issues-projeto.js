@@ -325,7 +325,7 @@ function trkConnHtml(){
       <p class="trk-rs">Cole a doc do painel e/ou anexe os PDFs/Markdown (pode ser mais de um — eles se somam). A IA lê e monta a conexão: endpoints, campos, status e quais chaves precisa. Funciona com qualquer tracker que tenha API HTTP.</p>
       <label class="trk-f">Nome do painel<input class="in" id="trkName" value="${escA(trk.name||'')}" placeholder="ex.: Demands · Foundation"></label>
       <label class="trk-f">Documentação<textarea class="in mono" id="trkDocs" rows="7" style="font-size:11.5px" placeholder="cole aqui a documentação da API (endpoints, autenticação, campos, status)…">${esc(trk.docs||'')}</textarea></label>
-      <div class="trk-bar"><button class="btn" id="trkPick">${ic('doc')}anexar arquivo${trkDocFiles.length?'s':''}</button>${trkDocFiles.map((f,k)=>`<span class="trk-op">${esc(f.split('/').pop())} <a data-trkunpick="${k}" style="cursor:pointer;opacity:.6">${IC.x}</a></span>`).join('')}<span style="flex:1"></span>
+      <div class="trk-bar"><button class="btn" id="trkPick">${ic('doc')}anexar arquivo${trkDocFiles.length?'s':''}</button>${trkDocFiles.map((f,k)=>`<span class="trk-op">${esc(pathBase(f))} <a data-trkunpick="${k}" style="cursor:pointer;opacity:.6">${IC.x}</a></span>`).join('')}<span style="flex:1"></span>
         <button class="btn primary" id="trkBuild"${trkBusy==='build'?' disabled':''}>${trkBusy==='build'?'lendo a doc…':(c?'✦ gerar de novo':'✦ gerar conexão')}</button></div></div>
     ${c?`<div class="trk-card"><div class="trk-ct">2 · Chaves e dados da conexão <span class="mono dim" style="font-weight:400">${esc(c.baseUrl||'')}</span></div>
       ${secrets||'<p class="trk-rs">Este painel não pede chave.</p>'}

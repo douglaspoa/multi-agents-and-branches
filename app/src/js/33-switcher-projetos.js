@@ -10,12 +10,12 @@ async function loadProjects(){
 }
 function renderProjName(){
   const active = projects.find(p=>p.active);
-  const nm = active ? active.name : (state.repo ? state.repo.split("/").filter(Boolean).slice(-1)[0] : "sem projeto");
+  const nm = active ? active.name : (state.repo ? pathBase(state.repo) : "sem projeto");
   const el=$id("projName"); if(el) el.textContent = nm;
   const dot=$id("projDot"); if(dot) dot.classList.toggle("live", connected && (state.tasks||[]).length>0);
 }
 function projMenuOpen(){ const m=$id("projMenu"); return m && m.style.display!=="none"; }
-function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) alert(projErr); return; } renderProjMenu(); m.style.display="block"; }
+function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) showErr(projErr, 'Não consegui abrir o projeto'); return; } renderProjMenu(); m.style.display="block"; }
 function closeProjMenu(){ const m=$id("projMenu"); if(m) m.style.display="none"; }
 function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos é uma aba); fica só se algum HTML antigo tiver #projMenu
   const m=$id("projMenu"); if(!m) return;
@@ -128,7 +128,7 @@ document.querySelectorAll('[data-aititle]').forEach(b=>{
     if(!text.trim()){ const s=$id(src); if(s){ s.focus(); s.placeholder='escreva a descrição primeiro — o título sai dela'; } return; }
     const orig=b.innerHTML; b.disabled=true; b.textContent='gerando…';
     try{ const t=await invoke('ai_title',{ text }); const d=$id(dst); if(d){ d.value=t; d.focus(); } }
-    catch(err){ alert('Não deu pra gerar o título:\n'+err); }
+    catch(err){ showErr(err, 'Não deu pra gerar o título'); }
     finally{ b.disabled=false; b.innerHTML=orig; }
   };
 });
@@ -256,7 +256,7 @@ function renderWf(){
       await sbFetch('/rest/v1/org_workflows?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:w.id, name:w.name, steps:w.steps||[] }) });
       b.textContent='✓ no catálogo do time';
       setTimeout(()=>{ b.disabled=false; b.textContent=o; }, 3000);
-    }catch(e){ alert('Falhou: '+(e.message||e)); b.disabled=false; b.textContent=o; }
+    }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent=o; }
   });
   el.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows[+b.dataset.wi].steps.splice(+b.dataset.rm,1); renderWf(); });
   // chips arrastáveis (reordenar etapas, inclusive entre equipes)
@@ -287,7 +287,7 @@ function parseAgentMd(filename, content){
 }
 async function importAgents(){
   let files;
-  try{ files = await invoke("import_agent_files"); }catch(e){ alert("Falha ao importar:\n"+e); return; }
+  try{ files = await invoke("import_agent_files"); }catch(e){ showErr(e, 'Falha ao importar'); return; }
   if(!files || !files.length) return;
   for(const f of files) cfgEdit.agents.push(parseAgentMd(f.filename, f.content));
   renderAg(); renderWf();
@@ -297,7 +297,7 @@ async function saveConfig(){
   cfgEdit.workflows.forEach(w=>{ if(!w.id) w.id=agSlug(w.name); if(!w.steps) w.steps=[]; });
   const btn=$id("agSave"); btn.disabled=true; btn.textContent="salvando…";
   try{ await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); lastSig=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
-  catch(e){ alert("Falha ao salvar catálogo:\n"+e); }
+  catch(e){ showErr(e, 'Falha ao salvar catálogo'); }
   finally{ btn.disabled=false; btn.textContent="salvar catálogo"; }
 }
 $id("agentsBtn").onclick = openAgents;

@@ -231,7 +231,7 @@ function renderTeamBoard(){
   el.querySelectorAll('[data-tscope]').forEach(b=>{ b.onclick=()=>tsSetScope(b.dataset.tscope); });
   el.querySelectorAll('[data-epopen]').forEach(b=>{ b.onclick=()=>{ const e=teamEpics.find(x=>x.id===b.dataset.epopen); if(e&&window.openEpicPage) openEpicPage(e); }; });
   el.querySelectorAll('[data-epsel]').forEach(b=>{ b.onclick=()=>{ lsSet('tmEpic', lsGet('tmEpic')===b.dataset.epsel?'':b.dataset.epsel); if(tmView!=='board'){ tmView='board'; lsSet('tmView','board'); } teamPaintSig=''; renderTeamBoard(); }; });
-  { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=await askText('Novo épico','ex.: Filtros avançados'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ alert('Falhou: '+e.message); } }; }
+  { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=await askText('Novo épico','ex.: Filtros avançados'); if(!n) return; try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId() }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }catch(e){ showErr(e, 'Falhou'); } }; }
   { const s=el.querySelector('#tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   { const s=el.querySelector('#tbDev'); if(s) s.onchange=e=>{ lsSet('tmDev', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   { const b=el.querySelector('#tbRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamPaintSig=''; renderTeamBoard(); }; }
@@ -241,7 +241,7 @@ function renderTeamBoard(){
   el.querySelectorAll('[data-rev]').forEach(b=>{ b.onclick=async(e)=>{ e.stopPropagation(); const ct=all.find(x=>x.id===b.dataset.rev); if(!ct) return; b.disabled=true; b.textContent='criando review…';
     const done=await cloudPrReviewCheck(ct.pr_url).catch(()=>null);
     if(done && !await askYes('⚠ Este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele.\n\nRodar OUTRO review mesmo assim?')){ b.disabled=false; b.textContent='revisar com agente'; return; }
-    invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ alert('Falha: '+err); b.disabled=false; b.textContent='revisar com agente'; }); }; });
+    invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ showErr(err, 'Falha'); b.disabled=false; b.textContent='revisar com agente'; }); }; });
   el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;
     if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
@@ -270,12 +270,12 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
     teamTasks=null; lastSig=''; await refresh(); if(!opts.silent) setView('flow');
     return localId;
-  }catch(e){ if(opts.silent) throw e; alert('Não deu pra assumir & iniciar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.textContent='assumir & iniciar'; } }
+  }catch(e){ if(opts.silent) throw e; showErr(e, 'Não deu pra assumir & iniciar'); if(btn){ btn.disabled=false; btn.textContent='assumir & iniciar'; } }
 }
 async function teamDeleteCard(ct){
   if(!await askYes('Remover "'+ct.title+'" do backlog do time?')) return false;
   try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'DELETE' }); teamTasks=null; renderTeamBoard(); return true; }
-  catch(e){ alert('Falhou: '+e.message); return false; }
+  catch(e){ showErr(e, 'Falhou'); return false; }
 }
 
 // ---- detalhe/edição do cartão ----
@@ -321,7 +321,7 @@ function openCloudTask(ct){
     }
     if(docs.length) html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">`+docs.map(a=>`<button class="btn sm mono" data-proof="${escA(a.storage_path)}">${esc(a.name)}</button>`).join('')+`</div>`;
     el.innerHTML=html;
-    el.querySelectorAll('[data-proof]').forEach(b=>{ b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.proof)); }catch(e){ alert('Falha ao abrir: '+(e.message||e)); } }; });
+    el.querySelectorAll('[data-proof]').forEach(b=>{ b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.proof)); }catch(e){ showErr(e, 'Falha ao abrir'); } }; });
   }).catch(()=>{});
   sbGet('task_activity?select=user_id,kind,body,at&task_id=eq.'+ct.id+'&order=id.desc&limit=8').then(rows=>{
     const K={created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'entregou',comment:'comentou',status:'status'};
@@ -336,12 +336,12 @@ function openCloudTask(ct){
         sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'edited', body:'' }).catch(()=>{});
         teamTasks=null; $id('ctOverlay').style.display='none'; renderTeamBoard();
         if(typeof ctpTask!=='undefined'&&ctpTask&&ctpTask.id===ct.id){ ctPageLoad(ct.id, true).then(()=>ctPageRender()); }
-      }catch(e){ alert('Falhou: '+e.message); b.disabled=false; b.textContent='salvar alterações'; }
+      }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent='salvar alterações'; }
     }; }
   wireLinkChips(body);
   { const s=$id('ctEpic'); if(s) s.onchange=async()=>{
       try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ epic_id: s.value||null }) }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); }
-      catch(e){ alert('Falhou: '+e.message); }
+      catch(e){ showErr(e, 'Falhou'); }
     }; }
 }
 $id('ctClose').onclick=()=>{ $id('ctOverlay').style.display='none'; };
@@ -368,7 +368,7 @@ async function ntShareSync(){
     const n=await askText('Novo épico','ex.: Filtros avançados');
     if(!n) return;
     try{ const rows=await sbPost('epics',{ team_id:cloudTeamId(), name:n, created_by:cloudUserId() }); teamEpics.push(rows[0]); await ntShareSync(); sel.value=rows[0].id; }
-    catch(e){ alert('Falhou: '+e.message); }
+    catch(e){ showErr(e, 'Falhou'); }
   };
 }
 function ntEpicVal(){ const s=$id('ntEpic'); const v=s?s.value:''; return (v&&v!=='__new__')?v:null; }
@@ -398,15 +398,6 @@ tickLoop('teamNotifTick', teamNotifTick, 30000, 4000); // 42: sem sobreposição
 
 /* ---- provas pro time: o DEV escolhe publicar (decisão Q2) ---- */
 const cloudPubCache={}; // cloudTaskId -> [{name,size}]
-function cloudProofsBlock(t){
-  if(!SB.sess() || !cloudTeamId()) return '';
-  const cid=tmap()[t.id]; if(!cid) return '';
-  const pub=cloudPubCache[cid];
-  const n=pub===undefined?'…':pub.length;
-  return `<div class="seclbl">Provas no time <span class="n">${n}</span></div>
-    <div class="prbox"><div class="ihint">O time vê o cartão desta tarefa, mas os artefatos só sobem quando VOCÊ publicar. Publicados ficam na galeria do cartão (aba Time).</div>
-    <div class="prrow" style="margin-top:8px"><button class="btn primary sm" id="pubProofs"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z"/></svg>publicar provas pro time</button><span class="grow"></span>${pub&&pub.length?`<span class="dim" style="font-size:11px">${pub.length} publicado(s)</span>`:''}</div></div>`;
-}
 async function cloudPubList(cid, force){
   if(cloudPubCache[cid]!==undefined && !force) return cloudPubCache[cid];
   try{ cloudPubCache[cid]=await sbGet('artifacts_meta?select=id,name,kind,size,storage_path&task_id=eq.'+cid+'&order=created_at.desc'); }
@@ -414,9 +405,9 @@ async function cloudPubList(cid, force){
   return cloudPubCache[cid];
 }
 async function cloudPublishProofs(t, btn){
-  const cid=tmap()[t.id]; if(!cid){ alert('Esta tarefa não está sincronizada com o time.'); return; }
+  const cid=tmap()[t.id]; if(!cid){ toast('Esta tarefa não está sincronizada com o time.','warn'); return; }
   const arts=await loadArtifacts(t.id, t.status)||[];
-  if(!arts.length){ alert('Sem artefatos ainda — peça as provas/entregáveis primeiro.'); return; }
+  if(!arts.length){ toast('Sem artefatos ainda — peça as provas/entregáveis primeiro.','warn'); return; }
   if(btn){ btn.disabled=true; }
   let sent=0;
   try{
@@ -435,8 +426,8 @@ async function cloudPublishProofs(t, btn){
     sbPost('task_activity',{ task_id:cid, user_id:cloudUserId(), kind:'delivered', body:sent+' artefato(s) publicados' }).catch(()=>{});
     await cloudPubList(cid, true);
     if(btn){ btn.textContent='✓ '+sent+' publicados'; setTimeout(()=>{ btn.disabled=false; btn.innerHTML=window.ic('cloud')+'publicar provas pro time'; }, 3500); }
-    lastSig=''; renderSide();
-  }catch(e){ alert('Falha ao publicar:\n'+(e.message||e)); if(btn){ btn.disabled=false; btn.innerHTML=window.ic('cloud')+'publicar provas pro time'; } }
+    lastSig='';
+  }catch(e){ showErr(e, 'Falha ao publicar'); if(btn){ btn.disabled=false; btn.innerHTML=window.ic('cloud')+'publicar provas pro time'; } }
 }
 async function cloudSignedUrl(path){
   const j=await sbFetch('/storage/v1/object/sign/artifacts/'+path, { method:'POST', body: JSON.stringify({ expiresIn: 3600 }) });
@@ -465,7 +456,7 @@ async function cloudCatalog(orgId, isAdmin){
           for(const w of wfs){ lw[w.id]={ id:w.id, name:w.name, steps:w.steps||[] }; }
           await invoke('save_config',{ config:{ agents:Object.values(la), workflows:Object.values(lw) } });
           b.textContent='✓ aplicado no projeto';
-        }catch(e){ alert('Falhou: '+(e.message||e)); b.disabled=false; b.textContent='aplicar neste projeto'; }
+        }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent='aplicar neste projeto'; }
       }; }
     { const b=$id('sbCatPush'); if(b) b.onclick=async()=>{
         b.disabled=true; b.textContent='enviando…';
@@ -475,7 +466,7 @@ async function cloudCatalog(orgId, isAdmin){
           for(const w of (local.workflows||[])){ if(!w.id) continue; await sbFetch('/rest/v1/org_workflows?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:w.id, name:w.name, steps:w.steps||[] }) }); }
           b.textContent='✓ publicado pra org';
           cloudCatalog(orgId, isAdmin);
-        }catch(e){ alert('Falhou: '+(e.message||e)); b.disabled=false; b.textContent='enviar os deste projeto'; }
+        }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent='enviar os deste projeto'; }
       }; }
   }catch(e){ el.textContent='falhou: '+e.message; }
 }

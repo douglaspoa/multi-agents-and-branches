@@ -97,7 +97,7 @@ const IC = {
 const icEm = s => s.replace('<svg ', '<svg width="1em" height="1em" style="vertical-align:-.125em;flex:none" aria-hidden="true" ');
 IC.x = icEm(IC.xs); IC.ok = icEm(IC.check);
 // helper: ícone + rótulo num botão (substitui os emojis por SVG da biblioteca)
-async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
+async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ showErr(e, 'Não consegui abrir o link'); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
 // cores de status vêm do dicionário único (STATUS_META em 00-util.js)
@@ -133,6 +133,8 @@ function devUiSync(){ const b=$id('pubRelBtn'); if(b) b.style.display=canSeeDevT
 setTimeout(()=>{ invokeQuiet('is_dev_install').then(v=>{ devInstall=!!v; devUiSync(); }).catch(()=>{}); }, 0);
 // ---- pasta aberta SEM git: o app abre, mas branch/PR/worktree só depois de criar o repositório ----
 function repoHasGit(){ return !state || !state.repo || state.git!==false; }
+// E4: repositório com remote (GitHub)? Projeto criado só local não tem — o PR vira "publicar no GitHub"
+function repoHasRemote(){ return !state || !state.repo || state.git===false || state.remote!==false; }
 function gitUiSync(){
   const off=!repoHasGit();
   document.body.classList.toggle('nogit', off);
@@ -143,10 +145,10 @@ function gitUiSync(){
 // Devolve true quando pode seguir.
 async function gitGate(){
   if(repoHasGit()) return true;
-  const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
+  const name=pathBase(state.repo)||'esta pasta';
   if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Starfork precisa de um repositório. Criar agora?\n\n(cria o repositório na branch main, deixa a pasta de trabalho do Starfork fora do versionamento e faz o 1º commit com o conteúdo atual)`)) return false;
   try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
-  catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
+  catch(e){ showErr(e, 'Não consegui criar o repositório'); return false; }
 }
 // etiqueta na barra lateral: "sem git · criar repositório"
 function gitRailTag(){
@@ -268,7 +270,7 @@ async function refresh(){
   else state.graph = prevGraph || [];
   const conn = $id("conn");
   conn.classList.toggle("live", connected && state.tasks.length>0);
-  $id("connTxt").textContent = snap.repo ? snap.repo.split("/").slice(-2).join("/") : "sem repo";
+  $id("connTxt").textContent = snap.repo ? snap.repo.split(/[\\/]+/).filter(Boolean).slice(-2).join("/") : "sem repo";
   if(snap.repo && $id("repoInput").value==="") $id("repoInput").value = snap.repo;
   // header enxuto: com repo aberto, o caminho + "abrir" viram redundantes (o chip já mostra o repo)
   const hasRepo=!!snap.repo;

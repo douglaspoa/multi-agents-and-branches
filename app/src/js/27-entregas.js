@@ -35,7 +35,7 @@ function flowDemandCard(t){
   const dot= asking.length||t.status==='plan-review'?'var(--warn)' : ['error','conflict'].includes(t.status)?'var(--crit)' : (ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)' : ['review','delivered'].includes(t.status)?'var(--warn)' : done?'var(--info)':'var(--muted)';
   const ev=lastEventOf(t.id);
   const prN=prNumOf(t);
-  const proj=t.proj||(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'';
+  const proj=t.proj||pathBase(state.repo);
   const ty=taskType(t);
   if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
   const rows=reqRows(t);
@@ -47,6 +47,8 @@ function flowDemandCard(t){
     : done ? (prN?`PR #${prN} mergeado`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
     : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${nPl(diffFiles(diffOf(t.id)),'arquivo')}`
+    // E1: erro conhecido do motor/gh vira frase em pt-BR (antes: "spawn claude ENOENT", "Please run /login"…)
+    : (t.status==='error' && ev && humanErr(ev.text).id!=='generic') ? `<b style="color:var(--crit)">${esc(humanErr(ev.text).msg)}</b>`
     : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
   const artC=artifactsCache[t.id];
   if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
@@ -121,7 +123,7 @@ async function enSaveDeliverables(t, conclude, btn){
     lsSet('entregaSaved:'+t.id, dest||'');
     if(conclude && !taskIsDone(t)){ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); }
     toast(`${nPl(names.length,'arquivo')} salvo${names.length===1?'':'s'} em ${enHomeShort(dest)}${conclude?' · concluída':''}`,'ok');
-  }catch(e){ toast('Não deu pra salvar: '+(e&&e.message||e),'err'); }
+  }catch(e){ showErr(e, 'Não deu pra salvar'); }
   finally{ if(btn){ btn.disabled=false; btn.innerHTML=o; } renderWorkspace(); }
 }
 function enSaveBarHtml(t, arts){
@@ -224,8 +226,8 @@ function enPvHtml(t, files){
 function enWirePv(t, main){
   main.querySelectorAll('.pv-tab[data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); });
   const nm=()=>{ const n=main.querySelector('.pv-name'); return n?n.textContent:''; };
-  bindClick('pvOpen', ()=>invoke('open_artifact',{ taskId:t.id, name:nm() }).catch(e=>toast('Não abriu: '+e,'err')));
-  bindClick('pvReveal', ()=>invoke('reveal_artifact',{ taskId:t.id, name:nm() }).catch(e=>toast('Não achei o arquivo: '+e,'err')));
+  bindClick('pvOpen', ()=>invoke('open_artifact',{ taskId:t.id, name:nm() }).catch(e=>showErr(e, 'Não abriu')));
+  bindClick('pvReveal', ()=>invoke('reveal_artifact',{ taskId:t.id, name:nm() }).catch(e=>showErr(e, 'Não achei o arquivo')));
   bindClick('pvPdf', (e)=>mdArtifactPdf(t.id, nm(), e.currentTarget));
 }
 // ---- "Ver funcionando": o app que o agente subiu, no topo da Entrega ----
@@ -299,10 +301,10 @@ function fwRenderEntrega(t, main){
   main.querySelectorAll('[data-docslack]').forEach(b=>b.onclick=()=>sendArtifactSlack(t.id, b.dataset.docslack));
   main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView({ block:'start', behavior:'smooth' }); }, 40); });
   main.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>{ if(b.dataset.hash&&typeof openCommit==='function') openCommit(b.dataset.hash); });
-  main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>toast('Não abriu a pasta: '+e,'err')));
+  main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>showErr(e, 'Não abriu a pasta')));
   bindClick('enGen', ()=>entregaGenReport(t));
   bindClick('enSave', (e)=>enSaveDeliverables(t, !done, e.currentTarget));
-  bindClick('enJustClose', async(e)=>{ e.currentTarget.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); } renderWorkspace(); });
+  bindClick('enJustClose', async(e)=>{ e.currentTarget.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); } renderWorkspace(); });
   bindClick('enChDir', async()=>{ const p=await enPickDir(enBaseDir()); if(p&&String(p).trim()){ lsSet('entregaDir', String(p).trim()); renderWorkspace(); } });
   bindClick('enLiveOpen', ()=>{ const pv=taskPreviewUrl(t.id); if(pv) invoke('open_url',{ url:pv }).catch(()=>{}); });
   bindClick('enLiveMob', async()=>{ const pv=taskPreviewUrl(t.id); if(!pv) return; const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
@@ -334,7 +336,7 @@ async function entregaFacts(t){
   const notas=eventsOf(t.id).filter(e=>['done','note'].includes(e.type)&&(e.text||'').length>30&&!/^(💬|❓|perguntou ao humano|humano respondeu)|sess[aã]o iniciada|claude finaliz|timeout|rework/i.test(e.text||'')).slice(-12).map(e=>`- ${e.agent||''}: ${String(e.text).slice(0,220)}`);
   const roles=(t.roles||[]).map(r=>`${r.name} (${r.role}, ${r.engine||''}${r.model?' '+r.model:''})`).join(', ');
   return [
-    `DEMANDA: ${t.title}`, `TIPO: ${TYPE_PT[taskType(t)]||taskType(t)}`, `PROJETO: ${(state.repo||'').split('/').pop()}`,
+    `DEMANDA: ${t.title}`, `TIPO: ${TYPE_PT[taskType(t)]||taskType(t)}`, `PROJETO: ${pathBase(state.repo)}`,
     `OBJETIVO: ${t.objective||'—'}`,
     `REQUISITOS:\n${rows.map(r=>`- ${r.text} → ${r.st==='ok'?'PROVADO'+(r.evidence.length?' (evidência: '+r.evidence.join(', ')+')':''):r.st==='blk'?'NÃO PROVADO'+(r.note?' — '+r.note:''):'sem verificação'}`).join('\n')||'—'}`,
     `ENTREGÁVEIS COMBINADOS: ${(t.deliverables||[]).join(' | ')||'—'}`,
@@ -361,7 +363,7 @@ async function entregaGenReport(t){
 }
 async function entregaDocPdf(t, name, btn){
   try{ if(btn){ btn.disabled=true; btn.textContent='PDF…'; } const c=await invoke('read_artifact',{ taskId:t.id, name }); const p=await invoke('html_to_pdf',{ html: dailyPdfHtml(c.text||'', new Date().toLocaleDateString('pt-BR')), name: (t.id+'-'+name).replace(/\.md$/i,'') }); if(btn) btn.textContent='PDF ✓'; setTimeout(()=>{ if(btn){ btn.textContent='PDF'; btn.disabled=false; } },2500); }
-  catch(e){ alert('Falhou o PDF:\n'+(e&&e.message||e)); if(btn){ btn.textContent='PDF'; btn.disabled=false; } }
+  catch(e){ showErr(e, 'Falhou o PDF'); if(btn){ btn.textContent='PDF'; btn.disabled=false; } }
 }
 // ---- modal do relatório (entrega ou período): ler · copiar · salvar .md · PDF ----
 function repShow(title, md, fileBase){
@@ -379,13 +381,13 @@ function repShow(title, md, fileBase){
 async function periodReport(){
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
   const tasks=flowVisible(src).filter(taskIsDone).sort((a,b)=>b.created_at-a.created_at).slice(0,25);
-  if(!tasks.length){ alert('Nenhuma demanda concluída neste filtro/período.'); return; }
+  if(!tasks.length){ toast('Nenhuma demanda concluída neste filtro/período.','warn'); return; }
   const b=$id('flowPeriodRep'); if(b){ b.disabled=true; b.textContent='escrevendo…'; }
   try{
     const facts=[]; for(const t of tasks){ facts.push(await entregaFacts(t)); }
     const label={today:'hoje',week:'últimos 7 dias',month:'últimos 30 dias'}[flowPeriod]||'todas as entregas';
     const md=await invoke('ai_task_report',{ text: facts.join('\n\n=====\n\n'), kind:'periodo', label });
     repShow('Relatório de entregas — '+label, md, 'entregas-'+(flowPeriod||'todas'));
-  }catch(e){ alert('Falhou o relatório: '+(e&&e.message||e)); }
+  }catch(e){ showErr(e, 'Falhou o relatório'); }
   finally{ if(b){ b.disabled=false; b.innerHTML=ic('doc')+'relatório do período'; } }
 }
