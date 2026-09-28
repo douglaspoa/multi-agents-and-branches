@@ -114,7 +114,8 @@
 .chathint.busy { color: var(--text-2); }
 
 /* chat do projeto: o composer acompanha a coluna da página (mesma largura do cabeçalho) */
-#pcOverlay.astab .cc.cc { max-width: var(--page-max, 1240px); width: 100%; margin: 0 auto; padding: 10px var(--page-pad, 34px) 14px; border-top: 1px solid var(--border); border-radius: 0; background: var(--bg); font-family: inherit; }
+/* sem faixa própria: o composer fica sobre o MESMO fundo da página (antes a faixa tinha outra cor e não ia até as bordas) */
+#pcOverlay.astab .cc.cc { max-width: var(--page-max, 1240px); width: 100%; margin: 0 auto; padding: 8px var(--page-pad, 34px) 14px; border-top: 0; border-radius: 0; background: transparent; font-family: inherit; }
 #pcOverlay.astab .pcpend { max-width: var(--page-max, 1240px); width: 100%; padding: 0 var(--page-pad, 34px) 8px; }
 /* planner e nova issue: mesma caixa */
 .plinput.cc.cc { padding: 10px 18px 12px; }

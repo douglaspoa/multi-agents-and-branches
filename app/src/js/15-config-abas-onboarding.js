@@ -34,12 +34,13 @@ function openCfg(){
       ${(canSeeDevTools()||lsGet('sb:url'))?'<button class="btn sm" id="cfgBackend" title="avançado: aponta o app pra outro servidor (dev/admin)">servidor da conta…</button>':''}
       <button class="btn sm" id="cfgTour">rever o tour</button>
     </div>
-    <div style="display:flex;margin-top:20px"><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
+    <div class="cfgsavebar"><span class="dim" id="cfgDirty"></span><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
   invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); }catch(_){} }).catch(()=>{});
   { const cap=$id('cfgCap'), brl=$id('cfgBrl'), out=$id('cfgCapBrl');
     const upd=()=>{ const v=Math.max(0, parseFloat(cap.value)||0), r=parseFloat(brl.value)||usdBrlRate(); out.textContent=v>0?'≈ R$ '+fmtNumBR(v*r,true):'sem teto'; };
     cap.oninput=upd; brl.oninput=upd; upd(); }
+  { const mark=()=>{ const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; }; body.oninput=mark; body.onchange=mark; } // o usuário vê que falta salvar
   $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0)));
     lsSet('costCap', String(Math.max(0, parseFloat($id('cfgCap').value)||0)));
     { const r=parseFloat($id('cfgBrl').value); if(r>0) lsSet('usdBrl', String(r)); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);

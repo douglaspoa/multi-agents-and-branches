@@ -180,7 +180,7 @@
 /* R5-10: chat lateral (Código/Revisão): a conversa rolava colada embaixo da pílula "CONSTRUINDO" e parecia passar
    por baixo dela — a pílula fica fixa no fluxo e o topo da conversa ganha respiro + um fade curto */
 .fwchat .fwctx{flex:none}
-.fwchat .fwthread{padding-top:12px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 14px);mask-image:linear-gradient(to bottom,transparent 0,#000 14px)}
+.fwchat .fwthread{padding-top:12px} /* sem máscara de fade no topo: a linha cortada parecia texto por baixo da barra "aguardando você" */
 /* R5-10: o canvas do orquestrador termina ANTES do chat (borda + fade): a fase que não cabe "continua →" em vez de
    parecer escondida embaixo do painel — arraste o fundo ou use − pra ver o resto */
 .orq-canvas{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent)}
