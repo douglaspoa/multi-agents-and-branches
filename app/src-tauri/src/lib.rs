@@ -164,6 +164,7 @@ fn node_bin() -> String {
 /// Acha o `gh` sem depender do PATH (LaunchServices pode lançar com PATH mínimo).
 /// npm ao lado do node resolvido (nvm incluso) — app aberto pelo Finder tem
 /// PATH mínimo e um `npm` seco dá "No such file or directory" (Mac do Paulo).
+#[allow(dead_code)] // as checagens usam checks_path_env(); fica pra quem precisar do npm resolvido
 fn npm_cmd() -> Command {
     let nb = node_bin();
     let dir = std::path::Path::new(&nb).parent().map(|p| p.to_path_buf());
@@ -5843,47 +5844,590 @@ struct RepoCheck {
     detail: String,
 }
 
-/// Checagens pré-PR na worktree da tarefa (modal "Preparando o PR"):
-/// roda lint/test do package.json quando existem. Sem scripts → lista vazia.
-#[tauri::command(async)]
-fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>, String> {
+// ---------- Gate de verificação: checagens do projeto (testes, lint, tipos, build) ----------
+// O projeto declara as checagens em <repo>/.cardume/checks.json (Preferências do projeto →
+// "Checagens antes de aprovar"). Sem arquivo, vale o que for DETECTADO na cópia da tarefa
+// (package.json, Cargo.toml, pytest, go.mod). Cada checagem roda NA WORKTREE da tarefa, num
+// grupo de processo próprio (detach_new_group) com tempo-limite (signal_group mata a árvore),
+// e devolve exit code, duração e as últimas ~200 linhas do log — não um .txt que o agente escreveu.
+
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct CheckDef {
+    id: String,
+    label: String,
+    cmd: String,
+    #[serde(default)]
+    on: bool,
+    /// de onde veio: "package.json", "Cargo.toml", "pytest", "go.mod" ou "custom"
+    #[serde(default)]
+    source: String,
+}
+
+/// Checagens que dá pra deduzir dos arquivos do projeto. `on` = ligada por padrão
+/// (build fica desligado: costuma ser lento e o typecheck já pega o grosso).
+fn detect_checks_in(dir: &Path) -> Vec<CheckDef> {
+    let mut out: Vec<CheckDef> = vec![];
+    let def = |id: &str, label: &str, cmd: String, on: bool, source: &str| CheckDef { id: id.into(), label: label.into(), cmd, on, source: source.into() };
+    if let Ok(txt) = std::fs::read_to_string(dir.join("package.json")) {
+        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
+            let pm = if dir.join("pnpm-lock.yaml").is_file() { "pnpm" }
+                else if dir.join("yarn.lock").is_file() { "yarn" }
+                else if dir.join("bun.lockb").is_file() || dir.join("bun.lock").is_file() { "bun" }
+                else { "npm" };
+            let run = |s: &str| match pm {
+                "pnpm" => format!("pnpm run {s}"),
+                "yarn" => format!("yarn {s}"),
+                "bun" => format!("bun run {s}"),
+                _ => format!("npm run {s} --silent"),
+            };
+            let scripts = &j["scripts"];
+            let has = |s: &str| scripts[s].as_str().map(|v| !v.trim().is_empty()).unwrap_or(false);
+            if has("lint") { out.push(def("npm:lint", "Linter", run("lint"), true, "package.json")); }
+            if let Some(tc) = ["typecheck", "type-check", "check-types", "tsc"].iter().find(|s| has(s)) {
+                out.push(def("npm:typecheck", "Tipos (typecheck)", run(tc), true, "package.json"));
+            }
+            // o "test" que o `npm init` cria ("no test specified && exit 1") não é teste
+            if has("test") && !scripts["test"].as_str().unwrap_or("").contains("no test specified") {
+                out.push(def("npm:test", "Testes", run("test"), true, "package.json"));
+            }
+            if has("build") { out.push(def("npm:build", "Build", run("build"), false, "package.json")); }
+        }
+    }
+    if dir.join("Cargo.toml").is_file() {
+        out.push(def("cargo:test", "Testes (Rust)", "cargo test".into(), true, "Cargo.toml"));
+    }
+    let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap_or_default();
+    let pytest = dir.join("pytest.ini").is_file()
+        || dir.join("conftest.py").is_file()
+        || read("pyproject.toml").contains("pytest")
+        || read("setup.cfg").contains("[tool:pytest]")
+        || read("tox.ini").contains("[pytest]");
+    if pytest {
+        let py = if cfg!(windows) { "python" } else { "python3" };
+        out.push(def("py:pytest", "Testes (Python)", format!("{py} -m pytest -q"), true, "pytest"));
+    }
+    if dir.join("go.mod").is_file() {
+        out.push(def("go:test", "Testes (Go)", "go test ./...".into(), true, "go.mod"));
+    }
+    out
+}
+
+/// Detectadas + configuração do projeto → lista final (com `on` resolvido).
+/// cfg = { "enabled": { "<id>": bool }, "custom": [{ id?, label, cmd, on? }], "timeoutMin": n }
+fn effective_checks(detected: &[CheckDef], cfg: &serde_json::Value) -> Vec<CheckDef> {
+    let mut out: Vec<CheckDef> = detected
+        .iter()
+        .map(|d| CheckDef { on: cfg["enabled"][&d.id].as_bool().unwrap_or(d.on), ..d.clone() })
+        .collect();
+    if let Some(arr) = cfg["custom"].as_array() {
+        for (i, c) in arr.iter().enumerate() {
+            let cmd = c["cmd"].as_str().unwrap_or("").trim().to_string();
+            if cmd.is_empty() { continue; }
+            let id = c["id"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()).unwrap_or_else(|| format!("custom:{i}"));
+            let label = c["label"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or(&cmd).to_string();
+            out.push(CheckDef { id, label, cmd, on: c["on"].as_bool().unwrap_or(true), source: "custom".into() });
+        }
+    }
+    out
+}
+
+fn checks_cfg_path(repo: &Path) -> PathBuf { repo.join(".cardume").join("checks.json") }
+fn read_checks_cfg(repo: &Path) -> serde_json::Value {
+    std::fs::read_to_string(checks_cfg_path(repo))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+fn checks_timeout_secs(cfg: &serde_json::Value) -> u64 {
+    cfg["timeoutMin"].as_u64().filter(|m| *m >= 1 && *m <= 120).unwrap_or(10) * 60
+}
+
+/// Últimas N linhas do log, sem cores ANSI e com cada linha limitada — memória
+/// constante mesmo com teste que cospe megabytes.
+struct LineTail {
+    max_lines: usize,
+    max_cols: usize,
+    lines: std::collections::VecDeque<String>,
+    total: usize,
+}
+impl LineTail {
+    fn new(max_lines: usize, max_cols: usize) -> Self { LineTail { max_lines, max_cols, lines: Default::default(), total: 0 } }
+    fn push(&mut self, raw: &str) {
+        let mut s = strip_ansi(raw.trim_end_matches(['\r', '\n']));
+        if s.chars().count() > self.max_cols {
+            s = s.chars().take(self.max_cols).collect::<String>() + "…";
+        }
+        self.total += 1;
+        self.lines.push_back(s);
+        while self.lines.len() > self.max_lines { self.lines.pop_front(); }
+    }
+    fn text(&self) -> String {
+        let cut = self.total.saturating_sub(self.lines.len());
+        let head = if cut > 0 { format!("… ({cut} linhas antes cortadas)\n") } else { String::new() };
+        head + &self.lines.iter().cloned().collect::<Vec<_>>().join("\n")
+    }
+}
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\u{1b}' {
+            if it.peek() == Some(&'[') {
+                it.next();
+                while let Some(&n) = it.peek() { it.next(); if ('@'..='~').contains(&n) { break; } }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// FNV-1a 64 (estável entre versões do app — vai pro cache do front).
+fn fnv64(parts: &[&[u8]]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for p in parts { for b in p.iter() { h ^= *b as u64; h = h.wrapping_mul(0x0100_0000_01b3); } }
+    h
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct TaskFingerprint {
+    fingerprint: String,
+    head: String,
+    dirty: bool,
+}
+/// "Versão" do código da tarefa: HEAD + (se houver) hash das mudanças não commitadas.
+/// Mudou → as checagens anteriores ficam desatualizadas. `.cardume/` fica de fora
+/// (relatório/prints do agente não invalidam teste).
+fn wt_fingerprint(wt: &Path) -> Result<TaskFingerprint, String> {
+    let git = |args: &[&str]| -> Result<Vec<u8>, String> {
+        let o = Command::new("git").arg("-C").arg(wt).args(args).output().map_err(|e| e.to_string())?;
+        if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).trim().to_string()); }
+        Ok(o.stdout)
+    };
+    let head = String::from_utf8_lossy(&git(&["rev-parse", "HEAD"])?).trim().to_string();
+    let st = git(&["status", "--porcelain=v1", "--untracked-files=all", "--", ".", ":(exclude).cardume"])?;
+    let dirty = !st.iter().all(|b| b.is_ascii_whitespace());
+    let short: String = head.chars().take(12).collect();
+    if !dirty {
+        return Ok(TaskFingerprint { fingerprint: short, head, dirty });
+    }
+    let diff = git(&["diff", "HEAD", "--", ".", ":(exclude).cardume"]).unwrap_or_default();
+    // untracked: o diff não mostra o conteúdo — tamanho + mtime bastam pra perceber a mudança
+    let mut extra = String::new();
+    for line in String::from_utf8_lossy(&st).lines() {
+        if let Some(p) = line.strip_prefix("?? ") {
+            if let Ok(m) = std::fs::metadata(wt.join(p.trim_matches('"'))) {
+                let mt = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0);
+                extra.push_str(&format!("{p}:{}:{mt}\n", m.len()));
+            }
+        }
+    }
+    let h = fnv64(&[&st, &diff, extra.as_bytes()]);
+    Ok(TaskFingerprint { fingerprint: format!("{short}+{h:016x}"), head, dirty })
+}
+
+fn task_worktree(state: &State<AppState>, task_id: &str) -> Result<PathBuf, String> {
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("sem projeto aberto")?;
     let conn = open(&db)?;
     let wt: String = conn
         .query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    let mut out: Vec<RepoCheck> = vec![];
-    let pkg = PathBuf::from(&wt).join("package.json");
-    if let Ok(txt) = std::fs::read_to_string(&pkg) {
-        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
-            for (script, label) in [("lint", "Linter"), ("test", "Testes")] {
-                if j["scripts"][script].as_str().is_some() {
-                    let mut c = npm_cmd();
-                    c.args(["run", script, "--silent"]).current_dir(&wt);
-                    match output_timeout(c, 300) {
-                        Ok(o) => {
-                            let ok = o.status.success();
-                            let tail = |b: &[u8]| -> String {
-                                let s = String::from_utf8_lossy(b);
-                                s.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
-                            };
-                            out.push(RepoCheck {
-                                name: label.to_string(),
-                                ok,
-                                detail: if ok { "passou".into() } else { tail(&o.stderr).chars().take(500).collect() },
-                            });
-                        }
-                        Err(e) => out.push(RepoCheck {
-                            name: label.to_string(),
-                            ok: false,
-                            detail: if e.contains("os error 2") { "npm não encontrado nesta máquina — instale o Node (brew install node) e verifique o Ambiente".into() } else { e },
-                        }),
-                    }
+    let p = PathBuf::from(&wt);
+    if wt.is_empty() || !p.is_dir() {
+        return Err("a cópia de trabalho desta tarefa não existe mais (já foi limpa?)".into());
+    }
+    Ok(p)
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct CheckResult {
+    id: String,
+    label: String,
+    cmd: String,
+    ok: bool,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    timed_out: bool,
+    stopped: bool,
+    log: String,
+}
+
+/// pid do grupo da checagem em andamento por tarefa (pra "parar") + tarefas canceladas.
+static CHECK_PIDS: std::sync::OnceLock<Mutex<HashMap<String, i32>>> = std::sync::OnceLock::new();
+static CHECK_STOPS: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+fn check_pids() -> &'static Mutex<HashMap<String, i32>> { CHECK_PIDS.get_or_init(|| Mutex::new(HashMap::new())) }
+fn check_stops() -> &'static Mutex<std::collections::HashSet<String>> { CHECK_STOPS.get_or_init(|| Mutex::new(Default::default())) }
+
+/// PATH pras checagens: app aberto pelo Finder tem PATH mínimo — junta o node
+/// resolvido (nvm incluso), Homebrew, cargo e go.
+fn checks_path_env() -> String {
+    let mut dirs: Vec<String> = vec![];
+    if let Some(d) = Path::new(&node_bin()).parent() { dirs.push(d.display().to_string()); }
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin"] { dirs.push(d.into()); }
+    if !home.is_empty() {
+        dirs.push(format!("{home}/.cargo/bin"));
+        dirs.push(format!("{home}/go/bin"));
+        dirs.push(format!("{home}/.local/bin"));
+    }
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let cur = std::env::var("PATH").unwrap_or_default();
+    format!("{}{sep}{cur}", dirs.join(sep))
+}
+
+/// Roda UMA checagem no diretório, num grupo próprio; tempo-limite → mata a árvore.
+fn run_one_check(task_id: &str, dir: &Path, def: &CheckDef, secs: u64) -> CheckResult {
+    use std::io::BufRead;
+    let started = std::time::Instant::now();
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(format!("{} 2>&1", def.cmd));
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(format!("exec 2>&1\n{}", def.cmd));
+        c
+    };
+    // CI=1: vitest/jest/etc. rodam uma vez (sem modo watch); sem cor no log
+    cmd.current_dir(dir).env("PATH", checks_path_env()).env("CI", "1").env("FORCE_COLOR", "0").env("NO_COLOR", "1");
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    detach_new_group(&mut cmd);
+    let fail = |msg: String, started: std::time::Instant| CheckResult {
+        id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(), ok: false, exit_code: None,
+        duration_ms: started.elapsed().as_millis() as u64, timed_out: false, stopped: false, log: msg,
+    };
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return fail(format!("não consegui rodar o comando: {e}"), started),
+    };
+    let pid = child.id() as i32;
+    check_pids().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string(), pid);
+    let tail = Arc::new(Mutex::new(LineTail::new(200, 400)));
+    if let Some(out) = child.stdout.take() {
+        let t2 = tail.clone();
+        // a thread pode ficar presa se um neto escapar do grupo e segurar o pipe — por isso
+        // NÃO é joinada: o resultado lê o que já chegou.
+        std::thread::spawn(move || {
+            let mut r = std::io::BufReader::new(out);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match r.read_until(b'\n', &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => t2.lock().unwrap_or_else(|e| e.into_inner()).push(&String::from_utf8_lossy(&buf)),
                 }
             }
-        }
+        });
     }
-    Ok(out)
+    let deadline = started + std::time::Duration::from_secs(secs);
+    let (mut timed_out, mut stopped) = (false, false);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) => {}
+            Err(_) => break None,
+        }
+        if check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) {
+            stopped = true;
+            signal_group(pid, procsig::KILL);
+            break child.wait().ok();
+        }
+        if std::time::Instant::now() >= deadline {
+            timed_out = true;
+            signal_group(pid, procsig::KILL);
+            break child.wait().ok();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    };
+    // sobras em segundo plano (servidor de teste etc.) morrem junto com o grupo
+    signal_group(pid, procsig::KILL);
+    check_pids().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    std::thread::sleep(std::time::Duration::from_millis(150)); // últimas linhas do pipe
+    let mut log = tail.lock().unwrap_or_else(|e| e.into_inner()).text();
+    if timed_out { log.push_str(&format!("\n⏱ passou de {} min — a checagem foi interrompida", secs / 60)); }
+    if stopped { log.push_str("\n■ interrompida por você"); }
+    let exit_code = status.and_then(|s| s.code());
+    CheckResult {
+        id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(),
+        ok: !timed_out && !stopped && exit_code == Some(0),
+        exit_code, duration_ms: started.elapsed().as_millis() as u64, timed_out, stopped, log,
+    }
+}
+
+/// Roda as checagens LIGADAS na worktree, em ordem; `on_step(i, Some(res))` depois de cada uma.
+fn run_checks_in(task_id: &str, wt: &Path, defs: &[CheckDef], secs: u64, mut on_step: impl FnMut(&CheckDef, Option<&CheckResult>)) -> Vec<CheckResult> {
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    let mut out = vec![];
+    for d in defs.iter().filter(|d| d.on) {
+        if check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) { break; }
+        on_step(d, None);
+        let r = run_one_check(task_id, wt, d, secs);
+        on_step(d, Some(&r));
+        out.push(r);
+    }
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    out
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChecksConfig {
+    detected: Vec<CheckDef>,
+    effective: Vec<CheckDef>,
+    cfg: serde_json::Value,
+    file: String,
+    dir: String,
+}
+/// Checagens do projeto: detectadas (na cópia da tarefa, se `task_id`; senão no repo)
+/// + a configuração salva. O front mostra/edita; `run_checks` usa a mesma conta.
+#[tauri::command(async)]
+fn checks_config(state: State<AppState>, task_id: Option<String>) -> Result<ChecksConfig, String> {
+    let repo = repo_of(&state)?;
+    let dir = task_id.as_deref().filter(|s| !s.is_empty()).and_then(|t| task_worktree(&state, t).ok()).unwrap_or_else(|| repo.clone());
+    let cfg = read_checks_cfg(&repo);
+    let detected = detect_checks_in(&dir);
+    let effective = effective_checks(&detected, &cfg);
+    Ok(ChecksConfig { detected, effective, cfg, file: checks_cfg_path(&repo).display().to_string(), dir: dir.display().to_string() })
+}
+
+#[tauri::command(async)]
+fn checks_save(state: State<AppState>, cfg: serde_json::Value) -> Result<String, String> {
+    if !cfg.is_object() { return Err("configuração inválida".into()); }
+    let repo = repo_of(&state)?;
+    let p = checks_cfg_path(&repo);
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(p.display().to_string())
+}
+
+#[tauri::command(async)]
+fn task_fingerprint(state: State<AppState>, task_id: String) -> Result<TaskFingerprint, String> {
+    wt_fingerprint(&task_worktree(&state, &task_id)?)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChecksRun {
+    fingerprint: String,
+    head: String,
+    dirty: bool,
+    at: i64,
+    results: Vec<CheckResult>,
+}
+/// Roda as checagens ligadas do projeto na worktree da tarefa. Progresso sai no
+/// evento `checks-progress` ({ taskId, id, label, phase: "start"|"done", result }).
+#[tauri::command(async)]
+fn run_checks(app: tauri::AppHandle, state: State<AppState>, task_id: String) -> Result<ChecksRun, String> {
+    use tauri::Emitter;
+    let repo = repo_of(&state)?;
+    let wt = task_worktree(&state, &task_id)?;
+    if check_pids().lock().unwrap_or_else(|e| e.into_inner()).contains_key(&task_id) {
+        return Err("as checagens desta tarefa já estão rodando".into());
+    }
+    let cfg = read_checks_cfg(&repo);
+    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let fp = wt_fingerprint(&wt)?; // ANTES de rodar: é esta versão que foi verificada
+    let tid = task_id.clone();
+    let results = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |d, r| {
+        let _ = app.emit("checks-progress", serde_json::json!({ "taskId": tid, "id": d.id, "label": d.label, "phase": if r.is_some() { "done" } else { "start" }, "result": r }));
+    });
+    Ok(ChecksRun { fingerprint: fp.fingerprint, head: fp.head, dirty: fp.dirty, at: now_ms(), results })
+}
+
+#[tauri::command(async)]
+fn run_checks_stop(task_id: String) -> bool {
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.clone());
+    let pid = check_pids().lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    if let Some(p) = pid { signal_group(p, procsig::KILL); true } else { false }
+}
+
+/// "Aprovar mesmo assim": registra o motivo no projeto (.cardume/checks-overrides.jsonl).
+#[tauri::command(async)]
+fn checks_override_log(state: State<AppState>, task_id: String, reason: String, fingerprint: String, failing: Vec<String>) -> Result<(), String> {
+    use std::io::Write;
+    let repo = repo_of(&state)?;
+    let p = repo.join(".cardume").join("checks-overrides.jsonl");
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    let line = serde_json::json!({ "at": now_ms(), "taskId": task_id, "reason": reason, "fingerprint": fingerprint, "failing": failing });
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| e.to_string())?;
+    writeln!(f, "{line}").map_err(|e| e.to_string())
+}
+
+/// Checagens pré-PR (modal "Preparando o PR" antigo e aprovação pelo celular): agora usa
+/// as MESMAS checagens do projeto (detectadas + .cardume/checks.json). Sem nenhuma → lista vazia.
+#[tauri::command(async)]
+fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>, String> {
+    let repo = repo_of(&state)?;
+    let wt = task_worktree(&state, &task_id)?;
+    let cfg = read_checks_cfg(&repo);
+    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let res = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |_, _| {});
+    Ok(res
+        .into_iter()
+        .map(|r| {
+            let detail = if r.ok { "passou".to_string() } else {
+                let lines: Vec<&str> = r.log.lines().collect();
+                let tail = lines[lines.len().saturating_sub(8)..].join("\n");
+                if tail.contains("os error 2") || tail.contains("not found") && r.exit_code == Some(127) {
+                    format!("comando não encontrado nesta máquina ({}) — verifique o Ambiente", r.cmd)
+                } else { tail.chars().take(600).collect() }
+            };
+            RepoCheck { name: r.label, ok: r.ok, detail }
+        })
+        .collect())
+}
+
+// ---------- Entrega sem código: salvar os entregáveis numa pasta do usuário ----------
+fn home_dir_s() -> String { std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into()) }
+/// Pasta padrão das entregas: ~/Documents/Starfork/Entregas
+#[tauri::command(async)]
+fn deliverables_default_dir() -> String {
+    PathBuf::from(home_dir_s()).join("Documents").join("Starfork").join("Entregas").display().to_string()
+}
+/// Um nome de pasta seguro (sem barra, dois-pontos, ..; no máx. 80 caracteres).
+fn safe_dir_component(s: &str) -> String {
+    let c: String = s.chars().map(|ch| if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || ch.is_control() { ' ' } else { ch }).collect();
+    let c = c.split_whitespace().collect::<Vec<_>>().join(" ");
+    let c = c.trim_matches('.').trim().chars().take(80).collect::<String>();
+    if c.is_empty() { "entrega".into() } else { c }
+}
+/// Caminho livre: "x.pdf" já existe → "x (2).pdf".
+fn free_path(p: PathBuf) -> PathBuf {
+    if !p.exists() { return p; }
+    let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    for i in 2..1000 {
+        let c = dir.join(format!("{stem} ({i}){ext}"));
+        if !c.exists() { return c; }
+    }
+    p
+}
+/// Copia os artefatos da tarefa pra <base>/<sub…>/ (sub = "projeto/2026-09-27 título",
+/// cada parte higienizada). Devolve a pasta final.
+#[tauri::command(async)]
+fn save_deliverables(state: State<AppState>, task_id: String, names: Vec<String>, base: Option<String>, sub: String) -> Result<String, String> {
+    let base = base.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()).unwrap_or_else(deliverables_default_dir);
+    let base = if let Some(rest) = base.strip_prefix("~/") { PathBuf::from(home_dir_s()).join(rest) } else { PathBuf::from(&base) };
+    if !base.is_absolute() { return Err("escolha uma pasta com o caminho completo".into()); }
+    let mut dest = base;
+    for part in sub.split('/').filter(|p| !p.trim().is_empty()) { dest.push(safe_dir_component(part)); }
+    std::fs::create_dir_all(&dest).map_err(|e| format!("não consegui criar a pasta {}: {e}", dest.display()))?;
+    let mut n = 0;
+    for name in names.iter().filter(|n| n.as_str() != "requirements.json") {
+        let src = artifact_path(&state, &task_id, name)?;
+        let fname = Path::new(name).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| "arquivo".into());
+        std::fs::copy(&src, free_path(dest.join(fname))).map_err(|e| format!("falhou copiar {name}: {e}"))?;
+        n += 1;
+    }
+    if n == 0 { return Err("nenhum entregável pra salvar".into()); }
+    Ok(dest.display().to_string())
+}
+/// Abre uma pasta no Finder/gerenciador de arquivos.
+#[tauri::command(async)]
+fn open_folder(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_dir() { return Err("pasta não encontrada".into()); }
+    let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
+    Command::new(opener).arg(&p).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod checks_tests {
+    use super::*;
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sf-checks-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    #[test]
+    fn detecta_scripts_do_package_json_e_ignora_test_placeholder() {
+        let d = tmp("pkg");
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"lint":"eslint .","typecheck":"tsc --noEmit","test":"echo \"Error: no test specified\" && exit 1","build":"vite build"}}"#).unwrap();
+        let c = detect_checks_in(&d);
+        let ids: Vec<&str> = c.iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(ids, vec!["npm:lint", "npm:typecheck", "npm:build"]);
+        assert_eq!(c[0].cmd, "npm run lint --silent");
+        assert!(!c[2].on, "build desligado por padrão");
+        std::fs::write(d.join("pnpm-lock.yaml"), "").unwrap();
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"test":"vitest"}}"#).unwrap();
+        let c = detect_checks_in(&d);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].cmd, "pnpm run test");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn detecta_cargo_pytest_e_go() {
+        let d = tmp("multi");
+        std::fs::write(d.join("Cargo.toml"), "[package]\nname='x'").unwrap();
+        std::fs::write(d.join("pyproject.toml"), "[tool.pytest.ini_options]\n").unwrap();
+        std::fs::write(d.join("go.mod"), "module x").unwrap();
+        let ids: Vec<String> = detect_checks_in(&d).into_iter().map(|x| x.id).collect();
+        assert_eq!(ids, vec!["cargo:test", "py:pytest", "go:test"]);
+        let vazio = tmp("vazio");
+        assert!(detect_checks_in(&vazio).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&vazio);
+    }
+    #[test]
+    fn config_liga_desliga_e_soma_comandos_proprios() {
+        let det = vec![
+            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: "npm run lint".into(), on: true, source: "package.json".into() },
+            CheckDef { id: "npm:build".into(), label: "Build".into(), cmd: "npm run build".into(), on: false, source: "package.json".into() },
+        ];
+        let cfg = serde_json::json!({ "enabled": { "npm:lint": false, "npm:build": true }, "custom": [ { "label": "E2E", "cmd": "npx playwright test" }, { "cmd": "  " } ] });
+        let e = effective_checks(&det, &cfg);
+        assert_eq!(e.len(), 3);
+        assert!(!e[0].on && e[1].on);
+        assert_eq!((e[2].id.as_str(), e[2].label.as_str(), e[2].on, e[2].source.as_str()), ("custom:0", "E2E", true, "custom"));
+        assert_eq!(checks_timeout_secs(&cfg), 600);
+        assert_eq!(checks_timeout_secs(&serde_json::json!({ "timeoutMin": 3 })), 180);
+    }
+    #[test]
+    fn log_guarda_so_as_ultimas_linhas_sem_cor_e_cortadas() {
+        let mut t = LineTail::new(200, 10);
+        for i in 0..250 { t.push(&format!("linha {i}\n")); }
+        let s = t.text();
+        assert!(s.starts_with("… (50 linhas antes cortadas)"));
+        assert!(s.ends_with("linha 249"));
+        assert_eq!(s.lines().count(), 201);
+        let mut t = LineTail::new(5, 10);
+        t.push("\u{1b}[31mFALHOU\u{1b}[0m um teste bem comprido");
+        assert_eq!(t.text(), "FALHOU um …");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn roda_checagem_com_exit_code_e_mata_no_tempo_limite() {
+        let d = tmp("run");
+        let ok = CheckDef { id: "a".into(), label: "A".into(), cmd: "echo oi; echo erro >&2; exit 0".into(), on: true, source: "custom".into() };
+        let r = run_one_check("t-test-a", &d, &ok, 30);
+        assert!(r.ok);
+        assert_eq!(r.exit_code, Some(0));
+        assert!(r.log.contains("oi") && r.log.contains("erro"), "stderr vai junto no log: {}", r.log);
+        let bad = CheckDef { cmd: "echo quebrou; exit 3".into(), ..ok.clone() };
+        let r = run_one_check("t-test-b", &d, &bad, 30);
+        assert!(!r.ok);
+        assert_eq!(r.exit_code, Some(3));
+        let slow = CheckDef { cmd: "sleep 30".into(), ..ok.clone() };
+        let t0 = std::time::Instant::now();
+        let r = run_one_check("t-test-c", &d, &slow, 1);
+        assert!(r.timed_out && !r.ok);
+        assert!(t0.elapsed().as_secs() < 10);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn nome_de_pasta_seguro() {
+        assert_eq!(safe_dir_component("Relatório: agosto/2026?"), "Relatório agosto 2026");
+        assert_eq!(safe_dir_component(".."), "entrega");
+        assert_eq!(safe_dir_component("  "), "entrega");
+    }
 }
 
 #[derive(Serialize)]
@@ -6897,6 +7441,15 @@ pub fn run() {
             list_projects,
             projects_overview,
             repo_checks,
+            checks_config,
+            checks_save,
+            task_fingerprint,
+            run_checks,
+            run_checks_stop,
+            checks_override_log,
+            deliverables_default_dir,
+            save_deliverables,
+            open_folder,
             file_diff,
             pr_body_ai,
             ai_spec,

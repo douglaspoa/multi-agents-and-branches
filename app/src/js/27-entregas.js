@@ -53,11 +53,11 @@ function flowDemandCard(t){
   const arts=(artC&&artC.list||[]).filter(a=>a.name!=='requirements.json');
   const nImg=arts.filter(a=>a.kind==='image').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
-  const artOnly=['invest','design'].includes(ty);
+  const artOnly=['invest','design'].includes(ty)||entregaNonCode(t); // FT-6: entrega só de documentos também não abre PR
   const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia">⚡ resolver conflito</button>`
     : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.cright} iniciar</button>`
     : asking.length ? `<button class="btn primary sm" data-dcopen="${escA(t.id)}">responder</button>`
-    : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-arch="${escA(t.id)}">✓ concluir</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
+    : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">✓ ver e salvar</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
     : (done ? `<button class="btn sm" data-dcopen="${escA(t.id)}">ver entrega</button>` : '');
   const segs=[1,2,3,4,5].map(i=>`<i class="${i<=ph?((asking.length&&i===ph)?'on warn':'on'):''}"></i>`).join('');
   const foot = done
@@ -88,13 +88,164 @@ function fwModesHtml(t){
   const M=[['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão']]; if(t.prUrl) M.push(['pr','PR']);
   return M.map(([k,l])=>`<button class="fwmode${fwMode===k?' on':''}" data-fwmode="${k}">${l}</button>`).join('');
 }
+// ---- entrega SEM código (FT-6): investigação/design, ou tarefa que só produziu documentos ----
+// Júlia vetou um "modo" separado: é o TIPO da entrega que esconde branch/PR. O fim é salvar os
+// entregáveis numa pasta do usuário e concluir.
+function entregaArts(t){ const c=artifactsCache[t.id]; return (c&&c.list||[]).filter(a=>a.name!=='requirements.json'); }
+function entregaNonCode(t){
+  if(!t || t.prUrl) return false;
+  if(typeof fwArtOnly==='function' && fwArtOnly(t)) return true;
+  const d=diffOf(t.id);
+  return !!(d && diffFiles(d)===0 && entregaArts(t).length); // não mexeu em código, só entregou arquivos
+}
+const enPvSel={};      // taskId → nome do arquivo na prévia
+const enPvCache={};    // taskId|nome → conteúdo lido (read_artifact) | { err }
+const enLogOpen=new Set(); // taskId|checkId com o log aberto
+const enCfgOpen={};    // taskId → editor de checagens aberto dentro da Entrega
+let enDefDir='';       // ~/Documents/Starfork/Entregas (vem do Rust)
+function enHomeShort(p){ return String(p||'').replace(/^\/Users\/[^/]+|^\/home\/[^/]+|^[A-Z]:\\Users\\[^\\]+/,'~'); }
+function enBaseDir(){ return lsGet('entregaDir')||enDefDir||''; }
+function enSubDir(t){ const d=new Date(); const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const proj=t.proj||(t.repo||state.repo||'').split(/[\\/]/).filter(Boolean).slice(-1)[0]||'projeto'; return `${proj}/${iso} ${t.title||'entrega'}`; }
+async function enPickDir(cur){
+  const inv=window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.invoke;
+  if(inv){ try{ const r=await inv('plugin:dialog|open',{ options:{ directory:true, defaultPath:cur||undefined, title:'Onde salvar as entregas?' } }); return r?(Array.isArray(r)?r[0]:r):null; }catch(_){ } }
+  return await askText('Pasta das entregas', 'caminho completo da pasta (ex.: ~/Documents/Starfork/Entregas)', cur||'');
+}
+async function enSaveDeliverables(t, conclude, btn){
+  const names=entregaArts(t).map(a=>a.name);
+  if(!names.length){ toast('nenhum arquivo entregue ainda','warn'); return; }
+  const o=btn?btn.innerHTML:''; if(btn){ btn.disabled=true; btn.textContent='salvando…'; }
+  try{
+    const dest=await invoke('save_deliverables',{ taskId:t.id, names, base:enBaseDir()||null, sub:enSubDir(t) });
+    lsSet('entregaSaved:'+t.id, dest||'');
+    if(conclude && !taskIsDone(t)){ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); }
+    toast(`${nPl(names.length,'arquivo')} salvo${names.length===1?'':'s'} em ${enHomeShort(dest)}${conclude?' · concluída':''}`,'ok');
+  }catch(e){ toast('Não deu pra salvar: '+(e&&e.message||e),'err'); }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=o; } renderWorkspace(); }
+}
+function enSaveBarHtml(t, arts){
+  const done=taskIsDone(t), saved=lsGet('entregaSaved:'+t.id);
+  const base=enBaseDir(); const where=(base?enHomeShort(base):'~/Documents/Starfork/Entregas')+'/'+enSubDir(t);
+  return `<section class="en-save">
+    <span class="en-save-ic">${ic('folder',18)}</span>
+    <div class="en-save-t"><b>${saved?'Entregáveis salvos':'Salvar entregáveis na pasta'}</b>
+      <div class="dim">${saved?`em <span class="mono">${esc(enHomeShort(saved))}</span> · <a class="lnk" data-enopendir="${escA(saved)}">abrir pasta</a>`
+        :`${nPl(arts.length,'arquivo')} → <span class="mono" title="${escA(where)}">${esc(where)}</span> · <a class="lnk" id="enChDir">trocar pasta</a>`}</div></div>
+    <span style="flex:1"></span>
+    ${done?`<button class="btn sm${saved?'':' primary'}" id="enSave">${saved?'salvar de novo':'salvar na pasta'}</button>`
+      :`${saved?'':`<button class="btn sm ghost" id="enJustClose" title="conclui sem copiar os arquivos (eles continuam na pasta de trabalho do Starfork)">só concluir</button>`}<button class="btn primary" id="enSave" ${arts.length?'':'disabled title="o agente ainda não entregou nenhum arquivo"'}>${ic('save')}${saved?'concluir':'salvar e concluir'}</button>`}
+  </section>`;
+}
+// ---- bloco Verificação (FT-5) ----
+function enVerifHtml(t){
+  chkRefresh(t.id);
+  const g=chkGate(t), done=taskIsDone(t);
+  const pre=['review','delivered'].includes(t.status) && !t.prUrl && !done;
+  const cfgOpen=!!enCfgOpen[t.id];
+  const pill={ none:['sem checagens','muted'], loading:['conferindo…','muted'], running:['rodando…','run'], notrun:['não rodou','warn'], stale:['desatualizada','warn'], fail:['falhou','crit'], pass:['passou','good'], override:['liberada com motivo','warn'], err:['indisponível','muted'] }[g.st]||['—','muted'];
+  const r=g.r||(['notrun','stale','override'].includes(g.st)?chkResGet(t.id):null);
+  const live=g.st==='running'?g.live:null;
+  const cur=chkFpC[t.id]&&chkFpC[t.id].fp;
+  const short=h=>String(h||'').slice(0,7);
+  const sum = g.st==='none' ? `nenhuma checagem configurada neste projeto — a aprovação não fica bloqueada. <a class="lnk" data-encfg="1">configurar</a>`
+    : g.st==='loading' ? 'conferindo a versão do código desta tarefa…'
+    : g.st==='err' ? esc(g.err)
+    : g.st==='running' ? `rodando <b>${esc(live.cur?live.cur.label:'…')}</b> (${Math.min(live.done.length+1,g.on.length)} de ${g.on.length}) na cópia desta tarefa`
+    : g.st==='notrun' ? 'ainda não rodou nesta versão do código — rode pra liberar a aprovação'
+    : g.st==='stale' ? `<b>desatualizada</b>: o agente mexeu no código depois (verificada ${esc(short(r&&r.head))}${r&&r.dirty?'+':''}, agora ${esc(short(cur&&cur.head))}${cur&&cur.dirty?'+':''}). Rode de novo.`
+    : g.st==='fail' ? `<b>${nPl(g.bad.length,'checagem')} falhou</b> na versão atual — a aprovação fica bloqueada até corrigir (ou liberar com um motivo)`
+    : g.st==='pass' ? `tudo verde na versão atual <span class="mono dim">${esc(short(r.head))}${r.dirty?'+':''}</span> · ${esc(agoShort(r.at))==='agora'?'agora':'há '+esc(agoShort(r.at))}`
+    : g.st==='override' ? `⚠ liberada ${g.was==='fail'?'com checagem falhando':'sem verificação'}: <b>${esc(g.ov.reason)}</b>` : '';
+  const byId=Object.fromEntries(((live?live.done:(r&&r.results))||[]).map(x=>[x.id,x]));
+  const rows=(g.on||[]).map(c=>{
+    const x=byId[c.id]; const running=live&&live.cur&&live.cur.id===c.id;
+    const st=running?'run':x?(x.ok?'ok':'fail'):'na';
+    const k=t.id+'|'+c.id; const open=enLogOpen.has(k);
+    const meta=x?`<span class="vf-m">${chkDur(x.durationMs)}</span><span class="vf-m">${x.timedOut?'tempo esgotado':x.stopped?'parada':'exit '+(x.exitCode==null?'?':x.exitCode)}</span>`:(running?'<span class="vf-m">rodando…</span>':'<span class="vf-m">—</span>');
+    return `<div class="vf-row ${st}${g.st==='stale'?' old':''}"><span class="vf-ic">${st==='ok'?'✓':st==='fail'?'✕':st==='run'?'<span class="spin"></span>':'·'}</span>
+      <div class="vf-t"><b>${esc(c.label)}</b><span class="mono vf-cmd" title="${escA(c.cmd)}">${esc(c.cmd)}</span></div>${meta}
+      ${x&&x.log?`<button class="btn sm ghost" data-vflog="${escA(k)}">${open?'esconder log':'ver log'}</button>`:''}</div>
+      ${x&&open?`<pre class="vf-log mono">${esc(x.log||'')}</pre>`:''}`;
+  }).join('');
+  const canRun=!['none','loading','err','running'].includes(g.st);
+  const runBtn = g.st==='running' ? `<button class="btn sm" id="vfStop">■ parar</button>`
+    : canRun ? `<button class="btn sm${['notrun','stale'].includes(g.st)?' primary':''}" id="vfRun" title="roda as checagens do projeto na cópia desta tarefa (cada uma com até 10 min)">▶ ${g.st==='pass'||g.st==='fail'?'rodar de novo':'rodar checagens'}</button>` : '';
+  const ok=chkCanApprove(g);
+  const approve = pre ? `<div class="vf-approve">
+      ${g.st==='fail'?`<button class="btn sm" id="vfFix" title="manda o log da falha pro agente corrigir">${IC.ai} pedir pro agente corrigir</button>`:''}
+      <span style="flex:1"></span>
+      ${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
+      <button class="btn primary" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button></div>` : '';
+  return `<section class="en-sec en-verif vf-${g.st}" id="enVerif">
+    <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade (exit code e log)</span><span style="flex:1"></span>
+      <span class="vf-pill ${pill[1]}">${pill[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
+    <div class="vf-sum">${sum}</div>
+    ${rows?`<div class="vf-rows">${rows}</div>`:''}
+    ${cfgOpen?`<div class="vf-cfg" id="enChkCfg"></div>`:''}
+    ${approve}
+  </section>`;
+}
+function enWireVerif(t, main){
+  main.querySelectorAll('[data-vflog]').forEach(b=>b.onclick=()=>{ const k=b.dataset.vflog; enLogOpen.has(k)?enLogOpen.delete(k):enLogOpen.add(k); renderWorkspace(); });
+  main.querySelectorAll('[data-encfg]').forEach(b=>b.onclick=()=>{ enCfgOpen[t.id]=!enCfgOpen[t.id]; renderWorkspace(); });
+  bindClick('vfRun', ()=>chkRun(t));
+  bindClick('vfStop', ()=>chkStop(t));
+  bindClick('vfApprove', ()=>{ const g=chkGate(t); if(chkCanApprove(g)) prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
+  bindClick('vfOverride', async()=>{ const g=chkGate(t); if(await chkOverride(t, g)){ renderWorkspace(); prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); } });
+  bindClick('vfFix', async()=>{ const g=chkGate(t); if(g.st!=='fail') return;
+    const msg='A verificação do projeto falhou na sua cópia. Corrija e rode de novo antes de entregar:\n\n'+g.bad.map(b=>`### ${b.label} — \`${b.cmd}\` (${b.timedOut?'passou do tempo-limite':'exit '+b.exitCode})\n\`\`\`\n${String(b.log||'').split('\n').slice(-40).join('\n')}\n\`\`\``).join('\n\n');
+    if(typeof fwSendText==='function'){ await fwSendText(t.id, msg); toast('log enviado ao agente','ok'); } });
+  const cfgBox=$id('enChkCfg'); if(cfgBox && typeof chkCfgEditor==='function') chkCfgEditor(cfgBox, t.id, ()=>{ delete chkCfg[t.id]; chkRefresh(t.id); });
+}
+// ---- Prévia do entregável (FT-6) ----
+function enPvPick(t, files){
+  const cur=enPvSel[t.id]; if(cur && files.some(a=>a.name===cur)) return cur;
+  const rank=a=>({ pdf:0, md:1, csv:2, html:3, image:4, text:5 }[pvKind(a.name)] ?? 9);
+  const f=files.slice().sort((a,b)=>rank(a)-rank(b))[0]; return f?f.name:'';
+}
+function enPvHtml(t, files){
+  if(!files.length) return '';
+  const sel=enPvPick(t, files); const a=files.find(x=>x.name===sel)||files[0];
+  const k=t.id+'|'+a.name; const c=enPvCache[k];
+  if(c===undefined){ enPvCache[k]=null; invoke('read_artifact',{ taskId:t.id, name:a.name }).then(v=>{ enPvCache[k]=v||{ err:'vazio' }; }).catch(e=>{ enPvCache[k]={ err:String(e&&e.message||e) }; }).finally(()=>{ if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); }); }
+  const kind=pvKind(a.name);
+  const tag={ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[kind]||'ARQ';
+  return `<section class="en-sec en-prev" id="enPv">
+    <div class="seclbl2">Prévia <span class="dim">· o arquivo de verdade, sem sair daqui</span></div>
+    ${files.length>1?`<div class="pv-tabs">${files.map(f=>`<button class="pv-tab${f.name===a.name?' on':''}" data-pvsel="${escA(f.name)}" title="${escA(f.name)}"><i>${({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[pvKind(f.name)]||'ARQ')}</i>${esc(f.name.split('/').pop())}</button>`).join('')}</div>`:''}
+    <div class="pv-bar"><span class="en-dic">${tag}</span><b class="pv-name">${esc(a.name)}</b><span class="dim pv-meta">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span><span style="flex:1"></span>
+      ${kind==='md'?`<button class="btn sm ghost" id="pvPdf" title="gera um PDF formatado deste documento">${ic('doc')}exportar PDF</button>`:''}
+      <button class="btn sm" id="pvOpen" title="abre no programa padrão do computador (Preview, Excel, Word, navegador…)">${IC.extlink||'↗'} abrir no app padrão</button>
+      <button class="btn sm" id="pvReveal" title="mostra o arquivo na pasta">${ic('folder')}mostrar na pasta</button></div>
+    <div class="pv-body pv-${kind}">${artPreviewHtml(a.name, c)}</div>
+  </section>`;
+}
+function enWirePv(t, main){
+  main.querySelectorAll('.pv-tab[data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); });
+  const nm=()=>{ const n=main.querySelector('.pv-name'); return n?n.textContent:''; };
+  bindClick('pvOpen', ()=>invoke('open_artifact',{ taskId:t.id, name:nm() }).catch(e=>toast('Não abriu: '+e,'err')));
+  bindClick('pvReveal', ()=>invoke('reveal_artifact',{ taskId:t.id, name:nm() }).catch(e=>toast('Não achei o arquivo: '+e,'err')));
+  bindClick('pvPdf', (e)=>mdArtifactPdf(t.id, nm(), e.currentTarget));
+}
+// ---- "Ver funcionando": o app que o agente subiu, no topo da Entrega ----
+function enLiveHtml(t){
+  if(taskIsDone(t)) return '';
+  const pv=taskPreviewUrl(t.id); if(!pv) return '';
+  const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+  return `<section class="en-live"><span class="en-live-dot"></span><div class="en-live-t"><b>Ver funcionando</b><span class="dim">o agente deixou o app rodando — teste antes de aprovar · <span class="mono">${esc(pv.replace(/^https?:\/\//,''))}</span></span></div><span style="flex:1"></span>
+    <button class="btn sm" id="enLiveMob" title="${tun?'o celular já tem acesso — clique pra fechar':'abre este site no seu celular (túnel criptografado)'}">${IC.phone} ${tun?'fechar no celular':'no celular'}</button>
+    <button class="btn primary" id="enLiveOpen">${IC.globe} abrir o app</button></section>`;
+}
 function fwRenderEntrega(t, main){
   const done=taskIsDone(t);
   if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
   const artC=artifactsCache[t.id];
   if(!artC||artC.status!==t.status) loadArtifacts(t.id, t.status).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
   if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
-  const arts=(artC&&artC.list||[]).filter(a=>a.name!=='requirements.json');
+  if(!enDefDir) invoke('deliverables_default_dir').then(d=>{ if(d&&!enDefDir){ enDefDir=d; if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); } }).catch(()=>{});
+  const arts=entregaArts(t);
+  const nonCode=entregaNonCode(t);
   const imgs=arts.filter(a=>a.kind==='image');
   const docs=arts.filter(a=>!/\.(png|jpe?g|gif|webp|svg)$/i.test(a.name));
   const rows=reqRows(t); const okN=rows.filter(r=>r.st==='ok').length;
@@ -103,36 +254,62 @@ function fwRenderEntrega(t, main){
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
   const proofsHtml = imgs.length ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${th}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evidenceNames.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}</div>` : `<div class="en-empty">nenhum print de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
   const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
-  const docIc=n=>/\.pdf$/i.test(n)?'PDF':/\.html?$/i.test(n)?'HTML':/\.md$/i.test(n)?'MD':'TXT';
-  const docsHtml = docs.length ? docs.map(a=>`<div class="en-doc"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-art="${escA(a.name)}">abrir</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
+  const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[pvKind(n)]||'ARQ');
+  const listed=nonCode?arts:docs;
+  const pvSel=enPvPick(t, nonCode?arts:docs);
+  const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
   const dels=(t.deliverables||[]).filter(Boolean);
   const timeline=stageStepper(t).replace('<div class="seclbl" style="margin-top:13px">Etapas</div>','');
   const dur=fmtDurMs(taskDurationMs(t));
-  main.innerHTML=`<div class="enpage">
-    <div class="en-head">
-      <div class="en-ht"><span class="ndeyebrow">${esc(TYPE_PT[taskType(t)]||'demanda')} · ${done?'concluída':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(t.title)}</h2>${t.objective?`<p class="en-obj">${esc(t.objective)}</p>`:''}</div>
-      <div class="en-kpis">
-        ${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
+  const kpis = nonCode
+    ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
+       <div class="en-kpi"><b>${arts.length}</b><span>${arts.length===1?'arquivo entregue':'arquivos entregues'}</span></div>
+       <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${cost.usd>0?fmtUsd(cost.usd):'duração'}</span></div>`
+    : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
         <div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
-        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtUsd(cost.usd):''}</span></div>
-      </div>
+        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtUsd(cost.usd):''}</span></div>`;
+  const pvSec=enPvHtml(t, nonCode?arts:docs);
+  const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
+    <div class="en-head">
+      <div class="en-ht"><span class="ndeyebrow">${esc(TYPE_PT[taskType(t)]||'demanda')} · ${done?'concluída':nonCode&&['review','delivered'].includes(t.status)?'pronta pra você conferir':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(t.title)}</h2>${t.objective?`<p class="en-obj">${esc(t.objective)}</p>`:''}</div>
+      <div class="en-kpis">${kpis}</div>
     </div>
+    ${enLiveHtml(t)}
+    ${nonCode?enSaveBarHtml(t, arts)+pvSec:enVerifHtml(t)}
     <div class="en-grid">
       <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${esc(x)}</div>`).join('')}`:''}${rev&&rev.howToTest?`<div class="seclbl2" style="margin-top:14px">Como testar</div><div class="en-how">${esc(rev.howToTest)}</div>`:''}</section>
-      <section class="en-sec"><div class="seclbl2">Provas <span class="dim">· prints anexados pelo agente</span></div>${proofsHtml}
-        <div class="seclbl2" style="margin-top:16px">Documentos <span style="flex:1"></span><button class="btn sm primary" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
+      <section class="en-sec">${nonCode?'':`<div class="seclbl2">Provas <span class="dim">· prints anexados pelo agente</span></div>${proofsHtml}`}
+        <div class="seclbl2"${nonCode?'':' style="margin-top:16px"'}>${nonCode?'Arquivos entregues':'Documentos'} <span style="flex:1"></span><button class="btn sm primary" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
         <div id="enGenOut"></div>${docsHtml}</section>
     </div>
-    <section class="en-sec" style="margin-top:6px"><div class="seclbl2">Linha do tempo</div><div class="en-tl">${timeline}</div>${c.length?`<div class="en-commits">${c.slice(0,8).map(x=>`<button class="fcommit" data-hash="${escA(x.hash||'')}"><span class="mono">${esc(String(x.hash||'').slice(0,7))}</span> ${esc(x.subject||'')}</button>`).join('')}</div>`:''}</section>
+    ${nonCode?'':pvSec}
+    <section class="en-sec" style="margin-top:6px"><div class="seclbl2">Linha do tempo</div><div class="en-tl">${timeline}</div>${!nonCode&&c.length?`<div class="en-commits">${c.slice(0,8).map(x=>`<button class="fcommit" data-hash="${escA(x.hash||'')}"><span class="mono">${esc(String(x.hash||'').slice(0,7))}</span> ${esc(x.subject||'')}</button>`).join('')}</div>`:''}</section>
   </div>`;
+  // guarda: só troca o DOM quando o conteúdo mudou (o PDF da prévia não recarrega a cada tick; log aberto fica aberto)
+  const cur=main.firstElementChild;
+  if(main._enHtml===html && cur && cur.classList.contains('enpage') && cur.dataset.task===t.id) return;
+  const out=$id('enGenOut'); const genBusy=out&&out.innerHTML&&cur&&cur.dataset.task===t.id?out.innerHTML:''; // relatório sendo gerado: não some
+  main.innerHTML=html; main._enHtml=html;
+  if(genBusy){ const o2=$id('enGenOut'); if(o2) o2.innerHTML=genBusy; }
   main.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   main.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>lbOpen(t.id, imgs.map(a=>a.name), +b.dataset.lb));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-docpdf]').forEach(b=>b.onclick=()=>entregaDocPdf(t, b.dataset.docpdf, b));
   main.querySelectorAll('[data-docslack]').forEach(b=>b.onclick=()=>sendArtifactSlack(t.id, b.dataset.docslack));
+  main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView({ block:'start', behavior:'smooth' }); }, 40); });
   main.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>{ if(b.dataset.hash&&typeof openCommit==='function') openCommit(b.dataset.hash); });
+  main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>toast('Não abriu a pasta: '+e,'err')));
   bindClick('enGen', ()=>entregaGenReport(t));
+  bindClick('enSave', (e)=>enSaveDeliverables(t, !done, e.currentTarget));
+  bindClick('enJustClose', async(e)=>{ e.currentTarget.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ toast('Falhou: '+err,'err'); } renderWorkspace(); });
+  bindClick('enChDir', async()=>{ const p=await enPickDir(enBaseDir()); if(p&&String(p).trim()){ lsSet('entregaDir', String(p).trim()); renderWorkspace(); } });
+  bindClick('enLiveOpen', ()=>{ const pv=taskPreviewUrl(t.id); if(pv) invoke('open_url',{ url:pv }).catch(()=>{}); });
+  bindClick('enLiveMob', async()=>{ const pv=taskPreviewUrl(t.id); if(!pv) return; const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
+    if(tun){ if(typeof fwTunnelOff==='function') await fwTunnelOff(t); return; }
+    toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); });
+  if(!nonCode) enWireVerif(t, main);
+  enWirePv(t, main);
 }
 // ---- lightbox das provas ----
 let lbList=[], lbIdx=0, lbTask='';

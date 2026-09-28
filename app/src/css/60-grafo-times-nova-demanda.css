@@ -631,3 +631,79 @@ body.nogit #fwPush,body.nogit [data-rowpr],body.nogit #sumPr,body.nogit #fwPrOpe
 /* "iniciar mesmo assim" = ghost de verdade (tracejado, apagado) — nunca compete com a primária */
 .enpage .ep-acts .btn.ghost,.epq-acts .btn.ghost[data-epqgo]{ border:1px dashed var(--border-strong); background:transparent; color:var(--text-3,var(--muted)); box-shadow:none; }
 .enpage .ep-acts .btn.ghost:hover,.epq-acts .btn.ghost[data-epqgo]:hover{ color:var(--text); border-style:solid; }
+
+/* ===== R6 · FT-5 Verificação real · FT-6 Entrega com prévia (Entrega da tarefa) ===== */
+.enpage>.en-sec,.enpage>.en-live,.enpage>.en-save{margin-bottom:16px}
+.en-doc.on .en-dn{color:var(--accent)}
+/* Verificação */
+.en-verif .vf-pill{font:600 10px var(--code);letter-spacing:.04em;text-transform:none;padding:3px 8px;border-radius:999px;border:1px solid currentColor}
+.vf-pill.good{color:var(--good)}.vf-pill.crit{color:var(--crit)}.vf-pill.warn{color:var(--warn)}.vf-pill.run{color:var(--accent)}.vf-pill.muted{color:var(--text-3)}
+.en-verif.vf-fail{border-color:color-mix(in srgb,var(--crit) 45%,transparent)}
+.en-verif.vf-pass{border-color:color-mix(in srgb,var(--good) 35%,transparent)}
+.en-verif.vf-stale,.en-verif.vf-notrun,.en-verif.vf-override{border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.vf-sum{font:400 13px/1.5 var(--display);color:rgba(234,242,238,.78);margin:-2px 0 10px}
+.vf-sum b{color:var(--text)}
+.vf-rows{display:flex;flex-direction:column}
+.vf-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.06)}
+.vf-row:first-child{border-top:0}
+.vf-row.old{opacity:.55}
+.vf-ic{width:20px;height:20px;border-radius:999px;display:grid;place-items:center;flex:none;font-size:11px;border:1px solid var(--border-strong);color:var(--text-3)}
+.vf-row.ok .vf-ic{color:var(--good);border-color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
+.vf-row.fail .vf-ic{color:var(--crit);border-color:var(--crit);background:color-mix(in srgb,var(--crit) 12%,transparent)}
+.vf-row.run .vf-ic{border-color:var(--accent)}
+.vf-t{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px}
+.vf-t b{font:500 13px var(--display);white-space:nowrap}
+.vf-cmd{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.vf-m{font:500 10.5px var(--code);color:var(--text-3);white-space:nowrap}
+.vf-log{margin:0 0 8px 30px;max-height:260px;overflow:auto;padding:10px 12px;border-radius:8px;background:#07090b;border:1px solid rgba(255,255,255,.07);font-size:11px;line-height:1.5;white-space:pre-wrap;color:rgba(234,242,238,.8)}
+.vf-approve{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)}
+.vf-approve .btn[disabled]{opacity:.45;cursor:not-allowed}
+.vf-cfg{margin-top:12px;padding-top:12px;border-top:1px dashed rgba(255,255,255,.1)}
+#fwReviewBar .btn.is-gated{opacity:.5;filter:saturate(.4)}
+/* editor de checagens (Preferências + Entrega) */
+.prefs-sec{margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.ckcfg{display:flex;flex-direction:column;gap:2px;font-family:var(--display)}
+.ckh{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}.ckh b{font-size:13px}.ckh .dim{font-size:11.5px}
+.ckrow{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12.5px;cursor:pointer}
+.ckrow b{font-weight:500;white-space:nowrap}
+.ckcmd{font-size:11px;color:var(--text-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cksrc{font:500 9.5px var(--code);color:var(--text-3);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 6px;white-space:nowrap}
+.ckcustom{cursor:default}.ckcustom .in{height:28px;font-size:12px}.ckcustom .in:first-of-type{width:150px;flex:none}.ckcustom .in.mono{flex:1}
+.ckempty{font-size:12px;padding:4px 0 8px}
+.ckfoot{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11.5px}
+.ckfoot input[type=number]{width:58px;height:28px}
+.ckfile{font-size:10.5px}
+/* Ver funcionando */
+.en-live{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 7%,var(--card-bg))}
+.en-live-dot{width:9px;height:9px;border-radius:999px;background:var(--good);box-shadow:0 0 0 4px color-mix(in srgb,var(--good) 20%,transparent);flex:none}
+.en-live-t{display:flex;flex-direction:column;gap:2px;min-width:0}.en-live-t b{font:600 14px var(--display)}.en-live-t .dim{font-size:12px}
+/* Salvar entregáveis (tarefa sem código) */
+.en-save{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:12px;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 6%,var(--card-bg))}
+.en-save-ic{color:var(--accent);display:grid;place-items:center}
+.en-save-t{min-width:0}.en-save-t b{font:600 14px var(--display)}.en-save-t .dim{font-size:12px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.en-save-t .mono{font-size:11px}
+/* Prévia */
+.pv-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.pv-tab{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:transparent;color:var(--text-2);font:500 12px var(--display);cursor:pointer;max-width:260px}
+.pv-tab i{font:600 9px var(--code);font-style:normal;color:var(--text-3)}
+.pv-tab.on{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.pv-bar{display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:12px;flex-wrap:wrap}
+.pv-name{font:500 13px var(--display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%}
+.pv-meta{font:500 10.5px var(--code)}
+.pv-body{min-height:120px}
+.pv-body .pvpdf,.pv-body .pvhtml{width:100%;height:72vh;border:1px solid var(--border);border-radius:8px;background:#fff}
+.pvimg{display:flex;justify-content:center;background:#07090b;border-radius:8px;padding:10px}.pvimg img{max-width:100%;max-height:70vh;border-radius:4px}
+.pvmd{max-height:72vh;overflow:auto;padding:4px 6px}
+.pvtext{max-height:60vh;overflow:auto}
+.pvtable-w,.mdtablew{overflow:auto;max-height:64vh;border:1px solid rgba(255,255,255,.08);border-radius:8px}
+.pvtable,.mdtable{border-collapse:collapse;width:100%;font:400 12px/1.4 var(--display)}
+.pvtable th,.pvtable td,.mdtable th,.mdtable td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.06);text-align:left;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.pvtable thead th,.mdtable thead th{position:sticky;top:0;background:var(--surface-2,#12161b);font-weight:600;color:var(--text)}
+.pvtable td.rn,.pvtable th.rn{color:var(--text-3);font:500 10.5px var(--code);width:1%}
+.pvtable tbody tr:hover td{background:rgba(255,255,255,.03)}
+.mdtablew{margin:10px 0;max-height:none}
+.pvnote{font:500 10.5px var(--code);color:var(--text-3);margin-top:8px}
+.ckcfg label.ckrow,.ckcfg .ckrow{text-transform:none;letter-spacing:normal;font:400 12.5px var(--display);color:var(--text);margin:0}
+.ckcfg .ckrow .ckcmd{font:400 11px var(--code);text-transform:none;color:var(--text-3)}
+.ckcfg .ckrow .cksrc{text-transform:none;letter-spacing:normal}
+.ckcfg .ckrow input[type=checkbox]{accent-color:var(--accent);flex:none}

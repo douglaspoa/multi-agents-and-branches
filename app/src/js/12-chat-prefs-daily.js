@@ -100,6 +100,7 @@ async function openPrefs(){
   $id('prefsRepo').textContent=k.repo.replace(/^https?:\/\/[^/]+\//,'').replace(/\.git$/,'');
   $id('prefsMeta').textContent='carregando…';
   ovShow(ov); // depois do await: respeita o modo aba
+  if(typeof prefsChecksRender==='function') prefsChecksRender(); // FT-5a: seção Checagens
   mountEditor($id('prefsText'), { markdown:true });
   try{
     const rows=await sbGet('project_prefs?select=content,updated_by,updated_at&org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo));
@@ -125,6 +126,54 @@ $id('prefsSave').onclick=async()=>{
   }catch(e){ $id('prefsMeta').textContent='falhou: '+(e.message||e); }
   finally{ b.disabled=false; b.textContent='salvar pro time'; }
 };
+// ---- Preferências do projeto → "Checagens antes de aprovar" (FT-5a) ----
+// Detectadas na cópia da tarefa/repo (package.json, Cargo, pytest, go.mod) com liga/desliga + comandos
+// próprios. Salvo em <repo>/.cardume/checks.json (local, sem precisar de conta). O mesmo editor aparece
+// dentro da Entrega ("checagens") — quem não usa a nuvem também configura.
+const chkDraft={}; // chave → { detected, file, cfg } (rascunho sobrevive a re-render da tela)
+async function chkCfgEditor(box, taskId, onSaved){
+  if(!box) return;
+  const key=(taskId||'repo')+'@'+(state.repo||'');
+  let d=chkDraft[key];
+  if(!d){
+    box.innerHTML='<div class="dim" style="font-size:12px">lendo as checagens do projeto…</div>';
+    try{ const c=await invoke('checks_config',{ taskId:taskId||null });
+      d=chkDraft[key]={ detected:(c&&c.detected)||[], file:(c&&c.file)||'', cfg:JSON.parse(JSON.stringify((c&&c.cfg)||{})) }; }
+    catch(e){ box.innerHTML=`<div class="dim" style="font-size:12px">não consegui ler as checagens: ${esc(String(e&&e.message||e))}</div>`; return; }
+  }
+  const cfg=d.cfg; cfg.enabled=cfg.enabled||{}; cfg.custom=Array.isArray(cfg.custom)?cfg.custom:[];
+  const paint=()=>{
+    const on=x=>cfg.enabled[x.id]!==undefined?!!cfg.enabled[x.id]:!!x.on;
+    box.innerHTML=`<div class="ckcfg">
+      <div class="ckh"><b>Checagens antes de aprovar</b><span class="dim">rodam na cópia de cada tarefa; com alguma falhando, "aprovar e abrir PR" fica bloqueado (dá pra liberar com um motivo)</span></div>
+      ${d.detected.length?d.detected.map(x=>`<label class="ckrow"><input type="checkbox" data-ckon="${escA(x.id)}"${on(x)?' checked':''}><b>${esc(x.label)}</b><span class="mono ckcmd">${esc(x.cmd)}</span><span class="cksrc">detectado · ${esc(x.source)}</span></label>`).join('')
+        :'<div class="dim ckempty">nada detectado automaticamente (sem package.json com lint/test, Cargo.toml, pytest ou go.mod) — adicione um comando abaixo</div>'}
+      ${cfg.custom.map((x,i)=>`<div class="ckrow ckcustom"><input type="checkbox" data-ccon="${i}"${x.on===false?'':' checked'}><input class="in" data-cclabel="${i}" value="${escA(x.label||'')}" placeholder="nome (ex.: Testes E2E)"><input class="in mono" data-cccmd="${i}" value="${escA(x.cmd||'')}" placeholder="comando (ex.: npx playwright test)"><button class="btn sm ghost" data-ccdel="${i}" title="remover">✕</button></div>`).join('')}
+      <div class="ckfoot"><button class="btn sm" data-ccadd="1">+ comando próprio</button>
+        <span class="dim">tempo-limite</span><input class="in" type="number" min="1" max="120" data-cktime="1" value="${escA(String(cfg.timeoutMin||10))}"><span class="dim">min cada</span>
+        <span style="flex:1"></span><span class="dim mono ckfile" title="${escA(d.file)}">.cardume/checks.json</span><button class="btn sm primary" data-cksave="1">salvar checagens</button></div>
+    </div>`;
+    box.querySelectorAll('[data-ckon]').forEach(el=>el.onchange=()=>{ cfg.enabled[el.dataset.ckon]=el.checked; });
+    box.querySelectorAll('[data-ccon]').forEach(el=>el.onchange=()=>{ cfg.custom[+el.dataset.ccon].on=el.checked; });
+    box.querySelectorAll('[data-cclabel]').forEach(el=>el.oninput=()=>{ cfg.custom[+el.dataset.cclabel].label=el.value; });
+    box.querySelectorAll('[data-cccmd]').forEach(el=>el.oninput=()=>{ cfg.custom[+el.dataset.cccmd].cmd=el.value; });
+    box.querySelectorAll('[data-ccdel]').forEach(el=>el.onclick=()=>{ cfg.custom.splice(+el.dataset.ccdel,1); paint(); });
+    box.querySelectorAll('[data-ccadd]').forEach(el=>el.onclick=()=>{ cfg.custom.push({ id:'custom:'+Date.now().toString(36), label:'', cmd:'', on:true }); paint(); const i=box.querySelectorAll('[data-cclabel]'); if(i.length) i[i.length-1].focus(); });
+    box.querySelectorAll('[data-cktime]').forEach(el=>el.oninput=()=>{ const n=Math.round(+el.value); if(n>=1&&n<=120) cfg.timeoutMin=n; });
+    box.querySelectorAll('[data-cksave]').forEach(el=>el.onclick=async()=>{
+      el.disabled=true; const o=el.textContent; el.textContent='salvando…';
+      const clean={ ...cfg, custom:cfg.custom.filter(x=>String(x.cmd||'').trim()).map(x=>({ ...x, label:String(x.label||'').trim()||String(x.cmd).trim(), cmd:String(x.cmd).trim() })) };
+      try{ await invoke('checks_save',{ cfg:clean }); Object.keys(chkDraft).forEach(k=>delete chkDraft[k]);
+        if(typeof chkCfg!=='undefined') Object.keys(chkCfg).forEach(k=>delete chkCfg[k]);
+        toast('checagens salvas — valem pras próximas aprovações','ok'); if(onSaved) onSaved(); else chkCfgEditor(box, taskId); }
+      catch(e){ toast('Não salvou: '+(e&&e.message||e),'err'); el.disabled=false; el.textContent=o; }
+    });
+  };
+  paint();
+}
+{ const mb=document.querySelector('#prefsOverlay .mbody');
+  if(mb && !$id('prefsChecks')){ const sec=document.createElement('div'); sec.className='prefs-sec'; sec.id='prefsChecks'; mb.appendChild(sec); } }
+function prefsChecksRender(){ const box=$id('prefsChecks'); if(!box || !state.repo) return; delete chkDraft['repo@'+state.repo]; chkCfgEditor(box, null); }
 $id('pcClose').onclick=()=>{ ovHide('pcOverlay'); };
 $id('pcSend').onclick=pcSend;
 $id('pcTask').onclick=pcToTask;
