@@ -75,5 +75,42 @@
   "shots": {
    "depois": "r8shots/crop-header-sem-push.png"
   }
+ },
+ {
+  "id": "DIFF1",
+  "area": "Tarefa · Código (e Revisão)",
+  "titulo": "Arquivo alterado abre em \"só mudanças\" (diff), com opção de ver o arquivo inteiro",
+  "antes": "No modo Código o arquivo alterado aparecia sempre inteiro (read_file), com as linhas novas em verde e sem mostrar o que foi removido; o diff só existia em Revisão. A Revisão rebuscava o diff só uma vez por arquivo (ficava velho quando o agente editava de novo).",
+  "depois": "Arquivo ALTERADO abre por padrão em \"só mudanças\": trechos do diff com 3 linhas de contexto, adicionadas em verde (+), removidas em vermelho (−), nº antigo | nº novo, cabeçalho \"linhas 40–58\" (com a função do trecho), e o que não mudou recolhido em \"… 53 linhas sem mudança · mostrar\" (expande com o arquivo inteiro). Chave no cabeçalho \"só mudanças | arquivo inteiro\" (lembrada; padrão só mudanças). Arquivo novo aparece inteiro como adições. \"editar\" passa pra arquivo inteiro. Selecionar linhas → perguntar no chat funciona nas duas visões (no diff, pelos números novos; linha removida não entra). Um parser/renderer ÚNICO (diffHunks/diffViewHtml) serve Código e Revisão; o diff é buscado 1 vez por versão do arquivo (+add/−del), sem rebuscar a cada tick.",
+  "motivo": "Pedido do Douglas: \"quando vamos ver os arquivos editados a gente vê sempre o arquivo inteiro; seria mais prudente ver só as linhas editadas e removidas, com opção de ver o arquivo inteiro\".",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/50-workspace-planner.css",
+   "app/tests/diff-view.test.mjs"
+  ],
+  "como_ver": "Abra uma tarefa › Código › clique num arquivo com M/A na árvore. Use a chave \"só mudanças | arquivo inteiro\" no topo do arquivo; clique em \"mostrar\" num trecho recolhido; arraste sobre linhas verdes/contexto e veja o chip PainelPedidos.tsx:13–14 no chat.",
+  "estado_mock": "harness/shim.js: t-review ganhou src/admin/pedidos/PainelPedidos.tsx (~110 linhas, 3 alterações em 2 trechos) com read_file/file_diff coerentes. Cenas novas code-diff, code-diff-open (trecho expandido + linhas 13–14 selecionadas), code-full, code-revisao.",
+  "shots": {
+   "so_mudancas": "r8shots/code-diff.png",
+   "expandido_e_selecao": "r8shots/code-diff-open.png",
+   "arquivo_inteiro": "r8shots/code-full.png",
+   "revisao_mesmo_renderer": "r8shots/code-revisao.png"
+  }
+ },
+ {
+  "id": "DIFF2",
+  "area": "Tarefa · Código",
+  "titulo": "Linha selecionada no código não herda mais o estilo de <select>",
+  "antes": "A classe global .sel (select estilizado) vazava na linha selecionada (.fwln.sel): borda arredondada, padding e a seta do select, deslocando o texto.",
+  "depois": "Reset de .fwln.sel — a seleção só pinta o fundo.",
+  "motivo": "Achado nos prints da DIFF1.",
+  "arquivos": [
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Código › selecione linhas arrastando.",
+  "estado_mock": "cena code-diff-open.",
+  "shots": {
+   "depois": "r8shots/code-diff-open.png"
+  }
  }
 ]

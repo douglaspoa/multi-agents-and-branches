@@ -116,7 +116,68 @@ function fwTreeHtml(node, depth){
   return h;
 }
 let fwMode='conversa';   // conversa | codigo | revisao | pr (modos da tela de execução)
-let fwDiffCache={};      // taskId:path → texto do diff (tela de Revisão)
+let fwDiffCache={};      // taskId:path#add:del → texto do diff (Revisão e Código "só mudanças")
+// R8: Código abre arquivo ALTERADO em "só mudanças" (diff) por padrão; "arquivo inteiro" é a outra opção
+let fwCodeView=(lsGet('fwCodeView')==='full')?'full':'diff';
+const fwDvOpen=new Set();  // trechos sem mudança expandidos ("mostrar"), por tarefa|arquivo|a-b
+let fwContentFor='';       // 'taskId|path' a que fwContent pertence (pra expandir trechos com o arquivo certo)
+// diff do arquivo, 1 busca por VERSÃO (chave muda quando +add/−del do arquivo muda) — o tick não rebusca
+function fwDiffKey(t, path){ const f=fwFiles.find(x=>x.path===path)||{}; return t.id+':'+path+'#'+(f.add||0)+':'+(f.del||0); }
+function fwDiffGet(t, path){
+  if(!path) return '';
+  const key=fwDiffKey(t, path);
+  if(fwDiffCache[key]===undefined){
+    fwDiffCache[key]=null;
+    // erro também re-renderiza (antes o spinner ficava girando pra sempre)
+    invoke('file_diff',{ taskId:t.id, path }).then(d=>{ fwDiffCache[key]=d||''; }).catch(e=>{ fwDiffCache[key]={ err:String(e&&e.message||e) }; })
+      .finally(()=>{ if(fwTask===t.id && fwPath===path && (fwMode==='revisao'||fwMode==='codigo')) renderWorkspace(); });
+  }
+  return fwDiffCache[key];
+}
+// diff unificado de UM arquivo → hunks [{o,n,ctx,rows:[{t:'add'|'del'|'ctx',o,n,text}]}]. Arquivo novo sem
+// cabeçalho @@ (o file_diff manda "+linha" pra untracked) vira um hunk só, a partir da linha 1.
+function diffHunks(text){
+  const hunks=[]; let h=null, o=0, n=0, isNew=false;
+  for(const l of String(text||'').split('\n')){
+    if(l===''||l.startsWith('\\')) continue; // fim do texto / "\ No newline at end of file"
+    if(/^(diff --git|index |--- |\+\+\+ |similarity|rename |old mode|new mode|deleted file|Binary files)/.test(l)) continue;
+    if(l.startsWith('new file')){ isNew=true; continue; }
+    const m=l.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+    // contagem 0 ("-10,0" / "+4,0"): o número aponta a linha ANTERIOR — o trecho começa na seguinte
+    if(m){ o=+m[1]; n=+m[3]; if(o===0&&m[2]==='0') isNew=true; h={ o:m[2]==='0'?o+1:o, n:m[4]==='0'?n+1:n, ctx:(m[5]||'').trim(), rows:[] }; hunks.push(h); continue; }
+    if(!h){ o=0; n=1; isNew=true; h={ o:0, n:1, ctx:'', rows:[] }; hunks.push(h); }
+    if(l[0]==='+') h.rows.push({ t:'add', n:n++, text:l.slice(1) });
+    else if(l[0]==='-') h.rows.push({ t:'del', o:o++, text:l.slice(1) });
+    else h.rows.push({ t:'ctx', o:o++, n:n++, text:l.slice(1) });
+  }
+  return { hunks, isNew };
+}
+// renderer ÚNICO do diff (Revisão + Código): nº antigo | nº novo | texto; cabeçalho "linhas 40–58";
+// trechos sem mudança entre hunks recolhidos ("… 120 linhas sem mudança · mostrar" — só expande com o
+// arquivo inteiro em mãos, `full`). Linhas com nº novo levam data-ln → seleção "perguntar no chat".
+function diffViewHtml(d, o){
+  o=o||{}; const full=o.full||null, sel=o.sel||null, pre=o.keyPre||'', MAX=5000; let count=0, out='';
+  const row=(t, on, nn, text)=>{ count++; const inSel=sel&&nn&&nn>=sel.a&&nn<=sel.b;
+    return `<div class="fwln dv ${t}${inSel?' sel':''}"${nn?` data-ln="${nn}"`:''}><span class="fwnum dvo">${on||''}</span><span class="fwnum">${nn||''}</span><span class="dvs">${t==='add'?'+':t==='del'?'−':''}</span><span class="fwtxt">${esc(text)||' '}</span></div>`; };
+  const gap=(a, b, off)=>{ const k=pre+a+'-'+b, cnt=b-a+1; if(cnt<=0) return '';
+    if(full && fwDvOpen.has(k)){ let r=''; for(let i=a;i<=b && i<=full.length;i++) r+=row('ctx', i+off, i, full[i-1]); return r+`<button class="dvgap" data-dvgap="${escA(k)}">▴ recolher ${cnt} ${cnt===1?'linha':'linhas'}</button>`; }
+    return full ? `<button class="dvgap" data-dvgap="${escA(k)}">… ${cnt} ${cnt===1?'linha':'linhas'} sem mudança · <u>mostrar</u></button>`
+      : `<div class="dvgap off">… ${cnt} ${cnt===1?'linha':'linhas'} sem mudança</div>`; };
+  let nextN=1;
+  for(const h of d.hunks){
+    if(count>MAX){ out+=`<div class="dvgap off">…diff grande, cortado aqui — veja o arquivo inteiro</div>`; return out; }
+    if(h.n>nextN && !d.isNew) out+=gap(nextN, h.n-1, h.o-h.n);
+    const ns=h.rows.filter(r=>r.n).map(r=>r.n), a=ns.length?Math.min(...ns):h.n, b=ns.length?Math.max(...ns):h.n;
+    const lbl=!ns.length?`linha ${a} · só remoções`:a===b?`linha ${a}`:`linhas ${a}–${b}`;
+    out+=`<div class="dvhunk"><span>${lbl}</span>${h.ctx?`<span class="dvctx mono">${esc(h.ctx)}</span>`:''}</div>`;
+    for(const r of h.rows) out+=row(r.t, r.o, r.n, r.text);
+    const last=h.rows.reduce((m,r)=>r.n?Math.max(m,r.n):m, h.n-1); nextN=last+1;
+    const lastO=h.rows.reduce((m,r)=>r.o?Math.max(m,r.o):m, h.o-1);
+    h._off=(lastO+1)-(last+1);
+  }
+  if(full && d.hunks.length && !d.isNew && nextN<=full.length){ const lh=d.hunks[d.hunks.length-1]; out+=gap(nextN, full.length - (full[full.length-1]===''?1:0), lh._off||0); }
+  return out;
+}
 // abre a tarefa como ABA própria (uma por tarefa) — mantém o chrome do app
 function openWorkspace(taskId, path){
   // E6: abrir OUTRA tarefa com um arquivo em edição (fwOpenInner zera o editor) → pergunta antes de descartar
@@ -169,6 +230,7 @@ async function fwFetchEvents(){
     if(rows.length){ fwEvents.push(...rows); fwEvLast=rows[rows.length-1].id; } }catch(_){ }
 }
 async function fwLoadFile(){
+  fwCodeView=(lsGet('fwCodeView')==='full')?'full':'diff'; // abriu outro arquivo: volta pra preferência (editar força "inteiro" só naquele)
   if(!fwPath){ fwContent=''; fwAdded=[]; fwReadErr=''; renderWorkspace(); return; }
   const tk=fwTask, pth=fwPath; // arquivo/tarefa trocados enquanto lia → descarta a resposta velha
   let content, added, err='';
@@ -177,7 +239,7 @@ async function fwLoadFile(){
   catch(e){ content=''; added=[]; err=String(e&&e.message||e)||'erro desconhecido'; }
   if(fwFileLoading===tk+'|'+pth) fwFileLoading='';
   if(fwTask!==tk || fwPath!==pth) return;
-  fwContent=content; fwAdded=added; fwReadErr=err;
+  fwContent=content; fwAdded=added; fwReadErr=err; fwContentFor=err?'':tk+'|'+pth;
   fwSelA=0; fwSelB=0; renderWorkspace();
 }
 function closeWorkspace(){ const o=$id('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }
@@ -535,7 +597,10 @@ function renderWorkspace(){
   // editando: o poll NÃO recria o editor (antes o re-render a cada 4s apagava o que você digitou)
   const edEl=$id('fwText');
   const keepEditor = !!(fwEditing && fwMode==='codigo' && edEl && edEl.dataset.fk===(t.id+'|'+fwPath));
-  const mk=t.id+'|'+fwMode+'|'+(fwPath||'');
+  // R8: arquivo ALTERADO abre em "só mudanças" (diff); editar exige o arquivo inteiro
+  const fChanged=!!(fwPath && fwFiles.some(x=>x.path===fwPath && !x.doc));
+  const codeView=(fwEditing||!fChanged)?'full':fwCodeView;
+  const mk=t.id+'|'+fwMode+'|'+(fwPath||'')+'|'+codeView;
   const mainMem = (!keepEditor && main.dataset.mk===mk) ? fwGrabScroll(main) : null; // mesma tela → mantém a rolagem
   const added=new Set(fwAdded); const sel=fwSelRange();
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
@@ -561,9 +626,17 @@ function renderWorkspace(){
     const headBtns = fwEditing
       ? `<button class="btn primary sm" id="fwSave">${IC.check} salvar</button><button class="btn sm" id="fwCancel">cancelar</button>`
       : (fwReadErr||loadingFile) ? '' // sem conteúdo real → sem "editar" (salvaria o erro/vazio por cima do arquivo)
-      : `<button class="btn sm" id="fwEditBtn">${IC.pencil} editar</button>`;
+      : `<button class="btn sm" id="fwEditBtn" title="edita o arquivo inteiro">${IC.pencil} editar</button>`;
+    const viewTg = (fChanged && !fwEditing) ? `<span class="fwvtg" role="group" aria-label="como ver o arquivo"><button class="${codeView==='diff'?'on':''}" data-fwview="diff" title="só as linhas adicionadas e removidas, com um pouco de contexto">só mudanças</button><button class="${codeView==='full'?'on':''}" data-fwview="full" title="o arquivo inteiro, com as linhas novas em verde">arquivo inteiro</button></span>` : '';
+    const dvRaw = codeView==='diff' ? fwDiffGet(t, fwPath) : undefined;
+    const dvBody = codeView!=='diff' ? ''
+      : dvRaw==null ? cosmosHtml('carregando as mudanças…','inline')
+      : typeof dvRaw==='object' ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(String(dvRaw.err||'').slice(0,400))}</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
+      : !dvRaw.trim() ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div>sem diferenças neste arquivo em relação à base</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
+      : `<div class="fwcode fwdv" id="fwCode">${diffViewHtml(diffHunks(dvRaw), { full:fwContentFor===t.id+'|'+fwPath?lines:null, sel, keyPre:t.id+'|'+fwPath+'|' })}</div>`;
     const body = fwEditing
       ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
+      : codeView==='diff' ? dvBody
       : loadingFile ? `<div class="empty"><span class="spin"></span> abrindo o arquivo…</div>`
       : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(fwReadErr.slice(0,400))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`
       : `<div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>`;
@@ -571,7 +644,7 @@ function renderWorkspace(){
       ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela</div>`
       : `<div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique e <b>arraste</b> pra selecionar várias linhas (ou shift+clique) e pergunte no chat'}</div>`;
     main.innerHTML = `
-      <div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${headBtns}</div>
+      <div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath)}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby"><span class="fwav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>escrito por ${esc(t.agent)}</span><span style="flex:1"></span>${viewTg}${headBtns}</div>
       ${whyBand}
       ${body}
       ${bar}`;
@@ -587,10 +660,12 @@ function renderWorkspace(){
     const codeEl=$id('fwCode');
     if(codeEl){
       // seleção por ARRASTE (várias linhas) + shift-clique; sem native text-select
-      codeEl.addEventListener('mousedown',e=>{ const ln=e.target.closest('.fwln'); if(!ln)return; e.preventDefault(); const n=+ln.dataset.ln; if(e.shiftKey&&fwSelA){ fwSelB=n; } else { fwSelA=n; fwSelB=n; } fwDrag=true; fwPaintSel(); });
-      codeEl.addEventListener('mouseover',e=>{ if(!fwDrag)return; const ln=e.target.closest('.fwln'); if(!ln)return; fwSelB=+ln.dataset.ln; fwPaintSel(); });
+      codeEl.addEventListener('mousedown',e=>{ const ln=e.target.closest('.fwln[data-ln]'); if(!ln)return; e.preventDefault(); const n=+ln.dataset.ln; if(e.shiftKey&&fwSelA){ fwSelB=n; } else { fwSelA=n; fwSelB=n; } fwDrag=true; fwPaintSel(); });
+      codeEl.addEventListener('mouseover',e=>{ if(!fwDrag)return; const ln=e.target.closest('.fwln[data-ln]'); if(!ln)return; fwSelB=+ln.dataset.ln; fwPaintSel(); });
     }
-    const eb=$id('fwEditBtn'); if(eb) eb.onclick=()=>{ fwEditing=true; renderWorkspace(); };
+    const eb=$id('fwEditBtn'); if(eb) eb.onclick=()=>{ fwCodeView='full'; fwEditing=true; renderWorkspace(); }; // editar = arquivo inteiro
+    main.querySelectorAll('[data-fwview]').forEach(b=>b.onclick=()=>{ fwCodeView=b.dataset.fwview==='full'?'full':'diff'; lsSet('fwCodeView', fwCodeView); renderWorkspace(); });
+    fwWireGaps(main);
     bindClick('fwReload', ()=>fwLoadFile());
     bindClick('fwWhyTg', ()=>{ fwWhyOpen=!fwWhyOpen; renderWorkspace(); });
     bindClick('fwWhyAsk', ()=>fwAskWhy(t.id, fwPath));
@@ -657,13 +732,7 @@ function renderWorkspace(){
 let fwRevOpen=false; // explicação da revisão expandida
 function fwRenderDiff(t, main){
   if(!fwPath && fwFiles.length) fwPath=fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
-  const key=t.id+':'+fwPath;
-  if(fwPath && fwDiffCache[key]===undefined){
-    fwDiffCache[key]=null;
-    // erro também re-renderiza (antes o spinner ficava girando pra sempre)
-    invoke('file_diff',{ taskId:t.id, path:fwPath }).then(d=>{ fwDiffCache[key]=d||''; }).catch(e=>{ fwDiffCache[key]={ err:String(e&&e.message||e) }; })
-      .finally(()=>{ if(fwTask===t.id&&fwMode==='revisao') renderWorkspace(); });
-  }
+  const key=fwPath?fwDiffKey(t, fwPath):'';
   const rev=reviewOf(t.id);
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
   // explicação inteira (antes cortava no meio da palavra: "Movi a soma d") — 2 linhas + "ver mais"
@@ -673,32 +742,20 @@ function fwRenderDiff(t, main){
   // perguntar sobre linhas é no modo Código — a dica mora aqui, junto do código (antes ficava no painel de arquivos)
   const askHint=fwPath?`<div class="fwrevask">quer perguntar sobre um trecho? <button class="lnk" id="fwRevToCode">abra em Código</button> e selecione as linhas — a pergunta vai pro agente que escreveu</div>`:'';
   let rows='';
-  const diff=fwPath?fwDiffCache[key]:'';
+  const diff=fwPath?fwDiffGet(t, fwPath):'';
   if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
   else if(diff==null) rows=cosmosHtml('carregando o diff…','inline');
   else if(typeof diff==='object') rows=`<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(String(diff.err||'').slice(0,400))}</div><button class="btn sm" id="fwDiffRetry">tentar de novo</button></div>`;
   else if(!diff.trim()) rows='<div class="empty">sem diferenças neste arquivo em relação à base</div>';
-  else {
-    let oldLn=0, newLn=0;
-    rows=diff.split('\n').map(l=>{
-      if(l.startsWith('diff --git')||l.startsWith('index ')||l.startsWith('--- ')||l.startsWith('+++ ')||l.startsWith('new file')||l.startsWith('deleted file')) return '';
-      if(l.startsWith('@@')){
-        const m=l.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-        if(m){ oldLn=+m[1]; newLn=+m[2]; }
-        return `<div class="dl hunk"><span class="dn"></span><span class="dtx">${esc(l)}</span></div>`;
-      }
-      if(l.startsWith('+')) return `<div class="dl add"><span class="dn">${newLn++}</span><span class="dtx">${esc(l)||' '}</span></div>`;
-      if(l.startsWith('-')) return `<div class="dl del"><span class="dn">${oldLn++}</span><span class="dtx">${esc(l)||' '}</span></div>`;
-      const n=newLn++; oldLn++;
-      return `<div class="dl"><span class="dn">${n}</span><span class="dtx">${esc(l)||' '}</span></div>`;
-    }).join('');
-  }
-  main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath||'')}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff">${rows}</div>${askHint}`;
+  else rows=diffViewHtml(diffHunks(diff), { full:fwContentFor===t.id+'|'+fwPath?fwContent.split('\n'):null, keyPre:t.id+'|'+fwPath+'|' });
+  main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="fwmpath mono">${esc(fwPath||'')}</span><span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff fwdv" id="fwRevDiff">${rows}</div>${askHint}`;
   bindClick('fwBackConv', ()=>{ fwMode='conversa'; fwRememberTab(); renderWorkspace(); });
   bindClick('fwRevMore', ()=>{ fwRevOpen=!fwRevOpen; renderWorkspace(); });
   bindClick('fwRevToCode', ()=>{ fwMode='codigo'; fwRememberTab(); fwLoadFile(); renderWorkspace(); });
   bindClick('fwDiffRetry', ()=>{ fwDiffCache[key]=undefined; renderWorkspace(); });
+  fwWireGaps(main);
 }
+function fwWireGaps(root){ root.querySelectorAll('[data-dvgap]').forEach(b=>b.onclick=()=>{ const k=b.dataset.dvgap; if(fwDvOpen.has(k)) fwDvOpen.delete(k); else fwDvOpen.add(k); renderWorkspace(); }); }
 // ---- página do PR dentro da execução (redesign p14) ----
 function fwRenderPrPage(t, main){
   const info=prCache[t.id];
