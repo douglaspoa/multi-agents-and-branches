@@ -35,12 +35,18 @@ async function editDraft(t){
   wizN=1; if(typeof wizRender==='function') wizRender();
   ntGate();
 }
+const startingTasks=new Set();
 async function startTask(taskId){
+  // duplo clique em ▶ / "aprovar plano" subia dois times na mesma worktree: um pedido por vez
+  if(startingTasks.has(taskId)) return;
   // slots: aviso leve quando já há muita coisa em paralelo (não bloqueia).
   const live = state.tasks.filter(x=>ACTIVE_ST.has(x.status)||x.status==='paused').length;
   if(live>=slotMax && !await askYes(`Já há ${live} execuções em andamento (limite ${slotMax}).\nIniciar mesmo assim?`)) return;
+  startingTasks.add(taskId);
+  document.querySelectorAll(`[data-rowplay="${CSS.escape(taskId)}"], #fwApprovePlan`).forEach(b=>{ b.disabled=true; });
   try{ await invoke("start_task",{taskId}); lastSig=""; await refresh(); }
-  catch(e){ alert("Falha ao iniciar:\n"+e); }
+  catch(e){ if(/já está rodando/.test(String(e))) toast('Essa tarefa já está rodando','info'); else alert("Falha ao iniciar:\n"+e); }
+  finally{ startingTasks.delete(taskId); }
 }
 async function pauseTask(taskId){
   try{ await invoke("pause_task",{taskId}); await refresh(); }
@@ -104,6 +110,7 @@ async function talkTask(taskId, message){
   catch(e){ alert("Falha ao conversar:\n"+e); }
 }
 async function stopTask(taskId){
+  if(typeof budgetQuiet!=='undefined') budgetQuiet.add(taskId); // parar ≠ "pronta pra revisar" (sem notificação falsa)
   try{ await invoke("stop_task",{ taskId }); lastSig=""; await refresh(); }
   catch(e){ alert("Falha ao parar:\n"+e); }
 }

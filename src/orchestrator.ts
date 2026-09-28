@@ -610,6 +610,12 @@ export class Orchestrator {
 
   /** Roda a equipe da tarefa: cada papel em sequência, na mesma worktree. */
   async runTask(taskId: string): Promise<void> {
+    // Duplo "iniciar" (ou iniciar enquanto um turno roda) subia DOIS times na mesma
+    // worktree. Outro processo vivo com o lock → recusa, sem mexer no lock dele.
+    if (this.taskBusy(taskId)) {
+      this.store.addEvent(taskId, "Sistema", "note", "essa tarefa já está rodando — pedido de iniciar ignorado", true);
+      return;
+    }
     this.store.setBusyPid(taskId, process.pid);
     try {
       await this.runTaskInner(taskId);

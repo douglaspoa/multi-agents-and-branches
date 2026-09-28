@@ -9,7 +9,8 @@
   "scripts": {
     "cardume": "node --disable-warning=ExperimentalWarning src/cli.ts",
     "demo": "node --disable-warning=ExperimentalWarning src/cli.ts demo",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --test src/engine/protect.test.ts"
   },
   "engines": {
     "node": ">=22.6"

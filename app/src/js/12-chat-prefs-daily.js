@@ -95,8 +95,19 @@ async function prefsPull(){ // nuvem → .cardume/PREFS.md local (todo mundo peg
 }
 async function openPrefs(){
   const ov=$id('prefsOverlay');
-  if(!SB.sess()||!(cloudData&&cloudData.org)){ alert('Entre na sua conta e escolha uma organização pra usar as preferências do projeto.'); return; }
-  const k=await prefsKey(); if(!k){ alert('Abra um projeto (repositório com git remote) primeiro.'); return; }
+  // Proteção dos agentes é LOCAL (vale nesta máquina, por pasta do projeto) — não depende de conta/nuvem
+  const repoPath=(state&&state.repo)||'';
+  { const h=$id('prefsProtHost'); if(h){ if(repoPath && typeof protectPrefsHtml==='function'){ if(!protectLoaded) await protectLoad(); h.innerHTML=protectPrefsHtml(repoPath); protectPrefsWire(repoPath); } else h.innerHTML=''; } }
+  const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org);
+  const k=cloudOk?await prefsKey():null;
+  // sem conta/remote: o documento do time fica indisponível, mas a proteção continua configurável
+  { const ta=$id('prefsText'), sv=$id('prefsSave'); const box=ta&&(ta.closest('.ceditor')||ta); if(box) box.style.display=k?'':'none'; if(sv) sv.style.display=k?'':'none'; }
+  if(!k){
+    if(!repoPath){ alert('Abra um projeto primeiro.'); return; }
+    $id('prefsRepo').textContent=repoPath.split('/').pop();
+    $id('prefsMeta').textContent=cloudOk?'as convenções do time precisam de um repositório com git remote':'entre na sua conta pra escrever as convenções do time';
+    ovShow(ov); return;
+  }
   $id('prefsRepo').textContent=k.repo.replace(/^https?:\/\/[^/]+\//,'').replace(/\.git$/,'');
   $id('prefsMeta').textContent='carregando…';
   ovShow(ov); // depois do await: respeita o modo aba
@@ -165,7 +176,7 @@ function renderDaily(){
     return `<div class="as-card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
         <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>
-        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtUsd(t.usd):''}</span></div>
+        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtCost(t.usd):''}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
         <div style="padding:14px 18px;border-right:1px solid rgba(255,255,255,.06)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>

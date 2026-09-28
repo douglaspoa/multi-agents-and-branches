@@ -141,6 +141,13 @@ export interface TaskSpec {
   linkedTo?: string;
   /** Faixa leve: pula linkar deps + setup.sh na worktree (mudança pequena). */
   light?: boolean;
+  /**
+   * TETO de custo desta tarefa em US$ (0 = sem teto; ausente = padrão de Configurações).
+   * Gravado pelo app (patch_task_spec). Ao chegar nele o app PAUSA a tarefa e pergunta.
+   */
+  budgetUsd?: number;
+  /** A tarefa bateu no teto e espera a decisão do humano (continuar/parar). Limpo ao decidir. */
+  budgetHit?: { usd: number; cap: number; at: number; mode: "paused" | "stopped" } | null;
   // ---- Tarefa SOB ÉPICO. Todos opcionais: tarefa criada fora do planner não tem nenhum. ----
   /** id do épico na nuvem (epics.id). */
   epicId?: string;

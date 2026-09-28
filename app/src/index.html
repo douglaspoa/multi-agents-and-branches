@@ -131,10 +131,10 @@
         <div class="seclbl2" style="margin-top:22px">Com qual IA? <span class="dim">· motor e versão do modelo — a recomendação olha a sua demanda</span></div>
         <div class="aipick" id="aiPickHow"></div>
         <div id="howEstimate" class="dim" style="font-size:12px;margin-top:10px"></div>
+        <div id="howBudgetHost" style="margin-top:6px"></div>
         <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
             <div style="display:none"><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
-            <div><label>Limite de custo (aviso)</label><input class="in" id="howCost" type="number" min="0" step="1" style="width:100%"></div>
             <div><label>Tarefas em paralelo</label><input class="in" id="howSlots" type="number" min="1" max="12" style="width:100%"></div>
           </div>
           <div id="howAgents" style="margin-top:12px"></div>
@@ -361,6 +361,7 @@
     <div class="mbody">
       <div class="imhint" style="border-left:2px solid var(--accent)">Um documento por projeto, escrito pelo <b>time</b> — convenções, padrões, o que evitar, decisões acordadas. <b>Todo agente</b> deste projeto lê e segue à risca (fica salvo na pasta de trabalho do Starfork, <span class="mono dim" style="font-size:10.5px">.cardume/PREFS.md</span>). Sincroniza pra todos do time.</div>
       <textarea class="in ta mono" id="prefsText" rows="16" style="font-size:12px;margin-top:10px" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea>
+      <div id="prefsProtHost"></div>
     </div>
     <div class="mfoot"><span class="dim" id="prefsMeta" style="font-size:11px"></span><span style="flex:1"></span><button class="btn" id="prefsCancel">fechar</button><button class="btn primary" id="prefsSave">salvar pro time</button></div>
   </div>
@@ -427,7 +428,7 @@
 <div class="overlay fwoverlay" id="fwOverlay" style="display:none">
   <div class="fw">
     <div class="fwhead">
-      <b class="mono" id="fwTaskName">Arquivos & chat</b><span id="fwTaskEpic" class="fwtaskepic"></span>
+      <b class="mono" id="fwTaskName">Arquivos & chat</b><span id="fwTaskEpic" class="fwtaskepic"></span><span id="fwTaskProt"></span>
       <span class="fwsub" id="fwTaskBranch"></span>
       <span id="fwOrqChips"></span>
       <span class="phst" id="fwPhases" style="margin-left:12px"></span>
@@ -661,5 +662,6 @@
 <script src="js/46-epico-time.js"></script>
 <script src="js/50-coordenacao.js"></script>
 <script src="js/52-erros.js"></script>
+<script src="js/53-teto-protecao.js"></script>
 </body>
 </html>

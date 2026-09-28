@@ -214,7 +214,8 @@ function detectNotifs(snap){
       if(prev!==undefined && prev!==t.status){
         // status mudou → commits/PR podem ter mudado (fim de turno commita)
         commitsStale[t.id]=true; prCache[t.id]=undefined;
-        if(t.status==='review') pushNotif('Pronta para review ✓', t.title, t.id);
+        // parada pelo humano (■ parar) ou pelo teto de custo NÃO é "pronta" — era notificação falsa
+        if(t.status==='review'){ if(!(typeof budgetQuiet!=='undefined' && budgetQuiet.delete(t.id))) pushNotif('Pronta para review ✓', t.title, t.id); }
         else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title, t.id);
         else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title, t.id);
         else if(t.status==='merged') pushNotif('Mergeada na base ✓', t.title, t.id);
@@ -228,13 +229,13 @@ function detectNotifs(snap){
   prevStatus={}; tasks.forEach(t=>{ prevStatus[t.id]=t.status; prevPr[t.id]=t.prUrl||null; });
   prevPending=new Set(pend.map(p=>p.id));
   notifReady=true;
-  // guarda-custos: avisa UMA vez quando a tarefa cruza o limite (padrão $25)
+  // guarda-custos: AVISO (só notifica) UMA vez quando a tarefa cruza o limite (padrão $25).
+  // O TETO que pausa e pergunta é outro mecanismo (budgetWatch, 53-teto-protecao) — o antigo
+  // "teto rígido" chamava stop_task e jogava a tarefa em "pronta pra revisar" (bug #13).
   try{
     const lim=parseFloat(lsGet('costWarn')||'25');
-    const hardCap=lsGet('costHardCap')==='1';
     if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id);
-      if(hardCap){ pushNotif('⛔ Teto de custo — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — PAUSADA automaticamente (teto rígido)'); try{ stopTask(t.id); }catch(_){ } }
-      else { pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); }
+      pushNotif('⚠ Custo alto — '+fmtCost(c.usd), t.title+' passou de '+fmtCost(lim)+' — avalie pausar/encerrar');
     } } } }
   }catch(_){ }
   // eventos novos numa tarefa → a lista de commits pode estar defasada
@@ -248,12 +249,16 @@ async function refresh(){
   let snap;
   try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
   catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); } return; }
+  // pergunta do teto de custo = pendência sintética; entra ANTES do detectNotifs (vira "Precisa de você")
+  if(typeof budgetInject==='function') try{ budgetInject(snap); }catch(e){ tickErr('budgetInject', e); }
   detectNotifs(snap);
   const prevGraph = state.graph, prevCfg = state.config, prevRepo = state.repo;
   state = snap;
   // R5-5: o snapshot não traz o catálogo (config) — antes cada refresh o apagava e as cores dos agentes caíam no hash
   if(prevCfg && !state.config && prevRepo===snap.repo) state.config = prevCfg;
   connected = !!snap.repo;
+  if(typeof budgetWatch==='function') try{ budgetWatch(); }catch(e){ tickErr('budgetWatch', e); }
+  if(typeof protectLoad==='function' && !protectLoaded) protectLoad();
   gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
   if(typeof trkSyncTasks==='function') trkSyncTasks(); // painel de issues: status da issue acompanha a tarefa
