@@ -54,7 +54,9 @@ async function pcSend(){
       const last=ms2[ms2.length-1]; if(last&&last.role==='user'&&last.text===text) ms2.pop();
       ms2.push({role:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
       const i=$id('pcInput'); if(i&&!i.value) i.value=text; pcPend.push(...atts);
-    } else ms2.push({role:'sys', text:'Não consegui responder: '+msg.slice(0,300)+(/expirou|timeout/i.test(msg)?' — a leitura do projeto demorou demais; tente uma pergunta mais específica.':' — sua pergunta ficou salva; é só enviar de novo.')});
+    } else { const h=humanErr(msg); // login do Claude expirado etc. → mensagem certa + botão (antes "expirou" virava "demorou demais")
+      if(h.id!=='generic' && h.id!=='network'){ ms2.push({role:'sys', text:h.msg+' Sua pergunta ficou salva.'}); if(h.action) showErr(msg); }
+      else ms2.push({role:'sys', text:'Não consegui responder: '+msg.slice(0,300)+(/timeout|timed out|demorou|tempo esgotado/i.test(msg)?' — a leitura do projeto demorou demais; tente uma pergunta mais específica.':' — sua pergunta ficou salva; é só enviar de novo.')}); }
     pcSave(ms2,key);
   }
   pcBusy=false; pcStopping=false; pcRender();

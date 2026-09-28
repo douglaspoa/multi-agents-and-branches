@@ -386,7 +386,10 @@ async function plSend(text){
   await plInTab(myTab, async(here)=>{
     if(err){ const e=err; plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim();
       if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; plMsgs.pop(); plMsgs.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'}); if(here){ const i=$id('plInput'); if(i&&!i.value) i.value=text; } renderPlanner(); plAutoSave(true); return; }
-      if(/expirou|timeout|rede indispon/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.';
+      // erro conhecido (login do Claude expirado, Claude não instalado, limite de uso…) → a mensagem certa + botão;
+      // só "demorou demais" quando é de fato tempo esgotado (antes "Login do Claude Code EXPIROU" caía aqui)
+      { const h=humanErr(msg); if(h.id!=='generic' && h.id!=='network'){ msg=h.msg+' Sua mensagem foi salva.'; if(h.action) showErr(msg); }
+        else if(/timeout|timed out|demorou|rede indispon|tempo esgotado/i.test(msg)) msg='a IA demorou demais pra responder (rede lenta?). Sua mensagem foi salva — é só enviar de novo.'; }
       plMsgs.push({who:'sys', text:(msg||'algo falhou ao falar com a IA — tente enviar de novo (sua mensagem foi salva).')}); plAutoSave(true);
       renderPlanner(); plAutoSave(); return; }
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
