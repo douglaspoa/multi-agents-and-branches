@@ -214,14 +214,6 @@
 .plmsg.you .attchip,.cmsg.you .attchip{background:rgba(0,0,0,.18);border-color:rgba(0,0,0,.25);color:inherit}
 .plmsg.you .attsz,.cmsg.you .attsz,.plmsg.you .attic,.cmsg.you .attic{color:inherit;opacity:.8}
 
-/* ===== céu estrelado dos loadings (05-cosmos.js) ===== */
-.cosmos{position:relative;width:100%;height:120px;border-radius:12px;overflow:hidden;background:radial-gradient(120% 90% at 50% 115%,#10201a 0%,#0b0d0f 62%);border:1px solid rgba(255,255,255,.06)}
-.cosmos.tall{height:200px;border-radius:0;border:0;border-bottom:1px solid rgba(255,255,255,.06)}
-.cosmos.inline{height:64px;border-radius:9px}
-.cosmos canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-.cosmos-t{position:absolute;left:0;right:0;bottom:12px;text-align:center;font:500 12px var(--code);letter-spacing:.08em;color:rgba(234,242,238,.62);pointer-events:none}
-.cosmos.tall .cosmos-t{font-size:13px;bottom:16px}
-.cosmos.inline .cosmos-t{bottom:8px;font-size:11px}
 /* ===== "Com qual IA?" — motor + modelo (29-ia-picker.js) ===== */
 .aipick{margin-top:6px}
 .aieng{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
@@ -365,7 +357,6 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 @media(max-width:900px){.au-wrap{grid-template-columns:1fr}.au-left{display:none}}
 .au-wrap.full{grid-template-columns:1fr}.au-wrap.full .au-left{display:none}
 .au-left{position:relative;overflow:hidden;background:radial-gradient(120% 80% at 20% 100%,#0f1f17 0%,#0b0e0d 55%);border-right:1px solid rgba(255,255,255,.06)}
-.au-sky{position:absolute;inset:0;width:100%;height:100%;opacity:.55}
 .au-lin{position:relative;z-index:1;display:flex;flex-direction:column;height:100%;padding:56px 44px 40px}
 .au-brand{display:flex;align-items:center;gap:10px}
 .au-logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font:700 13px var(--code)}

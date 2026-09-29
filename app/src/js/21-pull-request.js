@@ -481,6 +481,7 @@ function render(){
     $id("feedPane").style.display="none";
     $id("rail").innerHTML='';
     $id("busSummary").innerHTML='<span class="dim">—</span>';
+    if(typeof ldBootClear==='function') ldBootClear(); // sem projeto: o esqueleto do boot não fica embaixo da tela inicial
     return;
   }
   const v = (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow";
@@ -554,7 +555,7 @@ function flowTaskCard(t, acc){
   const roles=t.roles||[];
   const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${agentBadge(r.name)}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">→</span>');
   const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
-  const cchips = c===undefined ? '<span class="dim" style="font-size:11px">carregando…</span>'
+  const cchips = c===undefined ? skeletonHtml('lista',{ n:1, compact:true, inline:true, label:'carregando os commits' })
     : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
     : (t.status==='merged'?'<span class="dim" style="font-size:11px">mergeado na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…')}</span></div>`; })() : '';

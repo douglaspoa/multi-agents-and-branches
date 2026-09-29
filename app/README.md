@@ -53,11 +53,14 @@ app/
       50-workspace-planner.css  tela da tarefa (3 colunas), planner, PR, artefatos
       60-grafo-times-nova-demanda.css  grafo, espaço Times, formulário da Nova demanda
       70-orquestrador.css · 80-ajustes-cards.css · 81-chat.css · 82-issues.css  orquestrador, cards da Central, composer dos chats, painel de issues
+      83-responsivo.css     (R7) regras gerais de redimensionamento: título com prioridade, selos (épico/protegido/branch) encolhem com …, nada mais largo que a coluna
       84-memoria.css        aba Memória do projeto (lista, nota, editor, grafo)
-      83-responsivo.css     (R7, por último) regras gerais de redimensionamento: título com prioridade, selos (épico/protegido/branch) encolhem com …, nada mais largo que a coluna
+      85-mesa.css           aba Mesa de personas (lista, rodadas, votos)
+      86-carregamento.css   skeleton, barra de 2px da aba, loader da marca, vazio e erro padronizados (06-carregamento.js)
+      87-nova-demanda.css   Nova demanda numa tela só: estado vazio do planner e controles no composer (32-planner.js)
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
       00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH, pathBase/pathDir, osKind, toast (com ação) e o catálogo de erros pt-BR humanErr/showErr — helpers usados por todos
-      05-cosmos.js          céu estrelado dos loadings (cosmosHtml/cosmosStart)
+      06-carregamento.js    carregamento único: skeletonHtml/brandLoaderHtml/emptyHtml/errorHtml, tabBusy (barra da aba) e loadInto (pinta, depois busca) — css/86-carregamento.css
       09-remote-id.js       identidade do projeto na nuvem: repoRemoteIds (remote novo + forma antiga do alias de ssh), remoteInQ/remoteSame/remotePick (ler pelas duas, gravar na nova)
       10-core.js            invoke, ícones (IC.* — SVG; nada de emoji como ícone), refresh() do snapshot, notificações, evNorm (eventos antigos com emoji no prefixo → formato novo)
       11-ambiente-updater.js  preflight (node/git/claude/gh) e updater

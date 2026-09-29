@@ -172,11 +172,11 @@ async function openMemoria(){
   if(!state.repo){ toast('Abra um projeto primeiro.','warn'); return; }
   if(MEM.repo && MEM.repo!==state.repo){ MEM.sel=null; MEM.edit=null; MEM.q=''; MEM.type=''; }
   ovShow(ov);
-  const body=$id('memBody'); if(body && !MEM.notes.length) body.innerHTML='<div class="dim" style="padding:24px">carregando a memória…</div>';
-  try{ await memLoad(state.repo); }catch(e){ if(body) body.innerHTML='<div class="memempty">Não consegui ler a memória: '+memEsc(e&&e.message||e)+'</div>'; return; }
-  MEM.hasTeam=await memTeamAvailable();
-  memRender();
-  if(MEM.hasTeam) memTeamSync().then(ch=>{ if(ch) memRefresh(); });
+  // pinta lista + nota em esqueleto na hora (se já havia notas na tela, mantém elas até a leitura nova chegar)
+  await loadInto($id('memBody'), 'nota', async()=>{ await memLoad(state.repo); MEM.hasTeam=await memTeamAvailable(); }, ()=>{
+    memRender();
+    if(MEM.hasTeam) memTeamSync().then(ch=>{ if(ch) memRefresh(); });
+  }, { label:'lendo a memória do projeto', ctx:'Não consegui ler a memória', keep:MEM.notes.length>0 && MEM.repo===state.repo });
 }
 window.openMemoria=openMemoria;
 // recarrega e redesenha sem perder o que está sendo digitado

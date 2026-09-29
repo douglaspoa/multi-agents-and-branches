@@ -59,7 +59,11 @@ async function openPlanner(){
   // o rascunho é um só por projeto: se OUTRA aba de Nova demanda já está aberta, ele é dela — esta começa vazia
   const otherOpen=(typeof TABS!=='undefined') && TABS.some(t=>t.kind==='planner' && t.id!==activeTab);
   plOwnsDraft=!otherOpen;
-  let draft=null; if(plOwnsDraft){ try{ draft=await invoke('load_draft'); }catch(_){} }
+  // esqueleto do chat só enquanto o rascunho é lido (sem rascunho a ler, o estado vazio do PR B entra direto).
+  // Invisível até 150 ms: leitura rápida vai direto pro estado vazio/conversa, sem piscar.
+  // (plQuiet = renderPlanner não vai pintar esta aba: aí não põe esqueleto que ninguém tiraria)
+  if(plOwnsDraft){ const th=$id('plThread'); if(th && !plQuiet) ldPaint(th, skeletonHtml('chat', { n:2, composer:false, label:'abrindo o rascunho' })); }
+  let draft=null; if(plOwnsDraft){ try{ draft=await invoke('load_draft'); }catch(e){ console.warn('[planner] rascunho não lido', e); } }
   if(draft){ try{ const d=JSON.parse(draft);
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
       plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=plPlanRestore(d.plan); plNoEpic=!!d.noEpic;
@@ -71,6 +75,7 @@ async function openPlanner(){
   // conversa nova: nada no fio — o estado vazio acolhedor (plEmptyHtml) aparece no lugar; a IA é trocada na prévia
   { const txt=window.ndTakeCarry?window.ndTakeCarry():''; const inp=$id('plInput'); if(txt && inp && !inp.value.trim()) inp.value=txt; }
   renderPlanner(); plRenderRefs();
+  { const th=$id('plThread'); if(plQuiet && th && th.querySelector(':scope>.ld-sk')) ldPaint(th, ''); } // render pulado: sem esqueleto órfão
   const i=$id('plInput'); if(i){ i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(_){} }
   plOpenDone=seq;
 }

@@ -5,9 +5,9 @@ async function openSkills(){
   const mm=$id('moreMenu'); if(mm) mm.style.display='none';
   const body=$id('skBody');
   $id('skOverlay').style.display='flex';
-  body.innerHTML=cosmosHtml('carregando skills…');
-  try{ skList=await invoke('list_skills'); }catch(e){ body.innerHTML='<div class="imhint" style="border-left:2px solid var(--crit)">Falhou listar skills: '+esc(String(e&&e.message||e))+'</div>'; return; }
-  skRender();
+  // pinta os cartões-esqueleto na hora; erro vira "tentar de novo" (antes: texto cru e nenhuma saída)
+  await loadInto(body, 'cards', ()=>invoke('list_skills'), (l)=>{ skList=l||[]; skRender(); },
+    { label:'buscando as skills', ctx:'Não consegui listar as skills', shape:{ wrap:'sk-screen', head:true, n:9 } });
 }
 function skAddPanelHtml(){
   const tab=(m,l)=>`<span class="at ${skAddMode===m?'on':''}" data-skmode="${m}">${l}</span>`;
@@ -50,7 +50,8 @@ function skRender(){
   const sw=(nm,on)=>`<label class="sw"><input type="checkbox" data-sk="${escA(nm)}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label>`;
   const cards=list.length
     ? list.map(s=>`<div class="skc${s.active?' on':''}"><div class="skc-h"><span class="skc-name">${esc(s.name)}</span><span class="skc-scope">${esc(s.source||'')}</span><span style="flex:1"></span>${sw(s.name,s.active)}</div><div class="skc-d">${esc(String(s.description||'(sem descrição)').slice(0,220))}${(s.description||'').length>220?'…':''}</div></div>`).join('')
-    : `<div class="dim" style="padding:20px 2px">${q?'nada encontrado pra <b>'+esc(skQuery)+'</b>':'Biblioteca vazia — use <b>+ adicionar skill</b> (do Git, SKILL.md ou criar).'}</div>`;
+    : q ? `<div class="dim" style="padding:20px 2px">nada encontrado pra <b>${esc(skQuery)}</b></div>`
+    : skAddOpen ? '' : emptyHtml({ icon:'stack', title:'Nenhuma skill na biblioteca', help:'Traga de um repositório Git, de um SKILL.md ou crie uma do zero.', action:{ id:'skEmptyAdd', label:'+ adicionar skill' } });
   body.innerHTML=`<div class="sk-screen">
     <div class="sk-head">
       <div><h1 class="sk-h1">Skills</h1><p class="sk-sub">Skills ligadas viram instrução para os agentes deste projeto — entram sozinhas quando o gatilho bate.</p></div>
@@ -66,6 +67,7 @@ function skRender(){
   { const qi=body.querySelector('#skQ'); if(qi){ qi.oninput=()=>{ skQuery=qi.value; skRender(); const n=body.querySelector('#skQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; } }
   body.querySelectorAll('[data-sk]').forEach(cb=>cb.onchange=()=>skToggle(cb.dataset.sk, cb.checked));
   { const b=body.querySelector('#skAddBtn'); if(b) b.onclick=()=>{ skAddOpen=!skAddOpen; skGitFound=null; skRender(); }; }
+  { const b=body.querySelector('#skEmptyAdd'); if(b) b.onclick=()=>{ skAddOpen=true; skGitFound=null; skRender(); }; }
   { const b=body.querySelector('#skToggleAll'); if(b) b.onclick=()=>skSetAll(!allOn); }
   { const b=body.querySelector('#skAddCancel'); if(b) b.onclick=()=>{ skAddOpen=false; skGitFound=null; skRender(); }; }
   body.querySelectorAll('[data-skmode]').forEach(el=>el.onclick=()=>{ skAddMode=el.dataset.skmode; skGitFound=null; skRender(); });
@@ -137,9 +139,8 @@ $id('skOverlay').addEventListener('click',e=>{ if(e.target.id==='skOverlay') ovH
 async function openProjetos(){
   const body=$id('projetosBody');
   $id('projetosOverlay').style.display='flex';
-  body.innerHTML=cosmosHtml('carregando projetos…');
-  let ov=[]; try{ ov=await invoke('projects_overview'); }catch(_){}
-  projetosRender(ov);
+  await loadInto(body, 'cards', ()=>invoke('projects_overview'), (ov)=>projetosRender(ov||[]),
+    { label:'buscando os projetos', ctx:'Não consegui ler os projetos', shape:{ wrap:'appscreen', head:true, n:4 } });
 }
 function projetosRender(ov){
   const body=$id('projetosBody'); if(!body) return;
@@ -164,8 +165,11 @@ function projetosRender(ov){
       <div class="pc2path mono">${esc(p.path)}</div>
       <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}">Finder</button><button class="btn sm" data-pjrm="${escA(p.path)}">remover</button></div>
     </div>`;
-  }).join('') || '<div class="as-card" style="color:rgba(255,255,255,.45);font-size:13.5px">Nenhum projeto ainda. Use "+ adicionar projeto".</div>';
-  body.innerHTML=`<div class="appscreen">${head}${projNewOpen?projNewHtml():''}<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div></div>`;
+  }).join('');
+  const list=n ? `<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div>`
+    : projNewOpen ? '' : emptyHtml({ icon:'folder', title:'Nenhum projeto ainda', help:'Crie um projeto novo ou abra uma pasta que já existe nesta máquina.', action:{ id:'projEmptyNew', label:'+ novo projeto' } });
+  body.innerHTML=`<div class="appscreen">${head}${projNewOpen?projNewHtml():''}${list}</div>`;
+  { const b=body.querySelector('#projEmptyNew'); if(b) b.onclick=()=>{ const nb=body.querySelector('#projNewBtn'); if(nb) nb.click(); }; }
   { const b=body.querySelector('#projAddBtn2'); if(b) b.onclick=()=>{ if(window.pickFolder) window.pickFolder(); }; }
   { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ projNewOpen=!projNewOpen; projetosRender(ov); if(projNewOpen){ projNewWire(ov); const i=$id('pnName'); if(i) i.focus(); } }; }
   if(projNewOpen) projNewWire(ov);

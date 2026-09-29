@@ -126,12 +126,12 @@ async function openPrefs(){
     ovShow(ov); return;
   }
   $id('prefsRepo').textContent=k.repo.replace(/^https?:\/\/[^/]+\//,'').replace(/\.git$/,'');
-  $id('prefsMeta').textContent='carregando…';
+  $id('prefsMeta').textContent='';
   ovShow(ov); // depois do await: respeita o modo aba
   if(typeof prefsChecksRender==='function') prefsChecksRender(); // FT-5a: seção Checagens
   mountEditor($id('prefsText'), { markdown:true });
   try{
-    const rows=await sbGet('project_prefs?select=repo,content,updated_by,updated_at&org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids));
+    const rows=await tabBusy('prefs', sbGet('project_prefs?select=repo,content,updated_by,updated_at&org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids)), { label:'buscando as convenções do time' });
     const r=remotePick(rows, k.ids, 'repo'); // salvar grava na forma nova — a antiga fica como estava
     editorSet($id('prefsText'), (r&&r.content)||'');
     if(r){ const who=(cloudData.profileByUser&&cloudData.profileByUser[r.updated_by])||{}; $id('prefsMeta').textContent='última edição: '+((who.name||who.email||'alguém'))+' · '+new Date(r.updated_at).toLocaleString('pt-BR'); }

@@ -58,7 +58,7 @@ function trfRender(first){
   if(p.sel>=items.length) p.sel=Math.max(0,items.length-1);
   const projs=trfProjects();
   const loading=!trfCache;
-  const list=loading?'<div class="trfempty">carregando tarefas feitas…</div>'
+  const list=loading?skeletonHtml('lista',{ n:4, compact:true, inline:true, label:'carregando as tarefas feitas' })
     : !items.length?`<div class="trfempty">${p.q?'nenhuma tarefa feita com “'+esc(p.q)+'”':'nenhuma tarefa feita '+(p.proj==='*'?'ainda':'neste projeto')}${p.proj!=='*'?' — <button class="btn sm" data-trfall>ver todos os projetos</button>':''}</div>`
     : items.map((t,i)=>`<div class="trfit${i===p.sel?' on':''}" data-trfi="${i}"><div class="trft">${esc(t.title)}</div><div class="trfm">${p.proj==='*'?`<span class="trfproj">${esc(t.proj)}</span>`:''}<span class="trfst ${t.status==='review'?'rv':''}">${esc(trfStatusTx(t))}</span><span>${esc(trfAgo(t.finishedAt))}</span>${t.branch?`<span class="mono">${esc(t.branch)}</span>`:''}</div></div>`).join('');
   if(first){

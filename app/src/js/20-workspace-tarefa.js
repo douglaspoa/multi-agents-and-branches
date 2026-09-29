@@ -554,7 +554,7 @@ function renderWorkspace(){
   const canDeliv=dels.length>0;
   const body = fwFiles.length
     ? (fwGroupMode==='deliverable'&&canDeliv ? fwDelivHtml(fwFiles, dels) : `<div class="fwtreebody">${fwTreeHtml(fwBuildTree(fwFiles),0)}</div>`)
-    : fwFilesLoading ? '<div class="dim" style="padding:8px;font-size:11.5px"><span class="spin"></span> carregando os arquivos…</div>'
+    : fwFilesLoading ? '<div style="padding:8px">'+skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' })+'</div>'
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const tActive=ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy;
   const cost=taskCost(t.id);
@@ -624,7 +624,7 @@ function renderWorkspace(){
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
-  else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:12px">código</span></div><div class="empty">${fwFilesLoading?'<span class="spin"></span> carregando os arquivos…':fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
+  else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:12px">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
   else {
     const loadingFile = fwFileLoading===(t.id+'|'+fwPath);
     const headBtns = fwEditing
@@ -634,14 +634,14 @@ function renderWorkspace(){
     const viewTg = (fChanged && !fwEditing) ? `<span class="fwvtg" role="group" aria-label="como ver o arquivo"><button class="${codeView==='diff'?'on':''}" data-fwview="diff" title="só as linhas adicionadas e removidas, com um pouco de contexto">só mudanças</button><button class="${codeView==='full'?'on':''}" data-fwview="full" title="o arquivo inteiro, com as linhas novas em verde">arquivo inteiro</button></span>` : '';
     const dvRaw = codeView==='diff' ? fwDiffGet(t, fwPath) : undefined;
     const dvBody = codeView!=='diff' ? ''
-      : dvRaw==null ? cosmosHtml('carregando as mudanças…','inline')
+      : dvRaw==null ? skeletonHtml('tabela',{ n:8, cols:2, inline:true, label:'carregando as mudanças' })
       : typeof dvRaw==='object' ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(String(dvRaw.err||'').slice(0,400))}</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
       : !dvRaw.trim() ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div>sem diferenças neste arquivo em relação à base</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
       : `<div class="fwcode fwdv" id="fwCode">${diffViewHtml(diffHunks(dvRaw), { full:fwContentFor===t.id+'|'+fwPath?lines:null, sel, keyPre:t.id+'|'+fwPath+'|' })}</div>`;
     const body = fwEditing
       ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
       : codeView==='diff' ? dvBody
-      : loadingFile ? `<div class="empty"><span class="spin"></span> abrindo o arquivo…</div>`
+      : loadingFile ? skeletonHtml('lista',{ n:10, compact:true, inline:true, label:'abrindo o arquivo' })
       : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(fwReadErr.slice(0,400))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`
       : `<div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>`;
     const bar = fwEditing
@@ -748,7 +748,7 @@ function fwRenderDiff(t, main){
   let rows='';
   const diff=fwPath?fwDiffGet(t, fwPath):'';
   if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
-  else if(diff==null) rows=cosmosHtml('carregando o diff…','inline');
+  else if(diff==null) rows=skeletonHtml('tabela',{ n:8, cols:2, inline:true, label:'carregando o diff' });
   else if(typeof diff==='object') rows=`<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(String(diff.err||'').slice(0,400))}</div><button class="btn sm" id="fwDiffRetry">tentar de novo</button></div>`;
   else if(!diff.trim()) rows='<div class="empty">sem diferenças neste arquivo em relação à base</div>';
   else rows=diffViewHtml(diffHunks(diff), { full:fwContentFor===t.id+'|'+fwPath?fwContent.split('\n'):null, keyPre:t.id+'|'+fwPath+'|' });
@@ -765,7 +765,7 @@ function fwRenderPrPage(t, main){
   const info=prCache[t.id];
   if(info===undefined||info===null){
     if(info===undefined) loadPr(t.id).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); });
-    main.innerHTML='<div class="empty"><span class="spin"></span> carregando o PR…</div>'; return; }
+    ldPaint(main, skeletonHtml('lista',{ head:true, n:5, inline:true, label:'carregando o PR' })); return; }
   if(!info.exists && info.error){
     // gh/rede falhou ≠ "não tem PR" — antes caía em "nenhum PR" e oferecia abrir OUTRO
     // sem acesso ao repo (conta errada no gh) ≠ sem rede: diz o que fazer, sem o texto cru do GraphQL

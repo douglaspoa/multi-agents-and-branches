@@ -288,13 +288,14 @@ function trkToast(msg){ return toast(msg,"warn"); } // usa o toast global (00-ut
 async function openIssues(){
   const mm=$id('moreMenu'); if(mm) mm.style.display='none';
   $id('issuesOverlay').style.display='flex';
-  $id('issuesBody').innerHTML=cosmosHtml('carregando…');
   trkMsg=''; trkSel=null;
-  await trkLoad(true);
-  trkView=trkReady()?'board':'conn';
-  issRender();
-  if(trkView==='board') trkReload();
-  trkLoadProjects();
+  // pinta o kanban-esqueleto NA HORA; a config do painel (nuvem/local) chega depois e o quadro busca as issues
+  await loadInto($id('issuesBody'), 'kanban', ()=>trkLoad(true), ()=>{
+    trkView=trkReady()?'board':'conn';
+    issRender();
+    if(trkView==='board') trkReload();
+    trkLoadProjects();
+  }, { label:'lendo a conexão do painel de issues', shape:{ wrap:'sk-screen trk', head:true } });
 }
 async function trkLoadProjects(){
   const cur=await trkRepoRemote(); let list=[];
@@ -311,7 +312,7 @@ async function trkLoadProjects(){
 }
 async function trkReload(){
   trkBusy='load'; issRender();
-  try{ await trkFetchIssues(); trkBgErr=''; trkBackoffMs=0; trkNextAt=0; }catch(e){ trkErr=trkErrText(e); }
+  try{ await tabBusy('issues', trkFetchIssues(), { label:'buscando issues' }); trkBgErr=''; trkBackoffMs=0; trkNextAt=0; }catch(e){ trkErr=trkErrText(e); }
   trkBusy=''; issRender();
 }
 const trkSw=(id,on,label,sub)=>`<div class="trk-row"><label class="sw"><input type="checkbox" id="${id}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label><div><div class="trk-rt">${label}</div>${sub?`<div class="trk-rs">${sub}</div>`:''}</div></div>`;
@@ -539,13 +540,20 @@ function trkBoardHtml(){
     const cap=(s.kind==='done'&&!trkMoreDone)?25:400, shown=items.slice(0,cap);
     return `<div class="trk-col" data-trkcol="${escA(s.id)}"><div class="trk-colh"><i style="background:${TRK_KINDS[s.kind]||'var(--muted)'}"></i>${esc(s.label||s.id)}<em>${items.length}</em></div>
       <div class="trk-colb">${trkColCards(shown, byCode)||'<div class="trk-empty">—</div>'}${items.length>shown.length?`<button class="trk-more" id="trkMoreDone">mostrar mais ${items.length-shown.length}</button>`:''}</div></div>`; }).join('');
+  // 1ª carga: kanban-esqueleto (nunca colunas vazias com "—"); falhou sem nada na tela: erro com "tentar de novo";
+  // o painel respondeu vazio: vazio padrão com UMA ação
+  const first=!trkIssuesAt;
+  const area = first && trkBusy==='load' ? skeletonHtml('kanban', { cols:Math.min(5, Math.max(3, cols.length)), inline:true, label:'buscando issues' })
+    : first && trkErr ? errorHtml(trkErr, 'trkRetry', null, { human:true }) // trkErr já é texto humano (trkErrText)
+    : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras no passo 2.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
+    : `<div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
   return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar código, título ou pessoa"></div>
       ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa')}${chip('unseen','mudaram',Object.keys(un).length)}${epChips}
       <span style="flex:1"></span><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
       <button class="btn" id="trkRefresh">atualizar</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</div>
-    ${trkErr?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:(trkBgErr?`<div class="imhint" style="border-left:2px solid var(--warn)">${esc(trkBgErr)}</div>`:'')}
-    <div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
+    ${trkErr&&!first?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:(trkBgErr?`<div class="imhint" style="border-left:2px solid var(--warn)">${esc(trkBgErr)}</div>`:'')}
+    ${area}`;
 }
 // JSON de IA, tolerante: cerca ```json (até o ÚLTIMO ``` — a fala pode ter cercas dentro), ou do 1º { ao último };
 // e conserta quebra de linha/tab crus dentro de strings.
@@ -848,7 +856,7 @@ function trkDetailHtml(){
   const c=trk.connector, p=trkPerson(i.assignee), tasks=trkTasksFor(i.code);
   const free=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!trkTaskCode(t));
   const comm=!c.ops.comments?`<p class="trk-rs">Este painel não expõe comentários pela API — observo status e atualizações.</p>`
-    :trkComments===null?'<p class="trk-rs">carregando comentários…</p>'
+    :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando comentários' })
     :(trkComments.map(m=>`<div class="trk-cm"><b>${esc(m.author||'—')}</b> <span class="dim">${trkAgo(m.createdAt)}</span><div>${esc(m.text||'')}</div></div>`).join('')||'<p class="trk-rs">nenhum comentário</p>')
      +(c.ops.addComment?`<div class="trk-bar" style="margin-top:8px"><input class="in" id="trkCmIn" placeholder="comentar…"><button class="btn" id="trkCmSend">enviar</button></div>`:'');
   return `<aside class="trk-detail"><div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span><span style="flex:1"></span>${i.url?`<button class="btn sm" data-lk="${escA(i.url)}">abrir ↗</button>`:''}<button class="x" id="trkDClose">${IC.x}</button></div>
@@ -886,7 +894,7 @@ function trkBoardWire(body){
   { const qi=body.querySelector('#trkQ'); if(qi) qi.oninput=()=>{ trkQ=qi.value; issRender(); const n=$id('trkQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; }
   body.querySelectorAll('[data-trkfilter]').forEach(b=>b.onclick=()=>{ trkFilter=b.dataset.trkfilter; lsSet('trkFilter',trkFilter); issRender(); });
   on('trkRefresh', trkReload); on('trkMoreDone', ()=>{ trkMoreDone=true; issRender(); });
-  on('trkNewBtn', trkNIOpen);
+  on('trkNewBtn', trkNIOpen); on('trkRetry', trkReload); on('trkEmptyAct', trk.connector.ops.create?trkNIOpen:trkReload);
   body.querySelectorAll('[data-trkcode]').forEach(el=>{
     el.onclick=()=>trkSelect(el.dataset.trkcode);
     el.ondragstart=e=>{ e.dataTransfer.setData('text/plain', el.dataset.trkcode); e.dataTransfer.effectAllowed='move'; };

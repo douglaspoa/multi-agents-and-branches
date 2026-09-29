@@ -193,7 +193,7 @@ function goRender(nReq){
     return `<div style="display:flex;gap:9px;align-items:center;font-size:12.5px;color:${col}"><span class="mono" style="width:14px">${ic}</span>${k==='req'?`${l} (${nReq})`:l}${s==='run'?'…':''}</div>`;
   }).join('');
 }
-function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; cosmosStart($id('goOverlay')); }
+function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; ldPaint($id('goSky'), brandLoaderHtml('colocando no ar', { now:true })); }
 function goHide(){ $id('goOverlay').style.display='none'; }
 // última etapa do wizard: aplica as escolhas do "Quem executa?" e cria mostrando progresso
 async function wizLaunch(){

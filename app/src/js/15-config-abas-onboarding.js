@@ -287,7 +287,7 @@ function showActiveView(){
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
   loadTabState(t);      // devolve o estado guardado desta aba (views múltiplas)
   const kindWas=t.kind;
-  if(!(KEEP_ON_SWITCH.has(t.kind) && t.loaded)){ viewOpen(t.kind, t); t.loaded=true; }
+  if(!(KEEP_ON_SWITCH.has(t.kind) && t.loaded)){ if(typeof perfTabOpen==='function') perfTabOpen(t.kind); viewOpen(t.kind, t); t.loaded=true; }
   // o abridor trocou a aba por dentro (aba 'nova' antiga → planner, via openTab replace): a chamada interna já mostrou a tela certa
   if(activeTab!==t.id || t.kind!==kindWas){ const o0=$id(VIEW_OVERLAY[kindWas]); if(o0 && VIEW_OVERLAY[kindWas]!==VIEW_OVERLAY[t.kind]){ o0.classList.remove('astab'); o0.style.display='none'; } return; }  // popula + mostra (os abridores setam display='flex' = layout de MODAL)
   const o=$id(target);

@@ -131,7 +131,7 @@ function epicPageRender(){
     return `<div class="ep-wave${w===curWave?' cur':''}" title="${escA(EP_WAVE_TIP)}">ONDA ${w} · ${ok}/${l.length} entregues${rvN?' · '+rvN+' em revisão':''}${ok===l.length?' ✓':w===curWave?' · atual':''}</div>`; };
   const tasksHtml = tasks.length
     ? waves.map(w=>`${waveHead(w)}${byWave[w].map(taskRow).join('')}`).join('')
-    : `<div class="en-empty">${c.loaded?'nenhuma tarefa neste épico ainda':'carregando…'}</div>`;
+    : `<div class="en-empty">${c.loaded?'nenhuma tarefa neste épico ainda':skeletonHtml('lista',{ n:4, compact:true, inline:true, label:'carregando as tarefas do épico' })}</div>`;
   const dwHtml = dw.length
     ? dw.map((d,i)=>`<label class="ep-dw${d.checkedBy?' ok':''}"><input type="checkbox" data-epdw="${i}" ${d.checkedBy?'checked':''}${can?'':' disabled'}><span class="en-rt">
         <div><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(d.id||('D'+(i+1)))}</span> ${esc(d.text||'')}</div>

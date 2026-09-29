@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="css/83-responsivo.css">
 <link rel="stylesheet" href="css/84-memoria.css">
 <link rel="stylesheet" href="css/85-mesa.css">
+<link rel="stylesheet" href="css/86-carregamento.css">
 <link rel="stylesheet" href="css/87-nova-demanda.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
@@ -390,7 +391,7 @@
 <!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
 <div class="overlay" id="goOverlay" style="display:none;z-index:120">
   <div class="modal" style="max-width:420px;padding:0 0 20px;overflow:hidden">
-    <div class="cosmos tall"><canvas class="cosmos-c"></canvas><div class="cosmos-t">colocando no ar</div></div>
+    <div class="go-sky" id="goSky"></div>
     <div id="goSteps" style="padding:0 24px" style="margin-top:14px;display:flex;flex-direction:column;gap:9px"></div>
   </div>
 </div>
@@ -605,7 +606,7 @@
 <div class="overlay" id="envOverlay" style="display:none">
   <div class="modal" style="width:min(620px,100%)">
     <div class="mhead"><b>Ambiente</b><span style="flex:1"></span><button class="btn sm" id="envRecheck">verificar de novo</button><button class="x" id="envClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="envBody"><div class="dim" style="padding:8px 2px">verificando…</div></div>
+    <div class="mbody" id="envBody"></div>
   </div>
 </div>
 
@@ -651,7 +652,7 @@
   </div>
 </div>
 <script src="js/00-util.js"></script>
-<script src="js/05-cosmos.js"></script>
+<script src="js/06-carregamento.js"></script>
 <script src="js/09-remote-id.js"></script>
 <script src="js/10-core.js"></script>
 <script src="js/11-ambiente-updater.js"></script>

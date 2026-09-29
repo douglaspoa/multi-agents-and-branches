@@ -19,7 +19,7 @@ function auShow(step, opts){
   au.msg=''; au.msgKind=''; au.msgRef=''; au.acts=null; au.err={}; au.focus=''; au.busy=false;
   Object.assign(au, opts||{}); if(step) au.step=step;
   const o=auEl(); if(!o) return; const R=$id('auRight'); if(R) R.dataset.step=''; // tela nova: não herda o que foi digitado noutra
-  o.style.display='flex'; auRender(); try{ cosmosStart(o); }catch(_){ }
+  o.style.display='flex'; auRender();
 }
 function auHide(){ const o=auEl(); if(o) o.style.display='none'; au.waiting=false; if(_auTimer){ clearInterval(_auTimer); _auTimer=null; }
   // 1º uso: o tour de boas-vindas só começa DEPOIS da entrada (antes ele abria por baixo do gate de login)
@@ -36,7 +36,7 @@ const AU_LEFT={
 const AU_DOT={ g:'var(--accent)', c:'#5ec8c8', p:'#c493bb' };
 function auLeftHtml(step){
   const L=AU_LEFT[step]||AU_LEFT.signup;
-  return `<canvas class="cosmos-c au-sky"></canvas><div class="au-lin">
+  return `<div class="au-lin">
     <div class="au-brand"><span class="au-logo">S</span><span class="au-brandt">STARFORK</span></div>
     <h1 class="au-h1">${esc(L.h)}</h1><p class="au-sub">${esc(L.s)}</p>
     <div class="au-bul">${L.b.map(([c,t])=>`<div class="au-b"><i style="background:${AU_DOT[c]}"></i>${esc(t)}</div>`).join('')}</div>
@@ -390,7 +390,7 @@ function auRenderPay(R, topbar){
   R.innerHTML=topbar+`<div class="au-pay"><div class="au-payl"><button class="au-link" id="auToPlans">← planos</button><h2 class="au-h2">Pagamento</h2>${auMsg()}
       <div class="au-methods"><button class="on">Cartão</button><button>Pix</button><button>Boleto/NF</button></div>
       <p class="au-p">O pagamento acontece numa página segura da <b>Stripe</b>, no seu navegador — o cartão nunca passa pelo app. Cartão, Pix e boleto ficam disponíveis lá.</p>
-      ${au.waiting?`<div class="au-wait">${cosmosHtml('esperando a confirmação da Stripe…','inline')}<div class="au-hint">Concluiu o pagamento? O app reconhece sozinho em instantes. <a id="auRecheck">verificar agora</a></div></div>`:`<button class="au-btn primary big" id="auGo">Começar teste de ${trial} dias</button><div class="au-hint" style="margin-top:10px">Sem cobrança agora. Avisamos 3 dias antes de renovar.</div>`}
+      ${au.waiting?`<div class="au-wait">${brandLoaderHtml('esperando a confirmação da Stripe…', { inline:true, now:true })}<div class="au-hint">Concluiu o pagamento? O app reconhece sozinho em instantes. <a id="auRecheck">verificar agora</a></div></div>`:`<button class="au-btn primary big" id="auGo">Começar teste de ${trial} dias</button><div class="au-hint" style="margin-top:10px">Sem cobrança agora. Avisamos 3 dias antes de renovar.</div>`}
     </div>
     <aside class="au-payr"><div class="au-lbl" style="margin:0 0 10px">resumo</div><div class="au-sumt"><i></i>${esc(name)} · ${iv==='year'?'anual':'mensal'}</div>
       ${perSeat?`<div class="au-sumr"><span>Assento</span><b>${fmtBRL(per).replace(',00','')}/mês</b></div>`:''}<div class="au-sumr"><span>Assentos</span><b>${seats}</b></div><div class="au-sumr"><span>Após o teste</span><b>${fmtBRL(total).replace(',00','')}/${iv==='year'?(perSeat||au.plan.key!=='team'?'mês (anual)':'ano'):'mês'}</b></div>
