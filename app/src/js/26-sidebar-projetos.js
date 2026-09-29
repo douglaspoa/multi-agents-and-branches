@@ -117,11 +117,14 @@ function renderBus(){
   const costs=L(state.costs);
   const totUsd=costs.reduce((s,c)=>s+((c&&c.usd)||0),0);
   const totTok=costs.reduce((s,c)=>s+((c&&c.inTok)||0)+((c&&c.outTok)||0),0);
+  // R7: cada contagem é um atalho — clicar leva pra Central já filtrada naquela etapa (mesmo chip da Central).
+  // Cor = a da seção (FLOW_SEC_COLOR), igual aos chips; antes "prontas" e "PR aberto" ficavam cinza.
+  const go=(k,html,title)=>`<button type="button" class="busln" data-busst="${k}" title="${escA(title)}">${html}</button>`;
   const parts=[];
-  parts.push(fc.aguardando?`<b style="color:var(--st-ask,var(--warn))">${fc.aguardando} aguardando você</b>`:'0 aguardando você');
-  parts.push(`<b style="color:${fc.andamento?'var(--st-run,var(--good))':'var(--text-2)'}">${fc.andamento} em andamento</b>`);
-  if(fc.prontas) parts.push(`${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar`);
-  if(fc.praberto) parts.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
+  parts.push(fc.aguardando?go('aguardando',`<b style="color:var(--st-ask,var(--warn))">${fc.aguardando} aguardando você</b>`,'ver na Central o que espera uma decisão sua'):'<span>0 aguardando você</span>');
+  parts.push(fc.andamento?go('andamento',`<b style="color:var(--st-run,var(--good))">${fc.andamento} em andamento</b>`,'ver na Central o que os agentes estão fazendo'):`<b style="color:var(--text-2)">0 em andamento</b>`);
+  if(fc.prontas) parts.push(go('prontas',`<span style="color:${FLOW_SEC_COLOR.prontas}">${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar</span>`,'ver na Central as entregas prontas pra você revisar'));
+  if(fc.praberto) parts.push(go('praberto',`<span style="color:${FLOW_SEC_COLOR.praberto}">${nPl(fc.praberto,'PR aberto','PRs abertos')}</span>`,'ver na Central os PRs esperando revisão/merge'));
   if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">${fmtCost(totUsd)} no total</span>`);
   // conflitos de arquivo entre agentes: resumo curto na barra, explicação no tooltip
   const claims=L(state.claims), yields=claims.filter(c=>c&&c.yieldedTo);
@@ -138,6 +141,13 @@ function renderBus(){
   if(el.title!==tip) el.title=tip;
 }
 
+// clique numa contagem da barra de status → Central (Execução) filtrada naquela etapa
+{ const bs=$id('busSummary'); if(bs) bs.addEventListener('click', e=>{
+  const b=e.target.closest('[data-busst]'); if(!b) return;
+  flowScope='exec'; lsSet('flowScope','exec'); flowStatus=b.dataset.busst; flowSetF('flowStatus', flowStatus);
+  if(window.openTab) window.openTab('flow');
+  if(curView()!=='flow') setView('flow'); else { lastSig=''; render(); }
+}); }
 $id("connectBtn").onclick = ()=>{
   const v = $id("repoInput").value.trim();
   if(v) connect(v);

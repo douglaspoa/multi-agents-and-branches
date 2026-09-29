@@ -219,3 +219,19 @@
 .tsboard.ts5{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media(max-width:1200px){.tsboard.ts5{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:1000px){.tsboard.ts5{grid-template-columns:1fr 1fr}}
+
+/* ---- R7 (central): foco visível pelo teclado, abas arrastáveis, barra de status clicável, 1024px ---- */
+.dcard:focus-visible,.fcard:focus-visible,.kcard:focus-visible,.prow2:focus-visible,.grow2:focus-visible,.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#tmenuPop button:focus-visible,#stmenuPop button:focus-visible{background:var(--surface-2)!important;outline:none}
+.prow2.more .tt{font-size:11px}
+.prow2.more:hover .tt{color:var(--text)}
+.tab.dragging{opacity:.45}
+.tab.dropto{box-shadow:inset 2px 0 0 var(--accent)}
+.busln{border:0;background:none;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;border-radius:4px}
+.busln:hover{text-decoration:underline;text-underline-offset:3px}
+.busln:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+#clock{white-space:nowrap;flex:none}
+.ftabs .ft,.tsscope button{white-space:nowrap}
+.tslive .tscost{white-space:nowrap;flex:none}
+@media (max-width:1180px){ .ftabs{gap:14px} }
+@media (max-width:1180px){ .tslive .who{width:112px} .ftabs .tsnavlbl{display:none} }
