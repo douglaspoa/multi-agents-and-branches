@@ -394,7 +394,7 @@ function trkConnHtml(){
       <label class="trk-f">Nome do painel<input class="in" id="trkName" value="${escA(trk.name||'')}" placeholder="ex.: Demands · Foundation"></label>
       <label class="trk-f">Documentação<textarea class="in mono" id="trkDocs" rows="7" style="font-size:11.5px" placeholder="cole aqui a documentação da API (endpoints, autenticação, campos, status)…">${esc(trk.docs||'')}</textarea></label>
       <div class="trk-bar"><button class="btn" id="trkPick">${ic('doc')}anexar arquivo${trkDocFiles.length?'s':''}</button>${trkDocFiles.map((f,k)=>`<span class="trk-op">${esc(pathBase(f))} <a data-trkunpick="${k}" style="cursor:pointer;opacity:.6">${IC.x}</a></span>`).join('')}<span style="flex:1"></span>
-        <button class="btn primary" id="trkBuild"${trkBusy==='build'?' disabled':''}>${trkBusy==='build'?'lendo a doc…':(c?'✦ gerar de novo':'✦ gerar conexão')}</button></div></div>
+        <button class="btn primary" id="trkBuild"${trkBusy==='build'?' disabled':''}>${trkBusy==='build'?'lendo a doc…':(c?IC.starforkEm+' gerar de novo':IC.starforkEm+' gerar conexão')}</button></div></div>
     ${c?`<div class="trk-card"><div class="trk-ct">2 · Chaves e dados da conexão <span class="mono dim" style="font-weight:400">${esc(c.baseUrl||'')}</span></div>
       ${secrets||'<p class="trk-rs">Este painel não pede chave.</p>'}
       ${vars?`<div class="trk-grid2" style="margin-top:12px">${vars}</div>`:''}</div>
@@ -803,7 +803,7 @@ function trkNIRender(){
         :`<span class="trk-rt" style="font-size:12px">${who?esc(who.label):'<span class="dim">sem responsável</span>'}</span>${it.assignee?'<span class="trk-rs">· vai anotado na descrição (este painel não define responsável na criação)</span>':''}`}</div>
       ${it.open.length?`<div class="trk-niopen">${it.open.map(q=>`<div>? ${esc(q)}</div>`).join('')}</div>`:''}${it.err?`<div class="trk-rs" style="color:var(--warn)">${esc(it.err)}</div>`:''}</div>`; }).join('');
   const stick=stickBottom($id('trkNIThread'));
-  o.innerHTML=`<div class="plhead"><div class="plheadl"><span class="plheadic">✦</span><div class="plheadt"><b>Nova issue — montar conversando</b><span class="fwsub">${esc(trk.name||'painel')} · ${n.project?'projeto '+esc(n.project.name):'projeto ainda não escolhido'}${me?' · criando como '+esc(me):''}</span></div></div>
+  o.innerHTML=`<div class="plhead"><div class="plheadl"><span class="plheadic">${IC.starforkEm}</span><div class="plheadt"><b>Nova issue — montar conversando</b><span class="fwsub">${esc(trk.name||'painel')} · ${n.project?'projeto '+esc(n.project.name):'projeto ainda não escolhido'}${me?' · criando como '+esc(me):''}</span></div></div>
       <div class="plheadr">${n.projects.length>1?`<select class="in" id="trkNIProj" style="width:auto;font-size:12px"${n.running?' disabled':''}><option value="">escolher projeto…</option>${n.projects.map((p,k)=>`<option value="${k}"${n.project===p?' selected':''}>${esc(p.name)}${p.on?'':' (não conectado)'}</option>`).join('')}</select>`:''}<button class="btn sm ghost" id="trkNINew" title="encerra esta conversa e começa outra do zero (as issues já criadas continuam no painel)">＋ nova conversa</button><button class="btn sm" id="trkNIClose">voltar pro quadro</button></div></div>
     <div class="plcols"><div class="plchatcol"><div class="plthread" id="trkNIThread">${thread}</div>
         <div class="plchips">${n.chips.map((c,k)=>`<button class="plchip" data-nichip="${k}">${esc(c)}</button>`).join('')}</div>

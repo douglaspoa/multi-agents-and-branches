@@ -6066,6 +6066,8 @@ struct PrInfo {
     checks_total: i64,
     checks_fail: i64,
     checks_pending: i64,
+    /// nomes das checagens que falharam (o "pedir pro agente corrigir as checagens" da tela do PR cita quais)
+    failing_checks: Vec<String>,
     /// login da conta do gh (quem "respondeu" as threads)
     gh_user: String,
 }
@@ -6185,6 +6187,27 @@ fn gh_no_repo_access(stderr: &str) -> Option<String> {
 }
 
 /// statusCheckRollup → (total, falhando, pendentes). CheckRun usa status/conclusion; StatusContext usa state.
+/// nomes das checagens que falharam no statusCheckRollup (CheckRun.name / StatusContext.context)
+fn pr_failing_checks(rollup: &serde_json::Value) -> Vec<String> {
+    let mut out = vec![];
+    if let Some(arr) = rollup.as_array() {
+        for c in arr {
+            let is_ctx = c["__typename"].as_str() == Some("StatusContext") || (c.get("state").is_some() && c.get("status").is_none());
+            let failed = if is_ctx {
+                matches!(c["state"].as_str().unwrap_or(""), "FAILURE" | "ERROR")
+            } else {
+                let status = c["status"].as_str().unwrap_or("");
+                (status.is_empty() || status == "COMPLETED")
+                    && matches!(c["conclusion"].as_str().unwrap_or(""), "FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" | "STARTUP_FAILURE")
+            };
+            if failed {
+                let n = c["name"].as_str().or_else(|| c["context"].as_str()).unwrap_or("").trim().to_string();
+                if !n.is_empty() && !out.contains(&n) { out.push(n); }
+            }
+        }
+    }
+    out
+}
 fn pr_checks_summary(rollup: &serde_json::Value) -> (i64, i64, i64) {
     let (mut tot, mut fail, mut pend) = (0i64, 0i64, 0i64);
     if let Some(arr) = rollup.as_array() {
@@ -6290,7 +6313,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     let empty = PrInfo {
         exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(),
         comments: vec![], reviews: vec![], is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
-        checks_total: 0, checks_fail: 0, checks_pending: 0, gh_user: String::new(),
+        checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(),
     };
     let mut vcmd = Command::new(gh_bin());
     vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName"]).args(gh_repo_args(&repo)).current_dir(&repo);
@@ -6407,6 +6430,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     // resumos de review com texto (o "request changes" com explicação não aparecia em lugar nenhum)
     let reviews: Vec<PrReview> = pr_parse_reviews(&v["reviews"], &url);
     let (checks_total, checks_fail, checks_pending) = pr_checks_summary(&v["statusCheckRollup"]);
+    let failing_checks = pr_failing_checks(&v["statusCheckRollup"]);
     // PERSISTE o PR na tarefa (spec.prUrl): sem isso o link só existia "ao
     // vivo" via gh — snapshot/sync do time ficavam com pr_url nulo pra sempre.
     if !url.is_empty() {
@@ -6462,6 +6486,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         checks_total,
         checks_fail,
         checks_pending,
+        failing_checks,
         gh_user: me,
     })
 }
@@ -8454,6 +8479,7 @@ pub fn run() {
             mesa::mesa_stop,
             mesa::mesa_resume,
             mesa::mesa_save,
+            mesa::mesa_delete,
             mesa::mesa_read,
             mesa::mesa_list,
             preview_alive,
@@ -8784,7 +8810,7 @@ mod pr_status_tests {
         let mk = |decision: &str| PrInfo {
             exists: true, number: 1, url: "u".into(), state: "OPEN".into(), decision: decision.into(), mergeable: String::new(), body: String::new(),
             comments: vec![], reviews: rs.clone(), is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
-            checks_total: 0, checks_fail: 0, checks_pending: 0, gh_user: String::new(),
+            checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(),
         };
         let none = std::collections::HashSet::new();
         let info = mk("CHANGES_REQUESTED");
@@ -8799,13 +8825,15 @@ mod pr_status_tests {
     #[test]
     fn checks_summary_counts_fail_and_pending() {
         let r = serde_json::json!([
-            {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
-            {"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},
-            {"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""},
-            {"__typename":"StatusContext","state":"PENDING"},
-            {"__typename":"StatusContext","state":"ERROR"}
+            {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},
+            {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"},
+            {"__typename":"CheckRun","name":"e2e","status":"IN_PROGRESS","conclusion":""},
+            {"__typename":"StatusContext","context":"ci/lint","state":"PENDING"},
+            {"__typename":"StatusContext","context":"vercel","state":"ERROR"}
         ]);
         assert_eq!(pr_checks_summary(&r), (5, 2, 2));
+        assert_eq!(pr_failing_checks(&r), vec!["test".to_string(), "vercel".to_string()]);
+        assert!(pr_failing_checks(&serde_json::Value::Null).is_empty());
         assert_eq!(pr_checks_summary(&serde_json::Value::Null), (0, 0, 0));
     }
     #[test]

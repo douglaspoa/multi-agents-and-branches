@@ -137,7 +137,7 @@ document.addEventListener('click', async e=>{
   const gh=e.target.closest('[data-prgh]'); if(gh){ openExternal(gh.dataset.prgh); return; }
   const sd=e.target.closest('[data-prshowdone]'); if(sd){ lsSet('prShowDone', lsGet('prShowDone')==='1'?'0':'1'); prRerender(sd.dataset.prtask); return; }
   const rs=e.target.closest('[data-prresolve]'); if(rs){ prResolveThread(rs.dataset.prtask, rs.dataset.prresolve, rs); return; }
-  const fr=e.target.closest('[data-prfixrev]'); if(fr){ fr.disabled=true; fr.textContent='enviando…'; try{ await prFixReview(fr.dataset.prtask, fr.dataset.prfixrev); }finally{ prRerender(fr.dataset.prtask); } return; }
+  const fr=e.target.closest('[data-prfixrev]'); if(fr){ fr.disabled=true; fr.textContent='enviando…'; try{ if(await prFixReview(fr.dataset.prtask, fr.dataset.prfixrev)) toast('pedido enviado ao agente','ok'); /* false: o motivo já apareceu (showErr/toast) */ }finally{ prRerender(fr.dataset.prtask); } return; }
 });
 // resolve a thread no GitHub (mutation resolveReviewThread) — some da lista na hora
 async function prResolveThread(taskId, threadId, btn){
@@ -163,20 +163,20 @@ function prFindCmt(info, ref){
 }
 // aplicar correção de UM comentário: manda pro agente com o contexto e cobra resposta no thread
 async function prFixOne(taskId, ref){
-  const info=prCache[taskId]; if(!info) return;
-  const c=prFindCmt(info, ref); if(!c){ toast('comentário não encontrado — atualize o PR','warn'); return; }
+  const info=prCache[taskId]; if(!info) return false;
+  const c=prFindCmt(info, ref); if(!c){ toast('comentário não encontrado — atualize o PR','warn'); return false; }
   const loc=c.path?`${c.path}${c.line?':'+c.line:''}`:'(conversa do PR)';
   const rv=prIsReviewCmt(c) && c.id;
   const idTx=rv?` [comment_id=${c.id}]`:'';
   const msg=`Aplique a correção pedida NESTE comentário do PR #${info.number}${idTx} — ${loc}, de ${c.author}:\n"""\n${(c.body||'').slice(0,1200)}\n"""\nDepois: commit + push, e responda o thread`+(rv?` via gh api (repos/{owner}/{repo}/pulls/${info.number}/comments/${c.id}/replies) começando com "✔" e dizendo o que mudou.`:` com um comentário no PR (gh pr comment ${info.number}) começando com "✔ ${c.url||''}" (o link identifica qual comentário foi resolvido) e dizendo o que mudou.`);
-  await fwSendText(taskId, msg);
+  return await fwSendText(taskId, msg); // true só se chegou ao agente (quem chamou decide se troca de tela)
 }
 // aplicar o que um REVIEW (resumo) pediu
 async function prFixReview(taskId, reviewId){
-  const info=prCache[taskId]; if(!info) return;
-  const r=((info.reviews||[]).find((x,i)=>prRevKey(x,i)===String(reviewId))); if(!r){ toast('review não encontrado — atualize o PR','warn'); return; }
+  const info=prCache[taskId]; if(!info) return false;
+  const r=((info.reviews||[]).find((x,i)=>prRevKey(x,i)===String(reviewId))); if(!r){ toast('review não encontrado — atualize o PR','warn'); return false; }
   const msg=`Aplique as mudanças pedidas NESTE review do PR #${info.number}, de ${r.author}:\n"""\n${String(r.body||'').slice(0,2000)}\n"""\nDepois: commit + push, e responda no PR (gh pr comment ${info.number}) começando com "✔" e dizendo o que mudou.`;
-  await fwSendText(taskId, msg);
+  return await fwSendText(taskId, msg);
 }
 function prBodyOf(t){
   const rev=reviewOf(t.id);

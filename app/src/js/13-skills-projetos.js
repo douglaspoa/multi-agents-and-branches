@@ -37,7 +37,7 @@ function skAddPanelHtml(){
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skAiGo">${ic('spark')}montar com IA</button><button class="btn" id="skAddCancel">cancelar</button></div>
       <div class="dim" style="font-size:11px;margin-top:8px;line-height:1.5">Abre o <b>Montar conversando</b> com o pedido pronto. Quando a tarefa terminar, a skill aparece aqui na biblioteca.</div>`;
   }
-  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia','✦ Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
+  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia',IC.starforkEm+' Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
 }
 function skRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
@@ -78,7 +78,7 @@ function skRender(){
   { const b=body.querySelector('#skDoImport'); if(b) b.onclick=skDoImport; }
   { const b=body.querySelector('#skAiGo'); if(b) b.onclick=skAiCreate; }
 }
-// ✦ Com IA: abre o "Montar conversando" com o pedido da skill já escrito na caixa (openPlanner é async —
+// Com IA: abre o "Montar conversando" com o pedido da skill já escrito na caixa (openPlanner é async —
 // carrega o rascunho —, então espera a caixa aparecer e só preenche se ela estiver vazia)
 function skAiCreate(){
   const idea=(($id('skAiIdea')||{}).value||'').trim();
