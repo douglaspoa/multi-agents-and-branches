@@ -695,12 +695,20 @@ export function mapLine(line: string, costBase = 0): AgentEvent[] {
   return [];
 }
 
-function mapTool(name: string | undefined, inp: any): AgentEvent {
+export function mapTool(name: string | undefined, inp: any): AgentEvent {
   const n = (name ?? "").toLowerCase();
   if (n.includes("ask_human")) return { type: "note", text: "perguntou ao humano: " + String(inp?.question ?? "") };
   if (n.includes("claim")) return { type: "claim", text: String(inp?.path ?? ""), path: inp?.path, mode: inp?.mode ?? "write" };
   if (n.includes("edit") || n.includes("str_replace") || n.includes("notebook")) return { type: "edit", text: fileOf(inp), ok: true };
   if (n.includes("write") || n.includes("create")) return { type: "write", text: fileOf(inp), ok: true };
+  // busca/listagem viram FRASE ("buscando \"x\" em src") — antes caíam como "read" com o padrão cru e a tela
+  // não tinha como dizer se era um arquivo lido ou uma busca (a faixa "o que ele está fazendo" usa isto)
+  if (n === "grep" || n.endsWith("__grep")) {
+    const pat = String(inp?.pattern ?? "").slice(0, 80), where = String(inp?.path ?? "");
+    return { type: "read", text: `buscando "${pat}"${where ? " em " + where : ""}` };
+  }
+  if (n === "glob" || n === "ls") return { type: "read", text: `listando ${String(inp?.pattern ?? inp?.path ?? "").slice(0, 100)}` };
+  if (n === "webfetch" || n === "websearch") return { type: "read", text: `consultando ${String(inp?.url ?? inp?.query ?? "").slice(0, 100)}` };
   if (n.includes("read") || n.includes("grep") || n.includes("glob")) return { type: "read", text: fileOf(inp) || String(inp?.pattern ?? "") };
   if (n.includes("bash") || n.includes("shell")) return { type: "bash", text: String(inp?.command ?? "").slice(0, 120) };
   if (n.includes("task")) return { type: "note", text: "subagente: " + String(inp?.description ?? "") };

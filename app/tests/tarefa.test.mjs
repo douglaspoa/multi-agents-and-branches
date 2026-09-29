@@ -172,7 +172,7 @@ test('eco otimista: ts ISO + só eventos depois do envio; texto fixo repetido n�
   const core = readFileSync(new URL('../src/js/10-core.js', import.meta.url), 'utf8');
   const g = (re) => { const m = core.match(re); assert.ok(m); return m[0]; };
   const c = ctxWith();
-  vm.runInContext(g(/function evIsUserMsg\(e\)\{[^\n]*\n/) + g(/function evUserText\(tx\)\{[^\n]*\n/) + 'const fwOptim={};\n' + fn('fwOptimFor') + '\nthis.O=fwOptim; this.f=fwOptimFor;', c);
+  vm.runInContext(g(/function evIsUserMsg\(e\)\{[^\n]*\n/) + g(/function evUserText\(tx\)\{[^\n]*\n/) + 'const fwOptim={};\n' + fn('fwOptimFor') + line('fwEvTs') + line('fwAgentAfter') + '\nthis.O=fwOptim; this.f=fwOptimFor;', c);
   const t0 = Date.now();
   const ev1 = { agent: 'Você', text: 'Você: verificar requisitos', ts: new Date(t0 - 30000).toISOString() };
   c.O.t = [{ text: 'verificar requisitos', at: t0, st: 'enviada' }];

@@ -762,6 +762,16 @@ export class Orchestrator {
     return this.store.tryLockBusy(taskId, process.pid, pidAlive);
   }
 
+  /** Fim do turno: solta o lock e fecha pergunta que ficou aberta (o processo que esperava a resposta acabou). */
+  private releaseTurn(taskId: string): void {
+    try {
+      if (this.store.closeOpenQuestions(taskId) > 0) {
+        this.store.addEvent(taskId, "Sistema", "note", "A pergunta ficou sem resposta e o turno terminou — se ainda quiser responder, mande na conversa: o agente retoma de onde parou.", true);
+      }
+    } catch { /* banco antigo: segue */ }
+    this.store.setBusyPid(taskId, null);
+  }
+
   private async withTaskLock(taskId: string, kind: string, payload: Record<string, unknown>, fn: () => Promise<void>): Promise<void> {
     if (!this.tryLock(taskId)) {
       this.store.queueAdd(taskId, kind, payload);
@@ -773,7 +783,7 @@ export class Orchestrator {
         try {
           await this.drainLocked(taskId);
         } finally {
-          this.store.setBusyPid(taskId, null);
+          this.releaseTurn(taskId);
           await this.drainQueue(taskId);
         }
         return;
@@ -791,7 +801,7 @@ export class Orchestrator {
     try {
       await fn();
     } finally {
-      this.store.setBusyPid(taskId, null);
+      this.releaseTurn(taskId);
       await this.drainQueue(taskId);
     }
   }
@@ -818,7 +828,7 @@ export class Orchestrator {
       try {
         await this.drainLocked(taskId);
       } finally {
-        this.store.setBusyPid(taskId, null);
+        this.releaseTurn(taskId);
       }
     }
   }
@@ -854,7 +864,7 @@ export class Orchestrator {
     try {
       await this.runTaskInner(taskId);
     } finally {
-      this.store.setBusyPid(taskId, null);
+      this.releaseTurn(taskId);
       await this.drainQueue(taskId);
     }
   }

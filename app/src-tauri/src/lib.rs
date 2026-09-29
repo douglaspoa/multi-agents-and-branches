@@ -459,6 +459,26 @@ mod stoppable_tests {
     }
 }
 
+/// Pergunta do agente aparece na tela? Só a de tarefa com turno VIVO (quem espera a resposta é o processo do turno).
+/// Banco antigo sem busy_pid: não dá pra saber → mostra. Desempate de posse (tiebreak) não espera processo → mostra.
+fn pending_visible(kind: &str, has_busy: bool, task_busy: Option<bool>) -> bool {
+    if kind != "question" || !has_busy { return true; }
+    task_busy == Some(true)
+}
+
+#[cfg(test)]
+mod pending_visible_tests {
+    use super::pending_visible;
+    #[test]
+    fn pergunta_orfa_some() {
+        assert!(pending_visible("question", true, Some(true)));
+        assert!(!pending_visible("question", true, Some(false)), "turno acabou: ninguém espera a resposta");
+        assert!(!pending_visible("question", true, None), "tarefa apagada");
+        assert!(pending_visible("question", false, Some(false)), "banco antigo sem busy_pid");
+        assert!(pending_visible("tiebreak", true, Some(false)));
+    }
+}
+
 #[cfg(test)]
 mod quick_project_tests {
     use super::{project_slug, unique_child};
@@ -2587,6 +2607,10 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
 
     let git = repo.as_deref().map(repo_is_git_cached).unwrap_or(true);
     let remote = git && repo.as_deref().map(repo_has_remote_cached).unwrap_or(true);
+    // pergunta ÓRFÃ: o processo que esperava a resposta já acabou (lock do turno solto/morto). Mostrar como
+    // "aguardando sua resposta" mentia — a resposta caía no vazio (29/09). Some da tela; a mensagem vira conversa.
+    let mut pending = pending;
+    pending.retain(|p| pending_visible(&p.kind, has_busy, tasks.iter().find(|t| t.id == p.task_id).map(|t| t.busy)));
     Ok(Snapshot { repo, git, remote, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
