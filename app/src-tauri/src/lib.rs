@@ -3918,7 +3918,7 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let r2 = output_timeout(c2, 60)?;
     let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
     if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
-    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram o aviso de atualizar no próximo boot ou em até 6h{warn}", size as f64 / 1048576.0))
+    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time recebem o aviso de atualizar em até ~2 min{warn}", size as f64 / 1048576.0))
 }
 fn chrono_iso_now() -> String {
     let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();

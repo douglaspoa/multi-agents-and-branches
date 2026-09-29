@@ -66,6 +66,7 @@ $id('txInput').addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.targ
 // botão "verificar agora" (antes a checagem era muda: falhou, só de novo em 6h).
 let updInfo=null;
 let updLast={ at:0, ok:false, msg:'', dev:false, mine:0 };
+let updToastFor=0;
 async function checkUpdate(manual){
   updLast.at=Date.now();
   try{
@@ -83,6 +84,12 @@ async function checkUpdate(manual){
       const b=$id('updBtn');
       b.style.display=''; b.innerHTML=ic('upload')+'atualizar'+(j.version?(' · '+esc(j.version)):'');
       updLast.ok=true; updLast.msg='versão nova disponível'+(j.version?' · '+j.version:'');
+      // aviso ativo UMA vez por versão (o botão do topo fica até atualizar)
+      if(updToastFor!==j.buildMs){
+        updToastFor=j.buildMs;
+        toast('Versão nova do Starfork'+(j.version?' ('+j.version+')':'')+(j.notes?' — '+j.notes:'')+'. Atualiza em ~10s; tarefas rodando continuam.', 'info',
+          { label:'atualizar agora', fn:()=>applyUpdate($id('updBtn'), true) }, { label:'depois', fn:()=>{} });
+      }
     }else{
       updInfo=null; $id('updBtn').style.display='none';
       updLast.ok=true; updLast.msg='você está na versão mais recente'+(j&&j.version?' (canal: '+j.version+')':'');
@@ -91,9 +98,9 @@ async function checkUpdate(manual){
   if(manual && typeof updRenderCfg==='function') updRenderCfg();
   return updLast;
 }
-async function applyUpdate(btn){
+async function applyUpdate(btn, confirmed){
   if(!updInfo || osKind()!=='mac') return;
-  if(!await askYes('Atualizar o Starfork agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
+  if(!confirmed && !await askYes('Atualizar o Starfork agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
   btn.disabled=true; btn.textContent='baixando…';
   try{
     const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Starfork-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
@@ -104,15 +111,17 @@ async function applyUpdate(btn){
 }
 $id('updBtn').onclick=function(){ applyUpdate(this); };
 // boot: tenta aos 5s e, enquanto não conseguir uma checagem válida (sessão ainda
-// carregando, rede fora), insiste a cada 60s por até 15 min; depois, de 6 em 6h
-// e sempre que a janela volta ao foco com a última checagem velha (>30 min).
+// carregando, rede fora), insiste a cada 60s por até 15 min; depois, de 2 em 2 min.
 setTimeout(async()=>{
   await checkUpdate();
   let tries=0;
   const t=setInterval(async()=>{ if(updLast.ok || ++tries>15){ clearInterval(t); return; } await checkUpdate(); }, 60e3);
 }, 5000);
-setInterval(checkUpdate, 6*3600e3);
-window.addEventListener('focus', ()=>{ if(Date.now()-updLast.at > 30*60e3) checkUpdate(); });
+// quase instantâneo: o latest.json tem ~300 bytes — checar a cada 2 min (e ao voltar o
+// foco) faz a versão publicada chegar em todo mundo em minutos, não em até 6h.
+const UPD_EVERY=2*60e3;
+setInterval(()=>{ if(!document.hidden) checkUpdate(); }, UPD_EVERY);
+window.addEventListener('focus', ()=>{ if(Date.now()-updLast.at > UPD_EVERY) checkUpdate(); });
 // bloco "Versão" da tela de Configurações
 function updRenderCfg(){
   const h=$id('updHost'); if(!h) return;
