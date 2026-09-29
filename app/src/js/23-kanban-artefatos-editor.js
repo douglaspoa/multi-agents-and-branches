@@ -348,6 +348,6 @@ async function resolvePending(id, answer){
   // E2 (bug #2): o erro SOBE — quem chamou (fwSendMsg) devolve o texto digitado ao campo e mostra o erro.
   // Antes era engolido aqui: o input já tinha sido limpo e a resposta sumia sem aviso.
   await invoke("resolve_pending", { id, answer });
-  try{ await refresh(); }catch(_){ }
+  refresh().catch(()=>{}); // sem await: quem respondeu não espera o snapshot (podia levar até 8s)
 }
 /** Bloco compacto no painel: preview da pergunta + botão que abre o MODAL. */

@@ -139,6 +139,7 @@ function evUserText(tx){ return String(tx||'').replace(/^Você:\s*/,''); }
 // nota de sistema do motor → ícone (antes o emoji do prefixo fazia esse papel)
 function evSysIcon(tx){ const s=String(tx||'');
   if(/^Na fila \(/.test(s)) return IC.clock;
+  if(/^Fila limpa:/.test(s)) return IC.clock;
   if(/^Limite de uso/i.test(s)) return IC.clock;
   if(/^▶ intervalo cumprido/.test(s)) return IC.retry;
   if(/^A sessão( do chat)? /i.test(s)) return IC.retry;

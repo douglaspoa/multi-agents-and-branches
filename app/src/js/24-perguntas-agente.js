@@ -64,12 +64,13 @@ async function abortTask(taskId){
 }
 async function talkTask(taskId, message){
   const m=(message||'').trim(); if(!m) return;
-  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; commitsCache[taskId]=undefined; prCache[taskId]=undefined; lastSig=""; await refresh(); }
+  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; commitsCache[taskId]=undefined; prCache[taskId]=undefined; lastSig=""; refresh().catch(()=>{}); }
   catch(e){ showErr(e, 'Falha ao conversar'); }
 }
 async function stopTask(taskId){
   if(typeof budgetQuiet!=='undefined') budgetQuiet.add(taskId); // parar ≠ "pronta pra revisar" (sem notificação falsa)
-  try{ await invoke("stop_task",{ taskId }); lastSig=""; await refresh(); }
+  // refresh SEM await: com o banco ocupado ele podia levar até 8s e o "parar e enviar" do chat esperava junto
+  try{ await invoke("stop_task",{ taskId }); lastSig=""; refresh().catch(()=>{}); }
   catch(e){ showErr(e, 'Falha ao parar'); }
 }
 // openChat: o "chat" da tarefa agora é o próprio workspace (colunas fw*)

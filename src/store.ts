@@ -10,6 +10,25 @@ import type {
   TaskSpec,
 } from "./types.ts";
 
+/** "database is locked"/SQLITE_BUSY — outro processo segurou a trava além do busy_timeout. */
+export function isBusyError(e: unknown): boolean {
+  const m = String((e as Error)?.message ?? e ?? "");
+  return /database is locked|SQLITE_BUSY|database table is locked/i.test(m);
+}
+
+/** Roda `fn` de novo (até `tries` vezes, com espera crescente) quando o banco está ocupado. Síncrono
+ * (node:sqlite é síncrono): a espera usa Atomics.wait, sem girar a CPU. */
+export function withBusyRetry<T>(fn: () => T, tries = 4, baseMs = 150): T {
+  for (let i = 1; ; i++) {
+    try {
+      return fn();
+    } catch (e) {
+      if (i >= tries || !isBusyError(e)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, baseMs * i);
+    }
+  }
+}
+
 /**
  * Persistência do Starfork — um arquivo SQLite por repo (<repo>/.cardume/state.sqlite).
  * É o "DB que o app lê": os agentes gravam eventos aqui (via hooks/MCP no produto
@@ -19,14 +38,23 @@ export class Store {
   db: DatabaseSync;
 
   constructor(file: string) {
-    this.db = new DatabaseSync(file);
-    // Tarefas paralelas rodam em processos separados escrevendo no mesmo DB:
-    // espera o lock (até 8s) em vez de falhar com "database is locked".
-    // ANTES do journal_mode: trocar/confirmar o modo WAL já pede lock — com o timeout
-    // depois, o `cardume metrics` falhava de cara em `new Store` enquanto os agentes gravavam.
-    this.db.exec("PRAGMA busy_timeout = 8000;");
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.migrate();
+    // Tarefas paralelas rodam em processos separados escrevendo no mesmo DB: espera o lock (até 8s)
+    // em vez de falhar com "database is locked". O busy_timeout vem ANTES de qualquer outra coisa —
+    // antes o `journal_mode = WAL` rodava com timeout 0 e falhava na hora quando outro processo
+    // fechava o banco (checkpoint com trava exclusiva): "database is locked at new Store" (cmdMetrics,
+    // 28/09). Mesmo assim, uma abertura ocupada ganha mais tentativas curtas (withBusyRetry).
+    this.db = withBusyRetry(() => {
+      const db = new DatabaseSync(file);
+      try {
+        db.exec("PRAGMA busy_timeout = 8000;");
+        db.exec("PRAGMA journal_mode = WAL;");
+        return db;
+      } catch (e) {
+        try { db.close(); } catch { /* já fechado */ }
+        throw e;
+      }
+    });
+    withBusyRetry(() => this.migrate());
   }
 
   private migrate(): void {
@@ -376,6 +404,15 @@ export class Store {
 
   queueDone(id: number): void {
     this.db.prepare(`UPDATE work_queue SET status = 'done', done_at = ? WHERE id = ?`).run(Date.now(), id);
+  }
+
+  /** Descarta (status 'expired') pedidos da fila criados antes de `before` — órfãos de um turno que
+   * morreu (parar/SIGKILL) sem drenar. Devolve quantos. */
+  queueExpire(taskId: string, before: number): number {
+    const res = this.db
+      .prepare(`UPDATE work_queue SET status = 'expired', done_at = ? WHERE task_id = ? AND status = 'queued' AND created_at < ?`)
+      .run(Date.now(), taskId, before);
+    return Number(res.changes);
   }
 
   queueCount(taskId: string): number {
