@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod memoria;
+mod mesa;
 
 mod procsig {
     #[cfg(unix)]
@@ -8049,6 +8050,11 @@ pub fn run() {
             memoria::memory_graph,
             memoria::memory_set_mode,
             memoria::memory_open_obsidian,
+            mesa::mesa_ask,
+            mesa::mesa_stop,
+            mesa::mesa_save,
+            mesa::mesa_read,
+            mesa::mesa_list,
             preview_alive,
             preview_info,
             preview_start,

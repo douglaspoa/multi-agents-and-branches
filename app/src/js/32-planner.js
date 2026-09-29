@@ -219,7 +219,7 @@ function plDependsOn(idx, target, seen){
 }
 const plRiskLabel={ low:'risco baixo', medium:'risco médio', high:'risco alto' };
 // O card do épico também serve ao DESDOBRAR (31-nova-demanda-form): quem hospeda define o render e o contexto
-let plPlanRender=null, plPlanCtx={}; // ctx: { origin: tarefa de origem, description, onDone(ep), onDiscard() }
+let plPlanRender=null, plPlanCtx={}; // ctx: { origin: tarefa de origem, originNote?, description, onDone(ep), onDiscard() }
 let bdPlan=null; // plano do DESDOBRAR — separado do PLP() do planner, que segue vivo (rascunho, aba, resposta da IA)
 function PLP(){ return plPlanCtx.origin ? bdPlan : plPlan; } // o plano que o card está mostrando
 function plPlanRerender(){ (plPlanRender||renderPlanner)(); }
@@ -316,7 +316,7 @@ async function plCreateEpic(){
       if(after.length<wanted.length) console.warn('épico: pré-requisito sem id na nuvem, dependência perdida', x.title, wanted);
       const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
         spec:{ title:x.title,
-          objective:(x.objective||'')+(plPlanCtx.origin?`\n\n(Origem: tarefa "${plPlanCtx.origin.title}" — os artefatos dela têm o contexto completo.)`:''), // o contexto do épico vai no EPIC.md ao assumir
+          objective:(x.objective||'')+(plPlanCtx.origin?(plPlanCtx.originNote!=null?plPlanCtx.originNote:`\n\n(Origem: tarefa "${plPlanCtx.origin.title}" — os artefatos dela têm o contexto completo.)`):''), // originNote: quem hospeda (ex.: a Mesa) já pôs a origem no objetivo // o contexto do épico vai no EPIC.md ao assumir
           requirements:x.requirements||[], owns:x.owns||null,
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           wave:x.wave,
