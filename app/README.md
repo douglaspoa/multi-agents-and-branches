@@ -58,6 +58,7 @@ app/
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
       00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH, pathBase/pathDir, osKind, toast (com ação) e o catálogo de erros pt-BR humanErr/showErr — helpers usados por todos
       05-cosmos.js          céu estrelado dos loadings (cosmosHtml/cosmosStart)
+      09-remote-id.js       identidade do projeto na nuvem: repoRemoteIds (remote novo + forma antiga do alias de ssh), remoteInQ/remoteSame/remotePick (ler pelas duas, gravar na nova)
       10-core.js            invoke, ícones (IC.* — SVG; nada de emoji como ícone), refresh() do snapshot, notificações, evNorm (eventos antigos com emoji no prefixo → formato novo)
       11-ambiente-updater.js  preflight (node/git/claude/gh) e updater
       12-chat-prefs-daily.js  chat do projeto, preferências do projeto, daily/relatório

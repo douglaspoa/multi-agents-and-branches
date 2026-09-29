@@ -60,9 +60,11 @@ function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabe
 
 async function cloudEnsureProject(){
   const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão Conta (rodapé da barra lateral)');
-  const remote=await invoke('repo_remote');
-  const rows=await sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId+'&repo_remote=eq.'+encodeURIComponent(remote));
-  if(rows.length) return rows[0];
+  const ids=await repoRemoteIds(); const remote=ids.remote;
+  if(!remote) throw new Error('não consegui ler o remote deste projeto');
+  // forma nova OU a antiga desta máquina (alias de ssh): o projeto que já existe no time continua valendo
+  const rows=await sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId+'&'+remoteInQ('repo_remote', ids));
+  const hit=remotePick(rows, ids, 'repo_remote'); if(hit) return hit;
   const name=String(remote).split('/').pop();
   const ins=await sbPost('projects',{ team_id:teamId, name, repo_remote:remote });
   return ins[0];
@@ -466,11 +468,11 @@ async function cloudRemoteStartTick(){
   const me=cloudUserId();
   const rows=await sbGet('tasks?select=*,projects(repo_remote)&status=eq.requested&assignee=eq.'+me+'&limit=3').catch(()=>[]);
   if(!rows.length) return;
-  let remote=''; try{ remote=await invoke('repo_remote'); }catch(_){ }
+  const here=await repoRemoteIds();
   for(const ct of rows){
     if((remoteStartFails[ct.id]||0)>=3) continue;
     const rr=(ct.projects||{}).repo_remote;
-    if(rr && rr!==remote) continue; // é de outro projeto — outro Mac atende
+    if(rr && !remoteSame(rr, here)) continue; // é de outro projeto — outro Mac atende
     try{
       const sp=ct.spec||{};
       const payload={ workflow:null, agents:null, engine:sp.engine||'claude', model:sp.model||null, approval:'auto', owns:null, off:null,
@@ -560,7 +562,7 @@ async function cloudMsgTick(){
 tickLoop('cloudMsgTick', cloudMsgTick, 5000);
 
 // ---- backlog do time (aba Time) ----
-let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
+let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamRepoIds=null, teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
 let tmView=lsGet('tmView')||'overview';
 // escopo da aba Time: 'team' (o time escolhido em Conta, no rodapé da barra lateral) ou 'org' (TODOS os times — só owner/admin,
 // que já enxergam tudo pela RLS; é a visão de super usuário da empresa)
@@ -598,7 +600,7 @@ async function teamFetchRun(){
     ids.forEach(tid=>((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[tid])||[]).forEach(m=>uids.add(m.user_id)));
     if(tsOrgScope()) ((cloudData&&cloudData.orgMembers)||[]).forEach(m=>uids.add(m.user_id)); // membro da org sem time também aparece
     if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
-    try{ teamRepoRemote=await invoke('repo_remote'); }catch(_){ teamRepoRemote=''; }
+    { const ids=await repoRemoteIds(); teamRepoRemote=ids.remote; teamRepoIds=ids; }
     teamTasks=tasks; teamFetchedAt=Date.now();
   } finally { teamFetching=false; }
 }

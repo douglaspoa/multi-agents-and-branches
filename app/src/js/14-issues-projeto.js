@@ -7,7 +7,7 @@
 // VALOR de chave nunca entra aqui: o conector cita {{secret.NOME}} e o Rust (tracker_http) preenche.
 let trk=null, trkView='board', trkMsg='', trkBusy='', trkDocFiles=[], trkLoadedFor=null;
 let trkIssues=[], trkIssuesAt=0, trkErr='', trkQ='', trkFilter=lsGet('trkFilter')||'all', trkSel=null, trkComments=null, trkMoreDone=false, trkNI=null; // trkNI: a aba "Nova issue" (conversa + rascunhos)
-let trkProjects=[], trkRemote='', trkRemoteFor=null, trkTimer=null, trkSyncAt=0, trkMine={}; // trkMine: mudanças que EU fiz (não viram aviso)
+let trkProjects=[], trkRemote='', trkRemoteIds=null, trkRemoteFor=null, trkTimer=null, trkSyncAt=0, trkMine={}; // trkMine: mudanças que EU fiz (não viram aviso)
 let trkBg=0, trkBackoffMs=0, trkNextAt=0, trkBgErr=''; // 2º plano (contador: observador e sync podem rodar juntos): não registra erro; falha → recuo exponencial + UM aviso no quadro
 const TRK_RULES={ createOnTask:true, syncStatus:true, watch:true };
 const TRK_KINDS={ todo:'var(--muted)', doing:'var(--info)', blocked:'var(--warn)', done:'var(--good)' };
@@ -45,13 +45,13 @@ async function trkSave(){
 }
 async function trkRepoRemote(){
   const repo=(typeof state!=='undefined'&&state.repo)||'';
-  if(trkRemoteFor!==repo){ try{ trkRemote=String(await invoke('repo_remote')||''); }catch(_){ trkRemote=''; } trkRemoteFor=repo; }
+  if(trkRemoteFor!==repo){ trkRemoteIds=await repoRemoteIds(); trkRemote=trkRemoteIds.remote; trkRemoteFor=repo; }
   return trkRemote;
 }
 async function trkProjectOn(){
   if(!trkReady()) return false;
   if(trk.allProjects) return true;
-  const r=await trkRepoRemote(); return !!r && (trk.projects||[]).includes(r);
+  const r=await trkRepoRemote(); return !!r && (trk.projects||[]).some(x=>remoteSame(x, trkRemoteIds)); // painel salvo com a forma antiga (alias) continua valendo
 }
 
 // ---------- executor do conector ----------
@@ -298,11 +298,13 @@ async function openIssues(){
 }
 async function trkLoadProjects(){
   const cur=await trkRepoRemote(); let list=[];
-  const add=(name,remote,src)=>{ if(remote && !list.some(p=>p.remote===remote)) list.push({ name:name||remote.split('/').pop(), remote, src }); };
-  if(cur) add('', cur, 'aberto');
+  // legacy = forma antiga do remote nesta máquina (alias de ssh): a entrada antiga não aparece duplicada
+  // e, ao salvar, é trocada pela nova (trkRulesKeep)
+  const add=(name,remote,src,legacy)=>{ if(remote && !list.some(p=>p.remote===remote||p.legacy===remote)) list.push({ name:name||remote.split('/').pop(), remote, src, legacy:legacy&&legacy!==remote?legacy:'' }); };
+  if(cur) add('', cur, 'aberto', trkRemoteIds&&trkRemoteIds.legacy);
   if(trkCloudOn()){ try{ await cloudEnsureProject(); (await sbGet('projects?select=name,repo_remote&team_id=eq.'+cloudTeamId()+'&order=name')).forEach(p=>add(p.name,p.repo_remote,'time')); }catch(_){ } }
   // todos os projetos desta máquina (não só o aberto)
-  try{ const locals=await invoke('list_projects')||[]; for(const p of locals){ try{ add(p.name, await invoke('repo_remote_of',{ path:p.path }), 'local'); }catch(_){ } } }catch(_){ }
+  try{ const locals=await invoke('list_projects')||[]; for(const p of locals){ try{ const ids=await repoRemoteIds(p.path); add(p.name, ids.remote, 'local', ids.legacy); }catch(_){ } } }catch(_){ }
   // os que já estavam conectados (por outra pessoa do time, ou adicionados à mão)
   ((trk&&trk.projects)||[]).forEach(r=>add('', r, 'manual'));
   trkProjects=list; if(trkView==='rules') issRender();
@@ -424,7 +426,7 @@ function trkConnWire(body){
 // ----- estágio 2: projetos e regras -----
 function trkRulesHtml(){
   const r=trk.rules, ops=trk.connector.ops;
-  const projs=trkProjects.length?trkProjects.map(p=>`<div class="trk-row"><label class="sw"><input type="checkbox" data-trkproj="${escA(p.remote)}"${(trk.allProjects||(trk.projects||[]).includes(p.remote))?' checked':''}${trk.allProjects?' disabled':''}><span class="tr"><span class="kn"></span></span></label><div><div class="trk-rt">${esc(p.name)}${p.remote===trkRemote?' <span class="tmbadge" style="font-size:9px">projeto aberto</span>':p.src==='manual'?' <span class="dim" style="font-size:10px">adicionado à mão</span>':''}</div><div class="trk-rs mono">${esc(p.remote)}</div></div></div>`).join(''):'<p class="trk-rs">carregando projetos…</p>';
+  const projs=trkProjects.length?trkProjects.map(p=>`<div class="trk-row"><label class="sw"><input type="checkbox" data-trkproj="${escA(p.remote)}"${(trk.allProjects||(trk.projects||[]).some(r=>remoteSame(r, p)))?' checked':''}${trk.allProjects?' disabled':''}><span class="tr"><span class="kn"></span></span></label><div><div class="trk-rt">${esc(p.name)}${p.remote===trkRemote?' <span class="tmbadge" style="font-size:9px">projeto aberto</span>':p.src==='manual'?' <span class="dim" style="font-size:10px">adicionado à mão</span>':''}</div><div class="trk-rs mono">${esc(p.remote)}</div></div></div>`).join(''):'<p class="trk-rs">carregando projetos…</p>';
   return `<div class="trk-grid2">
     <div class="trk-card"><div class="trk-ct">Projetos conectados a este painel</div>
       ${trkSw('trkAll',trk.allProjects,'Todos os projetos do time','inclui os que forem criados depois')}
@@ -456,7 +458,7 @@ function trkRulesWire(body){
 function trkRulesKeep(body){
   const ck=id=>!!(body.querySelector('#'+id)||{}).checked;
   trk.allProjects=ck('trkAll');
-  if(!trk.allProjects){ const shown=new Set(trkProjects.map(p=>p.remote)); const keep=(trk.projects||[]).filter(r=>!shown.has(r));
+  if(!trk.allProjects){ const shown=new Set(trkProjects.flatMap(p=>remoteIdsList(p))); const keep=(trk.projects||[]).filter(r=>!shown.has(r));
     trk.projects=keep.concat([...body.querySelectorAll('[data-trkproj]')].filter(c=>c.checked&&!c.disabled).map(c=>c.dataset.trkproj)); }
   trk.rules={ createOnTask:ck('trkRCreate'), syncStatus:ck('trkRSync'), watch:ck('trkRWatch') };
 }
@@ -605,8 +607,8 @@ function trkNIRestore(){
 // projetos DESTA máquina (a pesquisa precisa da pasta) — conectados ao painel primeiro
 async function trkNIProjects(){
   const out=[]; try{ const locals=await invoke('list_projects')||[];
-    for(const p of locals){ let remote=''; try{ remote=await invoke('repo_remote_of',{ path:p.path }); }catch(_){ }
-      out.push({ name:p.name, path:p.path, remote, active:!!p.active, on:!!(trk.allProjects||(trk.projects||[]).includes(remote)) }); } }catch(_){ }
+    for(const p of locals){ const ids=await repoRemoteIds(p.path), remote=ids.remote;
+      out.push({ name:p.name, path:p.path, remote, active:!!p.active, on:!!(trk.allProjects||(trk.projects||[]).some(r=>remoteSame(r, ids))) }); } }catch(_){ }
   trkNI.projects=out.sort((a,b)=>(b.on-a.on)||(b.active-a.active));
 }
 function trkNIAskProject(first){
