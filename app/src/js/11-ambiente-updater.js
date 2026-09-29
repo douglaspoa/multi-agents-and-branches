@@ -5,7 +5,7 @@ async function runEnvCheck(){
   envChecking=true;
   // sempre LISTA: resposta fora do formato (versão velha/mock) virava "envChecks.some is not a function"
   try{ const r=await invoke('env_check'); envChecks=Array.isArray(r)?r:[{name:'Verificação', ok:false, detail:'resposta inesperada da verificação do ambiente', fix:''}]; }
-  catch(e){ envChecks=[{name:'Verificação', ok:false, detail:String(e), fix:''}]; }
+  catch(e){ envChecks=[{name:'Verificação', ok:false, detail:humanErr(e,'Não consegui verificar o ambiente').msg, fix:''}]; }
   finally{ envChecking=false; }
   envCheckedAt=Date.now();
   const bad=envChecks.some(c=>!c.ok);
@@ -96,7 +96,7 @@ async function checkUpdate(manual){
       updInfo=null; $id('updBtn').style.display='none';
       updLast.ok=true; updLast.msg='você está na versão mais recente'+(j&&j.version?' (canal: '+j.version+')':'');
     }
-  }catch(e){ updLast.ok=false; updLast.msg='não deu pra checar: '+(e&&e.message||e); }
+  }catch(e){ updLast.ok=false; updLast.msg=humanErr(e,'Não deu pra checar se há versão nova').msg; }
   if(manual && typeof updRenderCfg==='function') updRenderCfg();
   return updLast;
 }
@@ -147,7 +147,7 @@ let ghAccs=null, ghLogin=null, ghLoginT=null, ghMsg='';
 async function ghMount(){
   const h=$id('ghHost'); if(!h) return;
   h.innerHTML='<div class="dim" style="font-size:12px">lendo contas do gh…</div>';
-  try{ ghAccs=await invoke('gh_accounts'); }catch(e){ ghAccs=[]; ghMsg=String(e&&e.message||e); }
+  try{ ghAccs=await invoke('gh_accounts'); }catch(e){ ghAccs=[]; ghMsg=humanErr(e,'Não consegui ler as contas do GitHub').msg; }
   ghRender();
 }
 function ghRender(){
@@ -167,9 +167,9 @@ function ghRender(){
     ${ghMsg?`<div style="font-size:12px;color:var(--warn)">${esc(ghMsg)}</div>`:''}${login}
     <div style="display:flex;gap:8px;margin-top:2px"><button class="btn sm" id="ghAdd"${ghLogin&&!ghLogin.done?' disabled':''}>+ entrar com outra conta</button><button class="btn sm" id="ghRefresh">atualizar</button></div>
     <div class="dim" style="font-size:11.5px">Cada conta fica guardada no gh; trocar a ativa muda quem abre PRs e faz push (git usa a credencial do gh). Repositórios de organização com SSO podem pedir <code>gh auth refresh -s repo</code> uma vez.</div></div>`;
-  h.querySelectorAll('[data-ghuse]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='trocando…'; ghMsg=''; try{ await invoke('gh_switch_account',{ user:b.dataset.ghuse }); envChecks=null; runEnvCheck(); }catch(e){ ghMsg='Falhou trocar: '+(e&&e.message||e); } await ghMount(); });
+  h.querySelectorAll('[data-ghuse]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='trocando…'; ghMsg=''; try{ await invoke('gh_switch_account',{ user:b.dataset.ghuse }); envChecks=null; runEnvCheck(); }catch(e){ ghMsg=humanErr(e,'Não consegui trocar de conta').msg; } await ghMount(); });
   bindClick('ghRefresh', ghMount);
-  bindClick('ghAdd', async()=>{ ghMsg=''; try{ const r=await invoke('gh_login_start'); ghLogin={ code:r.code, url:r.url, done:false, ok:false, log:'' }; try{ await navigator.clipboard.writeText(r.code); }catch(_){ } try{ await invoke('open_url',{ url:r.url }); }catch(_){ } ghRender(); ghPoll(); }catch(e){ ghMsg='Falhou iniciar o login: '+(e&&e.message||e); ghRender(); } });
+  bindClick('ghAdd', async()=>{ ghMsg=''; try{ const r=await invoke('gh_login_start'); ghLogin={ code:r.code, url:r.url, done:false, ok:false, log:'' }; try{ await navigator.clipboard.writeText(r.code); }catch(_){ } try{ await invoke('open_url',{ url:r.url }); }catch(_){ } ghRender(); ghPoll(); }catch(e){ ghMsg=humanErr(e,'Não consegui iniciar o login no GitHub').msg; ghRender(); } });
   bindClick('ghCopy', ()=>{ navigator.clipboard.writeText(ghLogin.code); const b=$id('ghCopy'); if(b) b.textContent='copiado ✓'; });
   bindClick('ghOpen', ()=>invoke('open_url',{ url:ghLogin.url }).catch(()=>{}));
 }

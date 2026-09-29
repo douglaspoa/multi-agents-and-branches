@@ -218,7 +218,7 @@ async function connect(repo){
     await refresh();
   }catch(e){
     connected = false;
-    $id("connTxt").textContent = String(e);
+    { const h=humanErr(e,"Não consegui abrir o projeto"); $id("connTxt").textContent = h.msg; $id("connTxt").title = h.raw||""; }
     $id("conn").classList.remove("live");
   }
 }

@@ -152,7 +152,7 @@ function enVerifHtml(t){
   const short=h=>String(h||'').slice(0,7);
   const sum = g.st==='none' ? `nenhuma checagem configurada neste projeto — a aprovação não fica bloqueada. <a class="lnk" data-encfg="1">configurar</a>`
     : g.st==='loading' ? 'conferindo a versão do código desta tarefa…'
-    : g.st==='err' ? esc(g.err)
+    : g.st==='err' ? esc(humanErr(g.err,'Não deu pra conferir a verificação').msg)
     : g.st==='running' ? `rodando <b>${esc(live.cur?live.cur.label:'…')}</b> (${Math.min(live.done.length+1,g.on.length)} de ${g.on.length}) na cópia desta tarefa`
     // tarefa já concluída: não há aprovação a liberar (antes pedia "rode pra liberar a aprovação" até em tarefa mergeada)
     : g.st==='notrun' ? (pre ? 'ainda não rodou nesta versão do código — rode pra liberar a aprovação' : done ? 'não rodou antes de concluir — dá pra rodar agora só pra conferir o código' : 'ainda não rodou nesta versão do código')
@@ -325,7 +325,7 @@ async function pvStartUp(t){
   }
   const t0=Date.now(); pvRun[t.id]={ phase:'subindo', byApp:true, t0 }; pvRerender(t.id);
   try{ await invoke('preview_start',{ taskId:t.id, url:taskPreviewUrl(t.id) }); }
-  catch(e){ pvRun[t.id]={ phase:'falhou', byApp:false, err:String(e&&e.message||e) }; await pvLoadLog(t.id); pvRerender(t.id); showErr(e, 'Não subiu o app'); return; }
+  catch(e){ pvRun[t.id]={ phase:'falhou', byApp:false, err:errShort(e) }; await pvLoadLog(t.id); pvRerender(t.id); showErr(e, 'Não subiu o app'); return; }
   const url=url0||info.url;
   while(Date.now()-t0<PV_BOOT_MS){
     await pvSleep(1500);
@@ -513,7 +513,7 @@ async function entregaGenReport(t){
     artifactsCache[t.id]=undefined; out.innerHTML='';
     repShow('Relatório de entrega — '+t.title, md, 'relatorio-'+t.id);
     renderWorkspace();
-  }catch(e){ out.innerHTML=`<div class="imhint" style="border-left:2px solid var(--crit)">Falhou o relatório: ${esc(String(e&&e.message||e))}</div>`; }
+  }catch(e){ out.innerHTML=`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(humanErr(e,'Não consegui gerar o relatório').msg)}</div>`; }
   finally{ if(b) b.disabled=false; }
 }
 async function entregaDocPdf(t, name, btn){
@@ -527,8 +527,8 @@ function repShow(title, md, fileBase){
   $id('repFoot').innerHTML=`<span class="dim" id="repMsg" style="font-size:11px"></span><span style="flex:1"></span><button class="btn sm" id="repCopy">copiar</button><button class="btn sm" id="repMd">${ic('save')}salvar .md</button><button class="btn primary sm" id="repPdf">${ic('doc')}PDF</button>`;
   const msg=v=>{ const m=$id('repMsg'); if(m) m.textContent=v; };
   bindClick('repCopy', function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; });
-  bindClick('repMd', async function(){ this.disabled=true; try{ const p=await invoke('save_doc',{ name:fileBase+'.md', content:md }); msg('salvo em '+p); }catch(e){ msg('falhou: '+(e&&e.message||e)); } this.disabled=false; });
-  bindClick('repPdf', async function(){ this.disabled=true; const o=this.textContent; this.textContent='gerando PDF…'; try{ const p=await invoke('html_to_pdf',{ html: dailyPdfHtml(md, new Date().toLocaleDateString('pt-BR')), name:fileBase }); msg('PDF em '+p); }catch(e){ msg('falhou o PDF: '+(e&&e.message||e)); } this.textContent=o; this.disabled=false; });
+  bindClick('repMd', async function(){ this.disabled=true; try{ const p=await invoke('save_doc',{ name:fileBase+'.md', content:md }); msg('salvo em '+p); }catch(e){ msg(humanErr(e,'Não consegui salvar o .md').msg); } this.disabled=false; });
+  bindClick('repPdf', async function(){ this.disabled=true; const o=this.textContent; this.textContent='gerando PDF…'; try{ const p=await invoke('html_to_pdf',{ html: dailyPdfHtml(md, new Date().toLocaleDateString('pt-BR')), name:fileBase }); msg('PDF em '+p); }catch(e){ msg(humanErr(e,'Não consegui gerar o PDF').msg); } this.textContent=o; this.disabled=false; });
   bindClick('repClose', ()=>{ $id('repOverlay').style.display='none'; });
   $id('repOverlay').style.display='flex';
 }

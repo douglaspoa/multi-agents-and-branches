@@ -168,7 +168,7 @@ async function openPrefs(){
     editorSet($id('prefsText'), (r&&r.content)||'');
     if(r){ const who=(cloudData.profileByUser&&cloudData.profileByUser[r.updated_by])||{}; $id('prefsMeta').textContent='última edição: '+((who.name||who.email||'alguém'))+' · '+new Date(r.updated_at).toLocaleString('pt-BR'); }
     else $id('prefsMeta').textContent='ainda em branco — escreva as convenções do projeto';
-  }catch(e){ $id('prefsMeta').textContent='falhou: '+(e.message||e); }
+  }catch(e){ $id('prefsMeta').textContent=humanErr(e,'Não consegui carregar as convenções').msg; }
 }
 bindClick('prefsBtn', ()=>{ if(window.openTab) window.openTab('prefs'); else openPrefs(); });
 $id('prefsClose').onclick=()=>{ ovHide('prefsOverlay'); };
@@ -183,7 +183,7 @@ $id('prefsSave').onclick=async()=>{
       body: JSON.stringify({ org_id:k.orgId, repo:k.repo, content, updated_by:cloudUserId(), updated_at:new Date().toISOString() }) });
     await invoke('repo_doc_write',{ doc:'PREFS.md', content }).catch(()=>{}); // desce pro repo já
     $id('prefsMeta').textContent='✓ salvo pro time · aplica nas próximas tarefas';
-  }catch(e){ $id('prefsMeta').textContent='falhou: '+(e.message||e); }
+  }catch(e){ $id('prefsMeta').textContent=humanErr(e,'Não consegui salvar as convenções').msg; }
   finally{ b.disabled=false; b.textContent='salvar pro time'; }
 };
 // ---- Preferências do projeto → "Checagens antes de aprovar" (FT-5a) ----
@@ -199,7 +199,7 @@ async function chkCfgEditor(box, taskId, onSaved){
     box.innerHTML='<div class="dim" style="font-size:12px">lendo as checagens do projeto…</div>';
     try{ const c=await invoke('checks_config',{ taskId:taskId||null });
       d=chkDraft[key]={ detected:(c&&c.detected)||[], file:(c&&c.file)||'', cfg:JSON.parse(JSON.stringify((c&&c.cfg)||{})) }; }
-    catch(e){ box.innerHTML=`<div class="dim" style="font-size:12px">não consegui ler as checagens: ${esc(String(e&&e.message||e))}</div>`; return; }
+    catch(e){ box.innerHTML=`<div class="dim" style="font-size:12px">${esc(humanErr(e,'Não consegui ler as checagens').msg)}</div>`; return; }
   }
   const cfg=d.cfg; cfg.enabled=cfg.enabled||{}; cfg.custom=Array.isArray(cfg.custom)?cfg.custom:[];
   const paint=()=>{
@@ -260,9 +260,18 @@ function loadDaily(){
     await Promise.all(data.map(async t=>{ try{ const cs=await invoke('task_commits',{ taskId:t.id }); commits[t.id]=(cs||[]).filter(c=>(c.date||'')===iso); }catch(_){ commits[t.id]=[]; } }));
     return { data, commits };
   }, r=>{ if(gen!==dailyGen) return; dailyData=r.data; dailyCommits=r.commits; dailyIso=iso; dailyLoading=false; lastDailyMd=null; renderDaily(); },
-  { label:'montando o dia', ctx:'Não consegui montar o dia', isEmpty:()=>false, shape:{ head:true, n:4 } });
-  Promise.resolve(run).finally(()=>{ if(gen===dailyGen){ dailyLoading=false; dailyBtnsPaint(); } });
+  { label:'montando o dia', ctx:'Não consegui montar o dia', isEmpty:()=>false, shape:{ head:true, n:4 }, retry:()=>loadDaily() });
+  Promise.resolve(run).then(st=>{ if(st==='fail' && gen===dailyGen) dailyErrHead(iso); }).finally(()=>{ if(gen===dailyGen){ dailyLoading=false; dailyBtnsPaint(); } });
   return run;
+}
+// R8: a tela de erro do Daily mantém o seletor de data (antes o erro ocupava a aba e só dava pra "tentar de novo" o MESMO dia)
+function dailyErrHead(iso){
+  const body=$id('dailyBody'); const er=body&&body.querySelector(':scope>.ld-err'); if(!er || body.querySelector('#dlDate')) return;
+  const h=document.createElement('div'); h.className='appscreen dl-errhead'; h.style.cssText='min-height:0;padding-bottom:0';
+  h.innerHTML=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">Não deu pra montar este dia — tente de novo ou escolha outra data.</p></div>
+    <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" aria-label="dia do relatório" style="color:var(--text);padding:8px 12px"></div></div>`;
+  body.insertBefore(h, er);
+  const d=h.querySelector('#dlDate'); d.onchange=()=>{ const old=$id('dailyDate'); if(old) old.value=d.value; loadDaily(); };
 }
 function renderDaily(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();

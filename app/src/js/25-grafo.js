@@ -118,7 +118,7 @@ async function openCommit(hash){
   const ov=$id("cmOverlay"), body=$id("cmBody");
   ov.style.display="flex"; ldPaint(body, skeletonHtml('tabela',{ n:6, cols:2, label:'carregando o commit' }));
   let d; try{ d=await invoke("commit_detail",{hash}); }
-  catch(e){ body.innerHTML='<div class="dim" style="font-size:12px">'+esc(String(e))+'</div>'; return; }
+  catch(e){ if(curCommit!==hash) return; body.innerHTML=errorHtml(e,'cmRetry','Não consegui abrir o commit'); ldWireErr(body,e,'Não consegui abrir o commit',()=>openCommit(hash)); return; }
   const files = parseDiff(d.diff);
   const tech = commitTech(files);
   // vincula à tarefa e ao(s) entregável(is)
@@ -164,7 +164,7 @@ async function genAI(h){
   const el=$id("cmAI"); if(!el) return;
   el.innerHTML='<span class="dim">gerando resumo com IA…</span>';
   try{ const s=await invoke("ai_commit_summary",{hash:h}); if(curCommit!==h) return; $id("cmAI").textContent=s; }
-  catch(e){ if(curCommit!==h) return; const x=$id("cmAI"); x.innerHTML='<span class="dim">não foi possível gerar: '+esc(String(e).slice(0,90))+'</span> <button class="btn sm" id="cmAIbtn2">tentar de novo</button>'; const b=$id("cmAIbtn2"); if(b) b.onclick=()=>genAI(h); }
+  catch(e){ if(curCommit!==h) return; const x=$id("cmAI"); x.innerHTML='<span class="dim">'+esc(humanErr(e,'Não foi possível gerar').msg)+'</span> <button class="btn sm" id="cmAIbtn2">tentar de novo</button>'; const b=$id("cmAIbtn2"); if(b) b.onclick=()=>genAI(h); }
 }
 function closeCommit(){ curCommit=null; $id("cmOverlay").style.display="none"; }
 

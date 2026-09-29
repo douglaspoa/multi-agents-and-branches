@@ -147,7 +147,8 @@ async function wsMount(){
   const h=$id('wsHost'); if(!h) return;
   if(!state.repo){ h.innerHTML='<div class="dim" style="font-size:12px">abra um projeto pra ver o espaço usado.</div>'; return; }
   h.innerHTML='<div class="dim" style="font-size:12px">medindo a pasta de trabalho do Starfork… (cópias grandes do código levam alguns segundos)</div>';
-  try{ wsUsage=await invoke('workspace_usage'); }catch(e){ wsUsage=null; wsMsg='Falhou medir: '+(e&&e.message||e); }
+  // medir de novo com sucesso apaga o erro de uma medição anterior (antes ficava "Não consegui medir" ao lado dos números)
+  try{ wsUsage=await invoke('workspace_usage'); if(/^Não consegui medir/.test(wsMsg)) wsMsg=''; }catch(e){ wsUsage=null; wsMsg=humanErr(e,'Não consegui medir o espaço').msg; }
   wsRender();
 }
 function wsRender(){
@@ -183,7 +184,7 @@ async function wsClean(what, question){
   const h=$id('wsHost'); if(h) h.innerHTML='<div class="dim" style="font-size:12px">limpando…</div>';
   wsMsg='';
   try{ const r=await invoke('workspace_clean', what); wsMsg=`✓ ${fmtBytes(r.freed)} liberados (${r.removed} ${r.removed===1?'item':'itens'})`+((r.errors||[]).length?` · não deu em ${r.errors.length}: ${r.errors.slice(0,2).join('; ')}`:''); }
-  catch(e){ wsMsg='Falhou limpar: '+(e&&e.message||e); }
+  catch(e){ wsMsg=humanErr(e,'Não consegui limpar').msg; }
   await wsMount();
 }
 

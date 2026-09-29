@@ -265,7 +265,10 @@ function showErr(e, ctx){
   toast(h.msg, 'err', h.action||det, h.action?det:null);
   return h;
 }
-window.humanErr=humanErr; window.showErr=showErr;
+// texto curto pra caber numa linha da tela: a frase do catálogo quando é erro conhecido, senão a 1ª linha do cru
+// (sem o "Algo deu errado:" — quem chama já tem o próprio título, ex.: "não consegui gerar o diff")
+function errShort(e){ const h=humanErr(e); return h.id==='generic' ? (errFirstLine(h.raw)||'erro sem detalhe') : h.msg; }
+window.humanErr=humanErr; window.showErr=showErr; window.errShort=errShort;
 // nº de arquivos de um diff: o backend (Rust, struct Diff) manda `files` como NÚMERO;
 // versões antigas/mock mandavam lista — aceita os dois (antes saía "undefined arquivo(s)")
 function diffFiles(d){ if(!d) return 0; const f=d.files; return typeof f==='number'?f:(Array.isArray(f)?f.length:0); }

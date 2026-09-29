@@ -237,13 +237,13 @@ async function orqPlanNow(){
     const d=aiDefaults(); const model=orq.model||d.model||'';
     const raw=await invoke('ai_orchestrate',{ briefing:text+attPromptBlock(orq.atts), model:aiClaudeModel(d.eng, model) });
     let obj=null; try{ const m=raw.match(/```json\s*([\s\S]*?)```/i)||raw.match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
-    if(!obj||!Array.isArray(obj.phases)||!obj.phases.length) throw new Error('o orquestrador não devolveu um plano válido — tente descrever com mais contexto.\n\n'+raw.slice(0,400));
+    if(!obj||!Array.isArray(obj.phases)||!obj.phases.length) throw Object.assign(new Error('o orquestrador não devolveu um plano válido — tente descrever com mais contexto.'),{ orqHuman:true, raw:raw.slice(0,400) });
     const phases=orqNormPhases(obj.phases);
     orq.plan={ id:orqNewId(), title:String(obj.title||text.slice(0,60)).slice(0,80), summary:String(obj.summary||''), briefing:text, createdAt:Date.now(), status:'planned', model, engine:d.eng||'claude', phases, repo:state.repo||'' };
     orq.step='plan'; orq.sel=phases[0].key; orq.pan={x:20,y:20}; orq.zoom=1; orq.needFit=true;
     await invoke('orch_save',{ id:orq.plan.id, data:orq.plan, repo:orq.plan.repo||null }).catch(()=>{});
     orqListAt=0;
-  }catch(e){ orq.msg='Falhou montar o plano: '+(e&&e.message||e); }
+  }catch(e){ orq.msg=(e&&e.orqHuman)?'Falhou montar o plano: '+e.message:humanErr(e,'Falhou montar o plano').msg; console.warn('orq plano', errText(e), e&&e.raw||''); }
   orq.busy=false; orqRender();
 }
 

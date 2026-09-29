@@ -442,12 +442,12 @@ function trkConnWire(body){
       if(!c.baseUrl||!c.ops||!c.ops.list) throw new Error('a doc não deixou claro como LISTAR as issues — complete a documentação e gere de novo');
       trk.connector=c; if(!trk.name&&c.name) trk.name=c.name; trkSecretSt={}; trkTest='';
       trkMsg='✓ conexão montada — confira as chaves e teste.';
-    }catch(e){ trkMsg='Não consegui montar a conexão: '+(e&&e.message||e); }
+    }catch(e){ trkMsg=humanErr(e,'Não consegui montar a conexão').msg; }
     trkBusy=''; await trkSecretsRefresh(); issRender();
   });
   body.querySelectorAll('[data-trkkey]').forEach(b=>b.onclick=async()=>{
     trkKeepForm(); const n=b.dataset.trkkey; const v=await askText('Chave '+n+' — fica só na sua conta','cole a chave'); if(!v) return;
-    try{ await trkSecretSave(n, v.trim()); await invoke('tracker_bind_secret',{ name:n, host:trkHost() }); trkMsg='✓ chave '+n+' guardada e liberada só pra '+trkHost(); }catch(e){ trkMsg='Falhou guardar a chave: '+(e&&e.message||e); }
+    try{ await trkSecretSave(n, v.trim()); await invoke('tracker_bind_secret',{ name:n, host:trkHost() }); trkMsg='✓ chave '+n+' guardada e liberada só pra '+trkHost(); }catch(e){ trkMsg=humanErr(e,'Não consegui guardar a chave').msg; }
     await trkSecretsRefresh(); issRender();
   });
   body.querySelectorAll('[data-trkbind]').forEach(b=>b.onclick=async()=>{

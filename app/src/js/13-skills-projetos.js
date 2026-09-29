@@ -241,7 +241,7 @@ function projNewWire(ov){
       selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
       await refresh(); if(window.loadProjects) await window.loadProjects(); await openProjetos();
       toast('Projeto aberto só no seu computador. Dá pra ligar o GitHub depois.','ok');
-    }catch(e){ projNewMsg='Não deu pra abrir: '+(e&&e.message||e); projetosRender(ov); projNewWire(ov); } });
+    }catch(e){ projNewMsg=humanErr(e,'Não deu pra abrir').msg; projetosRender(ov); projNewWire(ov); } });
   bindClick('pnCreate', async()=>{
     projNew.name=($id('pnName')||{}).value||projNew.name;
     if(!projNew.name.trim()){ projNewMsg='dê um nome ao projeto.'; projetosRender(ov); projNewWire(ov); return; }
