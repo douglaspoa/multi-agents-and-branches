@@ -7,7 +7,7 @@ import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
-import { ghBin, run, sleep } from "./util/run.ts";
+import { ghBin, netEnv, netTimeoutMs, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
@@ -43,6 +43,22 @@ export function refName(src: string, taken: string[]): string {
   let name = parts.pop() || "ref";
   if (taken.includes(name)) name = `${parts.pop() || taken.length}-${name}`;
   return name;
+}
+
+/** Teto das chamadas AUXILIARES ao claude (resumo de commit, destiladores) — CARDUME_AUX_TIMEOUT_MS. */
+export function auxTimeoutMs(): number {
+  const n = Number(process.env.CARDUME_AUX_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 180_000;
+}
+/** Teto do .cardume/setup.sh do projeto (CARDUME_SETUP_TIMEOUT_MS, padrão 10 min). */
+export function setupTimeoutMs(): number {
+  const n = Number(process.env.CARDUME_SETUP_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 10 * 60_000;
+}
+/** URL do PR na saída do gh (sucesso ou "already exists"): a ÚLTIMA .../pull/N citada. */
+export function prUrlFrom(text: string): string {
+  const all = String(text || "").match(/https?:\/\/\S+\/pull\/\d+/g);
+  return all ? all[all.length - 1] : "";
 }
 
 /**
@@ -220,9 +236,17 @@ export class Orchestrator {
       try {
         const hook = join(this.ws.dir, "setup.sh");
         await stat(hook);
-        await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
-        seeded.push(".cardume/setup.sh executado");
-      } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
+        try {
+          await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo }, timeout: setupTimeoutMs() });
+          seeded.push(".cardume/setup.sh executado");
+        } catch (err) {
+          // antes: sem teto (um setup.sh que sobe servidor ou espera input travava a CRIAÇÃO da tarefa pra
+          // sempre) e a falha sumia calada — agora o agente lê no AMBIENTE.md que o setup não completou
+          const e = err as Error & { killed?: boolean; stderr?: string };
+          const why = e.killed ? `passou de ${Math.round(setupTimeoutMs() / 1000)}s e foi interrompido` : String(e.stderr || e.message || "").trim().split("\n").pop()?.slice(0, 160);
+          seeded.push(`.cardume/setup.sh NÃO completou (${why}) — confira o ambiente antes de rodar o projeto`);
+        }
+      } catch { /* sem hook — os envs/links acima já valem */ }
     } else {
       seeded.push("faixa leve (deps não linkadas)");
     }
@@ -412,7 +436,8 @@ export class Orchestrator {
   /** Roda o Haiku headless (destiladores). "" em qualquer falha. */
   private async haiku(prompt: string): Promise<string> {
     try {
-      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv() });
+      // teto: sem ele um claude pendurado deixava o processo do motor vivo pra sempre (fire-and-forget)
+      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv(), timeout: auxTimeoutMs() });
       return stdout.trim();
     } catch { return ""; }
   }
@@ -994,13 +1019,21 @@ export class Orchestrator {
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
-      await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch]);
+      await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
       const body =
         `## O quê\n${spec.objective || spec.title}\n\n` +
         ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
         `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._`;
-      const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree });
-      const url = stdout.trim().split("\n").pop() ?? "";
+      let url = "";
+      try {
+        const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree, env: netEnv(), timeout: netTimeoutMs() });
+        url = prUrlFrom(stdout) || (stdout.trim().split("\n").pop() ?? "");
+      } catch (e) {
+        // PR já aberto pra esta branch (retry, ou o humano abriu antes): o gh FALHA mas cita a URL —
+        // antes virava "falha ao abrir o PR" com o PR existindo
+        url = /already exists/i.test(String((e as { stderr?: string }).stderr ?? "")) ? prUrlFrom(String((e as { stderr?: string }).stderr)) : "";
+        if (!url) throw e;
+      }
       this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
       notify("Starfork", "PR aberto ✓", task.title);
     } catch (err) {
@@ -1586,7 +1619,9 @@ export class Orchestrator {
       const prompt =
         `Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n` +
         `Objetivo da tarefa: ${spec.objective}\n${dels}\nDiff:\n${diff}`;
-      const { stdout } = await run(resolveClaude(), ["-p", prompt], { cwd: worktree, env: claudeEnv() });
+      // teto: o resumo roda DENTRO do pipeline (com o lock da tarefa) — um claude pendurado aqui
+      // deixava a tarefa "rodando" pra sempre depois do builder já ter terminado
+      const { stdout } = await run(resolveClaude(), ["-p", prompt], { cwd: worktree, env: claudeEnv(), timeout: auxTimeoutMs() });
       const s = stdout.trim();
       if (s) {
         this.store.addCommitSummary(hash, s);

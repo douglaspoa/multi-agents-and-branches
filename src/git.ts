@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { run } from "./util/run.ts";
+import { netEnv, netTimeoutMs, run } from "./util/run.ts";
 
 export interface WorktreeInfo {
   path: string;
@@ -111,7 +111,7 @@ export class GitService {
   async freshBaseRef(base: string): Promise<string> {
     const short = base.replace(/^origin\//, "");
     try {
-      await run("git", ["-C", this.repo, "fetch", "origin", short, "--no-tags"]);
+      await run("git", ["-C", this.repo, "fetch", "origin", short, "--no-tags"], { env: netEnv(), timeout: Math.min(netTimeoutMs(), 60_000) });
     } catch { /* offline ou sem remoto — segue com o que há */ }
     for (const c of [`origin/${short}`, base]) {
       try {
@@ -160,7 +160,7 @@ export class GitService {
         await run("git", ["-C", this.repo, "worktree", "add", path, opts.branch]);
         return { branch: opts.branch, from: opts.branch, reused: true };
       }
-      try { await run("git", ["-C", this.repo, "fetch", "origin", opts.branch, "--no-tags"]); } catch { /* offline/sem remoto/branch apagada */ }
+      try { await run("git", ["-C", this.repo, "fetch", "origin", opts.branch, "--no-tags"], { env: netEnv(), timeout: netTimeoutMs() }); } catch { /* offline/sem remoto/branch apagada */ }
       if (await this.refExists(`refs/remotes/origin/${opts.branch}`)) {
         await run("git", ["-C", this.repo, "worktree", "add", "-b", opts.branch, path, `origin/${opts.branch}`]);
         return { branch: opts.branch, from: `origin/${opts.branch}`, reused: true };
@@ -186,7 +186,7 @@ export class GitService {
   private async remoteBranchExists(name: string): Promise<boolean> {
     if (await this.refExists(`refs/remotes/origin/${name}`)) return true;
     try {
-      const { stdout } = await run("git", ["-C", this.repo, "ls-remote", "--heads", "origin", name], { timeout: 15000 });
+      const { stdout } = await run("git", ["-C", this.repo, "ls-remote", "--heads", "origin", name], { env: netEnv(), timeout: 15000 });
       return stdout.trim().length > 0;
     } catch {
       return false;
