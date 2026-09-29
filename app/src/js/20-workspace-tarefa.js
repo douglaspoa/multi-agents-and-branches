@@ -354,6 +354,9 @@ async function fwLiveUpdate(){
   if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
   const evs0=fwEvents.length?fwEvents:eventsOf(t.id);
   const rp=reqProofCache[t.id];
+  fwLiveTick();
+  // estado das bolhas otimistas muda com o TEMPO (20s sem turno → "não começou"): atualiza antes da assinatura
+  fwOptimFor(t.id, evs0, { now:Date.now(), working:(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy), queued:t.queued });
   // busy/prUrl/flag/stage entram na assinatura: mudam a ação do topo (parar ↔ enviar, "ver PR") e a barra de envio
   // sem mexer no status — antes o cabeçalho ficava velho até chegar outro evento
   const sig=[t.id,t.status,t.busy?1:0,t.prUrl||'',t.flag||'',t.stage||'',evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,t.queued||0,(fwOptim[t.id]||[]).map(o=>o.st).join(','),(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
@@ -775,6 +778,13 @@ function renderWorkspace(){
   attWireComposer({ input:'fwInput', attach:'fwAttach', pend:()=>(fwPend[t.id]=fwPend[t.id]||[]), taskId:()=>t.id, rerender:renderWorkspace });
   { const pp=$id('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
+    if(e.target.closest('#fwLiveTg')){ fwLiveOpen=!fwLiveOpen; fwPaintThread(fwTaskObj()||t); return; }
+    const rt=e.target.closest('[data-fwretry],[data-fwedit]');
+    if(rt){ const at=+(rt.dataset.fwretry||rt.dataset.fwedit), o=(fwOptim[t.id]||[]).find(x=>x.at===at); if(!o) return;
+      fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==o);
+      if(rt.dataset.fwretry) fwSendText(t.id, o.text);
+      else { const i=$id('fwInput'); if(i){ i.value=o.text+(i.value?'\n'+i.value:''); fwDraft[t.id]=i.value; i.focus(); } fwPaintThread(fwTaskObj()||t); }
+      return; }
     const ao=e.target.closest('[data-askopt]');
     if(ao){ const p=pendingOf(t.id)[0]; if(p && !fwAskIsSent(p)){ const ans=ao.dataset.askopt, k=fwAskKey(p); fwAskSent[k]=ans; fwPaintThread(t);
         resolvePending(p.id, ans).catch(err=>{ delete fwAskSent[k]; if(fwTask===t.id) fwPaintThread(fwTaskObj()); showErr(err, 'Não consegui enviar a resposta'); }); } return; }
@@ -937,16 +947,70 @@ function actLine(evs){
   const details=evs.slice(-10).map(e=>String(e.text||'').replace(/\s+/g,' ').slice(0,70)).join('\n');
   return `<div class="cact cactsum" title="${escA(details)}"><span class="cg">${ACT_IC}</span><span class="ct">${esc(actSummary(evs))}</span></div>`;
 }
+// ---- "o que o agente está fazendo agora" na conversa da tarefa (29/09) ----
+// Antes a conversa só mostrava "N edições" depois do fato; o planner e o chat do projeto já mostravam cada passo
+// ("lendo X", "rodando npm test"). Aqui o mesmo, alimentado pelos EVENTOS da tarefa (read/bash/edit/… do motor).
+function fwRelPath(p){ const s=String(p||'').trim().replace(/\s*\((read|write)\)$/,''); const parts=s.split('/').filter(Boolean); return parts.slice(-2).join('/')||s; }
+// comando sem o ruído de ambiente ("export A=b; cd x && npm test" → "npm test")
+function fwBashShort(cmd){
+  let c=String(cmd||'').replace(/\s+/g,' ').trim();
+  for(let i=0;i<6;i++){ const c2=c.replace(/^export\s+[^;&]*(?:;|&&)\s*/,'').replace(/^cd\s+[^;&]+(?:;|&&)\s*/,'').replace(/^(?:[A-Z_][A-Z0-9_]*=\S*\s+)+/,''); if(c2===c) break; c=c2; }
+  return c.length>70?c.slice(0,70)+'…':c;
+}
+const FW_BROWSER_PT={ navigate:'abrindo a página', click:'clicando na página', take_screenshot:'tirando print', snapshot:'lendo a página', evaluate:'rodando script na página', type:'digitando na página', fill_form:'preenchendo formulário', press_key:'apertando tecla', wait_for:'esperando a página', hover:'passando o mouse', select_option:'escolhendo opção', console_messages:'lendo o console', network_requests:'lendo a rede' };
+// PURA — evento do motor → frase curta em pt-BR ('' = não é uma ação)
+function fwActLabel(e){
+  const ty=e&&e.type, tx=String((e&&e.text)||'').replace(/\s+/g,' ').trim();
+  if(ty==='read'){
+    if(/^(buscando|listando|consultando) /.test(tx)) return tx.slice(0,90);
+    if(/[*?]/.test(tx)) return 'listando '+tx.slice(0,60); // evento antigo: padrão cru do Glob
+    if(tx && !tx.includes('/') && !/\.\w{1,6}$/.test(tx)) return 'buscando "'+tx.slice(0,60)+'"'; // …e do Grep
+    return tx?'lendo '+fwRelPath(tx):'lendo um arquivo';
+  }
+  if(ty==='edit') return 'editando '+fwRelPath(tx);
+  if(ty==='write') return 'criando '+fwRelPath(tx);
+  if(ty==='bash') return tx?'rodando '+fwBashShort(tx):'rodando um comando';
+  if(ty==='claim') return 'reservando '+fwRelPath(tx);
+  if(ty==='note'){
+    if(/^subagente: /.test(tx)) return tx.slice(0,90);
+    if(tx==='atualizou o plano') return 'atualizando o plano';
+    const m=tx.match(/^mcp__(.+?)__(.+)$/);
+    if(m && !/\s/.test(tx)){ const act=m[2].replace(/^browser_/,'');
+      if(m[1]==='playwright') return FW_BROWSER_PT[act]||('navegador: '+act.replace(/_/g,' '));
+      return (m[1]==='cardume'?'':m[1]+': ')+act.replace(/_/g,' '); }
+  }
+  return '';
+}
+// PURA — ações do turno ATUAL (depois da última fala sua / resposta / início de sessão / pedido da fila)
+function fwTurnActs(evs){
+  const L=evs||[]; let start=-1;
+  for(let i=L.length-1;i>=0;i--){ const e=L[i], tx=String(e.text||'');
+    if(evIsUserMsg(e) || tx.startsWith('humano respondeu:') || /^sessão iniciada/.test(tx) || /^▶ executando pedido/.test(tx)){ start=i; break; } }
+  const acts=[]; for(let i=start+1;i<L.length;i++){ const l=fwActLabel(L[i]); if(l) acts.push({ label:l, ts:fwEvTs(L[i]) }); }
+  const since=start>=0?fwEvTs(L[start]):(acts.length?acts[0].ts:0);
+  return { acts, since };
+}
+function fwTempo(ms){ const s=Math.max(0, Math.round((+ms||0)/1000)); return s<60?s+'s':Math.floor(s/60)+'min '+String(s%60).padStart(2,'0')+'s'; }
+function fwLiveHead(since, n, now){ return 'trabalhando'+(since?' · '+fwTempo(now-since):'')+(n?' · '+nPl(n,'ação','ações'):''); }
+let fwLiveOpen=false; // lista de passos aberta (sobrevive aos re-renders do poll)
+function fwLiveHtml(t, evs, now){
+  const a=fwTurnActs(evs), n=a.acts.length;
+  const cur=n?a.acts[n-1].label:'começando — lendo a conversa e o código…';
+  const list=fwLiveOpen&&n>1?`<div class="placts fwlivel">${a.acts.slice(-12,-1).map(x=>`<div>${esc(x.label)}</div>`).join('')}</div>`:'';
+  return `<div class="cmsg bot fwlive" id="fwLive"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><div class="fwliveh"><span class="pulse" style="--pc:var(--good)"></span><span id="fwLiveHead" data-since="${a.since||0}" data-n="${n}">${esc(fwLiveHead(a.since, n, now))}</span>${n>1?`<button class="fwlivetg" id="fwLiveTg" aria-expanded="${fwLiveOpen?'true':'false'}">${fwLiveOpen?'esconder passos':'ver passos'}</button>`:''}</div><div class="fwlivecur"><span class="cg">${ACT_IC}</span><span>${esc(cur)}</span></div>${list}</div></div>`;
+}
+// tique de 1s: só o tempo do cabeçalho (sem re-render da conversa)
+function fwLiveTick(){ const h=$id('fwLiveHead'); if(!h) return; const tx=fwLiveHead(+h.dataset.since||0, +h.dataset.n||0, Date.now()); if(h.__html!==tx){ h.textContent=tx; h.__html=tx; } }
 function fwThreadHtml(t){
   const evs=fwEvents.length?fwEvents:eventsOf(t.id); // completos (fallback: snapshot)
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
-  let lastWho='';
+  let lastWho='', lastAsk='';
   const ranBy={}; // agente → modelo que o motor relatou (o que RODOU de fato)
   const out=[]; let act=[];
   const flush=()=>{ if(act.length){ out.push(actLine(act)); act=[]; } };
-  for(const e of evs){
-    const tx=e.text||'';
+  for(let e of evs){
+    let tx=e.text||'';
     { const m=tx.match(/^sessão iniciada · ([^\s·]+)/); if(m) ranBy[e.agent]=aiRunLabel('claude', m[1]);
       const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
@@ -954,7 +1018,9 @@ function fwThreadHtml(t){
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${fwLinkify(tx)}</div>`); continue; }
     // nota de sistema do motor (fila, limite de uso, sessão retomada, rota de IA): linha de sistema com ícone
     if(e.agent==='Sistema' && e.type==='note'){ const ic=evSysIcon(tx); if(ic){ flush(); out.push(`<div class="csys">${ic} ${esc(tx)}</div>`); continue; } }
-    if(tx.startsWith('perguntou ao humano:')) continue; // a pergunta já aparece no card destacado
+    // pergunta ABERTA já aparece no card destacado; a que ficou pra trás (respondida ou órfã) entra no histórico
+    // como fala do agente — senão a resposta dele ficava solta, sem a pergunta. Dedup: o motor grava 2x (stream + MCP).
+    if(tx.startsWith('perguntou ao humano:')){ if(asking.length || tx===lastAsk) continue; lastAsk=tx; e={...e, type:'think', text:tx.replace(/^perguntou ao humano:\s*/,'')}; tx=e.text; }
     // outro agente (ou este) mudou a SPEC desta tarefa (47-edicoes-agente): card com antes → depois + desfazer
     if((e.type==='spec-edit'||e.type==='spec-proposal') && typeof aeEventHtml==='function'){ flush(); lastWho=''; out.push(aeEventHtml(t, e)); continue; }
     // chamada de ferramenta crua (ToolSearch, mcp__…): é ruído interno — o valor
@@ -973,14 +1039,15 @@ function fwThreadHtml(t){
     // atividade (ler/rodar/editar/…) — acumula pra virar UMA linha de raciocínio
     act.push(e);
   }
-  flush();
+  // trabalhando: os passos do turno atual vivem na faixa ao vivo (abaixo) — não repete o resumo na conversa
+  if(working) act=[]; else flush();
   // eco otimista: mensagens enviadas que o banco ainda não confirmou (ver fwOptim)
-  for(const o of fwOptimFor(t.id, evs)) out.push(fwOptimHtml(o));
+  for(const o of fwOptimFor(t.id, evs, { now:Date.now(), working:(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy), queued:t.queued })) out.push(fwOptimHtml(o));
   return out.join('')
   + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'<b>Teto de custo</b><span class="cwho-m"> · sua decisão</span>':'<b>'+esc((asking[0].agent||t.agent)||'')+'</b><span class="cwho-m"> · pergunta pra você</span>'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
       return (Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts${sent!=null?' sent':''}">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}"${sent!=null?` disabled${sent===o?' class="on" aria-pressed="true"':''}`:''}>${esc(o)}</button>`).join('')}</div>`:'')
         +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'escolha uma opção — o agente fica pausado até você decidir':'responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
-  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="pulse" style="--pc:var(--good)"></span> trabalhando…</div></div>`:'');
+  + (working?fwLiveHtml(t, evs, Date.now()):'');
 }
 // requisitos com status ao vivo (o "no que ele está trabalhando")
 function fwReqsHtml(t){
@@ -1080,29 +1147,57 @@ const fwPend={}; // taskId → anexos importados ainda não enviados
 // refresh estourava, nada aparecia. Agora a bolha entra NA HORA com o estado do envio e some quando
 // o evento real chega (fala "Você: …", resposta a pergunta, ou o aviso "Na fila (…)" do motor).
 const fwOptim={}; // taskId → [{ text, at, st:'enviando'|'lento'|'enviada'|'fila' }]
-function fwOptimFor(taskId, evs){
+function fwOptimFor(taskId, evs, ctx){
   const list=fwOptim[taskId]; if(!list||!list.length) return [];
   const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
   // só confirma com evento DEPOIS do envio (2s de folga de relógio) e cada evento confirma UMA bolha — antes a
   // janela era "até 60s antes" e comparava ts ISO (texto) com número: um texto fixo repetido ("verificar requisitos")
   // era dado como confirmado pelo evento do clique anterior e a 2ª bolha sumia na hora
-  const tsOf=e=>{ const v=e&&e.ts; return typeof v==='number'?v:(Date.parse(v||'')||0); };
   const used=new Set();
-  const seen=o=>(evs||[]).some((e,i)=>{ if(used.has(i)) return false; const ts=tsOf(e); if(ts && ts<o.at-2000) return false; const tx=String(e.text||'');
+  const seen=o=>(evs||[]).some((e,i)=>{ if(used.has(i)) return false; const ts=fwEvTs(e); if(ts && ts<o.at-2000) return false; const tx=String(e.text||'');
     const hit = evIsUserMsg(e) ? norm(evUserText(tx))===norm(o.text)
       : tx.startsWith('humano respondeu:') ? norm(tx.replace(/^humano respondeu:\s*/,''))===norm(o.text)
       : (/^Na fila \(/.test(tx) && tx.includes(norm(o.text).slice(0,60)));
     if(hit) used.add(i); return hit; });
-  // confirmada pelo banco (ou velha demais: 3 min) → sai da lista
-  fwOptim[taskId]=list.filter(o=>!seen(o) && Date.now()-o.at<180000);
+  // estado da bolha segue a VERDADE (29/09: ficava "enviada · aguardando o agente" com nenhum turno rodando)
+  if(ctx) for(const o of list){ o.st=fwEchoNext(o, { now:ctx.now, working:!!ctx.working, queued:+ctx.queued||0, agentAfter:fwAgentAfter(evs, o.at) }); if(o.st==='fila'||o.st==='fila-parada') o.q=+ctx.queued||0; }
+  // confirmada pelo banco → sai. Envio em voo esquecido (3 min) ou turno que começou e acabou sem eco → sai.
+  // "não começou"/"na fila" FICAM (até 30 min): antes sumiam em 3 min e a mensagem se perdia sem aviso.
+  const now=ctx?ctx.now:Date.now();
+  fwOptim[taskId]=list.filter(o=>!seen(o) && o.st!=='fim' && now-o.at<(['enviando','lento','enviada','comecou'].includes(o.st)?180000:1800000));
   return fwOptim[taskId];
 }
-function fwOptimHtml(o){
-  const cap = o.st==='lento' ? 'ainda enviando — o app está ocupado; pode continuar escrevendo'
-    : o.st==='fila' ? 'na fila — o agente lê quando terminar o turno atual'
-    : o.st==='enviada' ? 'enviada · aguardando o agente'
+function fwEvTs(e){ const v=e&&e.ts; return typeof v==='number'?v:(Date.parse(v||'')||0); }
+// algum AGENTE fez algo depois do envio? (fala, ferramenta) — o turno começou mesmo sem o eco da mensagem
+function fwAgentAfter(evs, at){ return (evs||[]).some(e=>{ const ts=fwEvTs(e); return ts>=at-2000 && !evIsUserMsg(e) && e.agent!=='Sistema' && e.agent!=='Você'; }); }
+// PURA — máquina de estados do eco: enviando/lento (invoke em voo) → enviada → comecou → (some com o evento real)
+// · sem turno em 20s → parou ("tentar de novo") · na fila → fila (turno atual) / fila-parada (turno que ia rodar morreu)
+const FW_ECHO_WAIT_MS=20000;
+function fwEchoNext(o, c){
+  const age=c.now-o.at;
+  if(o.st==='enviando'||o.st==='lento') return o.st;
+  if(o.st==='fila'||o.st==='fila-parada'){
+    if(c.working) return 'fila';
+    if(c.queued>0) return 'fila-parada';
+    return age>FW_ECHO_WAIT_MS?'parou':o.st;
+  }
+  if(o.st==='comecou') return (!c.working && age>FW_ECHO_WAIT_MS)?'fim':'comecou';
+  if(c.working || c.agentAfter) return 'comecou';
+  return age>FW_ECHO_WAIT_MS?'parou':o.st;
+}
+function fwOptimCap(o){
+  return o.st==='lento' ? 'ainda enviando — o app está ocupado; pode continuar escrevendo'
+    : o.st==='fila' ? `na fila${o.q?' ('+o.q+'º)':''} — o agente está no meio de um turno; lê assim que terminar`
+    : o.st==='fila-parada' ? 'parada na fila — o turno que ia ler foi encerrado. Mande outra mensagem que ele retoma e lê esta em seguida'
+    : o.st==='comecou' ? 'o agente começou'
+    : o.st==='parou' ? 'não começou — nenhum turno pegou esta mensagem'
+    : o.st==='enviada' ? 'enviada · esperando o agente começar'
     : 'enviando…';
-  return `<div class="cmsg you optim"><div class="cbub">${chatMd(o.text)}<div class="optim-st">${o.st==='enviando'||o.st==='lento'?'<span class="spin"></span> ':''}${esc(cap)}</div></div></div>`;
+}
+function fwOptimHtml(o){
+  const spin=['enviando','lento','enviada'].includes(o.st), bad=o.st==='parou'||o.st==='fila-parada';
+  const act=o.st==='parou'?`<span class="optim-act"><button class="btn sm" data-fwretry="${o.at}">${IC.refresh||''} tentar de novo</button><button class="btn sm ghost" data-fwedit="${o.at}">editar</button></span>`:'';
+  return `<div class="cmsg you optim${bad?' bad':''}"><div class="cbub">${chatMd(o.text)}<div class="optim-st">${spin?'<span class="spin"></span> ':o.st==='comecou'?'<span class="pulse" style="--pc:var(--good)"></span> ':''}${esc(fwOptimCap(o))}</div>${act}</div></div>`;
 }
 // repinta SÓ a conversa (não mexe no campo de texto) e desce pro fim
 function fwPaintThread(t){ const th=$id('fwThread'); if(!th||!t) return; th.innerHTML=fwThreadHtml(t); th.scrollTop=th.scrollHeight; }

@@ -382,6 +382,15 @@ export class Store {
       .run(answer, Date.now(), id);
   }
 
+  /** Fecha as PERGUNTAS ainda abertas da tarefa (fim do turno): sem processo esperando, a resposta caía no vazio —
+   * a pergunta seguia na tela e o que o humano mandava ficava "aguardando o agente" pra sempre. Devolve quantas. */
+  closeOpenQuestions(taskId: string, answer = "(sem resposta — o turno terminou)"): number {
+    const r = this.db
+      .prepare(`UPDATE pending SET status = 'answered', answer = ?, resolved_at = ? WHERE task_id = ? AND status = 'open' AND kind = 'question'`)
+      .run(answer, Date.now(), taskId);
+    return Number(r.changes || 0);
+  }
+
   // ---------- sessão do agente (para --resume) ----------
   setSession(taskId: string, sessionId: string): void {
     this.db.prepare(`UPDATE task SET session_id = ? WHERE id = ?`).run(sessionId, taskId);
