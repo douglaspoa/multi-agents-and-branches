@@ -9,7 +9,7 @@
 .tabbar .tab .x:hover{opacity:.95;background:var(--border-strong)}
 .tabbar .tab:hover{color:var(--text-2)}
 .tabbar .tab.on{color:var(--text);background:var(--surface);border-color:var(--border-strong)}
-.tabbar .tab.on svg{opacity:1;color:var(--accent)}
+.tabbar .tab.on svg{opacity:1;color:var(--text)}
 .tabbar .tab.pin{padding-right:14px}
 .tabbar .tabadd{display:inline-flex;align-items:center;justify-content:center;width:28px;color:var(--muted);cursor:pointer;border-radius:7px;align-self:center;margin-left:2px;font-size:15px}
 .tabbar .tabadd:hover{background:var(--surface-3);color:var(--text)}
@@ -47,8 +47,8 @@
 .ndm:hover{border-color:rgba(255,255,255,.22)}
 .ndm-primary{border-color:var(--accent-line);background:var(--accent-soft)}
 .ndmtop{display:flex;align-items:center;justify-content:space-between;width:100%}
-.ndmt{font:600 18px/1.2 var(--display);color:var(--text)}
-.ndmt2{font:600 18px/1.2 var(--display);color:rgba(234,242,238,.9)}
+.ndmt{font:600 var(--fs-lg)/1.2 var(--display);color:var(--text)}
+.ndmt2{font:600 var(--fs-lg)/1.2 var(--display);color:rgba(234,242,238,.9)}
 .ndmbadge{font:500 var(--fs-xs) var(--code);color:var(--text);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent-line) inset;padding:3px 7px;border-radius:4px;white-space:nowrap;flex:none}
 .ndmd{font:400 13px/1.5 var(--display);color:rgba(234,242,238,.6)}
 .ndmeta{margin-top:6px;font:500 11px var(--code);color:var(--text-3)}

@@ -411,7 +411,7 @@ function plPlanCardHtml(bare){
   const n=PLP().tasks.filter(x=>x.on).length;
   const dw=PLP().doneWhen||[], rq=PLP().requirements||[];
   const inner=`<div class="plplan" id="plPlanCard">
-    <div class="pphead">◆ Épico proposto — revise e aprove</div>
+    <div class="pphead">${IC.starforkEm} Épico proposto — revise e aprove</div>
     <input class="ppname" id="ppName" value="${escA(PLP().epic)}" placeholder="nome do épico"${dis}>
     <textarea class="ppedit ppout" id="ppOutcome" rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(PLP().outcome||'')}</textarea>
     ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">Requisitos <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${esc(r.text)}</div>`).join('')}</div>`:''}

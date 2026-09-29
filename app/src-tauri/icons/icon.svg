@@ -1,7 +1,8 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- Starfork: a estrela de 4 pontas que se bifurca (o mesmo desenho de IC.starfork em app/src/js/10-core.js, viewBox 16 × 40).
-       Os PNG/ICNS/ICO desta pasta ainda são do logo antigo: regenerar com `npx tauri icon app/src-tauri/icons/icon.svg`
-       (o @tauri-apps/cli não estava instalado quando o símbolo mudou — repaginada C). -->
+  <!-- Starfork: a estrela de 4 pontas que se bifurca. Cópia da geometria de IC.starfork (app/src/js/10-core.js, entre
+       @starfork-inicio/@starfork-fim): o SVG de lá é de 16 × 16 unidades, aqui desenhado com scale(40) = 640 px no centro.
+       O verde #3fd68a espelha o --accent (app/src/css/10-base.css). O identidade.test confere que os paths são os mesmos.
+       PNG/ICNS/ICO desta pasta são gerados a partir deste arquivo. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#1b2024"/>

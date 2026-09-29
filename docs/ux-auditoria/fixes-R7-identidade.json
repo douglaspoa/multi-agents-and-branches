@@ -22,14 +22,19 @@
     "area": "identidade",
     "titulo": "O mesmo símbolo na aba Nova demanda e no avatar da IA",
     "antes": "A aba Nova demanda tinha um balão com faísca; o avatar da IA no planner era o caractere ✦ (e ◆ no card do épico).",
-    "depois": "A aba (VIEW_META nova/planner) e o avatar .plav do planner, do chat do projeto e do épico do time usam IC.starfork.",
+    "depois": "A aba (VIEW_META nova/planner) e o avatar .plav do planner, do chat do projeto e do épico do time usam IC.starfork. Os glifos ✦/◆ que serviam de marca (cabeçalho \"Nova issue — montar conversando\", botão \"gerar conexão\", \"◆ Épico proposto\", aba \"Com IA\" das skills, recomendação da IA) viraram IC.starforkEm. Na aba selecionada, o ícone fica na cor do texto.",
     "motivo": "O mesmo símbolo aparece nos três pontos de marca. Não depende da fonte que desenha o glifo.",
     "arquivos": [
       "app/src/js/15-config-abas-onboarding.js",
       "app/src/js/32-planner.js",
       "app/src/js/30-anexos.js",
       "app/src/js/46-epico-time.js",
-      "app/src/css/87-nova-demanda.css"
+      "app/src/css/87-nova-demanda.css",
+      "app/src/js/14-issues-projeto.js",
+      "app/src/js/13-skills-projetos.js",
+      "app/src/js/29-ia-picker.js",
+      "app/src/js/31-nova-demanda-form.js",
+      "app/src/css/20-abas-e-telas.css"
     ],
     "como_ver": "Clique em Nova demanda e veja o ícone da aba e o avatar ao lado das respostas da IA.",
     "shots": {
@@ -60,12 +65,14 @@
     "area": "cores",
     "titulo": "Verde disciplinado: o verde cheio fica só no CTA, no foco e em \"rodando\"",
     "antes": "Chips de dependência selecionados, borda e título do card do épico, opção selecionada do popover, chip de tipo definido, hover dos exemplos, ícones do estado vazio e barra de progresso estavam todos em verde cheio.",
-    "depois": "Novos tokens --accent-soft (fundo) e --accent-line (borda), derivados de --accent, com texto claro. O verde cheio fica em \"enviar\", \"Aprovar e criar\", no foco e em \"rodando\". A tela antiga (.ndtype/.ndm/.ndmbadge) também usa o soft.",
+    "depois": "Novos tokens --accent-soft (fundo) e --accent-line (borda), derivados de --accent, com texto claro. O verde cheio fica em \"enviar\", \"Aprovar e criar\", no foco e em \"rodando\". A tela antiga (.ndtype/.ndm/.ndmbadge) também usa o soft. O seletor de IA da Nova demanda (.aicard/.aimodel/.plchip) também usa soft + line.",
     "motivo": "O verde estava em tudo e já não dizia \"aqui\".",
     "arquivos": [
       "app/src/css/10-base.css",
       "app/src/css/87-nova-demanda.css",
-      "app/src/css/20-abas-e-telas.css"
+      "app/src/css/20-abas-e-telas.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/50-workspace-planner.css"
     ],
     "como_ver": "Na Nova demanda com um épico proposto, compare os chips \"depois de\" com o botão Aprovar.",
     "shots": {
@@ -96,7 +103,7 @@
     "area": "identidade",
     "titulo": "Ícone do app (fonte SVG) com o símbolo novo",
     "antes": "icon.svg mostrava a constelação num céu azul.",
-    "depois": "icon.svg mostra a estrela que se bifurca em verde, sobre a paleta escura do app. Os PNG, o ICNS e o ICO NÃO foram regenerados porque o @tauri-apps/cli não está instalado; falta rodar `npx tauri icon app/src-tauri/icons/icon.svg`.",
+    "depois": "icon.svg mostra a estrela que se bifurca em verde (#3fd68a, o --accent), sobre a paleta escura do app. É a mesma geometria de IC.starfork (conferida pelo identidade.test), e os PNG/ICNS/ICO foram gerados a partir dela.",
     "motivo": "É a marca fora do app. A spec proíbe trocar os ícones do sistema sem o pipeline do Tauri.",
     "arquivos": [
       "app/src-tauri/icons/icon.svg"

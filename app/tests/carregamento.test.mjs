@@ -3,6 +3,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { loadStarfork } from './starfork-src.mjs';
 
 const src = readFileSync(new URL('../src/js/06-carregamento.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../src/css/86-carregamento.css', import.meta.url), 'utf8');
@@ -27,8 +28,7 @@ const ov = fakeNode('overlay'); const box = fakeNode('modal'); ov.prepend(box);
 const document = { getElementById: (id) => (id === 'skOverlay' ? ov : null), createElement: () => fakeNode() };
 const VIEW_OVERLAY = { skills: 'skOverlay' };
 // o loader da marca usa o símbolo único IC.starfork (10-core.js): pega o de verdade, não uma cópia
-const core = readFileSync(new URL('../src/js/10-core.js', import.meta.url), 'utf8');
-const IC_SF = new Function('const IC = {};\n' + cut(core, 'IC.starforkG =', '\n{ const lg') + '\nreturn IC;').call(null);
+const IC_SF = loadStarfork();
 const IC = { starfork: IC_SF.starfork, search: '<svg data-ic="search"></svg>', warn: '<svg data-ic="warn"></svg>', retry: '<svg data-ic="retry"></svg>', stack: '<svg data-ic="stack"></svg>' };
 let reduced = false;
 const matchMedia = (q) => ({ matches: reduced && /reduce/.test(q) });

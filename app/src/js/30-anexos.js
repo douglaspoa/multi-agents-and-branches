@@ -125,7 +125,7 @@ function chatComposer(cfg){
   if(cfg.send){ const s=$id(cfg.send); if(s){ s.disabled=busy && !cfg.sendWhileBusy; s.title=(busy&&!cfg.sendWhileBusy)?'espere a resposta — ou ■ parar':''; } }
   chatHintLine(box, busy&&cfg.busyHint?cfg.busyHint:(cfg.hint||CHAT_HINT), busy);
 }
-// ---- bolha única: você / IA (✦ + markdown + copiar) / aviso do sistema ----
+// ---- bolha única: você / IA (símbolo da marca + markdown + copiar) / aviso do sistema ----
 function chatCopyBtn(){ return '<button class="ccopy" title="copiar">⧉</button>'; }
 function chatMsgHtml(m){
   const w=m.who||m.role, t=String(m.text||'');

@@ -7,7 +7,7 @@
 #plannerOverlay .plttl{font:600 var(--fs-md) var(--display);color:var(--text);letter-spacing:-.01em;white-space:nowrap}
 #plannerOverlay .plmeter{display:inline-flex;align-items:center;gap:9px;min-width:0}
 .plprog{position:relative;display:inline-block;width:72px;height:4px;border-radius:999px;background:var(--surface-3);overflow:hidden;flex:none}
-.plprog i{position:absolute;inset:0 auto 0 0;background:var(--accent-line);border-radius:inherit}
+.plprog i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent) 60%,var(--surface-3));border-radius:inherit}
 .plmeterx{font:400 var(--fs-sm) var(--display);color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---- estado vazio: uma coluna só, conteúdo centrado ---- */
@@ -47,7 +47,7 @@
 
 /* ---- popover (tipo, IA, escopo, custo, modo) ---- */
 .ndpop{position:fixed;z-index:9000;width:min(360px,calc(100vw - 16px));max-height:min(520px,calc(100vh - 16px));overflow:auto;padding:10px;border:1px solid var(--border-strong);border-radius:12px;background:var(--surface);color:var(--text);font-family:var(--display);box-shadow:0 18px 48px -12px rgba(0,0,0,.7)}
-.ndpop-h{font:600 var(--fs-sm) var(--display);color:var(--text);margin:2px 4px 8px}
+.ndpop-h{font:600 var(--fs-md) var(--display);color:var(--text);margin:2px 4px 8px}
 .ndpop-h span{font-weight:400;color:var(--text-3);margin-left:4px}
 .ndpop-p{font:400 var(--fs-sm)/1.5 var(--display);color:var(--text-2);margin:0 4px 10px}
 .ndpop-opt{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:none;color:var(--text);font:inherit;cursor:pointer}
@@ -96,16 +96,12 @@
 .plplan .ppwave span,.plplan .ppdh span{font-weight:400;color:var(--text-3)}
 
 /* ---- repaginada C: o verde disciplinado nas peças do planner (tela da Nova demanda) ----
-   --accent cheio fica só no CTA (enviar / Aprovar), no foco e em "rodando"; o resto é soft + line com texto claro. */
-.plav{background:var(--accent-soft);color:var(--accent);box-shadow:0 0 0 1px var(--accent-line) inset}
-.plmsg:has(.plplan) .plav{background:var(--accent-soft);color:var(--accent)}
-.plav svg{width:15px;height:15px}
-.orq-chat .plav svg{width:12px;height:12px}
+   --accent cheio fica só no CTA (enviar / Aprovar), no foco e em "rodando"; o resto é soft + line com texto claro.
+   (o avatar .plav com o símbolo da marca fica em 50-workspace-planner.css) */
 .plplan{border-color:var(--accent-line)}
 .plplan .pphead{color:var(--text);font-size:var(--fs-sm)}
 .plplan .ppowns{color:var(--text-2)}
 .plplan .ppout,.plplan textarea.ppout{border-left-color:var(--accent-line)}
-.plplan .ppchip.on{color:var(--text);border-color:var(--accent-line);background:var(--accent-soft)}
 .plplan .ppadd:hover{color:var(--text);border-color:var(--accent-line)}
 .plchip:hover{border-color:var(--accent-line);color:var(--text);background:var(--accent-soft)}
-.plart.on{background:var(--accent-soft);border-color:var(--accent-line);color:var(--text)}
+.plplan .pphead svg{color:var(--accent)}   /* o símbolo da marca pode ser verde cheio */

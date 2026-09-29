@@ -44,7 +44,7 @@ function skeletonHtml(kind, o){
 function brandLoaderHtml(label, o){
   o=o||{};
   return `<div class="ld-brand${o.now?' ld-now':''}${o.inline?' ld-inline':''}${ldMotion()}" role="status" aria-busy="true">`
-    +IC.starfork
+    +((typeof IC!=='undefined'&&IC.starfork)||'')
     +`<div class="ld-bl">${label?esc(label):'carregando'}</div><div class="ld-slow"></div></div>`;
 }
 // ícone por chave: IC.* (svg pronto) ou _ICONS.* (só os paths, ex.: folder) — o tamanho quem dá é o CSS do estado

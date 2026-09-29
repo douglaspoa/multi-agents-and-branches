@@ -132,6 +132,7 @@ const IC = {
 // substituem os glifos soltos ✕ × ✖ ✓ ✔ ☑, que cada fonte desenha de um jeito
 const icEm = s => s.replace('<svg ', '<svg width="1em" height="1em" style="vertical-align:-.125em;flex:none" aria-hidden="true" ');
 IC.x = icEm(IC.xs); IC.ok = icEm(IC.check);
+// @starfork-inicio
 // A marca Starfork: a estrela de 4 pontas que se bifurca — o tronco desce da estrela e um ramo (branch) sai dele. FONTE ÚNICA do símbolo —
 // o logo da sidebar, o ícone da aba Nova demanda, o avatar da IA no planner e o loader da marca (06-carregamento,
 // em traço) reusam este SVG; não desenhe o símbolo de novo em outro lugar. Legível a 16 px. pathLength=1 nos
@@ -141,7 +142,10 @@ IC.starforkG = '<g class="sf-g" fill="none" stroke="currentColor" stroke-width="
   + '<path class="sf-b1" pathLength="1" d="M6.2 8.3v5.4"/><path class="sf-b2" pathLength="1" d="M6.2 11.9c0-2.6 2.2-3.5 5.2-4.3"/>'
   + '<circle class="sf-n1" cx="6.2" cy="13.8" r="1.35" fill="currentColor" stroke="none"/><circle class="sf-n2" cx="12.4" cy="7.3" r="1.5" fill="currentColor" stroke="none"/></g>';
 IC.starfork = '<svg class="sf-mark" viewBox="0 0 16 16" aria-hidden="true">' + IC.starforkG + '</svg>';
-{ const lg = document.querySelector('.brand .logo'); if (lg) lg.innerHTML = IC.starfork; } // logo da sidebar (o index.html não repete o SVG)
+// @starfork-fim
+IC.starforkEm = icEm(IC.starfork); // em 1em, no meio do texto/botão (substitui o glifo de estrela que era usado como marca)
+// logo da sidebar: o index.html traz uma cópia estática (fallback sem JS, conferida pelo identidade.test); aqui ela é trocada pela fonte
+{ const lg = document.querySelector('.brand .logo'); if (lg) lg.innerHTML = IC.starfork; }
 // R7: ícones que substituem os emoji que eram usados como ícone (mão, escudo, ampulheta, aviso, cadeado, seta de push…) — em 1em, pra ir no meio do texto
 Object.assign(IC, {
   shield: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.9l4.7 1.8v3.6c0 3-2 5.3-4.7 6.7-2.7-1.4-4.7-3.7-4.7-6.7V3.7z" stroke-linejoin="round"/></svg>'),
