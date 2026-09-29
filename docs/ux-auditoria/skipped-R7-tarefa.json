@@ -1,0 +1,22 @@
+[
+ {
+  "titulo": "Primário do topo no PR com conflito continua 'PR #n ↗'",
+  "motivo": "A tarefa fica com status 'pr' (o conflito é do PR no GitHub, não da tarefa); trocar o primário exigiria olhar o prCache no cabeçalho a cada tick. A saída ('resolver o conflito com IA') foi posta ao lado do motivo, na página do PR."
+ },
+ {
+  "titulo": "Botão 'merge PR' bloqueado ainda parece verde",
+  "motivo": "É o estilo global de .btn:disabled (10-base.css, compartilhado); o motivo e agora a ação de desbloqueio aparecem logo abaixo."
+ },
+ {
+  "titulo": "'Revisão' aparece duas vezes no topo (rótulo da fase e aba)",
+  "motivo": "Renomear fase ou aba mexe no funil da Central (outra área); fica pra uma rodada de nomenclatura."
+ },
+ {
+  "titulo": "'Rodar de novo' (destrutivo) como ação principal da tarefa com erro",
+  "motivo": "Tem confirmação (askYes) e o subtítulo orienta mandar mensagem; trocar o primário muda o fluxo documentado do R9/E9 — decisão de produto."
+ },
+ {
+  "titulo": "Eco otimista compara e.ts (texto ISO) com número",
+  "motivo": "Em fwOptimFor a janela de 60s não filtra quando ts é string; efeito prático nulo hoje (o texto precisa bater) e o teste existente send-echo cobre com ts numérico. Não mexi pra não arriscar o eco."
+ }
+]
