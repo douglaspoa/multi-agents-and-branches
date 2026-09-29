@@ -2940,6 +2940,152 @@ fn remote_of_path(repo: &PathBuf) -> Result<String, String> {
     Ok(s)
 }
 
+/// Remote git decomposto. `ssh` = forma scp (`git@host:o/r`) ou `ssh://` — só aí o host pode ser
+/// um ALIAS do ~/.ssh/config (ex.: `github.com-work`, `github-market4u`) que aponta pro github.com.
+#[derive(Debug, Clone, PartialEq)]
+struct GitRemote { host: String, owner: String, name: String, ssh: bool }
+
+/// Aceita `git@host:owner/repo(.git)`, `host:owner/repo`, `ssh://git@host[:porta]/owner/repo`,
+/// `https://[user[:token]@][www.]github.com/owner/repo(.git)`. Caminho local → None.
+fn parse_git_remote(raw: &str) -> Option<GitRemote> {
+    let s = raw.trim();
+    if s.is_empty() { return None; }
+    let (authority, path, ssh) = if let Some((scheme, rest)) = s.split_once("://") {
+        let scheme = scheme.to_ascii_lowercase();
+        if scheme == "file" { return None; }
+        let (auth, path) = rest.split_once('/').unwrap_or((rest, ""));
+        (auth.to_string(), path.to_string(), scheme.contains("ssh") || scheme == "git")
+    } else {
+        // forma scp: [user@]host:caminho — o ':' tem que vir antes de qualquer '/'
+        let colon = s.find(':')?;
+        if s.find('/').is_some_and(|sl| sl < colon) { return None; }
+        (s[..colon].to_string(), s[colon + 1..].to_string(), true)
+    };
+    let host = authority.rsplit('@').next().unwrap_or("");
+    let host = host.split(':').next().unwrap_or("").to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    if host.is_empty() { return None; }
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path).trim_end_matches('/');
+    let segs: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    if segs.len() < 2 { return None; }
+    let name = segs[segs.len() - 1].to_string();
+    let owner = segs[..segs.len() - 1].join("/");
+    Some(GitRemote { host, owner, name, ssh })
+}
+
+/// `ssh -G <alias>` só IMPRIME a config resolvida (não conecta): devolve o `hostname` real.
+fn ssh_resolve_hostname(alias: &str) -> Option<String> {
+    if alias.starts_with('-') { return None; }
+    let mut c = Command::new("ssh");
+    c.args(["-G", alias]);
+    let o = output_timeout(c, 3).ok()?;
+    if !o.status.success() { return None; }
+    String::from_utf8_lossy(&o.stdout).lines()
+        .find_map(|l| l.strip_prefix("hostname ").map(|h| h.trim().to_ascii_lowercase()))
+}
+
+fn is_github_dot_com(h: &str) -> bool { h == "github.com" || h == "ssh.github.com" }
+
+/// O host do remote é o github.com? Direto, via alias do ssh (resolver injetável nos testes) ou,
+/// sem ssh disponível, pela heurística de alias (`github.com-work`, `github-market4u`, `github`).
+/// `github.empresa.com` (Enterprise) NÃO conta: tem ponto e não é github.com.
+fn remote_is_github(r: &GitRemote, resolve: &dyn Fn(&str) -> Option<String>) -> bool {
+    if is_github_dot_com(&r.host) { return true; }
+    if !r.ssh { return false; }
+    if let Some(real) = resolve(&r.host) {
+        if is_github_dot_com(&real) { return true; }
+        if real != r.host { return false; } // alias que aponta pra OUTRO host
+    }
+    r.host.starts_with("github.com") || (r.host.starts_with("github") && !r.host.contains('.'))
+}
+
+/// `owner/repo` do github.com a partir da URL do remote + se o host é alias (≠ "github.com"),
+/// caso em que os comandos do gh devem receber `--repo owner/repo` explícito.
+fn github_slug_from_url(raw: &str, resolve: &dyn Fn(&str) -> Option<String>) -> Result<(String, bool), String> {
+    let r = parse_git_remote(raw).ok_or("não reconheci a URL do remote origin")?;
+    if !remote_is_github(&r, resolve) {
+        return Err(format!("criar PR pelo navegador só vale pra repos do github.com (o remote aponta pra {})", r.host));
+    }
+    Ok((format!("{}/{}", r.owner, r.name), r.host != "github.com"))
+}
+
+fn origin_url(repo: &PathBuf) -> Result<String, String> {
+    let out = Command::new("git").arg("-C").arg(repo)
+        .args(["config", "--get", "remote.origin.url"]).output().map_err(|e| e.to_string())?;
+    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if raw.is_empty() { return Err("sem remote origin".into()); }
+    Ok(raw)
+}
+
+fn github_slug_of(repo: &PathBuf) -> Result<(String, bool), String> {
+    github_slug_from_url(&origin_url(repo)?, &ssh_resolve_hostname)
+}
+
+/// `--repo owner/repo` quando o origin usa alias de ssh (o gh pode não mapear o alias pro github.com).
+fn gh_repo_args(repo: &PathBuf) -> Vec<String> {
+    match github_slug_of(repo) {
+        Ok((slug, true)) => vec!["--repo".into(), slug],
+        _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod git_remote_tests {
+    use super::*;
+    fn none(_: &str) -> Option<String> { None }
+    fn slug(u: &str) -> Result<(String, bool), String> { github_slug_from_url(u, &none) }
+    #[test]
+    fn parse_formas_comuns() {
+        let r = parse_git_remote("git@github.com:market4u-ti/sap-integration-service.git").unwrap();
+        assert_eq!((r.host.as_str(), r.owner.as_str(), r.name.as_str(), r.ssh), ("github.com", "market4u-ti", "sap-integration-service", true));
+        let r = parse_git_remote("ssh://git@ssh.github.com:443/o/r.git").unwrap();
+        assert_eq!((r.host.as_str(), r.owner.as_str(), r.name.as_str()), ("ssh.github.com", "o", "r"));
+        let r = parse_git_remote("https://paulo:ghp_x@www.GitHub.com/o/r.git/").unwrap();
+        assert_eq!((r.host.as_str(), r.owner.as_str(), r.name.as_str(), r.ssh), ("github.com", "o", "r", false));
+        let r = parse_git_remote("https://gitlab.com/g/sub/proj").unwrap();
+        assert_eq!((r.owner.as_str(), r.name.as_str()), ("g/sub", "proj"));
+        assert!(parse_git_remote("/Users/x/repo").is_none());
+        assert!(parse_git_remote("./x/y:z").is_none());
+        assert!(parse_git_remote("file:///tmp/r.git").is_none());
+        assert!(parse_git_remote("").is_none());
+    }
+    #[test]
+    fn github_direto_https_e_ssh() {
+        assert_eq!(slug("git@github.com:o/r.git").unwrap(), ("o/r".to_string(), false));
+        assert_eq!(slug("https://github.com/o/r").unwrap(), ("o/r".to_string(), false));
+        assert_eq!(slug("https://u@github.com/o/r.git").unwrap(), ("o/r".to_string(), false));
+        assert_eq!(slug("ssh://git@ssh.github.com:443/o/r.git").unwrap(), ("o/r".to_string(), true));
+    }
+    #[test]
+    fn alias_de_ssh_pela_heuristica() {
+        assert_eq!(slug("git@github.com-work:market4u-ti/sap-integration-service.git").unwrap(), ("market4u-ti/sap-integration-service".to_string(), true));
+        assert_eq!(slug("git@github-market4u:o/r.git").unwrap(), ("o/r".to_string(), true));
+        // Enterprise e outros hosts não viram github.com
+        assert!(slug("git@github.empresa.com:o/r.git").is_err());
+        assert!(slug("https://gitlab.com/o/r").is_err());
+        // alias https não existe: host estranho em https não é github
+        assert!(slug("https://github-work/o/r").is_err());
+    }
+    #[test]
+    fn alias_resolvido_pelo_ssh_config() {
+        let gh = |h: &str| if h == "trabalho" { Some("github.com".to_string()) } else { Some(h.to_string()) };
+        assert_eq!(github_slug_from_url("git@trabalho:o/r.git", &gh).unwrap(), ("o/r".to_string(), true));
+        // alias "github-x" que o ssh resolve pra OUTRO host (gitlab): não é github
+        let gl = |_: &str| Some("gitlab.com".to_string());
+        assert!(github_slug_from_url("git@github-x:o/r.git", &gl).is_err());
+        // https nunca consulta o ssh
+        let panic = |_: &str| -> Option<String> { panic!("não devia chamar ssh") };
+        assert!(github_slug_from_url("https://meu-host/o/r", &panic).is_err());
+        assert!(github_slug_from_url("https://github.com/o/r", &panic).is_ok());
+    }
+    #[test]
+    fn erro_de_host_nao_vaza_credencial() {
+        let e = slug("https://user:segredo@gitlab.com/o/r").unwrap_err();
+        assert!(!e.contains("segredo") && e.contains("gitlab.com"));
+    }
+}
+
 /// Reordena as tarefas no Fluxo: grava sort_order = posição na lista recebida.
 #[tauri::command(async)]
 fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
@@ -5480,9 +5626,10 @@ fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), 
             }
         }
     }
+    let ra = gh_repo_args(&repo);
     for c in &cands {
         let mut v = Command::new(gh_bin());
-        v.args(["pr", "view", c, "--json", "number"]).current_dir(&repo);
+        v.args(["pr", "view", c, "--json", "number"]).args(&ra).current_dir(&repo);
         if let Ok(o) = output_timeout(v, 10) {
             if o.status.success() {
                 return Ok((repo, c.clone()));
@@ -5493,6 +5640,10 @@ fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), 
 }
 
 fn repo_slug(repo: &PathBuf) -> Result<String, String> {
+    // origin via alias de ssh: o slug vem do próprio remote (o gh pode não resolver o alias)
+    if let Ok((slug, true)) = github_slug_of(repo) {
+        return Ok(slug);
+    }
     let mut cmd = Command::new(gh_bin());
     cmd.args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).current_dir(repo);
     let out = output_timeout(cmd, 10)?;
@@ -5727,14 +5878,7 @@ fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
 #[tauri::command(async)]
 fn pr_compare_url(state: State<AppState>, task_id: String, base: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let out = Command::new("git").arg("-C").arg(&repo)
-        .args(["config", "--get", "remote.origin.url"]).output().map_err(|e| e.to_string())?;
-    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if raw.is_empty() { return Err("sem remote origin".into()); }
-    let mut s = raw.trim_end_matches(".git").to_string();
-    if let Some(rest) = s.strip_prefix("git@") { s = rest.replacen(':', "/", 1); }
-    else { for p in ["https://", "http://", "ssh://git@", "ssh://"] { if let Some(rest) = s.strip_prefix(p) { s = rest.to_string(); break; } } }
-    let path = s.strip_prefix("github.com/").ok_or("criar PR pelo navegador só vale pra repos do github.com")?;
+    let (path, _) = github_slug_of(&repo)?;
     let branch = task_branch(&state, &task_id)?;
     let b = if base.trim().is_empty() { "main" } else { base.trim() };
     Ok(format!("https://github.com/{path}/compare/{b}...{branch}?expand=1"))
@@ -5745,9 +5889,10 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
     // já existe PR (na branch atual OU no nome antigo pós-rename)? devolve ele
+    let ra = gh_repo_args(&repo);
     if let Ok((r2, head)) = pr_head(&state, &task_id) {
         let mut v = Command::new(gh_bin());
-        v.args(["pr", "view", &head, "--json", "url", "-q", ".url"]).current_dir(&r2);
+        v.args(["pr", "view", &head, "--json", "url", "-q", ".url"]).args(&ra).current_dir(&r2);
         if let Ok(o) = output_timeout(v, 10) {
             if o.status.success() {
                 let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -5767,21 +5912,21 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     }
     let out = Command::new(gh_bin())
         .args(["pr", "create", "--head", &branch, "--base", &base, "--title", &title, "--body", &body])
+        .args(&ra)
         .current_dir(&repo)
         .output()
         .map_err(|e| format!("gh indisponível: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if err.contains("already exists") {
-            let u = Command::new(gh_bin()).args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).current_dir(&repo).output().map_err(|e| e.to_string())?;
+            let u = Command::new(gh_bin()).args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).args(&ra).current_dir(&repo).output().map_err(|e| e.to_string())?;
             if u.status.success() {
                 return Ok(String::from_utf8_lossy(&u.stdout).trim().to_string());
             }
         }
-        if err.contains("Could not resolve to a Repository") {
-            return Err(format!(
-                "gh pr create: {err}\n\nSua conta do gh NÃO enxerga este repositório (o push funcionou porque o git usa outra credencial). Causas comuns:\n1) você ainda não foi convidado pra organização dona do repo — peça o convite;\n2) o token do gh não tem SSO autorizado pra org — rode `gh auth refresh -h github.com -s repo` e autorize o SSO quando o navegador abrir."
-            ));
+        if let Some(r) = gh_no_repo_access(&err) {
+            // GH_NO_ACCESS: → a tela cai sozinha pro PR no navegador (a branch já foi enviada)
+            return Err(format!("GH_NO_ACCESS: o gh logado não enxerga {r} — o push funcionou (o git usa outra credencial). Para o app gerenciar o PR, rode `gh auth login` com a conta que tem acesso; se a org usa SSO, `gh auth refresh -h github.com -s repo` e autorize."));
         }
         return Err(format!("gh pr create: {err}"));
     }
@@ -6077,7 +6222,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         checks_total: 0, checks_fail: 0, checks_pending: 0, gh_user: String::new(),
     };
     let mut vcmd = Command::new(gh_bin());
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName"]).current_dir(&repo);
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName"]).args(gh_repo_args(&repo)).current_dir(&repo);
     let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !view.status.success() {
         let err = String::from_utf8_lossy(&view.stderr).to_string();
@@ -7212,6 +7357,7 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     let m = match method.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
     let out = Command::new(gh_bin())
         .args(["pr", "merge", &branch, m, "--delete-branch"])
+        .args(gh_repo_args(&repo))
         .current_dir(&repo)
         .output()
         .map_err(|e| e.to_string())?;

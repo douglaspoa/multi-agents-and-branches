@@ -255,7 +255,12 @@ async function cloudIntentTick(){
           const url=await invoke('open_pr',{taskId:lid, base:lsGet('prBase:'+lid)||'main', title:t.title, body});
           prCache[lid]=undefined;
           return finish(true,'PR aberto',{pr_url:url});
-        }catch(e){ return finish(false,'criar PR falhou: '+e); }
+        }catch(e){
+          // gh sem acesso ao repo: a branch já subiu — devolve o link pra criar o PR no navegador
+          if(/^GH_NO_ACCESS:|could not resolve to a repository/i.test(errText(e))){
+            try{ const cu=await invoke('pr_compare_url',{taskId:lid, base:lsGet('prBase:'+lid)||'main'}); if(cu) return finish(false,'o gh logado não enxerga o repositório — crie o PR no navegador: '+cu); }catch(_){ }
+          }
+          return finish(false,'criar PR falhou: '+e); }
       }
       if(kind==='merge'){
         try{ const msg=await invoke('merge_pr',{taskId:lid, method:'squash'}); return finish(true,msg); }
