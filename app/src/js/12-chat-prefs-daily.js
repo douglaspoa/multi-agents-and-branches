@@ -97,14 +97,16 @@ $id('pcBtn').onclick=openPc;
 // ---- Preferências do projeto: 1 doc por projeto, o time escreve, agentes seguem ----
 async function prefsKey(){
   const orgId=cloudData&&cloudData.org&&cloudData.org.id; if(!orgId) return null;
-  let remote=''; try{ remote=await invoke('repo_remote'); }catch(_){ }
-  if(!remote){ try{ const info=await invoke('repo_docs'); remote=info&&info.repo; }catch(_){ } }
-  return remote?{ orgId, repo:remote }:null;
+  let ids=await repoRemoteIds();
+  if(!ids.remote){ try{ const info=await invoke('repo_docs'); const n=info&&info.repo; if(n) ids={ remote:n, legacy:n }; }catch(_){ } }
+  // repo = forma nova (grava sempre nela); ids = nova + antiga desta máquina (lê pelas duas)
+  return ids.remote?{ orgId, repo:ids.remote, ids }:null;
 }
 async function prefsPull(){ // nuvem → .cardume/PREFS.md local (todo mundo pega a última do time)
   const k=await prefsKey(); if(!k) return;
-  try{ const rows=await sbGet('project_prefs?select=content,updated_at&org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo));
-    if(rows[0]) await invoke('repo_doc_write',{ doc:'PREFS.md', content:rows[0].content||'' }); }catch(_){ }
+  try{ const rows=await sbGet('project_prefs?select=repo,content,updated_at&org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids));
+    const r=remotePick(rows, k.ids, 'repo');
+    if(r) await invoke('repo_doc_write',{ doc:'PREFS.md', content:r.content||'' }); }catch(_){ }
 }
 async function openPrefs(){
   const ov=$id('prefsOverlay');
@@ -129,8 +131,8 @@ async function openPrefs(){
   if(typeof prefsChecksRender==='function') prefsChecksRender(); // FT-5a: seção Checagens
   mountEditor($id('prefsText'), { markdown:true });
   try{
-    const rows=await tabBusy('prefs', sbGet('project_prefs?select=content,updated_by,updated_at&org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo)), { label:'buscando as convenções do time' });
-    const r=rows[0];
+    const rows=await tabBusy('prefs', sbGet('project_prefs?select=repo,content,updated_by,updated_at&org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids)), { label:'buscando as convenções do time' });
+    const r=remotePick(rows, k.ids, 'repo'); // salvar grava na forma nova — a antiga fica como estava
     editorSet($id('prefsText'), (r&&r.content)||'');
     if(r){ const who=(cloudData.profileByUser&&cloudData.profileByUser[r.updated_by])||{}; $id('prefsMeta').textContent='última edição: '+((who.name||who.email||'alguém'))+' · '+new Date(r.updated_at).toLocaleString('pt-BR'); }
     else $id('prefsMeta').textContent='ainda em branco — escreva as convenções do projeto';

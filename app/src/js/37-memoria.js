@@ -419,7 +419,12 @@ const MEM_PAGE=500;
 async function memCloudCtx(repo){
   if(!repo || !(SB.configured() && SB.sess() && cloudData && cloudData.org)) return null;
   const k=await prefsKey(); if(!k || state.repo!==repo) return null; // prefsKey lê o projeto ATIVO
-  return { ...k, q:'org_id=eq.'+k.orgId+'&repo=eq.'+encodeURIComponent(k.repo), knownKey:'memKnown:'+k.orgId+':'+k.repo+':'+repo, lastKey:'memLast:'+k.orgId+':'+k.repo+':'+repo };
+  // lê/lapida pela forma nova E a antiga desta máquina (alias de ssh); grava sempre na nova (k.repo)
+  const ks=r=>({ knownKey:'memKnown:'+k.orgId+':'+r+':'+repo, lastKey:'memLast:'+k.orgId+':'+r+':'+repo });
+  const cur=ks(k.repo);
+  if(k.ids && k.ids.legacy && k.ids.legacy!==k.repo){ const old=ks(k.ids.legacy); // chaves locais migram uma vez
+    lsMigrateKey(old.knownKey, cur.knownKey, lsGet, lsSet); lsMigrateKey(old.lastKey, cur.lastKey, lsGet, lsSet); }
+  return { ...k, q:'org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids||{ remote:k.repo }), ...cur };
 }
 // apagar/mover pra local na aba: lápide na nuvem NA HORA (não espera o sync inferir)
 async function memCloudTombstone(repo, slug){
@@ -443,9 +448,11 @@ async function memTeamSync(){
     // TODAS as páginas antes de decidir qualquer coisa (decidir com metade da nuvem apagaria o resto)
     const rows=[];
     for(let off=0;;off+=MEM_PAGE){
-      const page=await sbGet('brain_notes?select=slug,title,type,tags,body,by,origem,updated_at,deleted_at&'+c.q+'&order=slug&limit='+MEM_PAGE+'&offset='+off)||[];
+      const page=await sbGet('brain_notes?select=repo,slug,title,type,tags,body,by,origem,updated_at,deleted_at&'+c.q+'&order=slug&limit='+MEM_PAGE+'&offset='+off)||[];
       rows.push(...page); if(page.length<MEM_PAGE) break;
     }
+    // nova + antiga: por slug fica a mais recente; as que só existem na antiga sobem pra nova no fim
+    const merged=remoteMergeRows(rows, c.ids||{ remote:c.repo }, 'repo', 'slug'); rows.length=0; rows.push(...merged.rows);
     if(!alive()) return false;
     const R={}; rows.forEach(r=>{ R[r.slug]=r; });
     const plan=memSyncPlan(local, rows, known, local.length===0, lastSync);
@@ -477,6 +484,11 @@ async function memTeamSync(){
         ok.add(w.slug);
       });
     }
+    // migração: nota viva que só existe na forma antiga do remote ganha cópia na forma nova (o time passa a ver)
+    const skip=new Set([...plan.tombstoneCloud, ...plan.delLocal]);
+    for(const s of merged.legacyOnly){ const r=R[s]; if(!r || r.deleted_at || skip.has(s)) continue;
+      await step(s, ()=>sbFetch('/rest/v1/brain_notes?on_conflict=org_id,repo,slug',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' },
+        body:JSON.stringify({ org_id:c.orgId, repo:c.repo, slug:r.slug, title:r.title, type:r.type, tags:r.tags||[], body:r.body||'', by:r.by||'', origem:r.origem||'pessoa', deleted_at:null }) })); }
     if(secrets) toast(secrets+' nota(s) do time parecem conter segredo (chave/senha/.env) e NÃO subiram pra nuvem — abra a Memória pra revisar.','warn');
     // D1: projeto num time → as memórias novas vão pro time por padrão (até a pessoa escolher outra coisa)
     if(alive() && !info.explicitMode && info.mode!=='time'){

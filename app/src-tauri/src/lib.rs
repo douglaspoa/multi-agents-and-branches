@@ -2906,7 +2906,7 @@ fn new_task(
 }
 
 /// Remote origin do repo aberto, normalizado (ex.: github.com/org/repo) —
-/// identifica o "projeto" no time da nuvem, independente de https/ssh.
+/// identifica o "projeto" no time da nuvem, independente de https/ssh/alias.
 #[tauri::command(async)]
 fn repo_remote(state: State<AppState>) -> Result<String, String> {
     remote_of_path(&repo_of(&state)?)
@@ -2918,18 +2918,49 @@ fn repo_remote_of(path: String) -> Result<String, String> {
     remote_of_path(&PathBuf::from(path))
 }
 
+/// Identidade atual + a forma ANTIGA desta máquina (antes da normalização do alias de ssh):
+/// o front lê a nuvem pelas duas (`in.(remote,legacy)`) e grava sempre na `remote`.
+/// `path` vazio = projeto aberto. `legacy` == `remote` quando não houve mudança.
+#[tauri::command(async)]
+fn repo_remote_ids(state: State<AppState>, path: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = match path.filter(|p| !p.trim().is_empty()) { Some(p) => PathBuf::from(p), None => repo_of(&state)? };
+    let remote = remote_of_path(&repo)?;
+    let legacy = remote_of_path_legacy(&repo).unwrap_or_else(|_| remote.clone());
+    Ok(serde_json::json!({ "remote": remote, "legacy": legacy }))
+}
+
+/// Identidade do projeto: remote do github.com (direto, com usuário/token, `www.`, alias de ssh)
+/// vira SEMPRE `github.com/owner/repo`; outros hosts mantêm a forma antiga.
 fn remote_of_path(repo: &PathBuf) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C").arg(repo)
-        .args(["config", "--get", "remote.origin.url"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if raw.is_empty() {
-        // sem remote: usa o nome da pasta como identidade local
-        return Ok(format!("local/{}", repo.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
+    match origin_url(repo) {
+        Ok(raw) => Ok(remote_identity_from_url(&raw, &ssh_resolve_hostname_cached)),
+        Err(_) => Ok(local_identity(repo)),
     }
-    let mut s = raw.trim_end_matches(".git").to_string();
+}
+
+/// A identidade de antes (host do jeito que estava no remote, alias incluso) — só pra achar
+/// linhas/chaves gravadas por versões antigas.
+fn remote_of_path_legacy(repo: &PathBuf) -> Result<String, String> {
+    match origin_url(repo) {
+        Ok(raw) => Ok(legacy_identity_from_url(&raw)),
+        Err(_) => Ok(local_identity(repo)),
+    }
+}
+
+fn local_identity(repo: &PathBuf) -> String {
+    // sem remote: usa o nome da pasta como identidade local
+    format!("local/{}", repo.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default())
+}
+
+fn remote_identity_from_url(raw: &str, resolve: &dyn Fn(&str) -> Option<String>) -> String {
+    if let Some(r) = parse_git_remote(raw) {
+        if remote_is_github(&r, resolve) { return format!("github.com/{}/{}", r.owner, r.name); }
+    }
+    legacy_identity_from_url(raw)
+}
+
+fn legacy_identity_from_url(raw: &str) -> String {
+    let mut s = raw.trim().trim_end_matches(".git").to_string();
     if let Some(rest) = s.strip_prefix("git@") {
         s = rest.replacen(':', "/", 1);
     } else {
@@ -2937,7 +2968,17 @@ fn remote_of_path(repo: &PathBuf) -> Result<String, String> {
             if let Some(rest) = s.strip_prefix(p) { s = rest.to_string(); break; }
         }
     }
-    Ok(s)
+    s
+}
+
+/// `ssh -G` custa um processo (até 3s): a identidade é pedida a cada tick, então guarda por host.
+fn ssh_resolve_hostname_cached(alias: &str) -> Option<String> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, Option<String>>>> = std::sync::OnceLock::new();
+    let c = C.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(v) = c.lock().unwrap_or_else(|e| e.into_inner()).get(alias) { return v.clone(); }
+    let v = ssh_resolve_hostname(alias);
+    c.lock().unwrap_or_else(|e| e.into_inner()).insert(alias.to_string(), v.clone());
+    v
 }
 
 /// Remote git decomposto. `ssh` = forma scp (`git@host:o/r`) ou `ssh://` — só aí o host pode ser
@@ -3078,6 +3119,36 @@ mod git_remote_tests {
         let panic = |_: &str| -> Option<String> { panic!("não devia chamar ssh") };
         assert!(github_slug_from_url("https://meu-host/o/r", &panic).is_err());
         assert!(github_slug_from_url("https://github.com/o/r", &panic).is_ok());
+    }
+    #[test]
+    fn identidade_normalizada_do_github() {
+        let id = |u: &str| remote_identity_from_url(u, &none);
+        assert_eq!(id("git@github.com-work:org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("git@github-market4u:org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("git@github.com:org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("https://paulo:ghp_x@github.com/org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("https://u@github.com/org/repo"), "github.com/org/repo");
+        assert_eq!(id("https://www.GitHub.com/org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("ssh://git@ssh.github.com:443/org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("https://github.com/org/repo/"), "github.com/org/repo");
+        // alias resolvido pelo ~/.ssh/config
+        let gh = |h: &str| if h == "trabalho" { Some("github.com".to_string()) } else { None };
+        assert_eq!(remote_identity_from_url("git@trabalho:org/repo.git", &gh), "github.com/org/repo");
+    }
+    #[test]
+    fn identidade_fora_do_github_nao_muda() {
+        let id = |u: &str| remote_identity_from_url(u, &none);
+        for u in ["https://gitlab.com/g/sub/proj.git", "git@gitlab.com:g/proj.git", "git@github.empresa.com:o/r.git",
+                  "ssh://git@bitbucket.org/o/r.git", "/Users/x/repo", "https://github-work/o/r"] {
+            assert_eq!(id(u), legacy_identity_from_url(u), "{u}");
+        }
+        assert_eq!(id("https://gitlab.com/g/sub/proj.git"), "gitlab.com/g/sub/proj");
+    }
+    #[test]
+    fn identidade_legada_preservada() {
+        assert_eq!(legacy_identity_from_url("git@github.com-work:org/repo.git"), "github.com-work/org/repo");
+        assert_eq!(legacy_identity_from_url("https://u@github.com/org/repo.git"), "u@github.com/org/repo");
+        assert_eq!(legacy_identity_from_url("git@github.com:org/repo.git"), "github.com/org/repo");
     }
     #[test]
     fn erro_de_host_nao_vaza_credencial() {
@@ -8422,6 +8493,7 @@ pub fn run() {
             set_active_skills,
             set_issue_config,
             repo_remote_of,
+            repo_remote_ids,
             tracker_local_get,
             tracker_local_set,
             tracker_bind_secret,

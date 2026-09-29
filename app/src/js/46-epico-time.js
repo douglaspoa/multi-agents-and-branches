@@ -342,10 +342,10 @@ async function epicAutoStartTick(){
     sibs.forEach(t=>{ (sibsOf[t.epic_id]=sibsOf[t.epic_id]||[]).push(t); const p=progOf[t.epic_id]||(progOf[t.epic_id]={ n:0, ok:0, wave:0 });
       const ok=epDelivered(t); p.n++; if(ok) p.ok++; // R5-2: regra única de entregue
       const w=Math.max(1, parseInt((t.spec||{}).wave,10)||1); if(!ok && (!p.wave || w<p.wave)) p.wave=w; });
-    let here=''; try{ here=await invoke('repo_remote'); }catch(_){ }
+    const hereIds=await repoRemoteIds(), here=hereIds.remote;
     const sig=JSON.stringify([rows.map(r=>r.id+(r.spec&&r.spec.autoStart?'a':'')), deps.map(d=>d.id+d.status+(d.flag||'')), here, eps.map(e=>e.id+e.name), progOf, sibs.map(t=>t.id+t.status+(t.flag||'')+(t.pr_url?'p':''))]);
     const changed=sig!==epQueue.sig;
-    epQueue={ rows, here, sig, at:Date.now(), progOf, sibsOf,
+    epQueue={ rows, here, hereIds, sig, at:Date.now(), progOf, sibsOf,
       stOf:Object.fromEntries(deps.map(d=>[d.id,d.status])), effOf:Object.fromEntries(deps.map(d=>[d.id,epEffSt(d)])), flagOf:Object.fromEntries(deps.map(d=>[d.id,d.flag||null])), titleOf:Object.fromEntries(deps.map(d=>[d.id,d.title])),
       epicOf:Object.fromEntries(eps.map(e=>[e.id,e.name])), projOf:Object.fromEntries(projs.map(p=>[p.id,p])) };
     if(changed) lastSig=''; // o refresh (com a trava de clique) redesenha — nunca renderFlow direto daqui
@@ -353,7 +353,7 @@ async function epicAutoStartTick(){
     const ready=rows.filter(t=>ctWaiting(t) && t.created_by===cloudUserId() && !epDepsLeft(t).length);
     for(const ct of ready){
       const pj=epQueue.projOf[ct.project_id]||{};
-      if(pj.repo_remote && pj.repo_remote!==here){ // teamClaimStart roda no projeto ABERTO: outro repo espera (e avisa uma vez)
+      if(pj.repo_remote && !remoteSame(pj.repo_remote, hereIds)){ // teamClaimStart roda no projeto ABERTO: outro repo espera (e avisa uma vez)
         if(!epAutoWarned.has(ct.id)){ epAutoWarned.add(ct.id); pushNotif('Pronta pra começar', ct.title+' — abra o projeto '+(pj.name||pj.repo_remote)+' que ela começa sozinha', null); }
         continue;
       }
@@ -384,7 +384,7 @@ function epQueueList(ignoreStatus){
   const ft=(typeof flowType!=='undefined')?flowType:'all', fa=(typeof flowAgent!=='undefined')?flowAgent:'all';
   return (q.rows||[]).filter(ct=>{
     const pj=q.projOf[ct.project_id]||{};
-    if(!(all || !pj.repo_remote || pj.repo_remote===q.here)) return false;
+    if(!(all || !pj.repo_remote || remoteSame(pj.repo_remote, q.hereIds||{ remote:q.here }))) return false;
     if(!ignoreStatus && fs!=='all' && fs!=='epicos') return false; // outro chip de status escolhido: a fila sai
     if(fe!=='all' && ct.epic_id!==fe) return false;
     if(ft!=='all' && epqType(ct)!==ft) return false;
@@ -519,8 +519,8 @@ function epWireBoard(root){
 async function epCardStart(ct, btn){
   try{
     const pj=(typeof teamProj!=='undefined'&&teamProj&&teamProj[ct.project_id])||(ct.project_id?((await sbGet('projects?select=name,repo_remote&id=eq.'+ct.project_id))[0]||{}):{});
-    let here=''; try{ here=await invoke('repo_remote'); }catch(_){ }
-    if(pj.repo_remote && here && pj.repo_remote!==here){ alert('Esta tarefa é do projeto '+(pj.name||pj.repo_remote)+'. Abra esse projeto e clique em iniciar de novo.'); return; }
+    const hereIds=await repoRemoteIds();
+    if(pj.repo_remote && hereIds.remote && !remoteSame(pj.repo_remote, hereIds)){ alert('Esta tarefa é do projeto '+(pj.name||pj.repo_remote)+'. Abra esse projeto e clique em iniciar de novo.'); return; }
     const left=((ct.spec||{}).after||[]).filter(a=>(a in epQueue.stOf) && !epDepDone(a));
     if(left.length && !await askYes('Ainda depende de: '+left.map(a=>epQueue.titleOf[a]||a).join(', ')+' (não concluída).\n\nIniciar mesmo assim?')) return;
     await teamClaimStart(ct, btn||null);

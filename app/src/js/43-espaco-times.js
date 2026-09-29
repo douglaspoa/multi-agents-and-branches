@@ -59,7 +59,7 @@ function ctPhaseBar(t){
 }
 function tsCardHtml(t, me, isAdmin){
   const proj=teamProj[t.project_id]||{};
-  const sameRepo=!proj.repo_remote||proj.repo_remote===teamRepoRemote;
+  const sameRepo=!proj.repo_remote||remoteSame(proj.repo_remote, teamRepoIds||{ remote:teamRepoRemote });
   const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me);
   const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
   const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));

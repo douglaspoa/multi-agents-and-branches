@@ -10,31 +10,122 @@ const ND_TYPES=[
 ];
 // tipo da tela de início → modo do formulário (docs = entrega em branch docs/…)
 const ND_TO_MODE={build:'build',fix:'fix',invest:'invest',design:'design',docs:'build',review:'review'};
+// o que a tarefa criada pelo planner vira, por tipo — o MESMO mapeamento do formulário (ND_TO_MODE + ntDocsPreset):
+// investigação, documentação, design e review entregam documento SEM PR; correção vai em fix/. A prévia lê daqui.
+const ND_CREATE={
+  build: { branchType:'feat',   autoPr:'ask', doc:null,               owns:null,        noCode:false, delivery:'PR pra revisar' },
+  fix:   { branchType:'fix',    autoPr:'ask', doc:null,               owns:null,        noCode:false, delivery:'PR pra revisar' },
+  docs:  { branchType:'docs',   autoPr:'no',  doc:null,               owns:null,        noCode:false, delivery:'documento' },
+  invest:{ branchType:'invest', autoPr:'no',  doc:'INVESTIGATION.md', owns:'.cardume/', noCode:true,  delivery:'relatório com a causa' },
+  design:{ branchType:'design', autoPr:'no',  doc:'DESIGN.md',        owns:'.cardume/', noCode:true,  delivery:'mockup e decisões' },
+  review:{ branchType:'review', autoPr:'no',  doc:'REVIEW.md',        owns:'.cardume/', noCode:true,  delivery:'parecer em documento' },
+};
+function ndKindCreate(kind){ const k=ND_CREATE[kind]?kind:'build'; return Object.assign({ kind:k, mode:ND_TO_MODE[k]||'build' }, ND_CREATE[k]); }
 const ND_NAME_OF_MODE={build:'Feature',fix:'Correção',invest:'Investigação',design:'Design',review:'Review de PR'};
 window.ND_TO_MODE=ND_TO_MODE; window.ND_NAME_OF_MODE=ND_NAME_OF_MODE;
 let ndType='build', ndMethod='chat', ndIntent=''; // ndIntent: o texto da caixa única (sobrevive à troca de aba/projeto)
-// ===== as 3 formas de montar uma demanda: MESMOS nomes e MESMO seletor em todo lugar
-// (tela Nova demanda, aba Montar conversando, aba Preencher eu mesmo e aba do Orquestrador) =====
+// ===== as 3 formas de montar uma demanda: MESMOS nomes e MESMO seletor (pequeno) em todo lugar
+// (composer da Nova demanda, aba Formulário e aba do Orquestrador) — repaginada B: vira controle, não cabeçalho =====
 const ND_METHODS=[
-  { k:'chat', tab:'planner', name:'Montar conversando', tip:'a IA pergunta só o essencial e monta a demanda' },
-  { k:'form', tab:'form', name:'Preencher eu mesmo', tip:'formulário com todos os campos, sem conversa' },
-  { k:'orq', tab:'orq', name:'Dividir entre vários agentes', tip:'um agente coordenador divide o problema em etapas e abre uma tarefa por etapa' },
+  { k:'chat', tab:'planner', name:'Conversar', tip:'a IA pergunta só o essencial e monta a demanda' },
+  { k:'form', tab:'form', name:'Formulário', tip:'formulário com todos os campos, sem conversa' },
+  { k:'orq', tab:'orq', name:'Dividir', tip:'um agente coordenador divide o problema em etapas e abre uma tarefa por etapa' },
 ];
 // cur: 'chat'|'form'|'orq' · ids: { chat:'idDoBotão' } quando a tela já tem um handler próprio pra aquele botão
 function ndMethodSeg(cur, ids){
   ids=ids||{};
-  return `<div class="orq-seg ndseg" role="tablist" aria-label="como montar a demanda">${ND_METHODS.map(m=>`<button type="button" role="tab" class="${m.k===cur?'on':''}" aria-selected="${m.k===cur}"${ids[m.k]?` id="${ids[m.k]}"`:''} data-ndseg="${m.tab}" title="${escA(m.tip)}">${esc(m.name)}</button>`).join('')}</div>`;
+  return `<div class="orq-seg ndseg ndseg-sm" role="tablist" aria-label="como montar a demanda">${ND_METHODS.map(m=>`<button type="button" role="tab" class="${m.k===cur?'on':''}" aria-selected="${m.k===cur}"${ids[m.k]?` id="${ids[m.k]}"`:''} data-ndseg="${m.tab}" title="${escA(m.tip)}">${esc(m.name)}</button>`).join('')}</div>`;
 }
 window.ndMethodSeg=ndMethodSeg;
+// ===== repaginada B: "Nova demanda" abre direto no planner (uma tela só). A tela antiga de 2 passos
+// fica por uma versão atrás de lsGet('nd:legacy')==='1'. =====
+function ndLegacy(){ return lsGet('nd:legacy')==='1'; }
+window.ndLegacy=ndLegacy;
+function ndTypeName(k){ const t=ND_TYPES.find(x=>x.k===k); return t?t.name:''; }
+// "Tipo: Automático" — um palpite barato pelo texto (só pra prévia; a escolha do usuário sempre vence)
+function ndGuessType(text){
+  const t=String(text||'').toLowerCase();
+  if(!t.trim()) return '';
+  if(/(revis(ar|e|ão)|review)(?!\p{L})[^.]{0,30}(?<!\p{L})(pr|pull request)(?!\p{L})|github\.com\/[^\s]+\/pull\//u.test(t)) return 'review'; // \b não serve depois de 'ã'
+  if(/(investig|descobrir (por ?qu|a causa|onde)|causa[- ]raiz|por que .{0,40}(demora|lent|cai|falha|trava)|\bresumir\b|\banalisar\b|levantamento)/.test(t)) return 'invest';
+  if(/(\bbug\b|\berro\b|quebr|consert|corrig|não funciona|nao funciona|some\b|sumiu|travando|\bfalha)/.test(t)) return 'fix';
+  if(/(mockup|protótipo|prototipo|\bux\b|\bui\b|wireframe|desenhar a tela|layout novo)/.test(t)) return 'design';
+  if(/(documenta|readme|\bdocs?\b|manual|roteiro|newsletter|\bposts?\b|calend[aá]rio|texto d[oa]|artigo|apresenta[çc][ãa]o|\bescrever\b|\bredigir\b)/.test(t)) return 'docs';
+  return 'build';
+}
+// exemplos clicáveis do estado vazio — ≥2 que não são software (Carla: operações/marketing também usam)
+const ND_EXAMPLES=[
+  { k:'fix',    sw:true,  title:'O botão de pagar some no celular', text:'O botão de pagar some no celular (iPhone, Safari). Quero entender e corrigir.' },
+  { k:'build',  sw:true,  title:'Página de contato com formulário', text:'Criar uma página de contato com formulário que manda e-mail pro time comercial.' },
+  { k:'invest', sw:true,  title:'Por que o login demora 10 s?', text:'Descobrir por que o login às vezes demora uns 10 segundos — sem mexer em nada, só achar a causa.' },
+  { k:'docs',   sw:false, title:'E-mail de lançamento pros clientes', text:'Escrever o e-mail de lançamento da nova versão pros clientes, com assunto e um texto curto e direto.' },
+  { k:'docs',   sw:false, title:'Calendário de posts do mês', text:'Montar o calendário de posts do mês pro Instagram: 12 posts com tema, legenda e dia.' },
+  { k:'invest', sw:false, title:'Resumo das reclamações do suporte', text:'Ler as reclamações do suporte deste mês e resumir os 5 problemas que mais aparecem, com exemplos.' },
+];
+// projeto de conteúdo/operação (não software) → exemplos de gente primeiro. Heurística pelo nome da pasta.
+function ndProjectIsSoftware(name){ return !/(marketing|conte[uú]do|institucional|blog|docs?\b|documenta|financeiro|\brh\b|operac|comercial|vendas|social)/i.test(String(name||'')); }
+function ndExamples(isSoftware){
+  const sw=ND_EXAMPLES.filter(e=>e.sw), gente=ND_EXAMPLES.filter(e=>!e.sw);
+  return isSoftware===false ? [...gente, ...sw] : [...sw, ...gente]; // 6 cards (3×2): a ordem muda com o tipo de projeto
+}
+// texto levado de um modo pro outro (Conversar → Formulário/Dividir e volta): quem abre consome uma vez
+// ndCarryText: o texto; ndCarryExtra: o que a conversa já montou (título, entregas, requisitos) quando a caixa está vazia
+let ndCarryText='', ndCarryExtra=null;
+function ndTakeCarry(){ const t=ndCarryText; ndCarryText=''; ndCarryExtra=null; return t; }
+function ndTakeCarryAll(){ const o=Object.assign({ text:ndCarryText }, ndCarryExtra||{}); ndCarryText=''; ndCarryExtra=null; return o; }
+// PURA: texto levado → título (o dado, senão a 1ª frase até 80 caracteres) + objetivo (o texto inteiro)
+function ndSplitCarry(text, title){
+  text=String(text||'').trim(); const first=text.split('\n')[0].split(/(?<=[.!?])\s/)[0].slice(0,80).trim();
+  return { title:String(title||'').trim()||first, objective:text };
+}
+window.ndTakeCarry=ndTakeCarry; window.ndTakeCarryAll=ndTakeCarryAll; window.ndSplitCarry=ndSplitCarry;
+// popover pequeno ancorado num botão (tipo, IA, escopo…): fecha com Esc, clique fora ou ao escolher
+// refocus=true (Esc / clique fora): o foco volta pro botão que abriu
+function ndPopClose(refocus){ const p=$id('ndPop'); if(p){ const a=p.__anchor; p.remove(); if(a){ try{ a.setAttribute('aria-expanded','false'); if(refocus===true && a.isConnected) a.focus(); }catch(_){} } }
+  document.removeEventListener('mousedown', ndPopOutside, true); document.removeEventListener('keydown', ndPopKey, true);
+  window.removeEventListener('resize', ndPopPlace); window.removeEventListener('scroll', ndPopPlace, true); }
+function ndPopPlace(){ const p=$id('ndPop'); if(p && p.__place) p.__place(); }
+function ndPopOutside(e){ const p=$id('ndPop'); if(p && !p.contains(e.target) && !(p.__anchor && p.__anchor.contains(e.target))) ndPopClose(true); }
+function ndPopKey(e){ if(e.key==='Escape'){ e.stopPropagation(); e.preventDefault(); ndPopClose(true); } }
+function ndPopover(anchor, html, wire){
+  const was=$id('ndPop'); const same=was && was.__anchor===anchor; ndPopClose(); if(same) return null; // 2º clique no mesmo botão fecha
+  const p=document.createElement('div'); p.id='ndPop'; p.className='ndpop'; p.setAttribute('role','dialog'); p.tabIndex=-1; p.__anchor=anchor;
+  try{ anchor.setAttribute('aria-expanded','true'); }catch(_){}
+  p.innerHTML=html; document.body.appendChild(p);
+  const place=()=>{ const r=anchor.getBoundingClientRect(), w=p.offsetWidth, h=p.offsetHeight;
+    let x=Math.min(Math.max(8, r.left), innerWidth-w-8), y=r.top-h-8; if(y<8) y=Math.min(r.bottom+8, innerHeight-h-8);
+    p.style.left=x+'px'; p.style.top=Math.max(8,y)+'px'; };
+  p.__place=place; place();
+  if(wire){ wire(p); place(); }
+  { const f=p.querySelector('.on, button, input, select, a[href], [tabindex]:not([tabindex="-1"])'); try{ (f||p).focus({ preventScroll:true }); }catch(_){} } // foco entra no popover
+  window.addEventListener('resize', ndPopPlace); window.addEventListener('scroll', ndPopPlace, true);
+  setTimeout(()=>{ document.addEventListener('mousedown', ndPopOutside, true); document.addEventListener('keydown', ndPopKey, true); },0);
+  return p;
+}
+window.ndPopover=ndPopover; window.ndPopClose=ndPopClose;
 // um handler só pra todos os seletores (os botões com id próprio — ex.: #ntAI — seguem com o handler deles)
 document.addEventListener('click', e=>{
   const b=e.target.closest&&e.target.closest('[data-ndseg]'); if(!b||b.id||b.classList.contains('on')) return;
-  if(window.openTab) window.openTab(b.dataset.ndseg,{replace:true}); // troca o jeito de montar NA MESMA aba (não empilha abas)
+  // leva o texto já digitado (ou o que a conversa já montou) pro outro modo (planner → formulário/orquestrador)
+  ndCarryText=''; ndCarryExtra=null;
+  { const pi=$id('plInput'), po=$id('plannerOverlay'), inPl=pi && po && po.style.display!=='none';
+    if(inPl && pi.value.trim()) ndCarryText=pi.value.trim();
+    else if(inPl && typeof plFields!=='undefined' && plFields && (plFields.title||plFields.objective)){
+      ndCarryText=String(plFields.objective||plFields.title).trim();
+      ndCarryExtra={ title:plFields.title||'', deliverables:(plFields.deliverables||[]).slice(), requirements:(plFields.requirements||[]).slice() }; }
+    const oi=$id('orqTa'), oo=$id('orqOverlay'); if(!ndCarryText && oi && oo && oo.style.display!=='none' && oi.value.trim()) ndCarryText=oi.value.trim(); }
+  if(b.dataset.ndseg==='form' && typeof plFields!=='undefined' && plFields && plFields.kind) window.ntPresetType=plFields.kind;
+  ndPopClose();
+  const kind=b.dataset.ndseg;
+  if(window.openTab) window.openTab(kind,{replace:true}); // troca o jeito de montar NA MESMA aba (não empilha abas)
+  // openTab voltou sem trocar (sem projeto / sem git): o texto não fica pendurado pra uma aba futura
+  { const t=(typeof tabById==='function')?tabById(activeTab):null; if(!t || t.kind!==kind){ ndCarryText=''; ndCarryExtra=null; } }
 });
 window.TAB_STATE_nova={ get:()=>({ ndType, ndMethod, ndIntent }), set:(st)=>{ ndType=st.ndType||'build'; ndMethod=st.ndMethod||'chat'; ndIntent=st.ndIntent||''; } };
 function ndInjectFonts(){ if($id('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }
 window.ndInjectFonts=ndInjectFonts;
-function openNovaStart(){ ndInjectFonts(); $id('ndOverlay').style.display='flex'; ndRenderStart(); }
+// sem a flag legada, a aba "nova" nem chega aqui (openTab troca por 'planner'); aba restaurada cai no planner
+function openNovaStart(){ ndInjectFonts(); if(!ndLegacy() && window.openTab){ window.openTab('planner', { replace:true }); return; } $id('ndOverlay').style.display='flex'; ndRenderStart(); }
 // Nova demanda "numa caixa só" (mesa de 27/09): UMA caixa de intenção → "Montar conversando" com o texto já
 // enviado; a IA decide tarefa única × épico. Tipos, formulário e orquestrador seguem inteiros em "Mais opções".
 function ndMoreOpen(){ return lsGet('nd:more')==='1'; }

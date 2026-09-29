@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="css/84-memoria.css">
 <link rel="stylesheet" href="css/85-mesa.css">
 <link rel="stylesheet" href="css/86-carregamento.css">
+<link rel="stylesheet" href="css/87-nova-demanda.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -117,7 +118,7 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead nf-head" data-tauri-drag-region><span class="ndeyebrow" data-tauri-drag-region>passo 2 de 2</span><select class="nd-projsel" id="ntProj" title="projeto onde a demanda vai abrir"></select><span class="nf-typechip" id="ntTypeChip" title="tipo escolhido na tela anterior"><span class="nf-typedot"></span><span id="ntTypeName">Feature</span><a id="ntTypeSwap" title="voltar e escolher outro tipo">trocar</a></span><span style="flex:1" data-tauri-drag-region></span><div class="orq-seg ndseg" role="tablist" aria-label="como montar a demanda"><button type="button" role="tab" id="ntAI" class="" data-ndseg="planner" title="a IA pergunta só o essencial e monta a demanda">Montar conversando</button><button type="button" role="tab" class="on" data-ndseg="form" title="formulário com todos os campos, sem conversa">Preencher eu mesmo</button><button type="button" role="tab" class="" data-ndseg="orq" title="um agente coordenador divide o problema em etapas e abre uma tarefa por etapa">Dividir entre vários agentes</button></div><button class="as-btn" id="ntImport" title="importar uma spec .md pronta"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead nf-head" data-tauri-drag-region><span class="ndeyebrow" data-tauri-drag-region>nova demanda</span><select class="nd-projsel" id="ntProj" title="projeto onde a demanda vai abrir"></select><span class="nf-typechip" id="ntTypeChip" title="tipo da demanda"><span class="nf-typedot"></span><span id="ntTypeName">Feature</span><a id="ntTypeSwap" title="trocar o tipo da demanda">trocar</a></span><span style="flex:1" data-tauri-drag-region></span><div class="orq-seg ndseg ndseg-sm" role="tablist" aria-label="como montar a demanda"><button type="button" role="tab" id="ntAI" class="" data-ndseg="planner" title="a IA pergunta só o essencial e monta a demanda">Conversar</button><button type="button" role="tab" class="on" data-ndseg="form" title="formulário com todos os campos, sem conversa">Formulário</button><button type="button" role="tab" class="" data-ndseg="orq" title="um agente coordenador divide o problema em etapas e abre uma tarefa por etapa">Dividir</button></div><button class="as-btn" id="ntImport" title="importar uma spec .md pronta"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div id="ntRight">
       <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
@@ -424,7 +425,7 @@
   <div class="fw">
     <div class="plhead" data-tauri-drag-region>
       <div class="plheadl">
-        <div class="orq-seg ndseg" role="tablist" aria-label="como montar a demanda"><button type="button" role="tab" class="on" data-ndseg="planner" title="a IA pergunta só o essencial e monta a demanda">Montar conversando</button><button type="button" role="tab" class="" data-ndseg="form" title="formulário com todos os campos, sem conversa">Preencher eu mesmo</button><button type="button" role="tab" class="" data-ndseg="orq" title="um agente coordenador divide o problema em etapas e abre uma tarefa por etapa">Dividir entre vários agentes</button></div>
+        <b class="plttl">Nova demanda</b>
         <span class="fwsub plmeter" id="plMeter"></span>
       </div>
       <div class="plheadr">
@@ -438,7 +439,7 @@
         <div class="plchips" id="plChips"></div>
         <div class="plrefs" id="plRefsBar"></div>
         <div class="attrow attpend" id="plPend" style="display:none"></div>
-        <div class="plinput cc"><textarea class="in plta cc-ta" id="plInput" rows="2" placeholder="responda aqui… (/ referencia uma tarefa já feita)"></textarea><div class="cc-row"><button class="btn sm cc-clip" id="plAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span class="cc-sp"></span><button class="btn sm trk-stop" id="plStop" style="display:none" title="interrompe a IA agora">■ parar</button><button class="btn primary sm cc-send" id="plSend">enviar</button></div></div>
+        <div class="plinput cc"><textarea class="in plta cc-ta" id="plInput" rows="2" placeholder="responda aqui… (/ referencia uma tarefa já feita)"></textarea><div class="cc-row"><button class="btn sm cc-clip" id="plAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span class="ndctl" id="plCtl"></span><span class="cc-sp"></span><button class="btn sm trk-stop" id="plStop" style="display:none" title="interrompe a IA agora">■ parar</button><button class="btn primary sm cc-send" id="plSend">enviar</button></div></div>
       </div>
       <div class="plmesh" id="plMesh"></div>
     </div>
@@ -652,6 +653,7 @@
 </div>
 <script src="js/00-util.js"></script>
 <script src="js/06-carregamento.js"></script>
+<script src="js/09-remote-id.js"></script>
 <script src="js/10-core.js"></script>
 <script src="js/11-ambiente-updater.js"></script>
 <script src="js/12-chat-prefs-daily.js"></script>
