@@ -1,0 +1,363 @@
+[
+  {
+    "id": "R8a-01",
+    "area": "cara-de-produto",
+    "titulo": "Ícones de status em SVG, com o STATUS_META como fonte única",
+    "antes": "Os status usavam glifos de texto (· ● ? ❚❚ ◆ ⌥ ✓ ! ⊘ ×), que cada fonte desenha de um jeito.",
+    "depois": "O STATUS_META guarda a chave de um ícone novo de IC (stQueue, stRun, stAsk, stPause, stReview, stPr, stDone, stErr, stBlock, stX), todos em linha de 16 px. O stIcon e o stBadge desenham o SVG com a mesma cor de antes.",
+    "motivo": "Um ícone só em todas as telas, nítido em qualquer fonte, sem perder o significado nem a cor do status.",
+    "arquivos": [
+      "app/src/js/00-util.js",
+      "app/src/js/10-core.js",
+      "app/src/css/10-base.css"
+    ],
+    "como_ver": "Selos de status em qualquer tela: cabeçalho da Tarefa, cards em grade e menu de status.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/menu-status.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/menu-status.png"
+    }
+  },
+  {
+    "id": "R8a-02",
+    "area": "cara-de-produto",
+    "titulo": "Status em linguagem de gente: integrada e interrompida",
+    "antes": "Os status apareciam como \"mergeada\" e \"abortada\".",
+    "depois": "Agora aparecem como \"integrada\" e \"interrompida\", nas mesmas cores e nos mesmos ícones. O mesmo vocabulário vale fora do STATUS_META: \"interromper\" no lugar de \"abortar\", \"integrado\" no lugar de \"mergeado\" e \"você revisa e integra\" nas dicas de conflito.",
+    "motivo": "Quem não programa não conhece \"merge\" nem \"abort\". A troca foi feita só no STATUS_META, então vale para todas as telas.",
+    "arquivos": [
+      "app/src/js/00-util.js",
+      "app/src/js/20-workspace-tarefa.js",
+      "app/src/js/21-pull-request.js",
+      "app/src/js/23-kanban-artefatos-editor.js",
+      "app/src/js/24-perguntas-agente.js",
+      "app/src/js/27-entregas.js"
+    ],
+    "como_ver": "Barra lateral, na tarefa interrompida.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/sidebar.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/sidebar.png"
+    }
+  },
+  {
+    "id": "R8a-03",
+    "area": "cara-de-produto",
+    "titulo": "Seções da Central na fonte de UI, com seta em SVG",
+    "antes": "Os cabeçalhos (AGUARDANDO VOCÊ, PLANOS DO ORQUESTRADOR) vinham em mono, maiúsculas e espaçados, com ▾, ▸, ◆ e ◉ como ícone.",
+    "depois": "Os cabeçalhos passaram para frase comum na fonte de UI (--fs-sm), com seta SVG (IC.chevD/chevR) e ícone de épico ou de plano (IC.epic/IC.orq).",
+    "motivo": "Era a principal marca de \"cara de terminal\" da Central.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js",
+      "app/src/js/46-epico-time.js",
+      "app/src/js/34-orquestrador.js",
+      "app/src/css/30-refino-macos.css",
+      "app/src/css/80-ajustes-cards.css"
+    ],
+    "como_ver": "Central, na aba Execução.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/central-cards.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/central-cards.png"
+    }
+  },
+  {
+    "id": "R8a-04",
+    "area": "cara-de-produto",
+    "titulo": "Card da Central: tipo, projeto, %, tempo e modelo na fonte de UI",
+    "antes": "FEATURE, loja, 92%, 30min e Sonnet 4.5 vinham em mono.",
+    "depois": "Esses dados passaram para a fonte de UI na escala --fs-xs. Os números usam tabular-nums.",
+    "motivo": "Não são dados técnicos, e o mono deixava o card com cara de log.",
+    "arquivos": [
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/js/27-entregas.js"
+    ],
+    "como_ver": "Qualquer card da Central.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/central-cards.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/central-cards.png"
+    }
+  },
+  {
+    "id": "R8a-05",
+    "area": "cara-de-produto",
+    "titulo": "Selo de épico com ícone SVG, sem mono",
+    "antes": "O selo era \"◆ Nome · onda N\", em mono.",
+    "depois": "O selo passou a usar o ícone IC.epic e a fonte de UI, na cor do épico.",
+    "motivo": "O ◆ servia ao mesmo tempo de marca de épico e de revisão. Agora o épico tem um ícone próprio.",
+    "arquivos": [
+      "app/src/js/46-epico-time.js",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/88-cara-de-produto.css"
+    ],
+    "como_ver": "Card de tarefa de épico e cabeçalho da Tarefa.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/central-cards.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/central-cards.png"
+    }
+  },
+  {
+    "id": "R8a-06",
+    "area": "cara-de-produto",
+    "titulo": "Chips de link (PR e issue) e botão ⋯ em SVG",
+    "antes": "Os chips eram \"PR ↗\" (em verde cheio) e \"issue ↗\" (em mono). O botão de mais ações era o glifo ⋯.",
+    "depois": "Os chips passaram a usar o ícone IC.extlink, e o PR ganhou a cor de \"PR aberto\". Só o código da issue (LOJ-14) continua em mono. O ⋯ virou o ícone IC.more. O card do Time (tsCardHtml) segue o mesmo padrão: IC.epic no lugar de ◆, PR e issue com IC.extlink, \"assumir\" com IC.play e excluir com IC.x.",
+    "motivo": "O verde cheio fica reservado ao CTA, e a seta ↗ solta não tinha peso de ícone.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js",
+      "app/src/js/27-entregas.js",
+      "app/src/css/88-cara-de-produto.css",
+      "app/src/js/43-espaco-times.js"
+    ],
+    "como_ver": "Card \"Painel ativo vai junto com a mensagem\".",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/menu-tarefa.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/menu-tarefa.png"
+    }
+  },
+  {
+    "id": "R8a-07",
+    "area": "cara-de-produto",
+    "titulo": "Requisitos do card sem o ○ dentro do círculo",
+    "antes": "Cada requisito mostrava um ○ desenhado dentro de outro círculo, e o provado usava o glifo ✓.",
+    "depois": "O círculo vazio agora é a própria borda. O requisito provado usa IC.ok e o bloqueado usa IC.stErr (antes era o texto \"!\").",
+    "motivo": "Tira o ícone duplicado e o glifo.",
+    "arquivos": [
+      "app/src/js/27-entregas.js",
+      "app/src/js/43-espaco-times.js",
+      "app/src/css/60-grafo-times-nova-demanda.css"
+    ],
+    "como_ver": "Linha de requisitos dos cards.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/central-cards.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/central-cards.png"
+    }
+  },
+  {
+    "id": "R8a-08",
+    "area": "cara-de-produto",
+    "titulo": "Menu ⋯ do card com ícones SVG e textos claros",
+    "antes": "Os itens do menu tinham glifos colados no texto: ✓ concluir, ◆ marcar, ⌥ marcar como mergeada, ❙❙ bloquear, ↻ re-rodar, ✕ abortar.",
+    "depois": "Todo item tem o espaço do ícone, então os que não têm ícone (reabrir, trocar modelo) ficam alinhados. \"Trocar modelo\" agora passa pelo mesmo item(). Ícones: \"desbloquear\" usa IC.unlock e \"refazer do zero\" usa IC.reset, diferente do \"tentar seguir\", que usa IC.retry. Os textos mudaram para \"marcar como integrada (merge feito)\", \"refazer do zero\" e \"interromper agora\".",
+    "motivo": "O menu fica legível e usa o mesmo vocabulário do STATUS_META.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js",
+      "app/src/css/88-cara-de-produto.css"
+    ],
+    "como_ver": "Clique no ⋯ de um card.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/menu-tarefa.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/menu-tarefa.png"
+    }
+  },
+  {
+    "id": "R8a-09",
+    "area": "cara-de-produto",
+    "titulo": "Tarefa sem código não oferece merge",
+    "antes": "O menu de status mostrava \"✓ Mergeada\" em qualquer tarefa. O menu ⋯ só escondia a opção para investigação e design.",
+    "depois": "Os dois menus usam a mesma regra, taskOffersMerge. A opção \"integrada\" só aparece quando dá para saber que há código: a tarefa tem PR, ou o diff já está no snapshot e a entrega não é só de documentos. Enquanto o diff é desconhecido, a opção fica escondida. Numa tarefa que já está integrada, ela continua no menu.",
+    "motivo": "É o veto da Carla: sigla e fluxo de git não aparecem em tarefa que não é de software.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js"
+    ],
+    "como_ver": "Menu de status numa tarefa de investigação.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/menu-status.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/menu-status.png"
+    }
+  },
+  {
+    "id": "R8a-10",
+    "area": "cara-de-produto",
+    "titulo": "Menu de status com ícone do STATUS_META e check no item atual",
+    "antes": "As opções eram \"▶ Em andamento\", \"◆ Pronta\", \"✓ Mergeada\", \"★ Concluir\" e \"⊘ Cancelar\", e o item atual era marcado com ●.",
+    "depois": "Cada opção usa o stIcon do próprio status. O item atual vem do stMenuCur, e todo status marca uma opção: aguardando, erro, pausada e PR aberto também. Os itens são role=menuitemradio com aria-checked.",
+    "motivo": "O mesmo ícone de status aparece em todo lugar.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js"
+    ],
+    "como_ver": "Grade da Central: clique no selo de status.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/menu-status.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/menu-status.png"
+    }
+  },
+  {
+    "id": "R8a-11",
+    "area": "cara-de-produto",
+    "titulo": "Barra lateral: projeto e contagens na fonte de UI, épico em SVG",
+    "antes": "\"loja\" e \"11\" vinham em mono, e a tarefa de épico era marcada com um ◆ de 8 px.",
+    "depois": "O projeto e a contagem estão na fonte de UI, e a tarefa de épico usa o ícone IC.epic. O plano do orquestrador também troca o ◉ por IC.orq.",
+    "motivo": "A lista lateral deixa de parecer saída de terminal.",
+    "arquivos": [
+      "app/src/js/25-grafo.js",
+      "app/src/js/34-orquestrador.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Barra lateral.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/sidebar.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/sidebar.png"
+    }
+  },
+  {
+    "id": "R8a-12",
+    "area": "cara-de-produto",
+    "titulo": "Aviso de coordenação da Central em frase, com ícone",
+    "antes": "\"⚑ 1 tarefa com conflito · 1 disputa…\" vinha em mono, e o span tinha um title fixo com jargão (\"colisões do bus · reworks\") que o fillCoordChip sobrescrevia.",
+    "depois": "O aviso passou para a fonte de UI com o ícone IC.flag. O title fixo saiu, e o tooltip é só o do fillCoordChip, com \"antes de integrar\" no lugar de \"antes do merge\". O chip compara com a última string gravada (chip._last) e não reescreve o innerHTML a cada 2 segundos.",
+    "motivo": "É um aviso para gente, não uma linha de log.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js",
+      "app/src/js/50-coordenacao.js",
+      "app/src/css/88-cara-de-produto.css"
+    ],
+    "como_ver": "Canto superior direito da Central.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/home.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/home.png"
+    }
+  },
+  {
+    "id": "R8a-13",
+    "area": "cara-de-produto",
+    "titulo": "Barra de status: verde disciplinado",
+    "antes": "O rótulo \"Agora\" e o custo total vinham em verde cheio (--accent).",
+    "depois": "\"Agora\" passou a usar --accent-soft com --accent-line, e o custo foi para --text-2 com tabular-nums.",
+    "motivo": "O verde cheio fica só no CTA, no foco e em \"rodando\" (regra da repaginada C).",
+    "arquivos": [
+      "app/src/js/26-sidebar-projetos.js",
+      "app/src/css/88-cara-de-produto.css"
+    ],
+    "como_ver": "Barra inferior.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/statusbar.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/statusbar.png"
+    }
+  },
+  {
+    "id": "R8a-14",
+    "area": "cara-de-produto",
+    "titulo": "Título da Tarefa em fonte de produto",
+    "antes": "O título da tarefa no cabeçalho era um <b class=\"mono\">.",
+    "depois": "O título usa .fwtname, com a fonte display 600 em --fs-md.",
+    "motivo": "O título é a coisa mais importante da tela e não é código.",
+    "arquivos": [
+      "app/src/index.html",
+      "app/src/css/50-workspace-planner.css"
+    ],
+    "como_ver": "Abra qualquer tarefa.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/tarefa-cabecalho.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/tarefa-cabecalho.png"
+    }
+  },
+  {
+    "id": "R8a-15",
+    "area": "cara-de-produto",
+    "titulo": "Selos e fase do cabeçalho da Tarefa na fonte de UI",
+    "antes": "\"protegido\" e a fase (\"Execução\", \"Revisão\") vinham em mono. O ⋯ era um glifo.",
+    "depois": "Os selos e a fase estão na fonte de UI (--fs-xs). O ⋯ recebe o IC.more pelo 10-core, sem uma cópia do SVG no HTML. O selo de épico e o \"protegido\" comparam com a string guardada (__html) e não reescrevem a cada tick.",
+    "motivo": "O cabeçalho fica coerente com a Central.",
+    "arquivos": [
+      "app/src/css/50-workspace-planner.css",
+      "app/src/css/30-refino-macos.css",
+      "app/src/index.html",
+      "app/src/js/10-core.js",
+      "app/src/js/20-workspace-tarefa.js"
+    ],
+    "como_ver": "Cabeçalho da Tarefa.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/tarefa-cabecalho.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/tarefa-cabecalho.png"
+    }
+  },
+  {
+    "id": "R8a-16",
+    "area": "cara-de-produto",
+    "titulo": "Botões de ação da Tarefa com ícones",
+    "antes": "Os botões eram \"■ parar\", \"■ parar e enviar\", \"▶ iniciar\", \"▶ continuar\", \"▶ aprovar plano\", \"↻ rodar de novo\" e \"PR #42 ↗\" (com a seta duplicada).",
+    "depois": "Os botões usam IC.stop, IC.play e IC.retry. \"Aprovar plano\" usa IC.play, como as outras ações de começar. O \"PR #42\" ficou só com o ícone de link externo.",
+    "motivo": "Os glifos variam de fonte para fonte, e a seta estava duplicada.",
+    "arquivos": [
+      "app/src/js/20-workspace-tarefa.js",
+      "app/src/js/30-anexos.js",
+      "app/src/js/10-core.js"
+    ],
+    "como_ver": "Tarefa rodando (botão parar) e aba PR.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/workspace-conversa.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/workspace-conversa.png"
+    }
+  },
+  {
+    "id": "R8a-17",
+    "area": "cara-de-produto",
+    "titulo": "Conversa da Tarefa: nome do agente como gente",
+    "antes": "O autor aparecia como \"ORION · Claude · Sonnet 4.5\", em mono maiúsculo, e a pergunta pendente como \"ORION · PERGUNTA PENDENTE\".",
+    "depois": "O autor aparece como \"Orion\" em destaque, seguido de \"· Claude · Sonnet 4.5\" discreto. A pergunta pendente virou \"Orion · pergunta pra você\". O indicador \"trabalhando…\" usa o pulse no lugar do ▍, e a dica da pergunta perdeu o ↳.",
+    "motivo": "Mensagem é conversa, não log.",
+    "arquivos": [
+      "app/src/js/20-workspace-tarefa.js",
+      "app/src/css/50-workspace-planner.css",
+      "app/src/css/88-cara-de-produto.css"
+    ],
+    "como_ver": "Aba Conversa.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/workspace-conversa.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/workspace-conversa.png"
+    }
+  },
+  {
+    "id": "R8a-18",
+    "area": "cara-de-produto",
+    "titulo": "Abas internas: faixa de estado, artefatos e PR sem mono",
+    "antes": "\"CONSTRUINDO\" vinha em maiúsculas. \"PROVAS · 1\", \"O QUE MUDA\" e \"COMENTÁRIOS · 3 EM ABERTO\" vinham em mono, e o custo também.",
+    "depois": "Esses textos passaram para frase comum na fonte de UI: \"Construindo\" com a primeira letra maiúscula (capFirst), e as seções e o custo em --fs-xs ou --fs-sm. A branch (feat/pr → main) e os caminhos de arquivo continuam em mono. A linha \"agora\" da Tarefa, a atividade da barra lateral e o Kanban não mostram mais os glifos de evento (GLYPH).",
+    "motivo": "A regra fica clara: mono só para dado técnico.",
+    "arquivos": [
+      "app/src/js/20-workspace-tarefa.js",
+      "app/src/css/50-workspace-planner.css",
+      "app/src/js/26-sidebar-projetos.js",
+      "app/src/js/23-kanban-artefatos-editor.js"
+    ],
+    "como_ver": "Abas Revisão e PR.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/workspace-pr.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/workspace-pr.png"
+    }
+  },
+  {
+    "id": "R8a-19",
+    "area": "cara-de-produto",
+    "titulo": "Card em grade: seta, %, commits, custo e revisão",
+    "antes": "O card em grade tinha o caret ▼, % em mono, ▾/▸ nos commits, \"COMMITS\" em maiúsculas, custo em verde cheio, \"✓ review\" e o glifo do evento na linha ao vivo.",
+    "depois": "O card usa IC.chevD/IC.chevR, a fonte de UI, custo em --text-2 e \"revisada\" com IC.ok. A linha ao vivo mostra só o texto. As setas entre os papéis (→) viraram IC.chevR, e o resumo da tarefa troca ✓ e → por IC.ok e IC.chevR.",
+    "motivo": "A grade fica igual à lista.",
+    "arquivos": [
+      "app/src/js/21-pull-request.js",
+      "app/src/css/30-refino-macos.css",
+      "app/src/css/40-sidebar-quadro.css",
+      "app/src/css/50-workspace-planner.css"
+    ],
+    "como_ver": "Central em modo grade.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/home-grid.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/home-grid.png"
+    }
+  },
+  {
+    "id": "R8a-20",
+    "area": "cara-de-produto",
+    "titulo": "Fila dos épicos: ações e projeto sem glifo nem mono",
+    "antes": "A fila tinha \"▶ iniciar\", \"abrir ⤢\", \"⋯\", o projeto em mono e o texto \"concluídas ou mergeadas\".",
+    "depois": "A fila usa IC.play e IC.more, o projeto está na fonte de UI e o texto virou \"quando elas forem concluídas\".",
+    "motivo": "A fila fica coerente com os cards e sem jargão.",
+    "arquivos": [
+      "app/src/js/46-epico-time.js",
+      "app/src/js/22-quadro-fluxo.js"
+    ],
+    "como_ver": "Seção \"Na fila dos épicos\".",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/before/epic-queue.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/cara-de-produto/after/epic-queue.png"
+    }
+  }
+]

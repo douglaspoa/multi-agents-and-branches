@@ -1,0 +1,43 @@
+/* Starfork — 88-cara-de-produto (R8, proposta F12 da mesa, TELA POR TELA — a Júlia vetou o big bang)
+   Central (cards, filtros, seções), barra lateral, barra de status e cabeçalho da Tarefa.
+   Regra: mono (--mono/--code) só pra dado técnico (branch, arquivo, código, hash, código da issue);
+   rótulo, eyebrow, status, contagem e tempo vão na fonte de UI com a escala --fs-*.
+   Os glifos de texto que eram ícone viraram SVG de IC.* (10-core) — aqui só o encaixe deles. */
+
+/* ícone na frente do rótulo: seção (épico/plano), item de menu ⋯ e de status */
+.sech .secic{display:inline-flex;font-size:13px;color:var(--text-3);margin-right:-2px}
+.mnic{display:inline-flex;width:14px;justify-content:center;flex:none;font-size:13px}
+.orqic{display:inline-flex;vertical-align:-2px;margin-right:5px;font-size:12px}
+.tsepc.epbadge .epic{display:inline-flex;align-self:center;flex:none;font-size:11px}
+.tsepc.epqname svg{vertical-align:-2px}
+
+/* chips de link do card (PR / issue): um tamanho, ícone no fim */
+.lkchip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px!important;font:500 var(--fs-xs) var(--ui)}
+.lkchip .mono,.lkchip.mono{font-family:var(--code)}
+.dc-pr{display:inline-flex;align-items:center;gap:4px}
+.dc-menu{display:inline-flex!important;align-items:center;font-size:14px!important}
+.fwhead #fwMore{font-size:14px}
+
+/* requisito no card: o círculo vazio é a própria borda (antes um "○" dentro do círculo) */
+.dc-req i svg{width:9px;height:9px}
+
+/* Central: o aviso de coordenação ("1 tarefa com conflito · …") é frase, não log */
+.coordchip{font:500 var(--fs-xs) var(--ui);color:var(--muted);align-self:center;display:inline-flex;align-items:center;gap:4px}
+.coordchip svg{vertical-align:-2px}
+
+/* conversa da tarefa: "Orion · Claude · Sonnet 4.5" — o nome é gente; o modelo, detalhe */
+.cwho b{font-weight:600;color:var(--text-2)}
+.cwho .cwho-m{color:var(--text-3)}
+.cwho{font-weight:500;letter-spacing:0}
+
+/* barra de status: "Agora" é rótulo, não botão — sai do verde cheio (o --accent é do CTA/foco/rodando) */
+.bus .live{background:var(--accent-soft);color:var(--text);box-shadow:0 0 0 1px var(--accent-line) inset;font:600 var(--fs-xs) var(--ui)}
+.bus .buscost{color:var(--text-2);font-weight:600;font-variant-numeric:tabular-nums}
+.fstatus i{display:inline-flex}
+/* card do Time (tsCardHtml): mesmos chips de link do card da Central */
+.tslk{display:inline-flex;align-items:center;gap:3px;background:none;border:0;padding:0;cursor:pointer;color:var(--text-2);font:500 var(--fs-xs) var(--ui)}
+.tslk .mono{font-family:var(--code)}
+.dc-req.blk i{border-color:transparent}.dc-req.blk i svg{width:14px;height:14px}
+.btn.sm.lkchip{font-size:var(--fs-xs)}
+/* fila dos épicos: nome do projeto é texto de gente */
+.epq-proj{font:500 var(--fs-xs) var(--ui);color:var(--text-2)}

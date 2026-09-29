@@ -74,7 +74,7 @@ function fwChatSubText(t){
   if(fwIsWorking(t)) return 'trabalhando…';
   if(t.status==='error'){ const ev=lastEventOf(t.id), h=ev?humanErr(ev.text):null; // E1: diz O QUE deu errado quando é um erro conhecido
     return (h&&h.id!=='generic'?h.msg+' ':'parou com erro — ')+(h&&h.action?'('+h.action.label+') e depois mande uma mensagem pra ele seguir':'mande uma mensagem pra ele tentar seguir, ou rode de novo'); }
-  if(t.status==='aborted') return 'abortada — mande uma mensagem pra retomar, ou rode de novo';
+  if(t.status==='aborted') return 'interrompida — mande uma mensagem pra retomar, ou rode de novo';
   if(t.status==='conflict') return 'conflito com a base — resolva o conflito pra seguir';
   if(t.status==='paused') return 'pausada — clique em continuar';
   if(t.status==='draft') return 'rascunho — ainda não começou';
@@ -84,7 +84,7 @@ function fwChatSubText(t){
 }
 // "resolver conflito": o mesmo fluxo do botão do card (a IA mergeia a base e resolve na worktree)
 async function fwResolveConflict(taskId, btn){
-  if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return;
+  if(!await askYes('A IA vai juntar a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e integra. Continuar?')) return;
   const orig=btn?btn.innerHTML:'';
   if(btn){ btn.disabled=true; btn.textContent='resolvendo…'; }
   try{ await invoke('resolve_conflict',{ taskId }); prCache[taskId]=undefined; lastSig=''; await refresh(); }
@@ -303,6 +303,8 @@ function fwPlan(t){
 }
 let fwCtxOpen=(lsGet('fwCtxOpen')==='1');
 // papel da etapa em andamento, em PT e como ação (antes aparecia "BUILD" — o id do papel em inglês)
+// R8: a faixa de estado é frase ("Construindo"), não rótulo em maiúsculas
+function capFirst(s){ s=String(s||''); return s.charAt(0).toUpperCase()+s.slice(1); }
 const ROLE_DOING={ planner:'planejando', builder:'construindo', reviewer:'revisando', tester:'testando', designer:'desenhando', investigator:'investigando' };
 // barra compacta: estado da tarefa + progresso dos requisitos (expande no clique)
 function fwCtxBarHtml(t){
@@ -310,7 +312,7 @@ function fwCtxBarHtml(t){
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
   // estado final: selo padrão (PT + ícone certo) — antes era "✓ error" em inglês, com ✓ até em falha
   const st = asking.length?`<span class="fwctxst" style="color:var(--st-ask)"><span class="pulse" style="--pc:var(--st-ask)"></span>aguardando você</span>`
-    : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(ROLE_DOING[t.stage]||'trabalhando')}</span>`
+    : working?`<span class="fwctxst" style="color:var(--good)"><span class="pulse" style="--pc:var(--good)"></span>${esc(capFirst(ROLE_DOING[t.stage]||'trabalhando'))}</span>`
     : `<span class="fwctxst">${stBadge(taskSt(t))}</span>`; // R5-1: status efetivo (PR aberto igual à Central)
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   let reqPart='';
@@ -338,7 +340,7 @@ function fwNowHtml(t){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
     const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
-    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>aiCanTalk(r.engine))?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc(ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>aiCanTalk(r.engine))?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
   return fwPlan(t);
@@ -407,7 +409,7 @@ function phasesHtml(t){
 function fwSendRowHtml(t){
   const asking=pendingOf(t.id).length>0, working=fwIsWorking(t);
   const btns = asking ? `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">responder</button>`
-    : working ? `<button class="btn sm trk-stop" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">■ parar e enviar</button><button class="btn primary sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
+    : working ? `<button class="btn sm trk-stop" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">${IC.stop} parar e enviar</button><button class="btn primary sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
     : `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">enviar</button>`;
   const hint = asking ? '<span class="kbd">Enter</span> responde · <span class="kbd">⇧Enter</span> quebra linha'
     : working ? '<span class="kbd">Enter</span> põe na fila (não interrompe) · <span class="kbd">⌘Enter</span> para e envia já'
@@ -429,16 +431,16 @@ function fwPaintSendRow(t){
 function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
 function fwPrimaryAction(t){
   // rascunho: o topo não tinha ação nenhuma — começar é o próximo passo óbvio (mesmo ▶ iniciar da Central)
-  if(t.status==='draft') return { id:'fwStartDraft', html:'▶ iniciar', title:'começa a execução com o que já está no rascunho' };
+  if(t.status==='draft') return { id:'fwStartDraft', html:`${IC.play} iniciar`, title:'começa a execução com o que já está no rascunho' };
   if(pendingOf(t.id).length) return { id:'fwAnswer', html:`${IC.hand} responder`, title:'o agente fez uma pergunta — a resposta vai na conversa' };
-  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`■ parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
-  if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
-  if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
-  if(t.status==='paused') return { id:'fwResume', html:'▶ continuar', title:'retoma a tarefa de onde parou' };
-  if(t.status==='plan-review') return { id:'fwApprovePlan', html:'▶ aprovar plano', title:'o plano está pronto — aprovar deixa o time começar a construir' };
+  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`${IC.stop} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
+  if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:`${IC.retry} rodar de novo`, title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
+  if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra' };
+  if(t.status==='paused') return { id:'fwResume', html:`${IC.play} continuar`, title:'retoma a tarefa de onde parou' };
+  if(t.status==='plan-review') return { id:'fwApprovePlan', html:`${IC.play} aprovar plano`, title:'o plano está pronto — aprovar deixa o time começar a construir' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
   if(t.prUrl){ const n=fwPrNum(t);
-    return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n} ↗`, title:'abrir o PR no GitHub' }
+    return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n}`, title:'abrir o PR no GitHub' }
       : { id:'fwPrGo', html:`${IC.merge} ver PR #${n}`, title:'comentários, checagens e merge do PR' }; }
   if(taskIsDone(t)) return null;
   if(['review','delivered'].includes(t.status)){
@@ -447,7 +449,7 @@ function fwPrimaryAction(t){
     return fwArtOnly(t) ? ((fwArchiveNeedsSave(t))
         ? { id:'fwArchive', html:`${IC.check} salvar e concluir`, title:'salva os arquivos entregues numa pasta sua e conclui (investigação/design não abrem PR)' }
         : { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' })
-      : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo → commit & push → cria o PR' };
+      : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo, depois commit & push e cria o PR' };
   }
   return null;
 }
@@ -466,10 +468,10 @@ function fwMoreItems(t){
   if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
   if(t.prUrl){ const n=fwPrNum(t);
     if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
-    if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub ↗` });
+    if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub` });
     it.push({ k:'prcopy', label:'copiar link do PR' });
   } else if(!done && !nogit && !fwArtOnly(t) && t.status!=='draft' && !['review','delivered'].includes(t.status)){
-    it.push({ k:'propen', label:'abrir PR', hint:'checagens do repo → commit & push → cria o PR' });
+    it.push({ k:'propen', label:'abrir PR', hint:'checagens do repo, depois commit & push e cria o PR' });
   }
   if(pv){ it.push({ k:'pv', label:'abrir o preview', hint:pv.replace(/^https?:\/\//,'').slice(0,40) });
     it.push(tun?{ k:'pvoff', label:'fechar o acesso do celular', warn:true }:{ k:'pvmob', label:'abrir o preview no celular', hint:'túnel criptografado' }); }
@@ -569,10 +571,10 @@ function renderWorkspace(){
   { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=async()=>{ const nm=b.dataset.fwmode; if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }); } }
   { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
-  { const te=$id('fwTaskEpic'); if(te){ const h=(typeof epTaskBadge==='function')?epTaskBadge(t):''; if(te.innerHTML!==h) te.innerHTML=h;
-      te.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); } }
+  { const te=$id('fwTaskEpic'); if(te){ const h=(typeof epTaskBadge==='function')?epTaskBadge(t):''; if(te.__html!==h){ te.__html=h; te.innerHTML=h; // R8: compara com a string guardada (o SVG serializado pelo innerHTML nunca bate)
+      te.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); } } }
   // selo do modo protegido (mesa 27/09): o que o agente NÃO pode fazer, no tooltip
-  { const tp=$id('fwTaskProt'); if(tp && typeof protectBadgeHtml==='function'){ const h=protectBadgeHtml(t); if(tp.innerHTML!==h) tp.innerHTML=h; } }
+  { const tp=$id('fwTaskProt'); if(tp && typeof protectBadgeHtml==='function'){ const h=protectBadgeHtml(t); if(tp.__html!==h){ tp.__html=h; tp.innerHTML=h; } } }
   $id('fwTaskBranch').textContent=t.branch+' · '+t.agent;
   if(typeof orqTaskChips==='function') orqTaskChips(t);
   // barra do topo: [preview] + UMA ação principal da fase; o resto (progresso, push, modelo, custo…) no ⋯
@@ -758,7 +760,7 @@ function renderWorkspace(){
     <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar" aria-expanded="${fwCtxOpen?'true':'false'}" title="${fwCtxOpen?'recolher':'ver'} o que ele está fazendo e os requisitos">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
-    <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">↳ ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
+    <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">${IC.chevR} ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
       <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'continuar ou parar? (ou toque numa opção acima)':'responda a pergunta — o turno continua'):'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
       <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
@@ -831,7 +833,7 @@ function fwWireGaps(root){ root.querySelectorAll('[data-dvgap]').forEach(b=>b.on
 // nesta tela — o "resolver conflito" morava no card da Central)
 function fwPrUnblockHtml(info){
   if(!info || info.state!=='OPEN') return '';
-  if(info.mergeable==='CONFLICTING') return `<button class="btn sm" id="prPgResolve" style="margin-top:8px" title="a IA mergeia a base na branch e resolve os conflitos na worktree (sem push); você revisa e mergeia">${IC.bolt} resolver o conflito com IA</button>`;
+  if(info.mergeable==='CONFLICTING') return `<button class="btn sm" id="prPgResolve" style="margin-top:8px" title="a IA junta a base na branch e resolve os conflitos na worktree (sem push); você revisa e integra">${IC.bolt} resolver o conflito com IA</button>`;
   if(info.checksFail) return `<button class="btn sm" id="prPgFixChecks" style="margin-top:8px" title="manda o agente ler o log das checagens que falharam e corrigir">${IC.ai} pedir pro agente corrigir as checagens</button>`;
   return '';
 }
@@ -868,7 +870,7 @@ function fwRenderPrPage(t, main){
     </div>
     <div class="prright">
       ${info.state==='OPEN'?`<div class="prpgmerge">${prMergeBtnHtml(info,'prPgMerge','primary','font-weight:700')}${prMergeWhyHtml(info)}${fwPrUnblockHtml(info)}</div>`:''}
-      <div class="prcmtsh"><span class="prcmtsn mono">COMENTÁRIOS · ${cm.countTx}</span>${cm.toggle}</div>
+      <div class="prcmtsh"><span class="prcmtsn">Comentários · ${cm.countTx}</span>${cm.toggle}</div>
       <div style="margin-top:8px">${cm.html}</div>
       ${cm.open>1?`<button class="btn primary sm" id="prPgAll" style="margin-top:6px">${IC.ai} corrigir todos os ${cm.open} em aberto</button>`:''}
     </div>
@@ -960,7 +962,7 @@ function fwThreadHtml(t){
     if(e.type==='note' && (e.tool || /^(entregável novo registrado|issue registrada|pronto quando )/.test(tx))){ flush(); lastWho=''; out.push(toolChip(tx.replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       flush();
-      const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</div>`:'';
+      const who=e.agent!==lastWho?`<div class="cwho"><b>${esc(e.agent||'')}</b><span class="cwho-m"> · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</span></div>`:'';
       lastWho=e.agent;
       out.push(`<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
       continue;
@@ -973,10 +975,10 @@ function fwThreadHtml(t){
   // eco otimista: mensagens enviadas que o banco ainda não confirmou (ver fwOptim)
   for(const o of fwOptimFor(t.id, evs)) out.push(fwOptimHtml(o));
   return out.join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'TETO DE CUSTO · SUA DECISÃO':esc(((asking[0].agent||t.agent)||'').toUpperCase())+' · PERGUNTA PENDENTE'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'<b>Teto de custo</b><span class="cwho-m"> · sua decisão</span>':'<b>'+esc((asking[0].agent||t.agent)||'')+'</b><span class="cwho-m"> · pergunta pra você</span>'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
       return (Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts${sent!=null?' sent':''}">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}"${sent!=null?` disabled${sent===o?' class="on" aria-pressed="true"':''}`:''}>${esc(o)}</button>`).join('')}</div>`:'')
-        +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'↳ escolha uma opção — o agente fica pausado até você decidir':'↳ responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
-  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
+        +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'escolha uma opção — o agente fica pausado até você decidir':'responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
+  + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="pulse" style="--pc:var(--good)"></span> trabalhando…</div></div>`:'');
 }
 // requisitos com status ao vivo (o "no que ele está trabalhando")
 function fwReqsHtml(t){

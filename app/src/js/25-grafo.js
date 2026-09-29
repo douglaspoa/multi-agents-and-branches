@@ -249,5 +249,5 @@ function renderRail(){
 function sbEpDot(t){
   const id=t&&t.epic&&t.epic.epicId; if(!id) return '';
   const nm=(typeof epNameOf==='function'&&epNameOf(id))||'épico', w=parseInt(t.epic.wave,10)||0;
-  return `<span class="sbepdot" style="color:${typeof epColor==='function'?epColor(id):'var(--accent)'}" title="${escA('épico “'+nm+'”'+(w?' · onda '+w:''))}">◆</span>`;
+  return `<span class="sbepdot" style="color:${typeof epColor==='function'?epColor(id):'var(--accent)'}" title="${escA('épico “'+nm+'”'+(w?' · onda '+w:''))}">${IC.epic}</span>`;
 }

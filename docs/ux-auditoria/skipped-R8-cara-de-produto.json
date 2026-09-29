@@ -1,0 +1,26 @@
+[
+  {
+    "titulo": "Esconder o nome do modelo (Sonnet 4.5) nos cards e no chat",
+    "motivo": "O veto da Carla pede isso por padrão, mas o Rafa quer ver o modelo. Precisa de uma decisão de produto (Detalhes técnicos a um clique). Nesta rodada só mudou a fonte."
+  },
+  {
+    "titulo": "Botão de copiar mensagem (⧉) e alternância ⧉/✓ no chat",
+    "motivo": "Pertence ao componente de chat compartilhado (30-anexos e chatMsgHtml), que é área de outra onda."
+  },
+  {
+    "titulo": "GLYPH dos eventos (‹ ± + $ » ⊞) no feed e no log",
+    "motivo": "Fica em telas de log e feed, fora desta área. Só foi removido dos cards da Central."
+  },
+  {
+    "titulo": "Eyebrows em maiúsculas das colunas da Tarefa (ARQUIVOS ALTERADOS, ARTEFATOS)",
+    "motivo": "Já estão na fonte de UI. Só a escala mudou (--fs-xs). Trocar para frase comum exige revisar os outros .seclbl do app."
+  },
+  {
+    "titulo": "Selo \"protegido\" em verde --good (mesmo hex do --accent)",
+    "motivo": "É uma cor semântica de estado bom, não de seleção. Mudar isso exige decidir se --good deve se separar do --accent."
+  },
+  {
+    "titulo": "Resumo da tarefa (sumOverlay), página do épico e Kanban",
+    "motivo": "Estão fora do escopo (Central, barra lateral, barra de status e Tarefa). No resumo, só foram trocados ✓, ○ e ◆."
+  }
+]
