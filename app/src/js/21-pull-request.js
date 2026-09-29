@@ -424,13 +424,19 @@ async function prPrepFinish(t, base){
   }catch(e){ const s=errText(e);
     // gh sem acesso/SSO ao repo (comum em quem não é membro da org ou sem SSO): o
     // push funcionou, então dá pra criar o PR no NAVEGADOR (a sessão do dev tem acesso).
-    const ghAccess=/could not resolve to a repository|graphql|sso|not authorized|não enxerga/i.test(s) && humanErr(e).id!=='network';
+    const ghAccess=/^GH_NO_ACCESS:|could not resolve to a repository|graphql|sso|not authorized|não enxerga/i.test(s) && humanErr(e).id!=='network';
     prFail(3, e, ()=>prPrepFinish(t, base), true);
     if(ghAccess){
       try{ const cu=await invoke('pr_compare_url',{ taskId:t.id, base }); const d=$id('prep3d');
-        if(d&&cu){ d.insertAdjacentHTML('beforeend', `<div style="margin-top:8px"><button class="btn primary sm" data-prweb="${escA(cu)}" title="a branch já foi enviada — abre a página do GitHub pra criar o PR, onde a SUA conta tem acesso à org">criar o PR no navegador ↗</button></div>`);
-          const wb=d.querySelector('[data-prweb]'); if(wb) wb.onclick=()=>invoke('open_url',{url:wb.dataset.prweb}).catch(()=>{}); }
-      }catch(_){ prShowRetry(()=>prPrepFinish(t, base)); }
+        if(cu){
+          // cai SOZINHO pro navegador (a sessão do dev lá enxerga a org) — o botão fica pra reabrir
+          invoke('open_url',{url:cu}).catch(()=>{});
+          const repo=(s.match(/n[ãa]o enxerga (\S+)/)||s.match(/with the name '([^']+)'/)||[])[1]||'o repositório';
+          toast(`o gh logado não enxerga ${repo} — abri o PR no navegador; para o app gerenciar o PR, rode \`gh auth login\` com a conta que tem acesso`, 'info');
+        }
+        if(d&&cu){ d.insertAdjacentHTML('beforeend', `<div style="margin-top:8px"><button class="btn primary sm" data-prweb="${escA(cu)}" title="a branch já foi enviada — abre a página do GitHub pra criar o PR, onde a SUA conta tem acesso à org">${IC.extlink} criar o PR no navegador</button></div>`);
+          const wb=d.querySelector('[data-prweb]'); if(wb) wb.onclick=()=>invoke('open_url',{url:wb.dataset.prweb}).catch(err=>showErr(err,'Falha ao abrir o navegador')); }
+      }catch(ce){ showErr(ce,'Falha ao montar o link do PR'); prShowRetry(()=>prPrepFinish(t, base)); }
     } else if(humanErr(e).id!=='no-remote'){
       // a branch já foi enviada — re-tentar só a criação do PR (ex.: falha de rede)
       prShowRetry(()=>prPrepFinish(t, base));
