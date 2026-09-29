@@ -345,12 +345,15 @@ async function openNewTask(){
   }
   setNtMode(ntMode);
   { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; }
-  // texto que veio do "Conversar" (seletor de modo no composer): vira título + objetivo, sem apagar o que já está preenchido
-  { const txt=window.ndTakeCarry?window.ndTakeCarry():''; if(txt){
+  // o que veio do "Conversar" (seletor de modo): texto → título + objetivo; entregas/requisitos que a conversa já montou
+  // entram nas listas. Nada que já está preenchido é apagado.
+  { const c=window.ndTakeCarryAll?window.ndTakeCarryAll():{}; if(c.text){
       const F={ build:['ntTitle','ntObj'], fix:['ntFixTitle','ntFixObj'], design:['ntDzTitle','ntDzObj'], invest:['ntInvTitle','ntInvObj'] }[ntMode];
-      const first=txt.split('\n')[0].split(/(?<=[.!?])\s/)[0].slice(0,80).trim();
-      if(F){ const t=$id(F[0]), o=$id(F[1]); if(t && !t.value.trim()) t.value=first; if(o && !o.value.trim()) o.value=txt; }
-      else if(ntMode==='review'){ const pr=$id('ntPr'); const u=txt.match(/https?:\/\/\S+/); if(pr && u && !pr.value.trim()) pr.value=u[0]; } } }
+      const sp=ndSplitCarry(c.text, c.title);
+      if(F){ const t=$id(F[0]), o=$id(F[1]); if(t && !t.value.trim()) t.value=sp.title; if(o && !o.value.trim()) o.value=sp.objective; }
+      else if(ntMode==='review'){ const pr=$id('ntPr'); const u=c.text.match(/https?:\/\/\S+/); if(pr && u && !pr.value.trim()) pr.value=u[0]; }
+      if(ntMode==='build'){ if(!ntDel.filter(Boolean).length && (c.deliverables||[]).length) ntDel=c.deliverables.slice(); if(!ntReq.filter(Boolean).length && (c.requirements||[]).length) ntReq=c.requirements.slice(); renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); }
+      else if(ntMode==='fix' && !ntFixReq.filter(Boolean).length && (c.requirements||[]).length){ ntFixReq=c.requirements.slice(); renderNtList("ntFixReqs", ntFixReq); } } }
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   ntFillProjects();
   $id("ntOverlay").style.display = "flex";

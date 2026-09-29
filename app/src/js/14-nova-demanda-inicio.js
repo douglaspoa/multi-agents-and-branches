@@ -10,6 +10,17 @@ const ND_TYPES=[
 ];
 // tipo da tela de início → modo do formulário (docs = entrega em branch docs/…)
 const ND_TO_MODE={build:'build',fix:'fix',invest:'invest',design:'design',docs:'build',review:'review'};
+// o que a tarefa criada pelo planner vira, por tipo — o MESMO mapeamento do formulário (ND_TO_MODE + ntDocsPreset):
+// investigação, documentação, design e review entregam documento SEM PR; correção vai em fix/. A prévia lê daqui.
+const ND_CREATE={
+  build: { branchType:'feat',   autoPr:'ask', doc:null,               owns:null,        noCode:false, delivery:'PR pra revisar' },
+  fix:   { branchType:'fix',    autoPr:'ask', doc:null,               owns:null,        noCode:false, delivery:'PR pra revisar' },
+  docs:  { branchType:'docs',   autoPr:'no',  doc:null,               owns:null,        noCode:false, delivery:'documento' },
+  invest:{ branchType:'invest', autoPr:'no',  doc:'INVESTIGATION.md', owns:'.cardume/', noCode:true,  delivery:'relatório com a causa' },
+  design:{ branchType:'design', autoPr:'no',  doc:'DESIGN.md',        owns:'.cardume/', noCode:true,  delivery:'mockup e decisões' },
+  review:{ branchType:'review', autoPr:'no',  doc:'REVIEW.md',        owns:'.cardume/', noCode:true,  delivery:'parecer em documento' },
+};
+function ndKindCreate(kind){ const k=ND_CREATE[kind]?kind:'build'; return Object.assign({ kind:k, mode:ND_TO_MODE[k]||'build' }, ND_CREATE[k]); }
 const ND_NAME_OF_MODE={build:'Feature',fix:'Correção',invest:'Investigação',design:'Design',review:'Review de PR'};
 window.ND_TO_MODE=ND_TO_MODE; window.ND_NAME_OF_MODE=ND_NAME_OF_MODE;
 let ndType='build', ndMethod='chat', ndIntent=''; // ndIntent: o texto da caixa única (sobrevive à troca de aba/projeto)
@@ -30,14 +41,12 @@ window.ndMethodSeg=ndMethodSeg;
 // fica por uma versão atrás de lsGet('nd:legacy')==='1'. =====
 function ndLegacy(){ return lsGet('nd:legacy')==='1'; }
 window.ndLegacy=ndLegacy;
-// tipos que NÃO entregam código: a prévia não fala de PR nem de branch
-const ND_NON_SOFTWARE=new Set(['invest','docs','design']);
 function ndTypeName(k){ const t=ND_TYPES.find(x=>x.k===k); return t?t.name:''; }
 // "Tipo: Automático" — um palpite barato pelo texto (só pra prévia; a escolha do usuário sempre vence)
 function ndGuessType(text){
   const t=String(text||'').toLowerCase();
   if(!t.trim()) return '';
-  if(/(revis(ar|e|ão)|review)\b[^.]{0,30}\b(pr|pull request)\b|github\.com\/[^\s]+\/pull\//.test(t)) return 'review';
+  if(/(revis(ar|e|ão)|review)(?!\p{L})[^.]{0,30}(?<!\p{L})(pr|pull request)(?!\p{L})|github\.com\/[^\s]+\/pull\//u.test(t)) return 'review'; // \b não serve depois de 'ã'
   if(/(investig|descobrir (por ?qu|a causa|onde)|causa[- ]raiz|por que .{0,40}(demora|lent|cai|falha|trava)|\bresumir\b|\banalisar\b|levantamento)/.test(t)) return 'invest';
   if(/(\bbug\b|\berro\b|quebr|consert|corrig|não funciona|nao funciona|some\b|sumiu|travando|\bfalha)/.test(t)) return 'fix';
   if(/(mockup|protótipo|prototipo|\bux\b|\bui\b|wireframe|desenhar a tela|layout novo)/.test(t)) return 'design';
@@ -60,22 +69,36 @@ function ndExamples(isSoftware){
   return isSoftware===false ? [...gente, ...sw] : [...sw, ...gente]; // 6 cards (3×2): a ordem muda com o tipo de projeto
 }
 // texto levado de um modo pro outro (Conversar → Formulário/Dividir e volta): quem abre consome uma vez
-let ndCarryText='';
-function ndTakeCarry(){ const t=ndCarryText; ndCarryText=''; return t; }
-window.ndTakeCarry=ndTakeCarry;
+// ndCarryText: o texto; ndCarryExtra: o que a conversa já montou (título, entregas, requisitos) quando a caixa está vazia
+let ndCarryText='', ndCarryExtra=null;
+function ndTakeCarry(){ const t=ndCarryText; ndCarryText=''; ndCarryExtra=null; return t; }
+function ndTakeCarryAll(){ const o=Object.assign({ text:ndCarryText }, ndCarryExtra||{}); ndCarryText=''; ndCarryExtra=null; return o; }
+// PURA: texto levado → título (o dado, senão a 1ª frase até 80 caracteres) + objetivo (o texto inteiro)
+function ndSplitCarry(text, title){
+  text=String(text||'').trim(); const first=text.split('\n')[0].split(/(?<=[.!?])\s/)[0].slice(0,80).trim();
+  return { title:String(title||'').trim()||first, objective:text };
+}
+window.ndTakeCarry=ndTakeCarry; window.ndTakeCarryAll=ndTakeCarryAll; window.ndSplitCarry=ndSplitCarry;
 // popover pequeno ancorado num botão (tipo, IA, escopo…): fecha com Esc, clique fora ou ao escolher
-function ndPopClose(){ const p=$id('ndPop'); if(p) p.remove(); document.removeEventListener('mousedown', ndPopOutside, true); document.removeEventListener('keydown', ndPopKey, true); }
-function ndPopOutside(e){ const p=$id('ndPop'); if(p && !p.contains(e.target) && !(p.__anchor && p.__anchor.contains(e.target))) ndPopClose(); }
-function ndPopKey(e){ if(e.key==='Escape'){ e.stopPropagation(); e.preventDefault(); ndPopClose(); } }
+// refocus=true (Esc / clique fora): o foco volta pro botão que abriu
+function ndPopClose(refocus){ const p=$id('ndPop'); if(p){ const a=p.__anchor; p.remove(); if(a){ try{ a.setAttribute('aria-expanded','false'); if(refocus===true && a.isConnected) a.focus(); }catch(_){} } }
+  document.removeEventListener('mousedown', ndPopOutside, true); document.removeEventListener('keydown', ndPopKey, true);
+  window.removeEventListener('resize', ndPopPlace); window.removeEventListener('scroll', ndPopPlace, true); }
+function ndPopPlace(){ const p=$id('ndPop'); if(p && p.__place) p.__place(); }
+function ndPopOutside(e){ const p=$id('ndPop'); if(p && !p.contains(e.target) && !(p.__anchor && p.__anchor.contains(e.target))) ndPopClose(true); }
+function ndPopKey(e){ if(e.key==='Escape'){ e.stopPropagation(); e.preventDefault(); ndPopClose(true); } }
 function ndPopover(anchor, html, wire){
   const was=$id('ndPop'); const same=was && was.__anchor===anchor; ndPopClose(); if(same) return null; // 2º clique no mesmo botão fecha
-  const p=document.createElement('div'); p.id='ndPop'; p.className='ndpop'; p.setAttribute('role','dialog'); p.__anchor=anchor;
+  const p=document.createElement('div'); p.id='ndPop'; p.className='ndpop'; p.setAttribute('role','dialog'); p.tabIndex=-1; p.__anchor=anchor;
+  try{ anchor.setAttribute('aria-expanded','true'); }catch(_){}
   p.innerHTML=html; document.body.appendChild(p);
   const place=()=>{ const r=anchor.getBoundingClientRect(), w=p.offsetWidth, h=p.offsetHeight;
     let x=Math.min(Math.max(8, r.left), innerWidth-w-8), y=r.top-h-8; if(y<8) y=Math.min(r.bottom+8, innerHeight-h-8);
     p.style.left=x+'px'; p.style.top=Math.max(8,y)+'px'; };
   p.__place=place; place();
   if(wire){ wire(p); place(); }
+  { const f=p.querySelector('.on, button, input, select, a[href], [tabindex]:not([tabindex="-1"])'); try{ (f||p).focus({ preventScroll:true }); }catch(_){} } // foco entra no popover
+  window.addEventListener('resize', ndPopPlace); window.addEventListener('scroll', ndPopPlace, true);
   setTimeout(()=>{ document.addEventListener('mousedown', ndPopOutside, true); document.addEventListener('keydown', ndPopKey, true); },0);
   return p;
 }
@@ -83,12 +106,20 @@ window.ndPopover=ndPopover; window.ndPopClose=ndPopClose;
 // um handler só pra todos os seletores (os botões com id próprio — ex.: #ntAI — seguem com o handler deles)
 document.addEventListener('click', e=>{
   const b=e.target.closest&&e.target.closest('[data-ndseg]'); if(!b||b.id||b.classList.contains('on')) return;
-  // leva o texto já digitado pro outro modo (planner → formulário/orquestrador)
-  { const pi=$id('plInput'), po=$id('plannerOverlay'); if(pi && po && po.style.display!=='none' && pi.value.trim()) ndCarryText=pi.value.trim();
+  // leva o texto já digitado (ou o que a conversa já montou) pro outro modo (planner → formulário/orquestrador)
+  ndCarryText=''; ndCarryExtra=null;
+  { const pi=$id('plInput'), po=$id('plannerOverlay'), inPl=pi && po && po.style.display!=='none';
+    if(inPl && pi.value.trim()) ndCarryText=pi.value.trim();
+    else if(inPl && typeof plFields!=='undefined' && plFields && (plFields.title||plFields.objective)){
+      ndCarryText=String(plFields.objective||plFields.title).trim();
+      ndCarryExtra={ title:plFields.title||'', deliverables:(plFields.deliverables||[]).slice(), requirements:(plFields.requirements||[]).slice() }; }
     const oi=$id('orqTa'), oo=$id('orqOverlay'); if(!ndCarryText && oi && oo && oo.style.display!=='none' && oi.value.trim()) ndCarryText=oi.value.trim(); }
   if(b.dataset.ndseg==='form' && typeof plFields!=='undefined' && plFields && plFields.kind) window.ntPresetType=plFields.kind;
   ndPopClose();
-  if(window.openTab) window.openTab(b.dataset.ndseg,{replace:true}); // troca o jeito de montar NA MESMA aba (não empilha abas)
+  const kind=b.dataset.ndseg;
+  if(window.openTab) window.openTab(kind,{replace:true}); // troca o jeito de montar NA MESMA aba (não empilha abas)
+  // openTab voltou sem trocar (sem projeto / sem git): o texto não fica pendurado pra uma aba futura
+  { const t=(typeof tabById==='function')?tabById(activeTab):null; if(!t || t.kind!==kind){ ndCarryText=''; ndCarryExtra=null; } }
 });
 window.TAB_STATE_nova={ get:()=>({ ndType, ndMethod, ndIntent }), set:(st)=>{ ndType=st.ndType||'build'; ndMethod=st.ndMethod||'chat'; ndIntent=st.ndIntent||''; } };
 function ndInjectFonts(){ if($id('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }

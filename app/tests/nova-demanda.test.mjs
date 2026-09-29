@@ -1,5 +1,5 @@
 // Repaginada B (Nova demanda numa tela só): `node --test app/tests/nova-demanda.test.mjs`
-// Carrega 00-util + 14-nova-demanda-inicio + 29-ia-picker + 32-planner num vm com um DOM de mentira
+// Carrega 00-util + 14-nova-demanda-inicio + 15-config-abas + 29-ia-picker + 32-planner num vm com um DOM de mentira
 // e testa as partes puras: a prévia em linguagem de gente, tipo→modo, exemplos e a flag legada.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,12 +24,13 @@ const ctx = {
   // dependências de outros arquivos do app que só são chamadas em handlers/render
   esc: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
   chatComposer: noop, Option: function () {},
-  loadDaily: noop, dailyAISummary: noop, dailyGenDoc: noop,
+  loadDaily: noop, dailyAISummary: noop, dailyGenDoc: noop, setTimeout: () => 0, clearTimeout: noop,
+  state: { repo: '/r' }, toast: noop,
 };
 ctx.escA = (s) => ctx.esc(s).replace(/"/g, '&quot;');
 vm.createContext(ctx);
-vm.runInContext([read('00-util.js'), read('14-nova-demanda-inicio.js'), read('29-ia-picker.js'), read('32-planner.js')].join('\n;\n')
-  + '\n;globalThis.__nd={ ND_TYPES, ND_TO_MODE, ND_NON_SOFTWARE, ndExamples, ndGuessType, ndLegacy, ndProjectIsSoftware, plPreviewHtml, plHumanModel, plScopeLabel, ndMethodSeg };', ctx);
+vm.runInContext([read('00-util.js'), read('14-nova-demanda-inicio.js'), read('15-config-abas-onboarding.js'), read('29-ia-picker.js'), read('32-planner.js')].join('\n;\n')
+  + '\n;globalThis.__nd={ ND_TYPES, ND_TO_MODE, ndKindCreate, ndSplitCarry, ndTakeCarry, ndTakeCarryAll, plKindTag, openTab, tabs:()=>TABS, setCarry:(t,x)=>{ ndCarryText=t; ndCarryExtra=x||null; }, ndExamples, ndGuessType, ndLegacy, ndProjectIsSoftware, plPreviewHtml, plHumanModel, plScopeLabel, ndMethodSeg };', ctx);
 const N = ctx.__nd;
 const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -50,13 +51,12 @@ test('prévia: tipo automático usa o palpite e avisa que é automático', () =>
   const t = text(N.plPreviewHtml({ kind: '', guess: 'invest', engine: 'claude', model: 'opus', owns: [], tasks: 3 }));
   assert.match(t, /Tipo: investigação automático/);
   assert.match(t, /IA: caprichada/);
-  assert.match(t, /Mexe em: a IA decide/);
+  assert.match(t, /Mexe em: só os documentos/, 'investigação só escreve documento');
   assert.match(t, /Vira: épico · 3 tarefas/);
 });
 
-test('prévia: projeto que não é software não fala de PR nem de branch', () => {
+test('prévia: tipos que não entregam código não falam de PR nem de branch', () => {
   for (const kind of ['invest', 'docs', 'design']) {
-    assert.ok(N.ND_NON_SOFTWARE.has(kind));
     const h = N.plPreviewHtml({ kind, engine: 'claude', model: '', owns: ['conteudo/'], tasks: 1 });
     assert.doesNotMatch(text(h), /\bPR\b|branch/i, kind);
   }
@@ -113,4 +113,66 @@ test('flag legada nd:legacy liga a tela antiga de 2 passos', () => {
   assert.equal(N.ndLegacy(), true);
   ctx.localStorage.removeItem('nd:legacy');
   assert.equal(N.ndLegacy(), false);
+});
+
+test('prévia: épico com tudo desmarcado e custo desconhecido', () => {
+  const h = N.plPreviewHtml({ kind: 'build', engine: 'claude', model: '', tasks: 0 });
+  assert.match(text(h), /Vira: nenhuma tarefa marcada/);
+  assert.match(text(h), /Custo: —/, 'o item de custo (e o teto no popover) aparece sempre');
+  assert.match(h, /data-prev="custo"/);
+});
+
+test('palpite de tipo: revisão (com acento) e design', () => {
+  assert.equal(N.ndGuessType('Fazer a revisão do PR 42 do checkout'), 'review');
+  assert.equal(N.ndGuessType('revisar o pull request de pagamentos'), 'review');
+  assert.equal(N.ndGuessType('Desenhar a tela nova de onboarding, só mockup'), 'design');
+  assert.notEqual(N.ndGuessType('revisões de preço da tabela'), 'review');
+});
+
+test('tipo → criação (o que o plCreate usa): mesmo mapeamento do formulário', () => {
+  const b = N.ndKindCreate('build'), f = N.ndKindCreate('fix');
+  assert.equal(b.branchType, 'feat'); assert.equal(b.autoPr, 'ask'); assert.equal(b.mode, 'build');
+  assert.equal(f.branchType, 'fix'); assert.equal(f.autoPr, 'ask'); assert.equal(f.mode, 'fix');
+  for (const k of ['invest', 'docs', 'design']) assert.equal(N.ndKindCreate(k).autoPr, 'no', k + ' entrega documento, sem PR');
+  assert.equal(N.ndKindCreate('docs').branchType, 'docs'); assert.equal(N.ndKindCreate('docs').mode, 'build');
+  assert.equal(N.ndKindCreate('invest').doc, 'INVESTIGATION.md');
+  assert.equal(N.ndKindCreate('design').owns, '.cardume/');
+  assert.equal(N.ndKindCreate('???').kind, 'build');
+  // a prévia descreve o mesmo que vai ser criado
+  for (const t of N.ND_TYPES) assert.match(text(N.plPreviewHtml({ kind: t.k })), new RegExp('Entrega: ' + N.ndKindCreate(t.k).delivery));
+});
+
+test('aviso de tipo pra IA: uma vez, e volta pro automático uma vez', () => {
+  let r = N.plKindTag('fix', '');
+  assert.match(r.tag, /Correção/); assert.equal(r.next, 'fix');
+  r = N.plKindTag('fix', 'fix');
+  assert.equal(r.tag, '', 'não repete'); assert.equal(r.next, 'fix');
+  r = N.plKindTag('', 'fix');
+  assert.match(r.tag, /automático — ignore o tipo anterior/); assert.equal(r.next, '');
+  r = N.plKindTag('', '');
+  assert.equal(r.tag, '');
+  r = N.plKindTag('docs', 'fix');
+  assert.match(r.tag, /Documentação/); assert.equal(r.next, 'docs');
+});
+
+test('texto levado entre modos: consome uma vez; título/objetivo', () => {
+  N.setCarry('O botão some. Quero corrigir.', { title: 'Botão some' });
+  const all = N.ndTakeCarryAll();
+  assert.equal(all.text, 'O botão some. Quero corrigir.'); assert.equal(all.title, 'Botão some');
+  assert.equal(N.ndTakeCarry(), '', 'só uma vez');
+  N.setCarry('abc');
+  assert.equal(N.ndTakeCarry(), 'abc'); assert.equal(N.ndTakeCarry(), '');
+  assert.deepEqual({ ...N.ndSplitCarry('O botão some no celular. Quero entender.') }, { title: 'O botão some no celular.', objective: 'O botão some no celular. Quero entender.' });
+  assert.equal(N.ndSplitCarry('x'.repeat(200)).title.length, 80);
+  assert.equal(N.ndSplitCarry('texto', 'Título dado').title, 'Título dado');
+});
+
+test("openTab('nova') abre o planner; com nd:legacy volta a tela antiga", () => {
+  ctx.activateTab = noop; // só o roteamento importa aqui (sem pintar)
+  N.openTab('nova');
+  assert.equal(N.tabs().at(-1).kind, 'planner');
+  ctx.localStorage.setItem('nd:legacy', '1');
+  N.openTab('nova');
+  assert.equal(N.tabs().at(-1).kind, 'nova');
+  ctx.localStorage.removeItem('nd:legacy');
 });
