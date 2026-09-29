@@ -287,7 +287,7 @@ function fwNowHtml(t){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
     const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
-    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>aiCanTalk(r.engine))?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
   return fwPlan(t);
@@ -430,7 +430,7 @@ function fwMoreItems(t){
   (t.status!=='draft'&&Array.isArray(t.refs)?t.refs:[]).slice(0,6).forEach((r,i)=>{ const n=String(r).split('/').pop();
     it.push({ k:'ref:'+i, label:`ver referência · ${n}`, hint:'anexo da tarefa' }); });
   if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
-  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${modelFriendly(t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
+  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${aiRunLabel(t.engine, t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
   const cost=taskCost(t.id);
   { const cap=(typeof budgetOf==='function')?budgetOf(t):0;
     it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtCost(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}${cap>0?' · teto '+fmtCost(cap,{usdOnly:true}):''}`, info:true }); }
@@ -807,12 +807,12 @@ function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(
 function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
 // rótulo do modelo do agente na conversa (redesign p6: "VEGA · Opus")
-function agentModelLabel(t, name){
+// `ran` = o modelo que o MOTOR relatou ao iniciar a sessão ("sessão iniciada · <id>" / Route AI) — vale
+// mais que o configurado; sem isso, usa o motor+modelo do papel (antes: "Claude" fixo até em tarefa Codex).
+function agentModelLabel(t, name, ran){
+  if(ran) return ran;
   const r=(t.roles||[]).find(x=>x.name===name);
-  const m=String((r&&r.model)||t.model||'').toLowerCase();
-  const M={ opus:'Opus', sonnet:'Sonnet', haiku:'Haiku' };
-  const k=Object.keys(M).find(k=>m.includes(k));
-  return k?('Claude '+M[k]):'Claude';
+  return aiRunLabel((r&&r.engine)||t.engine, (r&&r.model)||t.model);
 }
 // ---- chip de tool: nome técnico de ferramenta vira algo legível e bonito ----
 const TOOL_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.4 2.6a3 3 0 0 0 3.9 3.9l2.7 2.7a1.15 1.15 0 0 1-1.6 1.6L8.7 8.1A3 3 0 0 1 4.8 4.2l1.7 1.7 1.1-1.1z" stroke-linejoin="round"/></svg>';
@@ -846,10 +846,13 @@ function fwThreadHtml(t){
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
   let lastWho='';
+  const ranBy={}; // agente → modelo que o motor relatou (o que RODOU de fato)
   const out=[]; let act=[];
   const flush=()=>{ if(act.length){ out.push(actLine(act)); act=[]; } };
   for(const e of evs){
     const tx=e.text||'';
+    { const m=tx.match(/^sessão iniciada · ([^\s·]+)/); if(m) ranBy[e.agent]=aiRunLabel('claude', m[1]);
+      const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; }
@@ -863,7 +866,7 @@ function fwThreadHtml(t){
     if(e.type==='note' && (e.tool || /^(entregável novo registrado|issue registrada|pronto quando )/.test(tx))){ flush(); lastWho=''; out.push(toolChip(tx.replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       flush();
-      const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';
+      const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</div>`:'';
       lastWho=e.agent;
       out.push(`<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
       continue;
@@ -898,7 +901,7 @@ async function fwShowMenu(t, kind){
   let items=[];
   if(kind==='req'){
     for(const s of CHAT_SKILLS) items.push({label:'/'+s.label+' — '+s.desc, kind:'skill', skill:s});
-    const ags=(t.roles||[]).filter(r=>r.engine==='claude');
+    const ags=(t.roles||[]).filter(r=>aiCanTalk(r.engine));
     if(ags.length>1) for(const r of ags) items.push({label:r.name+' · '+(ROLE_PT[r.role]||r.role), kind:'falar com', agent:r.name});
     const reqs=Array.isArray(t.requirements)?t.requirements:[];
     for(const r of reqs) items.push({label:r, kind:'requisito', ins:null, req:r});
@@ -923,7 +926,7 @@ async function fwShowMenu(t, kind){
     }
     if(it.agent){
       const t2=fwTaskObj();
-      const deflt=((t2&&t2.roles)||[]).find(r=>r.engine==='claude');
+      const deflt=((t2&&t2.roles)||[]).find(r=>aiCanTalk(r.engine));
       fwAgentSel = (deflt && it.agent===deflt.name) ? null : it.agent;
       i.value=i.value.replace(/[@/]$/,'');
       fwHideMenu(); renderWorkspace(); const ni=$id('fwInput'); if(ni) ni.focus();

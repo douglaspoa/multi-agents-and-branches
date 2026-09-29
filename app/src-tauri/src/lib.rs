@@ -271,6 +271,16 @@ fn claude_bin() -> String {
     "claude".to_string()
 }
 
+/// `--model <id>` pros chats no claude — só id seguro (mesma regra do set_task_model); vazio/inválido = padrão da assinatura.
+fn push_model(args: &mut Vec<String>, model: &Option<String>) {
+    if let Some(m) = model.as_deref().map(str::trim) {
+        if !m.is_empty() && m.len() <= 80 && m.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:/[]".contains(c)) {
+            args.push("--model".to_string());
+            args.push(m.to_string());
+        }
+    }
+}
+
 fn push_opt(args: &mut Vec<String>, flag: &str, val: &Option<String>) {
     if let Some(v) = val {
         if !v.is_empty() {
@@ -443,6 +453,22 @@ mod quick_project_tests {
         let _ = std::fs::remove_dir_all(&tmp);
         assert_eq!(project_slug("  App de Aulas "), "app-de-aulas");
         assert_eq!(project_slug("Painel Finanças — Ação"), "painel-financas-acao");
+    }
+}
+
+#[cfg(test)]
+mod push_model_tests {
+    use super::push_model;
+    #[test]
+    fn modelo_escolhido_vira_flag_so_quando_valido() {
+        let mut a = vec![];
+        push_model(&mut a, &Some(" claude-opus-5-5 ".into()));
+        assert_eq!(a, vec!["--model".to_string(), "claude-opus-5-5".to_string()]);
+        for bad in [None, Some(String::new()), Some("  ".into()), Some("opus; rm -rf /".into())] {
+            let mut b: Vec<String> = vec![];
+            push_model(&mut b, &bad);
+            assert!(b.is_empty(), "{bad:?}");
+        }
     }
 }
 
@@ -3682,7 +3708,7 @@ fn ai_chat_stop() -> bool {
 /// Planner conversando. Roda o claude em stream-json e, a cada tool_use, emite `planner-activity`
 /// ({ line }) pro chat mostrar o que a IA está fazendo; `ai_chat_stop` derruba o processo (PLANNER_STOPPED).
 #[tauri::command(async)]
-fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
     let sys = "Você é o PLANNER do Starfork: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o planner não começa do zero
@@ -3710,6 +3736,7 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
             args.push(sid.clone());
         }
     }
+    push_model(&mut args, &model); // IA padrão do usuário (Configurações) — antes o planner ignorava
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // grupo próprio (detach_new_group, dentro do helper): o "parar" derruba o claude E o que ele tiver aberto
@@ -4869,7 +4896,7 @@ fn orq_chat_stop() -> Result<bool, String> { Ok(stop_slot(&ORQ_CHAT_PID)) }
 /// com leitura REAL do código — sem tarefa e sem editar nada. A conversa pode
 /// virar tarefa depois (a UI pede a spec pro mesmo session).
 #[tauri::command(async)]
-fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
     let sys = "Você é o copiloto do PROJETO aberto no Starfork, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o chat não começa do zero
@@ -4891,6 +4918,7 @@ fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, s
             args.push(sid.clone());
         }
     }
+    push_model(&mut args, &model); // IA padrão do usuário (Configurações) — antes o chat do projeto ignorava
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // stream: cada leitura/busca vira uma linha "o que a IA está fazendo" na tela (antes: só "lendo o projeto…"

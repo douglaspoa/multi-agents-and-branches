@@ -134,7 +134,7 @@ async function openCommit(hash){
     ${d.body?`<div class="cmbody-txt">${esc(d.body).replace(/\n/g,"<br>")}</div>`:''}
     <div class="seclbl2" style="margin-top:15px">Alterações <span style="flex:1"></span><span class="dim" style="letter-spacing:0;text-transform:none">${d.files.length} arquivo(s)</span></div>
     <div class="diffwrap">${renderDiff(files)}</div>
-    ${(t && t.status!=='merged' && (t.roles||[]).some(r=>r.engine==='claude')) ? `<div class="instrbox" style="margin-top:14px">
+    ${(t && t.status!=='merged' && (t.roles||[]).some(r=>aiCanTalk(r.engine))) ? `<div class="instrbox" style="margin-top:14px">
       <div class="ilbl">${IC.ai} Pedir ajuste neste commit</div>
       <div class="ihint">Descreva o que não ficou bom — o agente refaz na worktree (mesma sessão) e recompõe o review.</div>
       <div class="irow"><input class="in iinput" id="cmRwInput" placeholder="ex.: renomeia verify() para verifyTotp()"><button class="btn primary sm" id="cmRwSend">pedir ajuste</button></div>

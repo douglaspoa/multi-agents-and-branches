@@ -26,7 +26,11 @@ async function editDraft(t){
   ntReq=Array.isArray(t.requirements)?t.requirements.slice():[];
   ntRefs=Array.isArray(t.refs)?t.refs.slice():[];
   if(t.base) $id('ntBase').value=t.base;
-  if(t.model) $id('ntModel').value=t.model;
+  // motor E modelo do rascunho (setSelValue: id completo fora da lista virava "" e caía no padrão)
+  if(t.engine) setSelValue($id('ntEngine'), t.engine);
+  setSelValue($id('ntModel'), t.model||'');
+  { const hm=$id('howModel'); if(hm) setSelValue(hm, t.model||''); }
+  if(typeof aiPickRender==='function') aiPickRender();
   renderNtList('ntDeliverables',ntDel); renderNtList('ntRequirements',ntReq); renderNtRefs();
   wizN=1; if(typeof wizRender==='function') wizRender();
   ntGate();
