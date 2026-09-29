@@ -88,9 +88,14 @@ function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',re
 function renderTeamBoard(){
   const el=$id('teamBoard'); if(!el) return;
   if(!SB.sess() || !cloudTeamId()){
-    const need=!SB.sess()?'Entre na sua conta pra ver o espaço do time.':'Escolha um time no botão Conta, no rodapé da barra lateral.';
-    const html=`<div class="emptyrepo" style="display:flex"><div class="big">Espaço do time</div><div>${need}</div><button class="btn primary" id="tbGo">abrir Time na nuvem</button></div>`;
-    if(teamPaintSig!==html){ teamPaintSig=html; el.innerHTML=html; $id('tbGo').onclick=openCloud; }
+    // sem conta → a tela de entrada direto; com conta e sem time → a aba Conta (antes: "abrir Time na nuvem"
+    // abria um painel intermediário que só tinha outro botão pra entrar)
+    const noSess=!SB.sess();
+    const html=`<div class="emptyrepo" style="display:flex">`+emptyHtml({ icon:'cloud', title:'Espaço do time',
+      help: noSess?'Entre na sua conta pra ver o que o time está fazendo — tarefas, PRs e quem está em quê.':'Você ainda não está num time. Crie um ou aceite um convite em Conta e time.',
+      action:{ id:'tbGo', label: noSess?'Entrar ou criar conta':'Abrir Conta e time' } })+`</div>`;
+    if(teamPaintSig!==html){ teamPaintSig=html; el.innerHTML=html;
+      $id('tbGo').onclick=()=>{ if(noSess && typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup'); else if(window.openTab) window.openTab('conta'); else openCloud(); }; }
     return;
   }
   if(!teamTasks){

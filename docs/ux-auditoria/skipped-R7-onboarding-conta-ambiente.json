@@ -1,0 +1,26 @@
+[
+ {
+  "titulo": "Sessão de login persistida em localStorage (sb:sess)",
+  "motivo": "Mudar para o keychain exige comando Rust novo e migração da sessão de quem já está logado — fora do escopo seguro de uma onda de UI."
+ },
+ {
+  "titulo": "askText devolve null no campo vazio (igual a cancelar)",
+  "motivo": "É compartilhado por várias telas que dependem desse contrato; contornado localmente nos Planos (duas ações)."
+ },
+ {
+  "titulo": "Relógio do rodapé perde o \"· build DD/MM\" no 1º tick",
+  "motivo": "O 10-core reescreve o texto a cada refresh; é de outra área (core) e só cosmético."
+ },
+ {
+  "titulo": "Cartão do Central trunca o título enquanto os selos ocupam espaço em 1024",
+  "motivo": "Tela de outra onda (Central/cards); a regra de prioridade do título já existe no 83-responsivo."
+ },
+ {
+  "titulo": "Coach marks não reposicionam ao redimensionar a janela",
+  "motivo": "Duram segundos no primeiro uso; baixo impacto."
+ },
+ {
+  "titulo": "Dicas de primeira vez (coach marks) apontando pra alvo escondido",
+  "motivo": "Apliquei a proteção (pula alvo sem tamanho na tela e Esc fecha), mas não reproduzi no harness a dica caindo no canto — por isso não entra como melhoria verificada."
+ }
+]

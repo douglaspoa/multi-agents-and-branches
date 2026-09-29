@@ -101,3 +101,21 @@
 #cfgOverlay #cfgBody{padding-bottom:0} /* a área rolável tinha 44px de padding embaixo: a barra fixa parava 44px antes do fim da janela */
 /* R8: faixa do preview (subir de novo / pedir pro agente) quebra linha no estreito */
 @media (max-width:1100px){ .en-live{flex-wrap:wrap} .en-live>span[style*="flex:1"]{display:none} }
+
+/* ---- R7 onda 5: layout geral em 1024/1280 ----
+   barra lateral: 250px em janela larga, 220px até 1100px (a coluna principal ganha 30px onde mais falta).
+   O JS só põe --rail-w inline quando RECOLHE (0px); aberta, vale este valor. */
+:root{--rail-w:250px}
+@media (max-width:1100px){ :root{--rail-w:220px} .sbnew .sbitem{font-size:12.5px} }
+/* rodapé "Agora": o relógio não quebra em 2 linhas ("sincronizado ·" / "23:15:03"); o resumo cede com … */
+.bus{min-width:0}
+.bus #clock{white-space:nowrap;flex:none}
+.bus #busSummary{min-width:0}
+@media (max-width:1180px){ .bus{gap:9px;padding-left:10px;padding-right:10px} }
+/* telas de conta: em janela baixa (≤720px) a coluna da marca tira os destaques pra caber sem sobrepor o rodapé */
+@media (max-height:720px){ .au-lin .au-bul{display:none} .au-lin .au-h1{margin-top:28px} }
+/* Ambiente: cards em 1 coluna quando não cabem 2 (a grade pedia 400px mínimos e estourava a 1024) */
+@media (max-width:1180px){ #envBody .as-grid{grid-template-columns:minmax(0,1fr)!important} }
+/* filtros da Central ≤1180: o espaçador tem style="flex:1" INLINE, que vencia o flex-basis:100% acima —
+   ele ficava com ~40px na frente da busca (busca desalinhada dos chips). Agora ocupa a linha dele, com altura 0. */
+@media (max-width:1180px){ .ffrow>span[style*="flex:1"]{flex:0 0 100%!important;height:0;margin:0} }
