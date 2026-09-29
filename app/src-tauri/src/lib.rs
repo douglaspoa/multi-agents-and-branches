@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod memoria;
+mod mesa;
 #[cfg(test)]
 mod snapshot_perf;
 
@@ -8232,6 +8233,12 @@ pub fn run() {
             memoria::memory_graph,
             memoria::memory_set_mode,
             memoria::memory_open_obsidian,
+            mesa::mesa_ask,
+            mesa::mesa_stop,
+            mesa::mesa_resume,
+            mesa::mesa_save,
+            mesa::mesa_read,
+            mesa::mesa_list,
             preview_alive,
             preview_info,
             preview_start,
@@ -8397,6 +8404,7 @@ pub fn run() {
         .run(|_app, event| {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
+                mesa::mesa_kill_all(); // personas da mesa rodam em grupo destacado: não sobrevivem ao app
                 let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
             }
         });

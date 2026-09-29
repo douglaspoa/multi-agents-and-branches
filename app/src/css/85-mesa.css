@@ -1,0 +1,108 @@
+/* Starfork — 85-mesa: aba Mesa de personas (party mode: rodadas, votação, decisão) */
+#mesaOverlay.astab .mhead{display:none} /* a tela tem H1 próprio */
+#mesaOverlay.astab .mbody{max-width:none;margin:0;padding:0;overflow:hidden}
+#mesaOverlay .mbody{padding:0}
+.mesawrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:520px;max-width:var(--page-max,1200px);margin:0 auto;padding:22px var(--page-pad,24px) 0;box-sizing:border-box}
+.mesatop{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.mesatitle{display:flex;align-items:center;gap:12px;color:var(--accent);min-width:0}
+.mesatitle>svg{width:22px;height:22px;flex:none}
+.mesatitle h1{margin:0;font:600 24px/1.15 var(--display,var(--ui));letter-spacing:-.02em;color:var(--text);overflow-wrap:anywhere}
+.mesasub{font-size:12px;margin-top:3px}
+.mesactl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mesactl .btn svg,.mesagen .btn svg,.mesafoot .btn svg,.mesacreate .btn svg{width:13px;height:13px;margin-right:5px;vertical-align:-2px}
+.mesascroll{flex:1;min-height:0;overflow:auto;padding-bottom:28px}
+.mesast{font:600 10px/1 var(--mono);padding:3px 6px;border-radius:5px;color:var(--c);border:1px solid color-mix(in srgb,var(--c) 45%,transparent);text-transform:lowercase;white-space:nowrap}
+/* lista */
+.mesalist{display:flex;flex-direction:column;gap:6px}
+.mesarow{appearance:none;text-align:left;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:var(--r-sm);padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:4px;font:inherit}
+.mesarow:hover{border-color:var(--border-strong)}
+.mesarow:focus-visible{outline:none;box-shadow:var(--ring)}
+.mesart{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.mesart b{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mesarm{font-size:11.5px;color:var(--muted)}
+.mesaempty{max-width:620px;margin:40px auto;text-align:center;color:var(--text-2);font-size:13px;line-height:1.55}
+.mesaempty>svg{width:30px;height:30px;color:var(--accent)}
+/* nova mesa — os <label> desta tela não seguem o rótulo MAIÚSCULO do .mbody label (10-base) */
+.mbody label.mesaf,.mbody label.mesap,.mbody label.mesacap{text-transform:none;letter-spacing:normal;margin-top:0;color:var(--text)}
+.mbody label.mesap{font-size:12.5px}
+.mbody label.mesacap{font-size:12px}
+.mesaform{display:flex;flex-direction:column;gap:16px;max-width:880px}
+.mesaf{display:flex;flex-direction:column;gap:6px}
+.mesaf>span{font-size:12px;color:var(--text-2);font-weight:600}
+.mesaps{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.mesap{display:flex;gap:9px;align-items:flex-start;border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 10px;background:var(--surface);cursor:pointer;font-size:12.5px}
+.mesap.on{border-color:color-mix(in srgb,var(--accent) 60%,transparent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.mesap input{margin-top:2px;accent-color:var(--accent)}
+.mesapd{display:block;color:var(--text-2);font-size:11.5px;margin-top:3px;line-height:1.4}
+.mesagen{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:11.5px}
+.mesacost{border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;background:var(--surface-2);font-size:12.5px;display:flex;flex-direction:column;gap:8px}
+.mesacap{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px}
+.mesacap .in{width:80px}
+.mesafoot{display:flex;align-items:center;gap:8px}
+/* mesa */
+.mesasec{margin-top:18px}
+.mesasec h2{font:600 14px var(--ui);margin:0 0 8px;color:var(--text)}
+.mesaround{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);margin-bottom:8px}
+.mesaround>summary{cursor:pointer;padding:9px 12px;font-size:13px;list-style-position:inside}
+.mesaround>summary:focus-visible{outline:none;box-shadow:var(--ring)}
+.mesaround[open]>summary{border-bottom:1px solid var(--border)}
+.mesacards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;padding:10px}
+.mesacard{border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 11px;background:var(--surface-2);min-width:0}
+.mesach{display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:4px}
+.mesach .dim{font-size:11.5px}
+.mesachip{font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.mesachip.live{color:var(--info)}
+.mesachip.ok{color:var(--accent)}
+.mesachip.bad{color:var(--err,var(--bad))}
+.mesachip .pltyping{transform:scale(.8)}
+.mesamd{font-size:12.5px;line-height:1.5}
+.mesaprops{margin-top:6px;border-top:1px dashed var(--border);padding-top:6px;font-size:12px;display:flex;flex-direction:column;gap:4px}
+.mesavotes{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.mesav{font-size:11px;border:1px solid var(--border-strong);border-radius:999px;padding:2px 8px 2px 3px;display:inline-flex;align-items:center;gap:5px;max-width:100%}
+.mesav i{font:600 10px/1 var(--mono);font-style:normal;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);border-radius:999px;padding:3px 6px}
+.mesav.veto{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.mesav.veto i{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.mesawarn{font-size:11.5px;color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,transparent);border-radius:var(--r-xs,4px);padding:6px 8px;margin:6px 10px 0}
+.mesacard .mesawarn{margin:0 0 6px}
+.mesasec>.mesawarn,.mesascroll>.mesawarn{margin:0 0 8px}
+.mesawarnc{margin-left:8px;font-size:11px;color:var(--warn)}
+.mesaerr{font-size:11.5px;color:var(--text-2)}
+.mesaarg{font-size:12.5px;padding:8px 12px 0}
+/* tabela de votos */
+.mesatablew{overflow:auto;border:1px solid var(--border);border-radius:var(--r-sm)}
+.mesatable{width:100%;border-collapse:collapse;font-size:12.5px}
+.mesatable th,.mesatable td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
+.mesatable th{font-size:11px;color:var(--muted);font-weight:600;background:var(--surface-2);position:sticky;top:0}
+.mesatable .c{text-align:center;white-space:nowrap}
+.mesatable tr:last-child td{border-bottom:0}
+.mesatable tr.st-sugerida td:first-child{box-shadow:inset 3px 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}
+.mesatable tr.st-aprovada td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.mesatable tr.st-rejeitada td,.mesatable tr.st-fora td{color:var(--text-2)}
+.mesafid{font:600 10.5px var(--mono);color:var(--muted)}
+.mesatag{font-size:10.5px;border:1px solid var(--border-strong);border-radius:5px;padding:1px 5px;margin-left:4px;color:var(--text-2);white-space:nowrap}
+.mesatag.all{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.mesatag.veto{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.mesax{color:var(--warn)}
+.mesatable .up{color:var(--accent);font-weight:600}
+.mesatable .down{color:var(--warn);font-weight:600}
+.mesadec{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.mesadec .btn{padding:3px 7px}
+.mesadec .btn.on{color:var(--accent);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.mesadec .btn.on.bad{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
+.mesadecl{font:600 10px/1 var(--mono);text-transform:lowercase;color:var(--muted);min-width:62px}
+.mesadecl.sugerida{color:var(--info)}
+.mesadecl.aprovada{color:var(--accent)}
+.mesadecl.rejeitada,.mesadecl.vetada{color:var(--warn)}
+.mesavetos,.mesacriadas{margin-top:10px;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+.mesacriadas a{color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.mesacriadas a svg{width:13px;height:13px}
+.mesalbl{font-size:11px;color:var(--muted);text-transform:lowercase}
+.mesasug{margin:0 0 6px;padding-left:20px;font-size:13px;line-height:1.7}
+.mesahint{font-size:11.5px}
+.mesahint svg{vertical-align:-.15em}
+.mesacreate{display:flex;align-items:center;gap:8px;margin-top:10px}
+/* argumentar */
+.mesachat{max-height:340px;padding:8px 2px;margin-bottom:8px;border:1px solid var(--border);border-radius:var(--r-sm)}
+.mesatgt{max-width:250px;font-size:12px;padding:3px 6px}
+@media (max-width:760px){ .mesacards{grid-template-columns:1fr} .mesawrap{padding:16px 16px 0} }
+.mesaobs{font-size:12px;margin-top:6px;color:var(--text-2)}

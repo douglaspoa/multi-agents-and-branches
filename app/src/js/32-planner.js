@@ -219,7 +219,12 @@ function plDependsOn(idx, target, seen){
 }
 const plRiskLabel={ low:'risco baixo', medium:'risco médio', high:'risco alto' };
 // O card do épico também serve ao DESDOBRAR (31-nova-demanda-form): quem hospeda define o render e o contexto
-let plPlanRender=null, plPlanCtx={}; // ctx: { origin: tarefa de origem, description, onDone(ep), onDiscard() }
+let plPlanRender=null, plPlanCtx={}; // ctx: { origin: tarefa de origem, originNote?, description, onDone(ep), onDiscard(), onMade?(), stay?, noStartPrompt? }
+// sufixo "(Origem: …)" do objetivo das tarefas do épico; originNote (mesmo '') substitui — quem hospeda (ex.: a Mesa) já pôs a origem
+function plOriginSuffix(ctx){
+  if(!ctx || !ctx.origin) return '';
+  return ctx.originNote!=null ? String(ctx.originNote) : `\n\n(Origem: tarefa "${ctx.origin.title}" — os artefatos dela têm o contexto completo.)`;
+}
 let bdPlan=null; // plano do DESDOBRAR — separado do PLP() do planner, que segue vivo (rascunho, aba, resposta da IA)
 function PLP(){ return plPlanCtx.origin ? bdPlan : plPlan; } // o plano que o card está mostrando
 function plPlanRerender(){ (plPlanRender||renderPlanner)(); }
@@ -307,7 +312,7 @@ async function plCreateEpic(){
     if(resumed) toast('Retomando o épico "'+name+'" — o que já foi criado não é repetido','info');
     const ep=made.ep?[made.ep]:await sbPost('epics',{ team_id:cloudTeamId(), name, created_by:cloudUserId(), spec });
     if(!ep||!ep[0]) throw new Error('a nuvem não devolveu o épico criado');
-    made.ep=ep[0]; plPlanSave();
+    made.ep=ep[0]; plPlanSave(); if(plPlanCtx.onMade) await plPlanCtx.onMade(); // host (Mesa) grava o progresso a cada insert
     const created=[], idOf={}; // idx no plano → id na nuvem: `after` das tarefas vira ids reais (picked está em ordem de onda, então o pré-requisito já existe)
     for(const x of picked){
       const key=x.idx!=null?'i'+x.idx:'t'+x.title;
@@ -316,7 +321,7 @@ async function plCreateEpic(){
       if(after.length<wanted.length) console.warn('épico: pré-requisito sem id na nuvem, dependência perdida', x.title, wanted);
       const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:x.title, status:'backlog', epic_id:ep[0].id,
         spec:{ title:x.title,
-          objective:(x.objective||'')+(plPlanCtx.origin?`\n\n(Origem: tarefa "${plPlanCtx.origin.title}" — os artefatos dela têm o contexto completo.)`:''), // o contexto do épico vai no EPIC.md ao assumir
+          objective:(x.objective||'')+plOriginSuffix(plPlanCtx), // o contexto do épico vai no EPIC.md ao assumir
           requirements:x.requirements||[], owns:x.owns||null,
           proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           wave:x.wave,
@@ -324,16 +329,16 @@ async function plCreateEpic(){
           hitl:x.hitl||undefined, boundaries:(x.boundaries&&x.boundaries.length)?x.boundaries:undefined,
           // onda 2+: fica AGUARDANDO e começa sozinha quando os pré-requisitos mergearem (epicAutoStartTick)
           autoStart:after.length?true:undefined } });
-      if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; made.rows[key]=rows[0]; plPlanSave(); }
+      if(rows&&rows[0]){ created.push({ row:rows[0], wave:x.wave }); if(x.idx!=null) idOf[x.idx]=rows[0].id; made.rows[key]=rows[0]; plPlanSave(); if(plPlanCtx.onMade) await plPlanCtx.onMade(); }
     }
     // painel de issues ligado: épico vira issue pai + filhas com bloqueio (só se o conector tem pai; senão fica como hoje)
     try{ if(window.trkPublishEpic) await trkPublishEpic(ep[0], created); }catch(e){ console.warn('publicar épico', e); }
     const ctx=plPlanCtx; if(ctx.origin) bdPlan=null; else plPlan=null; plPlanRender=null; plPlanCtx={};
     if(ctx.onDone) ctx.onDone(ep[0]); else { try{ await invoke('clear_draft'); }catch(_){} closePlanner(); } // BUG-8: não fecha/zera a aba "Preencher eu mesmo" (outra demanda)
-    lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; setView('team');
+    lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; if(!ctx.stay) setView('team'); // stay: quem hospeda (Mesa) não perde a tela
     const w1=created.filter(c=>c.wave===1);
     const nLater=created.length-w1.length;
-    if(w1.length && await askYes(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo)`+(nLater?`\n\nAs outras ${nLater} ficam AGUARDANDO e começam sozinhas aqui quando as anteriores forem mergeadas.`:''))){
+    if(w1.length && !ctx.noStartPrompt && await askYes(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo)`+(nLater?`\n\nAs outras ${nLater} ficam AGUARDANDO e começam sozinhas aqui quando as anteriores forem mergeadas.`:''))){
       for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
     }
   }catch(e){ showErr(e, 'Falha ao criar o épico (clique em aprovar de novo: o que já foi criado não se repete)'); { const P=PLP(); if(P){ P.locked=false; plPlanRerender(); } } }
