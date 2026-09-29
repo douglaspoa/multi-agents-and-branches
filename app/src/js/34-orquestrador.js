@@ -407,7 +407,7 @@ async function orqChatSend(){
       const last=p.chat[p.chat.length-1]; if(last&&last.who==='you'&&last.text===text) p.chat.pop();
       p.chat.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
       if(!orq.chatDraft) orq.chatDraft=text; orq.chatAtts=(orq.chatAtts||[]).concat(atts);
-    } else p.chat.push({who:'sys', text:msg});
+    } else { const h=humanErr(e,'O orquestrador não respondeu'); p.chat.push({who:'sys', text:h.msg}); if(h.action) showErr(e,'O orquestrador não respondeu'); }
   }
   orq.chatBusy=false; orq.chatStopping=false; orqSave(); orqRender();
   const ta=$id('orqChatTa'); if(ta) ta.focus();

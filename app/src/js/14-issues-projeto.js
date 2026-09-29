@@ -751,7 +751,7 @@ async function trkNISend(text, silent){
   }catch(e){
     const msg=String(e&&e.message||e);
     if(n.stop||/ISSUE_CHAT_STOPPED/.test(msg)){ n.msgs.push({ who:'sys', text:'Parado.'+(n.items.length?' O que já tinha sido montado ficou aí do lado.':'')+(rest!==text?' As linhas que faltavam voltaram pra caixa':' Seu texto voltou pra caixa')+' — edite e envie de novo quando quiser.' }); trkNIRender(); const i=$id('trkNIInput'); if(i&&!i.value) i.value=rest; n.busy=false; n.prog=''; n.redirect=''; trkNIRender(); return; }
-    else n.msgs.push({ who:'sys', text:'Falhou: '+msg.slice(0,300) });
+    else { const h=humanErr(e,'Não consegui montar as issues'); n.msgs.push({ who:'sys', text:h.msg }); if(h.action) showErr(e,'Não consegui montar as issues'); }
   }
   // a info chegou no instante em que a resposta terminava: não se perde — vira a próxima mensagem
   const late=n.stop?'':n.redirect; n.redirect=''; n.busy=false; n.prog=''; trkNIRender();
