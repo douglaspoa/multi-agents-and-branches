@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -384,6 +384,10 @@ export class ClaudeEngine implements AgentEngine {
       delete env.ANTHROPIC_API_KEY;
       delete env.ANTHROPIC_AUTH_TOKEN;
     }
+    // CUSTO NO --resume: o claude restaura o custo acumulado da sessão (linha "cost-state" do
+    // transcript) e o `total_cost_usd` do result vem SOMADO com os turnos anteriores — cada conversa
+    // no chat da tarefa re-cobrava a sessão inteira. Base = o último acumulado gravado; custo do turno = diferença.
+    const costBase = input.resume?.sessionId ? sessionCostBaseline(input.resume.sessionId) : 0;
     const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
 
@@ -398,26 +402,51 @@ export class ClaudeEngine implements AgentEngine {
         n();
       }
     };
+    // Ciclo de vida do processo (antes: só o 'close' encerrava o turno). Três furos fechados:
+    //  - o `result` saiu mas o claude NÃO terminou (MCP/filho segurando) → o turno ficava "rodando"
+    //    com o lock da tarefa por até 30 min (watchdog de inatividade). Agora: silêncio depois do
+    //    `result` por EXIT_GRACE → encerra o processo; o turno já estava concluído.
+    //  - SIGTERM ignorado → o gerador acabava com o processo vivo. Agora escala pra SIGKILL.
+    //  - quem consome o gerador parou (erro gravando no banco, break) → o claude seguia rodando
+    //    órfão. Agora o `finally` do gerador mata o processo.
+    let exited = false;
+    let sawDone = false;
+    let doneTimer: ReturnType<typeof setTimeout> | undefined;
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
+    const killChild = () => killProcess(child, () => exited);
+    const finish = () => {
+      clearTimeout(killTimer);
+      clearTimeout(doneTimer);
+      clearTimeout(closeTimer);
+      done = true;
+      wake();
+    };
 
     // Timeout de INATIVIDADE (não de relógio): reseta a cada sinal de vida do
     // agente. Assim um agente que trabalha muito (ou espera o humano responder)
     // não é morto — só encerra se ficar realmente parado por N minutos.
     const idleMin = 30;
-    let killTimer: ReturnType<typeof setTimeout>;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const resetIdle = () => {
       clearTimeout(killTimer);
       killTimer = setTimeout(() => {
         // bloqueado numa pergunta ao humano → não é inatividade do agente
         if (hasOpenAsk(input.dbFile, input.spec.id)) { resetIdle(); return; }
         queue.push({ type: "error", text: `inatividade de ${idleMin}min — agente encerrado`, status: "error" });
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* já morreu */
-        }
-        done = true;
-        wake();
+        killChild();
+        finish();
       }, idleMin * 60 * 1000);
+      // depois do `result`, qualquer saída nova adia o encerramento (o processo ainda fala)
+      if (sawDone && !exited) armDoneTimer();
+    };
+    const armDoneTimer = () => {
+      clearTimeout(doneTimer);
+      doneTimer = setTimeout(() => {
+        if (exited) return;
+        queue.push({ type: "note", text: "o claude concluiu o turno mas não fechou sozinho — processo encerrado" });
+        killChild();
+        finish();
+      }, exitGraceMs());
     };
     resetIdle();
 
@@ -429,7 +458,10 @@ export class ClaudeEngine implements AgentEngine {
     rl.on("line", (line) => {
       resetIdle();
       if (CAUSE_RE.test(line)) lastErr = line.slice(0, 300);
-      for (const ev of mapLine(line)) queue.push(ev);
+      for (const ev of mapLine(line, costBase)) {
+        if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
+        queue.push(ev);
+      }
       wake();
     });
     child.stderr.on("data", (d) => {
@@ -438,41 +470,120 @@ export class ClaudeEngine implements AgentEngine {
       if (s) { lastErr = s.slice(0, 300); queue.push({ type: "note", text: `stderr: ${s.slice(0, 140)}` }); }
       wake();
     });
-    child.on("close", (code) => {
-      clearTimeout(killTimer);
-      if (!queue.some((e) => e.type === "done")) {
-        queue.push({
-          type: code === 0 ? "note" : "error",
-          text: code === 0 ? "claude finalizou" : `claude saiu com código ${code}${lastErr ? " — " + lastErr : ""}`,
-          status: code === 0 ? undefined : "error",
-        });
-      }
-      done = true;
-      wake();
+    // sem `result`: o motivo da saída (código/sinal + último erro visto) vira o evento final
+    const pushExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (sawDone || done) return;
+      const ok = code === 0;
+      queue.push({
+        type: ok ? "note" : "error",
+        text: ok ? "claude finalizou" : `claude saiu com código ${code ?? signal}${lastErr ? " — " + lastErr : ""}`,
+        status: ok ? undefined : "error",
+      });
+    };
+    child.on("exit", (code, signal) => {
+      exited = true;
+      clearTimeout(doneTimer);
+      // um neto (servidor em segundo plano) herdando o stdout segura o 'close' pra sempre:
+      // o processo já saiu — dá um respiro pra drenar a saída e encerra o turno assim mesmo
+      closeTimer = setTimeout(() => {
+        if (done) return;
+        try { rl.close(); child.stdout?.destroy(); child.stderr?.destroy(); } catch { /* já fechados */ }
+        pushExit(code, signal);
+        finish();
+      }, 3000);
+    });
+    child.on("close", (code, signal) => {
+      // o `done` pode já ter sido ENTREGUE (a fila só guarda o que falta): sem o sawDone, um
+      // turno concluído ganhava um "saiu com código …" de erro no fim e disparava retry à toa
+      pushExit(code, signal);
+      finish();
     });
     child.on("error", (err) => {
-      clearTimeout(killTimer);
+      exited = true;
       queue.push({ type: "error", text: `falha ao iniciar claude: ${err.message}`, status: "error" });
-      done = true;
-      wake();
+      finish();
     });
 
-    yield { type: "status", text: `iniciando claude (approval: ${this.approval})`, status: "running" };
+    try {
+      yield { type: "status", text: `iniciando claude (approval: ${this.approval})`, status: "running" };
 
-    while (!done || queue.length > 0) {
-      if (queue.length === 0) {
-        await new Promise<void>((r) => {
-          notify = r;
-        });
-        continue;
+      while (!done || queue.length > 0) {
+        if (queue.length === 0) {
+          await new Promise<void>((r) => {
+            notify = r;
+          });
+          continue;
+        }
+        yield queue.shift()!;
       }
-      yield queue.shift()!;
+    } finally {
+      clearTimeout(killTimer);
+      clearTimeout(doneTimer);
+      clearTimeout(closeTimer);
+      if (!exited) killChild(); // consumidor abandonou o turno → nada de claude órfão
     }
   }
 }
 
-/** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[]. */
-function mapLine(line: string): AgentEvent[] {
+/** Silêncio tolerado depois do `result` antes de encerrar o processo (CARDUME_CLAUDE_EXIT_GRACE_MS). */
+function exitGraceMs(): number {
+  const n = Number(process.env.CARDUME_CLAUDE_EXIT_GRACE_MS);
+  return Number.isFinite(n) && n > 0 ? n : 90_000;
+}
+
+/** SIGTERM e, se o processo ignorar, SIGKILL depois de `hardMs`. Nunca lança. */
+export function killProcess(child: { kill: (s?: NodeJS.Signals) => boolean }, isDead: () => boolean, hardMs = 3000): void {
+  if (isDead()) return;
+  try { child.kill("SIGTERM"); } catch { /* já morreu */ }
+  const t = setTimeout(() => {
+    if (isDead()) return;
+    try { child.kill("SIGKILL"); } catch { /* já morreu */ }
+  }, hardMs);
+  t.unref?.();
+}
+
+/**
+ * Custo ACUMULADO já registrado de uma sessão do Claude Code (última linha `cost-state` do transcript
+ * <config>/projects/<pasta>/<sessão>.jsonl). 0 quando não achar — aí o turno conta como antes.
+ */
+export function sessionCostBaseline(sessionId: string): number {
+  if (!/^[\w-]{8,80}$/.test(sessionId)) return 0;
+  try {
+    const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
+    for (const d of readdirSync(root)) {
+      const f = join(root, d, `${sessionId}.jsonl`);
+      if (!existsSync(f)) continue;
+      // o cost-state é gravado no FIM de cada turno: basta a cauda (transcripts passam de 50 MB)
+      const lines = tailText(f, 4 * 1024 * 1024).split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i].includes('"cost-state"')) continue;
+        try {
+          const o = JSON.parse(lines[i]);
+          if (o?.type === "cost-state" && typeof o.totalCostUSD === "number" && o.totalCostUSD >= 0) return o.totalCostUSD;
+        } catch { /* linha truncada — tenta a anterior */ }
+      }
+      return 0;
+    }
+  } catch { /* sem pasta do claude */ }
+  return 0;
+}
+
+function tailText(file: string, max: number): string {
+  const fd = openSync(file, "r");
+  try {
+    const size = fstatSync(fd).size;
+    const len = Math.min(size, max);
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, size - len);
+    return buf.toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[].
+ * `costBase`: custo acumulado da sessão ANTES deste turno (só no --resume) — é descontado do total. */
+export function mapLine(line: string, costBase = 0): AgentEvent[] {
   const t = line.trim();
   if (!t) return [];
   let o: any;
@@ -506,7 +617,9 @@ function mapLine(line: string): AgentEvent[] {
 
   if (o.type === "result") {
     const ok = !o.is_error;
-    const usd = typeof o.total_cost_usd === "number" ? o.total_cost_usd : 0;
+    const total = typeof o.total_cost_usd === "number" ? o.total_cost_usd : 0;
+    // arredonda a diferença (ponto flutuante) e nunca fica negativo (sessão reiniciada do zero)
+    const usd = costBase > 0 && total >= costBase ? Math.round((total - costBase) * 1e7) / 1e7 : total;
     const cost = usd ? ` · $${usd.toFixed(3)}` : "";
     const denials = Array.isArray(o.permission_denials) && o.permission_denials.length
       ? ` · ${o.permission_denials.length} permissão(ões) negada(s)`
