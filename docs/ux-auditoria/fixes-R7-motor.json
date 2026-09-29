@@ -4,11 +4,13 @@
     "area": "Motor · turno do agente",
     "titulo": "Tarefa não fica mais 'rodando' por até 30 min depois de o agente já ter terminado",
     "antes": "O turno só terminava quando o processo do claude fechava. Se ele entregava o resultado mas não saía (um servidor MCP ou programa filho segurando), a tarefa ficava 'rodando', com o lock ocupado, até o vigia de inatividade de 30 min matar — e aí ainda aparecia um erro 'claude saiu com código 143' e o motor tentava de novo à toa.",
-    "depois": "Depois do resultado, 90 s sem nenhuma saída nova encerram o processo; o turno fecha como concluído, sem erro falso. Se o processo ignora o pedido de encerrar, leva SIGKILL 3 s depois.",
+    "depois": "Depois do resultado, 90 s sem nenhuma saída nova encerram o processo; o turno fecha como concluído, sem erro falso. Se o processo ignora o pedido de encerrar, leva SIGKILL 3 s depois. Vale também para o Codex. Ajustes: CARDUME_CLAUDE_EXIT_GRACE_MS (folga depois do resultado, padrão 90000 ms, usada pelos dois motores); SIGKILL 3 s depois do SIGTERM (fixo, killProcess); o 'close' é forçado 3 s depois do processo sair quando um neto segura a saída.",
     "motivo": "Travamento percebido pelo usuário e custo: a tarefa 'girando' sem fazer nada, e o 'falar com o agente' ia pra fila.",
     "arquivos": [
+      "src/engine/claude-lifecycle.test.ts",
       "src/engine/claude.ts",
-      "src/engine/claude-lifecycle.test.ts"
+      "src/engine/codex-lifecycle.test.ts",
+      "src/engine/codex.ts"
     ],
     "como_ver": "npm test (arquivo src/engine/claude-lifecycle.test.ts): um claude falso que responde e não sai, ignorando SIGTERM",
     "shots": {
@@ -21,7 +23,7 @@
     "area": "Motor · turno do agente",
     "titulo": "Claude e Codex não ficam mais rodando 'órfãos' quando o turno é abandonado",
     "antes": "Se o motor parava de ouvir o agente no meio (por exemplo, erro ao gravar no banco), o processo do claude/codex continuava rodando sozinho, editando a worktree e gastando assinatura, sem ninguém ver.",
-    "depois": "Ao abandonar o turno, o motor encerra o processo (e força, se ele ignorar).",
+    "depois": "Ao abandonar o turno, o motor encerra o processo (e força, se ele ignorar). O timer do SIGKILL segura o processo do motor enquanto o filho vive, pra um CLI de vida curta não sair antes de matá-lo.",
     "motivo": "Processo órfão = custo invisível e edições que ninguém acompanha.",
     "arquivos": [
       "src/engine/claude.ts",
@@ -39,11 +41,12 @@
     "area": "Motor · custo",
     "titulo": "Custo de conversa retomada não re-cobra mais a sessão inteira",
     "antes": "Em cada mensagem no chat da tarefa (turno com --resume), o Claude Code informa o custo ACUMULADO da sessão, e o Starfork somava de novo. Medido num claude real: 1º turno US$ 0,048; o 2º turno custou US$ 0,005 mas foi registrado como US$ 0,053. A cada mensagem o custo da tarefa inflava.",
-    "depois": "O motor lê o último custo acumulado gravado no histórico da sessão e registra só a diferença do turno. Turno novo (sem retomar) continua igual.",
+    "depois": "O motor lê o último custo acumulado gravado no histórico da sessão e registra só a diferença do turno. Turno novo (sem retomar) continua igual. A base vem primeiro do acumulado que o próprio Starfork grava por sessão (tabela session_cost no state.sqlite) e, na falta, do transcript do Claude Code; sem base nenhuma, o turno conta o total e o chat avisa. Total menor que a base (sessão recomeçada) conta o total. ATENÇÃO: custos gravados ANTES desta correção, em tarefas com conversa retomada, podem estar inflados (cada turno somava os anteriores).",
     "motivo": "Custo errado no painel e nos relatórios; o erro cresce com o tamanho da conversa.",
     "arquivos": [
+      "src/engine/claude-lifecycle.test.ts",
       "src/engine/claude.ts",
-      "src/engine/claude-lifecycle.test.ts"
+      "src/store.ts"
     ],
     "como_ver": "npm test (arquivo src/engine/claude-lifecycle.test.ts): 'custo no --resume' (com os números medidos)",
     "shots": {
@@ -56,7 +59,7 @@
     "area": "Motor · Codex/gateway",
     "titulo": "Falha do Codex/gateway mostra o motivo (limite, rede, chave) e o feed não duplica comandos",
     "antes": "Quando o Codex falhava ('turn.failed'), o motivo era ignorado e o chat mostrava só 'codex saiu com código 1' — sem isso, a espera automática por limite de uso e o retry de rede não agiam. Cada comando aparecia duas vezes no feed, e às vezes vinha um segundo 'finalizou'.",
-    "depois": "O motivo real vira o erro do turno (e os detectores de limite/rede passam a funcionar); cada comando aparece uma vez; o fim do turno aparece uma vez.",
+    "depois": "O motivo real vira o erro do turno (e os detectores de limite/rede passam a funcionar); cada comando aparece uma vez; o fim do turno aparece uma vez. O 'saiu com código 1' genérico não encobre mais o erro real; comando que só chega no 'completed' também aparece.",
     "motivo": "Erro sem motivo não dá pra resolver nem retomar sozinho.",
     "arquivos": [
       "src/engine/codex.ts",
@@ -92,7 +95,7 @@
     "area": "App · Windows",
     "titulo": "Windows: configurações, cofre de chaves e skills do app no lugar certo",
     "antes": "11 pontos do app liam só a variável HOME. No Windows ela não existe, e o cofre (llm.env), o settings.json, as skills pessoais e o catálogo global de agentes eram gravados/lidos numa pasta relativa à pasta atual, diferente da que o motor usa.",
-    "depois": "Todos usam a mesma função: HOME, ou USERPROFILE no Windows (HOME vazio também cai no USERPROFILE).",
+    "depois": "Todos usam a mesma função: HOME, ou USERPROFILE no Windows (HOME vazio também cai no USERPROFILE). No Windows, USERPROFILE tem prioridade (igual ao Node); sem pasta do usuário, o app registra um aviso no log em vez de cair na pasta atual em silêncio.",
     "motivo": "O app e o motor precisam enxergar as mesmas configurações.",
     "arquivos": [
       "app/src-tauri/src/lib.rs"
@@ -108,7 +111,7 @@
     "area": "Motor · git/rede",
     "titulo": "Criar tarefa, retomar e abrir PR não travam mais esperando rede ou senha",
     "antes": "git fetch/push, ls-remote e gh pr create rodavam sem limite de tempo e podiam pedir usuário/senha num terminal que não existe (app de janela): a criação da tarefa ou a abertura do PR ficava pendurada pra sempre. Além disso, qualquer comando que deixasse um processo 'neto' segurando a saída (um servidor subido em segundo plano) prendia o motor mesmo depois de terminar.",
-    "depois": "Operações de rede têm teto (fetch da base 60 s, demais 120 s) e nunca pedem credencial (falham rápido; a criação segue com a base local). O executor de comandos fecha a saída 2 s depois do processo terminar.",
+    "depois": "Operações de rede têm teto (fetch da base 60 s, demais 120 s) e nunca pedem credencial (falham rápido; a criação segue com a base local). O executor de comandos fecha a saída 2 s depois do processo terminar. Ajustes: CARDUME_NET_TIMEOUT_MS (padrão 120000 ms; o fetch da base usa no máximo 60000). A saída só é cortada se um neto ainda segura o pipe 2 s depois — e aí o resultado vem marcado como cortado, com aviso no log.",
     "motivo": "Travamentos na criação de tarefa com VPN caída/credencial expirada.",
     "arquivos": [
       "src/util/run.ts",
@@ -127,7 +130,7 @@
     "area": "Motor · ambiente da worktree",
     "titulo": "setup.sh do projeto não trava mais a criação da tarefa, e a falha aparece",
     "antes": "O .cardume/setup.sh rodava sem limite: se subisse um servidor ou esperasse uma resposta, a tarefa nunca terminava de ser criada. Se falhasse, ninguém ficava sabendo.",
-    "depois": "Teto de 10 min (CARDUME_SETUP_TIMEOUT_MS). Falha ou estouro vira uma linha no AMBIENTE.md ('setup.sh NÃO completou (…) — confira o ambiente'), que o agente lê antes de rodar o projeto.",
+    "depois": "Teto de 10 min (CARDUME_SETUP_TIMEOUT_MS). Falha ou estouro vira uma linha no AMBIENTE.md ('setup.sh NÃO completou (…) — confira o ambiente'), que o agente lê antes de rodar o projeto. Ajuste: CARDUME_SETUP_TIMEOUT_MS (padrão 600000 ms).",
     "motivo": "Travamento na criação + agente trabalhando num ambiente pela metade sem saber.",
     "arquivos": [
       "src/orchestrator.ts",
@@ -144,7 +147,7 @@
     "area": "Motor · pipeline",
     "titulo": "Resumo do commit e destiladores da memória têm teto de tempo",
     "antes": "O resumo técnico do commit roda dentro do pipeline (com a tarefa travada) e os destiladores da memória rodam em segundo plano — ambos sem limite. Um claude pendurado deixava a tarefa 'rodando' depois do builder já ter terminado, ou o processo do motor vivo pra sempre.",
-    "depois": "Teto de 3 min (CARDUME_AUX_TIMEOUT_MS); o resumo que falha fica registrado no chat e o pipeline segue.",
+    "depois": "Teto de 3 min (CARDUME_AUX_TIMEOUT_MS); o resumo que falha fica registrado no chat e o pipeline segue. Ajuste: CARDUME_AUX_TIMEOUT_MS (padrão 180000 ms).",
     "motivo": "Travamento depois do trabalho pronto.",
     "arquivos": [
       "src/orchestrator.ts",
@@ -178,7 +181,7 @@
     "area": "Motor · merge",
     "titulo": "Merge que falha sem conflito não marca mais a tarefa como 'em conflito'",
     "antes": "Qualquer falha no merge local (mudança não commitada no repositório principal, merge já em andamento, branch apagada) virava status 'em conflito' e a mensagem 'resolva o conflito' — e a resolução com IA ia atrás de um conflito que não existia.",
-    "depois": "Só vira 'em conflito' quando o git para com arquivos em conflito. Nos outros casos o status não muda e o erro explica em pt-BR o que fazer (ex.: 'há mudanças não commitadas no repositório principal… commite ou guarde (stash)'). A edição do humano fica intacta.",
+    "depois": "Só vira 'em conflito' quando o git para com arquivos em conflito. Nos outros casos o status não muda e o erro explica em pt-BR o que fazer (ex.: 'há mudanças não commitadas no repositório principal… commite ou guarde (stash)'). A edição do humano fica intacta. Merge do humano já em andamento no repositório principal é recusado ANTES (nunca abortamos um merge que não começamos), e o conflito é detectado só pela saída do git (o título da tarefa não conta).",
     "motivo": "Status errado leva a ação errada.",
     "arquivos": [
       "src/orchestrator.ts",
@@ -197,7 +200,7 @@
     "area": "App · PR",
     "titulo": "'Mergear PR' não mostra mais erro quando o GitHub já mergeou",
     "antes": "O botão usa 'gh pr merge --delete-branch'. A branch local está presa na worktree da tarefa, então o gh mergeava no GitHub e DEPOIS falhava ao apagar a branch local: a tela mostrava erro e a tarefa não era marcada como mergeada. Também não havia limite de tempo.",
-    "depois": "Se o gh falhar, o app confere o estado do PR; se estiver MERGED, segue o fluxo normal (marca mergeada e limpa a worktree). Teto de 120 s.",
+    "depois": "Se o gh falhar, o app confere o estado do PR; se estiver MERGED, segue o fluxo normal (marca mergeada e limpa a worktree). Teto de 120 s. Também confere o estado quando o teto de 120 s estoura; e, se o gh falhou só na limpeza, o app apaga a branch local (depois de tirar a worktree) e a remota, se ainda existir.",
     "motivo": "PR/merge que 'falha' tendo dado certo.",
     "arquivos": [
       "app/src-tauri/src/lib.rs"
@@ -213,7 +216,7 @@
     "area": "Motor · fila de turnos",
     "titulo": "Dois 'iniciar' (ou 'falar') quase juntos não sobem mais dois agentes na mesma worktree",
     "antes": "O lock do turno era 'lê quem está usando, confere, grava' em passos separados. Com 6 processos pedindo ao mesmo tempo, os 6 ganhavam (medido no teste). Também: um pedido enfileirado no instante em que o turno acabava ficava parado até o próximo turno.",
-    "depois": "O lock é pego numa transação só (BEGIN IMMEDIATE): exatamente um ganha. Se o turno acabou entre a checagem e o enfileiramento, o pedido é executado na hora.",
+    "depois": "O lock é pego numa transação só (BEGIN IMMEDIATE): exatamente um ganha. Se o turno acabou entre a checagem e o enfileiramento, o pedido é executado na hora. O pedido nunca roda duas vezes (tomar da fila é condicional) e o lock guarda a hora em que foi pego: um PID reciclado (processo que nasceu depois do lock) não segura a tarefa.",
     "motivo": "Dois agentes na mesma worktree = edições brigando e custo em dobro.",
     "arquivos": [
       "src/store.ts",
@@ -231,7 +234,7 @@
     "area": "Motor · pipeline",
     "titulo": "Erro inesperado no meio da execução leva a tarefa para 'erro' em vez de 'rodando' pra sempre",
     "antes": "Uma exceção fora do previsto (banco ocupado além das tentativas, spec corrompido) escapava do pipeline e a tarefa ficava 'rodando/pensando' sem processo nenhum — card girando, sem motivo.",
-    "depois": "Vai para 'erro' com a mensagem 'a execução parou por um erro inesperado: …' no chat, e o lock é solto (dá pra retomar).",
+    "depois": "Vai para 'erro' com a mensagem 'a execução parou por um erro inesperado: …' no chat, e o lock é solto (dá pra retomar). Só troca para 'erro' se estava rodando/pensando/na fila — 'em conflito', 'aguardando você' etc. ficam como estavam.",
     "motivo": "Tarefa que não retoma.",
     "arquivos": [
       "src/orchestrator.ts",
@@ -248,7 +251,7 @@
     "area": "Motor · chat",
     "titulo": "Mensagem ou requisito que começa com '--' chega inteiro ao agente",
     "antes": "O chat manda a mensagem ao motor como argumento '--msg'. Se o texto começasse com '--' (ex.: '--force não, use rebase'), o motor lia como outra opção e o agente recebia a mensagem 'true'. Requisitos como '--dry-run deve funcionar' sumiam da tarefa.",
-    "depois": "Campos de texto livre (mensagem, título, objetivo, requisitos, entregáveis…) sempre usam o argumento seguinte como valor.",
+    "depois": "Campos de texto livre (mensagem, título, objetivo, requisitos, entregáveis…) sempre usam o argumento seguinte como valor. Flags de valor que o app manda (ref, issue, owns, base…) seguem a mesma regra; sem valor viram '' e não engolem a próxima opção; um teste confere a lista contra o lib.rs.",
     "motivo": "Mensagem do humano trocada por 'true' sem aviso.",
     "arquivos": [
       "src/util/args.ts",
