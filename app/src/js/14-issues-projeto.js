@@ -8,7 +8,7 @@
 let trk=null, trkView='board', trkMsg='', trkBusy='', trkDocFiles=[], trkLoadedFor=null;
 let trkIssues=[], trkIssuesAt=0, trkErr='', trkQ='', trkFilter=lsGet('trkFilter')||'all', trkSel=null, trkComments=null, trkMoreDone=false, trkNI=null; // trkNI: a aba "Nova issue" (conversa + rascunhos)
 let trkProjects=[], trkRemote='', trkRemoteFor=null, trkTimer=null, trkSyncAt=0, trkMine={}; // trkMine: mudanças que EU fiz (não viram aviso)
-let trkBg=false, trkBackoffMs=0, trkNextAt=0; // observador: chamadas em segundo plano não registram erro; falha → recuo exponencial
+let trkBg=0, trkBackoffMs=0, trkNextAt=0, trkBgErr=''; // 2º plano (contador: observador e sync podem rodar juntos): não registra erro; falha → recuo exponencial + UM aviso no quadro
 const TRK_RULES={ createOnTask:true, syncStatus:true, watch:true };
 const TRK_KINDS={ todo:'var(--muted)', doing:'var(--info)', blocked:'var(--warn)', done:'var(--good)' };
 
@@ -176,19 +176,41 @@ function trkTaskCode(t){ const l=trkLinks()[t.id]; if(l) return l; const c=(type
 function trkTasksFor(code){ return ((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>trkTaskCode(t)===code); }
 function trkTaskKind(t){ const s=t.status; if(s==='done'||s==='merged') return 'done'; if(['draft','queued','cancelled'].includes(s)) return null; return 'doing'; }
 // tarefa andou → issue anda junto (nunca reabre issue concluída; só mexe se a issue existe no painel)
+// TODA chamada automática ao servidor (observador + sync de status) passa aqui: respeita o recuo depois
+// de falha, não bate no servidor sem a chave liberada nesta máquina (era o SECRET_UNBOUND a cada refresh —
+// 505 linhas de um usuário) e não registra erro na nuvem (rede/DNS/VPN caindo é esperado). A falha vira
+// UM aviso em pt-BR no quadro (trkBgErr) e some sozinho quando volta.
+async function trkBgRun(fn){
+  if(Date.now()<trkNextAt) return false;
+  if(trkSecretNames().length){ await trkSecretsRefresh(); if(trkSecretsMissing().length) return false; } // o quadro já mostra o aviso da chave
+  trkBg++;
+  try{ await fn(); trkBackoffMs=0; if(trkBgErr){ trkBgErr=''; trkBgRepaint(); } return true; }
+  catch(e){
+    trkBackoffMs=Math.min(Math.max(trkBackoffMs*2, 4*60000), 30*60000); // 4 → 8 → 16 → 30 min
+    trkNextAt=Date.now()+trkBackoffMs;
+    const h=(typeof humanErr==='function')?humanErr(trkErrText(e)):null;
+    const why=(h&&h.id!=='generic')?h.msg:trkErrText(e).slice(0,160);
+    trkBgErr='Não consegui atualizar o painel agora ('+why.replace(/[.\s]+$/,'')+'). Tento de novo em '+Math.round(trkBackoffMs/60000)+' min — ou clique em atualizar.';
+    trkBgRepaint(); return false;
+  }
+  finally{ trkBg--; }
+}
+function trkBgRepaint(){ try{ const o=$id('issuesOverlay'); if(o && o.style.display!=='none' && trkView==='board') issRender(); }catch(_){ } }
 async function trkSyncTasks(){
   if(Date.now()-trkSyncAt<30000) return; trkSyncAt=Date.now();
   try{
     await trkLoad(); if(!trkReady()||!trk.rules.syncStatus||!trk.connector.ops.updateStatus||!(await trkProjectOn())) return;
     const tasks=(state.tasks||[]).filter(t=>trkTaskCode(t)&&trkTaskKind(t)); if(!tasks.length) return;
-    if(Date.now()-trkIssuesAt>120000) await trkFetchIssues();
-    for(const t of tasks){
-      const i=trkIssues.find(x=>x.code===trkTaskCode(t)); if(!i) continue;
-      const cur=(trkStatus(i.status)||{}).kind, want=trkTaskKind(t);
-      if(cur===want||cur==='done'||(cur==='blocked'&&want==='doing')) continue;
-      const to=trkStatusOfKind(want); if(!to) continue;
-      await trkCall('updateStatus',{ code:i.code, id:i.id, status:to.id }); i.status=to.id; trkMine[i.code]=to.id;
-    }
+    await trkBgRun(async()=>{
+      if(Date.now()-trkIssuesAt>120000) await trkFetchIssues();
+      for(const t of tasks){
+        const i=trkIssues.find(x=>x.code===trkTaskCode(t)); if(!i) continue;
+        const cur=(trkStatus(i.status)||{}).kind, want=trkTaskKind(t);
+        if(cur===want||cur==='done'||(cur==='blocked'&&want==='doing')) continue;
+        const to=trkStatusOfKind(want); if(!to) continue;
+        await trkCall('updateStatus',{ code:i.code, id:i.id, status:to.id }); i.status=to.id; trkMine[i.code]=to.id;
+      }
+    });
   }catch(_){ }
 }
 // TODA criação de tarefa passa aqui: regra ligada + projeto conectado + sem issue → cria e vincula
@@ -287,7 +309,7 @@ async function trkLoadProjects(){
 }
 async function trkReload(){
   trkBusy='load'; issRender();
-  try{ await trkFetchIssues(); }catch(e){ trkErr=trkErrText(e); }
+  try{ await trkFetchIssues(); trkBgErr=''; trkBackoffMs=0; trkNextAt=0; }catch(e){ trkErr=trkErrText(e); }
   trkBusy=''; issRender();
 }
 const trkSw=(id,on,label,sub)=>`<div class="trk-row"><label class="sw"><input type="checkbox" id="${id}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label><div><div class="trk-rt">${label}</div>${sub?`<div class="trk-rs">${sub}</div>`:''}</div></div>`;
@@ -520,7 +542,7 @@ function trkBoardHtml(){
       ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa')}${chip('unseen','mudaram',Object.keys(un).length)}${epChips}
       <span style="flex:1"></span><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
       <button class="btn" id="trkRefresh">atualizar</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</div>
-    ${trkErr?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:''}
+    ${trkErr?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:(trkBgErr?`<div class="imhint" style="border-left:2px solid var(--warn)">${esc(trkBgErr)}</div>`:'')}
     <div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
 }
 // JSON de IA, tolerante: cerca ```json (até o ÚLTIMO ``` — a fala pode ter cercas dentro), ou do 1º { ao último };
@@ -891,18 +913,11 @@ function trkWatchStart(){
   if(trkTimer) return;
   trkTimer=setInterval(async()=>{
     if(Date.now()<trkNextAt) return; // em recuo depois de uma falha (rede/VPN/servidor lento)
-    trkBg=true;
     try{
       await trkLoad(); if(!trkReady()||!trk.rules.watch||!(await trkProjectOn())) return;
-      // chave ausente ou não liberada nesta máquina: não adianta bater no servidor (era 1 erro a cada 2 min por usuário)
-      if(trkSecretNames().length){ await trkSecretsRefresh(); if(trkSecretsMissing().length) return; }
-      await trkFetchIssues(); trkBackoffMs=0;
-      if($id('issuesOverlay').style.display!=='none' && trkView==='board' && document.activeElement.id!=='trkQ' && document.activeElement.id!=='trkCmIn') issRender();
-    }catch(_){
-      trkBackoffMs=Math.min(Math.max(trkBackoffMs*2, 4*60000), 30*60000); // 4 → 8 → 16 → 30 min
-      trkNextAt=Date.now()+trkBackoffMs;
-    }
-    finally{ trkBg=false; }
+      const ok=await trkBgRun(()=>trkFetchIssues());
+      if(ok && $id('issuesOverlay').style.display!=='none' && trkView==='board' && document.activeElement.id!=='trkQ' && document.activeElement.id!=='trkCmIn') issRender();
+    }catch(_){ }
   }, 120000);
 }
 setTimeout(()=>{ trkLoad().then(()=>{ trkBadge(); if(trkReady()) trkWatchStart(); }).catch(()=>{}); }, 6000);

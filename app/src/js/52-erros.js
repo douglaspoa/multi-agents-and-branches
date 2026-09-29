@@ -20,7 +20,9 @@
   let BUILD = "";
   try { invoke("build_info").then((ms) => { const d = new Date(Number(ms) || 0); if (+d) BUILD = `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }).catch(()=>{}); } catch (_) {}
 
-  const RATE = Object.create(null); // anti-flood: source|message -> ts
+  const RATE = Object.create(null); // anti-flood: source|message -> ts (+ __hits: teto global da janela)
+  // preview/harness (__TAURI__ falso em http://localhost) NÃO reporta: sujava a tabela de produção
+  const REAL = isRealApp(window);
   const QKEY = "app:errq";           // fila offline (até enviar)
 
   function baseCtx() {
@@ -44,6 +46,7 @@
 
   async function sendRaw(rec) {
     try {
+      if (!REAL) return true; // fora do app de verdade: descarta (e esvazia a fila)
       if (typeof SB === "undefined" || !SB.url || !SB.key) return false;
       const s = (SB.sess && SB.sess()) || null;
       const headers = { apikey: SB.key(), "Content-Type": "application/json", Prefer: "return=minimal" };
@@ -72,15 +75,12 @@
     try {
       const n = normalize(err);
       const src = String(source || n.source || "app").slice(0, 60);
-      // chave do painel de issues ausente/não liberada NESTA máquina: é configuração local
-      // (a tela Conexão já orienta), não erro do produto — não vai pra nuvem
-      if (/^SECRET_(UNBOUND|MISSING):/.test(n.message)) return;
-      if (!n.message || n.message === "(erro sem mensagem)") { if (!extra || !extra.force) { /* segue: registra mesmo assim */ } }
-      // anti-flood: mesma origem+mensagem no mesmo minuto → ignora
-      const k = src + "|" + n.message;
-      const now = Date.now();
-      if (RATE[k] && now - RATE[k] < 60000) return;
-      RATE[k] = now;
+      if (!REAL) return;
+      // estado legítimo que a tela já explica (chave não configurada nesta máquina, "parar" do usuário,
+      // worktree limpa, gh sem acesso ao repo…) — lista em 00-util (ERR_EXPECTED), não é erro do produto
+      if (errIsExpected(n.message)) return;
+      // anti-flood: mesma origem+mensagem 1x a cada 10 min por sessão; teto global de 30 por janela
+      if (!errRateOk(RATE, src + "|" + n.message, Date.now(), 600000, 30)) return;
       const b = baseCtx();
       const rec = {
         at: new Date().toISOString(),

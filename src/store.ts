@@ -20,10 +20,12 @@ export class Store {
 
   constructor(file: string) {
     this.db = new DatabaseSync(file);
-    this.db.exec("PRAGMA journal_mode = WAL;");
     // Tarefas paralelas rodam em processos separados escrevendo no mesmo DB:
     // espera o lock (até 8s) em vez de falhar com "database is locked".
+    // ANTES do journal_mode: trocar/confirmar o modo WAL já pede lock — com o timeout
+    // depois, o `cardume metrics` falhava de cara em `new Store` enquanto os agentes gravavam.
     this.db.exec("PRAGMA busy_timeout = 8000;");
+    this.db.exec("PRAGMA journal_mode = WAL;");
     this.migrate();
   }
 

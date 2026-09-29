@@ -764,7 +764,12 @@ function fwRenderPrPage(t, main){
     main.innerHTML='<div class="empty"><span class="spin"></span> carregando o PR…</div>'; return; }
   if(!info.exists && info.error){
     // gh/rede falhou ≠ "não tem PR" — antes caía em "nenhum PR" e oferecia abrir OUTRO
-    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">não consegui falar com o GitHub</div><div class="mono dim" style="font-size:11px;max-width:560px;white-space:pre-wrap">${esc(String(info.error).slice(0,300))}</div><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button></div>`;
+    // sem acesso ao repo (conta errada no gh) ≠ sem rede: diz o que fazer, sem o texto cru do GraphQL
+    const noAcc=info.errKind==='access';
+    const head=noAcc?'o GitHub logado aqui (gh) não tem acesso a este repositório':'não consegui falar com o GitHub';
+    const det=noAcc?String(info.error).replace(/^GH_NO_ACCESS:\s*/,''):String(info.error);
+    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">${head}</div><div class="mono dim" style="font-size:11px;max-width:560px;white-space:pre-wrap">${esc(det.slice(0,300))}</div><div style="display:flex;gap:8px"><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button>${noAcc?'<button class="btn sm" id="prPgEnv">abrir Ambiente (conta do GitHub)</button>':''}</div></div>`;
+    bindClick('prPgEnv', ()=>{ if(window.openTab) window.openTab('env'); });
     bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='tentando…'; await loadPr(t.id,true); renderWorkspace(); });
     return;
   }

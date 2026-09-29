@@ -3,7 +3,9 @@
 let envChecks=null, envCheckedAt=0, envChecking=false;
 async function runEnvCheck(){
   envChecking=true;
-  try{ envChecks=await invoke('env_check'); }catch(e){ envChecks=[{name:'Verificação', ok:false, detail:String(e), fix:''}]; }
+  // sempre LISTA: resposta fora do formato (versão velha/mock) virava "envChecks.some is not a function"
+  try{ const r=await invoke('env_check'); envChecks=Array.isArray(r)?r:[{name:'Verificação', ok:false, detail:'resposta inesperada da verificação do ambiente', fix:''}]; }
+  catch(e){ envChecks=[{name:'Verificação', ok:false, detail:String(e), fix:''}]; }
   finally{ envChecking=false; }
   envCheckedAt=Date.now();
   const bad=envChecks.some(c=>!c.ok);
