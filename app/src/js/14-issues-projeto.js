@@ -277,7 +277,7 @@ async function trkPublishEpic(ep, created){
       const c=created.find(x=>x.row&&x.row.id===o.rowId); if(c){ c.row.issue_url=o.url||null; c.row.spec=spec; } // a onda 1 pode ser assumida logo em seguida: a linha em memória já leva o link (senão nasceria uma 2ª issue)
       try{ await sbFetch('/rest/v1/tasks?id=eq.'+o.rowId,{ method:'PATCH', body: JSON.stringify({ issue_url:o.url||null, spec }) }); }catch(e){ console.warn('link da tarefa', e); }
     }
-    trkToast('Épico publicado no painel: '+parent.code+' + '+out.length+' filha'+(out.length===1?'':'s'));
+    toast('Épico publicado no painel: '+parent.code+' + '+out.length+' filha'+(out.length===1?'':'s'), 'ok'); // sucesso: verde (o trkToast é o de aviso)
     return parent;
   }catch(e){ trkToast('Não publiquei o épico no painel: '+trkErrText(e)); return null; }
 }
@@ -337,6 +337,9 @@ function issRender(){
 
 // ----- estágio 1: conexão -----
 let trkSecretSt={}, trkJsonOpen=false, trkTest='';
+// comentários da issue aberta: erro de leitura (antes virava "nenhum comentário" calado), rascunho (sobrevive a
+// re-render e a falha no envio) e envio em curso (sem clique duplo = comentário duplicado)
+let trkCmErr='', trkCmDraft='', trkCmSending=false, trkCmSendErr='';
 function trkConnHtml(){
   const c=trk.connector;
   const ops=c?[...new Set(Object.keys(c.ops||{}).concat('assign'))].map(k=>{ const o=trkOp(k); const nm={list:'listar',create:'criar',updateStatus:'mudar status',assign:'trocar responsável',comments:'ler comentários',addComment:'comentar'}[k]||k;
@@ -499,7 +502,7 @@ function trkCardHtml(i, inGroup){
   const p=trkPerson(i.assignee), tasks=trkTasksFor(i.code), un=trkUnseen()[i.code];
   const tst=tasks.length?(tasks[0].status?stLabel(taskSt(tasks[0])):'tarefa'):''; // R5-1: status efetivo (PR aberto = 'PR aberto', igual à Central)
   const ep=i.epicCode?` style="--epc:${trkEpColor(i.epicCode)}"`:'';
-  return `<div class="trk-issue${un?' unseen':''}${trkSel===i.code?' sel':''}${ep?' has-ep':''}" draggable="true" data-trkcode="${escA(i.code)}"${ep}>
+  return `<div class="trk-issue${un?' unseen':''}${trkSel===i.code?' sel':''}${ep?' has-ep':''}" draggable="true" data-trkcode="${escA(i.code)}" role="button" tabindex="0" aria-label="${escA(i.code+' — '+i.title)}"${ep}>
     <div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span>${i.epicCode&&!inGroup?`<span class="trk-epb" title="filha do épico ${escA(i.epicCode)}">◆ ${esc(i.epicCode)}</span>`:''}${i.priority!=null&&i.priority!==''?`<span class="trk-pri">${esc(String(i.priority))}</span>`:''}<span style="flex:1"></span>${un?`<span class="trk-new">${esc(un)}</span>`:''}</div>
     <div class="trk-it">${esc(i.title)}</div>
     ${tasks.length?`<div class="trk-tl"><span class="trk-task" style="--stc:${stColor(taskSt(tasks[0]))}" title="${escA('tarefa vinculada: '+tst)}">⎇ tarefa ${esc(tst)}</span></div>`:''}
@@ -512,7 +515,7 @@ function trkColCards(items, byCode){
   const groups=new Map(), loose=[];
   items.forEach(i=>{ if(i.epicCode){ if(!groups.has(i.epicCode)) groups.set(i.epicCode,[]); groups.get(i.epicCode).push(i); } else loose.push(i); });
   const gh=[...groups.entries()].map(([code,kids])=>{ const par=byCode[code];
-    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?`<span class="trk-ept"> · ${esc(String(par.title).slice(0,48))}</span>`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
+    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" role="button" tabindex="0" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?`<span class="trk-ept"> · ${esc(String(par.title).slice(0,48))}</span>`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
   return gh+loose.map(i=>trkCardHtml(i, false)).join('');
 }
 function trkBoardHtml(){
@@ -527,6 +530,8 @@ function trkBoardHtml(){
   if(trkFilter==='linked') list=list.filter(i=>trkTasksFor(i.code).length);
   if(trkFilter==='unseen') list=list.filter(i=>un[i.code]);
   if(trkFilter.startsWith('ep:')){ const ec=trkFilter.slice(3); list=list.filter(i=>i.code===ec||i.epicCode===ec); }
+  const filteredOut=!list.length && trkIssues.length>0; // busca/filtro zerou o quadro: vazio com "mostrar todas" (antes: 5 colunas de "—")
+  const linkedN=trkIssues.filter(i=>trkTasksFor(i.code).length).length, unN=Object.keys(un).length;
   // o pai com filhas visíveis vira CABEÇALHO do grupo dentro das colunas — não aparece de novo como cartão solto
   const shownKids=new Set(list.filter(i=>i.epicCode).map(i=>i.epicCode));
   list=list.filter(i=>!shownKids.has(i.code));
@@ -534,7 +539,7 @@ function trkBoardHtml(){
   const cols=(c.statuses||[]).concat(list.some(i=>!known.has(i.status))?[{ id:'__other', label:'Outros', kind:'todo' }]:[]);
   const chip=(k,l,n,tip)=>`<button class="trk-chip${trkFilter===k?' on':''}" data-trkfilter="${escA(k)}"${tip?` title="${escA(tip)}"`:''}>${l}${n!=null?` <em>${n}</em>`:''}</button>`;
   const epChips=parents.slice(0,8).map(code=>{ const p=byCode[code], k=kidsOf[code];
-    return chip('ep:'+code, `<span class="trk-epd" style="background:${trkEpColor(code)}"></span>◆ ${esc(code)}${p?' · '+esc(String(p.title).slice(0,24)):''}`, k.length, 'só este épico e as '+k.length+' issues filhas'); }).join('');
+    return chip('ep:'+code, `<span class="trk-epd" style="background:${trkEpColor(code)}"></span>${esc(code)}${p?' · '+esc(String(p.title).slice(0,24)):''}`, k.length, 'só este épico e as '+k.length+' issues filhas'); }).join('');
   const colsHtml=cols.map(s=>{
     const items=list.filter(i=>s.id==='__other'?!known.has(i.status):i.status===s.id);
     const cap=(s.kind==='done'&&!trkMoreDone)?25:400, shown=items.slice(0,cap);
@@ -546,12 +551,13 @@ function trkBoardHtml(){
   const area = first && trkBusy==='load' ? skeletonHtml('kanban', { cols:Math.min(5, Math.max(3, cols.length)), inline:true, label:'buscando issues' })
     : first && trkErr ? errorHtml(trkErr, 'trkRetry', null, { human:true }) // trkErr já é texto humano (trkErrText)
     : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras no passo 2.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
+    : filteredOut ? emptyHtml({ icon:'search', title:q?'Nenhuma issue com “'+trkQ.trim()+'”':'Nenhuma issue neste filtro', help:trkFilter==='unseen'?'Nada mudou desde a última vez que você olhou.':trkFilter==='linked'?'Nenhuma issue tem tarefa vinculada ainda — abra uma issue e clique em “criar tarefa desta issue”.':'Tente outra busca ou volte pra lista completa.', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } })
     : `<div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
   return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar código, título ou pessoa"></div>
-      ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa')}${chip('unseen','mudaram',Object.keys(un).length)}${epChips}
+      ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa',linkedN,'issues com uma tarefa do Starfork vinculada')}${(unN||trkFilter==='unseen')?chip('unseen','mudaram',unN,'mudaram desde a última vez que você olhou'):''}${epChips}
       <span style="flex:1"></span><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
-      <button class="btn" id="trkRefresh">atualizar</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</div>
+      <button class="btn trk-refresh" id="trkRefresh" title="atualizar agora" aria-label="atualizar as issues agora"${trkBusy==='load'?' disabled':''}>${IC.refresh}</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</div>
     ${trkErr&&!first?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:(trkBgErr?`<div class="imhint" style="border-left:2px solid var(--warn)">${esc(trkBgErr)}</div>`:'')}
     ${area}`;
 }
@@ -857,8 +863,9 @@ function trkDetailHtml(){
   const free=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!trkTaskCode(t));
   const comm=!c.ops.comments?`<p class="trk-rs">Este painel não expõe comentários pela API — observo status e atualizações.</p>`
     :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando comentários' })
+    :trkCmErr?errorHtml('Não consegui ler os comentários: '+trkCmErr, 'trkCmRetry', null, { human:true })
     :(trkComments.map(m=>`<div class="trk-cm"><b>${esc(m.author||'—')}</b> <span class="dim">${trkAgo(m.createdAt)}</span><div>${esc(m.text||'')}</div></div>`).join('')||'<p class="trk-rs">nenhum comentário</p>')
-     +(c.ops.addComment?`<div class="trk-bar" style="margin-top:8px"><input class="in" id="trkCmIn" placeholder="comentar…"><button class="btn" id="trkCmSend">enviar</button></div>`:'');
+     +(c.ops.addComment?`<div class="trk-bar" style="margin-top:8px"><input class="in" id="trkCmIn" value="${escA(trkCmDraft)}" placeholder="comentar… (Enter envia)"${trkCmSending?' disabled':''}><button class="btn" id="trkCmSend"${trkCmSending?' disabled':''}>${trkCmSending?'enviando…':'enviar'}</button></div>${trkCmSendErr?`<div class="trk-rs" role="alert" style="color:var(--warn);margin-top:6px">${esc(trkCmSendErr)} — o texto ficou na caixa, é só enviar de novo.</div>`:''}`:'');
   return `<aside class="trk-detail"><div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span><span style="flex:1"></span>${i.url?`<button class="btn sm" data-lk="${escA(i.url)}">abrir ↗</button>`:''}<button class="x" id="trkDClose">${IC.x}</button></div>
     <h2 class="trk-dt">${esc(i.title)}</h2>
     <div class="trk-grid2" style="gap:10px"><label class="trk-f">Status<select class="in" id="trkDStatus"${c.ops.updateStatus?'':' disabled'}>${(c.statuses||[]).map(s=>`<option value="${escA(s.id)}"${s.id===i.status?' selected':''}>${esc(s.label||s.id)}</option>`).join('')}</select></label>
@@ -876,16 +883,17 @@ async function trkMove(code, statusId){
   let reason='';
   if((trkStatus(statusId)||{}).kind==='blocked' && JSON.stringify(trk.connector.ops.updateStatus.body||{}).includes('{{reason}}')){ reason=await askText('Por que '+code+' está bloqueada?','motivo do bloqueio (opcional)')||''; }
   const old=i.status; i.status=statusId; issRender();
-  try{ await trkCall('updateStatus',{ code:i.code, id:i.id, status:statusId, reason }); trkMine[i.code]=statusId; }
+  try{ await trkCall('updateStatus',{ code:i.code, id:i.id, status:statusId, reason }); trkMine[i.code]=statusId; if(/^Não movi /.test(trkErr)){ trkErr=''; issRender(); } } // deu certo: o erro da tentativa anterior sai da tela
   catch(e){ i.status=old; trkErr='Não movi '+code+': '+trkErrText(e); issRender(); }
 }
 async function trkSelect(code){
-  trkSel=code; trkComments=null; trkMarkSeen(code); issRender();
+  if(trkSel!==code){ trkCmDraft=''; trkCmSendErr=''; }
+  trkSel=code; trkComments=null; trkCmErr=''; trkMarkSeen(code); issRender();
   const c=trk.connector, i=trkIssues.find(x=>x.code===code);
   if(c.ops.comments&&i){
     try{ const d=await trkCall('comments',{ code:i.code, id:i.id }); const f=c.ops.comments.fields||{};
       trkComments=(trkPath(d,c.ops.comments.itemsPath)||(Array.isArray(d)?d:[])).map(m=>({ author:(trkPerson(trkPath(m,f.author||'author'))||{}).label, text:trkPath(m,f.text||'text'), createdAt:trkPath(m,f.createdAt||'created_at') })); }
-    catch(_){ trkComments=[]; }
+    catch(e){ trkComments=[]; if(trkSel===code) trkCmErr=trkErrText(e); }
     if(trkSel===code) issRender();
   }
 }
@@ -894,9 +902,11 @@ function trkBoardWire(body){
   { const qi=body.querySelector('#trkQ'); if(qi) qi.oninput=()=>{ trkQ=qi.value; issRender(); const n=$id('trkQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; }
   body.querySelectorAll('[data-trkfilter]').forEach(b=>b.onclick=()=>{ trkFilter=b.dataset.trkfilter; lsSet('trkFilter',trkFilter); issRender(); });
   on('trkRefresh', trkReload); on('trkMoreDone', ()=>{ trkMoreDone=true; issRender(); });
-  on('trkNewBtn', trkNIOpen); on('trkRetry', trkReload); on('trkEmptyAct', trk.connector.ops.create?trkNIOpen:trkReload);
+  on('trkNewBtn', trkNIOpen); on('trkRetry', trkReload);
+  on('trkClearFilter', ()=>{ trkQ=''; trkFilter='all'; lsSet('trkFilter','all'); issRender(); }); on('trkEmptyAct', trk.connector.ops.create?trkNIOpen:trkReload);
   body.querySelectorAll('[data-trkcode]').forEach(el=>{
     el.onclick=()=>trkSelect(el.dataset.trkcode);
+    el.onkeydown=e=>{ if((e.key==='Enter'||e.key===' ')&&e.target===el){ e.preventDefault(); trkSelect(el.dataset.trkcode); } }; // teclado: Tab até o cartão, Enter abre
     el.ondragstart=e=>{ e.dataTransfer.setData('text/plain', el.dataset.trkcode); e.dataTransfer.effectAllowed='move'; };
   });
   if(trk.connector.ops.updateStatus) body.querySelectorAll('[data-trkcol]').forEach(col=>{
@@ -907,6 +917,7 @@ function trkBoardWire(body){
   on('trkDClose', ()=>{ trkSel=null; issRender(); });
   on('trkDMine', ()=>trkAssign(trkSel, trkMe()));
   on('trkDWhoSave', ()=>{ const v=($id('trkDWho').value||'').trim(); if(v) trkAssign(trkSel, v); });
+  { const w=body.querySelector('#trkDWho'); if(w) w.onkeydown=e=>{ if(e.key==='Enter'&&!e.isComposing){ e.preventDefault(); const v=w.value.trim(); if(v) trkAssign(trkSel, v); } }; }
   on('trkNamePerson', async()=>{ const id=body.querySelector('#trkNamePerson').dataset.pid; const n=await askText('Quem é '+id.slice(0,8)+'…? (vale pro time)','nome da pessoa'); if(!n) return;
     trk.people=Object.assign({}, trk.people||{}, { [id]:n.trim() }); await trkSave(); issRender(); });
   { const s=body.querySelector('#trkDStatus'); if(s) s.onchange=()=>trkMove(trkSel, s.value); }
@@ -914,8 +925,13 @@ function trkBoardWire(body){
   body.querySelectorAll('.trk-detail [data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   { const s=body.querySelector('#trkLinkSel'); if(s) s.onchange=()=>{ if(!s.value) return; const l=trkLinks(); l[s.value]=trkSel; lsSet('trk:links',JSON.stringify(l)); issRender(); trkSyncAt=0; trkSyncTasks(); }; }
   on('trkMkTask', async()=>{ const i=trkIssues.find(x=>x.code===trkSel); if(i) trkIssueToTask(i); });
-  on('trkCmSend', async()=>{ const t=($id('trkCmIn').value||'').trim(), i=trkIssues.find(x=>x.code===trkSel); if(!t||!i) return;
-    try{ await trkCall('addComment',{ code:i.code, id:i.id, text:t }); }catch(e){ trkErr='Não comentei: '+trkErrText(e); } trkSelect(i.code); });
+  const cmSend=async()=>{ const t=(($id('trkCmIn')||{}).value||'').trim(), i=trkIssues.find(x=>x.code===trkSel); if(!t||!i||trkCmSending) return;
+    trkCmDraft=t; trkCmSending=true; trkCmSendErr=''; issRender();
+    try{ await trkCall('addComment',{ code:i.code, id:i.id, text:t }); trkCmDraft=''; trkCmSending=false; trkSelect(i.code); }
+    catch(e){ trkCmSending=false; trkCmSendErr='Não enviei o comentário: '+trkErrText(e); issRender(); const n=$id('trkCmIn'); if(n) n.focus(); } };
+  on('trkCmSend', cmSend); on('trkCmRetry', ()=>{ if(trkSel) trkSelect(trkSel); });
+  { const ci=body.querySelector('#trkCmIn'); if(ci){ ci.oninput=()=>{ trkCmDraft=ci.value; };
+      ci.onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){ e.preventDefault(); cmSend(); } }; } }
 }
 
 // ---------- observador em segundo plano (sem clique) ----------
@@ -932,4 +948,11 @@ function trkWatchStart(){
 }
 setTimeout(()=>{ trkLoad().then(()=>{ trkBadge(); if(trkReady()) trkWatchStart(); }).catch(()=>{}); }, 6000);
 bindClick('issuesClose', ()=>{ ovHide('issuesOverlay'); });
+// Esc com o detalhe da issue aberto fecha SÓ o detalhe (e devolve o foco ao cartão) — não a aba
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape'||!trkSel) return; const o=$id('issuesOverlay');
+  if(!o||o.style.display==='none'||trkView!=='board'||escBusy(e)) return;
+  e.stopImmediatePropagation(); const code=trkSel; trkSel=null; issRender();
+  const c=[...document.querySelectorAll('#issuesBody .trk-issue[data-trkcode]')].find(x=>x.dataset.trkcode===code); if(c) c.focus();
+}, true);
 $id('issuesOverlay').addEventListener('click',e=>{ if(e.target.id==='issuesOverlay') ovHide('issuesOverlay'); });

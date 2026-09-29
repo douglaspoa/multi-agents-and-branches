@@ -94,9 +94,11 @@ function skAiCreate(){
 function openNewProject(){ projNewOpen=true; projNewMsg=''; if(window.openTab) window.openTab('projetos'); else openProjetos(); setTimeout(()=>{ const i=$id('pnName'); if(i) i.focus(); }, 400); }
 window.openNewProject=openNewProject;
 async function skSetAll(on){
+  const before=(skList||[]).map(s=>s.active); // falhou salvar: volta como estava (antes a tela mostrava tudo ligado sem ter salvo)
   (skList||[]).forEach(s=>s.active=on);
   const active=on?(skList||[]).map(x=>({name:x.name,description:x.description||''})):[];
-  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ showErr(e, 'Falhou'); }
+  try{ await invoke('set_active_skills',{ skills: active }); }
+  catch(e){ (skList||[]).forEach((s,i)=>{ s.active=before[i]; }); showErr(e, on?'Não consegui ligar as skills':'Não consegui desligar as skills'); }
   skRender();
 }
 async function skToggle(name, on){
@@ -117,7 +119,8 @@ async function skGitImport(){
   const picks=[...document.querySelectorAll('[data-gk]:checked')].map(c=>c.dataset.gk);
   if(!picks.length){ toast('Marque ao menos uma skill.','warn'); return; }
   const b=$id('skGitImport'); if(b){ b.disabled=true; b.textContent='importando…'; }
-  try{ await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks }); skAddOpen=false; skGitFound=null; await openSkills(); }
+  try{ await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks }); skAddOpen=false; skGitFound=null; await openSkills();
+    toast(picks.length===1?'Skill '+picks[0]+' importada — ligue ela no projeto pelo interruptor.':picks.length+' skills importadas — ligue as que quiser neste projeto.','ok'); }
   catch(e){ showErr(e, 'Falhou importar'); if(b){ b.disabled=false; b.textContent='importar selecionadas'; } }
 }
 async function skDoCreate(){
@@ -129,7 +132,7 @@ async function skDoCreate(){
 async function skDoImport(){
   const md=($id('skImpMd')||{}).value||'';
   if(!md.trim()){ toast('Cole o conteúdo do SKILL.md.','warn'); return; }
-  try{ await invoke('import_skill_md',{ content:md }); skAddOpen=false; await openSkills(); }
+  try{ await invoke('import_skill_md',{ content:md }); skAddOpen=false; await openSkills(); toast('Skill importada na biblioteca — ligue ela no projeto pelo interruptor.','ok'); }
   catch(e){ showErr(e, 'Falhou importar'); }
 }
 bindClick('skillsBtn', openSkills);
@@ -163,7 +166,8 @@ function projetosRender(ov){
       <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="as-badge" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)">aberto</span>':''}</div>
       <div class="pc2meta">${bits.join(' · ')}</div>
       <div class="pc2path mono">${esc(p.path)}</div>
-      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}">Finder</button><button class="btn sm" data-pjrm="${escA(p.path)}">remover</button></div>
+      ${p.path===state.repo&&typeof repoHasRemote==='function'&&!repoHasRemote()?`<div class="pc2pub"><span class="dim">${repoHasGit()?'só no seu computador — o time e os PRs precisam dele no GitHub':'pasta sem git — publicar cria o repositório e envia pro GitHub'}</span><button class="btn sm primary" data-pjpub="${escA(p.path)}">${IC.push}publicar no GitHub</button></div>`:''}
+      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}" title="abrir a pasta do projeto">${osKind()==='mac'?'Finder':'abrir pasta'}</button><span style="flex:1"></span><button class="btn sm ghost danger" data-pjrm="${escA(p.path)}" title="tira da lista do Starfork — não apaga nenhum arquivo">remover</button></div>
     </div>`;
   }).join('');
   const list=n ? `<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div>`
@@ -178,7 +182,10 @@ function projetosRender(ov){
   // BUG-15: open_url só aceita http(s) — o Finder abre pela reveal_project (e o erro aparece, não some calado)
   body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('reveal_project',{path:b.dataset.pjfx}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')));
   // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
-  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:p}); }catch(_){}
+  // E4 na aba Projetos: o projeto aberto sem GitHub ganha o "publicar" aqui mesmo (antes só aparecia na hora do PR)
+  body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=async()=>{ b.disabled=true; const ok=await publishGithub(); if(ok) openProjetos(); else b.disabled=false; });
+  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return;
+    try{ await invoke('remove_project',{path:p}); }catch(e){ showErr(e, 'Não consegui remover o projeto da lista'); return; } // antes o erro sumia calado e a lista recarregava como se tivesse removido
     if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
     if(window.loadProjects) await window.loadProjects(); openProjetos(); });
 }
