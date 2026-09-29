@@ -732,3 +732,5 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .pc2pub{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:9px 11px;border:1px dashed color-mix(in srgb,var(--info) 40%,var(--border));border-radius:var(--r-sm);font-size:12px}
 .pc2pub .dim{flex:1;min-width:180px}
 .pc2pub .btn svg{margin-right:5px}
+/* R7 (projetos): as opções do "novo projeto" herdavam o rótulo em CAIXA ALTA do formulário — texto normal, fácil de ler */
+#projNewCard label.pn-opt{text-transform:none;letter-spacing:normal;font-family:var(--display);color:var(--text);font-weight:400}

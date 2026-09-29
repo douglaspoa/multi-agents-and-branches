@@ -219,7 +219,7 @@ function agEditor(i){
     </div>
     <div class="two">
       <div><label>Categoria</label><input class="in" list="catList" data-i="${i}" data-k="role" value="${escA(a.role||'')}" placeholder="ex.: designer, backend…"></div>
-      <div><label>Motor</label><select class="sel" data-i="${i}" data-k="engine" style="width:100%"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select></div>
+      <div><label>Motor</label><select class="sel" data-i="${i}" data-k="engine" style="width:100%"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option>${(typeof devInstall!=='undefined'&&devInstall)||a.engine==='mock'?`<option value="mock"${a.engine==='mock'?' selected':''}>Mock (teste, sem IA)</option>`:''}</select></div>
     </div>
     <label style="display:block;margin-top:10px">Persona (instrução)</label>
     <textarea class="agpersona" data-i="${i}" data-k="persona" placeholder="o que este agente faz e como pensa">${esc(a.persona||'')}</textarea>
