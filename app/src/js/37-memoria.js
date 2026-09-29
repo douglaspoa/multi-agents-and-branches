@@ -305,7 +305,8 @@ function memMainHtml(n){
       '<span class="dim">'+(n.by?'por '+memEsc(n.by):'')+(n.atualizadaPor?' · atualizada por '+memEsc(n.atualizadaPor):'')+(n.updated?' · '+memEsc(memDateBR(n.updated)):'')+'</span></div>'+
     '<div class="mdview memmd">'+html+'</div>'+
     '<div class="memback"><div class="memlbl">citada por</div>'+(back.length?back.map(b=>'<a class="memlink" data-mscope="'+memEsc(b.scope)+'" data-mslug="'+memEsc(b.slug)+'">'+memEsc(b.title)+'</a>').join(''):'<span class="dim">nenhuma nota liga pra esta ainda</span>')+'</div>'+
-    '<div class="dim memfile">'+memEsc((n.scope==='time'?'.cardume/memoria/time/':'.cardume/memoria/')+n.slug+'.md')+'</div>'+
+    // R8: o caminho do arquivo é jargão pra quem não programa — fica recolhido em "onde fica este arquivo" (útil pro Obsidian)
+    '<details class="dim memfile"><summary>onde fica este arquivo</summary><span class="mono">'+memEsc((n.scope==='time'?'.cardume/memoria/time/':'.cardume/memoria/')+n.slug+'.md')+'</span></details>'+
   '</article>';
 }
 function memEditorHtml(){
