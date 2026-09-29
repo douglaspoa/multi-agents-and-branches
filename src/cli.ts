@@ -10,29 +10,10 @@ import { run } from "./util/run.ts";
 import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
+import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 
-// ---------- parse de flags simples ----------
-interface Args {
-  _: string[];
-  flags: Record<string, string>;
-  multi: Record<string, string[]>;
-}
-function parseArgs(argv: string[]): Args {
-  const a: Args = { _: [], flags: {}, multi: {} };
-  for (let i = 0; i < argv.length; i++) {
-    const t = argv[i];
-    if (t.startsWith("--")) {
-      const key = t.slice(2);
-      const val = argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[++i] : "true";
-      a.flags[key] = val;
-      (a.multi[key] ??= []).push(val);
-    } else {
-      a._.push(t);
-    }
-  }
-  return a;
-}
+// ---------- parse de flags simples (src/util/args.ts) ----------
 const list = (s?: string) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
 
 // ---------- render ----------
