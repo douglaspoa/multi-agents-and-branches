@@ -17,7 +17,7 @@
 .ld-b.ld-dot{border-radius:50%;flex:none}
 .ld-row{display:flex;gap:8px;margin-top:4px}
 .ld-head{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
-.ld-slow{font:500 12px var(--code);color:var(--text-3);letter-spacing:.02em}
+.ld-slow{font:500 var(--fs-sm) var(--code);color:var(--text-3);letter-spacing:.02em}
 .ld-slow:empty{display:none}
 
 /* formas */
@@ -52,7 +52,7 @@
 .ld-bar{position:absolute;top:0;left:0;right:0;height:2px;overflow:hidden;z-index:40;pointer-events:none}
 .ld-bar i{position:absolute;inset:0;background:var(--accent);transform-origin:0 50%;animation:ld-bar 1.4s cubic-bezier(.45,0,.25,1) infinite}
 @keyframes ld-bar{0%{transform:translateX(-40%) scaleX(.4)}60%{transform:translateX(60%) scaleX(.55)}100%{transform:translateX(100%) scaleX(.2)}}
-.ld-pill{position:absolute;top:10px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:40;pointer-events:none;font:500 11.5px var(--code);color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:99px;padding:4px 11px;box-shadow:var(--shadow-sm,none);animation:ld-in .2s ease-out}
+.ld-pill{position:absolute;top:10px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:40;pointer-events:none;font:500 var(--fs-xs) var(--code);color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:99px;padding:4px 11px;box-shadow:var(--shadow-sm,none);animation:ld-in .2s ease-out}
 
 /* loader da marca: a estrela que se bifurca, desenhada em traço. Só depois de 1,5 s (a menos que .ld-now) */
 .ld-brand{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:40px 16px;color:var(--accent);opacity:0;animation:ld-in .3s ease-out 1.5s forwards}
@@ -60,24 +60,26 @@
 .ld-brand.ld-inline{padding:18px 12px;flex-direction:row;gap:12px}
 .ld-brand svg{width:44px;height:44px;overflow:visible}
 .ld-brand.ld-inline svg{width:26px;height:26px}
-.ld-bl{font:500 12.5px var(--code);color:var(--text-2);letter-spacing:.02em;text-align:center}
+.ld-bl{font:500 var(--fs-sm) var(--code);color:var(--text-2);letter-spacing:.02em;text-align:center}
+.ld-brand .sf-g{stroke-width:1.1}
+.ld-brand .sf-star{fill:none;stroke-width:1.1}   /* em traço: o mesmo IC.starfork do logo, sem preenchimento */
 .ld-brand path{stroke-dasharray:1;stroke-dashoffset:1;animation:ld-draw 2.4s ease-in-out infinite}
-.ld-brand .ld-t2{animation-delay:.25s}
-.ld-brand .ld-t3{animation-delay:.4s}
+.ld-brand .sf-b1{animation-delay:.25s}
+.ld-brand .sf-b2{animation-delay:.4s}
 @keyframes ld-draw{0%{stroke-dashoffset:1;opacity:1}40%{stroke-dashoffset:0;opacity:1}80%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:0;opacity:0}}
 .ld-brand circle{transform-box:fill-box;transform-origin:center;animation:ld-node 2.4s ease-in-out infinite}
-.ld-brand .ld-n1{animation-delay:.1s}.ld-brand .ld-n2{animation-delay:.55s}.ld-brand .ld-n3{animation-delay:.7s}
+.ld-brand .sf-n1{animation-delay:.55s}.ld-brand .sf-n2{animation-delay:.7s}
 @keyframes ld-node{0%{opacity:.25;transform:scale(.6)}35%{opacity:1;transform:scale(1)}80%{opacity:1;transform:scale(1)}100%{opacity:.25;transform:scale(.6)}}
 
 /* vazio e erro padronizados: ícone, uma frase, uma linha de ajuda, UM botão */
 .ld-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:48px 16px;color:var(--text-2);font-family:var(--display)}
 .ld-empty .ld-ic{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-3)}
 .ld-empty .ld-ic svg{width:22px;height:22px}
-.ld-empty b{font:600 15px/1.35 var(--display);color:var(--text);max-width:520px}
-.ld-empty p{margin:0;font-size:12.5px;line-height:1.5;color:var(--text-3);max-width:440px}
+.ld-empty b{font:600 var(--fs-md)/1.35 var(--display);color:var(--text);max-width:520px}
+.ld-empty p{margin:0;font-size:var(--fs-sm);line-height:1.5;color:var(--text-3);max-width:440px}
 .ld-empty .ld-acts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px}
 .ld-empty.ld-err .ld-ic{color:var(--warn)}
-.ld-empty .ld-raw{font:400 11px var(--code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ld-empty .ld-raw{font:400 var(--fs-xs) var(--code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ld-empty [data-ldretry] svg{margin-right:6px}
 .go-sky{min-height:120px;display:grid;place-items:center;border-bottom:1px solid var(--border);background:var(--surface-2)}
 
