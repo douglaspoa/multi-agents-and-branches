@@ -46,7 +46,7 @@ test('checkUpdate redesenha o bloco "Versão" mesmo saindo cedo (sem sessão / d
     const f = new Function('SB', 'invoke', 'osKind', 'sbFetch', 'humanErr', '$id', 'toast', 'esc', 'ic', 'updRenderCfg',
       'let updInfo=null; let updLast={ at:0, ok:false, msg:"", dev:false, mine:0 }; let updToastFor=0;\n' + block + '\nreturn { checkUpdate, get last(){ return updLast; } };');
     const api = f(opts.SB, opts.invoke, () => 'mac', opts.sbFetch || (async () => { throw new Error('Failed to fetch'); }),
-      (e, ctx) => ({ msg: ctx + ' — Sem conexão agora — cheque a internet/VPN e tente de novo.' }), () => ({ style: {} }), () => {}, (s) => s, () => '', () => { renders++; });
+      (e, ctx) => ({ msg: ctx + ' — Sem conexão agora — cheque a internet/VPN e tente de novo.' }), opts.$id || (() => ({ style: {} })), opts.toast || (() => {}), (s) => s, () => '', () => { renders++; });
     const r = await api.checkUpdate(true);
     return { r, renders };
   };
@@ -57,6 +57,11 @@ test('checkUpdate redesenha o bloco "Versão" mesmo saindo cedo (sem sessão / d
   const net = await run({ SB: { sess: () => ({}) }, invoke: async () => false });
   assert.equal(net.renders, 1); assert.equal(net.r.ok, false); assert.doesNotMatch(net.r.msg, /Failed to fetch/);
   assert.match(net.r.msg, /^não deu pra checar/);
+  // versão nova com o botão "atualizar" fora do DOM (a barra de abas re-renderizou): não quebra e AVISA
+  let toasts = 0;
+  const neu = await run({ SB: { sess: () => ({}) }, invoke: async (c) => (c === 'build_info' ? '1000' : false),
+    sbFetch: async () => ({ buildMs: 999999, version: '29/09' }), $id: () => null, toast: () => { toasts++; } });
+  assert.equal(neu.r.ok, true); assert.match(neu.r.msg, /versão nova/); assert.equal(toasts, 1);
 });
 
 const cloudSrc = read('40-nuvem-conta.js');

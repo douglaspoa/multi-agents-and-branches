@@ -116,16 +116,16 @@ async function updCheckOnce(manual){
     if(j && j.buildMs && mine && j.buildMs > mine + 60000){
       updInfo=j;
       const b=$id('updBtn');
-      b.style.display=''; b.innerHTML=ic('upload')+'atualizar'+(j.version?(' · '+esc(j.version)):'');
+      if(b){ b.style.display=''; b.innerHTML=ic('upload')+'atualizar'+(j.version?(' · '+esc(j.version)):''); }
       updLast.ok=true; updLast.msg='versão nova disponível'+(j.version?' · '+j.version:'');
       // aviso ativo UMA vez por versão (o botão do topo fica até atualizar)
       if(updToastFor!==j.buildMs){
         updToastFor=j.buildMs;
         toast('Versão nova do Starfork'+(j.version?' ('+j.version+')':'')+(j.notes?' — '+j.notes:'')+'. Atualiza em ~10s; tarefas rodando continuam.', 'info',
-          { label:'atualizar agora', fn:()=>applyUpdate($id('updBtn'), true) }, { label:'depois', fn:()=>{} });
+          { label:'atualizar agora', fn:()=>applyUpdate($id('updBtn')||$id('updApplyCfg')||document.createElement('button'), true) }, { label:'depois', fn:()=>{} });
       }
     }else{
-      updInfo=null; $id('updBtn').style.display='none';
+      updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; }
       updLast.ok=true; updLast.msg='você está na versão mais recente'+(j&&j.version?' (canal: '+j.version+')':'');
     }
   }catch(e){ updLast.ok=false; updLast.msg=updErrMsg(e); }
@@ -149,7 +149,7 @@ async function applyUpdate(btn, confirmed){
     btn.textContent='reabrindo…';
   }catch(e){ showErr(e, 'Atualização falhou (dá pra baixar a versão nova manualmente em starfork.com.br)'); btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; }
 }
-$id('updBtn').onclick=function(){ applyUpdate(this); };
+{ const b=$id('updBtn'); if(b) b.onclick=function(){ applyUpdate(this); }; }
 // boot: tenta aos 5s e, enquanto não conseguir uma checagem válida (sessão ainda
 // carregando, rede fora), insiste a cada 60s por até 15 min; depois, de 2 em 2 min.
 setTimeout(async()=>{

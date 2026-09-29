@@ -303,6 +303,10 @@ function renderTabs(){
   // numera só as abas que ainda têm o título genérico ("Montar conversando 1, 2…")
   const counts={}; TABS.forEach(t=>{ if(t.title===((VIEW_META[t.kind]||{}).title||t.kind)) counts[t.kind]=(counts[t.kind]||0)+1; });
   const seen={};
+  // o botão "atualizar" mora DENTRO da barra: tira ele antes do innerHTML e devolve depois. Antes o 2º render
+  // da barra destruía o botão → checkUpdate quebrava em "$id('updBtn').style" (null) e o aviso de versão nova
+  // nunca aparecia (nem o botão, nem o toast).
+  const updKeep=$id('updBtn'); if(updKeep && bar.contains(updKeep)) updKeep.remove();
   bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+TABS.map(t=>{
     const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
@@ -314,7 +318,7 @@ function renderTabs(){
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
   { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
-  { const u=$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
+  { const u=updKeep||$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
   requestAnimationFrame(syncChromeH);
 }
 $id('bdClose').onclick=()=>bdClosePlan();
