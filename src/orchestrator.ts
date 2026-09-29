@@ -45,13 +45,30 @@ export function refName(src: string, taken: string[]): string {
   return name;
 }
 
-/** O processo existe? (kill 0 — EPERM = existe, de outro usuário). PID morto não segura lock. */
-export function pidAlive(pid: number): boolean {
+/** O dono do lock ainda está vivo? kill 0 (EPERM = existe, de outro usuário) e, com `since` (quando o lock
+ * foi pego), um processo que NASCEU depois do lock é um PID reciclado — lock obsoleto. PID morto não segura lock. */
+export function pidAlive(pid: number, since: number | null = null): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (e) {
-    return (e as NodeJS.ErrnoException)?.code === "EPERM";
+    if ((e as NodeJS.ErrnoException)?.code !== "EPERM") return false;
+  }
+  if (since) {
+    const started = processStartMs(pid);
+    if (started !== null && started > since + 2000) return false; // folga: relógio/arredondamento do ps
+  }
+  return true;
+}
+
+/** Início do processo (ms) via `ps -o lstart=` — null quando não dá pra saber (Windows, ps ausente). */
+export function processStartMs(pid: number): number | null {
+  if (process.platform === "win32") return null;
+  try {
+    const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" } }).trim();
+    const t = Date.parse(out);
+    return Number.isFinite(t) ? t : null;
+  } catch {
+    return null;
   }
 }
 
@@ -737,6 +754,18 @@ export class Orchestrator {
     if (!this.tryLock(taskId)) {
       this.store.queueAdd(taskId, kind, payload);
       const pos = this.store.queueCount(taskId);
+      // o turno pode ter ACABADO entre a checagem e o enfileiramento (ele já drenou a fila vazia):
+      // lock livre agora → FICA com ele e roda a fila daqui (inclui este pedido), sem soltar no meio
+      if (this.tryLock(taskId)) {
+        this.expireOrphanQueue(taskId);
+        try {
+          await this.drainLocked(taskId);
+        } finally {
+          this.store.setBusyPid(taskId, null);
+          await this.drainQueue(taskId);
+        }
+        return;
+      }
       this.store.addEvent(
         taskId,
         "Sistema",
@@ -744,12 +773,6 @@ export class Orchestrator {
         `Na fila (${pos}º): ${this.queueLabel(kind, payload)} — o agente está no meio de um turno; executo automaticamente assim que ele terminar.`,
         true,
       );
-      // o turno pode ter ACABADO entre a checagem e o enfileiramento (ele já drenou a fila vazia):
-      // sem isto o pedido ficava parado até o próximo turno. Lock livre agora → drena daqui mesmo.
-      if (this.tryLock(taskId)) {
-        this.store.setBusyPid(taskId, null);
-        await this.drainQueue(taskId);
-      }
       return;
     }
     this.expireOrphanQueue(taskId);
@@ -778,10 +801,22 @@ export class Orchestrator {
   /** Roda os pedidos enfileirados, em ordem, até esvaziar (ou outro processo assumir). */
   private async drainQueue(taskId: string): Promise<void> {
     for (;;) {
+      if (!this.store.queueNext(taskId)) return;
+      if (!this.tryLock(taskId)) return; // outro processo pegou o lock — ele drena
+      try {
+        await this.drainLocked(taskId);
+      } finally {
+        this.store.setBusyPid(taskId, null);
+      }
+    }
+  }
+
+  /** Esvazia a fila JÁ segurando o lock (não solta entre um pedido e outro). */
+  private async drainLocked(taskId: string): Promise<void> {
+    for (;;) {
       const item = this.store.queueNext(taskId);
       if (!item) return;
-      if (!this.tryLock(taskId)) return; // outro processo pegou o lock — ele drena
-      this.store.queueDone(item.id);
+      if (!this.store.queueDone(item.id)) continue; // outro processo já tomou este pedido
       let p: Record<string, unknown> = {};
       try { p = JSON.parse(item.payload || "{}"); } catch { /* payload corrompido — segue vazio */ }
       this.store.addEvent(taskId, "Sistema", "note", `▶ executando pedido da fila: ${this.queueLabel(item.kind, p)}`, true);
@@ -791,8 +826,6 @@ export class Orchestrator {
         else if (item.kind === "rework") await this.reworkTaskInner(taskId);
       } catch (err) {
         this.store.addEvent(taskId, "Sistema", "error", `pedido da fila falhou: ${(err as Error).message}`, false);
-      } finally {
-        this.store.setBusyPid(taskId, null);
       }
     }
   }
@@ -823,9 +856,11 @@ export class Orchestrator {
     } catch (err) {
       const msg = (err as Error)?.message || String(err);
       try {
-        if (this.store.getTask(taskId)) {
+        const t = this.store.getTask(taskId);
+        if (t) {
           this.store.addEvent(taskId, "Sistema", "error", `a execução parou por um erro inesperado: ${msg.slice(0, 300)}`, false);
-          this.store.setStatus(taskId, "error");
+          // só tira do estado "em andamento" — conflito/bloqueado/aguardando/plano/review ficam como estão
+          if (["running", "thinking", "queued"].includes(t.status)) this.store.setStatus(taskId, "error");
         }
       } catch { /* banco indisponível: o erro original é o que importa */ }
       throw err;
