@@ -1633,8 +1633,7 @@ fn create_project(
 
 /// Pasta padrão dos projetos criados pelo "Começar" da tela vazia: ~/Documents/Starfork
 fn starfork_projects_dir() -> PathBuf {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join("Documents").join("Starfork")
+    PathBuf::from(home_dir_s()).join("Documents").join("Starfork")
 }
 
 /// Nome livre dentro de `parent`: `slug`, senão `slug-2`, `slug-3`…
@@ -6698,7 +6697,7 @@ fn check_stops() -> &'static Mutex<std::collections::HashSet<String>> { CHECK_ST
 fn checks_path_env() -> String {
     let mut dirs: Vec<String> = vec![];
     if let Some(d) = Path::new(&node_bin()).parent() { dirs.push(d.display().to_string()); }
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let home = home_opt().unwrap_or_default();
     for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin"] { dirs.push(d.into()); }
     if !home.is_empty() {
         dirs.push(format!("{home}/.cargo/bin"));
@@ -6913,14 +6912,23 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
 }
 
 // ---------- Entrega sem código: salvar os entregáveis numa pasta do usuário ----------
-/// Pasta do usuário em qualquer SO: HOME (macOS/Linux) ou USERPROFILE (Windows não tem HOME).
-/// Antes, 11 lugares liam só o HOME: no Windows o cofre (llm.env), settings.json, skills e o
-/// catálogo global caíam numa pasta RELATIVA ao diretório atual — o motor (homedir()) não achava.
-fn home_dir_s() -> String { home_from(std::env::var("HOME").ok(), std::env::var("USERPROFILE").ok()) }
-fn home_from(home: Option<String>, profile: Option<String>) -> String {
-    home.filter(|h| !h.trim().is_empty())
-        .or(profile.filter(|p| !p.trim().is_empty()))
-        .unwrap_or_else(|| ".".into())
+/// Pasta do usuário em qualquer SO — a mesma que o motor enxerga (Node os.homedir()): no Windows
+/// USERPROFILE primeiro; no macOS/Linux HOME. Antes, 11 lugares liam só o HOME: no Windows o cofre
+/// (llm.env), settings.json, skills e o catálogo global caíam numa pasta RELATIVA ao diretório atual.
+fn home_dir_s() -> String {
+    home_opt().unwrap_or_else(|| {
+        // nunca em silêncio: sem pasta do usuário, cofre/configurações iriam pra pasta atual
+        eprintln!("[starfork] pasta do usuário não encontrada (HOME/USERPROFILE vazios) — usando a pasta atual");
+        ".".into()
+    })
+}
+fn home_opt() -> Option<String> {
+    home_from(std::env::var("HOME").ok(), std::env::var("USERPROFILE").ok(), cfg!(windows))
+}
+fn home_from(home: Option<String>, profile: Option<String>, windows: bool) -> Option<String> {
+    let home = home.filter(|h| !h.trim().is_empty());
+    let profile = profile.filter(|p| !p.trim().is_empty());
+    if windows { profile.or(home) } else { home.or(profile) }
 }
 /// Pasta padrão das entregas: ~/Documents/Starfork/Entregas
 #[tauri::command(async)]
@@ -7443,16 +7451,19 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     let mut c = Command::new(gh_bin());
     c.args(["pr", "merge", &branch, m, "--delete-branch"]).args(gh_repo_args(&repo)).current_dir(&repo);
     // teto: sem ele uma rede pendurada deixava o botão "mergeando…" pra sempre
-    let out = output_timeout(c, 120)?;
-    if !out.status.success() {
+    let res = output_timeout(c, 120);
+    let gh_ok = matches!(&res, Ok(o) if o.status.success());
+    let mut cleanup_branch = false;
+    if !gh_ok {
         // o `--delete-branch` tenta apagar a branch LOCAL — presa na worktree da tarefa, o gh falha DEPOIS
-        // de mergear no GitHub. Antes: erro na tela, tarefa não marcada, PR já mergeado. Confere o estado real.
+        // de mergear no GitHub; e um teto estourado pode ter chegado ao GitHub também. Confere o estado real.
         let mut v = Command::new(gh_bin());
         v.args(["pr", "view", &branch, "--json", "state", "--jq", ".state"]).args(gh_repo_args(&repo)).current_dir(&repo);
         let state_after = output_timeout(v, 20).ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string());
-        if !pr_merge_landed(out.status.success(), state_after.as_deref()) {
-            return Err(String::from_utf8_lossy(&out.stderr).to_string());
+        if !pr_merge_landed(false, state_after.as_deref()) {
+            return Err(match res { Ok(o) => String::from_utf8_lossy(&o.stderr).to_string(), Err(e) => e });
         }
+        cleanup_branch = true; // o gh não terminou a limpeza: fazemos depois de tirar a worktree
     }
     // marca merged localmente + remove a worktree
     // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
@@ -7463,6 +7474,18 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
             preview_kill(&state.procs, &task_id);
             remove_task_worktree(&repo, &conn, &task_id);
             let _ = conn.execute("UPDATE task SET status='merged' WHERE id=?1", params![task_id]);
+        }
+    }
+    if cleanup_branch {
+        // best-effort: branch local (liberada agora que a worktree saiu) e a remota, se ainda existir
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["worktree", "prune"]).output();
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["branch", "-D", &branch]).output();
+        let mut ls = Command::new("git");
+        ls.arg("-C").arg(&repo).args(["ls-remote", "--heads", "origin", &branch]).env("GIT_TERMINAL_PROMPT", "0");
+        if output_timeout(ls, 20).map(|o| !o.stdout.is_empty()).unwrap_or(false) {
+            let mut del = Command::new("git");
+            del.arg("-C").arg(&repo).args(["push", "origin", "--delete", &branch]).env("GIT_TERMINAL_PROMPT", "0");
+            let _ = output_timeout(del, 30);
         }
     }
     Ok("PR mergeado".to_string())
@@ -8842,11 +8865,15 @@ mod motor_r7_tests {
 
     #[test]
     fn pasta_do_usuario_no_windows_usa_userprofile() {
-        assert_eq!(home_from(Some("/Users/ana".into()), None), "/Users/ana");
-        assert_eq!(home_from(None, Some("C:\\Users\\ana".into())), "C:\\Users\\ana");
-        // HOME vazio (alguns launchers exportam HOME=) não pode virar pasta relativa
-        assert_eq!(home_from(Some("".into()), Some("C:\\Users\\ana".into())), "C:\\Users\\ana");
-        assert_eq!(home_from(None, None), ".");
+        // macOS/Linux: HOME; sem HOME, USERPROFILE
+        assert_eq!(home_from(Some("/Users/ana".into()), Some("C:\\Users\\x".into()), false).as_deref(), Some("/Users/ana"));
+        assert_eq!(home_from(None, Some("C:\\Users\\ana".into()), false).as_deref(), Some("C:\\Users\\ana"));
+        // Windows: USERPROFILE primeiro (igual ao os.homedir() do Node — um HOME do Git Bash não desvia o cofre)
+        assert_eq!(home_from(Some("/c/Users/ana".into()), Some("C:\\Users\\ana".into()), true).as_deref(), Some("C:\\Users\\ana"));
+        assert_eq!(home_from(Some("/c/Users/ana".into()), None, true).as_deref(), Some("/c/Users/ana"));
+        // vazio não conta; sem nenhum → None (quem chama registra o aviso)
+        assert_eq!(home_from(Some("".into()), Some("C:\\Users\\ana".into()), false).as_deref(), Some("C:\\Users\\ana"));
+        assert_eq!(home_from(None, None, false), None);
     }
 
     #[test]
