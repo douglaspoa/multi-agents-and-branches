@@ -79,7 +79,7 @@ async function ntAiComplete(){
     if(wizModeOn() && wizN===1){
       wizN=2; wizRender();
       const m=$id('wizMiss');
-      if(m){ m.textContent='✦ preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
+      if(m){ m.innerHTML=IC.starforkEm+' preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
     }
   }catch(e){ showErr(e, 'Não consegui completar'); }
   finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }

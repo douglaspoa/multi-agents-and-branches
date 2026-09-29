@@ -52,13 +52,15 @@ function epicPageOpenInner(tab){
 window.epicPageOpenInner=epicPageOpenInner;
 
 async function epicPageLoad(id){
+  let tasksErr=null;
   const [fresh, tasks]=await Promise.all([
     sbGet('epics?select=*&id=eq.'+id).then(r=>(r&&r[0])||null).catch(()=>null),
     // linha completa: a página agora tem "▶ iniciar" por tarefa (teamClaimStart precisa do cartão inteiro)
-    sbGet('tasks?select=*&epic_id=eq.'+id+'&order=created_at').catch(()=>null),
+    sbGet('tasks?select=*&epic_id=eq.'+id+'&order=created_at').catch(e=>{ tasksErr=e||new Error('falha'); return null; }),
   ]);
   const c=epCache[id]||{ ep:null, tasks:[], loaded:false }; epCache[id]=c;
   if(tasks) c.tasks=tasks;
+  c.err=tasks?null:tasksErr; // falhou a leitura: a página mostra o erro com "tentar de novo" (antes dizia "nenhuma tarefa neste épico")
   if(fresh){
     c.ep=fresh;
     if(epTab&&epTab.id===id) epTab={ ...epTab, ...fresh };
@@ -121,7 +123,7 @@ function epicPageRender(){
                               : `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a entrega pra revisar">revisar</button>`)
       : bad ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a tarefa pra ver o erro">ver o problema</button>` : '';
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
-    return `<div class="ep-task" data-ept="${escA(t.id)}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:esc(stIcon(est))}</span><div class="en-rt">
+    return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:esc(stIcon(est))}</span><div class="en-rt">
       <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${stTx}${t.assignee?' · '+esc(tmName(t.assignee)):''}</span></div>
       ${vtx||cov.length?`<div class="ep-verify">${vtx?'✓ prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
@@ -131,13 +133,14 @@ function epicPageRender(){
     return `<div class="ep-wave${w===curWave?' cur':''}" title="${escA(EP_WAVE_TIP)}">ONDA ${w} · ${ok}/${l.length} entregues${rvN?' · '+rvN+' em revisão':''}${ok===l.length?' ✓':w===curWave?' · atual':''}</div>`; };
   const tasksHtml = tasks.length
     ? waves.map(w=>`${waveHead(w)}${byWave[w].map(taskRow).join('')}`).join('')
+    : c.err ? errorHtml(c.err, 'epTasksRetry', 'Não consegui carregar as tarefas do épico')
     : `<div class="en-empty">${c.loaded?'nenhuma tarefa neste épico ainda':skeletonHtml('lista',{ n:4, compact:true, inline:true, label:'carregando as tarefas do épico' })}</div>`;
   const dwHtml = dw.length
     ? dw.map((d,i)=>`<label class="ep-dw${d.checkedBy?' ok':''}"><input type="checkbox" data-epdw="${i}" ${d.checkedBy?'checked':''}${can?'':' disabled'}><span class="en-rt">
         <div><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(d.id||('D'+(i+1)))}</span> ${esc(d.text||'')}</div>
         ${d.checkedBy?`<div class="ep-dwby">marcado por ${epWho(d.checkedBy)}${d.checkedAt?' · há '+agoTx(d.checkedAt):''}${d.evidence?' · '+esc(d.evidence):''}</div>`:''}
       </span></label>`).join('')
-    : `<div class="en-empty">${legacy?'épico antigo, sem "pronto quando"':'sem checagens definidas'} — ele fecha pelo botão abaixo</div>`;
+    : `<div class="en-empty">${legacy?'épico antigo, sem "pronto quando"':'sem checagens definidas'}${ep.status==='done'?' — já está concluído':can?' — ele fecha pelo botão abaixo':' — quem criou o épico (ou um admin) fecha quando terminar'}</div>`;
   // R3-C2: status aparece UMA vez (sobretítulo); os números viram uma faixa compacta ABAIXO da descrição
   // (antes eram 5 blocos ao lado, apertando o texto, e "em andamento" aparecia 3 vezes)
   main.innerHTML=`<div class="enpage">
@@ -149,8 +152,8 @@ function epicPageRender(){
         ${sp.description?`<p class="en-obj dim" style="font-size:12px">${esc(sp.description)}</p>`:''}
         <div class="en-kpis ep-kpis">
           ${sp.issue&&sp.issue.code?`<button class="en-kpi" ${sp.issue.url?`data-lk="${escA(sp.issue.url)}" title="abrir a issue do épico no painel"`:'disabled'}><b>${esc(sp.issue.code)}</b><span>issue${sp.issue.url?' ↗':''}</span></button>`:''}
-          <div class="en-kpi" title="${escA(okN+' de '+dw.length+' critérios de pronto marcados — o épico fecha com todos')}"><b>${okN}/${dw.length}</b><span>pronto quando</span></div>
-          <div class="en-kpi" title="${escA(doneN+" de "+tasks.length+" tarefas mergeadas ou concluídas"+(revN?" · "+revN+" em revisão (pronta pra revisar ou PR aberto)":""))}"><b>${doneN}/${tasks.length}</b><span>tarefas entregues</span></div>
+          ${dw.length?`<div class="en-kpi" title="${escA(okN+' de '+dw.length+' critérios de pronto marcados — o épico fecha com todos')}"><b>${okN}/${dw.length}</b><span>pronto quando</span></div>`:''}
+          ${c.err&&!tasks.length?'':`<div class="en-kpi" title="${escA(doneN+" de "+tasks.length+" tarefas mergeadas ou concluídas"+(revN?" · "+revN+" em revisão (pronta pra revisar ou PR aberto)":""))}"><b>${doneN}/${tasks.length}</b><span>tarefas entregues</span></div>`}
           ${curWave?`<div class="en-kpi" title="${escA(EP_WAVE_TIP)}"><b>${curWave}/${waves.length}</b><span>onda atual</span></div>`:''}
         </div>
         <div class="ctp-who">${tsAv(ep.created_by, tsOnline(ep.created_by))}<span>criado por <b>${esc(tmName(ep.created_by))}</b>${ep.created_at?' · há '+agoTx(ep.created_at):''}</span></div>
@@ -167,11 +170,13 @@ function epicPageRender(){
       <section class="en-sec"><div class="seclbl2">Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por onda (a próxima começa quando esta termina); clique pra abrir</span></div>${tasksHtml}</section>
     </div>
     ${conv.length?`<details class="en-sec ep-conv"><summary class="seclbl2">Conversa que originou o épico <span class="dim">· ${conv.length} mensage${conv.length===1?'m':'ns'} do "montar conversando"</span></summary>
-      ${conv.map(m=>`<div class="plmsg ${m.who==='you'?'you':'bot'}">${m.who==='bot'?'<span class="plav">✦</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(String(m.text||'')):esc(m.text||'')}</div></div>`).join('')}</details>`:''}
+      ${conv.map(m=>`<div class="plmsg ${m.who==='you'?'you':'bot'}">${m.who==='bot'?'<span class="plav">'+IC.starfork+'</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(String(m.text||'')):esc(m.text||'')}</div></div>`).join('')}</details>`:''}
   </div>`;
   main.querySelectorAll('[data-epdw]').forEach(cb=>cb.onchange=()=>epicToggleDone(ep, +cb.dataset.epdw, cb.checked));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
-  main.querySelectorAll('[data-ept]').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('[data-epgo],[data-eprev]')) return; const t=(c.tasks||[]).find(x=>x.id===r.dataset.ept); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); });
+  main.querySelectorAll('[data-ept]').forEach(r=>{ r.onclick=(e)=>{ if(e.target.closest('[data-epgo],[data-eprev]')) return; const t=(c.tasks||[]).find(x=>x.id===r.dataset.ept); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); };
+    r.onkeydown=(e)=>{ if((e.key==='Enter'||e.key===' ')&&e.target===r){ e.preventDefault(); r.onclick(e); } }; });
+  if(c.err && !tasks.length) ldWireErr(main, c.err, 'Não consegui carregar as tarefas do épico', ()=>{ c.err=null; c.loaded=false; epicPageRender(); epicPageLoad(ep.id).then(()=>{ if(epTab&&epTab.id===ep.id) epicPageRender(); }); });
   main.querySelectorAll('[data-eprev]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=(c.tasks||[]).find(x=>x.id===b.dataset.eprev); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); });
   main.querySelectorAll('[data-epgo]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const t=(c.tasks||[]).find(x=>x.id===b.dataset.epgo); if(!t) return;
     await epCardStart(t, b); await epicPageLoad(ep.id); if(epTab&&epTab.id===ep.id) epicPageRender(); });
@@ -187,11 +192,19 @@ async function epicPatch(ep, body){
   teamTasks=null; teamPaintSig=''; if(typeof renderTeamBoard==='function') renderTeamBoard();
 }
 // marca/desmarca um item do "pronto quando"; com tudo marcado o épico fecha; desmarcar reabre (não há botão "reabrir" — a regra é só essa)
+let epDwBusy=false; // um PATCH do checklist por vez: dois cliques rápidos liam o mesmo spec e o 2º apagava o 1º
 async function epicToggleDone(ep, idx, on){
+  if(epDwBusy) return; epDwBusy=true;
+  document.querySelectorAll('#epicPageMain [data-epdw]').forEach(x=>{ x.disabled=true; });
+  try{ await epicToggleDoneRun(ep, idx, on); }
+  finally{ epDwBusy=false; // sempre destrava: redesenha a página do épico (se ainda é ela) ou só reabilita os checkboxes
+    if(epTab&&epTab.id===ep.id) epicPageRender(); else document.querySelectorAll('#epicPageMain [data-epdw]').forEach(x=>{ x.disabled=false; }); }
+}
+async function epicToggleDoneRun(ep, idx, on){
   // parte do spec FRESCO da nuvem: outro membro ou o agente revisor podem ter marcado itens enquanto a aba ficou aberta
   try{ const f=(await sbGet('epics?select=spec,status&id=eq.'+ep.id))[0]; if(f){ ep={ ...ep, ...f }; } }catch(_){ }
   const spec={ ...(ep.spec||{}) }; const dw=(Array.isArray(spec.doneWhen)?spec.doneWhen:[]).map(d=>({ ...d }));
-  if(!dw[idx]) return;
+  if(!dw[idx]){ epicPageRender(); return; }
   if(on){ dw[idx].checkedBy=cloudUserId(); dw[idx].checkedAt=new Date().toISOString(); }
   else { delete dw[idx].checkedBy; delete dw[idx].checkedAt; delete dw[idx].evidence; }
   spec.doneWhen=dw;
@@ -199,7 +212,7 @@ async function epicToggleDone(ep, idx, on){
   const c=epCache[ep.id]; const started=!!(c&&(c.tasks||[]).some(t=>t.status!=='backlog'));
   const status= all ? 'done' : (ep.status==='done' ? (started?'in-progress':'open') : ep.status);
   try{ await epicPatch(ep, { spec, status }); }
-  catch(e){ showErr(e, 'Falha ao marcar'); epicPageRender(); }
+  catch(e){ showErr(e, 'Não consegui salvar a marcação'); epicPageRender(); }
 }
 async function epicSetStatus(ep, status){ try{ await epicPatch(ep, { status }); }catch(e){ showErr(e, 'Falha'); } }
 // 1ª tarefa rodando → épico em andamento. Só sai de `open` (nunca reabre um `done` sozinho).
@@ -520,12 +533,22 @@ async function epCardStart(ct, btn){
   try{
     const pj=(typeof teamProj!=='undefined'&&teamProj&&teamProj[ct.project_id])||(ct.project_id?((await sbGet('projects?select=name,repo_remote&id=eq.'+ct.project_id))[0]||{}):{});
     const hereIds=await repoRemoteIds();
-    if(pj.repo_remote && hereIds.remote && !remoteSame(pj.repo_remote, hereIds)){ alert('Esta tarefa é do projeto '+(pj.name||pj.repo_remote)+'. Abra esse projeto e clique em iniciar de novo.'); return; }
+    // alert() no Tauri não é confiável (igual ao confirm) — o aviso vai no toast, com o atalho pra trocar de projeto
+    if(pj.repo_remote && hereIds.remote && !remoteSame(pj.repo_remote, hereIds)){ toast('Esta tarefa é do projeto '+(pj.name||pj.repo_remote)+'. Abra esse projeto e clique em iniciar de novo.','warn',{ label:'abrir '+(pj.name||'o projeto'), fn:()=>epOpenProjectOf(pj) }); return; }
     const left=((ct.spec||{}).after||[]).filter(a=>(a in epQueue.stOf) && !epDepDone(a));
     if(left.length && !await askYes('Ainda depende de: '+left.map(a=>epQueue.titleOf[a]||a).join(', ')+' (não concluída).\n\nIniciar mesmo assim?')) return;
     await teamClaimStart(ct, btn||null);
     epicAutoStartTick();
   }catch(e){ showErr(e, 'Não deu pra iniciar'); }
+}
+// abre (troca pra) o projeto LOCAL cujo remote é o do cartão; não achou nesta máquina → aba Projetos
+async function epOpenProjectOf(pj){
+  try{
+    const locals=(await invoke('list_projects'))||[];
+    for(const p of locals){ const ids=await repoRemoteIds(p.path); if(remoteSame(pj.repo_remote, ids)){ if(window.switchProject) await window.switchProject(p.path); return; } }
+  }catch(e){ console.warn('abrir projeto do cartão', e); }
+  toast('O projeto '+(pj.name||pj.repo_remote||'')+' não está aberto nesta máquina — abra ou clone a pasta dele em Projetos.','warn');
+  if(window.openTab) window.openTab('projetos');
 }
 // ✕ cancelar = tirar do backlog do time (as que dependiam dela deixam de esperar por ela)
 async function epCardCancel(ct){

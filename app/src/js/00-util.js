@@ -190,14 +190,15 @@ const ERR_CATALOG=[
 ];
 // ctx (opcional): o que se tentava fazer ("Falha ao abrir o PR") — vira o prefixo da mensagem
 function humanErr(e, ctx){
-  const raw=errText(e);
+  const txt=errText(e);
+  const raw=(e&&typeof e==='object'&&e.raw!=null)?String(e.raw):txt; // {message:traduzido, raw:original}: a tela usa o texto, "ver detalhes" o original
   const pre=ctx?String(ctx).replace(/[\s:.…]+$/,''):'';
-  const hit=ERR_CATALOG.find(c=>c.re.test(raw));
+  const hit=ERR_CATALOG.find(c=>c.re.test(txt));
   if(hit){
     const action=(hit.act && ERR_ACTIONS[hit.act]) ? { label:hit.label, fn:ERR_ACTIONS[hit.act] } : null;
     return { id:hit.id, msg:(pre?pre+' — ':'')+hit.msg, action, raw };
   }
-  const first=errFirstLine(raw)||'erro sem detalhe';
+  const first=errFirstLine(txt)||'erro sem detalhe';
   return { id:'generic', msg:(pre||'Algo deu errado')+': '+first, action:null, raw };
 }
 // detalhes do erro cru (recolhido): pra quem quer ver/copiar o que o sistema disse

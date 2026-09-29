@@ -138,7 +138,7 @@ function renderTeamBoard(){
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:10px;opacity:.8">${n}</span>`:''}</button>`).join('')+
-    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono" style="font-size:10.5px;align-self:center">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
+    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono tsnavlbl" style="font-size:10.5px;align-self:center;white-space:nowrap">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   const epicChips=(teamEpics.length?teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(epDelivered).length;
@@ -186,7 +186,7 @@ function renderTeamBoard(){
       <div class="tspanel"><div class="tsph">Entregas por membro</div>
         ${(()=>{ const per={}; for(const t of inP){ const w=t.assignee||t.created_by; const b=per[w]||(per[w]={d:0,r:0,u:0}); if(B.done(t)||B.review(t)) b.d++; else if(tsBucket(t)==='andamento') b.r++; b.u+=(+t.cost_usd||0); }
           const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
-          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who">${tsAv(u,tsOnline(u))}${esc(tmName(u)).slice(0,14)}</span><span class="what">${nPl(v.d,'entrega')} · ${v.r} em andamento</span><span class="dim" style="font-size:11px">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:12px">sem atividade no período</div>'; })()}
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entrega')} · ${v.r} em andamento</span><span class="dim tscost" style="font-size:11px">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:12px">sem atividade no período</div>'; })()}
       </div>
     </div></div>`;
   } else if(tmView==='board'){

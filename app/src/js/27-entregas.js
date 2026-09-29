@@ -6,7 +6,7 @@ function taskIsDone(t){ return !!t && (t.flag==='closed' || TASK_DONE_ST.include
 function prNumOf(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
 function agoShort(ms){ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
 function fmtDurMs(ms){ ms=Math.max(0,ms||0); const m=Math.round(ms/60000); if(m<60) return m+' min'; const h=Math.floor(m/60); return h<48?`${h}h${String(m%60).padStart(2,'0')}`:Math.round(h/24)+' dias'; }
-function taskDurationMs(t){ const evs=eventsOf(t.id); const last=evs.length?+new Date(evs[evs.length-1].ts):0; const a=t.createdAt||t.created_at||0; return last&&a?last-a:0; }
+function taskDurationMs(t){ const evs=eventsOf(t.id); const last=evs.length?+new Date(evs[evs.length-1].ts):0; const a=taskTs(t); return last&&a?last-a:0; }
 // ---- requisitos com estado de prova (mesma regra do resumo/lateral) ----
 function reqRows(t){
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
@@ -74,7 +74,7 @@ function flowDemandCard(t){
     <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}<span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span>${t.orchestration?`<span class="dc-orq" data-orq="${escA(t.orchestration.id)}" data-orq-task="${escA(t.id)}" title="fase ${escA(t.orchestration.phase||'')} do plano — abrir o grafo">◉ ${esc(String(t.orchestration.title||'plano').slice(0,28))}</span>`:''}<span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar">⋯</button></div>
     ${t.objective?`<div class="dc-obj">${esc(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].replace(/\s+/g,' ').slice(0,220))}</div>`:''}
     ${reqsHtml}
-    <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${mName?` <span class="dc-model" title="${escA(t.model)}">· ${esc(mName)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):(t.createdAt||t.created_at))}</span></div>
+    <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${mName?` <span class="dc-model" title="${escA(t.model)}">· ${esc(mName)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):taskTs(t))}</span></div>
   </div>`;
 }
 // ---- ABA ENTREGA (dentro da demanda) ----
@@ -154,8 +154,9 @@ function enVerifHtml(t){
     : g.st==='loading' ? 'conferindo a versão do código desta tarefa…'
     : g.st==='err' ? esc(g.err)
     : g.st==='running' ? `rodando <b>${esc(live.cur?live.cur.label:'…')}</b> (${Math.min(live.done.length+1,g.on.length)} de ${g.on.length}) na cópia desta tarefa`
-    : g.st==='notrun' ? 'ainda não rodou nesta versão do código — rode pra liberar a aprovação'
-    : g.st==='stale' ? `<b>desatualizada</b>: o agente mexeu no código depois (verificada ${esc(short(r&&r.head))}${r&&r.dirty?'+':''}, agora ${esc(short(cur&&cur.head))}${cur&&cur.dirty?'+':''}). Rode de novo.`
+    // tarefa já concluída: não há aprovação a liberar (antes pedia "rode pra liberar a aprovação" até em tarefa mergeada)
+    : g.st==='notrun' ? (pre ? 'ainda não rodou nesta versão do código — rode pra liberar a aprovação' : done ? 'não rodou antes de concluir — dá pra rodar agora só pra conferir o código' : 'ainda não rodou nesta versão do código')
+    : g.st==='stale' ? `<b>desatualizada</b>: o agente mexeu no código depois (verificada ${esc(short(r&&r.head))}${r&&r.dirty?'+':''}, agora ${esc(short(cur&&cur.head))}${cur&&cur.dirty?'+':''}).${done?'':' Rode de novo.'}`
     : g.st==='fail' ? `<b>${nPl(g.bad.length,'checagem')} falhou</b> na versão atual — a aprovação fica bloqueada até corrigir (ou liberar com um motivo)`
     : g.st==='pass' ? `tudo verde na versão atual <span class="mono dim">${esc(short(r.head))}${r.dirty?'+':''}</span> · ${esc(agoShort(r.at))==='agora'?'agora':'há '+esc(agoShort(r.at))}`
     : g.st==='override' ? `${IC.warn} liberada ${g.was==='fail'?'com checagem falhando':'sem verificação'}: <b>${esc(g.ov.reason)}</b>` : '';
@@ -179,9 +180,11 @@ function enVerifHtml(t){
       <span style="flex:1"></span>
       ${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
       <button class="btn primary" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button></div>` : '';
-  return `<section class="en-sec en-verif vf-${g.st}" id="enVerif">
+  // concluída: sem o tom de alerta (amarelo) de "falta rodar" — é só informação
+  const pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
+  return `<section class="en-sec en-verif vf-${done&&['notrun','stale'].includes(g.st)?'done':g.st}" id="enVerif">
     <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade (exit code e log)</span><span style="flex:1"></span>
-      <span class="vf-pill ${pill[1]}">${pill[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
+      <span class="vf-pill ${pillShown[1]}">${pillShown[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
     <div class="vf-sum">${sum}</div>
     ${rows?`<div class="vf-rows">${rows}</div>`:''}
     ${cfgOpen?`<div class="vf-cfg" id="enChkCfg"></div>`:''}
@@ -197,7 +200,7 @@ function enWireVerif(t, main){
   bindClick('vfOverride', async()=>{ const g=chkGate(t); if(await chkOverride(t, g)){ renderWorkspace(); prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); } });
   bindClick('vfFix', async()=>{ const g=chkGate(t); if(g.st!=='fail') return;
     const msg='A verificação do projeto falhou na sua cópia. Corrija e rode de novo antes de entregar:\n\n'+g.bad.map(b=>`### ${b.label} — \`${b.cmd}\` (${b.timedOut?'passou do tempo-limite':'exit '+b.exitCode})\n\`\`\`\n${String(b.log||'').split('\n').slice(-40).join('\n')}\n\`\`\``).join('\n\n');
-    if(typeof fwSendText==='function'){ await fwSendText(t.id, msg); toast('log enviado ao agente','ok'); } });
+    if(typeof fwSendText==='function' && await fwSendText(t.id, msg)) toast('log enviado ao agente','ok'); }); // falhou: o showErr do envio já disse
   const cfgBox=$id('enChkCfg'); if(cfgBox && typeof chkCfgEditor==='function') chkCfgEditor(cfgBox, t.id, ()=>{ delete chkCfg[t.id]; chkRefresh(t.id); });
 }
 // ---- Prévia do entregável (FT-6) ----
@@ -301,7 +304,7 @@ function pvDecorateGlobe(t){
 // globo do topo: no ar → abre; fora do ar → leva pra Entrega, onde está o "subir de novo"
 function pvGlobeClick(t, url){
   const st=pvState(t);
-  if(st==='online' || st==='checando'){ invoke('open_url',{ url }).catch(()=>{}); return; }
+  if(st==='online' || st==='checando'){ invoke('open_url',{ url }).catch(e=>showErr(e, 'Não consegui abrir o app')); return; }
   fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
   setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-live'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
 }
@@ -342,7 +345,7 @@ async function pvStop(t){
 async function pvAskAgent(t){
   const msg='Suba de novo o servidor de preview desta tarefa e anuncie PREVIEW: http://127.0.0.1:PORTA/caminho, gravando também .cardume/preview.json (cmd, cwd, url) pra eu conseguir subir sozinho da próxima vez.';
   if(typeof fwSendText!=='function') return;
-  await fwSendText(t.id, msg); toast('pedido enviado ao agente','ok');
+  if(await fwSendText(t.id, msg)) toast('pedido enviado ao agente','ok'); else pvRerender(t.id); // falhou: o botão volta
 }
 // tick: só com a tarefa aberta, app visível e 1 checagem por vez
 function pvTick(){
@@ -386,7 +389,7 @@ function enLiveHtml(t){
     <button class="btn primary" id="enLiveOpen">${IC.globe} abrir o app</button></section>`;
 }
 function enWireLive(t){
-  bindClick('enLiveOpen', ()=>{ const pv=taskPreviewTarget(t); if(pv) invoke('open_url',{ url:pv }).catch(()=>{}); });
+  bindClick('enLiveOpen', ()=>{ const pv=taskPreviewTarget(t); if(pv) invoke('open_url',{ url:pv }).catch(e=>showErr(e, 'Não consegui abrir o app')); });
   bindClick('enLiveMob', async()=>{ const pv=taskPreviewTarget(t); if(!pv) return; const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
     if(tun){ if(typeof fwTunnelOff==='function') await fwTunnelOff(t); return; }
     toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); });
@@ -396,9 +399,7 @@ function enWireLive(t){
 }
 function fwRenderEntrega(t, main){
   const done=taskIsDone(t);
-  if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
-  const artC=artifactsCache[t.id];
-  if(!artC||artC.status!==t.status) loadArtifacts(t.id, t.status).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
+  fwReqProofsEnsure(t.id); fwArtsEnsure(t); // 1 leitura em voo por tarefa (antes: uma nova a cada render)
   if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
   if(!enDefDir) invoke('deliverables_default_dir').then(d=>{ if(d&&!enDefDir){ enDefDir=d; if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); } }).catch(()=>{});
   const arts=entregaArts(t);
@@ -418,12 +419,14 @@ function fwRenderEntrega(t, main){
   const dels=(t.deliverables||[]).filter(Boolean);
   const timeline=stageStepper(t).replace('<div class="seclbl" style="margin-top:13px">Etapas</div>','');
   const dur=fmtDurMs(taskDurationMs(t));
+  // sem requisitos: "0/0 requisitos provados" parecia reprovação — vira "—"
+  const reqKpi = rows.length ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>` : `<div class="en-kpi" title="esta demanda não tem critérios de aceite"><b>—</b><span>sem requisitos</span></div>`;
   const kpis = nonCode
-    ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
+    ? `${reqKpi}
        <div class="en-kpi"><b>${arts.length}</b><span>${arts.length===1?'arquivo entregue':'arquivos entregues'}</span></div>
        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${cost.usd>0?fmtCost(cost.usd):'duração'}</span></div>`
     : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
-        <div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
+        ${reqKpi}
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
         <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
   const pvSec=enPvHtml(t, nonCode?arts:docs);
@@ -532,7 +535,7 @@ function repShow(title, md, fileBase){
 // ---- relatório do PERÍODO (Concluídas): várias entregas num documento ----
 async function periodReport(){
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
-  const tasks=flowVisible(src).filter(taskIsDone).sort((a,b)=>b.created_at-a.created_at).slice(0,25);
+  const tasks=flowVisible(src).filter(taskIsDone).sort((a,b)=>taskTs(b)-taskTs(a)).slice(0,25);
   if(!tasks.length){ toast('Nenhuma demanda concluída neste filtro/período.','warn'); return; }
   const b=$id('flowPeriodRep'); if(b){ b.disabled=true; b.textContent='escrevendo…'; }
   try{

@@ -1,0 +1,26 @@
+[
+ {
+  "titulo": "Daily: \"database is locked\" e outros erros do SQLite ainda aparecem crus",
+  "motivo": "A tradução seria no ERR_CATALOG global (00-util), que outras ondas editam em paralelo — fica para uma rodada de erros."
+ },
+ {
+  "titulo": "Daily: a tela de erro perde o seletor de data",
+  "motivo": "O errorHtml padrão ocupa a aba toda; mudar isso mexe no componente compartilhado 06-carregamento."
+ },
+ {
+  "titulo": "Memória: caminho .cardume/memoria/… no rodapé da nota (jargão)",
+  "motivo": "Útil para quem usa o Obsidian; mover para \"Detalhes técnicos\" exige desenho da nota — fica para depois."
+ },
+ {
+  "titulo": "Configurações: fechar a aba com alterações não salvas descarta sem perguntar",
+  "motivo": "O fechar aba é genérico (10-core/closeTab); a confirmação por aba pede um contrato novo."
+ },
+ {
+  "titulo": "Grafo da Memória em canvas",
+  "motivo": "É estático (só repinta na interação), então não viola a regra de animação; trocar por SVG é trabalho grande."
+ },
+ {
+  "titulo": "Mesa: persona que falhou na rodada 1 (posições)",
+  "motivo": "Refazer a posição depois da votação não muda as features já em votação; \"tentar de novo\" só é oferecido para falhas na última rodada."
+ }
+]

@@ -130,6 +130,53 @@ function memSyncPlan(local, rows, known, localEmpty, lastSync){
   for(const l of local||[]) if(!seen.has(l.slug)) P.push.push(l.slug); // nunca subiu (ou a linha sumiu): sobe
   return P;
 }
+// resumo da lista em texto corrido: o Rust (summary_of) corta a 1ª linha crua — sem isto a lista mostrava
+// "**pnpm** (lockfile `pnpm-lock.ya…" com os asteriscos, crases e [[colchetes]] do markdown
+function memPlain(s){
+  let t=String(s==null?'':s); const code=[];
+  // 1) código primeiro: `__init__.py`, `*.md` e `**x**` dentro de crases ficam como estão
+  t=t.replace(/`+([^`\n]*?)`+/g,(m,c)=>{ code.push(c); return '\u0000'+(code.length-1)+'\u0000'; });
+  t=t.replace(/\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g,(m,a,b)=>(b||a).trim())
+    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g,'$1');
+  // 2) ênfase só com fronteira de palavra dos dois lados (nomes_com_underscore e __init__.py não são ênfase)
+  const END='(?=$|\\s|[,;:!?)\\]]|\\.(?:\\s|$))';
+  t=t.replace(new RegExp('(^|[\\s(\\[>])(\\*\\*|__)(?=\\S)([^\\n]*?\\S)\\2'+END,'g'),'$1$3')
+    .replace(new RegExp('(^|[\\s(\\[>])([*_])(?=[^\\s*_])([^*_\\n]*?[^\\s*_])\\2'+END,'g'),'$1$3')
+    .replace(/~~([^~\n]+)~~/g,'$1');
+  // 3) o corte do resumo (110 chars) deixa delimitador aberto: "**pnpm (lockfile `pnpm-lo…" — tira só os de abertura órfãos
+  t=t.replace(/(^|[\s(\[])(\*\*|__|~~)(?=\S)/g,(m,a,d,i,all)=>all.indexOf(d,i+m.length)<0?a:m).replace(/`+/g,'').replace(/\[\[(?![^\]]*\]\])/g,'');
+  t=t.replace(/\u0000(\d+)\u0000/g,(m,n)=>code[+n]);
+  return t.replace(/^\s*(?:>\s*|[-*+]\s+|\d+[.)]\s+|#+\s*)/,'').replace(/\s+/g,' ').trim();
+}
+// "2026-09-26" → "26/09" (este ano) ou "26/09/2025"; o resto passa como veio
+function memDateBR(iso, now){
+  const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return String(iso||'');
+  const y=(now||new Date()).getFullYear();
+  return m[3]+'/'+m[2]+(+m[1]===y?'':'/'+m[1]);
+}
+// erro do disco (Rust devolve o io::Error em inglês: "No such file or directory (os error 2)") → frase em pt-BR.
+// O que o catálogo global já traduz (permissão, disco cheio) e o que já vem em português passa como veio.
+const MEM_IO_ERR=[
+  [/no such file or directory|os error 2\b|\bENOENT\b|cannot find the (file|path) specified|os error 3\b/i, 'o arquivo ou a pasta da memória não existe mais (foi movido ou apagado fora do app) — recarregue a Memória'],
+  [/read-only file system|os error 30\b|\bEROFS\b/i, 'a pasta do projeto está só leitura (disco protegido ou montado sem escrita)'],
+  [/is a directory|os error 21\b/i, 'no lugar da nota existe uma pasta com o mesmo nome'],
+  [/not a directory|os error 20\b/i, 'no lugar da pasta da memória existe um arquivo com o mesmo nome'],
+  [/file exists|os error 17\b|os error 183\b|already exists/i, 'já existe uma nota com esse nome'],
+  [/directory not empty|os error 66\b|os error 39\b|os error 145\b|directory is not empty/i, 'a pasta não está vazia'],
+  [/stream did not contain valid utf-8|invalid utf-8/i, 'a nota não está em texto UTF-8 (foi salva por outro programa num formato que o app não lê)'],
+];
+function memErrText(e){
+  const raw=String((e&&e.message)||e||'').trim();
+  for(const [re,msg] of MEM_IO_ERR) if(re.test(raw)) return msg;
+  return raw;
+}
+// pro showErr: o texto traduzido + o cru original ("ver detalhes" mantém o "(os error N)" pra quem for investigar).
+// Acesso negado do Windows (os error 5) vai pro catálogo global de permissão.
+function memErr(e){
+  const raw=String((e&&e.message)||e||'').trim();
+  if(/access is denied|os error 5\b/i.test(raw)) return { message:'Permission denied — '+raw, raw };
+  const t=memErrText(e); return t===raw ? e : { message:t, raw };
+}
 // @puro-fim
 
 const MEM_COLORS={ 'decisão':'var(--info)', regra:'var(--accent)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
@@ -162,8 +209,10 @@ function memVisible(){ const o=$id('memOverlay'); return !!(o && o.style.display
 
 async function memLoad(repo){
   repo=repo||MEM.repo||state.repo;
-  const r=await invoke('memory_list',{ repo, withBody:true });
-  MEM.notes=(r&&r.notes)||[]; MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; MEM.root=r.root||''; MEM.repo=repo;
+  let r;
+  try{ r=await invoke('memory_list',{ repo, withBody:true })||{}; }
+  catch(e){ const t=memErrText(e); if(t===String((e&&e.message)||e||'').trim()) throw e; const x=new Error('Não consegui ler a memória — '+t); x.ldHuman=true; throw x; }
+  MEM.notes=r.notes||[]; MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; MEM.root=r.root||''; MEM.repo=repo;
 }
 async function memTeamAvailable(){ try{ return !!(SB.configured() && SB.sess() && cloudData && cloudData.org && await prefsKey()); }catch(_){ return false; } }
 
@@ -191,7 +240,7 @@ function memModeSeg(id){
 async function memSetMode(mode, repo){
   try{ await invoke('memory_set_mode',{ repo:repo||MEM.repo||state.repo, mode }); MEM.mode=mode; MEM.explicit=true;
     toast(mode==='time'?'Memórias novas vão pro cérebro do time.':mode==='local'?'Memórias novas ficam só nesta máquina.':'Modo só local: os agentes ignoram o cérebro do time.','ok');
-  }catch(e){ showErr(e,'Não consegui trocar o modo'); }
+  }catch(e){ showErr(memErr(e),'Não consegui trocar o modo'); }
 }
 function memWireMode(root, repoOf){ if(!root) return; root.querySelectorAll('[data-mmode]').forEach(b=>b.onclick=async()=>{ await memSetMode(b.dataset.mmode, repoOf&&repoOf()); memRender(); memPrefsRender(); }); }
 
@@ -235,8 +284,8 @@ function memRow(n, sel){
   const on=sel && sel.slug===n.slug && sel.scope===n.scope;
   return '<button class="memrow'+(on?' on':'')+'" data-mscope="'+memEsc(n.scope)+'" data-mslug="'+memEsc(n.slug)+'">'+
     '<span class="memrt"><i class="memdot" style="background:'+(MEM_COLORS[n.type]||'var(--muted)')+'"></i><b>'+memEsc(n.title)+'</b>'+(memIsNew(n)?'<span class="membadge new">nova</span>':'')+'</span>'+
-    '<span class="memrm"><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+memEsc(n.type)+(n.updated?' · '+memEsc(n.updated):'')+'</span>'+
-    (n.summary?'<span class="memrs">'+memEsc(n.summary)+'</span>':'')+'</button>';
+    '<span class="memrm"><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+memEsc(n.type)+(n.updated?' · '+memEsc(memDateBR(n.updated)):'')+'</span>'+
+    (n.summary?'<span class="memrs">'+memEsc(memPlain(n.summary))+'</span>':'')+'</button>';
 }
 function memMainHtml(n){
   if(MEM.edit) return memEditorHtml();
@@ -253,7 +302,7 @@ function memMainHtml(n){
     '<div class="memmeta"><span class="membadge type" style="--c:'+(MEM_COLORS[n.type]||'var(--muted)')+'">'+memEsc(n.type)+'</span><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+(memIsNew(n)?'<span class="membadge new">nova</span>':'')+
       (n.secret?'<span class="membadge warn" title="Parece conter chave/senha/.env — não sobe pro time">segredo?</span>':'')+
       (n.tags||[]).map(t=>'<span class="memtag">#'+memEsc(t)+'</span>').join('')+
-      '<span class="dim">'+(n.by?'por '+memEsc(n.by):'')+(n.atualizadaPor?' · atualizada por '+memEsc(n.atualizadaPor):'')+(n.updated?' · '+memEsc(n.updated):'')+'</span></div>'+
+      '<span class="dim">'+(n.by?'por '+memEsc(n.by):'')+(n.atualizadaPor?' · atualizada por '+memEsc(n.atualizadaPor):'')+(n.updated?' · '+memEsc(memDateBR(n.updated)):'')+'</span></div>'+
     '<div class="mdview memmd">'+html+'</div>'+
     '<div class="memback"><div class="memlbl">citada por</div>'+(back.length?back.map(b=>'<a class="memlink" data-mscope="'+memEsc(b.scope)+'" data-mslug="'+memEsc(b.slug)+'">'+memEsc(b.title)+'</a>').join(''):'<span class="dim">nenhuma nota liga pra esta ainda</span>')+'</div>'+
     '<div class="dim memfile">'+memEsc((n.scope==='time'?'.cardume/memoria/time/':'.cardume/memoria/')+n.slug+'.md')+'</div>'+
@@ -277,7 +326,7 @@ function memWire(body){
   const q=body.querySelector('#memQ'); if(q){ q.oninput=()=>{ MEM.q=q.value; const l=$id('memList'); const sel=memSelNote(); const f=memFilter(MEM.notes,MEM.q,MEM.type); if(l){ l.innerHTML=f.length?f.map(n=>memRow(n,sel)).join(''):'<div class="memempty">Nada bate com a busca.</div>'; memWireLinks(l); } }; }
   memWireLinks(body);
   bindClick('memNew', ()=>memStartEdit(null));
-  bindClick('memObs', async()=>{ try{ const how=await invoke('memory_open_obsidian',{ repo:MEM.repo }); if(how==='pasta') toast('Abri a pasta da memória. No Obsidian: "Abrir pasta como cofre" → escolha .cardume/memoria (depois disso este botão abre direto no Obsidian).','warn'); }catch(e){ showErr(e,'Não consegui abrir no Obsidian'); } });
+  bindClick('memObs', async()=>{ try{ const how=await invoke('memory_open_obsidian',{ repo:MEM.repo }); if(how==='pasta') toast('Abri a pasta da memória. No Obsidian: "Abrir pasta como cofre" → escolha .cardume/memoria (depois disso este botão abre direto no Obsidian).','warn'); }catch(e){ showErr(memErr(e),'Não consegui abrir no Obsidian'); } });
   bindClick('memSync', async()=>{ MEM.syncMsg='sincronizando…'; memRender(); const r=await memTeamSync(); MEM.syncMsg=r===false&&memLastSyncErr?'não sincronizou':'sincronizado'; await memRefresh(); });
   bindClick('memEdit', ()=>memStartEdit(memSelNote()));
   bindClick('memMove', memMoveSel);
@@ -307,7 +356,7 @@ async function memStartEdit(n, preset){
   if(memRepoChanged()) return;
   if(n){
     let r;
-    try{ r=await invoke('memory_read',{ repo:MEM.repo, scope:n.scope, slug:n.slug }); }catch(e){ showErr(e,'Não consegui abrir a nota'); return; }
+    try{ r=await invoke('memory_read',{ repo:MEM.repo, scope:n.scope, slug:n.slug }); }catch(e){ showErr(memErr(e),'Não consegui abrir a nota'); return; }
     const f=memFromFile(r.content); // conteúdo FRESCO do arquivo (não o da lista) + chaves extras preservadas
     MEM.edit={ slug:n.slug, scope:n.scope, title:f.title||n.title, type:f.type, tags:f.tags, body:f.body, mtime:r.mtimeMs||0, by:f.by, origem:f.origem, atualizadaPor:f.atualizadaPor, extra:f.extra };
   } else {
@@ -338,7 +387,7 @@ async function memSaveEdit(){
     await memLoad(repo); const n=memSelNote(); if(n) memMarkSeen(n);
     memRender();
     if(r.scope==='time') memTeamSync().then(ch=>{ if(ch) memRefresh(); });
-  }catch(err){ showErr(err,'Não consegui salvar a nota'); const bb=$id('meSave'); if(bb){ bb.disabled=false; bb.textContent='salvar'; } }
+  }catch(err){ showErr(memErr(err),'Não consegui salvar a nota'); const bb=$id('meSave'); if(bb){ bb.disabled=false; bb.textContent='salvar'; } }
 }
 async function memMoveSel(){
   if(memRepoChanged()) return;
@@ -351,14 +400,14 @@ async function memMoveSel(){
     if(to==='local') await memCloudTombstone(repo, n.slug);
     MEM.sel={ scope:r.scope, slug:r.slug }; await memLoad(repo); memRender(); toast(to==='time'?'Nota agora é do time.':'Nota agora é só local.','ok');
     memTeamSync();
-  }catch(e){ showErr(e,'Não consegui mover a nota'); }
+  }catch(e){ showErr(memErr(e),'Não consegui mover a nota'); }
 }
 async function memDeleteSel(){
   if(memRepoChanged()) return;
   const n=memSelNote(); if(!n) return; const repo=MEM.repo;
   if(!await askYes('Apagar "'+n.title+'"? '+(n.scope==='time'?'Ela some do cérebro do time pra todos (quem editar depois revive a nota).':'Não dá pra desfazer.'),'Apagar nota')) return;
   try{ await invoke('memory_delete',{ repo, scope:n.scope, slug:n.slug }); if(n.scope==='time') await memCloudTombstone(repo, n.slug); MEM.sel=null; await memLoad(repo); memRender(); }
-  catch(e){ showErr(e,'Não consegui apagar a nota'); }
+  catch(e){ showErr(memErr(e),'Não consegui apagar a nota'); }
 }
 
 // ---- grafo (canvas com pan/zoom; clique abre a nota; nó fantasma = link quebrado → criar) ----
