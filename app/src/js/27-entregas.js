@@ -532,7 +532,7 @@ function repShow(title, md, fileBase){
 // ---- relatório do PERÍODO (Concluídas): várias entregas num documento ----
 async function periodReport(){
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
-  const tasks=flowVisible(src).filter(taskIsDone).sort((a,b)=>b.created_at-a.created_at).slice(0,25);
+  const tasks=flowVisible(src).filter(taskIsDone).sort((a,b)=>taskTs(b)-taskTs(a)).slice(0,25);
   if(!tasks.length){ toast('Nenhuma demanda concluída neste filtro/período.','warn'); return; }
   const b=$id('flowPeriodRep'); if(b){ b.disabled=true; b.textContent='escrevendo…'; }
   try{

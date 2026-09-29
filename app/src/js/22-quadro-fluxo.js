@@ -91,12 +91,21 @@ function dayLabel(ts){
   if(same(d,y)) return 'Ontem';
   return d.toLocaleDateString('pt-BR',{ day:'2-digit', month:'short', ...(d.getFullYear()!==today.getFullYear()?{year:'numeric'}:{}) });
 }
+// R7: quando a tarefa foi criada, em ms. O snapshot do projeto aberto manda `createdAt` (a struct Task do Rust é
+// camelCase); o agregado de outro projeto (normAgg) e a nuvem mandam `created_at` (número ou ISO). Antes o quadro
+// lia só `created_at`: nas tarefas do projeto aberto era undefined → "Hoje/Últimos 7 dias" escondiam TODAS e a
+// ordem "mais recentes primeiro" (Central, Grafo, Concluídas) não ordenava nada. Segundos viram ms.
+function taskTs(t){
+  const v=t&&(t.createdAt!=null?t.createdAt:t.created_at);
+  const n=typeof v==='number'?v:Date.parse(v||'');
+  return n>0?(n<1e12?n*1000:n):0;
+}
 function inPeriod(t){
   if(flowPeriod==='all') return true;
-  const now=Date.now(), d=new Date();
-  if(flowPeriod==='today'){ return t.created_at >= new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
-  if(flowPeriod==='week'){ return t.created_at >= now-7*864e5; }
-  if(flowPeriod==='month'){ return t.created_at >= now-30*864e5; }
+  const now=Date.now(), d=new Date(), ts=taskTs(t);
+  if(flowPeriod==='today'){ return ts >= new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+  if(flowPeriod==='week'){ return ts >= now-7*864e5; }
+  if(flowPeriod==='month'){ return ts >= now-30*864e5; }
   return true;
 }
 // agentes de uma tarefa = líder + toda a equipe (papéis) — assim o filtro cobre "agente" e "equipe"
@@ -255,11 +264,7 @@ function renderFlowFilters(){
   { const h=tabsHtml + filterRow + advHtml; if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
   { const s=$id('ffProj'); if(s) s.onchange=(e)=>{ projFilter=e.target.value; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); }; }
   { const s=$id('ffEpic'); if(s) s.onchange=(e)=>{ flowEpic=e.target.value; flowSetF('flowEpic',flowEpic); lastSig=''; renderFlow(); }; }
-  bindClick('ffClearAll', ()=>{
-    flowStatus='all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all'; projFilter='all'; lsSet('projFilter','all');
-    ['flowStatus','flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all'));
-    lastSig=''; renderFlow();
-  });
+  bindClick('ffClearAll', flowClearFilters);
   bindClick('flowResetOrder', ()=>{ lsSet('flowManual','0'); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
@@ -280,6 +285,21 @@ function renderFlowFilters(){
   const s=$id('ffSearch');
   s.oninput=(e)=>{ flowQuery=e.target.value; lastSig=''; renderFlow(); };
   if(wasSearch){ s.focus(); try{ s.setSelectionRange(caret,caret); }catch(e){} }
+}
+// limpa TODOS os filtros da Central (menos a busca) — o "limpar" do aviso de filtros ativos e o do estado vazio
+function flowClearFilters(){
+  flowStatus='all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all'; projFilter='all'; lsSet('projFilter','all');
+  ['flowStatus','flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all'));
+  lastSig=''; renderFlow();
+}
+// R7: o vazio da lista da Central diz POR QUE está vazia e dá a saída (limpar busca, limpar filtros, nova demanda)
+function flowEmptyHtml(){
+  const q=flowQuery.trim();
+  const anyF=flowStatus!=='all'||flowType!=='all'||flowPeriod!=='all'||flowAgent!=='all'||flowEpic!=='all'||projFilter!=='all';
+  if(q) return emptyHtml({ icon:'search', title:'Nenhuma tarefa com “'+q+'” no nome', help:'Confira a grafia ou busque por outra palavra do título.', action:{ id:'flowClearSearch', label:'limpar busca', primary:false } });
+  if(anyF) return emptyHtml({ icon:'search', title:'Nenhuma tarefa neste filtro', help:'Os filtros escolhidos estão escondendo as tarefas.', action:{ id:'flowClearFilters', label:'limpar filtros', primary:false } });
+  if(flowScope==='done') return emptyHtml({ icon:'checkc', title:'Nada concluído ainda', help:'Quando você concluir ou mergear uma entrega, ela aparece aqui com as provas e os documentos.' });
+  return emptyHtml({ icon:'spark', title:'Nenhuma tarefa em andamento', help:'Descreva o que precisa ser feito e os agentes cuidam do resto.', action:{ id:'flowEmptyNew', label:'Nova demanda' } });
 }
 // barra de navegação NOVA nas demais vistas (Kanban/Grafo/Atividade/Time) —
 // mesma linguagem da home; o seg2 antigo não aparece mais em lugar nenhum
@@ -508,7 +528,26 @@ function openTaskMenu(taskId, anchor){
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
   pop.style.left=Math.max(10, Math.min(window.innerWidth-pop.offsetWidth-10, r.right-pop.offsetWidth))+'px';
-  setTimeout(()=>{ const close=(e)=>{ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click',close); } }; document.addEventListener('click',close); },0);
+  menuWire(pop, anchor);
+}
+// R7: menus ⋯ e de status pelo teclado — foco no 1º item, ↑/↓ navega, Esc fecha e devolve o foco a quem abriu,
+// Tab sai. O clique fora fecha e o ouvinte do documento sai junto (antes ficava pendurado até o próximo clique).
+function menuWire(pop, anchor){
+  const items=()=>[...pop.querySelectorAll('button')];
+  const back=(anchor && typeof anchor.focus==='function')?anchor:null;
+  let off=null;
+  const close=()=>{ pop.remove(); if(off){ off(); off=null; } };
+  pop.setAttribute('role','menu');
+  items().forEach(b=>{ b.setAttribute('role','menuitem'); b.tabIndex=-1; });
+  pop.addEventListener('keydown',e=>{
+    const l=items(), i=l.indexOf(document.activeElement);
+    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(); if(back) back.focus(); }
+    else if(e.key==='ArrowDown'){ e.preventDefault(); (l[(i+1)%l.length]||l[0]).focus(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); (l[(i-1+l.length)%l.length]||l[0]).focus(); }
+    else if(e.key==='Tab'){ close(); }
+  });
+  const first=items()[0]; if(first) first.focus({ preventScroll:true });
+  setTimeout(()=>{ if(!pop.isConnected) return; const onDoc=(e)=>{ if(!pop.contains(e.target)) close(); }; document.addEventListener('click',onDoc); off=()=>document.removeEventListener('click',onDoc); },0);
 }
 // dropdown de status direto no chip "Review/Rodando/..." do card
 function openStatusMenu(taskId, anchor){
@@ -558,7 +597,7 @@ function openStatusMenu(taskId, anchor){
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
   pop.style.left=Math.max(10, Math.min(window.innerWidth-pop.offsetWidth-10, r.right-pop.offsetWidth))+'px';
-  setTimeout(()=>{ const close=(e)=>{ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click',close); } }; document.addEventListener('click',close); },0);
+  menuWire(pop, anchor);
 }
 // a task JÁ foi iniciada (tem PR ou commits)? Se sim, clicar abre o workspace
 // mesmo com status 'draft' — senão iria pro editor e não dava pra falar com o agente.
@@ -616,18 +655,18 @@ function renderFlow(){
     const manual=lsGet('flowManual')!=='0' && vis.some(t=>t.sortOrder!=null);
     const so=t=>t.sortOrder==null?-1:t.sortOrder;
     tasks = manual
-      ? vis.sort((a,b)=> so(a)-so(b) || b.created_at-a.created_at)
-      : vis.sort((a,b)=> b.created_at-a.created_at);
-    if(!tasks.length){ html = epHtml ? epHtml : flowQuery.trim()
-      ? `<div class="empty">nenhuma tarefa para <b>"${esc(flowQuery.trim())}"</b> · <a class="lnk" id="flowClearSearch" style="cursor:pointer">limpar busca</a></div>`
-      : '<div class="empty">nenhuma tarefa neste filtro.</div>'; }
+      ? vis.sort((a,b)=> so(a)-so(b) || taskTs(b)-taskTs(a))
+      : vis.sort((a,b)=> taskTs(b)-taskTs(a));
+    // R7: vazio com saída. Antes: "nenhuma tarefa neste filtro." sem botão — e, com a fila dos épicos na tela,
+    // nem isso (os épicos apareciam sozinhos e parecia que o filtro tinha falhado)
+    if(!tasks.length){ html = (flowStatus==='epicos' && epHtml) ? epHtml : flowEmptyHtml()+epHtml; }
     else {
       grouped = flowGroupBy==='day';
       const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowDemandCard(t));
       const byProject = flowScope==='done' && projFilter==='all' && projList().length>1;
       if(grouped){
         const g=new Map();
-        for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
+        for(const t of tasks){ const d=new Date(taskTs(t)); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         const keys=[...g.keys()].sort((a,b)=>b-a);
         html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${nPl(g.get(k).length,'tarefa')}</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("") + epHtml;
       } else if(byProject){
@@ -660,6 +699,8 @@ function renderFlow(){
     h.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); h.onclick(e); } };
   });
   bindClick('ghostNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
+  bindClick('flowClearFilters', flowClearFilters);
+  bindClick('flowEmptyNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
@@ -671,6 +712,13 @@ function renderFlow(){
       openOrEdit(t);
     };
     row.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(row.dataset.id, e.target); });
+  });
+  // R7: cartões pelo teclado — Tab chega neles, Enter/Espaço abre, a tecla de menu (ou Shift+F10) abre o ⋯
+  el.querySelectorAll('.frow,.dcard,.fcard').forEach(r=>{
+    if(!r.hasAttribute('tabindex')) r.tabIndex=0;
+    r.onkeydown=(e)=>{ if(e.target!==r) return;
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); }
+      else if(r.dataset.id && (e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))){ e.preventDefault(); openTaskMenu(r.dataset.id, r); } };
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowpr; crossRun(id, ()=>prPrepOpen(id, lsGet('prBase:'+id)||'main')); });

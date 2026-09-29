@@ -13,7 +13,7 @@ function renderGraph(){
   const mainCommits=commits.filter(c=>{ const r=parseRefs(c.refs); return r.includes('main')||r.includes('master')||!(c.parents||[]).length||true; }).slice(0,14);
   const tasks=(state.tasks||[]).filter(t=>t.kind!=='review' && t.status!=='draft' && notHidden(t));
   const ORDER={running:0,thinking:0,queued:1,'plan-review':1,paused:1,error:2,conflict:2,review:3,aborted:4,merged:5};
-  tasks.sort((a,b)=>(ORDER[a.status]??3)-(ORDER[b.status]??3) || b.created_at-a.created_at);
+  tasks.sort((a,b)=>(ORDER[a.status]??3)-(ORDER[b.status]??3) || taskTs(b)-taskTs(a));
   // garante os commits de cada tarefa (lazy — re-renderiza quando chegar)
   tasks.forEach(t=>{ if(commitsNeedLoad(t.id) && !commitsLoading[t.id]){ const before=JSON.stringify(commitsCache[t.id]||null); loadCommits(t.id).then(c=>{ if(JSON.stringify(c||null)!==before) lastSig=''; }); } });
   const railW=520;
@@ -34,7 +34,7 @@ function renderGraph(){
   const rows=tasks.map(t=>{
     const col=stColor(taskSt(t));
     const cs=commitsCache[t.id];
-    return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}">
+    return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}" tabindex="0" title="abrir a tarefa">
       <div class="grh">
         <span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
         <b class="grt">${esc(t.title)}</b>
@@ -48,10 +48,18 @@ function renderGraph(){
     </div>`;
   }).join('');
   const mainRow=mainCommits.length?`<div class="grmain"><span class="mono" style="color:var(--text-2);font-size:11px;font-weight:700">main</span><div class="grmc">${mainCommits.slice(0,12).map(c=>`<span class="gmdot" data-hash="${escA(c.hash)}" title="${escA((c.subject||'').slice(0,90))}"></span>`).join('')}</div><span class="dim" style="font-size:10.5px">últimos ${Math.min(12,mainCommits.length)} commits · clique num ponto pra ver o diff</span></div>`:'';
-  host.innerHTML=`<div class="gtlwrap">${mainRow}${rows||'<div class="empty">nenhuma tarefa com branch ainda</div>'}</div>`;
+  // R7: vazio padrão (com saída) e guarda de innerHTML — o render roda a cada tick do snapshot e antes
+  // reescrevia o grafo inteiro sempre (piscava e engolia o clique no meio); agora só quando o HTML mudou
+  const empty=emptyHtml({ icon:'route', title:'Nenhuma tarefa com branch ainda', help:'Cada demanda iniciada ganha um trilho aqui, com os commits do agente e a ponta na cor do status.', action:{ id:'gtlNew', label:'Nova demanda' } });
+  if(!setHtmlGuarded(host, `<div class="gtlwrap">${mainRow}${rows||empty}</div>`)) return;
+  bindClick('gtlNew', ()=>{ if(window.openTab) window.openTab('nova'); });
   host.querySelectorAll('.gdot,.gmdot').forEach(d=>{ d.onclick=(e)=>{ e.stopPropagation(); openCommit(d.dataset.hash); }; });
   host.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); // R5-7
-  host.querySelectorAll('[data-tsel]').forEach(r=>{ r.addEventListener('click',(e)=>{ if(e.target.closest('.gdot,.gmdot,[data-lk],[data-lkcfg],[data-epbadge]')) return; selected=r.dataset.tsel; lastSig=''; render(); }); });
+  // R7: clicar no trilho ABRE a tarefa (antes só "selecionava" — sem o painel lateral antigo, o clique não fazia nada visível)
+  host.querySelectorAll('[data-tsel]').forEach(r=>{
+    r.addEventListener('click',(e)=>{ if(e.target.closest('.gdot,.gmdot,[data-lk],[data-lkcfg],[data-epbadge]')) return; e.stopPropagation(); openTaskById(r.dataset.tsel); });
+    if(r.classList.contains('grow2')) r.addEventListener('keydown',(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); openTaskById(r.dataset.tsel); } });
+  });
   wireLinkChips(host);
 }
 const DEFPAT=[/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_,\s]*)\s*=>/,/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/,/^\s*def\s+([A-Za-z0-9_]+)/,/^\s*#\[tauri::command\]/];
@@ -185,12 +193,15 @@ function renderRail(){
 
   // ---- PROJETO ATUAL (tarefas vivas do state, já priorizadas: pendência → plano → exec → review) ----
   let html = '';
-  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div>${gitRailTag()}</div>`;
+  // R7: o número é o TOTAL de demandas vivas (antes era o das linhas mostradas, cortado em 12) e o que não coube
+  // vira uma linha "+N na Central" que abre a Central filtrada neste projeto
+  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n" title="${escA(nPl(mine.length,'demanda viva','demandas vivas'))}">${mine.length}</span></div>${gitRailTag()}</div>`;
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
     html+=rows.map(t=>{ const [tg,tc,tl]=tagOf(t);
-      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span>${sbEpDot(t)}<span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
+      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}" tabindex="0"><span class="d" style="background:${dotOf(t)}"></span><span class="tt" title="${escA(t.title)}">${esc(t.title)}</span>${sbEpDot(t)}<span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
     }).join('');
+    if(mine.length>rows.length) html+=`<div class="prow2 more" data-more="1" tabindex="0" title="ver todas as demandas deste projeto na Central"><span class="tt dim">+${mine.length-rows.length} na Central</span></div>`;
   } else if(!(window.orqRailRows&&window.orqRailRows())){
     html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:11px">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
   }
@@ -203,9 +214,10 @@ function renderRail(){
     html+=`<div class="rproj"><div class="rph"><b>${esc(p.name)}</b><span class="n">${act}</span></div></div>`;
     const ptasks=(p.tasks||[]).slice().sort((x,y)=>rankOther(y)-rankOther(x)).slice(0,3);
     if(ptasks.length){
-      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''}><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
+      // ponto na cor do STATUS_META (stColor) — antes um vocabulário próprio (review = amarelo "warn", resto cinza)
+      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''} tabindex="0"><span class="d" style="background:${stColor(t.status)}" title="${escA(stLabel(t.status))}"></span><span class="tt" title="${escA(t.title+' · '+p.name)}">${esc(t.title)}</span></div>`).join('');
     } else {
-      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}"><span class="tt dim" style="font-size:11px">abrir projeto</span></div>`;
+      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}" tabindex="0"><span class="tt dim" style="font-size:11px">abrir projeto</span></div>`;
     }
   }
 
@@ -217,6 +229,7 @@ function renderRail(){
   el.__html=html; el.innerHTML = html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
+    if(r.dataset.more){ projFilter=state.repo; lsSet('projFilter',projFilter); flowScope='exec'; lsSet('flowScope','exec'); if(window.openTab) window.openTab('flow'); if(curView()!=='flow') setView('flow'); lastSig=''; render(); return; }
     if(r.classList.contains('other')){ // demanda de outro projeto: ABRE a tarefa (não é "selecionar projeto")
       if(r.dataset.id) switchToProjectTask(r.dataset.proj, r.dataset.id);
       else switchProject(r.dataset.proj);
@@ -224,6 +237,9 @@ function renderRail(){
     }
     if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });
+  // R7: linhas da barra lateral pelo teclado (Tab chega, Enter/Espaço abre) — vale pras linhas de plano (orqrow) também
+  el.querySelectorAll('.prow2[tabindex],.prow2.orqrow').forEach(r=>{ if(!r.hasAttribute('tabindex')) r.tabIndex=0;
+    r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
 }
 

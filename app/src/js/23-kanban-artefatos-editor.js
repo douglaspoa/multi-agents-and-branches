@@ -22,7 +22,7 @@ function kCard(t){
     : t.status==='aborted'?'abortada — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
     : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
-  return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" data-id="${t.id}">
+  return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" tabindex="0" data-id="${t.id}">
     <div class="kctop">${t.status==='draft'?((!t.repo||t.repo===state.repo)?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:`<button class="kplay" disabled title="rascunho de outro projeto — abra ${escA(projShort(t.repo))} para iniciar">${IC.cright}</button>`):''}<b class="ktitle">${esc(t.title)}</b></div>
     ${typeof epTaskBadge==='function'&&t.epic?`<div class="kepic">${epTaskBadge(t)}</div>`:''}
     <div class="kcrew">${crew}</div>
@@ -36,8 +36,7 @@ function renderKanban(){
   // mesma fonte da Central (boardSource: projeto filtrado ou todos) e mesma regra de bloqueadas
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
   for(const t of src.filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.andamento).push(t);
-  const kTs=x=>{ const v=x.createdAt||x.created_at||0; return typeof v==='number'?v:(Date.parse(v)||0); }; // nuvem manda ISO, local manda número
-  byCol.concluidas.sort((a,b)=>kTs(b)-kTs(a));
+  byCol.concluidas.sort((a,b)=>taskTs(b)-taskTs(a)); // taskTs (22): createdAt local (número) ou created_at da nuvem (ISO)
   if(kDragId) return; // arrastando: reconstruir destruía o card no meio do arrasto (o drop nunca vinha)
   const html = KCOLS.map(([k,label])=>{ const list=byCol[k]; const shown=k==='concluidas'?list.slice(0,KDONE_CAP):list;
     return `<div class="kcol" data-col="${k}"><div class="kcolh" title="${escA(FLOW_SEC_TIP[k]||'')}">${label} <span class="kn">${list.length}</span></div><div class="kcolbody">${shown.map(kCard).join('')||'<div class="kempty">—</div>'}${list.length>shown.length?`<div class="kempty">+${list.length-shown.length} mais antigas</div>`:''}</div></div>`; }).join('');
@@ -47,6 +46,11 @@ function renderKanban(){
     card.onclick=(e)=>{ if(e.target.closest('.kplay')) return;
       const eb=e.target.closest('[data-epbadge]'); if(eb){ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(eb.dataset.epbadge); return; } // R5-7
       openTaskById(card.dataset.id); };
+    // R7: cartão pelo teclado — Tab chega, Enter/Espaço abre, a tecla de menu (ou Shift+F10) abre o ⋯
+    card.onkeydown=(e)=>{ if(e.target!==card) return;
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openTaskById(card.dataset.id); }
+      else if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){ e.preventDefault(); openTaskMenu(card.dataset.id, card); } };
+    card.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(card.dataset.id, card); });
     card.addEventListener('dragstart',e=>{ kDragId=card.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
     card.addEventListener('dragend',()=>{ kDragId=null; card.classList.remove('dragging'); el.querySelectorAll('.kcol').forEach(c=>c.classList.remove('over')); });
   });
@@ -57,12 +61,25 @@ function renderKanban(){
   });
   el.querySelectorAll('[data-kplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.kplay); });
 }
-function kanbanDrop(id, col){
-  const t=(state.tasks||[]).find(x=>x.id===id); if(!t){ renderKanban(); return; } // card de outro projeto: abra-o pra mudar
+// R7: soltar numa coluna que não aceita a mudança explicava nada (o cartão só voltava); concluir uma tarefa com o
+// agente trabalhando fechava sem perguntar; e o erro ao concluir era engolido. Agora: aviso do que dá pra fazer,
+// askYes antes de tirar da fila algo que ainda está rodando e showErr no erro.
+async function kanbanDrop(id, col){
+  const t=(state.tasks||[]).find(x=>x.id===id);
+  if(!t){ renderKanban(); toast('Essa tarefa é de outro projeto — abra ela (clique no cartão) para mudar de etapa.','warn'); return; }
   if(kanbanCol(t)===col) return;
-  if(col==='andamento' && t.status==='draft'){ if(t.repo && t.repo!==state.repo){ toast('Esse rascunho é de outro projeto — abra '+projShort(t.repo)+' para iniciar.','warn'); return; } startTask(id); }
-  else if(col==='concluidas'){ invoke('set_task_flag',{ taskId:id, flag:'closed' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>renderKanban()); }
-  else renderKanban(); // transição não suportada → volta o card
+  if(col==='andamento' && t.status==='draft'){ startTask(id); return; }
+  if(col==='concluidas'){
+    const vivo=ACTIVE_ST.has(t.status)||!!t.busy||pendingOf(id).length>0;
+    if(vivo && !await askYes('“'+t.title+'” ainda está em andamento. Concluir tira a tarefa da fila (o trabalho feito fica salvo na branch). Concluir mesmo assim?')){ renderKanban(); return; }
+    try{ await invoke('set_task_flag',{ taskId:id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }
+    catch(e){ renderKanban(); showErr(e, 'Não deu pra concluir'); }
+    return;
+  }
+  renderKanban(); // transição não suportada → volta o card, explicando o que dá pra fazer
+  toast(t.status==='draft'
+    ? 'Rascunho: arraste para “Em andamento” para iniciar, ou para “Concluídas” para tirar da fila.'
+    : 'As etapas mudam sozinhas conforme o agente trabalha. Pelo Kanban dá para iniciar um rascunho (arraste para “Em andamento”) ou concluir (arraste para “Concluídas”).','info');
 }
 async function reorderFlow(dragId, targetId){
   const el=$id("flow");
@@ -71,7 +88,7 @@ async function reorderFlow(dragId, targetId){
   if(from<0||to<0) return;
   ids.splice(to,0, ids.splice(from,1)[0]);
   try{ await invoke("reorder_tasks",{ ids }); lastSig=""; await refresh(); }
-  catch(e){ console.error("reorder_tasks", e); }
+  catch(e){ lastSig=""; renderFlow(); showErr(e, 'Não deu pra reordenar'); } // R7: antes o erro ia só pro console e a ordem voltava sem explicação
 }
 
 function pendingOf(taskId){ return (state.pending||[]).filter(p=>p.taskId===taskId); }
