@@ -2,16 +2,30 @@
 // ---------- Pull Request (GitHub) ----------
 const prCache={};
 const prLoading={}; // taskId → Promise da carga em voo (1 por vez; o poll não empilha gh)
+// gh logado SEM acesso ao repo (outra conta/SSO): vale pro projeto todo — nenhuma tarefa pergunta de novo
+// sozinha até o recuo passar (antes: 1 "gh pr view falhou" por poll). O botão "tentar de novo" (force) fura.
+let prNoAccess=null; // { until, repo, err }
+const PR_RETRY_MS={ access:15*60000, network:2*60000, other:60000 };
+function prErrKind(msg){ const m=String(msg||'');
+  if(/^GH_NO_ACCESS:|could not resolve to a repository/i.test(m)) return 'access';
+  if(/sem resposta do GitHub|timed? ?out|could not resolve host|network|ENOTFOUND|ECONN|offline|unable to access|failed to connect/i.test(m)) return 'network';
+  return 'other'; }
 async function loadPr(taskId, force){
   if(prCache[taskId]!==undefined && prCache[taskId]!==null && !force) return prCache[taskId];
   if(prLoading[taskId]) return prLoading[taskId];
+  if(!force && prNoAccess && Date.now()<prNoAccess.until && prNoAccess.repo===state.repo){
+    prCache[taskId]={ exists:false, error:prNoAccess.err, errKind:'access', _at:Date.now() }; return prCache[taskId]; }
   if(prCache[taskId]===undefined) prCache[taskId]=null; // loading (dados velhos, se houver, ficam na tela)
   prLoading[taskId]=(async()=>{
-    try{ const r=await invoke("pr_status",{ taskId }); if(r) r._at=Date.now(); prCache[taskId]=r; }
+    // quiet: o esperado (sem acesso, sem rede) vira ESTADO na tela; só o inesperado vai pra app_errors
+    try{ const r=await invokeQuiet("pr_status",{ taskId }); if(r) r._at=Date.now(); prCache[taskId]=r; if(prNoAccess&&prNoAccess.repo===state.repo) prNoAccess=null; }
     catch(e){
+      const err=String(e&&e.message||e), kind=prErrKind(err);
+      if(kind==='access') prNoAccess={ until:Date.now()+PR_RETRY_MS.access, repo:state.repo, err };
+      else if(kind==='other' && window.logAppError) window.logAppError('invoke:pr_status', e);
       // falha de rede/gh ≠ "não tem PR": com dados anteriores, mantém e avisa; sem dados, vira erro explícito
       const prev=prCache[taskId];
-      prCache[taskId]=(prev&&prev.exists) ? Object.assign({}, prev, { staleErr:String(e), _at:Date.now() }) : { exists:false, error:String(e), _at:Date.now() };
+      prCache[taskId]=(prev&&prev.exists) ? Object.assign({}, prev, { staleErr:err, errKind:kind, _at:Date.now() }) : { exists:false, error:err, errKind:kind, _at:Date.now() };
     }
     finally{ delete prLoading[taskId]; }
     return prCache[taskId];
@@ -19,7 +33,8 @@ async function loadPr(taskId, force){
   return prLoading[taskId];
 }
 // dados do PR com mais de 60s → a tela que mostra o PR busca de novo sozinha
-function prIsStale(taskId){ const i=prCache[taskId]; return !!(i && i._at && Date.now()-i._at>60000 && !prLoading[taskId]); }
+// com erro, recua conforme o tipo (sem acesso: 15 min; sem rede: 2 min) — o poll não martela o gh
+function prIsStale(taskId){ const i=prCache[taskId]; const wait=(i&&i.errKind&&PR_RETRY_MS[i.errKind])||60000; return !!(i && i._at && Date.now()-i._at>wait && !prLoading[taskId]); }
 function prAgoTx(at){ if(!at) return ''; const s=Math.max(0,(Date.now()-at)/1000); return s<15?'atualizado agora':s<60?`atualizado há ${Math.round(s)}s`:s<3600?`atualizado há ${Math.round(s/60)} min`:`atualizado há ${Math.round(s/3600)}h`; }
 // re-pinta quem estiver mostrando o PR desta tarefa (a aba da tarefa)
 function prRerender(taskId){
@@ -188,7 +203,8 @@ async function chkLoadCfg(taskId, force){
   const data=await invoke('checks_config',{ taskId }); chkCfg[taskId]={ at:Date.now(), data:data||{ detected:[], effective:[], cfg:{} } }; return chkCfg[taskId].data;
 }
 async function chkLoadFp(taskId, force){
-  const c=chkFpC[taskId]; if(!force && c && Date.now()-c.at<5000) return c;
+  // worktree limpa (tarefa mergeada/encerrada) é estado, não falha: não reconsulta a cada 5 s
+  const c=chkFpC[taskId]; if(!force && c && Date.now()-c.at<(c.err?60000:5000)) return c;
   try{ chkFpC[taskId]={ at:Date.now(), fp:await invoke('task_fingerprint',{ taskId }) }; }
   catch(e){ chkFpC[taskId]={ at:Date.now(), err:String(e&&e.message||e) }; }
   return chkFpC[taskId];
@@ -224,7 +240,7 @@ function chkBlockWhy(g){
     : g.st==='notrun' ? 'rode a verificação (testes e checagens automáticas) antes de aprovar'
     : g.st==='stale' ? 'o código mudou depois da última verificação — rode de novo pra liberar'
     : g.st==='running' ? 'a verificação está rodando…'
-    : g.st==='err' ? 'não deu pra conferir a verificação: '+g.err
+    : g.st==='err' ? (humanErr(g.err).id==='wt-gone' ? humanErr(g.err).msg : 'não deu pra conferir a verificação: '+g.err)
     : g.st==='loading' ? 'conferindo a verificação…' : '';
 }
 async function chkRun(t){

@@ -105,15 +105,18 @@ async function mobilePreview(taskId, url, silent){
 // "1670683k tok". O detalhe técnico (arquivos reservados/cedidos entre agentes) foi pro tooltip.
 function renderBus(){
   const el = $id("busSummary"); if(!el) return;
-  const tasks=state.tasks||[];
+  // snapshot parcial (projeto trocando / resposta velha) chegava sem alguma lista → "reading 'filter'"
+  const L=(x)=>Array.isArray(x)?x:[];
+  const tasks=L(state.tasks);
   if(tasks.length===0){ setHtmlGuarded(el, '<span class="dim">nenhuma tarefa neste projeto ainda</span>'); el.title=''; return; }
   // MESMA contagem da Central/Kanban/chips (flowCounts sobre boardSource) — antes contava por conta própria
   // ("3 rodando · 4 esperando você" contra "5 em andamento · 5 aguardando você" no cabeçalho)
-  const live=flowLiveTasks();
+  const live=L(flowLiveTasks());
   const fc=flowCounts(live);
   const allProj=projFilter==='all' && projList().length>1;
-  const totUsd=(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0);
-  const totTok=(state.costs||[]).reduce((s,c)=>s+(c.inTok||0)+(c.outTok||0),0);
+  const costs=L(state.costs);
+  const totUsd=costs.reduce((s,c)=>s+((c&&c.usd)||0),0);
+  const totTok=costs.reduce((s,c)=>s+((c&&c.inTok)||0)+((c&&c.outTok)||0),0);
   const parts=[];
   parts.push(fc.aguardando?`<b style="color:var(--st-ask,var(--warn))">${fc.aguardando} aguardando você</b>`:'0 aguardando você');
   parts.push(`<b style="color:${fc.andamento?'var(--st-run,var(--good))':'var(--text-2)'}">${fc.andamento} em andamento</b>`);
@@ -121,7 +124,7 @@ function renderBus(){
   if(fc.praberto) parts.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
   if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">${fmtCost(totUsd)} no total</span>`);
   // conflitos de arquivo entre agentes: resumo curto na barra, explicação no tooltip
-  const claims=state.claims||[], yields=claims.filter(c=>c.yieldedTo);
+  const claims=L(state.claims), yields=claims.filter(c=>c&&c.yieldedTo);
   const seen=new Set(); const uniq=[];
   for(const c of yields){ const k=c.agent+'|'+c.path+'|'+c.yieldedTo; if(!seen.has(k)){ seen.add(k); uniq.push(c); } }
   if(uniq.length) parts.push(`<span class="warn">${IC.warn} ${uniq.length} arquivo${uniq.length===1?'':'s'} disputado${uniq.length===1?'':'s'}</span>`);

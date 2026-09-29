@@ -143,7 +143,9 @@ export class CodexEngine implements AgentEngine {
     args.push(
       "--json",
       "--skip-git-repo-check",
-      "--sandbox", "danger-full-access", // worktree isolada — mesmo trust do bypass do Claude
+      // worktree isolada — mesmo trust do bypass do Claude. Via -c (e não --sandbox):
+      // `codex exec resume` não aceita --sandbox, e o turno de continuação quebrava.
+      "-c", 'sandbox_mode="danger-full-access"',
       "-c", 'approval_policy="never"'
     );
     if (this.provider) {

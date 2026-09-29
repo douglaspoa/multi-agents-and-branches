@@ -95,6 +95,9 @@ body{
 .cbub ul,.cbub ol{margin:4px 0 7px;padding-left:18px} .cbub li{margin-bottom:3px}
 .cbub code{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.08);border-radius:4px;padding:0 4px}
 .cmsg.you .cbub code{background:rgba(0,0,0,.22)}
+.cmsg.you.optim .cbub{opacity:.85}
+.cmsg.you .optim-st{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:10.5px;opacity:.85}
+.cmsg.you .optim-st .spin{width:9px;height:9px}
 .cbub .mdcode{background:var(--surface-3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;overflow-x:auto;margin:6px 0}
 .cbub .mdcode code{background:transparent;padding:0;font-size:11px;line-height:1.5}
 .cbub hr{border:0;border-top:1px solid var(--border);margin:7px 0}

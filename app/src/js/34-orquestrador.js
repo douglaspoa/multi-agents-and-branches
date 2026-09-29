@@ -236,7 +236,7 @@ async function orqPlanNow(){
   orq.busy=true; orq.msg=''; orqRender();
   try{
     const d=aiDefaults(); const model=orq.model||d.model||'';
-    const raw=await invoke('ai_orchestrate',{ briefing:text+attPromptBlock(orq.atts), model:model||null });
+    const raw=await invoke('ai_orchestrate',{ briefing:text+attPromptBlock(orq.atts), model:aiClaudeModel(d.eng, model) });
     let obj=null; try{ const m=raw.match(/```json\s*([\s\S]*?)```/i)||raw.match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
     if(!obj||!Array.isArray(obj.phases)||!obj.phases.length) throw new Error('o orquestrador não devolveu um plano válido — tente descrever com mais contexto.\n\n'+raw.slice(0,400));
     const phases=orqNormPhases(obj.phases);
@@ -383,7 +383,7 @@ async function orqChatSend(){
   try{
     const planJson=JSON.stringify({ title:p.title, summary:p.summary, briefing:p.briefing, status:p.status, phases:p.phases.map(x=>({ key:x.key, name:x.name, kind:x.kind, agent:x.agent, objective:x.objective, objectives:x.objectives, autonomy:x.autonomy, dependsOn:x.dependsOn, taskId:x.taskId||undefined })) });
     if(!p.repo) p.repo=state.repo||'';
-    const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_orchestrate_chat',{ prompt:pr, sessionId:sid, model:p.model||null, plan:planJson, repo:p.repo||null }), p.chatSid||null, text+attPromptBlock(atts), p.chat.slice(0,-1).filter(m=>m.who!=='sys'));
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_orchestrate_chat',{ prompt:pr, sessionId:sid, model:aiClaudeModel(p.engine||'claude', p.model||''), plan:planJson, repo:p.repo||null }), p.chatSid||null, text+attPromptBlock(atts), p.chat.slice(0,-1).filter(m=>m.who!=='sys'));
     if(r&&r.recovered) p.chat.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     if(r&&r.sessionId) p.chatSid=r.sessionId;
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}

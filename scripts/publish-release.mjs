@@ -32,4 +32,4 @@ const version = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() +
 const meta = { buildMs, version, file: 'Starfork-portable.zip', size: zip.length, notes: process.argv.slice(2).join(' ') || 'Melhorias e correções.', publishedAt: new Date().toISOString() };
 const mj = await fetch(`${U}/storage/v1/object/releases/latest.json`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: JSON.stringify(meta) });
 if (!mj.ok) { console.error('latest.json falhou:', await mj.text()); process.exit(1); }
-console.log(`✔ release publicada: build ${version} · ${(zip.length / 1048576).toFixed(1)} MB — os apps mostram "⬆ atualizar" em até 6h (ou no próximo boot).`);
+console.log(`✔ release publicada: build ${version} · ${(zip.length / 1048576).toFixed(1)} MB — os apps recebem o aviso de atualizar em até ~2 min.`);
