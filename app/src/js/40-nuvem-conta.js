@@ -266,7 +266,9 @@ function loginGateSync(){
 }
 setTimeout(()=>loginGateSync(), 3000); // depois do refresh de sessão do boot (arrow: usa a versão do 44-onboarding)
 
-function cloudMsgHtml(){ return cloudMsg ? `<div class="imhint" style="border-left:2px solid ${cloudMsg.startsWith('✓')?'var(--good)':'var(--warn)'};margin-bottom:12px">${esc(cloudMsg)}</div>` : ''; }
+// retorno da última ação: erro em destaque (antes era cinza-claro de 11px e passava batido) e anunciado ao leitor de tela
+function cloudMsgHtml(){ if(!cloudMsg) return ''; const ok=cloudMsg.startsWith('✓');
+  return `<div class="imhint cloudmsg ${ok?'ok':'bad'}" role="${ok?'status':'alert'}">${esc(cloudMsg)}</div>`; }
 
 async function renderCloud(){
   const body=$id('cloudBody'); if(!body) return;
@@ -298,7 +300,16 @@ async function renderCloud(){
     return;
   }
   // dados frescos
-  if(!cloudData){ ldPaint(body, skeletonHtml('lista',{ head:true, n:4, label:'buscando a conta' })); try{ await tabBusy('conta', cloudLoad(), { label:'buscando a conta e o time' }); }catch(e){ cloudMsg=humanErr(e, 'Não consegui carregar a conta').msg; SB.setSess(SB.sess()); } }
+  let loadErr=null;
+  if(!cloudData){ ldPaint(body, skeletonHtml('lista',{ head:true, n:4, label:'buscando a conta' })); try{ await tabBusy('conta', cloudLoad(), { label:'buscando a conta e o time' }); }catch(e){ loadErr=e; } }
+  // carga FALHOU (sem rede, servidor fora): erro com "tentar de novo". Antes caía no "Criar organização" —
+  // quem já tinha org, offline, via o formulário de criar outra (e podia criar uma duplicada).
+  if(!cloudData && loadErr){
+    head.textContent='Conta e time';
+    body.innerHTML=errorHtml(loadErr, 'cloudRetry', 'Não consegui carregar a conta'); // "sair da conta" fica no cabeçalho
+    ldWireErr(body, loadErr, 'Não consegui carregar a conta', ()=>{ cloudMsg=''; renderCloud(); });
+    return;
+  }
   // 3) logado mas sem org → criar ou aceitar convite
   if(!cloudData || !cloudData.org){
     head.textContent='Conta e time · sua organização';
@@ -312,6 +323,7 @@ async function renderCloud(){
       <div style="display:flex;margin-top:12px"><span style="flex:1"></span><button class="btn" id="sbAccept">aceitar convite</button></div>
       <div style="display:flex;margin-top:18px"><button class="btn sm" id="sbLogout">sair da conta</button></div>`;
     $id('sbCreateOrg').onclick=async()=>{
+      const b=$id('sbCreateOrg'); if(b.disabled) return; b.disabled=true; b.textContent='criando…'; // 2 cliques = 2 organizações
       cloudMsg='';
       try{ const j=await sbRpc('create_org_with_team',{ p_org_name:$id('sbOrgName').value.trim()||'Minha org', p_team_name:$id('sbTeamName').value.trim()||'Time 1' }); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ organização criada'; }
       catch(e){ cloudMsg=cloudErrMsg(e); }
