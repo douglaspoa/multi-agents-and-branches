@@ -45,6 +45,16 @@ export function refName(src: string, taken: string[]): string {
   return name;
 }
 
+/** O processo existe? (kill 0 — EPERM = existe, de outro usuário). PID morto não segura lock. */
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === "EPERM";
+  }
+}
+
 /** Teto das chamadas AUXILIARES ao claude (resumo de commit, destiladores) — CARDUME_AUX_TIMEOUT_MS. */
 export function auxTimeoutMs(): number {
   const n = Number(process.env.CARDUME_AUX_TIMEOUT_MS);
@@ -557,17 +567,6 @@ export class Orchestrator {
   // validado com kill(pid, 0) — processo morto não segura fila.
   // ---------------------------------------------------------------------------
 
-  /** true se OUTRO processo vivo está rodando um turno desta tarefa. */
-  private taskBusy(taskId: string): boolean {
-    const pid = this.store.busyPid(taskId);
-    if (!pid || pid === process.pid) return false;
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false; // PID morto — lock obsoleto
-    }
-  }
 
   /** O erro indica sessão que ESTOUROU o limite de tokens/contexto? */
   private static tokenDeath(text: string): boolean {
@@ -729,8 +728,13 @@ export class Orchestrator {
    * Executa `fn` segurando o lock da tarefa; se o agente já está ocupado,
    * ENFILEIRA o pedido (evento visível no chat) em vez de rodar por cima.
    */
+  /** Tenta pegar o lock do turno (atômico entre processos — ver Store.tryLockBusy). */
+  private tryLock(taskId: string): boolean {
+    return this.store.tryLockBusy(taskId, process.pid, pidAlive);
+  }
+
   private async withTaskLock(taskId: string, kind: string, payload: Record<string, unknown>, fn: () => Promise<void>): Promise<void> {
-    if (this.taskBusy(taskId)) {
+    if (!this.tryLock(taskId)) {
       this.store.queueAdd(taskId, kind, payload);
       const pos = this.store.queueCount(taskId);
       this.store.addEvent(
@@ -740,9 +744,14 @@ export class Orchestrator {
         `Na fila (${pos}º): ${this.queueLabel(kind, payload)} — o agente está no meio de um turno; executo automaticamente assim que ele terminar.`,
         true,
       );
+      // o turno pode ter ACABADO entre a checagem e o enfileiramento (ele já drenou a fila vazia):
+      // sem isto o pedido ficava parado até o próximo turno. Lock livre agora → drena daqui mesmo.
+      if (this.tryLock(taskId)) {
+        this.store.setBusyPid(taskId, null);
+        await this.drainQueue(taskId);
+      }
       return;
     }
-    this.store.setBusyPid(taskId, process.pid);
     this.expireOrphanQueue(taskId);
     try {
       await fn();
@@ -769,14 +778,13 @@ export class Orchestrator {
   /** Roda os pedidos enfileirados, em ordem, até esvaziar (ou outro processo assumir). */
   private async drainQueue(taskId: string): Promise<void> {
     for (;;) {
-      if (this.taskBusy(taskId)) return; // outro processo pegou o lock — ele drena
       const item = this.store.queueNext(taskId);
       if (!item) return;
+      if (!this.tryLock(taskId)) return; // outro processo pegou o lock — ele drena
       this.store.queueDone(item.id);
       let p: Record<string, unknown> = {};
       try { p = JSON.parse(item.payload || "{}"); } catch { /* payload corrompido — segue vazio */ }
       this.store.addEvent(taskId, "Sistema", "note", `▶ executando pedido da fila: ${this.queueLabel(item.kind, p)}`, true);
-      this.store.setBusyPid(taskId, process.pid);
       try {
         if (item.kind === "talk") await this.talkToAgentInner(taskId, String(p.message ?? ""), !!p.asReq, p.agent ? String(p.agent) : undefined);
         else if (item.kind === "deliver") await this.deliverArtifactInner(taskId, (p.kind as "doc" | "tests" | "proof" | "all") ?? "all");
@@ -793,11 +801,10 @@ export class Orchestrator {
   async runTask(taskId: string): Promise<void> {
     // Duplo "iniciar" (ou iniciar enquanto um turno roda) subia DOIS times na mesma
     // worktree. Outro processo vivo com o lock → recusa, sem mexer no lock dele.
-    if (this.taskBusy(taskId)) {
+    if (!this.tryLock(taskId)) {
       this.store.addEvent(taskId, "Sistema", "note", "essa tarefa já está rodando — pedido de iniciar ignorado", true);
       return;
     }
-    this.store.setBusyPid(taskId, process.pid);
     this.expireOrphanQueue(taskId);
     try {
       await this.runTaskInner(taskId);

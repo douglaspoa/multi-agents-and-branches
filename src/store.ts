@@ -384,6 +384,32 @@ export class Store {
     this.db.prepare(`UPDATE task SET busy_pid = ? WHERE id = ?`).run(pid, taskId);
   }
 
+  /**
+   * Pega o lock do turno de forma ATÔMICA: livre, do próprio pid ou de um processo morto → grava `pid`
+   * e devolve true; de outro processo vivo → false. Antes era "lê busy_pid, checa, grava" em passos
+   * soltos: dois "iniciar"/"falar" quase juntos (duplo clique, app + CLI) viam o lock livre e subiam DOIS
+   * agentes na mesma worktree. BEGIN IMMEDIATE serializa quem escreve no banco entre processos.
+   */
+  tryLockBusy(taskId: string, pid: number, isAlive: (pid: number) => boolean): boolean {
+    return withBusyRetry(() => {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const row = this.db.prepare(`SELECT busy_pid FROM task WHERE id = ?`).get(taskId) as { busy_pid: number | null } | undefined;
+        const cur = row?.busy_pid ?? null;
+        if (cur && cur !== pid && isAlive(cur)) {
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+        this.db.prepare(`UPDATE task SET busy_pid = ? WHERE id = ?`).run(pid, taskId);
+        this.db.exec("COMMIT");
+        return true;
+      } catch (e) {
+        try { this.db.exec("ROLLBACK"); } catch { /* já encerrada */ }
+        throw e;
+      }
+    });
+  }
+
   busyPid(taskId: string): number | null {
     const row = this.db.prepare(`SELECT busy_pid FROM task WHERE id = ?`).get(taskId) as { busy_pid: number | null } | undefined;
     return row?.busy_pid ?? null;
