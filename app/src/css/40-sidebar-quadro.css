@@ -219,3 +219,32 @@
 .tsboard.ts5{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media(max-width:1200px){.tsboard.ts5{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:1000px){.tsboard.ts5{grid-template-columns:1fr 1fr}}
+
+/* ---- R7 (central): foco visível pelo teclado, abas arrastáveis, barra de status clicável, 1024px ---- */
+.dcard:focus-visible,.fcard:focus-visible,.kcard:focus-visible,.prow2:focus-visible,.grow2:focus-visible,.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#tmenuPop button:focus-visible,#stmenuPop button:focus-visible{background:var(--surface-2)!important;outline:none}
+.prow2.more .tt{font-size:11px}
+.prow2.more:hover .tt{color:var(--text)}
+.tab.dragging{opacity:.45}
+.tab.dropto{box-shadow:inset 2px 0 0 var(--accent)}
+.busln{border:0;background:none;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;border-radius:4px}
+.busln:hover{text-decoration:underline;text-underline-offset:3px}
+.busln:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+#clock{white-space:nowrap;flex:none}
+.ftabs .ft,.tsscope button{white-space:nowrap}
+.tslive .tscost{white-space:nowrap;flex:none}
+@media (max-width:1180px){ .ftabs{gap:14px} }
+@media (max-width:1180px){ .tslive .who{width:112px} .ftabs .tsnavlbl{display:none} }
+/* R7: 6 colunas cabem em 1440 (antes "Concluídas" ficava cortada fora da tela); em 1024 cabem 4 */
+.kcol{min-width:176px}
+.kcolh .kcl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kcolh .kn{flex:none}
+/* R7: muitas abas — encolhem até 64px (título com …, nome inteiro no tooltip) antes de sumir pela direita;
+   a ativa não encolhe e o render rola até ela (antes a aba ativa podia ficar fora da tela, sem barra de rolagem) */
+.tabbar .tab{flex:0 1 auto;min-width:64px}
+.tabbar .tab.on{flex-shrink:0}
+.tabbar .tab .tt{min-width:0}
+.tabbar.crowded .tab{padding:8px 9px;gap:6px}
+.tabbar.crowded .tab:not(.on):not(:hover):not(:focus-visible) .x{display:none}
+.tabbar .tablist{display:contents}
+.tab.dropafter{box-shadow:inset -2px 0 0 var(--accent)}

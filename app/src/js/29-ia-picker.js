@@ -113,7 +113,7 @@ function aiPickRender(target){
     (models.length||e.custom?`<div class="aimodels">${models.map(m=>{ const r=rec.engine===e.id&&rec.model===m.id; return `<button type="button" class="aimodel${m.id===model?' on':''}${r?' rec':''}" data-aimodel="${escA(m.id)}"><b>${esc(m.name)}</b>${m.tag?`<span>${esc(m.tag)}</span>`:''}${r?'<i>recomendado</i>':''}</button>`; }).join('')}`+
       (e.custom?`<button type="button" class="aimodel${(!known&&model)?' on':''}" data-aicustom><b>${(!known&&model)?esc(model):'outro id…'}</b><span>${(!known&&model)?'id digitado':'digite o id exato'}</span></button>`:'')+`</div>`:'')+
     (_aiCustomOpen?`<div class="aicustom"><input class="in mono" id="aiCustomId" placeholder="${e.id==='claude'?'ex.: claude-opus-5-5':e.id==='codex'?'ex.: gpt-5-codex':'id do modelo no gateway'}" value="${escA((!known&&model)?model:'')}"><button type="button" class="btn sm" data-aicustomok>usar</button></div>`:'')+
-    (target.cfg?`<div class="airec">✓ padrão pra toda demanda nova — pelo formulário ou pelo chat. A recomendação por demanda continua sendo só uma sugestão.</div>`:`<div class="airec">${isRecSel?'✓ ':'✦ '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`);
+    (target.cfg?`<div class="airec">✓ padrão pra toda demanda nova — pelo formulário ou pelo chat. A recomendação por demanda continua sendo só uma sugestão.</div>`:`<div class="airec">${isRecSel?'✓ ':IC.starforkEm+' '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`);
   hosts.forEach(h=>{
     h.innerHTML=html;
     h.querySelectorAll('[data-aieng]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=false; aiPickApply(b.dataset.aieng, '', target); });

@@ -9,7 +9,7 @@
 .tabbar .tab .x:hover{opacity:.95;background:var(--border-strong)}
 .tabbar .tab:hover{color:var(--text-2)}
 .tabbar .tab.on{color:var(--text);background:var(--surface);border-color:var(--border-strong)}
-.tabbar .tab.on svg{opacity:1;color:var(--accent)}
+.tabbar .tab.on svg{opacity:1;color:var(--text)}
 .tabbar .tab.pin{padding-right:14px}
 .tabbar .tabadd{display:inline-flex;align-items:center;justify-content:center;width:28px;color:var(--muted);cursor:pointer;border-radius:7px;align-self:center;margin-left:2px;font-size:15px}
 .tabbar .tabadd:hover{background:var(--surface-3);color:var(--text)}
@@ -35,9 +35,9 @@
 .ndtypes{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px}
 .ndtype{text-align:left;padding:18px 16px 16px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:var(--card-bg);display:flex;flex-direction:column;gap:10px;min-height:134px;cursor:pointer;transition:.12s}
 .ndtype:hover{border-color:rgba(255,255,255,.2)}
-.ndtype.on{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.10),rgba(63,214,138,.02))}
+.ndtype.on{border-color:var(--accent-line);background:var(--accent-soft)}
 .ndtb{width:26px;height:26px;border-radius:7px;text-align:center;font:500 12px/26px var(--code);background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
-.ndtype.on .ndtb{background:var(--accent);color:var(--on-accent)}
+.ndtype.on .ndtb{background:var(--accent-soft);color:var(--text);box-shadow:0 0 0 1px var(--accent-line) inset}
 .ndtn{font:600 15px/1.2 var(--display);color:var(--text)}
 .ndtd{font:400 12px/1.45 var(--display);color:var(--text-3)}
 .ndstep2{display:flex;align-items:baseline;gap:10px;margin:34px 0 14px}
@@ -45,11 +45,11 @@
 .ndmethods{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
 .ndm{text-align:left;padding:22px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:var(--card-bg);display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:.12s}
 .ndm:hover{border-color:rgba(255,255,255,.22)}
-.ndm-primary{border-color:var(--accent);background:linear-gradient(180deg,rgba(63,214,138,.12),rgba(63,214,138,.03))}
+.ndm-primary{border-color:var(--accent-line);background:var(--accent-soft)}
 .ndmtop{display:flex;align-items:center;justify-content:space-between;width:100%}
-.ndmt{font:600 18px/1.2 var(--display);color:var(--text)}
-.ndmt2{font:600 18px/1.2 var(--display);color:rgba(234,242,238,.9)}
-.ndmbadge{font:500 10px var(--code);color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:4px;white-space:nowrap;flex:none}
+.ndmt{font:600 var(--fs-lg)/1.2 var(--display);color:var(--text)}
+.ndmt2{font:600 var(--fs-lg)/1.2 var(--display);color:rgba(234,242,238,.9)}
+.ndmbadge{font:500 var(--fs-xs) var(--code);color:var(--text);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent-line) inset;padding:3px 7px;border-radius:4px;white-space:nowrap;flex:none}
 .ndmd{font:400 13px/1.5 var(--display);color:rgba(234,242,238,.6)}
 .ndmeta{margin-top:6px;font:500 11px var(--code);color:var(--text-3)}
 .ndfoot{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-top:26px;padding-top:18px;border-top:1px solid rgba(255,255,255,.07)}
@@ -187,7 +187,7 @@
 .tabgrow{flex:1;min-width:12px;align-self:stretch}
 .tabright{display:flex;align-items:center;gap:6px;padding:0 4px 4px 0}
 /* Nova demanda: card do método selecionado + CTA explícita */
-.ndm.on{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.ndm.on{border-color:var(--accent-line);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent-line)}
 .ndm.on .ndmt2{color:var(--text)}
 .ndcta{display:flex;align-items:center;gap:16px;margin-top:22px}
 /* Nova demanda como aba: a tela preenche a largura toda (o teto de 1040px deixava o fundo com 2 cores —
@@ -195,3 +195,20 @@
 #ndOverlay.astab .mbody{max-width:none;margin:0}
 #ndOverlay.astab .modal{background:var(--bg)}
 .ndinner{width:100%;max-width:1040px}
+/* R7 (agentes): etapa cujo agente foi removido + "+ etapa" sem arrastar */
+.stepchip .stepgone{color:var(--warn);font-weight:500;font-style:italic}
+.wfaddsel{font-size:11px;padding:3px 6px;height:auto;width:auto;max-width:160px;color:var(--text-2);background:transparent;border:1px dashed var(--border-strong);border-radius:var(--r-sm);cursor:pointer}
+.wfaddsel:hover{color:var(--text);border-color:var(--border-strong)}
+.wfaddsel:focus-visible{color:var(--text);outline:none;box-shadow:var(--ring)}
+/* R7 (skills): vazio/busca sem resultado ocupa a grade toda (antes ficava espremido na 1ª coluna) */
+.sk-grid > .ld-empty{grid-column:1/-1}
+
+/* Configurações (R7): campos em grupos com a explicação embaixo (antes: rótulo em CAIXA ALTA com o texto todo entre parênteses) */
+#cfgBody .cfgsecd{text-transform:none;letter-spacing:0;font-weight:400}
+#cfgBody .cfggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px 22px;margin-top:10px}
+#cfgBody .cfgf{min-width:0;margin-top:10px}
+#cfgBody .cfggrid .cfgf{margin-top:0}
+#cfgBody .cfgf>label{display:block;text-transform:none;letter-spacing:0;font:600 13px/1.3 var(--display);color:var(--text);margin:0 0 6px}
+#cfgBody .cfgin{display:flex;gap:8px;align-items:center}
+#cfgBody .cfgin .in{width:110px}
+#cfgBody .cfghint{margin:6px 0 0;font-size:11.5px;line-height:1.45;color:var(--text-3);max-width:46ch}

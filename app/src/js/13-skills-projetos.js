@@ -37,7 +37,7 @@ function skAddPanelHtml(){
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skAiGo">${ic('spark')}montar com IA</button><button class="btn" id="skAddCancel">cancelar</button></div>
       <div class="dim" style="font-size:11px;margin-top:8px;line-height:1.5">Abre o <b>Montar conversando</b> com o pedido pronto. Quando a tarefa terminar, a skill aparece aqui na biblioteca.</div>`;
   }
-  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia','✦ Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
+  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia',IC.starforkEm+' Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
 }
 function skRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
@@ -50,7 +50,7 @@ function skRender(){
   const sw=(nm,on)=>`<label class="sw"><input type="checkbox" data-sk="${escA(nm)}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label>`;
   const cards=list.length
     ? list.map(s=>`<div class="skc${s.active?' on':''}"><div class="skc-h"><span class="skc-name">${esc(s.name)}</span><span class="skc-scope">${esc(s.source||'')}</span><span style="flex:1"></span>${sw(s.name,s.active)}</div><div class="skc-d">${esc(String(s.description||'(sem descrição)').slice(0,220))}${(s.description||'').length>220?'…':''}</div></div>`).join('')
-    : q ? `<div class="dim" style="padding:20px 2px">nada encontrado pra <b>${esc(skQuery)}</b></div>`
+    : q ? emptyHtml({ icon:'search', title:'Nenhuma skill com “'+skQuery.trim()+'”', help:'A busca olha o nome e o gatilho (quando usar) de cada skill.', action:{ id:'skClearQ', label:'limpar busca', primary:false } })
     : skAddOpen ? '' : emptyHtml({ icon:'stack', title:'Nenhuma skill na biblioteca', help:'Traga de um repositório Git, de um SKILL.md ou crie uma do zero.', action:{ id:'skEmptyAdd', label:'+ adicionar skill' } });
   body.innerHTML=`<div class="sk-screen">
     <div class="sk-head">
@@ -67,6 +67,7 @@ function skRender(){
   { const qi=body.querySelector('#skQ'); if(qi){ qi.oninput=()=>{ skQuery=qi.value; skRender(); const n=body.querySelector('#skQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; } }
   body.querySelectorAll('[data-sk]').forEach(cb=>cb.onchange=()=>skToggle(cb.dataset.sk, cb.checked));
   { const b=body.querySelector('#skAddBtn'); if(b) b.onclick=()=>{ skAddOpen=!skAddOpen; skGitFound=null; skRender(); }; }
+  { const b=body.querySelector('#skClearQ'); if(b) b.onclick=()=>{ skQuery=''; skRender(); const n=body.querySelector('#skQ'); if(n) n.focus(); }; }
   { const b=body.querySelector('#skEmptyAdd'); if(b) b.onclick=()=>{ skAddOpen=true; skGitFound=null; skRender(); }; }
   { const b=body.querySelector('#skToggleAll'); if(b) b.onclick=()=>skSetAll(!allOn); }
   { const b=body.querySelector('#skAddCancel'); if(b) b.onclick=()=>{ skAddOpen=false; skGitFound=null; skRender(); }; }
@@ -77,7 +78,7 @@ function skRender(){
   { const b=body.querySelector('#skDoImport'); if(b) b.onclick=skDoImport; }
   { const b=body.querySelector('#skAiGo'); if(b) b.onclick=skAiCreate; }
 }
-// ✦ Com IA: abre o "Montar conversando" com o pedido da skill já escrito na caixa (openPlanner é async —
+// Com IA: abre o "Montar conversando" com o pedido da skill já escrito na caixa (openPlanner é async —
 // carrega o rascunho —, então espera a caixa aparecer e só preenche se ela estiver vazia)
 function skAiCreate(){
   const idea=(($id('skAiIdea')||{}).value||'').trim();
@@ -93,10 +94,17 @@ function skAiCreate(){
 // "Criar projeto novo" (tela vazia, onboarding): abre a aba Projetos já com o formulário de projeto novo aberto
 function openNewProject(){ projNewOpen=true; projNewMsg=''; if(window.openTab) window.openTab('projetos'); else openProjetos(); setTimeout(()=>{ const i=$id('pnName'); if(i) i.focus(); }, 400); }
 window.openNewProject=openNewProject;
+// @puro-skills-inicio (testado em app/tests/skills.test.mjs)
+// foto do "ligada?" POR NOME: se a lista for recarregada/reordenada no meio, a volta não troca uma skill pela outra
+function skSnapshot(list){ const m={}; (list||[]).forEach(s=>{ if(s&&s.name!=null) m[s.name]=!!s.active; }); return m; }
+function skRestore(list, snap){ (list||[]).forEach(s=>{ if(s && Object.prototype.hasOwnProperty.call(snap||{}, s.name)) s.active=snap[s.name]; }); return list; }
+// @puro-skills-fim
 async function skSetAll(on){
+  const before=skSnapshot(skList); // falhou salvar: volta como estava (antes a tela mostrava tudo ligado sem ter salvo)
   (skList||[]).forEach(s=>s.active=on);
   const active=on?(skList||[]).map(x=>({name:x.name,description:x.description||''})):[];
-  try{ await invoke('set_active_skills',{ skills: active }); }catch(e){ showErr(e, 'Falhou'); }
+  try{ await invoke('set_active_skills',{ skills: active }); }
+  catch(e){ skRestore(skList, before); showErr(e, on?'Não consegui ligar as skills':'Não consegui desligar as skills'); }
   skRender();
 }
 async function skToggle(name, on){
@@ -117,7 +125,8 @@ async function skGitImport(){
   const picks=[...document.querySelectorAll('[data-gk]:checked')].map(c=>c.dataset.gk);
   if(!picks.length){ toast('Marque ao menos uma skill.','warn'); return; }
   const b=$id('skGitImport'); if(b){ b.disabled=true; b.textContent='importando…'; }
-  try{ await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks }); skAddOpen=false; skGitFound=null; await openSkills(); }
+  try{ await invoke('git_skills',{ url:url.trim(), branch:branch.trim()||null, subpath:subpath.trim()||null, picks }); skAddOpen=false; skGitFound=null; await openSkills();
+    toast(picks.length===1?'Skill '+picks[0]+' importada — ligue ela no projeto pelo interruptor.':picks.length+' skills importadas — ligue as que quiser neste projeto.','ok'); }
   catch(e){ showErr(e, 'Falhou importar'); if(b){ b.disabled=false; b.textContent='importar selecionadas'; } }
 }
 async function skDoCreate(){
@@ -129,7 +138,7 @@ async function skDoCreate(){
 async function skDoImport(){
   const md=($id('skImpMd')||{}).value||'';
   if(!md.trim()){ toast('Cole o conteúdo do SKILL.md.','warn'); return; }
-  try{ await invoke('import_skill_md',{ content:md }); skAddOpen=false; await openSkills(); }
+  try{ await invoke('import_skill_md',{ content:md }); skAddOpen=false; await openSkills(); toast('Skill importada na biblioteca — ligue ela no projeto pelo interruptor.','ok'); }
   catch(e){ showErr(e, 'Falhou importar'); }
 }
 bindClick('skillsBtn', openSkills);
@@ -163,7 +172,8 @@ function projetosRender(ov){
       <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="as-badge" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)">aberto</span>':''}</div>
       <div class="pc2meta">${bits.join(' · ')}</div>
       <div class="pc2path mono">${esc(p.path)}</div>
-      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}">Finder</button><button class="btn sm" data-pjrm="${escA(p.path)}">remover</button></div>
+      ${p.path===state.repo&&typeof repoHasRemote==='function'&&!repoHasRemote()?`<div class="pc2pub"><span class="dim">${(typeof repoHasGit!=='function'||repoHasGit())?'só no seu computador — o time e os PRs precisam dele no GitHub':'pasta sem git — publicar cria o repositório e envia pro GitHub'}</span><button class="btn sm primary" data-pjpub="${escA(p.path)}">${(typeof IC!=='undefined'&&IC.push)||''}publicar no GitHub</button></div>`:''}
+      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}" title="abrir a pasta do projeto">${(typeof osKind!=='function'||osKind()==='mac')?'Finder':'abrir pasta'}</button><span style="flex:1"></span><button class="btn sm ghost danger" data-pjrm="${escA(p.path)}" title="tira da lista do Starfork — não apaga nenhum arquivo">remover</button></div>
     </div>`;
   }).join('');
   const list=n ? `<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div>`
@@ -178,7 +188,15 @@ function projetosRender(ov){
   // BUG-15: open_url só aceita http(s) — o Finder abre pela reveal_project (e o erro aparece, não some calado)
   body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('reveal_project',{path:b.dataset.pjfx}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')));
   // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
-  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return; try{ await invoke('remove_project',{path:p}); }catch(_){}
+  // E4 na aba Projetos: o projeto aberto sem GitHub ganha o "publicar" aqui mesmo (antes só aparecia na hora do PR)
+  body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=async()=>{
+    if(b.dataset.pjpub!==state.repo){ openProjetos(); return; } // o projeto aberto mudou desde o desenho: publicar agora iria pro projeto errado
+    if(typeof publishGithub!=='function') return;
+    b.disabled=true; let ok=false;
+    try{ ok=await publishGithub(); }catch(e){ showErr(e, 'Não consegui publicar no GitHub'); }
+    if(ok) openProjetos(); else b.disabled=false; });
+  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return;
+    try{ await invoke('remove_project',{path:p}); }catch(e){ showErr(e, 'Não consegui remover o projeto da lista'); return; } // antes o erro sumia calado e a lista recarregava como se tivesse removido
     if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
     if(window.loadProjects) await window.loadProjects(); openProjetos(); });
 }
@@ -188,17 +206,17 @@ function projNewHtml(){
   const owners=ghOwnersCache||[];
   const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:160px">${owners.map(o=>`<option value="${escA(o)}"${(projNew.owner||owners[0])===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`:`<span class="dim" style="font-size:12px">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
   return `<div class="as-card" id="projNewCard" style="margin-bottom:18px">
-    <div class="seclbl2" style="margin:0 0 12px">novo projeto <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta nova, git na main, 1º commit e o repositório no GitHub</span></div>
+    <div class="seclbl2" style="margin:0 0 12px">novo projeto <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· cria a pasta, já pronta pros agentes trabalharem — e, se quiser, guarda uma cópia no GitHub</span></div>
     <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:12px">
       <label style="display:block"><span class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">nome</span><input class="in" id="pnName" placeholder="ex.: painel-financeiro" value="${escA(projNew.name)}" style="margin-top:5px"></label>
       <label style="display:block"><span class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">pasta onde vai morar</span><div style="display:flex;gap:8px;margin-top:5px"><input class="in mono" id="pnParent" readonly placeholder="escolha uma pasta (ex.: ~/Documents/GitHub)" value="${escA(projNew.parent)}" style="flex:1;font-size:12px"><button class="btn sm" id="pnPick">escolher…</button></div></label>
     </div>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="pnGh"${projNew.github?' checked':''}> criar o repositório no GitHub e fazer o push</label>
-    ${(ghOwnersCache&&!ghOwnersCache.length)?`<div class="dim" id="pnGhHint" style="font-size:12px;margin:6px 0 0 24px">GitHub não conectado — o projeto fica só no seu computador (dá pra publicar depois, na hora do PR). <a id="pnGhEnv" style="cursor:pointer;text-decoration:underline">conectar o GitHub</a></div>`:''}
+    <label class="pn-opt" style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="pnGh"${projNew.github?' checked':''}> guardar também no GitHub <span class="dim" style="font-size:12px">(cópia na nuvem — e o time consegue revisar e aprovar as mudanças)</span></label>
+    ${(ghOwnersCache&&!ghOwnersCache.length)?`<div class="dim" id="pnGhHint" style="font-size:12px;margin:6px 0 0 24px">GitHub não conectado — o projeto fica só no seu computador (dá pra publicar depois, aqui mesmo em Projetos). <a id="pnGhEnv" style="cursor:pointer;text-decoration:underline">conectar o GitHub</a></div>`:''}
     <div id="pnGhOpts" style="display:${projNew.github?'flex':'none'};gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0 0 24px">
       <span class="dim" style="font-size:12px">dono:</span>${ownerSel}
-      <label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="private"${projNew.private?' checked':''}> privado</label>
-      <label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="public"${projNew.private?'':' checked'}> público</label>
+      <label class="pn-opt" style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="private"${projNew.private?' checked':''}> privado <span class="dim">(só quem você convidar)</span></label>
+      <label class="pn-opt" style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="public"${projNew.private?'':' checked'}> público</label>
       <a class="dim" id="pnGhCfg" style="font-size:12px;cursor:pointer;text-decoration:underline">outra conta do GitHub?</a>
     </div>
     ${projNewMsg?`<div style="margin-top:12px;font-size:12.5px;color:var(--warn);white-space:pre-wrap">${esc(projNewMsg)}</div>`:''}

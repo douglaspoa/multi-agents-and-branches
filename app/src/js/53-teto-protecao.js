@@ -35,7 +35,7 @@ function budgetInject(snap){
 const budgetBusy=new Set();
 // o teto entrou no app em 28/09/2026 03:17 UTC: tarefa criada ANTES dele não tinha teto nenhum
 const BUDGET_SINCE_MS=Date.UTC(2026,8,28,3,17);
-function taskCreatedMs(t){ const v=t&&(t.createdAt||t.created_at); const n=typeof v==='number'?v:Date.parse(v||''); return n>0&&n<1e12?n*1000:(n||0); }
+function taskCreatedMs(t){ return taskTs(t); } // fonte única: taskTs (22-quadro-fluxo)
 const IS_WIN=/win/i.test((navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||'');
 // vigia do refresh (custo vem no snapshot — barato). Dispara UMA vez por teto: marca spec.budgetHit,
 // e "continuar" sobe o teto. O custo entra no banco no FIM de cada turno de agente, então a
@@ -83,8 +83,9 @@ function budgetWatch(){
 // tarefas paradas pelo teto/pelo humano não disparam o falso "Pronta para review ✓"
 const budgetQuiet=new Set();
 async function budgetAnswer(pendId, answer){
-  const p=((state&&state.pending)||[]).find(x=>x.id===pendId); if(!p) return;
-  const t=(state.tasks||[]).find(x=>x.id===p.taskId); if(!t) return;
+  // não achou: ERRO (antes voltava calado e a tela tratava como respondida — opções travadas, tarefa parada)
+  const p=((state&&state.pending)||[]).find(x=>x.id===pendId); if(!p) throw new Error('essa pergunta do teto de custo já não está aberta — atualize a tela');
+  const t=(state.tasks||[]).find(x=>x.id===p.taskId); if(!t) throw new Error('não achei a tarefa desta pergunta do teto de custo');
   const hit=(t.spec||{}).budgetHit||{}, cap=+hit.cap||budgetOf(t);
   const stop=/^\s*(parar|para\b|pare|stop|n[ãa]o\b)/i.test(String(answer||''));
   budgetBusy.add(t.id);
@@ -101,8 +102,10 @@ async function budgetAnswer(pendId, answer){
       else await invoke('resume_task',{ taskId:t.id });
       toast('Teto ampliado pra '+fmtCost(next),'ok');
     }
-  }catch(e){ showErr(e, 'Não deu pra aplicar a resposta do teto'); }
-  finally{ budgetBusy.delete(t.id); lastSig=''; await refresh(); }
+  }
+  // o erro SOBE (quem respondeu mostra e destrava as opções): antes era engolido aqui e a conversa achava que
+  // a resposta tinha ido — opções travadas e a tarefa parada no teto sem aviso
+  finally{ budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
 }
 // teto escolhido na criação (planner / Como executar) → vai pro spec depois do new_task
 let ntBudgetPending=null;
