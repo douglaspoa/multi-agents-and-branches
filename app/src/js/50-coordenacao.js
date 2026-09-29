@@ -101,7 +101,7 @@
     if (!c && !k && !r) { if (chip.innerHTML) chip.innerHTML = ""; chip.title = ""; chip.style.display = "none"; return; }
     const pl = (n, um, varios) => n + " " + (n === 1 ? um : varios);
     const parts = [];
-    if (c) parts.push(`<span style="color:var(--warn)">⚑ ${pl(c, "tarefa com conflito", "tarefas com conflito")}</span>`);
+    if (c) parts.push(`<span style="color:var(--warn)">${IC.flag} ${pl(c, "tarefa com conflito", "tarefas com conflito")}</span>`);
     if (k) parts.push(pl(k, "disputa de arquivo entre agentes", "disputas de arquivo entre agentes"));
     if (r) parts.push(pl(r, "ajuste pedido", "ajustes pedidos"));
     const html = parts.join(" · ");

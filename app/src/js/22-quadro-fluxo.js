@@ -136,10 +136,12 @@ function issueUrlOf(t){ const c=issueCodeOf(t); const b=(lsGet('issueBase')||'')
 function linkChips(t, small){
   const cls=small?'btn sm':'btn sm';
   let h='';
-  if(t.prUrl) h+=`<button class="${cls}" data-lk="${escA(t.prUrl)}" title="abrir o Pull Request" style="padding:3px 9px;font-size:10.5px;color:var(--accent)">PR ↗</button>`;
+  // R8: ↗ virou IC.extlink; o código da issue (LOJ-14) é dado técnico → mono; o rótulo genérico "issue" não
+  const ext=icEm(IC.extlink);
+  if(t.prUrl) h+=`<button class="${cls} lkchip" data-lk="${escA(t.prUrl)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${ext}</button>`;
   const iu=t.issueUrl||issueUrlOf(t), ic=issueCodeOf(t);
-  if(iu) h+=`<button class="${cls} mono" data-lk="${escA(iu)}" title="abrir a issue" style="padding:3px 9px;font-size:10.5px">${esc(ic||'issue')} ↗</button>`;
-  else if(ic) h+=`<button class="${cls} mono" data-lkcfg="1" title="configure a URL base das issues nas configurações pra este código virar link" style="padding:3px 9px;font-size:10.5px;color:var(--muted)">${esc(ic)}</button>`;
+  if(iu) h+=`<button class="${cls} lkchip" data-lk="${escA(iu)}" title="abrir a issue">${ic?`<span class="mono">${esc(ic)}</span>`:'issue'} ${ext}</button>`;
+  else if(ic) h+=`<button class="${cls} lkchip mono" data-lkcfg="1" title="configure a URL base das issues nas configurações pra este código virar link" style="color:var(--muted)">${esc(ic)}</button>`;
   return h;
 }
 function wireLinkChips(root){
@@ -398,8 +400,9 @@ const FLOW_SEC_COLOR={ aguardando:'var(--st-ask)', andamento:'var(--st-run)', pr
 const FLOW_EXEC_KEYS=['aguardando','andamento','prontas','praberto','rascunho'];
 // seção recolhida (B4): estado por seção no localStorage; `def` = padrão quando o usuário nunca mexeu
 function flowSecCollapsed(k, def){ const v=lsGet('sec:col:'+k); return v==null?!!def:v==='1'; }
-function flowSecHead(k, label, n, tone, collapsed){
-  return `<div class="sech ${tone||''}" data-sectog="${escA(k)}" role="button" tabindex="0" aria-expanded="${collapsed?'false':'true'}" title="${escA((FLOW_SEC_TIP[k]||label)+' · clique pra '+(collapsed?'expandir':'recolher'))}"><span class="secchev">${collapsed?'▸':'▾'}</span>${esc(label)} <span class="n">${n}</span></div>`;
+// R8: seta e ícone (opcional, ex.: IC.epic) em SVG; antes ▾/▸ e "◆ " colado no rótulo
+function flowSecHead(k, label, n, tone, collapsed, icon){
+  return `<div class="sech ${tone||''}" data-sectog="${escA(k)}" role="button" tabindex="0" aria-expanded="${collapsed?'false':'true'}" title="${escA((FLOW_SEC_TIP[k]||label)+' · clique pra '+(collapsed?'expandir':'recolher'))}"><span class="secchev">${collapsed?IC.chevR:IC.chevD}</span>${icon?`<span class="secic">${icon}</span>`:''}${esc(label)} <span class="n">${n}</span></div>`;
 }
 let flowView=lsGet('flowView')||'list';   // list | grid (redesign p1/p2)
 function renderFlowHead(){
@@ -420,7 +423,7 @@ function renderFlowHead(){
   if(fc.prontas) bits.push(`${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar`);
   if(fc.praberto) bits.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
   put(`<h1>Central</h1><div class="sub">${bits.join(' · ')}</div>
-    <span style="flex:1"></span><span id="coordChip" class="mono" title="Coordenação (baseline): conflitos de merge · colisões do bus · reworks" style="font-size:11px;color:var(--muted);align-self:center"></span>`);
+    <span style="flex:1"></span><span id="coordChip" class="coordchip" title="Como os agentes estão se coordenando neste projeto"></span>`);
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -481,15 +484,15 @@ function renderTaskSummary(t){
   $id('sumBody').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
       <div style="flex:1;height:8px;border-radius:99px;background:var(--border-strong);overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--good);border-radius:99px"></i></div>
-      <b class="mono" style="font-size:15px">${pct}%</b>
+      <b style="font-size:15px;font-variant-numeric:tabular-nums">${pct}%</b>
     </div>
     <div class="dim" style="font-size:11.5px;margin-bottom:12px">fase atual: <b>${esc(PHASES[ph-1])}</b> · ${esc(t.branch||'')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</div>
     ${t.objective?`<div class="seclbl2">Objetivo</div><div style="font-size:12.5px;margin-bottom:12px">${esc(t.objective)}</div>`:''}
     <div class="seclbl2">O que já foi feito</div>
-    ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?'✓':'○'}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
-    ${dels.length?`<div style="margin-top:6px">${li(dels,'◆','var(--accent)')}</div>`:''}
+    ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?IC.ok:IC.stQueue}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
+    ${dels.length?`<div style="margin-top:6px">${li(dels,icEm(IC.doc),'var(--info)')}</div>`:''}
     <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${nPl(diffFiles(d),'arquivo alterado','arquivos alterados')} · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${nPl(c.length,'commit')}${rev?' · review interno ✓':''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
-    ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;color:var(--text-2)"><span class="mono dim" style="flex:none">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
+    ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;color:var(--text-2)"><span class="dim" style="flex:none;font-weight:600">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
     ${rev?`<div class="seclbl2" style="margin-top:10px">Como testar</div><div style="font-size:12.5px">${esc(rev.howToTest||'')}</div>`:''}
     <div class="seclbl2" style="margin-top:14px">O que falta pra finalizar</div>
     ${falta.length?li(falta,'→','var(--warn)'):'<div style="font-size:12.5px;color:var(--good)">nada — pronta pra fechar ✓</div>'}
@@ -515,30 +518,32 @@ function openTaskMenu(taskId, anchor){
   const pop=document.createElement('div');
   pop.id='tmenuPop';
   pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
-  const item=(label,fn,danger)=>{ const b=document.createElement('button');
-    b.textContent=label; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
+  // R8: ícone SVG (IC) + rótulo; antes o glifo ia colado no texto (✓ ◆ ⌥ ❙❙ ▶ ↻ ✕)
+  const item=(label,fn,danger,icon)=>{ const b=document.createElement('button');
+    if(icon){ b.innerHTML='<span class="mnic">'+icon+'</span>'; b.appendChild(document.createTextNode(label)); } else b.textContent=label;
+    b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
     b.onclick=async()=>{ menuClose(pop); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
     pop.appendChild(b); };
   const ty=taskType(t);
-  const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
+  const artifactOnly=['invest','design'].includes(ty)||(typeof entregaNonCode==='function'&&entregaNonCode(t)); // investigação/design/só documentos não têm PR pra mergear
   // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
-  if(t.flag!=='closed') item('✓ concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
+  if(t.flag!=='closed') item('concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}), false, IC.stDone);
   if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); menuClose(pop); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
   if(t.flag==='closed') item('reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
-  if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}));
-  if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como mergeada', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
+  if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}), false, stIcon('review'));
+  if(t.status!=='merged' && !artifactOnly) item('marcar como integrada (merge feito)', ()=>invoke('mark_task_status',{taskId,status:'merged'}), false, icEm(IC.merge));
   // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
-  if(['review','delivered'].includes(t.status)) item('↻ voltar pra em andamento · o agente continua', ()=>taskBackToRunning(taskId));
-  if(t.flag!=='blocked') item('❙❙ bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}));
-  else item('▶ desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}));
+  if(['review','delivered'].includes(t.status)) item('voltar pra em andamento · o agente continua', ()=>taskBackToRunning(taskId), false, IC.retry);
+  if(t.flag!=='blocked') item('bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}), false, stIcon('blocked'));
+  else item('desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}), false, stIcon('running'));
   if(['error','aborted','conflict'].includes(t.status)){
-    item('↻ tentar seguir · continua de onde parou', ()=>invoke('talk_task',{taskId, message:'A execução anterior foi interrompida (timeout de inatividade/erro). CONTINUE de onde você parou: confira git status, git diff, .cardume/PLAN.md e os requisitos em .cardume/TASK.yaml, e finalize o que falta — não recomece do zero. Se for rodar algo demorado, vá reportando progresso pra não ser encerrado por inatividade.', asReq:false, agent:null}));
-    item('↻ re-rodar do zero · descarta o parcial', ()=>rerunTask(taskId)); // E3: com a confirmação do rerunTask
+    item('tentar seguir · continua de onde parou', ()=>invoke('talk_task',{taskId, message:'A execução anterior foi interrompida (timeout de inatividade/erro). CONTINUE de onde você parou: confira git status, git diff, .cardume/PLAN.md e os requisitos em .cardume/TASK.yaml, e finalize o que falta — não recomece do zero. Se for rodar algo demorado, vá reportando progresso pra não ser encerrado por inatividade.', asReq:false, agent:null}), false, IC.retry);
+    item('refazer do zero · descarta o parcial', ()=>rerunTask(taskId), false, IC.retry); // E3: com a confirmação do rerunTask
   }
   // E3 (bug #4): abortar só faz sentido com o agente vivo (antes aparecia até em mergeada e trocava 'merged' por 'aborted');
   // e passa pelo abortTask(), que confirma antes
-  if(ACTIVE_ST.has(t.status)||t.status==='paused'||t.status==='plan-review'||t.status==='asking'||t.busy) item('✕ abortar agora', ()=>abortTask(taskId), true);
+  if(ACTIVE_ST.has(t.status)||t.status==='paused'||t.status==='plan-review'||t.status==='asking'||t.busy) item('interromper agora', ()=>abortTask(taskId), true, stIcon('aborted'));
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
@@ -585,21 +590,24 @@ function openStatusMenu(taskId, anchor){
   const opts=[
     // nomes = STATUS_META (stLabel/stColor); fechar = "concluir" em toda a app
     // E9: "em andamento" chama o agente de novo (pergunta antes); marcar só o status deixava um card "rodando" sem processo
-    { key:'running', label:'▶ Em andamento',        col:stColor('running'), act:async()=>{ if(!await taskBackToRunning(taskId)) throw null; } },
-    { key:'review',  label:'◆ Pronta pra revisar',  col:stColor('review'),  act:setSt('review') },
-    { key:'merged',  label:'✓ Mergeada',            col:stColor('merged'),  act:setSt('merged') },
-    { key:'finished',label:'★ Concluir · sai da fila', col:stColor('done'), act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
-    { key:'cancelled',label:'⊘ Cancelar · para e sai da fila', col:'var(--crit)', act:async()=>{ await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } },
+    { key:'running', ic:stIcon('running'), label:'Em andamento',        col:stColor('running'), act:async()=>{ if(!await taskBackToRunning(taskId)) throw null; } },
+    { key:'review',  ic:stIcon('review'), label:'Pronta pra revisar',  col:stColor('review'),  act:setSt('review') },
+    { key:'merged',  ic:stIcon('merged'), label:'Integrada (merge feito)',            col:stColor('merged'),  act:setSt('merged') },
+    { key:'finished',ic:stIcon('done'), label:'Concluir · sai da fila', col:stColor('done'), act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
+    { key:'cancelled',ic:stIcon('cancelled'), label:'Cancelar · para e sai da fila', col:'var(--crit)', act:async()=>{ await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } },
     // "Rascunho" NÃO entra: rebaixar uma task já iniciada pra draft a tornava
     // não-abrível (o clique ia pro editor) — footgun. Rascunho é só na criação.
   ];
+  // R8: tarefa sem código (investigação/design/só documentos) não tem merge — a opção "Integrada" some (Carla: sem sigla de git por padrão)
+  const noCode=['invest','design'].includes(taskType(t)) || (typeof entregaNonCode==='function' && entregaNonCode(t));
+  if(noCode){ const i=opts.findIndex(o=>o.key==='merged'); if(i>=0) opts.splice(i,1); }
   const pop=document.createElement('div');
   pop.id='stmenuPop';
   pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   opts.forEach(o=>{ const b=document.createElement('button');
     const on=(o.key===cur);
-    b.innerHTML=`<span style="color:${o.col}">${o.label}</span>${on?'<span style="margin-left:auto;opacity:.7">●</span>':''}`;
-    b.style.cssText='display:flex;align-items:center;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
+    b.innerHTML=`<span class="mnic" style="color:${o.col}">${o.ic}</span><span>${o.label}</span>${on?`<span style="margin-left:auto;opacity:.7" aria-label="atual">${IC.ok}</span>`:''}`;
+    b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
     b.onclick=async()=>{ menuClose(pop); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };
     pop.appendChild(b); });
@@ -637,14 +645,14 @@ function flowEpicGroupsHtml(src, epHtml){
   if(q) [...by.keys()].forEach(eid=>{ if(!(nameOf(eid).toLowerCase().includes(q) || by.get(eid).some(t=>(t.title||'').toLowerCase().includes(q)))) by.delete(eid); });
   if(!by.size) return epHtml;
   const groups=[...by.keys()].map(eid=>`<div class="epqep" style="--epc:${epColor(eid)}"><div class="epqh" style="cursor:default" title="todas as tarefas deste épico já começaram — cada ponto abre uma">`+
-    `<span class="secchev">◆</span><span class="tsepc epqname">${esc(nameOf(eid))}</span><span class="epqsum">${epqSummaryHtml(eid, 0)}</span><span style="flex:1"></span>`+
-    `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir ⤢</button></div></div>`).join('');
+    `<span class="secchev">${IC.epic}</span><span class="tsepc epqname">${esc(nameOf(eid))}</span><span class="epqsum">${epqSummaryHtml(eid, 0)}</span><span style="flex:1"></span>`+
+    `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir</button></div></div>`).join('');
   if(epHtml){
     if(/class="secgrp epqgrp collapsed"/.test(epHtml)) return epHtml; // seção recolhida: nada de corpo
     return epHtml.replace(/<\/div>\s*$/, groups+'</div>');
   }
   const col=flowSecCollapsed('epativos', false);
-  return `<div class="secgrp epqgrp${col?' collapsed':''}" data-sec="epativos">${flowSecHead('epativos','◆ Épicos em andamento', by.size, '', col)}${col?'':groups}</div>`;
+  return `<div class="secgrp epqgrp${col?' collapsed':''}" data-sec="epativos">${flowSecHead('epativos','Épicos em andamento', by.size, '', col, IC.epic)}${col?'':groups}</div>`;
 }
 function taskStarted(t){ return !!(t && (t.prUrl || (commitsCache[t.id] && commitsCache[t.id].length))); }
 function openOrEdit(t){ if(t.status==='draft' && !taskStarted(t)) editDraft(t); else openWorkspace(t.id); }

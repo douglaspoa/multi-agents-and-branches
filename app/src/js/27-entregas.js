@@ -40,7 +40,7 @@ function flowDemandCard(t){
   if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
   const rows=reqRows(t);
   const okN=rows.filter(r=>r.st==='ok').length;
-  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?'✓':r.st==='blk'?'!':'○'}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
+  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?'!':''}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
   const msg= asking.length ? `<b>${esc(asking[0].agent||t.agent)} perguntou</b> — ${esc((asking[0].prompt||'').slice(0,90))}`
     : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
     : t.status==='draft' ? 'rascunho — clique pra editar'
@@ -49,7 +49,7 @@ function flowDemandCard(t){
     : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${nPl(diffFiles(diffOf(t.id)),'arquivo')}`
     // E1: erro conhecido do motor/gh vira frase em pt-BR (antes: "spawn claude ENOENT", "Please run /login"…)
     : (t.status==='error' && ev && humanErr(ev.text).id!=='generic') ? `<b style="color:var(--crit)">${esc(humanErr(ev.text).msg)}</b>`
-    : ev ? `${esc(ev.agent||t.agent)} ${GLYPH[ev.type]||''} ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
+    : ev ? `${esc(ev.agent||t.agent)} — ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
   const artC=artifactsCache[t.id];
   if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
   const arts=(artC&&artC.list||[]).filter(a=>a.name!=='requirements.json');
@@ -57,21 +57,21 @@ function flowDemandCard(t){
   const readyPr=['review','delivered'].includes(t.status);
   const artOnly=['invest','design'].includes(ty)||entregaNonCode(t); // FT-6: entrega só de documentos também não abre PR
   const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia">${IC.bolt} resolver conflito</button>`
-    : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.cright} iniciar</button>`
+    : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.play} iniciar</button>`
     : asking.length ? `<button class="btn primary sm" data-dcopen="${escA(t.id)}">responder</button>`
-    : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">✓ ver e salvar</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
+    : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">${IC.ok} ver e salvar</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
     : (done ? `<button class="btn sm" data-dcopen="${escA(t.id)}">ver entrega</button>` : '');
   const segs=[1,2,3,4,5].map(i=>`<i class="${i<=ph?((asking.length&&i===ph)?'on warn':'on'):''}"></i>`).join('');
   const foot = done
-    ? `<span class="dc-meta">${prN?`<span class="dc-pr" data-lk="${escA(t.prUrl)}">PR #${prN} ↗</span>`:''}${nImg?`<span>${nImg} prova${nImg===1?'':'s'}</span>`:''}${nDoc?`<span>${nDoc} doc${nDoc===1?'':'s'}</span>`:''}${rows.length?`<span>${okN}/${rows.length} requisitos provados</span>`:''}<span>${esc(fmtDurMs(taskDurationMs(t)))}</span></span>`
-    : `<span class="seg5">${segs}</span><span class="dc-pct mono" data-sum="${escA(t.id)}" title="resumo do que já foi feito">${pct}%</span><span class="dc-msg">${msg}</span>`;
+    ? `<span class="dc-meta">${prN?`<span class="dc-pr" data-lk="${escA(t.prUrl)}">PR #${prN} ${IC.extlink?icEm(IC.extlink):''}</span>`:''}${nImg?`<span>${nImg} prova${nImg===1?'':'s'}</span>`:''}${nDoc?`<span>${nDoc} doc${nDoc===1?'':'s'}</span>`:''}${rows.length?`<span>${okN}/${rows.length} requisitos provados</span>`:''}<span>${esc(fmtDurMs(taskDurationMs(t)))}</span></span>`
+    : `<span class="seg5">${segs}</span><span class="dc-pct" data-sum="${escA(t.id)}" title="resumo do que já foi feito">${pct}%</span><span class="dc-msg">${msg}</span>`;
   // F2/F3: tarefa de épico mantém a identidade depois de começar — selo "◆ nome · onda N" + borda na cor do épico
   const epId=(t.epic&&t.epic.epicId)||'';
   const epSt=(epId&&typeof epColor==='function')?` style="--epc:${epColor(epId)}"`:'';
   const bare=!t.objective && !rows.length; // sem descrição nem requisitos: o card não reserva o espaço (sumia num buraco)
   const mName=boardModelName(t.model);
   return `<div class="dcard${done?' done':''}${epSt?' has-ep':''}${bare?' dc-bare':''}" data-id="${escA(t.id)}"${epSt}>
-    <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}<span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span>${t.orchestration?`<span class="dc-orq" data-orq="${escA(t.orchestration.id)}" data-orq-task="${escA(t.id)}" title="fase ${escA(t.orchestration.phase||'')} do plano — abrir o grafo">◉ ${esc(String(t.orchestration.title||'plano').slice(0,28))}</span>`:''}<span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar">⋯</button></div>
+    <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}<span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span>${t.orchestration?`<span class="dc-orq" data-orq="${escA(t.orchestration.id)}" data-orq-task="${escA(t.id)}" title="fase ${escA(t.orchestration.phase||'')} do plano — abrir o grafo">${IC.orq} ${esc(String(t.orchestration.title||'plano').slice(0,28))}</span>`:''}<span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar" aria-label="mais ações">${IC.more}</button></div>
     ${t.objective?`<div class="dc-obj">${esc(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].replace(/\s+/g,' ').slice(0,220))}</div>`:''}
     ${reqsHtml}
     <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${mName?` <span class="dc-model" title="${escA(t.model)}">· ${esc(mName)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):taskTs(t))}</span></div>

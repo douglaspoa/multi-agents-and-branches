@@ -175,8 +175,8 @@
 .orqc-phs{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
 .orqc-ph{display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:var(--r-pill);border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);font:400 11px var(--display);color:rgba(255,255,255,.75);max-width:220px}
 .orqc-ph i{width:6px;height:6px;border-radius:50%;flex:none}
-.orqc-ph b{font:700 9px var(--code);color:var(--c);flex:none}
-.dc-orq{font:500 10px var(--code);color:var(--accent);border:1px solid rgba(63,214,138,.35);border-radius:var(--r-pill);padding:2px 8px;white-space:nowrap;flex:none;cursor:pointer}
+.orqc-ph b{font:600 var(--fs-xs) var(--ui);color:var(--c);flex:none}
+.dc-orq{font:500 var(--fs-xs) var(--ui);color:var(--text-2);background:var(--accent-soft);border:1px solid var(--accent-line);display:inline-flex;align-items:center;gap:5px;border-radius:var(--r-pill);padding:2px 8px;white-space:nowrap;flex:none;cursor:pointer}
 .dc-orq:hover{background:rgba(63,214,138,.12)}
 
 /* conversa com o orquestrador (inspetor do nó Orquestrador) */
