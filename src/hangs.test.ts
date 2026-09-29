@@ -117,3 +117,35 @@ test("PR já aberto pra branch: a URL sai do erro do gh (antes: 'falha ao abrir 
   assert.equal(prUrlFrom("Warning: 2 uncommitted changes\nhttps://github.com/o/r/pull/7\n"), "https://github.com/o/r/pull/7");
   assert.equal(prUrlFrom("erro qualquer"), "");
 });
+
+test("PR automático com PR já aberto (gh falso): registra 'PR aberto' com a URL do erro", POSIX, async () => {
+  const { root, repo } = repoTmp();
+  const origin = join(root, "origin.git");
+  execFileSync("git", ["init", "--bare", "-q", "-b", "main", origin]);
+  git(repo, "remote", "add", "origin", origin);
+  git(repo, "push", "-q", "origin", "main");
+  const gh = join(root, "gh-falso.sh");
+  writeFileSync(gh, '#!/bin/sh\necho "a pull request for branch \\"$6\\" into branch \\"main\\" already exists:" >&2\necho "https://github.com/o/r/pull/42" >&2\nexit 1\n');
+  chmodSync(gh, 0o755);
+  const orch = new Orchestrator(repo);
+  try {
+    const spec = {
+      id: "t-pr", title: "t", objective: "x", deliverables: [], requirements: [],
+      scope: { owns: [], offLimits: [] },
+      autonomy: { clarifications: "assume", commit: "at-end", runTests: false, approval: "auto" },
+      engine: "mock", agent: "Vega", roles: [], light: true, base: "main", autoPr: "auto", prBase: "main",
+    } as unknown as TaskSpec;
+    const task = await orch.createTask(spec);
+    writeFileSync(join(task.worktree, "x.txt"), "x\n");
+    git(task.worktree, "add", "x.txt");
+    git(task.worktree, "commit", "-q", "-m", "x");
+    await withEnv({ CARDUME_GH: gh }, () =>
+      (orch as unknown as { maybeOpenPr(id: string, t: unknown, s: unknown): Promise<void> }).maybeOpenPr("t-pr", orch.store.getTask("t-pr"), spec));
+    const texts = orch.store.eventsForTask("t-pr").map((e) => e.text);
+    assert.ok(texts.includes("PR aberto automaticamente: https://github.com/o/r/pull/42"), texts.join("\n"));
+    assert.ok(!texts.some((t) => /falha ao abrir o PR/.test(t)));
+  } finally {
+    orch.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
