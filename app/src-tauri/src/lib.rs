@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod memoria;
+#[cfg(test)]
+mod snapshot_perf;
 
 mod procsig {
     #[cfg(unix)]
@@ -816,7 +818,7 @@ fn task_budget_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Task {
     id: String,
@@ -854,9 +856,12 @@ struct Task {
     /// Um turno do MOTOR está rodando agora (lock busy_pid vivo) — pode ser um
     /// turno de fundo (verificar provas, rework) mesmo com status 'review'.
     busy: bool,
+    /// Pedidos (mensagens, entregáveis, rework) esperando na FILA do motor (work_queue 'queued').
+    /// Com `busy` false e isto > 0 = fila parada: o front avisa em vez de a mensagem "sumir".
+    queued: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Review {
     task_id: String,
@@ -867,7 +872,7 @@ struct Review {
     by_agent: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Event {
     id: i64,
@@ -880,7 +885,7 @@ struct Event {
     ok: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Claim {
     id: i64,
@@ -891,7 +896,7 @@ struct Claim {
     yielded_to: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Diff {
     task_id: String,
@@ -900,7 +905,7 @@ struct Diff {
     deletions: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Pending {
     id: i64,
@@ -912,7 +917,7 @@ struct Pending {
     created_at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Cost {
     task_id: String,
@@ -923,7 +928,7 @@ struct Cost {
     out_tok: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
     repo: Option<String>,
@@ -2144,6 +2149,43 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
 }
 fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    snapshot_or_cached(path)
+}
+/// Último snapshot BOM por banco. Com o state.sqlite travado (checkpoint/recuperação do WAL depois de
+/// um processo morto, CLI fechando…), o snapshot esperava o busy_timeout inteiro (8s) = o mesmo prazo
+/// do front → "snapshot demorou >8s" e a tela parava justo depois de enviar mensagem. Agora a leitura
+/// desiste em SNAP_BUSY_MS e devolve o último estado bom (até 60s de idade); o próximo poll pega o novo.
+const SNAP_BUSY_MS: u64 = 2500;
+fn snap_cache() -> &'static Mutex<HashMap<PathBuf, (std::time::Instant, Snapshot)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<PathBuf, (std::time::Instant, Snapshot)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn snapshot_or_cached(path: Option<PathBuf>) -> Result<Snapshot, String> {
+    let Some(p) = path.clone() else { return snapshot_at(None) };
+    match snapshot_at(path) {
+        Ok(s) => {
+            snap_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(p, (std::time::Instant::now(), s.clone()));
+            Ok(s)
+        }
+        Err(e) => {
+            let hit = snap_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&p)
+                .filter(|(at, _)| at.elapsed() < std::time::Duration::from_secs(60))
+                .map(|(_, s)| s.clone());
+            match hit {
+                Some(s) => {
+                    web_log(format!("[rust] snapshot ocupado ({e}) — devolvi o último estado bom"));
+                    Ok(s)
+                }
+                None => Err(e),
+            }
+        }
+    }
+}
+/// O snapshot a partir do caminho do state.sqlite (sem State — dá pra medir/testar direto num banco).
+fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
     let path = match path {
         Some(p) => p,
         None => {
@@ -2162,6 +2204,7 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
         }
     };
     let conn = open(&path)?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(SNAP_BUSY_MS));
 
     // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only).
     // Coluna não some: "tem" fica em cache pra sempre por DB; "não tem" é reconferido a cada 30s.
@@ -2232,10 +2275,21 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
                     .unwrap_or(None)
                     .map(|pid| pid_alive(pid as i32))
                     .unwrap_or(false),
+                queued: 0,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
+    // fila do motor por tarefa (índice wq_task). Banco antigo sem work_queue: fica 0.
+    let mut tasks = tasks;
+    if let Ok(mut st) = conn.prepare("SELECT task_id, COUNT(*) FROM work_queue WHERE status='queued' GROUP BY task_id") {
+        if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+            let q: HashMap<String, i64> = rows.filter_map(|x| x.ok()).collect();
+            for t in tasks.iter_mut() {
+                if let Some(n) = q.get(&t.id) { t.queued = *n; }
+            }
+        }
+    }
 
     // Limita o payload: só os eventos mais recentes (evita serializar todo o
     // histórico a cada poll). 1200 cobre o uso real (com textos agora longos) e limita o
@@ -2921,7 +2975,7 @@ fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) 
 
 /// Momento do build (mtime do executável) — carimbo no rodapé pra saber qual
 /// versão está rodando (evita depurar tela de build antiga).
-#[tauri::command]
+#[tauri::command(async)]
 fn build_info() -> String {
     std::env::current_exe()
         .ok()
@@ -3085,23 +3139,40 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
     let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
-        signal_group(p, procsig::CONT);
-        signal_group(p, procsig::TERM);
-        let procs = state.procs.clone();
-        let tid = task_id.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            signal_group(p, procsig::KILL);
-            if let Ok(mut m) = procs.lock() {
-                if m.get(&tid) == Some(&p) {
-                    m.remove(&tid);
-                }
+        // ESPERA o turno morrer (≤ ~1,6s) antes de voltar: o "■ parar e enviar" do chat chama
+        // talk_task logo em seguida, e o motor novo via o busy_pid do processo AINDA VIVO → a
+        // mensagem ia pra fila de um turno que morria no SIGKILL sem drenar = presa pra sempre.
+        // Roda numa thread do runtime (comando async), não na da janela.
+        stop_and_wait(p, 1000);
+        if let Ok(mut m) = state.procs.lock() {
+            if m.get(&task_id) == Some(&p) {
+                m.remove(&task_id);
             }
-        });
+        }
     }
     // volta pra review (não 'aborted') pra poder continuar conversando
     set_task_status(&state, &task_id, "review")?;
     Ok(())
+}
+
+/// CONT + TERM no grupo, espera até `grace_ms` o processo sair; senão KILL e mais um respiro curto.
+/// Devolve se o processo morreu.
+fn stop_and_wait(p: i32, grace_ms: u64) -> bool {
+    signal_group(p, procsig::CONT);
+    signal_group(p, procsig::TERM);
+    let step = std::time::Duration::from_millis(50);
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_millis(grace_ms) {
+        if !pid_alive(p) { return true; }
+        std::thread::sleep(step);
+    }
+    signal_group(p, procsig::KILL);
+    let t1 = std::time::Instant::now();
+    while t1.elapsed() < std::time::Duration::from_millis(600) {
+        if !pid_alive(p) { return true; }
+        std::thread::sleep(step);
+    }
+    !pid_alive(p)
 }
 
 /// Aborta a tarefa: mata a árvore de processos (SIGCONT p/ destravar + SIGTERM,
@@ -3673,7 +3744,7 @@ fn tool_line(name: &str, input: &serde_json::Value) -> String {
 static PLANNER_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// PARA a resposta em andamento do planner ("montar conversando"): mata o grupo do claude.
-#[tauri::command]
+#[tauri::command(async)]
 fn ai_chat_stop() -> bool {
     let pid = PLANNER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
     if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
@@ -4356,7 +4427,7 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
 static ISSUE_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// PARA a pesquisa em andamento da aba "Nova issue" (mata o grupo do claude).
-#[tauri::command]
+#[tauri::command(async)]
 fn issue_chat_stop() -> bool {
     let pid = ISSUE_CHAT_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
     if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
@@ -4591,7 +4662,7 @@ fn fetch_task_ref(state: State<AppState>, task_id: String, url: String, anon: St
 /// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
 /// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
-#[tauri::command]
+#[tauri::command(async)]
 fn read_policy(state: State<AppState>) -> serde_json::Value {
     // devolve SÓ o que o REPO define — o JS monta a cadeia completa:
     // padrão do produto < política da ORG (nuvem) < .cardume do repo
@@ -4772,7 +4843,7 @@ fn apns_push(token: String, title: String, body: String, category: Option<String
 
 /// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
 /// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
-#[tauri::command]
+#[tauri::command(async)]
 fn is_dev_install() -> bool {
     std::env::var("CARDUME_CLI").map(|v| !v.is_empty()).unwrap_or(false)
 }

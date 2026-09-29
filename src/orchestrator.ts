@@ -687,12 +687,27 @@ export class Orchestrator {
       return;
     }
     this.store.setBusyPid(taskId, process.pid);
+    this.expireOrphanQueue(taskId);
     try {
       await fn();
     } finally {
       this.store.setBusyPid(taskId, null);
       await this.drainQueue(taskId);
     }
+  }
+
+  /** Pedidos "na fila" são drenados pelo processo que segurava o turno — se ele foi MORTO (■ parar,
+   * SIGKILL, app fechado), eles ficavam 'queued' pra sempre: no logcomex-ai-v2 havia 3 mensagens
+   * presas desde 01/09 ("esta demorando demais"…) numa tarefa já em 'review'. Aqui, ao pegar o
+   * lock: órfãos RECENTES seguem e rodam depois deste turno (drainQueue); os ANTIGOS (> 30 min)
+   * são descartados com aviso visível — rodar hoje um "tá demorando" de dias atrás é pior. */
+  private expireOrphanQueue(taskId: string, maxAgeMs = 30 * 60_000): void {
+    try {
+      const n = this.store.queueExpire(taskId, Date.now() - maxAgeMs);
+      if (n > 0) {
+        this.store.addEvent(taskId, "Sistema", "note", `Fila limpa: ${n === 1 ? "1 pedido antigo descartado" : `${n} pedidos antigos descartados`} — o turno que ia executá-los foi encerrado antes. Se ainda precisar, mande de novo.`, true);
+      }
+    } catch { /* banco antigo sem work_queue: nada a limpar */ }
   }
 
   /** Roda os pedidos enfileirados, em ordem, até esvaziar (ou outro processo assumir). */
@@ -727,6 +742,7 @@ export class Orchestrator {
       return;
     }
     this.store.setBusyPid(taskId, process.pid);
+    this.expireOrphanQueue(taskId);
     try {
       await this.runTaskInner(taskId);
     } finally {

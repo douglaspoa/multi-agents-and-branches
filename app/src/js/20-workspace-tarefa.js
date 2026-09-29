@@ -31,6 +31,10 @@ function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'
 // subtítulo do chat conforme o ESTADO (antes dizia "ele lembra o que fez" até em erro)
 function fwChatSubText(t){
   if(pendingOf(t.id).length) return 'aguardando sua resposta';
+  // fila do motor (snapshot: t.queued) — antes a mensagem "na fila" sumia sem nenhum sinal na tela
+  const q=+t.queued||0;
+  if(q && fwIsWorking(t)) return 'trabalhando… · '+nPl(q,'pedido','pedidos')+' na fila — ele lê quando terminar o turno atual';
+  if(q) return nPl(q,'pedido parado','pedidos parados')+' na fila (o turno que ia executar foi encerrado) — mande uma mensagem pra retomar';
   if(fwIsWorking(t)) return 'trabalhando…';
   if(t.status==='error'){ const ev=lastEventOf(t.id), h=ev?humanErr(ev.text):null; // E1: diz O QUE deu errado quando é um erro conhecido
     return (h&&h.id!=='generic'?h.msg+' ':'parou com erro — ')+(h&&h.action?'('+h.action.label+') e depois mande uma mensagem pra ele seguir':'mande uma mensagem pra ele tentar seguir, ou rode de novo'); }
@@ -300,7 +304,7 @@ async function fwLiveUpdate(){
   if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
   const evs0=fwEvents.length?fwEvents:eventsOf(t.id);
   const rp=reqProofCache[t.id];
-  const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
+  const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,t.queued||0,(fwOptim[t.id]||[]).map(o=>o.st).join(','),(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
   // PR na tela e dados velhos (>60s) → busca de novo em segundo plano
   if(fwMode==='pr' && typeof prIsStale==='function' && prIsStale(t.id)){ loadPr(t.id,true).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); }); }
   { const ag=$id('prAge'); const pi=prCache[t.id]; if(ag&&pi&&pi._at&&typeof prAgoTx==='function') ag.textContent=prAgoTx(pi._at); }
@@ -873,6 +877,8 @@ function fwThreadHtml(t){
     act.push(e);
   }
   flush();
+  // eco otimista: mensagens enviadas que o banco ainda não confirmou (ver fwOptim)
+  for(const o of fwOptimFor(t.id, evs)) out.push(fwOptimHtml(o));
   return out.join('')
   + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
   + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
@@ -945,10 +951,36 @@ async function fwSendText(taskId, text){
     const pend=pendingOf(t.id);
     if(pend.length){ await resolvePending(pend[0].id, text); }
     else { if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){ } } await invoke('talk_task',{ taskId:t.id, message:text, asReq:false, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined; }
-    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; await refresh(); renderWorkspace();
+    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; refresh().catch(()=>{}); renderWorkspace();
   }catch(e){ showErr(e, 'Falha ao enviar'); }
 }
 const fwPend={}; // taskId → anexos importados ainda não enviados
+// ---- ECO OTIMISTA do envio (travamento 28/09) ----
+// Antes: o campo ficava desabilitado e a mensagem só aparecia depois de parar + talk_task + refresh
+// completo — com o snapshot ocupado eram 8,5s de tela "congelada" (medido no harness) e, se o
+// refresh estourava, nada aparecia. Agora a bolha entra NA HORA com o estado do envio e some quando
+// o evento real chega (fala "Você: …", resposta a pergunta, ou o aviso "Na fila (…)" do motor).
+const fwOptim={}; // taskId → [{ text, at, st:'enviando'|'lento'|'enviada'|'fila' }]
+function fwOptimFor(taskId, evs){
+  const list=fwOptim[taskId]; if(!list||!list.length) return [];
+  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
+  const seen=o=>(evs||[]).some(e=>{ if(e.ts && e.ts<o.at-60000) return false; const tx=String(e.text||'');
+    if(evIsUserMsg(e)) return norm(evUserText(tx))===norm(o.text);
+    if(tx.startsWith('humano respondeu:')) return norm(tx.replace(/^humano respondeu:\s*/,''))===norm(o.text);
+    return /^Na fila \(/.test(tx) && tx.includes(norm(o.text).slice(0,60)); });
+  // confirmada pelo banco (ou velha demais: 3 min) → sai da lista
+  fwOptim[taskId]=list.filter(o=>!seen(o) && Date.now()-o.at<180000);
+  return fwOptim[taskId];
+}
+function fwOptimHtml(o){
+  const cap = o.st==='lento' ? 'ainda enviando — o app está ocupado; pode continuar escrevendo'
+    : o.st==='fila' ? 'na fila — o agente lê quando terminar o turno atual'
+    : o.st==='enviada' ? 'enviada · aguardando o agente'
+    : 'enviando…';
+  return `<div class="cmsg you optim"><div class="cbub">${chatMd(o.text)}<div class="optim-st">${o.st==='enviando'||o.st==='lento'?'<span class="spin"></span> ':''}${esc(cap)}</div></div></div>`;
+}
+// repinta SÓ a conversa (não mexe no campo de texto) e desce pro fim
+function fwPaintThread(t){ const th=$id('fwThread'); if(!th||!t) return; th.innerHTML=fwThreadHtml(t); th.scrollTop=th.scrollHeight; }
 async function fwSendMsg(queueOnly){
   const t=fwTaskObj(); if(!t) return;
   const inp=$id('fwInput'); if(!inp) return; const typed=inp.value; let v=typed.trim();
@@ -960,7 +992,14 @@ async function fwSendMsg(queueOnly){
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';
   const asReq=!!($id('fwAsReq')&&$id('fwAsReq').checked);
   const full = ctx+v+attPromptBlock(atts);
+  const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy);
+  const asking=pendingOf(t.id).length>0;
+  const op={ text:full, at:Date.now(), st:'enviando' };
+  (fwOptim[t.id]=fwOptim[t.id]||[]).push(op);
   inp.value=''; inp.disabled=true; fwDraft[t.id]='';
+  fwPaintThread(t);
+  // o campo NUNCA fica preso: se o backend demorar (runtime/banco ocupado), libera em 4s e avisa na bolha
+  const slow=setTimeout(()=>{ if(op.st!=='enviando') return; op.st='lento'; const i=$id('fwInput'); if(i) i.disabled=false; if(fwTask===t.id) fwPaintThread(fwTaskObj()); }, 4000);
   // tarefa PAUSADA (processo congelado): sem retomar, a mensagem entrava numa fila que nunca andava
   if(t.status==='paused' && t.busy){ try{ await invoke('resume_task',{ taskId:t.id }); lastSig=''; }catch(e){ console.error('retomar antes de enviar', e); } }
   try{
@@ -968,21 +1007,30 @@ async function fwSendMsg(queueOnly){
     if(pend.length){
       // pergunta aberta → responder CONTINUA o mesmo turno
       await resolvePending(pend[0].id, full);
-    } else if(!queueOnly && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy)){
+    } else if(!queueOnly && working){
       // trabalhando → para o turno atual (inclusive turno de fundo) e manda já
+      // (o stop_task só volta com o turno MORTO — senão a mensagem caía na fila do processo que morria)
       try{ await stopTask(t.id); }catch(_){ }
       await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     } else {
       // livre, ou o usuário escolheu "na fila" → o motor enfileira se ocupado
       await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     }
+    op.st=(queueOnly && working && !asking)?'fila':'enviada';
     artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; fwAsReqOn[t.id]=false;
-    lastSig=''; await refresh();
+    // refresh SEM await: a bolha já está na tela; o estado real chega no próximo snapshot
+    lastSig=''; refresh().catch(()=>{});
   }catch(e){
     // falhou: o texto e os anexos VOLTAM pro composer (antes a mensagem sumia)
-    fwDraft[t.id]=typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
+    fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op);
+    // (se ele já começou outra mensagem durante um envio lento, as duas ficam no campo)
+    const cur=(($id('fwInput')||{}).value||'').trim(); fwDraft[t.id]=cur?typed+'\n'+cur:typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
     showErr(e, 'Não consegui enviar — o texto voltou pro campo'); }
-  finally{ inp.disabled=false; renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); }
+  finally{
+    clearTimeout(slow);
+    const i0=$id('fwInput'); if(i0) i0.disabled=false;
+    if(fwTask===t.id){ renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); }
+  }
 }
 // fechar pelo botão: pergunta antes de jogar fora uma edição não salva
 $id('fwClose').onclick=async()=>{ if(!await fwLeaveEditor()) return; closeWorkspace(); };
