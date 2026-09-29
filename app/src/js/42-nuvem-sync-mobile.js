@@ -322,7 +322,7 @@ async function cloudSyncTick(){
   const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
   // descobre o PR de UMA tarefa por tick (gh) — persiste no spec e o sync leva pro cartão
   const probe=ids.find(lid=>{ const t=(state.tasks||[]).find(x=>x.id===lid); return t && !t.prUrl && ['review','merged','error'].includes(t.status) && !prProbed.has(lid); });
-  if(probe){ prProbed.add(probe); invoke('pr_status',{ taskId: probe }).catch(()=>{}); }
+  if(probe){ prProbed.add(probe); invokeQuiet('pr_status',{ taskId: probe }).catch(()=>{}); } // sondagem em 2º plano: falha não é erro
   // boot da sessão: os cartões ainda sem assinatura vêm num GET só (antes: 1 GET por tarefa)
   const bootCards={};
   { const need=cloudTaskIds(m, 400, false).filter(l=>cloudSyncSigs[l]===undefined && !(teamTasks||[]).some(c=>c.id===m[l])).map(l=>m[l]);

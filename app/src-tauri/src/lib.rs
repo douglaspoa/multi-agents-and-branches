@@ -570,6 +570,14 @@ mod claude_json_tests {
 mod artifact_tests {
     use super::*;
     #[test]
+    fn nome_citado_pelo_agente_normaliza() {
+        assert_eq!(artifact_norm_name("./.cardume/artifacts/print.png", "t1"), "print.png");
+        assert_eq!(artifact_norm_name(".cardume/artifacts/t1/entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
+        assert_eq!(artifact_norm_name("t1/x.md", "t1"), "x.md");
+        assert_eq!(artifact_norm_name("entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
+        assert_eq!(artifact_norm_name("t10/x.md", "t1"), "t10/x.md");
+    }
+    #[test]
     fn nome_com_subpasta_vale_mas_escape_nao() {
         assert!(artifact_name_ok("relatorio.pdf"));
         assert!(artifact_name_ok("entregaveis/relatorio.pdf"));
@@ -1244,9 +1252,15 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
     let conn = open(&dbpath)?;
-    let (branch, base): (String, String) = conn
+    // tarefa fora do state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem): não há
+    // commits a listar — vazio, não "Query returned no rows" (era o erro recorrente em app_errors)
+    let (branch, base): (String, String) = match conn
         .query_row("SELECT branch, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(|e| e.to_string())?;
+    {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(vec![]),
+        Err(e) => return Err(e.to_string()),
+    };
     let mb = merge_base_ref(&repo, &base, &branch);
     let out = Command::new("git")
         .arg("-C")
@@ -2054,7 +2068,17 @@ struct ArtifactContent {
 
 #[tauri::command(async)]
 fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
-    let path = artifact_path(&state, &task_id, &name)?;
+    // evidência que é arquivo do PRÓPRIO repo (ex.: "tests/login.test.ts"): só LEITURA, da worktree
+    let path = match artifact_path(&state, &task_id, &name) {
+        Ok(p) => p,
+        Err(e) => {
+            let rel = name.trim().trim_start_matches("./");
+            match task_worktree(&state, &task_id) {
+                Ok(wt) if artifact_name_ok(rel) && wt.join(rel).is_file() => wt.join(rel),
+                _ => return Err(e),
+            }
+        }
+    };
     let kind = artifact_kind(&name);
     if kind == "image" {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
@@ -3970,11 +3994,24 @@ fn llm_env_get(key: &str) -> Option<String> {
 }
 
 /// Resolve o caminho de um artefato (coletado no repo, ou AO VIVO na worktree).
+/// Nome como o AGENTE cita (evidência do requirements.json, link no chat): "./.cardume/artifacts/x.png",
+/// ".cardume/artifacts/<task>/x.png" → "x.png". Era a origem do "artefato não encontrado" ao clicar na prova.
+fn artifact_norm_name(name: &str, task_id: &str) -> String {
+    let mut n = name.trim().trim_start_matches("./");
+    n = n.strip_prefix(".cardume/artifacts/").unwrap_or(n);
+    if !task_id.is_empty() {
+        if let Some(rest) = n.strip_prefix(task_id).and_then(|r| r.strip_prefix('/')) { n = rest; }
+    }
+    n.to_string()
+}
+
 fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<PathBuf, String> {
+    let cited = name.trim().to_string();
+    let norm = artifact_norm_name(name, task_id);
+    let name = norm.as_str();
     if !artifact_name_ok(name) {
         return Err("nome de artefato inválido".into());
     }
-    let name = name.trim();
     // worktree AO VIVO primeiro (é a versão mais nova), depois a cópia coletada
     // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
     let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -3997,7 +4034,7 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
     for p in [col.join(name), col.join(task_id).join(name)] {
         if p.is_file() { return Ok(p); }
     }
-    Err("artefato não encontrado".into())
+    Err(format!("artefato não encontrado: {cited} (ainda não foi gerado ou já foi removido)"))
 }
 
 /// Envia um artefato pro Slack (files.getUploadURLExternal → PUT → completeUploadExternal).
@@ -4273,9 +4310,11 @@ fn tracker_http(method: String, url: String, headers: Option<std::collections::H
     }
     // GET é idempotente: repete 1x em falha transitória (DNS/VPN trocando, conexão caindo).
     // Escrita (POST/PUT/PATCH/DELETE) nunca repete — criaria issue/comentário em dobro.
-    // --compressed: as listas de issues vinham a 100 KB+ e estouravam os 30 s antigos.
-    let mut args: Vec<&str> = vec!["-sS", "--compressed", "--connect-timeout", "10", "--max-time", "60", "-w", "\n%{http_code}", "--config", "-"];
-    if m == "GET" { args.extend(["--retry", "1", "--retry-delay", "2", "--retry-all-errors"]); }
+    // --compressed: as listas de issues vinham a 100 KB+ (comprimidas cabem folgadas em 30 s).
+    // Teto DURO: conexão 10 s, chamada 30 s e a repetição só cabe dentro dos mesmos 30 s
+    // (--retry-max-time) — antes 60 s + retry podiam somar minutos com a rede caindo (curl 28).
+    let mut args: Vec<&str> = vec!["-sS", "--compressed", "--connect-timeout", "10", "--max-time", "30", "-w", "\n%{http_code}", "--config", "-"];
+    if m == "GET" { args.extend(["--retry", "1", "--retry-delay", "2", "--retry-max-time", "30", "--retry-all-errors"]); }
     let mut child = Command::new("curl")
         .args(&args)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
@@ -4899,13 +4938,21 @@ fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, s
 }
 
 // ---------- revisão de arquivos da tarefa (abrir/editar/salvar) ----------
+/// Tarefa que não está no state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem).
+/// Estado legítimo: listas (arquivos/commits) devolvem vazio; o resto usa esta frase (o front não reporta).
+const TASK_GONE: &str = "esta tarefa não está neste projeto (foi apagada ou pertence a outro projeto)";
+/// Worktree já removida (merge/limpeza). Mandar mensagem na tarefa a recria (ensureTaskWorktree).
+const WT_GONE: &str = "a cópia de trabalho desta tarefa não existe mais (já foi limpa) — mande uma mensagem na conversa da tarefa pra retomá-la e ela é recriada";
+fn task_query_err(e: rusqlite::Error) -> String {
+    if matches!(e, rusqlite::Error::QueryReturnedNoRows) { TASK_GONE.to_string() } else { e.to_string() }
+}
 fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = open(&path)?;
     conn.query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| {
         Ok((PathBuf::from(r.get::<_, String>(0)?), r.get::<_, String>(1)?))
     })
-    .map_err(|e| e.to_string())
+    .map_err(task_query_err)
 }
 /// Ponto de comparação REAL da tarefa: merge-base entre a base e o HEAD da
 /// worktree, preferindo origin/<base>. Sem isso, se o agente mergear
@@ -4952,7 +4999,13 @@ struct TaskFile {
 /// Arquivos alterados pela tarefa (git diff base...HEAD na worktree).
 #[tauri::command(async)]
 fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, String> {
-    let (wt, base) = task_wt_base(&state, &task_id)?;
+    // tarefa de outro projeto/apagada ou worktree já limpa (merge): nada a listar — vazio, sem erro
+    let (wt, base) = match task_wt_base(&state, &task_id) {
+        Ok(v) => v,
+        Err(e) if e == TASK_GONE => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
+    if !wt.is_dir() { return Ok(vec![]); }
     // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
     // assim os arquivos aparecem ao vivo enquanto o agente edita, antes do commit.
     let base = task_diff_base(&wt, &base);
@@ -5037,7 +5090,26 @@ struct FileContent {
 fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<FileContent, String> {
     safe_rel(&path)?;
     let (wt, base) = task_wt_base(&state, &task_id)?;
-    let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| e.to_string())?;
+    if !wt.is_dir() {
+        // worktree limpa (tarefa mergeada/encerrada): mostra a versão da branch (ou da base) no repo
+        let repo = active_repo(&state)?;
+        let branch: String = open(&state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?)?
+            .query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get(0))
+            .unwrap_or_default();
+        let clean = base.trim_start_matches("origin/").to_string();
+        for rev in [branch, format!("origin/{clean}"), clean] {
+            if rev.is_empty() { continue; }
+            if let Ok(o) = Command::new("git").arg("-C").arg(&repo).args(["show", &format!("{rev}:{path}")]).output() {
+                if o.status.success() {
+                    return Ok(FileContent { content: String::from_utf8_lossy(&o.stdout).to_string(), added_lines: vec![] });
+                }
+            }
+        }
+        return Err(WT_GONE.into());
+    }
+    let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound { format!("o arquivo {path} não existe mais nesta cópia da tarefa (foi apagado ou renomeado)") } else { e.to_string() }
+    })?;
     // linhas novas (do diff unified=0): parse dos hunks @@ -a,b +c,d @@
     let mut added: Vec<i64> = Vec::new();
     let base = task_diff_base(&wt, &base);
@@ -5787,6 +5859,15 @@ fn gh_says_no_pr(stderr: &str) -> bool {
         || l.contains("not a git repository")
 }
 
+/// "GraphQL: Could not resolve to a Repository with the name 'org/repo'" = a conta logada no gh NÃO
+/// enxerga o repo (outra conta, sem convite, SSO não autorizado). Não é rede nem "sem PR": devolve o repo.
+fn gh_no_repo_access(stderr: &str) -> Option<String> {
+    let i = stderr.find("Could not resolve to a Repository")?;
+    let rest = &stderr[i..];
+    let name = rest.split('\'').nth(1).unwrap_or("").trim();
+    Some(if name.is_empty() { "este repositório".to_string() } else { name.to_string() })
+}
+
 /// statusCheckRollup → (total, falhando, pendentes). CheckRun usa status/conclusion; StatusContext usa state.
 fn pr_checks_summary(rollup: &serde_json::Value) -> (i64, i64, i64) {
     let (mut tot, mut fail, mut pend) = (0i64, 0i64, 0i64);
@@ -5902,6 +5983,9 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         let err = String::from_utf8_lossy(&view.stderr).to_string();
         if gh_says_no_pr(&err) {
             return Ok(empty);
+        }
+        if let Some(r) = gh_no_repo_access(&err) {
+            return Err(format!("GH_NO_ACCESS: a conta logada no gh não tem acesso a {r} — rode `gh auth switch` (ou `gh auth login`) com a conta que enxerga esse repositório; se a org usa SSO, `gh auth refresh -h github.com -s repo` e autorize"));
         }
         return Err(format!("gh pr view falhou: {}", err.trim()));
     }
@@ -6265,10 +6349,10 @@ fn task_worktree(state: &State<AppState>, task_id: &str) -> Result<PathBuf, Stri
     let conn = open(&db)?;
     let wt: String = conn
         .query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
+        .map_err(task_query_err)?;
     let p = PathBuf::from(&wt);
     if wt.is_empty() || !p.is_dir() {
-        return Err("a cópia de trabalho desta tarefa não existe mais (já foi limpa?)".into());
+        return Err(WT_GONE.into());
     }
     Ok(p)
 }
@@ -8282,6 +8366,12 @@ mod cardume_hygiene_tests {
 #[cfg(test)]
 mod pr_status_tests {
     use super::*;
+    #[test]
+    fn gh_sem_acesso_ao_repo_devolve_o_nome() {
+        let e = "GraphQL: Could not resolve to a Repository with the name 'market4u-ti/loja'. (repository)";
+        assert_eq!(gh_no_repo_access(e).as_deref(), Some("market4u-ti/loja"));
+        assert_eq!(gh_no_repo_access("no pull requests found"), None);
+    }
     #[test]
     fn review_threads_flatten_and_mark_answered_resolved() {
         let v = serde_json::json!({"data":{"viewer":{"login":"eu"},"repository":{"pullRequest":{"reviewThreads":{"nodes":[

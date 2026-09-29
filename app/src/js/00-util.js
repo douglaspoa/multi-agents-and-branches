@@ -11,6 +11,38 @@ function tickErr(name, e){
   if(/load failed|failed to fetch|networkerror|network|timeout|timed out|expirou|offline|abort|sem conex[ãa]o/i.test(m)) return;
   console.error('tick '+name+':', e);
 }
+// ===== rastreio de erros (52-erros): o que NÃO vai pra app_errors =====
+// Estado legítimo que a tela já explica em pt-BR, ou ação do próprio usuário — não é defeito do produto.
+const ERR_EXPECTED=[
+  /^SECRET_(UNBOUND|MISSING):/,                          // chave do painel de issues não configurada NESTA máquina
+  /^[A-Z][A-Z_]*_STOPPED$/,                              // o usuário apertou "parar" (PROJECT_CHAT_STOPPED, ORQ_CHAT_STOPPED…)
+  /^GH_NO_ACCESS:/,                                      // gh logado sem acesso ao repo — a tela do PR orienta a trocar de conta
+  /c[óo]pia de trabalho desta tarefa n[ãa]o existe mais/, // worktree limpa (merge) — mandar mensagem recria
+  /^esta tarefa n[ãa]o est[áa] neste projeto/,           // tarefa apagada/de outro projeto: listas voltam vazias
+  /n[ãa]o existe mais nesta c[óo]pia da tarefa/,         // arquivo apagado/renomeado pelo agente
+  /^artefato n[ãa]o encontrado/,                          // ainda não gerado / já removido — a tela mostra vazio
+  /\(mock\)/,                                             // preview/harness com __TAURI__ falso
+];
+function errIsExpected(msg){ const m=String(msg||'').trim(); return ERR_EXPECTED.some(re=>re.test(m)); }
+// anti-flood por sessão: mesma origem+mensagem no máximo 1x por janela (10 min) e, no total,
+// no máximo `cap` registros por janela — um laço nunca mais gera 500 linhas (book = objeto mutável)
+function errRateOk(book, key, now, winMs, cap){
+  winMs=winMs||600000; cap=cap||30;
+  if(book[key] && now-book[key]<winMs) return false;
+  const hits=(book.__hits||[]).filter(t=>now-t<winMs);
+  if(hits.length>=cap){ book.__hits=hits; return false; }
+  hits.push(now); book.__hits=hits; book[key]=now; return true;
+}
+// só o app de verdade (binário Tauri) reporta. O preview/harness injeta um __TAURI__ falso servido por
+// http://localhost e mandava "rede indisponível (mock)" etc. pro Supabase de PRODUÇÃO.
+function isRealApp(w){
+  try{
+    if(!w || w.__SF_MOCK__) return false;
+    if(!w.__TAURI_INTERNALS__) return false; // o shim só define window.__TAURI__
+    const l=w.location||{};
+    return l.protocol==='tauri:' || /(^|\.)tauri\.localhost$/i.test(String(l.hostname||''));
+  }catch(_){ return false; }
+}
 function bindClick(id, fn, ev){ const el=$id(id); if(el) el[ev||'onclick']=fn; return el; }
 // localStorage tolerante (webview em modo privado / sem permissão não derruba o app)
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -126,6 +158,11 @@ const ERR_ACTIONS={
 // ORDEM importa: o primeiro que casa vence (ex.: "'origin' does not appear… Could not read from remote"
 // é SEM REMOTE, não rede; "Permission denied (publickey)… Could not read from remote" é permissão).
 const ERR_CATALOG=[
+  // antes do gh-auth: a frase orienta com "gh auth switch/login" e casaria lá
+  { id:'gh-no-access', re:/^GH_NO_ACCESS:|could not resolve to a repository/i,
+    msg:'A conta logada no GitHub (gh) não tem acesso a este repositório — troque pra conta certa (gh auth switch) ou entre com ela (gh auth login).', act:'github', label:'abrir Ambiente' },
+  { id:'wt-gone', re:/c[óo]pia de trabalho desta tarefa n[ãa]o existe mais/i,
+    msg:'A cópia de trabalho desta tarefa já foi limpa — mande uma mensagem na conversa da tarefa pra retomá-la (ela é recriada).' },
   { id:'claude-missing', re:/spawn claude ENOENT|claude:?\s*(command )?not found|n[aã]o (encontrei|achei) o (bin[aá]rio do )?claude|claude (code )?n[aã]o (est[aá] )?instalado|claude[^\n]{0,40}ENOENT/i,
     msg:'O Claude Code não está instalado neste computador.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
   { id:'claude-login', re:/please run \/login|run \/login|invalid api key|not logged in|n[aã]o est[aá] logado no claude|authentication_error|oauth token (has )?expired|oauth session expired|failed to authenticate|login do claude( code)? expirou|claude auth login|x-api-key/i,

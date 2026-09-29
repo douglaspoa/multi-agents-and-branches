@@ -9,10 +9,12 @@
   /** Baseline de coordenação: { totalTasks, byStatus, conflictTasks, collisionEvents, reworkCount }. */
   async function metrics() {
     try {
-      const raw = await invoke("coordination_metrics");
+      // leitura de painel: "database is locked"/"busy" com agentes gravando é momentâneo (o Rust já
+      // espera até 8 s) — a próxima leitura resolve; só o inesperado vai pro console/app_errors
+      const raw = await invokeQuiet("coordination_metrics");
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
-      console.error("[coordenacao] metrics falhou:", e);
+      if (!/database is locked|database is busy|SQLITE_BUSY/i.test(String((e && e.message) || e))) console.error("[coordenacao] metrics falhou:", e);
       return null;
     }
   }
