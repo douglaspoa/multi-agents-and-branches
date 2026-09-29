@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 /// matar). No Unix são os SIGxxx reais entregues ao GRUPO. No Windows não existe
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
+mod agent_edits;
 mod memoria;
 mod mesa;
 #[cfg(test)]
@@ -568,6 +569,10 @@ mod budget_spec_tests {
         assert!(b.get("kind").is_none());
         assert!(task_budget_spec(&serde_json::json!({"kind":"build"})).is_none());
         assert!(task_budget_spec(&serde_json::json!({"budgetHit":null})).is_none());
+        // rastro das edições de agente também vai pro front (t.spec.agentEdits)
+        let e = task_budget_spec(&serde_json::json!({"agentEdits":[{"id":"e1"}],"objective":"x"})).expect("tem rastro");
+        assert_eq!(e["agentEdits"][0]["id"], "e1");
+        assert!(e.get("objective").is_none());
     }
 }
 
@@ -877,7 +882,8 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 /// chaves do teto de custo que o front precisa ver no snapshot (None quando a tarefa não tem nenhuma)
 fn task_budget_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    for k in ["budgetUsd", "budgetHit"] {
+    // agentEdits: rastro das edições de spec feitas por agentes (src/agent-edits.ts) — a conversa mostra antes/depois e "desfazer"
+    for k in ["budgetUsd", "budgetHit", "agentEdits"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
@@ -1411,6 +1417,51 @@ fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String>
         return Err(String::from_utf8_lossy(&out.stderr).to_string());
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+// ---------- edições de spec feitas por agentes (src/agent-edits.ts) ----------
+/// Pendências que o motor não aplica sozinho (épico/cartão na nuvem): o front aplica pela sessão dele.
+#[tauri::command(async)]
+fn agent_edits_pending(state: State<AppState>) -> Result<Vec<serde_json::Value>, String> {
+    let repo = active_repo(&state)?;
+    Ok(agent_edits::read_pending(&repo.join(".cardume").join("agent-edits")))
+}
+
+/// Anota o desfecho (applied | refused | gone) — a edição sai da fila de vez.
+#[tauri::command(async)]
+fn agent_edits_done(state: State<AppState>, id: String, outcome: String, msg: Option<String>) -> Result<(), String> {
+    let repo = active_repo(&state)?;
+    agent_edits::mark_done(&repo.join(".cardume").join("agent-edits"), &id, &outcome, &msg.unwrap_or_default())
+}
+
+/// Edita (ou desfaz uma edição de) a spec de uma tarefa LOCAL sem acionar o agente dela.
+/// Proxy do CLI `cardume task edit <id> --json [--patch <json>] [--undo <editId>]`.
+#[tauri::command(async)]
+fn task_edit_cli(state: State<AppState>, task_id: String, patch: Option<String>, undo: Option<String>, by_agent: Option<String>, by_task: Option<String>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let mut args = vec![
+        "--disable-warning=ExperimentalWarning".to_string(),
+        cli_path(&repo),
+        "task".to_string(),
+        "edit".to_string(),
+        task_id,
+        "--json".to_string(),
+        "--repo".to_string(),
+        repo.display().to_string(),
+        "--by-agent".to_string(),
+        by_agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Você".to_string()),
+    ];
+    if let Some(p) = patch { args.push("--patch".into()); args.push(p); }
+    if let Some(u) = undo { args.push("--undo".into()); args.push(u); }
+    if let Some(t) = by_task.filter(|s| !s.trim().is_empty()) { args.push("--by-task".into()); args.push(t); }
+    let out = Command::new(node_bin()).args(&args).current_dir(&repo).output().map_err(|e| e.to_string())?;
+    let so = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let v: serde_json::Value = serde_json::from_str(so.lines().last().unwrap_or("")).map_err(|_| {
+        let se = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        if se.is_empty() { format!("resposta inesperada do motor: {so}") } else { se }
+    })?;
+    let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
+    if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) { Ok(msg) } else { Err(msg) }
 }
 
 // ---------- lista de projetos (switcher multi-projeto) ----------
@@ -8574,6 +8625,9 @@ pub fn run() {
             workspace_clean,
             coordination_metrics,
             overlap_check,
+            agent_edits_pending,
+            agent_edits_done,
+            task_edit_cli,
             resolve_conflict,
             list_projects,
             projects_overview,

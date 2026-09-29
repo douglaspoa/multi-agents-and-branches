@@ -234,6 +234,11 @@ export class Store {
     this.db.prepare(`UPDATE task SET spec_json = ? WHERE id = ?`).run(specJson, taskId);
   }
 
+  /** Título/objetivo ficam também em colunas (a lista do app lê daqui) — acompanham a spec editada. */
+  setTitleObjective(taskId: string, title: string, objective: string): void {
+    this.db.prepare(`UPDATE task SET title = ?, objective = ? WHERE id = ?`).run(title, objective, taskId);
+  }
+
   setDoneRoles(taskId: string, n: number): void {
     this.db.prepare(`UPDATE task SET done_roles = ? WHERE id = ?`).run(n, taskId);
   }

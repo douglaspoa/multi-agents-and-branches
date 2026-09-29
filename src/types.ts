@@ -171,6 +171,8 @@ export interface TaskSpec {
   epicDoneWhen?: string[];
   /** Itens do "pronto quando" que o agente revisor marcou via mcp__cardume__check_done_when; o app espelha em epics.spec. */
   epicChecks?: { id: string; evidence: string; at: string }[];
+  /** Rastro das edições de spec feitas por agentes (src/agent-edits.ts) — o app mostra antes/depois e desfaz. */
+  agentEdits?: import("./agent-edits.ts").AgentEditRecord[];
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)
