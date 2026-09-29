@@ -149,7 +149,7 @@ function renderTeamBoard(){
   let main='';
   const perNow=lsGet('tmPeriod')||'all';
   const perSel=`<select class="sel" id="tbPeriod" aria-label="período" style="width:120px">${[['7','últimos 7 dias'],['30','30 dias'],['90','trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select>`;
-  const devOpts=`<select class="sel" id="tbDev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
+  const devOpts=`<select class="sel" id="tbDev" aria-label="filtrar por dev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
   if(tmView==='overview'){
     const inP=tsPeriodTasks();
     const done=inP.filter(B.done).length+inP.filter(B.review).length;

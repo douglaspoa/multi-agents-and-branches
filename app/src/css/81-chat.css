@@ -153,5 +153,5 @@
 .pc-head select.pc-proj{max-width:220px;appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;
   background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);
   background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat}
-.pc-head select.pc-proj:focus-visible{outline:none;box-shadow:var(--ring);border-color:var(--accent)}
+.pc-head select.pc-proj:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);border-color:var(--accent)}
 .pc-head select.pc-proj:disabled{opacity:.45;cursor:not-allowed}

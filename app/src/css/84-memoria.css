@@ -17,7 +17,7 @@
 .memseg button+button{border-left:1px solid var(--border)}
 .memseg button.on{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
 .memseg button:disabled{opacity:.4;cursor:not-allowed}
-.memseg button:focus-visible,.memrow:focus-visible,.memchip:focus-visible{outline:none;box-shadow:var(--ring)}
+.memseg button:focus-visible,.memrow:focus-visible,.memchip:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
 .memgrid{flex:1;min-height:0;display:grid;grid-template-columns:300px 1fr;gap:14px}
 .memside{display:flex;flex-direction:column;gap:8px;min-height:0}
 .memchips{display:flex;flex-wrap:wrap;gap:4px}

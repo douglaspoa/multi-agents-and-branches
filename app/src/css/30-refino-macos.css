@@ -18,7 +18,7 @@
 .iconbtn{border:.5px solid var(--border);background:var(--surface);border-radius:var(--r-xs);color:var(--muted);box-shadow:var(--shadow-sm);display:inline-flex;align-items:center;justify-content:center;padding:6px}
 .iconbtn svg{width:15px;height:15px}
 .in,.repoinput,.sel,.ta,.agpersona{border:.5px solid var(--border-strong);border-radius:var(--r-sm);background:var(--surface);font-size:12.5px}
-.in:focus,.repoinput:focus,.sel:focus,.ta:focus,.agpersona:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.in:focus,.repoinput:focus,.sel:focus,.ta:focus,.agpersona:focus{outline:2px solid transparent;border-color:var(--accent);box-shadow:var(--ring)}
 .repoinput{width:230px}
 .seg2{border:0;background:var(--surface-3);border-radius:8px;padding:2px;gap:2px}
 .seg2 button{border-radius:6px;color:var(--text-2);font-weight:500;padding:4px 12px}
@@ -125,7 +125,7 @@
 .emh1{margin:0;font:600 30px/1.15 var(--display);letter-spacing:-.02em;color:var(--text)}
 .emsub{margin:0 0 6px;font-size:14px;line-height:1.55;color:var(--muted);max-width:560px}
 .emta,.ndintent-ta{width:100%;box-sizing:border-box;min-height:118px;resize:vertical;background:var(--surface);color:var(--text);border:.5px solid var(--border-strong);border-radius:12px;padding:14px 16px;font:400 15px/1.5 var(--display)}
-.emta:focus,.ndintent-ta:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.emta:focus,.ndintent-ta:focus{outline:2px solid transparent;border-color:var(--accent);box-shadow:var(--ring)}
 .emex{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px}
 .emchip{background:transparent;border:.5px solid var(--border-strong);color:var(--text);border-radius:999px;padding:4px 11px;font-size:12.5px;cursor:pointer}
 .emchip:hover{border-color:var(--accent);color:var(--accent)}

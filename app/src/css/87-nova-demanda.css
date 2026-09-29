@@ -25,7 +25,7 @@
 .ndexs{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .ndex{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:86px;text-align:left;padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer;box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 6px 16px -10px rgba(0,0,0,.6);transition:border-color .12s,background .12s,transform .12s}
 .ndex:hover{border-color:var(--accent-line);background:color-mix(in srgb,var(--accent-soft) 45%,var(--surface));transform:translateY(-1px)}
-.ndex:focus-visible{outline:none;box-shadow:var(--ring);}
+.ndex:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);}
 .ndex-k{display:inline-flex;align-items:center;gap:6px;font:500 var(--fs-xs) var(--display);color:var(--text-3)}
 .ndex-k svg{width:14px;height:14px;color:var(--text-2);flex:none}
 .ndex-t{font:600 var(--fs-md)/1.35 var(--display);color:var(--text)}
@@ -69,7 +69,7 @@
 .ndprev-i i{font-style:normal;font-size:var(--fs-xs);color:var(--text-3)}
 .ndprev-i:hover{background:var(--surface-3)}
 .ndprev-i:hover b{text-decoration-color:var(--accent-line)}
-.ndprev-i:focus-visible{outline:none;box-shadow:var(--ring);}
+.ndprev-i:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);}
 .ndprev-sep{color:var(--text-3);opacity:.6;padding:0 1px}
 .plthread .plplan .ppfoot{flex-wrap:wrap;align-items:center}
 .plplan .ppfoot .ndprev{flex-basis:100%;margin-bottom:2px}

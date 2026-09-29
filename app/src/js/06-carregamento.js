@@ -11,6 +11,8 @@ const LD_MS={ delay:150, brand:1500, slow:4000, timeout:30000 };
 const ldA=(v)=>String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function ldIsEmpty(d){ return d==null || (Array.isArray(d) && !d.length); }
 function ldReduced(){ try{ return !!(typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(_){ return false; } }
+// rolagem de TODO scrollIntoView: suave, ou instantânea com "reduzir movimento" (R8 a11y — uma regra só)
+function scrollOpts(block){ return { block:block||'nearest', behavior:ldReduced()?'auto':'smooth' }; }
 function ldMotion(){ return ldReduced()?' ld-static':''; }
 const ldB=(w,h,cls)=>`<i class="ld-b${cls?' '+cls:''}" style="width:${w};${h?'height:'+h:''}"></i>`;
 const ldRep=(n,f)=>Array.from({length:n},(_,i)=>f(i)).join('');

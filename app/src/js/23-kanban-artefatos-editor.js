@@ -212,7 +212,7 @@ function mountEditor(ta, opts){
   const prev=document.createElement('div'); prev.className='cepreview mdview'; prev.hidden=true;
   ta.parentNode.insertBefore(wrap, ta);
   wrap.appendChild(tabs); wrap.appendChild(cew); cew.appendChild(gut); cew.appendChild(ta); cew.appendChild(prev);
-  ta.classList.add('cearea'); ta.style.height=''; ta.setAttribute('spellcheck','false'); ta.setAttribute('wrap','off');
+  ta.classList.add('cearea'); ta.setAttribute('data-tab-indent',''); ta.style.height=''; ta.setAttribute('spellcheck','false'); ta.setAttribute('wrap','off');
   const syncGutter=()=>{ const n=(ta.value.match(/\n/g)||[]).length+1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; gut.scrollTop=ta.scrollTop; };
   ta.addEventListener('input', syncGutter);
   ta.addEventListener('scroll', ()=>{ gut.scrollTop=ta.scrollTop; });

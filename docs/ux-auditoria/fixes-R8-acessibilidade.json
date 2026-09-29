@@ -3,15 +3,16 @@
     "id": "R8A-01",
     "titulo": "Anel de foco visível de verdade (contraste 3:1)",
     "antes": "O anel de foco era o verde a 30% de opacidade: 1,9:1 sobre o fundo, quase invisível no escuro.",
-    "depois": "O token --ring passou a 55% (3,6:1 em bg/surface/surface-3), mesma cor da marca.",
+    "depois": "O --ring virou um vão escuro de 2px + anel verde a 55% (3,6:1 sobre as superfícies; o vão dá 11:1 contra o verde, então aparece até no botão primário). A regra de foco foi para o último CSS (88-acessibilidade.css) com box-shadow !important: antes ela perdia na cascata para .btn{box-shadow} e o botão \"Nova demanda\" focado não mostrava anel nenhum.",
     "motivo": "WCAG 1.4.11: indicador de foco precisa de 3:1; quem navega pelo teclado não achava onde estava.",
     "arquivos": [
-      "app/src/css/10-base.css"
+      "app/src/css/10-base.css",
+      "app/src/css/88-acessibilidade.css"
     ],
-    "como_ver": "Clique na barra de abas e aperte Tab: o \"+\" ganha o anel verde nítido.",
+    "como_ver": "Aperte Tab até o botão verde \"Nova demanda\": o anel aparece com o vão escuro.",
     "shots": {
-      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-before.png",
-      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-mesmo-after.png"
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-primario-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-primario-after.png"
     },
     "area": "acessibilidade"
   },
@@ -19,7 +20,7 @@
     "id": "R8A-02",
     "titulo": "Um estilo só de foco no app inteiro",
     "antes": "Cada tela tinha o seu: contorno de 2px, anel de 18%, anel de 30%, contorno azul do sistema em links/selects/checkbox.",
-    "depois": "Todo :focus-visible usa o --ring; links, summary, select, checkbox, rádio e papéis ARIA clicáveis entraram na regra global; inputs de Nova demanda, login e orquestrador usam o mesmo anel; a busca de Skills mostra foco na caixa.",
+    "depois": "Todo :focus-visible usa o --ring; links, summary, select, checkbox, rádio e papéis ARIA clicáveis entraram na regra global; inputs de Nova demanda, login e orquestrador usam o mesmo anel; a busca de Skills mostra foco na caixa. Contorno transparente de 2px junto do anel (aparece no alto contraste/forced-colors); quem já tinha sombra própria (cartões de Nova demanda, aba sendo arrastada) mantém a sombra junto do anel; barra de status, ponto do épico e menus usam --ring-inset.",
     "motivo": "Consistência: o foco é o mesmo sinal em qualquer tela.",
     "arquivos": [
       "app/src/css/10-base.css",
@@ -74,7 +75,7 @@
     "id": "R8A-05",
     "titulo": "Foco preso dentro da janela aberta",
     "antes": "Com uma janela aberta, 5 Tabs levavam o foco para trás dela (ex.: aba \"Issues\" da lateral) — invisível e clicável por engano.",
-    "depois": "Tab/⇧Tab dão a volta dentro da janela de cima; ao abrir, o foco entra (campo de texto primeiro, senão o 1º botão).",
+    "depois": "Tab/⇧Tab dão a volta dentro da janela de cima (a área rolável também entra no caminho). Ao abrir, o foco vai para a ação MENOS destrutiva (campo de texto → cancelar/fechar → botão comum), e em janela preenchida depois de um invoke o foco espera o conteúdo aparecer. Editores de código com Tab de indentar (data-tab-indent) não são presos.",
     "motivo": "Padrão de diálogo modal (WAI-ARIA APG); evitava ações às cegas atrás da janela.",
     "arquivos": [
       "app/src/js/54-acessibilidade.js"
@@ -90,7 +91,7 @@
     "id": "R8A-06",
     "titulo": "Foco volta para quem abriu a janela",
     "antes": "Ao fechar uma janela (Esc ou botão), o foco caía no <body>: o próximo Tab recomeçava do topo do app.",
-    "depois": "O foco volta para o elemento que abriu a janela; se ele sumiu, vai para a aba ativa. Vale para janelas criadas na hora (erro, atalhos) e para abas-overlay.",
+    "depois": "O foco volta para o elemento que abriu a janela — lembrado por focusin mesmo quando a tela já joga o foco dentro dela na hora (detalhes do erro, publicar); se ele sumiu (o toast fechou), vai para a aba ativa. Aba-overlay não volta para um \"abridor\" antigo: só leva o foco para a aba ativa se ele se perdeu.",
     "motivo": "Quem usa teclado perdia o lugar a cada janela fechada.",
     "arquivos": [
       "app/src/js/54-acessibilidade.js"
@@ -106,7 +107,7 @@
     "id": "R8A-07",
     "titulo": "Painel de atalhos do teclado (? ou ⌘/)",
     "antes": "Os atalhos só existiam num tooltip longo do \"+\", numa linha só, e faltavam vários.",
-    "depois": "Tecla ? (fora de campo de texto) ou ⌘/ abre o painel \"Atalhos do teclado\", agrupado, com teclas em <kbd>; Esc fecha sem fechar a aba de trás.",
+    "depois": "Tecla ? (fora de campo de texto) ou ⌘/ abre o painel \"Atalhos do teclado\", agrupado, com teclas em <kbd>; Esc fecha sem fechar a aba de trás. Com o painel aberto, os atalhos ⌘ (⌘W/⌘N/⌘K/⌘1-9) não mexem nas abas de trás. \"ou\" entre as teclas é texto, não tecla desenhada.",
     "motivo": "Atalho que ninguém descobre não existe.",
     "arquivos": [
       "app/src/js/54-acessibilidade.js",
@@ -124,7 +125,7 @@
     "id": "R8A-08",
     "titulo": "Lista de atalhos completa e de uma fonte só",
     "antes": "SHORTCUTS_HELP era uma string solta; faltavam ⌘B na tarefa (lista de arquivos), Esc, Enter/⇧Enter no chat, ⌘Enter na nova demanda, ←/→ nas abas e nas provas.",
-    "depois": "SHORTCUTS (grupos de [tecla, o que faz]) é a fonte; SHORTCUTS_HELP e o painel saem dela. Teste garante que todo atalho ⌘ tratado no código está documentado.",
+    "depois": "SHORTCUTS (grupos de [teclas em lista, o que faz]) é a fonte; o tooltip do \"+\" mostra o SHORTCUTS_HELP gerado dela e o painel também. O \"+\" anuncia ⌘N e Ctrl+N. Teste garante que todo atalho ⌘ tratado no código está documentado.",
     "motivo": "Regra da casa: fonte única; o tooltip e o painel não podem divergir.",
     "arquivos": [
       "app/src/js/15-config-abas-onboarding.js",
@@ -141,7 +142,7 @@
     "id": "R8A-09",
     "titulo": "\"Reduzir movimento\" do macOS respeitado no app todo",
     "antes": "Só 4 telas respeitavam prefers-reduced-motion; pulsos, pisca-pisca, spinner e rolagem suave continuavam (3 animações infinitas na Central).",
-    "depois": "Regra global em 10-base.css zera animações/transições (estado final instantâneo) e as 4 rolagens suaves por JS viram instantâneas com ldReduced().",
+    "depois": "Regra global em 10-base.css zera animações/transições; indicadores de progresso (spinner de publicar, loader, pulso de \"rodando\", digitando…) não congelam: viram uma respiração lenta só de opacidade. As rolagens suaves por JS passam por scrollOpts() (instantâneas com a preferência ligada).",
     "motivo": "WCAG 2.3.3 / conforto de quem sente enjoo com movimento.",
     "arquivos": [
       "app/src/css/10-base.css",
@@ -159,14 +160,15 @@
   {
     "id": "R8A-10",
     "titulo": "Contraste AA do texto apagado no orquestrador, Issues, IA e Nova demanda",
-    "antes": "10 textos usavam branco a 45% (4,39:1 sobre surface-3 — abaixo do AA em fonte pequena): legenda/terminal/branch do orquestrador, nome no quadro de Issues, descrição da IA, meta dos times, papel do membro, guia da Nova demanda, vazio do chat.",
+    "antes": "10 textos usavam branco a 45% (4,39:1 sobre surface-3 — abaixo do AA em fonte pequena): legenda/terminal/branch do orquestrador, nome no quadro de Issues, descrição da IA, meta dos times, papel do membro, guia da Nova demanda, vazio do chat. Também 1 texto no login (métodos, 40%) e o marcador da Daily (22%, inline no JS).",
     "depois": "Usam o token --text-3 (≥ 4,77:1 em todas as superfícies). Medido com a fórmula WCAG; teste impede alfa < 48% voltar.",
     "motivo": "WCAG 1.4.3 (4,5:1) sem mudar a identidade.",
     "arquivos": [
       "app/src/css/70-orquestrador.css",
       "app/src/css/82-issues.css",
       "app/src/css/60-grafo-times-nova-demanda.css",
-      "app/src/css/20-abas-e-telas.css"
+      "app/src/css/20-abas-e-telas.css",
+      "app/src/js/12-chat-prefs-daily.js"
     ],
     "como_ver": "Orquestrador e quadro de Issues.",
     "shots": {
@@ -194,19 +196,19 @@
   {
     "id": "R8A-12",
     "titulo": "Campos sem nome ganharam rótulo",
-    "antes": "Selects de período (Time), time/papel do convite, \"adicionar ao time\", modelo do gateway e a data da Daily não tinham rótulo: o leitor de tela dizia só \"caixa de seleção\".",
+    "antes": "Selects de período e de dev (Time), time/papel do convite, \"adicionar ao time\", modelo do gateway e a data da Daily não tinham rótulo: o leitor de tela dizia só \"caixa de seleção\".",
     "depois": "aria-label em pt-BR em cada um (auditoria no harness: 0 campos sem nome nas 18 cenas).",
     "motivo": "WCAG 4.1.2.",
     "arquivos": [
-      "app/src/js/43-espaco-times.js",
+      "app/src/js/12-chat-prefs-daily.js",
       "app/src/js/40-nuvem-conta.js",
       "app/src/js/41-assinatura-chaves.js",
-      "app/src/js/12-chat-prefs-daily.js"
+      "app/src/js/43-espaco-times.js"
     ],
-    "como_ver": "Conta e time, Time, Daily, Configurações › gateway.",
+    "como_ver": "Conta e time com o VoiceOver: os selects do convite dizem \"time do convite\", \"papel do convidado\" (o visual não muda).",
     "shots": {
-      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/audit/conta.png",
-      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/boot/conta.png"
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/rotulos-conta-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/rotulos-conta-after.png"
     },
     "area": "acessibilidade"
   },
@@ -214,7 +216,7 @@
     "id": "R8A-13",
     "titulo": "Erro anunciado na hora pelo leitor de tela",
     "antes": "O toast era role=status para tudo, inclusive erro (anunciado só depois da fala atual, ou perdido).",
-    "depois": "Toast de erro vira role=alert; os outros continuam status.",
+    "depois": "Duas regiões vivas fixas (status e alert), criadas uma vez; erro e aviso de bloqueio (warn, ex.: o \"não dá pra aprovar\" do chkBlockWhy) vão para a alert; o resto para a status. O toast visual não troca mais de role.",
     "motivo": "Erro precisa interromper.",
     "arquivos": [
       "app/src/js/00-util.js"
@@ -222,7 +224,7 @@
     "como_ver": "Provoque um erro (ex.: publicar sem rede) com o VoiceOver ligado.",
     "shots": {
       "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-esc-before.png",
-      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-esc-after.png"
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-inicial-after.png"
     },
     "area": "acessibilidade"
   },
@@ -235,11 +237,7 @@
     "arquivos": [
       "app/src/js/27-entregas.js"
     ],
-    "como_ver": "Entrega › clique num print.",
-    "shots": {
-      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/boot/workspace-entrega.png",
-      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/boot/workspace-entrega.png"
-    },
+    "como_ver": "Entrega › clique num print. (só muda o texto alternativo — sem diferença visual, por isso sem print)",
     "area": "acessibilidade"
   }
 ]

@@ -60,9 +60,14 @@ function osKind(){
 // Chamar sempre que o topo mudar de altura: render das abas, recolher/expandir sidebar.
 function syncChromeH(){ const tb=$id('tabBar'); if(tb && tb.style.display!=='none') document.documentElement.style.setProperty('--chrome-h', Math.round(tb.getBoundingClientRect().bottom)+'px'); }
 // Esc: digitando num campo ou com um modal aberto por cima, o Esc é DELES — não fecha a aba de trás
+// @puro-dialogos-inicio (testado em app/tests/acessibilidade.test.mjs)
+// UMA lista de janelas (modais) do app: o Esc é delas (escBusy) e o 54-acessibilidade.js dá role=dialog, foco preso e
+// devolvido. Janela nova entra AQUI — antes o escBusy tinha a própria lista e esquecia as mais novas.
+const A11Y_DIALOGS=['artOverlay','lbOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','orgTplOverlay','repOverlay','txOverlay','errOverlay','prepOverlay','bdOverlay','howOverlay','payOverlay','kbdOverlay'];
+// @puro-dialogos-fim
 function escBusy(e){
   if(e && e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return true;
-  return ['artOverlay','lbOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','orgTplOverlay','repOverlay','txOverlay','errOverlay']
+  return A11Y_DIALOGS
     .some(id=>{ const m=document.getElementById(id); return m && m.style.display && m.style.display!=='none'; });
 }
 // Confirmação SIM/NÃO de verdade. NÃO use window.confirm: o tauri-plugin-dialog troca ele por
@@ -115,10 +120,9 @@ function stBadge(st){ const m=stMeta(st); return '<span class="stbadge" style="-
 // action (opcional): { label, fn } vira um botão no próprio toast (ex.: "abrir Ambiente");
 // extra (opcional): segundo botão discreto (ex.: "ver detalhes" do erro cru)
 function toast(msg, kind, action, extra){
-  let el=$id('appToast'); if(!el){ el=document.createElement('div'); el.id='appToast'; el.setAttribute('role','status'); document.body.appendChild(el); }
+  let el=$id('appToast'); if(!el){ el=document.createElement('div'); el.id='appToast'; document.body.appendChild(el); }
   el.className='apptoast '+(kind||'info'); el.textContent='';
-  // R8 a11y: erro é anunciado na hora pelo leitor de tela (alert); o resto espera a fala atual (status)
-  el.setAttribute('role', kind==='err'?'alert':'status');
+  a11yAnnounce(msg, toastUrgent(kind));
   const tx=document.createElement('span'); tx.className='apptoast-t'; tx.textContent=String(msg); el.appendChild(tx);
   const hide=()=>{ el.style.display='none'; };
   const btns=[action, extra].filter(a=>a && a.label && typeof a.fn==='function');
@@ -134,6 +138,16 @@ function toast(msg, kind, action, extra){
   el.onmouseenter=()=>clearTimeout(el._t); el.onmouseleave=()=>{ clearTimeout(el._t); el._t=setTimeout(hide, 4000); };
 }
 window.toast=toast;
+// R8 a11y: DUAS regiões vivas fixas (criadas uma vez, sempre no DOM — trocar o role de um nó não é anunciado de forma
+// confiável). Erro e aviso (warn = algo foi barrado, ex.: "não dá pra aprovar: …" do chkBlockWhy) vão pro alert; o resto, status.
+// @puro-toast-inicio
+function toastUrgent(kind){ return kind==='err' || kind==='warn'; }
+// @puro-toast-fim
+function a11yAnnounce(msg, urgent){
+  const mk=(id, role)=>{ let r=$id(id); if(!r){ r=document.createElement('div'); r.id=id; r.className='a11y-live'; r.setAttribute('role', role); r.setAttribute('aria-live', role==='alert'?'assertive':'polite'); document.body.appendChild(r); } return r; };
+  const st=mk('a11yLiveStatus','status'), al=mk('a11yLiveAlert','alert');
+  const r=urgent?al:st; r.textContent=''; setTimeout(()=>{ r.textContent=String(msg); }, 30); // limpar e repor: repetir a mesma frase também é anunciado
+}
 
 // ===== catálogo de erros pt-BR com AÇÃO (mesa de produto, votado pelas 5 personas) =====
 // Erro cru do Rust/gh/git/claude CLI/rede/Supabase/Tauri → { msg em pt-BR, action?:{label,fn} }.

@@ -306,7 +306,7 @@ function pvGlobeClick(t, url){
   const st=pvState(t);
   if(st==='online' || st==='checando'){ invoke('open_url',{ url }).catch(e=>showErr(e, 'Não consegui abrir o app')); return; }
   fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
-  setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-live'); if(s){ s.scrollIntoView({ block:'center', behavior:(ldReduced()?'auto':'smooth') }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
+  setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-live'); if(s){ s.scrollIntoView(scrollOpts('center')); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
 }
 async function pvLoadLog(taskId){
   try{ const r=await invoke('preview_log_tail',{ taskId }); if(r && pvRun[taskId]){ pvRun[taskId].log=r.log||''; pvRun[taskId].exitCode=r.exitCode; } return r; }catch(_){ return null; }
@@ -457,7 +457,7 @@ function fwRenderEntrega(t, main){
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-docpdf]').forEach(b=>b.onclick=()=>entregaDocPdf(t, b.dataset.docpdf, b));
   main.querySelectorAll('[data-docslack]').forEach(b=>b.onclick=()=>sendArtifactSlack(t.id, b.dataset.docslack));
-  main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView({ block:'start', behavior:(ldReduced()?'auto':'smooth') }); }, 40); });
+  main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView(scrollOpts('start')); }, 40); });
   main.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>{ if(b.dataset.hash&&typeof openCommit==='function') openCommit(b.dataset.hash); });
   main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>showErr(e, 'Não abriu a pasta')));
   bindClick('enGen', ()=>entregaGenReport(t));
