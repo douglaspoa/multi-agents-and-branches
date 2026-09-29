@@ -39,7 +39,7 @@ function renderKanban(){
   byCol.concluidas.sort((a,b)=>taskTs(b)-taskTs(a)); // taskTs (22): createdAt local (número) ou created_at da nuvem (ISO)
   if(kDragId) return; // arrastando: reconstruir destruía o card no meio do arrasto (o drop nunca vinha)
   const html = KCOLS.map(([k,label])=>{ const list=byCol[k]; const shown=k==='concluidas'?list.slice(0,KDONE_CAP):list;
-    return `<div class="kcol" data-col="${k}"><div class="kcolh" title="${escA(FLOW_SEC_TIP[k]||'')}">${label} <span class="kn">${list.length}</span></div><div class="kcolbody">${shown.map(kCard).join('')||'<div class="kempty">—</div>'}${list.length>shown.length?`<div class="kempty">+${list.length-shown.length} mais antigas</div>`:''}</div></div>`; }).join('');
+    return `<div class="kcol" data-col="${k}"><div class="kcolh" title="${escA(FLOW_SEC_TIP[k]||label)}"><span class="kcl">${label}</span><span class="kn">${list.length}</span></div><div class="kcolbody">${shown.map(kCard).join('')||'<div class="kempty">—</div>'}${list.length>shown.length?`<div class="kempty">+${list.length-shown.length} mais antigas</div>`:''}</div></div>`; }).join('');
   if(el.__html===html && el.firstChild) return; // nada visível mudou: sem piscar, sem perder clique
   el.__html=html; el.innerHTML=html;
   el.querySelectorAll('.kcard').forEach(card=>{

@@ -348,7 +348,18 @@ function renderTabs(){
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
   { const u=$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
   requestAnimationFrame(syncChromeH);
+  tabsFit();
 }
+// R7: barra de abas lotada → modo compacto (menos respiro; o X das abas de fundo só no hover, como no navegador) e
+// rola até a ativa. Recalcula no render e ao redimensionar a janela.
+function tabsFit(){
+  const bar=$id('tabBar'); if(!bar) return;
+  bar.classList.remove('crowded');
+  if(bar.scrollWidth>bar.clientWidth+1) bar.classList.add('crowded');
+  const on=bar.querySelector('.tab.on');
+  if(on && bar.scrollWidth>bar.clientWidth+1) try{ on.scrollIntoView({ block:'nearest', inline:'nearest' }); }catch(_){ }
+}
+{ let tm=null; window.addEventListener('resize', ()=>{ clearTimeout(tm); tm=setTimeout(tabsFit, 150); }); }
 $id('bdClose').onclick=()=>bdClosePlan();
 $id('bdCancel').onclick=()=>bdClosePlan();
 $id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdClosePlan(); });
