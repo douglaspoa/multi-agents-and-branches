@@ -105,3 +105,53 @@
 .plplan .ppadd:hover{color:var(--text);border-color:var(--accent-line)}
 .plchip:hover{border-color:var(--accent-line);color:var(--text);background:var(--accent-soft)}
 .plplan .pphead svg{color:var(--accent)}   /* o símbolo da marca pode ser verde cheio */
+
+/* ---- R8 (planner): progresso ao vivo, um CTA, card do épico legível e 1024px ---- */
+.placts .plactsh{font:500 var(--fs-xs) var(--display);color:var(--text-3);opacity:1;margin-bottom:3px}
+.placts .plactsh::before{content:none}
+.placts .plslow{white-space:normal;opacity:1;margin-top:7px;padding:6px 9px;border-radius:7px;font:400 var(--fs-xs)/1.5 var(--display);color:var(--text-2);background:color-mix(in srgb,var(--warn) 9%,transparent);border:1px solid color-mix(in srgb,var(--warn) 25%,var(--border))}
+.placts .plslow::before{content:none}
+.plmeshfoot .plcreatehint{font-size:var(--fs-xs);line-height:1.45;margin-top:6px}
+.plmesh textarea.plfv{resize:none;min-height:44px}
+/* o card do épico ocupa a largura do fio (antes: 82% + avatar, apertado em 1024) */
+.plthread .plmsg.plmsg-plan{max-width:100%;align-self:stretch}
+.plplan .ppchip.static{cursor:default}
+.plplan .ppmini{border:0;background:none;color:var(--text-3);font:inherit;font-size:var(--fs-xs);padding:0 4px;margin-left:2px;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.plplan .ppmini:hover{color:var(--text)}
+.plplan .ppmini:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
+@media (max-width:1240px){
+  #plannerOverlay .plcols:not(.plempty){grid-template-columns:minmax(0,1fr) 300px}
+  #plannerOverlay .plthread{padding:16px 14px 8px}
+  .plplan .ppfoot .ndprev{padding:5px 6px}
+  .plplan .ppfoot .ndprev-i{padding:2px 4px}
+}
+
+/* 1024: resumo mais estreito, card do épico sem avatar; tipo + modo + enviar numa linha só (antes o "enviar" caía pra linha de baixo) */
+@media (max-width:1100px){
+  #plannerOverlay .plcols:not(.plempty){grid-template-columns:minmax(0,1fr) 272px}
+  #plannerOverlay .plthread .plmsg.plmsg-plan .plav{display:none}
+  #plannerOverlay .ndchip-l{display:none}
+  #plannerOverlay .ndctl{gap:5px;margin-left:2px}
+  #plannerOverlay .orq-seg.ndseg-sm button{padding:3px 7px}
+}
+
+/* ---- R8 (formulário) ---- */
+/* Formulário | Markdown é uma troca de vista, não um CTA: sem o verde cheio (o único verde da tela é o "começar") */
+#ntOverlay .seg2{border:1px solid var(--border);background:var(--surface-2);border-radius:999px;padding:2px;gap:1px}
+#ntOverlay .seg2 button{border-radius:999px;padding:3px 11px;font:500 var(--fs-sm) var(--display);color:var(--text-3);background:transparent;box-shadow:none}
+#ntOverlay .seg2 button.on{background:var(--surface-3);color:var(--text);font-weight:600;box-shadow:0 0 0 1px var(--border-strong) inset}
+/* na vista Markdown o cabeçalho (onde mora a troca de vista) continuava escondido: não tinha como voltar pro formulário */
+#ntOverlay #ntRight.mdview>#wizHead{display:block!important}
+#ntOverlay #ntRight.mdview>#wizHead #wizGuide{display:none!important}
+/* o que falta: texto normal, não terminal */
+#ntOverlay #ntMissing{font:400 var(--fs-sm) var(--display);color:var(--text-3)}
+#ntOverlay #ntMissing.ok{color:var(--text-2)}
+#ntOverlay .missnow{border-color:color-mix(in srgb,var(--warn) 60%,var(--border));outline:1px solid color-mix(in srgb,var(--warn) 45%,transparent);outline-offset:1px}
+
+/* ---- R8 (Dividir / orquestrador) ---- */
+.orq-busyrow{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;font:400 var(--fs-sm) var(--display)}
+.orq-busyrow .trk-stop{display:inline-flex}
+.orq-msg{display:flex;align-items:flex-start;gap:12px;font-family:var(--display);line-height:1.5}
+.orq-msg>span{flex:1;min-width:0}
+.orq-msg.err{background:color-mix(in srgb,var(--st-err,#e5534b) 8%,transparent);border:1px solid color-mix(in srgb,var(--st-err,#e5534b) 25%,var(--border));color:var(--text-2)}
+.orq-msg .btn{flex:none}

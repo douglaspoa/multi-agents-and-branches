@@ -72,6 +72,10 @@ function ndExamples(isSoftware){
 // ndCarryText: o texto; ndCarryExtra: o que a conversa já montou (título, entregas, requisitos) quando a caixa está vazia
 let ndCarryText='', ndCarryExtra=null;
 function ndTakeCarry(){ const t=ndCarryText; ndCarryText=''; ndCarryExtra=null; return t; }
+// tipo levado do Formulário pro Conversar (o chip "Tipo" do planner já começa nele) — quem abre consome uma vez
+let ndCarryKind='';
+function ndTakeCarryKind(){ const k=ndCarryKind; ndCarryKind=''; return ND_CREATE[k]?k:''; }
+window.ndTakeCarryKind=ndTakeCarryKind;
 function ndTakeCarryAll(){ const o=Object.assign({ text:ndCarryText }, ndCarryExtra||{}); ndCarryText=''; ndCarryExtra=null; return o; }
 // PURA: texto levado → título (o dado, senão a 1ª frase até 80 caracteres) + objetivo (o texto inteiro)
 function ndSplitCarry(text, title){

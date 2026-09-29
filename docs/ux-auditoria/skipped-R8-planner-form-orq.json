@@ -1,0 +1,18 @@
+[
+  {
+    "titulo": "Glifos ✓ ↳ ⊘ ☐ ⛶ no card do épico viram SVG IC.*",
+    "motivo": "São caracteres de texto (não emoji); trocar todos mexe no card compartilhado com o Desdobrar e a Mesa — fica pra uma rodada de identidade."
+  },
+  {
+    "titulo": "Vista Markdown do formulário ainda em fonte mono caixa-alta",
+    "motivo": "Estilo compartilhado com outras telas (60-grafo…); fora do escopo seguro desta onda."
+  },
+  {
+    "titulo": "Grafo do Dividir: legenda/rodapé em estilo terminal",
+    "motivo": "F12 (tirar a cara de terminal) foi vetada como big bang; entra tela por tela depois."
+  },
+  {
+    "titulo": "Mensagem de erro do planner quando a resposta chega noutra aba não devolve o texto pra caixa daquela aba",
+    "motivo": "O estado da aba não guarda o texto da caixa; a mensagem fica salva na conversa (e o aviso diz isso)."
+  }
+]
