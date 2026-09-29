@@ -24,8 +24,9 @@ test("filtro de cópia do perfil do Chrome reconhece o lockfile com separador do
 
 test("perfil do navegador é UM por repo mesmo com worktree em caminho do Windows", () => {
   const home = mkdtempSync(join(tmpdir(), "starfork-prof-"));
-  const old = process.env.HOME;
+  const old = process.env.HOME, oldUp = process.env.USERPROFILE;
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // Node usa USERPROFILE no Windows
   try {
     const a = browserProfileFor("C:\\dev\\loja\\.cardume\\worktrees\\t1", "t1");
     const b = browserProfileFor("C:\\dev\\loja\\.cardume\\worktrees\\t2", "t2");
@@ -33,6 +34,7 @@ test("perfil do navegador é UM por repo mesmo com worktree em caminho do Window
     assert.match(a, /C_dev_loja$/);
   } finally {
     if (old === undefined) delete process.env.HOME; else process.env.HOME = old;
+    if (oldUp === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = oldUp;
     rmSync(home, { recursive: true, force: true });
   }
 });

@@ -395,12 +395,18 @@ export class ClaudeEngine implements AgentEngine {
     // CUSTO NO --resume: o claude restaura o custo acumulado da sessão (linha "cost-state" do
     // transcript) e o `total_cost_usd` do result vem SOMADO com os turnos anteriores — cada conversa
     // no chat da tarefa re-cobrava a sessão inteira. Base = o último acumulado gravado; custo do turno = diferença.
-    const costBase = input.resume?.sessionId ? sessionCostBaseline(input.resume.sessionId) : 0;
+    // Base: 1º o acumulado que NÓS gravamos no fim do turno anterior desta sessão (state.sqlite); senão o
+    // do transcript do Claude Code. Sem nenhum dos dois: avisa no chat (o turno pode incluir custo antigo).
+    const resumeSid = input.resume?.sessionId || "";
+    const storedBase = resumeSid ? readSessionCost(input.dbFile, resumeSid) : undefined;
+    const costBase = !resumeSid ? 0 : (storedBase ?? sessionCostBaseline(resumeSid));
+    let sessionId = resumeSid;
     const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];
     if (useAlt && alt) queue.push({ type: "note", text: `Route AI: rodando na ${alt.label} (${alt.model})` });
+    if (resumeSid && costBase === 0) queue.push({ type: "note", text: "custo: não achei o acumulado anterior desta sessão — o custo deste turno pode incluir turnos anteriores" });
     let done = false;
     let notify: (() => void) | null = null;
     const wake = () => {
@@ -466,6 +472,14 @@ export class ClaudeEngine implements AgentEngine {
     rl.on("line", (line) => {
       resetIdle();
       if (CAUSE_RE.test(line)) lastErr = line.slice(0, 300);
+      if (line.includes('"session_id"') || line.includes('"total_cost_usd"')) {
+        try {
+          const o = JSON.parse(line);
+          if (typeof o?.session_id === "string" && o.session_id) sessionId = o.session_id;
+          // guarda o ACUMULADO da sessão: é a base do próximo --resume
+          if (o?.type === "result" && typeof o.total_cost_usd === "number" && sessionId) saveSessionCost(input.dbFile, sessionId, o.total_cost_usd);
+        } catch { /* linha que não é JSON */ }
+      }
       for (const ev of mapLine(line, costBase)) {
         if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
         queue.push(ev);
@@ -534,20 +548,51 @@ export class ClaudeEngine implements AgentEngine {
 }
 
 /** Silêncio tolerado depois do `result` antes de encerrar o processo (CARDUME_CLAUDE_EXIT_GRACE_MS). */
-function exitGraceMs(): number {
+export function exitGraceMs(): number {
   const n = Number(process.env.CARDUME_CLAUDE_EXIT_GRACE_MS);
   return Number.isFinite(n) && n > 0 ? n : 90_000;
 }
 
 /** SIGTERM e, se o processo ignorar, SIGKILL depois de `hardMs`. Nunca lança. */
-export function killProcess(child: { kill: (s?: NodeJS.Signals) => boolean }, isDead: () => boolean, hardMs = 3000): void {
+export function killProcess(child: { kill: (s?: NodeJS.Signals) => boolean; once?: (ev: "exit", fn: () => void) => unknown }, isDead: () => boolean, hardMs = 3000): void {
   if (isDead()) return;
   try { child.kill("SIGTERM"); } catch { /* já morreu */ }
+  // timer NÃO é unref: um host de vida curta (CLI) sairia antes do SIGKILL e o filho que ignora SIGTERM
+  // ficaria órfão. Ele segura o host só enquanto o filho vive (cancelado no 'exit').
   const t = setTimeout(() => {
     if (isDead()) return;
     try { child.kill("SIGKILL"); } catch { /* já morreu */ }
   }, hardMs);
-  t.unref?.();
+  child.once?.("exit", () => clearTimeout(t));
+}
+
+/** Acumulado da sessão gravado por nós no fim do turno anterior (tabela session_cost). */
+export function readSessionCost(dbFile: string, sessionId: string): number | undefined {
+  try {
+    if (!existsSync(dbFile)) return undefined;
+    const db = new DatabaseSync(dbFile);
+    try {
+      db.exec("PRAGMA busy_timeout = 3000;");
+      const row = db.prepare("SELECT total FROM session_cost WHERE session_id = ?").get(sessionId) as { total?: number } | undefined;
+      return typeof row?.total === "number" ? row.total : undefined;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return undefined; // banco antigo sem a tabela
+  }
+}
+
+export function saveSessionCost(dbFile: string, sessionId: string, total: number): void {
+  try {
+    const db = new DatabaseSync(dbFile);
+    try {
+      db.exec("PRAGMA busy_timeout = 3000; CREATE TABLE IF NOT EXISTS session_cost (session_id TEXT PRIMARY KEY, total REAL NOT NULL, updated_at INTEGER NOT NULL);");
+      db.prepare("INSERT INTO session_cost (session_id, total, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET total=excluded.total, updated_at=excluded.updated_at").run(sessionId, total, Date.now());
+    } finally {
+      db.close();
+    }
+  } catch { /* custo é melhor-esforço */ }
 }
 
 /**

@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { ClaudeEngine } from "./claude.ts";
 import type { AgentEvent } from "./types.ts";
 
+// scripts falsos com shebang, sleep e sinais POSIX: não valem no Windows
+const POSIX = { skip: process.platform === "win32" ? "POSIX-only" : false };
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function waitDead(pid: number, ms = 6000): Promise<boolean> {
   const end = Date.now() + ms;
@@ -30,6 +32,7 @@ function setup(body: string) {
   mkdirSync(join(dir, "home"), { recursive: true });
   const saved = { ...process.env };
   process.env.HOME = join(dir, "home");
+  process.env.USERPROFILE = join(dir, "home"); // o os.homedir() do Node lê USERPROFILE no Windows
   process.env.CARDUME_CLAUDE = fakeClaude(dir, body);
   process.env.FAKE_PID_FILE = join(dir, "pid");
   process.env.CARDUME_PROTECT = "0";
@@ -51,7 +54,7 @@ function setup(body: string) {
   return { dir, input, restore, pid: () => Number(readFileSync(join(dir, "pid"), "utf8")) };
 }
 
-test("claude concluiu o turno (result) mas não saiu e ignora SIGTERM: o turno fecha e o processo morre", async () => {
+test("claude concluiu o turno (result) mas não saiu e ignora SIGTERM: o turno fecha e o processo morre", POSIX, async () => {
   const s = setup(`
     process.on("SIGTERM", () => {}); // ignora o pedido educado
     out({ type: "system", subtype: "init", session_id: "s1", model: "m" });
@@ -73,7 +76,7 @@ test("claude concluiu o turno (result) mas não saiu e ignora SIGTERM: o turno f
   }
 });
 
-test("o app abandona o turno no meio (erro gravando no banco): o claude não fica órfão", async () => {
+test("o app abandona o turno no meio (erro gravando no banco): o claude não fica órfão", POSIX, async () => {
   const s = setup(`
     out({ type: "system", subtype: "init", session_id: "s1", model: "m" });
     setInterval(() => out({ type: "assistant", message: { content: [{ type: "text", text: "trabalhando" }] } }), 50);`);
@@ -90,7 +93,7 @@ test("o app abandona o turno no meio (erro gravando no banco): o claude não fic
   }
 });
 
-test("processo que sai com erro SEM result: o motivo chega (código + último erro do stderr)", async () => {
+test("processo que sai com erro SEM result: o motivo chega (código + último erro do stderr)", POSIX, async () => {
   const s = setup(`
     process.stderr.write("API Error: 429 rate limit\\n");
     process.exit(1);`);
@@ -104,7 +107,7 @@ test("processo que sai com erro SEM result: o motivo chega (código + último er
   }
 });
 
-test("custo no --resume: o total do claude vem ACUMULADO da sessão — conta só a diferença do turno", async () => {
+test("custo no --resume: o total do claude vem ACUMULADO da sessão — conta só a diferença do turno", POSIX, async () => {
   const s = setup(`
     out({ type: "system", subtype: "init", session_id: "50eb6fe2-fe85-4c71-8ea8-e16c62711d2b", model: "m" });
     out({ type: "result", is_error: false, result: "tchau", total_cost_usd: 0.0529608, usage: { input_tokens: 10, output_tokens: 52 } });`);
@@ -128,6 +131,52 @@ test("custo no --resume: o total do claude vem ACUMULADO da sessão — conta s�
     const fresh: AgentEvent[] = [];
     for await (const ev of new ClaudeEngine({ approval: "auto" }).run(s.input)) fresh.push(ev);
     assert.equal(fresh.find((e) => e.type === "done")?.cost?.usd, 0.0529608);
+  } finally {
+    s.restore();
+  }
+});
+
+test("claude sai SEM result e um neto segura o stdout: o turno fecha em segundos (não espera o neto)", POSIX, async () => {
+  const s = setup(`
+    import { spawn } from "node:child_process";
+    out({ type: "system", subtype: "init", session_id: "s1", model: "m" });
+    spawn("sleep", ["30"], { stdio: ["ignore", "inherit", "inherit"] }).unref();
+    process.exit(0);`);
+  try {
+    const t0 = Date.now();
+    const evs: AgentEvent[] = [];
+    for await (const ev of new ClaudeEngine({ approval: "auto" }).run(s.input)) evs.push(ev);
+    assert.ok(Date.now() - t0 < 8000, `demorou ${Date.now() - t0}ms (antes: esperava o neto, 30s)`);
+    assert.ok(evs.some((e) => e.text === "claude finalizou"));
+  } finally {
+    s.restore();
+  }
+});
+
+test("custo no --resume: base gravada por nós no state.sqlite; sem base nenhuma → aviso no chat", POSIX, async () => {
+  const sid = "11111111-2222-3333-4444-555555555555";
+  const s = setup(`
+    out({ type: "system", subtype: "init", session_id: "${sid}", model: "m" });
+    out({ type: "result", is_error: false, result: "ok", session_id: "${sid}", total_cost_usd: Number(process.env.FAKE_TOTAL), usage: {} });`);
+  try {
+    const eng = new ClaudeEngine({ approval: "auto" });
+    const turn = async (resume: boolean, total: string) => {
+      process.env.FAKE_TOTAL = total;
+      const evs: AgentEvent[] = [];
+      for await (const ev of eng.run(resume ? { ...s.input, resume: { sessionId: sid, instruction: "x" } } : s.input)) evs.push(ev);
+      return evs;
+    };
+    // sem base (nem nossa nem transcript): conta o total, mas AVISA
+    const a = await turn(true, "0.10");
+    assert.equal(a.find((e) => e.type === "done")?.cost?.usd, 0.1);
+    assert.ok(a.some((e) => /não achei o acumulado anterior/.test(e.text)));
+    // agora a base 0.10 está gravada → o próximo turno conta só a diferença (e sem aviso)
+    const b = await turn(true, "0.13");
+    assert.equal(b.find((e) => e.type === "done")?.cost?.usd, 0.03);
+    assert.ok(!b.some((e) => /não achei o acumulado/.test(e.text)));
+    // total MENOR que a base (sessão recomeçou do zero): usa o total
+    const c = await turn(true, "0.02");
+    assert.equal(c.find((e) => e.type === "done")?.cost?.usd, 0.02);
   } finally {
     s.restore();
   }

@@ -144,6 +144,11 @@ export class Store {
         created_at INTEGER NOT NULL,
         done_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS session_cost (
+        session_id TEXT PRIMARY KEY,
+        total REAL NOT NULL,          -- custo ACUMULADO da sessão do claude no fim do último turno
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS cost (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT NOT NULL,

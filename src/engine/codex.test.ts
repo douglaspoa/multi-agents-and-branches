@@ -18,12 +18,16 @@ test("turn.failed traz o MOTIVO (antes: sumia e o turno morria só com 'código 
 
 test("comando aparece UMA vez no feed (antes: item.started e item.completed duplicavam)", () => {
   const item = { id: "i1", type: "command_execution", command: "npm test", status: "in_progress" };
-  const started = mapCodexLine(JSON.stringify({ type: "item.started", item }));
-  const completed = mapCodexLine(JSON.stringify({ type: "item.completed", item: { ...item, status: "completed", exit_code: 0 } }));
+  const seen = new Set<string>();
+  const started = mapCodexLine(JSON.stringify({ type: "item.started", item }), seen);
+  const completed = mapCodexLine(JSON.stringify({ type: "item.completed", item: { ...item, status: "completed", exit_code: 0 } }), seen);
   assert.deepEqual(started.map((e) => [e.type, e.text]), [["bash", "npm test"]]);
   assert.deepEqual(completed, []);
   // comando que FALHOU (status do item) não é erro do turno
-  assert.deepEqual(mapCodexLine(JSON.stringify({ type: "item.completed", item: { ...item, status: "failed", exit_code: 1 } })), []);
+  assert.deepEqual(mapCodexLine(JSON.stringify({ type: "item.completed", item: { ...item, status: "failed", exit_code: 1 } }), seen), []);
+  // comando que SÓ chega no completed (sem started) aparece — antes sumia
+  const only = mapCodexLine(JSON.stringify({ type: "item.completed", item: { id: "i2", type: "command_execution", command: "ls", status: "completed" } }), seen);
+  assert.deepEqual(only.map((e) => [e.type, e.text]), [["bash", "ls"]]);
 });
 
 test("uso do turno vira custo/tokens no done", () => {
@@ -34,14 +38,16 @@ test("uso do turno vira custo/tokens no done", () => {
 
 test("chaves da conta vêm de <home>/.constellation/llm.env (homedir, não $HOME cru)", () => {
   const dir = mkdtempSync(join(tmpdir(), "starfork-codex-"));
-  const old = process.env.HOME;
+  const old = process.env.HOME, oldUp = process.env.USERPROFILE;
   try {
     mkdirSync(join(dir, ".constellation"), { recursive: true });
     writeFileSync(join(dir, ".constellation", "llm.env"), "ALT_AI_KEY=abc123\n# comentário\nlixo sem igual\nlower=x\n");
     process.env.HOME = dir;
+    process.env.USERPROFILE = dir; // Node usa USERPROFILE no Windows
     assert.deepEqual(loadLlmEnv(), { ALT_AI_KEY: "abc123" });
   } finally {
     if (old === undefined) delete process.env.HOME; else process.env.HOME = old;
+    if (oldUp === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = oldUp;
     rmSync(dir, { recursive: true, force: true });
   }
 });

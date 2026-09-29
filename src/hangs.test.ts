@@ -12,6 +12,8 @@ import { GitService } from "./git.ts";
 import { Orchestrator, prUrlFrom } from "./orchestrator.ts";
 import type { TaskSpec } from "./types.ts";
 
+// scripts falsos com shebang, sleep e sinais POSIX: não valem no Windows
+const POSIX = { skip: process.platform === "win32" ? "POSIX-only" : false };
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
@@ -37,14 +39,14 @@ async function withEnv<T>(vars: Record<string, string>, fn: () => Promise<T>): P
   }
 }
 
-test("run(): processo que deixa um neto segurando o stdout NÃO trava a promessa", async () => {
+test("run(): processo que deixa um neto segurando o stdout NÃO trava a promessa", POSIX, async () => {
   const t0 = Date.now();
   const r = await run("bash", ["-c", "sleep 20 & echo pronto"]);
   assert.equal(r.stdout.trim(), "pronto");
   assert.ok(Date.now() - t0 < 8000, `demorou ${Date.now() - t0}ms (antes: esperava o neto, 20s)`);
 });
 
-test("base fresca com remoto que não responde: a criação da tarefa segue com a base local", async () => {
+test("base fresca com remoto que não responde: a criação da tarefa segue com a base local", POSIX, async () => {
   const { root, repo } = repoTmp();
   try {
     git(repo, "remote", "add", "origin", "ssh://git@example.invalid/x.git");
@@ -58,7 +60,7 @@ test("base fresca com remoto que não responde: a criação da tarefa segue com 
   }
 });
 
-test("setup.sh do projeto que não termina: a tarefa nasce e o AMBIENTE.md avisa que o setup não completou", async () => {
+test("setup.sh do projeto que não termina: a tarefa nasce e o AMBIENTE.md avisa que o setup não completou", POSIX, async () => {
   const { root, repo } = repoTmp();
   const orch = new Orchestrator(repo);
   try {
@@ -80,7 +82,7 @@ test("setup.sh do projeto que não termina: a tarefa nasce e o AMBIENTE.md avisa
   }
 });
 
-test("claude auxiliar (destilador/resumo) pendurado: desiste no teto em vez de prender o processo", async () => {
+test("claude auxiliar (destilador/resumo) pendurado: desiste no teto em vez de prender o processo", POSIX, async () => {
   const { root, repo } = repoTmp();
   const orch = new Orchestrator(repo);
   try {
