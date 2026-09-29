@@ -74,6 +74,7 @@ async function openPlanner(){
   }catch(_){} }
   // conversa nova: nada no fio — o estado vazio acolhedor (plEmptyHtml) aparece no lugar; a IA é trocada na prévia
   { const txt=window.ndTakeCarry?window.ndTakeCarry():''; const inp=$id('plInput'); if(txt && inp && !inp.value.trim()) inp.value=txt; }
+  { const k=window.ndTakeCarryKind?window.ndTakeCarryKind():''; if(k) plFields.kind=k; } // veio do Formulário com um tipo escolhido
   renderPlanner(); plRenderRefs();
   { const th=$id('plThread'); if(plQuiet && th && th.querySelector(':scope>.ld-sk')) ldPaint(th, ''); } // render pulado: sem esqueleto órfão
   const i=$id('plInput'); if(i){ i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(_){} }
@@ -111,7 +112,7 @@ async function plNew(){
 }
 function closePlanner(){ $id('plannerOverlay').style.display='none'; if(window.closeTabOfKind) window.closeTabOfKind('planner'); }
 // mostra a conversa desta aba do jeito que estava (sem recarregar rascunho nem resetar)
-function plShow(){ $id('plannerOverlay').style.display='flex'; { const txt=window.ndTakeCarry?window.ndTakeCarry():''; const inp=$id('plInput'); if(txt && inp && !inp.value.trim()) inp.value=txt; } renderPlanner(); plRenderRefs(); const i=$id('plInput'); if(i) i.focus(); }
+function plShow(){ $id('plannerOverlay').style.display='flex'; { const txt=window.ndTakeCarry?window.ndTakeCarry():''; const inp=$id('plInput'); if(txt && inp && !inp.value.trim()) inp.value=txt; } { const k=window.ndTakeCarryKind?window.ndTakeCarryKind():''; if(k) plFields.kind=k; } renderPlanner(); plRenderRefs(); const i=$id('plInput'); if(i) i.focus(); }
 window.plShow=plShow;
 window.TAB_STATE_planner={
   get:()=>({ _title:(plFields&&plFields.title)||'', plOwnsDraft, plFields, plSid, plMsgs, plChips, plAsking, plDone, plRefs, plPlan, plNoEpic, plPend }),

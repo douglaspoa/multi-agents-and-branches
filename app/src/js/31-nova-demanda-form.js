@@ -8,6 +8,8 @@ const NT_REQUIRED={
   review:[['ntPr','link/nº do PR']],
 };
 let ntPolicy={ minRequirements:1, proofRequired:true, testsRequired:true, docRequired:false, costWarn:25 };
+// PURA: o que falta pra começar, em linguagem de gente (antes: "2 campos obrigatórios faltando: …" / "spec pronta ✓")
+function ntMissingText(labels){ labels=(labels||[]).filter(Boolean); return labels.length?'falta: '+labels.join(', '):'pronto pra começar'; }
 function ntGate(){
   const req=NT_REQUIRED[ntMode]||[];
   const missing=req.filter(([id])=>{ const e=$id(id); return !e || !e.value.trim(); });
@@ -22,7 +24,7 @@ function ntGate(){
   if(btn) btn.disabled=missing.length>0;
   if(ms){
     ms.className=missing.length?'':'ok';
-    ms.textContent=missing.length?`${missing.length} campo${missing.length>1?'s':''} obrigatório${missing.length>1?'s':''} faltando: ${missing.map(([,l])=>l).join(', ')}`:'spec pronta ✓';
+    ms.textContent=ntMissingText(missing.map(([,l])=>l));
   }
   if($id('ntRight').classList.contains('mdview')) ntMdRender();
 }
@@ -89,22 +91,22 @@ bindClick('ntAiFill', ntAiComplete);
 // cada campo aparece UMA vez: spec → requisitos → quem executa → avançado → confira
 const WIZ_STEPS={
   build:[
-    { n:1, show:[1,3], t:'O que você precisa?', h:'título + objetivo com contexto e anexos — ou "montar conversando" lá em cima, e a IA monta tudo com você', guide:true,
+    { n:1, show:[1,3], t:'O que você precisa?', h:'um título e o objetivo, com o contexto e os anexos que tiver — prefere que a IA pergunte? troque pra "Conversar" lá em cima', guide:true,
       ok:()=>!!($id('ntTitle').value.trim() && $id('ntObj').value.trim()), miss:'preencha título e objetivo' },
-    { n:2, show:[2], t:'Requisitos de entrega', h:()=>`critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+    { n:2, show:[2], t:'Como saber que ficou pronto?', h:()=>`frases que alguém consegue conferir ("o botão aparece no celular") — o agente precisa provar cada uma; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} neste projeto`, guide:true,
       ok:()=>ntReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os requisitos mínimos' },
-    { n:3, how:true, opt:true, t:'Quem executa?', h:'o fluxo recomendado já vem marcado — modelo e limites no "Avançado" logo abaixo', ok:()=>true },
-    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'escopo, branch, PR, time & épico — os padrões servem; pode pular', ok:()=>true },
-    { n:5, rev:true, t:'Confira a spec', h:'é exatamente isto que o agente recebe — provas e testes já vêm exigidos pela política', ok:()=>true },
+    { n:3, how:true, opt:true, t:'Quem executa?', h:'o time recomendado já vem marcado — a IA e o limite de gasto ficam logo abaixo', ok:()=>true },
+    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'onde pode mexer, como entrega e compartilhar com o time — os padrões servem; pode pular', ok:()=>true },
+    { n:5, rev:true, t:'Confira o pedido', h:'é exatamente isto que o agente recebe — provas e testes já vêm exigidos neste projeto', ok:()=>true },
   ],
   fix:[
     { n:1, show:[1,3], t:'O que corrigir?', h:'onde acontece, sintoma, como reproduzir — o print do bug vale mais que mil palavras', guide:true,
       ok:()=>!!$id('ntFixTitle').value.trim(), miss:'diga o que corrigir' },
-    { n:2, show:[2], t:'Critérios de aceite', h:()=>`como saberemos que está corrigido — mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+    { n:2, show:[2], t:'Como saber que foi corrigido?', h:()=>`frases que alguém consegue conferir ("o pagamento conclui no iPhone") — mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} neste projeto`, guide:true,
       ok:()=>ntFixReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os critérios mínimos' },
-    { n:3, how:true, opt:true, t:'Quem corrige?', h:'o builder padrão resolve a maioria — modelo e limites no "Avançado" logo abaixo', ok:()=>true },
-    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'comprovações, time & épico — pode pular', ok:()=>true },
-    { n:5, rev:true, t:'Confira a spec', h:'é exatamente isto que o agente recebe', ok:()=>true },
+    { n:3, how:true, opt:true, t:'Quem corrige?', h:'um agente só resolve a maioria — a IA e o limite de gasto ficam logo abaixo', ok:()=>true },
+    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'provas da entrega e compartilhar com o time — pode pular', ok:()=>true },
+    { n:5, rev:true, t:'Confira o pedido', h:'é exatamente isto que o agente recebe', ok:()=>true },
   ],
 };
 let wizN=1;
@@ -168,7 +170,11 @@ function wizRender(){
   bindClick('wizSkip', ()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); });
   { const b=$id('wizNext'); if(b) b.onclick=()=>{
       if(last){ wizLaunch(); return; }
-      if(!st.ok()){ const m=$id('wizMiss'); if(m){ m.innerHTML=IC.warn+' '+esc(st.miss||'complete esta etapa'); setTimeout(()=>{ if(m) m.textContent=''; },2600); } return; }
+      if(!st.ok()){ const m=$id('wizMiss'); if(m){ m.innerHTML=IC.warn+' '+esc(st.miss||'complete esta etapa'); clearTimeout(m.__t); m.__t=setTimeout(()=>{ if(m) m.textContent=''; },4000); }
+        // R8: leva o cursor pro 1º campo que falta (antes só um aviso que sumia em 2,6 s, sem dizer onde)
+        { const f=(NT_REQUIRED[ntMode]||[]).map(([id])=>$id(id)).find(e=>e && e.offsetParent && !e.value.trim()) || document.querySelector(ntMode==='fix'?'#ntFixReqs input, #ntFixReqAdd':'#ntRequirements input, #ntReqAdd');
+          if(f){ try{ f.focus(); f.classList.add('missnow'); f.addEventListener('input',()=>f.classList.remove('missnow'),{once:true}); f.scrollIntoView({block:'nearest'}); }catch(_){} } }
+        return; }
       wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender();
     }; }
 }
@@ -182,7 +188,7 @@ function wizShareApply(st){
   } else r.style.display=cloudOk?'block':'none';
 }
 // ---- modal de progresso da criação (estilo abertura de PR) ----
-const GO_STEPS=[['spec','spec montada'],['req','requisitos verificáveis'],['issue','criando a issue e a branch'],['agent','despachando o agente']];
+const GO_STEPS=[['spec','pedido montado'],['req','como saber que ficou pronto'],['issue','preparando uma cópia isolada do projeto'],['agent','chamando o agente']];
 let goState={};
 function goRender(nReq){
   const el=$id('goSteps'); if(!el) return;
@@ -511,10 +517,10 @@ function setNtMode(m){
   $id("ntDesignFields").style.display = m==='design'?'':'none';
   $id("ntInvFields").style.display = m==='invest'?'':'none';
   $id("ntDraft").style.display = m==='build'?'':'none';
-  { const ai=$id("ntAI"); if(ai){ ai.style.display=''; ai.disabled=m!=='build'; ai.title=m==='build'?'montar conversando com a IA':'montar conversando só existe para Feature (entrega) — para os outros tipos, preencha aqui'; } } // mesmo seletor de 3 opções em todo lugar
+  { const ai=$id("ntAI"); if(ai){ ai.style.display=''; ai.disabled=false; ai.title='a IA pergunta só o essencial e monta a demanda — o tipo e o texto vão junto'; } } // R8: repaginada B — Conversar vale pra todo tipo (o chip "Tipo" do planner leva o tipo)
   $id("ntImport").style.display = m==='build'?'':'none';
   { const tn=$id('ntTypeName'); if(tn) tn.textContent=(ntDocsPreset&&m==='build')?'Documentação':((window.ND_NAME_OF_MODE||{})[m]||m); }
-  $id("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';
+  $id("ntHint").textContent = m==='review'?'cole o link do PR (pedido de mudança) — a IA revisa e escreve um parecer, sem mexer no código':m==='fix'?'um agente só, direto na correção — você revisa antes de entrar no projeto':m==='design'?'mockup e decisões antes de programar — não mexe no produto':m==='invest'?'acha a causa com evidências — investiga, não corrige':'roda numa cópia isolada do projeto — nada muda no principal até você aprovar';
   const create=$id("ntCreate");
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';

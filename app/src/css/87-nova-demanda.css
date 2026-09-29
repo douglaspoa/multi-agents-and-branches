@@ -135,3 +135,16 @@
   #plannerOverlay .ndctl{gap:5px;margin-left:2px}
   #plannerOverlay .orq-seg.ndseg-sm button{padding:3px 7px}
 }
+
+/* ---- R8 (formulário) ---- */
+/* Formulário | Markdown é uma troca de vista, não um CTA: sem o verde cheio (o único verde da tela é o "começar") */
+#ntOverlay .seg2{border:1px solid var(--border);background:var(--surface-2);border-radius:999px;padding:2px;gap:1px}
+#ntOverlay .seg2 button{border-radius:999px;padding:3px 11px;font:500 var(--fs-sm) var(--display);color:var(--text-3);background:transparent;box-shadow:none}
+#ntOverlay .seg2 button.on{background:var(--surface-3);color:var(--text);font-weight:600;box-shadow:0 0 0 1px var(--border-strong) inset}
+/* na vista Markdown o cabeçalho (onde mora a troca de vista) continuava escondido: não tinha como voltar pro formulário */
+#ntOverlay #ntRight.mdview>#wizHead{display:block!important}
+#ntOverlay #ntRight.mdview>#wizHead #wizGuide{display:none!important}
+/* o que falta: texto normal, não terminal */
+#ntOverlay #ntMissing{font:400 var(--fs-sm) var(--display);color:var(--text-3)}
+#ntOverlay #ntMissing.ok{color:var(--text-2)}
+#ntOverlay .in.missnow{border-color:color-mix(in srgb,var(--warn) 60%,var(--border))}

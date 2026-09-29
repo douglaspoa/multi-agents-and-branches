@@ -110,7 +110,7 @@ $id("ntCreate").onclick = ()=>{
 $id('ntOverlay').addEventListener('input', ntGate);
 $id("ntDraft").onclick = ()=>submitNewTask(false);
 document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMode(b.dataset.mode));
-$id("ntAI").onclick = ()=>{ { const o=$id(({ build:"ntObj", fix:"ntFixObj", design:"ntDzObj", invest:"ntInvObj", review:"ntPr" })[ntMode]||"ntObj"); if(o && o.value.trim() && typeof ndCarryText!=="undefined") ndCarryText=o.value.trim(); } if(window.openTab) window.openTab("planner",{replace:true}); else openPlanner(); }; // mesma aba vira o planner (BUG-8: o planner não fecha mais o formulário)
+$id("ntAI").onclick = ()=>{ { const k=(ntDocsPreset&&ntMode==='build')?'docs':ntMode; if(k!=='build' && typeof ndCarryKind!=='undefined') ndCarryKind=k; } { const o=$id(({ build:"ntObj", fix:"ntFixObj", design:"ntDzObj", invest:"ntInvObj", review:"ntPr" })[ntMode]||"ntObj"); if(o && o.value.trim() && typeof ndCarryText!=="undefined") ndCarryText=o.value.trim(); } if(window.openTab) window.openTab("planner",{replace:true}); else openPlanner(); }; // mesma aba vira o planner (BUG-8: o planner não fecha mais o formulário)
 $id("emAbrir").onclick = pickFolder;
 bindClick("emNovo", ()=>openNewProject());
 $id("ntImport").onclick = importTaskMd;
