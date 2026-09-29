@@ -119,6 +119,7 @@ async function openCommit(hash){
   ov.style.display="flex"; ldPaint(body, skeletonHtml('tabela',{ n:6, cols:2, label:'carregando o commit' }));
   let d; try{ d=await invoke("commit_detail",{hash}); }
   catch(e){ if(curCommit!==hash) return; body.innerHTML=errorHtml(e,'cmRetry','Não consegui abrir o commit'); ldWireErr(body,e,'Não consegui abrir o commit',()=>openCommit(hash)); return; }
+  if(curCommit!==hash) return; // outro commit foi aberto enquanto este carregava
   const files = parseDiff(d.diff);
   const tech = commitTech(files);
   // vincula à tarefa e ao(s) entregável(is)

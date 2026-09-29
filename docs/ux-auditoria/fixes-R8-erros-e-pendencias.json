@@ -4,7 +4,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Catálogo de erros cobre banco travado, os error N, git/gh comuns, 5xx e JSON inválido",
   "antes": "\"database is locked\", \"(os error 2/5/32)\", \"index.lock\", \"a branch named … already exists\", HTTP 502 e \"Unexpected token < in JSON\" apareciam crus ou como \"Algo deu errado: …\".",
-  "depois": "14 classes novas no ERR_CATALOG (db-locked, db-broken, git-missing, git-dirty, git-lock, branch-exists, git-ref, pr-exists, no-commits, no-pr, duplicate, file-busy, not-found, server, bad-json) e rede/permissão/disco ampliados (DNS, reqwest, os error 1/5/13/28/61/112, RLS).",
+  "depois": "19 classes novas no ERR_CATALOG (db-locked, db-broken, db-old, git-missing, git-dirty, git-lock, branch-exists, branch-clash, git-ref, pr-exists, no-commits, nothing-to-commit, no-pr, duplicate, cloud-permission, file-busy, not-found, server, bad-json) e rede/permissão/disco ampliados (DNS, reqwest, os error 5/13/28/61/112). A ordem evita falsos: lock sem permissão vai pra permissão, colisão de nome de branch não vira 'espere', os error 3 só é 'não encontrado' com o texto do Windows, bad-json ignora linha de stack e 'invalid args' do Tauri; wt-gone vem antes dos *-missing e tem o botão 'abrir a conversa'.",
   "motivo": "Quem não programa precisa de uma frase em pt-BR que diga o que fazer, não o texto do SQLite/git.",
   "arquivos": [
    "app/src/js/00-util.js",
@@ -21,7 +21,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Binário ausente vindo do Rust vira 'não instalado'",
   "antes": "\"falha ao rodar claude: No such file or directory (os error 2)\" / \"gh indisponível: …\" não casavam com claude-missing/gh-missing.",
-  "depois": "Os prefixos reais do lib.rs com os error 2 ou program not found caem em 'Claude Code/gh/git não está instalado' com o botão Ambiente.",
+  "depois": "Os prefixos reais do lib.rs com os error 2/program not found (inclusive com o texto localizado do Windows antes) e a forma do zsh 'command not found: git|gh|claude' caem em 'não está instalado' com o botão Ambiente.",
   "motivo": "A mensagem certa leva ao conserto certo.",
   "arquivos": [
    "app/src/js/00-util.js",
@@ -34,7 +34,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Bug: 'gh: Not Found (HTTP 404)' dizia 'gh não está instalado'",
   "antes": "A regex de gh-missing casava 'gh: Not Found' de qualquer 404 da API do GitHub.",
-  "depois": "Um lookahead exclui o '(HTTP …)'; teste de regressão.",
+  "depois": "Um lookahead exclui o '(HTTP …)'; o teste confere que vira 'generic'.",
   "motivo": "Mandava a pessoa reinstalar o gh quando o problema era um recurso inexistente.",
   "arquivos": [
    "app/src/js/00-util.js",
@@ -47,7 +47,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Daily com erro mantém o seletor de data",
   "antes": "O erro ocupava a aba inteira e só dava pra 'tentar de novo' o mesmo dia; o texto era cru.",
-  "depois": "Cabeçalho 'Daily' + seletor de data acima do erro; 'tentar de novo' refaz pelo loadDaily (com a guarda de geração).",
+  "depois": "Cabeçalho 'Daily' + seletor de data acima do erro; 'tentar de novo' refaz pelo loadDaily (com a guarda de geração). Vale também quando a carga estoura o prazo; apagar a data no seletor volta pro dia que falhou.",
   "motivo": "Item pendente do R7 (chat-memória-mesa-cfg).",
   "arquivos": [
    "app/src/js/12-chat-prefs-daily.js"
@@ -63,7 +63,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Commit que não abre: erro padrão com 'tentar de novo'",
   "antes": "O resumo do commit mostrava só 'fatal: not a valid object name …' em cinza, sem saída.",
-  "depois": "errorHtml/ldWireErr: frase do catálogo, cru pequeno embaixo e 'tentar de novo'; resposta atrasada de outro commit é descartada.",
+  "depois": "errorHtml/ldWireErr: frase do catálogo, cru pequeno embaixo e 'tentar de novo'; resposta atrasada de outro commit é descartada (no erro e no sucesso).",
   "motivo": "Estado de erro padronizado (06-carregamento).",
   "arquivos": [
    "app/src/js/25-grafo.js"
@@ -95,7 +95,7 @@
   "area": "erros-e-pendencias",
   "titulo": "'Merge PR' bloqueado deixa de parecer clicável",
   "antes": "Botão primário desabilitado seguia verde (só com opacidade).",
-  "depois": "Primário desabilitado fica cinza (surface-2/text-3) em todo o app.",
+  "depois": "Primário desabilitado fica cinza em todo o app (.btn/.as-btn/.au-btn primary e .sk-add), inclusive no hover — os :hover de 30-refino-macos e 60-grafo não repintam de verde.",
   "motivo": "Item pendente do R7 (tarefa).",
   "arquivos": [
    "app/src/css/10-base.css"
@@ -152,7 +152,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Barra de status, menu de projetos e publicar no GitHub sem erro cru",
   "antes": "connTxt, o menu de projetos e o passo 'Não deu' do publicar mostravam String(err).",
-  "depois": "humanErr (cru no title), e falha do seletor de pastas deixou de ser engolida (showErr).",
+  "depois": "humanErr (cru no title); falha do seletor de pastas deixou de ser engolida (showErr); a falha do publicar versão usa contexto e mostra o botão do catálogo quando existe.",
   "motivo": "Primeiro contato com o app costuma ser justamente abrir projeto.",
   "arquivos": [
    "app/src/js/10-core.js",
@@ -165,7 +165,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Arquivos/diff/explicação da tarefa com frase humana",
   "antes": "'não consegui abrir este arquivo' + texto mono cru; a lista de arquivos com erro não oferecia a ação do catálogo.",
-  "depois": "errShort (frase do catálogo ou 1ª linha), cru no title; lista usa errorHtml com o botão do catálogo ligado (ex.: cópia de trabalho limpa).",
+  "depois": "errShort (frase do catálogo ou 1ª linha), cru no title. A lista de arquivos com erro usa errorHtml e liga o botão do catálogo só quando ele vale pra cópia da tarefa (nunca 'criar repositório'/'publicar no GitHub'); de quebra, o 'tentar de novo' da lista voltou a funcionar (o const tk=t.id estava dentro de um comentário → ReferenceError e esqueleto preso).",
   "motivo": "Consistência com o catálogo em toda a tarefa.",
   "arquivos": [
    "app/src/js/20-workspace-tarefa.js",
@@ -182,7 +182,8 @@
   "motivo": "Idem.",
   "arquivos": [
    "app/src/js/27-entregas.js",
-   "app/src/js/21-pull-request.js"
+   "app/src/js/21-pull-request.js",
+   "app/src/js/12-chat-prefs-daily.js"
   ],
   "como_ver": "Entrega → gerar relatório offline"
  },
@@ -191,7 +192,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Conta/time, convenções, chaves e onboarding sem 'Falhou: <e.message>'",
   "antes": "8 ações da Conta, convenções do time, teste de rota de IA, espaço do time e login (fallback) mostravam o texto do Supabase/Rust.",
-  "depois": "humanErr (registro duplicado, RLS, sessão, rede viram frase); auErr usa errShort quando não é erro de auth conhecido.",
+  "depois": "Conta usa o cloudErrMsg (vindo da main) com o contexto de cada ação ('Não consegui criar a organização', '…aceitar o convite', '…criar o time', '…revogar o convite', '…salvar a licença'…); convenções, teste de rota de IA e espaço do time usam humanErr; auErr usa errShort quando não é erro de auth conhecido.",
   "motivo": "Erro cru na tela é o que o usuário leigo mais estranha.",
   "arquivos": [
    "app/src/js/40-nuvem-conta.js",
@@ -234,7 +235,7 @@
   "area": "erros-e-pendencias",
   "titulo": "Painel de issues não diz 'conecte o GitHub' pra erro do Jira/Linear",
   "antes": "O aviso de atualização em segundo plano usava qualquer classe do catálogo (401 do painel virava 'Conecte sua conta do GitHub').",
-  "depois": "Só rede/servidor/JSON/permissão valem pra painel externo; o resto mostra o texto do painel.",
+  "depois": "trkBgWhy (bloco puro testado): só rede/servidor/JSON/permissão valem pra painel externo; o resto mostra o texto do painel.",
   "motivo": "Evita falso diagnóstico agora que o catálogo ficou maior.",
   "arquivos": [
    "app/src/js/14-issues-projeto.js"

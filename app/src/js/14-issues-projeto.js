@@ -138,11 +138,20 @@ async function trkCall(opName, extra){
   if(r.status<200||r.status>=300) throw new Error('HTTP '+r.status+' — '+String(typeof data==='string'?data:JSON.stringify(data)).slice(0,240));
   return data;
 }
+// @puro-trkbg-inicio
 function trkErrText(e){
   const s=String(e&&e.message||e), m=s.match(/SECRET_(UNBOUND|MISSING):([A-Z0-9_]+)/);
   if(m) return m[1]==='MISSING' ? 'Falta a chave '+m[2]+' nesta máquina — adicione em Conexão.' : 'A chave '+m[2]+' ainda não foi liberada pra este servidor nesta máquina — confirme em Conexão.';
   return s;
 }
+// R8: motivo curto do aviso de atualização em 2º plano. Só as classes do catálogo que valem pra um painel
+// externo (Jira/Linear/…) — "conecte sua conta do GitHub" ou "pasta sem git" seriam falsos aqui.
+const TRK_BG_CLASSES=['network','server','bad-json','permission'];
+function trkBgWhy(e){
+  const h=(typeof humanErr==='function')?humanErr(trkErrText(e)):null;
+  return (h&&TRK_BG_CLASSES.includes(h.id))?h.msg:trkErrText(e).slice(0,160);
+}
+// @puro-trkbg-fim
 function trkNorm(raw){
   const c=trk.connector, f=c.fields||{}, g=k=>f[k]?trkPath(raw,f[k]):undefined;
   // conector gerado antes da API expor o nome: cai nos nomes de campo mais comuns
@@ -226,9 +235,7 @@ async function trkBgRun(fn){
   catch(e){
     trkBackoffMs=Math.min(Math.max(trkBackoffMs*2, 4*60000), 30*60000); // 4 → 8 → 16 → 30 min
     trkNextAt=Date.now()+trkBackoffMs;
-    const h=(typeof humanErr==='function')?humanErr(trkErrText(e)):null;
-    // R8: só as classes que valem pra um painel externo (Jira/Linear/…): "conecte sua conta do GitHub" ou "pasta sem git" seriam falsos aqui
-    const why=(h&&['network','server','bad-json','permission'].includes(h.id))?h.msg:trkErrText(e).slice(0,160);
+    const why=trkBgWhy(e);
     trkBgErr='Não consegui atualizar o painel agora ('+why.replace(/[.\s]+$/,'')+'). Tento de novo em '+Math.round(trkBackoffMs/60000)+' min — ou clique em atualizar.';
     trkBgRepaint(); return false;
   }

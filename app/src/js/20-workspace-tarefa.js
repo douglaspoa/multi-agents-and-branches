@@ -34,6 +34,9 @@ function fwArtsEnsure(t){
 }
 let fwFilesLoading=false; // task_files ainda não respondeu (≠ "nada ainda")
 let fwFilesErr='';         // task_files falhou (≠ "nada ainda": antes o erro virava a frase "nada ainda" e mentia)
+// R8: a lista de arquivos é da CÓPIA da tarefa — "criar repositório"/"publicar no GitHub" do catálogo não valem aqui
+const FW_FILES_CTX='Não consegui listar os arquivos desta tarefa';
+function fwFilesErrOwnAction(err){ const h=humanErr(err); return !!h.action && !['not-git','no-remote'].includes(h.id); }
 const fwAskSent={};       // fwAskKey(pergunta) → resposta já enviada (trava as opções: 2 cliques = 2 respostas pra mesma pergunta)
 // chave = id + criação: o id da pergunta do TETO é fixo por tarefa (budgetPendId) — só o id faria o PRÓXIMO teto
 // nascer com as opções travadas
@@ -612,7 +615,7 @@ function renderWorkspace(){
     : fwFilesLoading ? '<div style="padding:8px">'+skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' })+'</div>'
     // texto humano fixo (o catálogo genérico lia "not a git repository" e oferecia "criar repositório" — errado aqui);
     // o erro cru fica no tooltip
-    : fwFilesErr ? `<div class="fwfileserr" title="${escA(fwFilesErr.slice(0,400))}">`+errorHtml(fwFilesErr, 'fwFilesRetry', 'Não consegui listar os arquivos desta tarefa')+'</div>'
+    : fwFilesErr ? '<div class="fwfileserr">'+(fwFilesErrOwnAction(fwFilesErr) ? errorHtml(fwFilesErr, 'fwFilesRetry', FW_FILES_CTX) : errorHtml(humanErr(fwFilesErr, FW_FILES_CTX).msg, 'fwFilesRetry', null, { human:true }))+'</div>'
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const cost=taskCost(t.id);
   const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div></div>`;
@@ -630,8 +633,9 @@ function renderWorkspace(){
   tree.dataset.tk=t.id; tree.scrollTop=treeTop;
   tree.querySelectorAll('[data-art]').forEach(b=>{ if(!b.title) b.title=b.dataset.art; b.onclick=(e)=>{ e.stopPropagation(); openArtifact(t.id, b.dataset.art); }; }); // nome inteiro no tooltip ("print-tot…")
   tree.querySelectorAll('[data-fwg]').forEach(b=>b.onclick=()=>{ fwGroupMode=b.dataset.fwg; renderWorkspace(); });
-  if(fwFilesErr){ const fe=document.querySelector('.fwfileserr'); if(fe) ldWireErr(fe, fwFilesErr, 'Não consegui listar os arquivos desta tarefa', null); } // botão do catálogo (ex.: entrar no GitHub)
-  bindClick('fwFilesRetry', ()=>{ fwFilesErr=''; fwFilesLoading=true; fwFilesAt=Date.now(); renderWorkspace(); // o tick não dispara outra carga em paralelo const tk=t.id;
+  if(fwFilesErr && fwFilesErrOwnAction(fwFilesErr)){ const fe=tree.querySelector('.fwfileserr'); if(fe) ldWireErr(fe, fwFilesErr, FW_FILES_CTX, null); } // botão do catálogo (ex.: entrar no GitHub)
+  bindClick('fwFilesRetry', ()=>{ fwFilesErr=''; fwFilesLoading=true; fwFilesAt=Date.now(); renderWorkspace(); // o tick não dispara outra carga em paralelo
+    const tk=t.id;
     invoke('task_files',{ taskId:tk }).then(f=>{ if(fwTask===tk){ fwFiles=f||[]; fwFilesSig=''; } }).catch(e=>{ if(fwTask===tk) fwFilesErr=String(e&&e.message||e)||'erro desconhecido'; }).finally(()=>{ if(fwTask===tk){ fwFilesLoading=false; renderWorkspace(); } }); });
   // status por arquivo enquanto a tarefa roda: só "editando" (tocado há <3 min) ganha texto; o resto é um
   // pontinho discreto com o detalhe no tooltip — antes um selo "CONCLUÍDO" em CADA arquivo comia a largura

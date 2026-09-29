@@ -271,7 +271,8 @@ function dailyErrHead(iso){
   h.innerHTML=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">Não deu pra montar este dia — tente de novo ou escolha outra data.</p></div>
     <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" aria-label="dia do relatório" style="color:var(--text);padding:8px 12px"></div></div>`;
   body.insertBefore(h, er);
-  const d=h.querySelector('#dlDate'); d.onchange=()=>{ const old=$id('dailyDate'); if(old) old.value=d.value; loadDaily(); };
+  const d=h.querySelector('#dlDate'); d.onchange=()=>{ if(!d.value){ d.value=iso; return; } // apagou a data (×): volta pro dia que falhou
+    const old=$id('dailyDate'); if(old) old.value=d.value; loadDaily(); };
 }
 function renderDaily(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
