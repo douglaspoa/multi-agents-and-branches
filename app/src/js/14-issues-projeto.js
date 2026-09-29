@@ -138,11 +138,20 @@ async function trkCall(opName, extra){
   if(r.status<200||r.status>=300) throw new Error('HTTP '+r.status+' — '+String(typeof data==='string'?data:JSON.stringify(data)).slice(0,240));
   return data;
 }
+// @puro-trkbg-inicio
 function trkErrText(e){
   const s=String(e&&e.message||e), m=s.match(/SECRET_(UNBOUND|MISSING):([A-Z0-9_]+)/);
   if(m) return m[1]==='MISSING' ? 'Falta a chave '+m[2]+' nesta máquina — adicione em Conexão.' : 'A chave '+m[2]+' ainda não foi liberada pra este servidor nesta máquina — confirme em Conexão.';
   return s;
 }
+// R8: motivo curto do aviso de atualização em 2º plano. Só as classes do catálogo que valem pra um painel
+// externo (Jira/Linear/…) — "conecte sua conta do GitHub" ou "pasta sem git" seriam falsos aqui.
+const TRK_BG_CLASSES=['network','server','bad-json','permission'];
+function trkBgWhy(e){
+  const h=(typeof humanErr==='function')?humanErr(trkErrText(e)):null;
+  return (h&&TRK_BG_CLASSES.includes(h.id))?h.msg:trkErrText(e).slice(0,160);
+}
+// @puro-trkbg-fim
 function trkNorm(raw){
   const c=trk.connector, f=c.fields||{}, g=k=>f[k]?trkPath(raw,f[k]):undefined;
   // conector gerado antes da API expor o nome: cai nos nomes de campo mais comuns
@@ -226,8 +235,7 @@ async function trkBgRun(fn){
   catch(e){
     trkBackoffMs=Math.min(Math.max(trkBackoffMs*2, 4*60000), 30*60000); // 4 → 8 → 16 → 30 min
     trkNextAt=Date.now()+trkBackoffMs;
-    const h=(typeof humanErr==='function')?humanErr(trkErrText(e)):null;
-    const why=(h&&h.id!=='generic')?h.msg:trkErrText(e).slice(0,160);
+    const why=trkBgWhy(e);
     trkBgErr='Não consegui atualizar o painel agora ('+why.replace(/[.\s]+$/,'')+'). Tento de novo em '+Math.round(trkBackoffMs/60000)+' min — ou clique em atualizar.';
     trkBgRepaint(); return false;
   }
@@ -442,12 +450,12 @@ function trkConnWire(body){
       if(!c.baseUrl||!c.ops||!c.ops.list) throw new Error('a doc não deixou claro como LISTAR as issues — complete a documentação e gere de novo');
       trk.connector=c; if(!trk.name&&c.name) trk.name=c.name; trkSecretSt={}; trkTest='';
       trkMsg='✓ conexão montada — confira as chaves e teste.';
-    }catch(e){ trkMsg='Não consegui montar a conexão: '+(e&&e.message||e); }
+    }catch(e){ trkMsg=humanErr(e,'Não consegui montar a conexão').msg; }
     trkBusy=''; await trkSecretsRefresh(); issRender();
   });
   body.querySelectorAll('[data-trkkey]').forEach(b=>b.onclick=async()=>{
     trkKeepForm(); const n=b.dataset.trkkey; const v=await askText('Chave '+n+' — fica só na sua conta','cole a chave'); if(!v) return;
-    try{ await trkSecretSave(n, v.trim()); await invoke('tracker_bind_secret',{ name:n, host:trkHost() }); trkMsg='✓ chave '+n+' guardada e liberada só pra '+trkHost(); }catch(e){ trkMsg='Falhou guardar a chave: '+(e&&e.message||e); }
+    try{ await trkSecretSave(n, v.trim()); await invoke('tracker_bind_secret',{ name:n, host:trkHost() }); trkMsg='✓ chave '+n+' guardada e liberada só pra '+trkHost(); }catch(e){ trkMsg=humanErr(e,'Não consegui guardar a chave').msg; }
     await trkSecretsRefresh(); issRender();
   });
   body.querySelectorAll('[data-trkbind]').forEach(b=>b.onclick=async()=>{
@@ -750,7 +758,7 @@ async function trkNISend(text, silent){
   }catch(e){
     const msg=String(e&&e.message||e);
     if(n.stop||/ISSUE_CHAT_STOPPED/.test(msg)){ n.msgs.push({ who:'sys', text:'Parado.'+(n.items.length?' O que já tinha sido montado ficou aí do lado.':'')+(rest!==text?' As linhas que faltavam voltaram pra caixa':' Seu texto voltou pra caixa')+' — edite e envie de novo quando quiser.' }); trkNIRender(); const i=$id('trkNIInput'); if(i&&!i.value) i.value=rest; n.busy=false; n.prog=''; n.redirect=''; trkNIRender(); return; }
-    else n.msgs.push({ who:'sys', text:'Falhou: '+msg.slice(0,300) });
+    else { const h=humanErr(e,'Não consegui montar as issues'); n.msgs.push({ who:'sys', text:h.msg }); if(h.action) showErr(e,'Não consegui montar as issues'); }
   }
   // a info chegou no instante em que a resposta terminava: não se perde — vira a próxima mensagem
   const late=n.stop?'':n.redirect; n.redirect=''; n.busy=false; n.prog=''; trkNIRender();

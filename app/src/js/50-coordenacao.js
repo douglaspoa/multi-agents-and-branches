@@ -98,18 +98,19 @@
     if (!m) return;
     // linguagem de gente (antes: "conflitos · colisões · reworks" com zeros o tempo todo); tudo zerado = some
     const c = m.conflictTasks || 0, k = m.collisionEvents || 0, r = m.reworkCount || 0;
-    if (!c && !k && !r) { if (chip.innerHTML) chip.innerHTML = ""; chip.title = ""; chip.style.display = "none"; return; }
+    if (!c && !k && !r) { if (chip._last) { chip._last = ""; chip.innerHTML = ""; } chip.title = ""; chip.style.display = "none"; return; }
     const pl = (n, um, varios) => n + " " + (n === 1 ? um : varios);
     const parts = [];
-    if (c) parts.push(`<span style="color:var(--warn)">⚑ ${pl(c, "tarefa com conflito", "tarefas com conflito")}</span>`);
+    if (c) parts.push(`<span style="color:var(--warn)">${IC.flag} ${pl(c, "tarefa com conflito", "tarefas com conflito")}</span>`);
     if (k) parts.push(pl(k, "disputa de arquivo entre agentes", "disputas de arquivo entre agentes"));
     if (r) parts.push(pl(r, "ajuste pedido", "ajustes pedidos"));
     const html = parts.join(" · ");
-    if (chip.innerHTML !== html) chip.innerHTML = html;
+    // R8: compara com a string guardada — o innerHTML serializa o SVG do IC.flag diferente e reescreveria a cada 2 s
+    if (chip._last !== html) { chip._last = html; chip.innerHTML = html; }
     chip.style.display = "";
     chip.style.cursor = "help";
     chip.title = "Como os agentes estão se coordenando neste projeto:\n" +
-      "• tarefa com conflito — a branch dela não junta sozinha com a base (precisa resolver antes do merge)\n" +
+      "• tarefa com conflito — a branch dela não junta sozinha com a base (precisa resolver antes de integrar)\n" +
       "• disputa de arquivo — dois agentes quiseram editar o mesmo arquivo ao mesmo tempo; um esperou o outro\n" +
       "• ajuste pedido — uma entrega voltou pra ser refeita depois da revisão";
   }

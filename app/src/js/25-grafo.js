@@ -118,7 +118,8 @@ async function openCommit(hash){
   const ov=$id("cmOverlay"), body=$id("cmBody");
   ov.style.display="flex"; ldPaint(body, skeletonHtml('tabela',{ n:6, cols:2, label:'carregando o commit' }));
   let d; try{ d=await invoke("commit_detail",{hash}); }
-  catch(e){ body.innerHTML='<div class="dim" style="font-size:12px">'+esc(String(e))+'</div>'; return; }
+  catch(e){ if(curCommit!==hash) return; body.innerHTML=errorHtml(e,'cmRetry','Não consegui abrir o commit'); ldWireErr(body,e,'Não consegui abrir o commit',()=>openCommit(hash)); return; }
+  if(curCommit!==hash) return; // outro commit foi aberto enquanto este carregava
   const files = parseDiff(d.diff);
   const tech = commitTech(files);
   // vincula à tarefa e ao(s) entregável(is)
@@ -164,7 +165,7 @@ async function genAI(h){
   const el=$id("cmAI"); if(!el) return;
   el.innerHTML='<span class="dim">gerando resumo com IA…</span>';
   try{ const s=await invoke("ai_commit_summary",{hash:h}); if(curCommit!==h) return; $id("cmAI").textContent=s; }
-  catch(e){ if(curCommit!==h) return; const x=$id("cmAI"); x.innerHTML='<span class="dim">não foi possível gerar: '+esc(String(e).slice(0,90))+'</span> <button class="btn sm" id="cmAIbtn2">tentar de novo</button>'; const b=$id("cmAIbtn2"); if(b) b.onclick=()=>genAI(h); }
+  catch(e){ if(curCommit!==h) return; const x=$id("cmAI"); x.innerHTML='<span class="dim">'+esc(humanErr(e,'Não foi possível gerar').msg)+'</span> <button class="btn sm" id="cmAIbtn2">tentar de novo</button>'; const b=$id("cmAIbtn2"); if(b) b.onclick=()=>genAI(h); }
 }
 function closeCommit(){ curCommit=null; $id("cmOverlay").style.display="none"; }
 
@@ -248,5 +249,5 @@ function renderRail(){
 function sbEpDot(t){
   const id=t&&t.epic&&t.epic.epicId; if(!id) return '';
   const nm=(typeof epNameOf==='function'&&epNameOf(id))||'épico', w=parseInt(t.epic.wave,10)||0;
-  return `<span class="sbepdot" style="color:${typeof epColor==='function'?epColor(id):'var(--accent)'}" title="${escA('épico “'+nm+'”'+(w?' · onda '+w:''))}">◆</span>`;
+  return `<span class="sbepdot" style="color:${typeof epColor==='function'?epColor(id):'var(--accent)'}" title="${escA('épico “'+nm+'”'+(w?' · onda '+w:''))}">${IC.epic}</span>`;
 }

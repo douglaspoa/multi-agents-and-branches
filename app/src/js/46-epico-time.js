@@ -19,11 +19,11 @@ function epNameOf(id){
   const e=((typeof teamEpics!=='undefined'&&teamEpics)||[]).find(x=>x.id===id);
   return (e&&e.name) || ((epQueue&&epQueue.epicOf)||{})[id] || (((epCache[id]||{}).ep)||{}).name || '';
 }
-// F3: selo "◆ nome · onda N" na tarefa LOCAL que veio de um épico (snapshot: t.epic.epicId/wave) — clique abre o épico
+// F3: selo "[ícone épico] nome · onda N" (R8: o ◆ virou IC.epic) na tarefa LOCAL que veio de um épico (snapshot: t.epic.epicId/wave) — clique abre o épico
 function epTaskBadge(t){
   const e=t&&t.epic, id=e&&e.epicId; if(!id) return '';
   const w=parseInt(e.wave,10)||0, nm=epNameOf(id)||'épico';
-  return `<span class="tsepc epbadge" data-epbadge="${escA(id)}" style="--epc:${epColor(id)}" title="${escA('tarefa do épico “'+nm+'”'+(w?' · onda '+w+' ('+EP_WAVE_TIP+')':'')+' — clique pra abrir o épico')}">◆ <span class="epn">${esc(nm.slice(0,60))}</span>${w?'<span class="epw"> · onda '+w+'</span>':''}</span>`;
+  return `<span class="tsepc epbadge" data-epbadge="${escA(id)}" style="--epc:${epColor(id)}" title="${escA('tarefa do épico “'+nm+'”'+(w?' · onda '+w+' ('+EP_WAVE_TIP+')':'')+' — clique pra abrir o épico')}"><span class="epic">${IC.epic}</span><span class="epn">${esc(nm.slice(0,60))}</span>${w?'<span class="epw"> · onda '+w+'</span>':''}</span>`;
 }
 // R5-2: A regra ÚNICA de "entregue" no progresso de épico (página, cabeçalho da fila, KPI, Time):
 // mergeada/concluída/finalizada. Pronta pra revisar e PR aberto ainda NÃO contam (aparecem como "em revisão").
@@ -123,9 +123,9 @@ function epicPageRender(){
                               : `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a entrega pra revisar">revisar</button>`)
       : bad ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a tarefa pra ver o erro">ver o problema</button>` : '';
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
-    return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:esc(stIcon(est))}</span><div class="en-rt">
+    return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:stIcon(est)}</span><div class="en-rt">
       <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${stTx}${t.assignee?' · '+esc(tmName(t.assignee)):''}</span></div>
-      ${vtx||cov.length?`<div class="ep-verify">${vtx?'✓ prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
+      ${vtx||cov.length?`<div class="ep-verify">${vtx?IC.ok+' prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
   // mas o número só conta entregue de verdade (antes "1/3" numa onda sem nada mergeado contradizia o 0/7)
@@ -414,15 +414,15 @@ function epqRowHtml(ct, showProj, me, isAdmin, primary){
   const q=epQueue, left=epDepsLeft(ct), auto=ctWaiting(ct), pj=q.projOf[ct.project_id]||{};
   // A4: esperando OUTRA tarefa = "na espera de" (o "Aguardando você" da Central é só pro que depende de você)
   const st=left.length
-    ? `na espera de ${left.map(a=>`<b>${esc(String(q.titleOf[a]||'tarefa').slice(0,40))}</b> (${esc(stLabel((q.effOf||{})[a]||q.stOf[a]))})`).join(', ')}${auto?' · começa sozinha quando elas forem concluídas ou mergeadas':''}`
-    : (auto?'▶ pré-requisitos prontos — começando…':'pronta pra começar');
+    ? `na espera de ${left.map(a=>`<b>${esc(String(q.titleOf[a]||'tarefa').slice(0,40))}</b> (${esc(stLabel((q.effOf||{})[a]||q.stOf[a]))})`).join(', ')}${auto?' · começa sozinha quando elas forem concluídas':''}`
+    : (auto?'pré-requisitos prontos — começando…':'pronta pra começar');
   const stk=left.length?'waiting':'backlog';
   const go=left.length
     ? `<button class="btn sm ghost" data-epqgo="${escA(ct.id)}" title="ainda depende de ${left.length} tarefa(s) — assumir e iniciar agora mesmo assim">iniciar mesmo assim</button>`
-    : `<button class="btn sm${primary?' primary':''}" data-epqgo="${escA(ct.id)}" title="assumir e iniciar agora nesta máquina${primary?' — próxima recomendada deste épico':''}">▶ iniciar</button>`;
+    : `<button class="btn sm${primary?' primary':''}" data-epqgo="${escA(ct.id)}" title="assumir e iniciar agora nesta máquina${primary?' — próxima recomendada deste épico':''}">${IC.play} iniciar</button>`;
   // M4: remover (DELETE na nuvem) só pra quem criou ou admin, e fora do caminho do ▶ — no menu ⋯
-  const menu=(ct.created_by===me||isAdmin)?`<button class="btn sm ghost" data-epqmenu="${escA(ct.id)}" title="mais ações">⋯</button>`:'';
-  return `<div class="epq" data-epq="${escA(ct.id)}"><span class="epq-dot${left.length?' wait':''}" style="--stc:${stColor(stk)}" title="${escA(stLabel(stk))}"></span><div class="epq-body"><div class="epq-t">${esc(ct.title)}</div><div class="epq-m">${showProj&&pj.name?`<span class="mono">${esc(pj.name)}</span>`:''}<span class="epq-wv" title="${escA(EP_WAVE_TIP)}">onda ${epqWave(ct)}</span><span class="epq-st">${st}</span></div></div><div class="epq-acts">${go}${menu}</div></div>`;
+  const menu=(ct.created_by===me||isAdmin)?`<button class="btn sm ghost" data-epqmenu="${escA(ct.id)}" title="mais ações" aria-label="mais ações">${IC.more}</button>`:'';
+  return `<div class="epq" data-epq="${escA(ct.id)}"><span class="epq-dot${left.length?' wait':''}" style="--stc:${stColor(stk)}" title="${escA(stLabel(stk))}"></span><div class="epq-body"><div class="epq-t">${esc(ct.title)}</div><div class="epq-m">${showProj&&pj.name?`<span class="epq-proj">${esc(pj.name)}</span>`:''}<span class="epq-wv" title="${escA(EP_WAVE_TIP)}">onda ${epqWave(ct)}</span><span class="epq-st">${st}</span></div></div><div class="epq-acts">${go}${menu}</div></div>`;
 }
 // R3-C1: TODAS as tarefas do épico (nuvem + locais já iniciadas), cada uma com o status efetivo — o cabeçalho do grupo
 // resume o épico inteiro (antes dizia "4 na fila" com 7 tarefas no épico e as rodando/em PR soltas em outras seções)
@@ -490,13 +490,13 @@ function epBoardHtml(scope, opts){
     const firstReady=items.find(ct=>!epDepsLeft(ct).length);
     return `<div class="epqep${col?' collapsed':''}" style="--epc:${epColor(eid)}">`+
       `<div class="epqh" data-epqtog="${escA(eid)}" role="button" tabindex="0" aria-expanded="${col?'false':'true'}" title="clique pra ${col?'expandir':'recolher'} as tarefas deste épico que estão na fila">`+
-        `<span class="secchev">${col?'▸':'▾'}</span><span class="tsepc epqname">◆ ${esc(name)}</span>`+
+        `<span class="secchev">${col?IC.chevR:IC.chevD}</span><span class="tsepc epqname">${IC.epic} ${esc(name)}</span>`+
         `<span class="epqsum">${epqSummaryHtml(eid, items.length)}</span><span style="flex:1"></span>`+
-        `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir ⤢</button></div>`+
+        `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir</button></div>`+
       (col?'':items.map(ct=>epqRowHtml(ct, showProj, me, isAdmin, ct===firstReady)).join(''))+`</div>`;
   }).join('');
   const colAll=(typeof flowSecCollapsed==='function')?flowSecCollapsed('epicos', false):false;
-  const head=(typeof flowSecHead==='function')?flowSecHead('epicos','◆ Na fila dos épicos', list.length, '', colAll):`<div class="sech">◆ Na fila dos épicos <span class="n">${list.length}</span></div>`;
+  const head=(typeof flowSecHead==='function')?flowSecHead('epicos','Na fila dos épicos', list.length, '', colAll, IC.epic):`<div class="sech">${IC.epic} Na fila dos épicos <span class="n">${list.length}</span></div>`;
   return `<div class="secgrp epqgrp${colAll?' collapsed':''}" data-sec="epicos">${head}${colAll?'':body}</div>`;
 }
 // menu ⋯ do cartão da fila: abrir · remover (com confirmação)

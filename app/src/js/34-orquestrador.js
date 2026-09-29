@@ -10,7 +10,8 @@ const ORQ_KINDS={ invest:{label:'Investigar', badge:'IN', color:'#b47ce0', branc
 function orqNewState(){ return { step:'brief', briefing:'', atts:[], plan:null, sel:null, zoom:1, pan:{x:40,y:40}, busy:false, msg:'', list:null, addOpen:false, model:'', chatDraft:'', chatBusy:false, chatAtts:[] }; }
 let orq=orqNewState();
 window.orqFresh=()=>{ const l=orq.list; orq=orqNewState(); orq.list=l; };
-window.TAB_STATE_orq={ get:()=>Object.assign({ _title:(orq.plan&&orq.plan.title)||'' }, { s:orq }), set:(st)=>{ if(st&&st.s){ const list=orq.list; orq=st.s; if(!orq.list) orq.list=list; } } };
+window.TAB_STATE_orq={ get:()=>Object.assign({ _title:(orq.plan&&orq.plan.title)||'' }, { s:orq }), set:(st)=>{ if(st&&st.s){ const list=orq.list; orq=st.s; if(!orq.list) orq.list=list;
+  if(orq.busy && orq.planReq && !orqPlanReqs.has(orq.planReq)){ orq.busy=false; orq.planStopping=false; } } } }; // "montando" de um pedido que já acabou (ou de antes de reabrir o app) não prende a aba
 let orqDrag=null, orqTickT=null, orqListAt=0;
 
 // o papel da fase por extenso (antes: siglas IN/DS/IM/CR que ninguém decifrava)
@@ -145,7 +146,7 @@ function orqRailRows(){
   if(!list.length){ if(!orq.list) orqLoadList(); return ''; }
   return list.slice(0,4).map(p=>{ const s=orqPlanStats(p); const tone=orqPlanTone(p, s); const col=tone.col;
     const tag=p.status==='planned'?'plano':s.ask?'pergunta: '+s.ask:s.rev?'revise':`${s.done}/${s.total}`;
-    return `<div class="prow2 orqrow" data-orq="${escA(p.id)}" title="${escA(tone.label)} — abrir o grafo"><span class="d" style="background:${col}"></span><span class="tt">◉ ${esc(p.title||'plano')}</span><span class="tg mono" style="color:${col}">${tag}</span></div>`; }).join('');
+    return `<div class="prow2 orqrow" data-orq="${escA(p.id)}" title="${escA(tone.label)} — abrir o grafo"><span class="d" style="background:${col}"></span><span class="tt"><span class="orqic">${IC.orq}</span>${esc(p.title||'plano')}</span><span class="tg" style="color:${col}">${tag}</span></div>`; }).join('');
 }
 // quadro (Execução): cartão por plano com as fases e o progresso
 function orqBoardHtml(scope){
@@ -156,10 +157,10 @@ function orqBoardHtml(scope){
     const tone=orqPlanTone(p, s); const label=tone.label;
     const col=tone.col;
     const chips=(p.phases||[]).map((ph,i)=>`<span class="orqc-ph" style="--c:${orqColor(ph.kind)}" title="${escA(ph.name)} · ${escA(s.st[i].label)}"><i style="background:${s.st[i].color}"></i><b>${orqBadge(ph.kind)}</b>${esc(ph.name)}</span>`).join('');
-    return `<div class="orqcard" data-orq="${escA(p.id)}"><div class="orqc-top"><span class="orqc-ring"></span><span class="orqc-title">${esc(p.title||'plano')}</span>${orqProjName(p)?`<span class="orqc-proj mono${orqOtherRepo(p)?' other':''}" title="${escA(p.repo)}">${esc(orqProjName(p))}</span>`:''}<span class="orqc-st mono" style="color:${col}">${esc(label)}</span><button class="btn sm" data-orq="${escA(p.id)}">abrir grafo ↗</button></div>
+    return `<div class="orqcard" data-orq="${escA(p.id)}"><div class="orqc-top"><span class="orqc-ring"></span><span class="orqc-title">${esc(p.title||'plano')}</span>${orqProjName(p)?`<span class="orqc-proj${orqOtherRepo(p)?' other':''}" title="${escA(p.repo)}">${esc(orqProjName(p))}</span>`:''}<span class="orqc-st" style="color:${col}">${esc(label)}</span><button class="btn sm" data-orq="${escA(p.id)}">abrir grafo</button></div>
       ${p.summary?`<div class="orqc-sum">${esc(String(p.summary).slice(0,200))}</div>`:''}
       <div class="orqc-bar"><i style="width:${pct}%"></i></div><div class="orqc-phs">${chips}</div></div>`; }).join('');
-  return `<div class="secgrp orqgrp"><div class="sech">◉ Planos do orquestrador <span class="n">${list.length}</span></div>${cards}</div>`;
+  return `<div class="secgrp orqgrp"><div class="sech"><span class="secic">${IC.orq}</span>Planos do orquestrador <span class="n">${list.length}</span></div>${cards}</div>`;
 }
 function orqWireOpeners(root){ (root||document).querySelectorAll('[data-orq]').forEach(b=>{ if(b.dataset.orqWired) return; b.dataset.orqWired='1'; b.onclick=(e)=>{ e.stopPropagation(); orqOpenPlan(b.dataset.orq, b.dataset.orqTask||null); }; }); }
 window.orqRailRows=orqRailRows; window.orqBoardHtml=orqBoardHtml; window.orqWireOpeners=orqWireOpeners;
@@ -193,18 +194,18 @@ function orqRenderBrief(body){
     <div class="ndeyebrow" style="color:var(--accent)">dividir entre vários agentes</div>
     <h1 class="ndh1" style="margin-top:10px">Descreva o problema inteiro</h1>
     <p class="ndsub">Não precisa quebrar em tarefas. Um agente orquestrador lê isso, propõe as fases e abre um subagente para cada uma. Você aprova o plano antes de qualquer coisa rodar.</p>
-    ${orq.busy?brandLoaderHtml('o orquestrador está lendo o repositório e montando o plano…', { now:true }):`
+    ${orq.busy?brandLoaderHtml(orq.planStopping?'parando o orquestrador…':'o orquestrador está lendo o projeto e montando o plano…', { now:true })+`<div class="orq-busyrow"><span class="dim" id="orqBusyT">${esc(orq.planStopping?'parando…':orqBusyTx(orq.busyAt?Date.now()-orq.busyAt:0))}</span><button class="btn sm trk-stop" id="orqPlanStop" title="interrompe o orquestrador — seu texto continua aqui"${orq.planStopping?' disabled':''}>${orq.planStopping?'parando…':'■ parar'}</button></div>`:`
     <div class="attrow attpend" id="orqPend" style="display:${orq.atts.length?'flex':'none'}"></div>
     ${chatComposerHtml({ cls:'orq-briefcc', input:'orqTa', attach:'orqAtt', rows:5, value:orq.briefing,
       placeholder:'ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar',
       extras:'<button class="btn sm" id="orqLastInv">usar a última investigação</button>',
       right:`<span class="dim mono orq-model" title="IA que monta o plano (troque em Configurações → IA padrão)">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span>`,
       send:'orqGo', sendHtml:'Montar o plano' })}
-    ${orq.msg?`<div class="orq-msg">${esc(orq.msg)}</div>`:''}
+    ${orq.msg?`<div class="orq-msg${orq.msgErr?' err':''}" role="${orq.msgErr?'alert':'status'}"><span>${esc(orq.msg)}</span>${orq.msgErr&&orq.briefing.trim().length>=12?'<button class="btn sm" id="orqRetry">tentar de novo</button>':''}</div>`:''}
     <div class="ndeyebrow" style="margin-top:26px">o orquestrador pode</div>
     <div class="orq-can">
       <div><i style="background:#3fd68a"></i>Quebrar em fases com dependência: uma só começa quando a anterior provar o resultado</div>
-      <div><i style="background:#4fc4c9"></i>Abrir um subagente por fase, cada um com branch e worktree isoladas</div>
+      <div><i style="background:#4fc4c9"></i>Abrir um subagente por fase, cada um numa cópia isolada do projeto</div>
       <div><i style="background:#b47ce0"></i>Rodar em paralelo o que não depende de ninguém</div>
       <div><i style="background:var(--st-ask)"></i>Parar e te perguntar sempre que a decisão for sua</div>
     </div>
@@ -218,8 +219,10 @@ function orqRenderBrief(body){
     onKey:e=>{ if(e.key!=='Enter'||e.isComposing) return; if(e.metaKey||e.ctrlKey){ e.preventDefault(); orqPlanNow(); } return true; } });
   const ta=$id('orqTa'); if(ta){ ta.oninput=()=>{ orq.briefing=ta.value; const g=$id('orqGo'); if(g) g.disabled=ta.value.trim().length<12; const h=ta.closest('.cc'); if(h) chatHintLine(h, briefHint(), false); }; ta.focus(); }
   { const g=$id('orqGo'); if(g) g.disabled=orq.briefing.trim().length<12; }
-  bindClick('orqLastInv', ()=>{ const inv=(state.tasks||[]).filter(t=>t.kind==='invest'||/^invest\//.test(t.branch||'')).slice(-1)[0]; if(!inv){ orq.msg='nenhuma investigação encontrada neste projeto.'; orqRender(); return; } orq.briefing=(orq.briefing?orq.briefing+'\n\n':'')+`Partir da investigação "${inv.title}" (tarefa ${inv.id} — leia .cardume/artifacts/${inv.id}/INVESTIGATION.md).`; orqRender(); });
+  bindClick('orqLastInv', ()=>{ const inv=(state.tasks||[]).filter(t=>t.kind==='invest'||/^invest\//.test(t.branch||'')).slice(-1)[0]; if(!inv){ orq.msg='nenhuma investigação encontrada neste projeto.'; orq.msgErr=false; orqRender(); return; } orq.briefing=(orq.briefing?orq.briefing+'\n\n':'')+`Partir da investigação "${inv.title}" (tarefa ${inv.id} — leia .cardume/artifacts/${inv.id}/INVESTIGATION.md).`; orqRender(); });
   bindClick('orqGo', orqPlanNow);
+  bindClick('orqRetry', orqPlanNow);
+  bindClick('orqPlanStop', orqPlanStop);
   body.querySelectorAll('[data-orqopen]').forEach(b=>b.onclick=()=>{ const p=(orq.list||[]).find(x=>x.id===b.dataset.orqopen); if(p){ if(!p.repo) p.repo=state.repo||''; orq.plan=p; orq.step='plan'; orq.sel=p.phases[0]?p.phases[0].key:null; orq.pan={x:20,y:20}; orq.zoom=1; orq.needFit=true; orqRender(); } });
 }
 // normaliza a lista de fases vinda da IA (plano novo OU plano ajustado na conversa); `prev` preserva taskId das fases com a mesma key
@@ -230,21 +233,49 @@ function orqNormPhases(list, prev){
   const keys=new Set(phases.map(p=>p.key)); phases.forEach(p=>{ p.dependsOn=p.dependsOn.filter(k=>keys.has(k)&&k!==p.key); });
   return phases;
 }
+// PURA: há quanto tempo o orquestrador está montando o plano (e o aviso de demora) — testada em r8-planner-form-orq.test.mjs
+function orqBusyTx(ms){ const s=Math.max(0, Math.round((+ms||0)/1000)), t=s<60?s+'s':Math.floor(s/60)+'min '+String(s%60).padStart(2,'0')+'s';
+  return s>=120?'há '+t+' · está demorando — pode parar e tentar com um texto mais curto':'há '+t+' · costuma levar de 30 s a 2 min'; }
+// prazo do ai_orchestrate — o MESMO número do Rust (ORQ_PLAN_SECS em lib.rs)
+const ORQ_PLAN_SECS=300;
+// pedidos de plano ainda no ar (id → a aba sabe se o "montando" dela é de verdade depois de restaurada)
+const orqPlanReqs=new Set();
+// PURA: erro do ai_orchestrate → frase de gente (nunca o JSON cru da IA) · { msg, stopped }
+function orqPlanErr(e){
+  const raw=String((e&&e.message)||e||'');
+  if(/ORQ_PLAN_STOPPED/.test(raw)) return { msg:'Parado. Seu texto continua aí — ajuste e monte de novo quando quiser.', stopped:true };
+  if(/ORQ_BAD_PLAN/.test(raw)) return { msg:'O orquestrador respondeu, mas não num plano que eu consiga ler. Tente de novo — ou conte mais: onde acontece, o que precisa mudar e como saber que ficou pronto.', stopped:false };
+  if(/expirou|timeout|timed out/i.test(raw)) return { msg:'O orquestrador demorou demais (mais de '+Math.round(ORQ_PLAN_SECS/60)+' min) e foi interrompido. Tente de novo — com um texto mais direto costuma ir mais rápido.', stopped:false };
+  const h=(typeof humanErr==='function')?humanErr(raw, 'Não deu pra montar o plano'):{ msg:'Não deu pra montar o plano: '+raw.split('\n')[0] };
+  return { msg:h.msg, stopped:false };
+}
+// parar: derruba SÓ o pedido desta aba (o Rust guarda um processo por reqId). Nada no ar (aba restaurada com
+// busy velho) → solta a tela na hora em vez de esperar uma resposta que não vem
+async function orqPlanStop(){ const o=orq; if(!o.busy||o.planStopping) return; o.planStopping=true; orqRender();
+  let ok=false; try{ ok=await invoke('orq_plan_stop',{ reqId:o.planReq||'' }); }catch(_){ }
+  if(!ok && !orqPlanReqs.has(o.planReq)){ o.busy=false; o.planStopping=false; clearInterval(o.busyTick); o.busyTick=null; o.msg=orqPlanErr('ORQ_PLAN_STOPPED').msg; o.msgErr=false; if(orq===o) orqRender(); } }
 async function orqPlanNow(){
-  const text=orq.briefing.trim(); if(text.length<12) return;
-  orq.busy=true; orq.msg=''; orqRender();
+  // R8: `o` = o estado DESTA aba. Trocar de aba enquanto a IA pensava fazia o plano cair na aba que estava na tela
+  // (TAB_STATE_orq troca o objeto `orq` inteiro).
+  const o=orq; const text=o.briefing.trim(); if(text.length<12 || o.busy) return;
+  const req=orqNewId(); orqPlanReqs.add(req);
+  o.busy=true; o.busyAt=Date.now(); o.planReq=req; o.planStopping=false; o.msg=''; o.msgErr=false; orqRender();
+  // o relógio é DESTA aba (em `o`): duas abas montando plano não congelam o tempo uma da outra
+  clearInterval(o.busyTick); o.busyTick=setInterval(()=>{ if(!o.busy){ clearInterval(o.busyTick); o.busyTick=null; return; } const el=$id('orqBusyT'); if(el && orq===o && !o.planStopping) el.textContent=orqBusyTx(Date.now()-o.busyAt); }, 1000);
   try{
-    const d=aiDefaults(); const model=orq.model||d.model||'';
-    const raw=await invoke('ai_orchestrate',{ briefing:text+attPromptBlock(orq.atts), model:aiClaudeModel(d.eng, model) });
-    let obj=null; try{ const m=raw.match(/```json\s*([\s\S]*?)```/i)||raw.match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
-    if(!obj||!Array.isArray(obj.phases)||!obj.phases.length) throw new Error('o orquestrador não devolveu um plano válido — tente descrever com mais contexto.\n\n'+raw.slice(0,400));
+    const d=aiDefaults(); const model=o.model||d.model||'';
+    const raw=await invoke('ai_orchestrate',{ briefing:text+attPromptBlock(o.atts), model:aiClaudeModel(d.eng, model), reqId:req });
+    if(o.planStopping) throw new Error('ORQ_PLAN_STOPPED'); // parou e a resposta chegou mesmo assim: o plano NÃO aparece
+    let obj=null; try{ const m=String(raw||'').match(/```json\s*([\s\S]*?)```/i)||String(raw||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
+    if(!obj||!Array.isArray(obj.phases)||!obj.phases.length){ console.warn('[orquestrador] resposta sem plano', String(raw||'').slice(0,2000)); throw new Error('ORQ_BAD_PLAN'); }
     const phases=orqNormPhases(obj.phases);
-    orq.plan={ id:orqNewId(), title:String(obj.title||text.slice(0,60)).slice(0,80), summary:String(obj.summary||''), briefing:text, createdAt:Date.now(), status:'planned', model, engine:d.eng||'claude', phases, repo:state.repo||'' };
-    orq.step='plan'; orq.sel=phases[0].key; orq.pan={x:20,y:20}; orq.zoom=1; orq.needFit=true;
-    await invoke('orch_save',{ id:orq.plan.id, data:orq.plan, repo:orq.plan.repo||null }).catch(()=>{});
+    o.plan={ id:orqNewId(), title:String(obj.title||text.slice(0,60)).slice(0,80), summary:String(obj.summary||''), briefing:text, createdAt:Date.now(), status:'planned', model, engine:d.eng||'claude', phases, repo:state.repo||'' };
+    o.step='plan'; o.sel=phases[0].key; o.pan={x:20,y:20}; o.zoom=1; o.needFit=true;
+    await invoke('orch_save',{ id:o.plan.id, data:o.plan, repo:o.plan.repo||null }).catch(()=>{});
     orqListAt=0;
-  }catch(e){ orq.msg='Falhou montar o plano: '+(e&&e.message||e); }
-  orq.busy=false; orqRender();
+  }catch(e){ const r=orqPlanErr(o.planStopping?'ORQ_PLAN_STOPPED':e); o.msg=r.msg; o.msgErr=!r.stopped; if(!r.stopped) console.warn('orq plano', typeof errText==='function'?errText(e):e); }
+  orqPlanReqs.delete(req); clearInterval(o.busyTick); o.busyTick=null;
+  if(o.planReq===req){ o.busy=false; o.planStopping=false; } if(orq===o) orqRender();
 }
 
 function orqRenderPlan(body){
@@ -344,7 +375,11 @@ function orqWire(body,pos){
   body.querySelectorAll('[data-orqtask]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); openWorkspace(b.dataset.orqtask); const m=b.dataset.orqmode; if(m){ setTimeout(()=>{ try{ if(fwTask===b.dataset.orqtask){ fwMode=m; renderWorkspace(); } }catch(_){ } }, 250); } });
   bindClick('orqAdd', ()=>{ orq.addOpen=!orq.addOpen; orqRender(); });
   bindClick('orqChatBtn', orqChatFocus);
-  bindClick('orqRedo', async()=>{ if(orq.plan.status!=='planned' && !await askYes('Começar um plano novo? As tarefas já criadas continuam existindo.')) return; if(orq.plan.status==='planned') invoke('orch_delete',{ id:orq.plan.id, repo:orq.plan.repo||null }).catch(()=>{}); orq.plan=null; orq.step='brief'; orqListAt=0; orqRender(); });
+  bindClick('orqRedo', async()=>{ const pl=orq.plan, planned=pl.status==='planned';
+    // R8: "refazer" apagava o plano proposto (com as suas edições) sem perguntar e voltava com a caixa do problema vazia
+    if(!await askYes(planned?'Descartar este plano e voltar pro texto do problema?\n\nO texto volta pra caixa pra você ajustar e montar de novo.':'Começar um plano novo? As tarefas já criadas continuam existindo.')) return;
+    if(planned){ invoke('orch_delete',{ id:pl.id, repo:pl.repo||null }).catch(()=>{}); orq.briefing=pl.briefing||orq.briefing||''; }
+    orq.plan=null; orq.step='brief'; orq.msg=''; orq.msgErr=false; orqListAt=0; orqRender(); });
   bindClick('orqApprove', orqApprove);
   orqWireInsp(body);
 }
@@ -372,13 +407,13 @@ function orqWireChat(body){
 async function orqChatStop(){ if(!orq.chatBusy) return; orq.chatStopping=true; try{ await invoke('orq_chat_stop'); }catch(_){ } }
 function orqChatFocus(){ orq.sel='__orq'; orq.addOpen=false; orqRender(); const ta=$id('orqChatTa'); if(ta){ ta.focus(); ta.scrollIntoView({block:'nearest'}); } }
 async function orqChatSend(){
-  const p=orq.plan; if(!p) return;
-  if(orq.chatBusy){ toast('O orquestrador ainda está respondendo — espere ou toque em ■ parar.'); return; }
-  let text=(orq.chatDraft||'').trim();
-  const atts=(orq.chatAtts||[]).splice(0);
+  const o=orq, p=o.plan; if(!p) return; // `o`: o estado desta aba (ver orqPlanNow)
+  if(o.chatBusy){ toast('O orquestrador ainda está respondendo — espere ou toque em ■ parar.'); return; }
+  let text=(o.chatDraft||'').trim();
+  const atts=(o.chatAtts||[]).splice(0);
   if(!text && atts.length) text='Anexei estes arquivos — leia e extraia o contexto (spec, print do bug, etc.).';
   if(!text) return;
-  p.chat=p.chat||[]; p.chat.push({who:'you', text, atts:attLite(atts)}); orq.chatDraft=''; orq.chatBusy=true; orq.chatStopping=false; chatPinBottom('orqChat'); orqRender();
+  p.chat=p.chat||[]; p.chat.push({who:'you', text, atts:attLite(atts)}); o.chatDraft=''; o.chatBusy=true; o.chatStopping=false; chatPinBottom('orqChat'); orqRender();
   try{
     const planJson=JSON.stringify({ title:p.title, summary:p.summary, briefing:p.briefing, status:p.status, phases:p.phases.map(x=>({ key:x.key, name:x.name, kind:x.kind, agent:x.agent, objective:x.objective, objectives:x.objectives, autonomy:x.autonomy, dependsOn:x.dependsOn, taskId:x.taskId||undefined })) });
     if(!p.repo) p.repo=state.repo||'';
@@ -394,8 +429,8 @@ async function orqChatSend(){
         p.phases=orqNormPhases(obj.plan.phases, p.phases);
         if(obj.plan.title) p.title=String(obj.plan.title).slice(0,80);
         if(obj.plan.summary) p.summary=String(obj.plan.summary);
-        if(!p.phases.some(x=>x.key===orq.sel)&&orq.sel!=='__orq') orq.sel='__orq';
-        orq.needFit=true;
+        if(!p.phases.some(x=>x.key===o.sel)&&o.sel!=='__orq') o.sel='__orq';
+        o.needFit=true;
         p.chat.push({who:'sys', text:`plano atualizado — ${p.phases.length} fase(s)${p.phases.length!==before?` (antes ${before})`:''}: ${p.phases.map(x=>x.name).join(' · ')}`});
       } else {
         p.chat.push({who:'sys', text:'o plano já está rodando — a sugestão acima não foi aplicada (use "+ subagente" pra acrescentar uma fase).'});
@@ -403,20 +438,26 @@ async function orqChatSend(){
     }
   }catch(e){
     const msg=String((e&&e.message)||e||'');
-    if(orq.chatStopping||/ORQ_CHAT_STOPPED/.test(msg)){ // parado: a pergunta volta pra caixa (com os anexos)
+    if(o.chatStopping||/ORQ_CHAT_STOPPED/.test(msg)){ // parado: a pergunta volta pra caixa (com os anexos)
       const last=p.chat[p.chat.length-1]; if(last&&last.who==='you'&&last.text===text) p.chat.pop();
       p.chat.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
-      if(!orq.chatDraft) orq.chatDraft=text; orq.chatAtts=(orq.chatAtts||[]).concat(atts);
-    } else p.chat.push({who:'sys', text:msg});
+      if(!o.chatDraft) o.chatDraft=text; o.chatAtts=(o.chatAtts||[]).concat(atts);
+    } else { // erro: a pergunta e os anexos também voltam pra caixa (antes: "envie de novo" com a caixa vazia); texto traduzido (R8b)
+      const last=p.chat[p.chat.length-1]; if(last&&last.who==='you'&&last.text===text) p.chat.pop();
+      const h=humanErr(e,'O orquestrador não respondeu');
+      p.chat.push({who:'sys', text:h.msg+' Sua mensagem voltou pra caixa — envie de novo quando quiser.'});
+      if(h.action) showErr(e,'O orquestrador não respondeu');
+      if(!o.chatDraft) o.chatDraft=text; o.chatAtts=(o.chatAtts||[]).concat(atts); }
   }
-  orq.chatBusy=false; orq.chatStopping=false; orqSave(); orqRender();
-  const ta=$id('orqChatTa'); if(ta) ta.focus();
+  o.chatBusy=false; o.chatStopping=false;
+  if(o.plan===p) orqSave(p); // grava ESTE plano (não o da aba que estiver na tela)
+  if(orq===o){ orqRender(); const ta=$id('orqChatTa'); if(ta) ta.focus(); }
 }
 function orqInspHtml(){
   const p=orq.plan; if(orq.sel==='__orq'||!orq.sel) return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">◉</span><div><b>Orquestrador</b><div class="mono dim" style="font-size:10.5px">${p.status==='planned'?'propôs o plano':'comandando'}${p.model?` · <span title="${escA(p.model)}">${esc(boardModelName(p.model)||p.model)}</span>`:''}</div></div></div>
     <p class="orq-p">${esc(p.summary||'')}</p>
     <details class="orq-more"${orq.moreOpen?' open':''}><summary>regras · briefing</summary>
-      <div class="ndeyebrow">regras</div><ul class="orq-rules"><li>Nunca mexe em código — planeja, abre tarefa, coordena e para pra perguntar.</li><li>Nada roda sem a sua aprovação do plano.</li><li>Uma fase só começa quando as anteriores PROVAREM o resultado (requisitos com evidência).</li><li>Fases sem dependência rodam em paralelo, uma branch por fase.</li></ul>
+      <div class="ndeyebrow">regras</div><ul class="orq-rules"><li>Nunca mexe em código — planeja, abre tarefa, coordena e para pra perguntar.</li><li>Nada roda sem a sua aprovação do plano.</li><li>Uma fase só começa quando as anteriores PROVAREM o resultado (requisitos com evidência).</li><li>Fases sem dependência rodam em paralelo, cada uma numa cópia isolada do projeto.</li></ul>
       <div class="ndeyebrow" style="margin-top:14px">briefing</div><p class="orq-p dim" style="white-space:pre-wrap">${esc(p.briefing||'')}</p>
     </details>
     ${orqChatHtml(p)}`;
@@ -457,7 +498,7 @@ function orqAddHtml(){
     <div class="orq-deps" id="orqAddDeps" style="display:none">${p.phases.map(o=>`<label class="orq-dep"><input type="checkbox" value="${escA(o.key)}"><span class="orq-badge" style="--c:${orqColor(o.kind)}">${orqBadge(o.kind)}</span>${esc(o.name)}</label>`).join('')}</div>
     <div style="display:flex;gap:8px;margin-top:18px"><button class="as-btn" id="orqAddCancel">cancelar</button><button class="as-btn primary" id="orqAddOk">adicionar ao plano</button></div>`;
 }
-function orqSave(){ if(orq.plan){ if(!orq.plan.repo) orq.plan.repo=state.repo||''; invoke('orch_save',{ id:orq.plan.id, data:orq.plan, repo:orq.plan.repo||null }).catch(()=>{}); } }
+function orqSave(pl){ pl=pl||orq.plan; if(pl){ if(!pl.repo) pl.repo=state.repo||''; invoke('orch_save',{ id:pl.id, data:pl, repo:pl.repo||null }).catch(()=>{}); } } // pl: o plano capturado por quem começou (async) — não o da aba na tela
 function orqWireInsp(body){
   const p=orq.plan; const ph=p.phases.find(x=>x.key===orq.sel);
   body.querySelectorAll('#orqInsp [data-orqtask]').forEach(b=>b.onclick=()=>openWorkspace(b.dataset.orqtask));
@@ -553,22 +594,22 @@ async function orqCreatePhaseTask(p, ph, created){
   return id;
 }
 async function orqApprove(){
-  const p=orq.plan; if(!p||orq.busy) return;
+  const o=orq, p=o.plan; if(!p||o.busy) return; // `o`: o estado desta aba (ver orqPlanNow)
   // as tarefas nascem no projeto ATIVO — se o plano é de outro repo, trocar antes (senão as fases iriam pro lugar errado)
   if(p.repo && state.repo && p.repo!==state.repo){ toast('Este plano é do projeto '+pathBase(p.repo)+' — o projeto ativo agora é '+pathBase(state.repo)+'. Troque pro projeto do plano antes de aprovar, senão as tarefas seriam criadas no repositório errado.','warn'); return; }
   const bad=p.phases.filter(x=>!(x.objectives||[]).length);
   if(bad.length && !await askYes(`${bad.length} fase(s) sem objetivos verificáveis (${bad.map(x=>x.name).join(', ')}). Criar mesmo assim? Sem objetivos, a fase seguinte começa assim que esta entregar.`)) return;
-  orq.busy=true; orqRender();
+  o.busy=true; orqRender();
   const order=orqTopo(p.phases); const created={}; p.phases.forEach(x=>{ if(x.taskId) created[x.key]=x.taskId; });
   try{
     for(const ph of order){ if(ph.taskId) continue; await orqCreatePhaseTask(p, ph, created); }
     // segunda passada: grava no spec de cada tarefa quem a criou e de quem depende
     for(const ph of p.phases){ const depIds=(ph.dependsOn||[]).map(k=>created[k]).filter(Boolean); const waitIds=p.phases.filter(x=>(x.dependsOn||[]).includes(ph.key)).map(x=>created[x.key]).filter(Boolean);
       await invoke('patch_task_spec',{ taskId:ph.taskId, patch:{ orchestration:{ id:p.id, title:p.title, phase:ph.key, name:ph.name }, dependsOn:depIds, dependents:waitIds }, base:null }).catch(e=>console.error('patch_task_spec',e)); }
-    p.status='running'; p.approvedAt=Date.now(); orqSave(); orqListAt=0;
+    p.status='running'; p.approvedAt=Date.now(); orqSave(p); orqListAt=0;
     lastSig=''; await refresh();
-  }catch(e){ showErr(e, 'Falha ao criar as tarefas do plano'); p.status=Object.values(created).length?'running':'planned'; orqSave(); }
-  orq.busy=false; orqRender();
+  }catch(e){ showErr(e, 'Falha ao criar as tarefas do plano'); p.status=Object.values(created).length?'running':'planned'; orqSave(p); }
+  o.busy=false; if(orq===o) orqRender();
 }
 
 // ---- coordenação: inicia fases cujas dependências PROVARAM o resultado; fecha o plano quando tudo entregou ----

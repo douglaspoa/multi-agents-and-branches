@@ -157,6 +157,35 @@ Object.assign(IC, {
   route: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h3.2l4.6 7h3.2M2.5 11.5h3.2l1.3-2M9.7 6.5l.6-2h3.2M11.6 2.8l1.9 1.7-1.9 1.7M11.6 9.8l1.9 1.7-1.9 1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
   handEm: icEm(IC.hand), boltEm: icEm(IC.bolt), globeEm: icEm(IC.globe), phoneEm: icEm(IC.phone), chat: icEm(IC.q), clipEm: icEm(IC.clip), aiEm: icEm(IC.ai),
 });
+// @r8-icones-inicio
+// R8 (F12, tela por tela): os glifos de texto que faziam papel de ícone de STATUS (· ● ? ❚❚ ◆ ⌥ ✓ ! ⊘ ×), de épico (◆),
+// de plano do orquestrador (◉), de seção recolhível (▾ ▸) e de alerta (⚑ ⚠) viram SVG de linha 16 px, em 1em.
+// STATUS_META.ic (00-util) guarda o NOME da chave daqui; stIcon/stBadge resolvem na hora de desenhar.
+Object.assign(IC, {
+  stQueue:  icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.6" stroke-dasharray="2.2 1.6"/></svg>'),
+  stRun:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4"/><circle cx="8" cy="8" r="2.6" fill="currentColor" stroke="none"/></svg>'),
+  stAsk:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M6.3 6.4c.1-.95.8-1.5 1.75-1.5 1 0 1.7.6 1.7 1.45 0 1.2-1.6 1.2-1.7 2.5" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".75" fill="currentColor" stroke="none"/></svg>'),
+  stPause:  icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M6.6 5.8v4.4M9.4 5.8v4.4" stroke-linecap="round"/></svg>'),
+  stReview: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.4 13.6 8 8 13.6 2.4 8z" stroke-linejoin="round"/><path d="M5.9 8.1l1.5 1.5 2.8-3" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stPr:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4.4" cy="3.9" r="1.5"/><circle cx="4.4" cy="12.1" r="1.5"/><circle cx="11.6" cy="12.1" r="1.5"/><path d="M4.4 5.4v5.2M11.6 10.6V6.8c0-1-.7-1.7-1.7-1.7H7.4m1.4-1.5L7.3 5.1l1.5 1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stDone:   icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M5.5 8.2l1.7 1.7 3.3-3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stErr:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M8 4.9v3.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".8" fill="currentColor" stroke="none"/></svg>'),
+  stBlock:  icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M4 12 12 4" stroke-linecap="round"/></svg>'),
+  stX:      icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M6 6l4 4M10 6l-4 4" stroke-linecap="round"/></svg>'),
+  epic:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2 13.8 8 8 13.8 2.2 8z" stroke-linejoin="round"/><path d="M8 5.4 10.6 8 8 10.6 5.4 8z" fill="currentColor" stroke="none"/></svg>'),
+  orq:      icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="3.6" cy="8" r="1.6"/><circle cx="12.4" cy="3.8" r="1.6"/><circle cx="12.4" cy="12.2" r="1.6"/><path d="M5.1 7.3l5.8-2.8M5.1 8.7l5.8 2.8" stroke-linecap="round"/></svg>'),
+  chevD:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4.5 6.3 8 9.8l3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  chevR:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6.3 4.5 9.8 8l-3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  flag:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.6 14V2.6m0 .6h7.6l-1.6 2.7 1.6 2.7H3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stop:     icEm('<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.4"/></svg>'),
+  play:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5.2 3.6v8.8L12.2 8z" stroke-linejoin="round"/></svg>'),
+  unlock:   icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.3"/><path d="M5.4 7V5.1a2.6 2.6 0 0 1 5-1" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  reset:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.4 8a4.6 4.6 0 1 0 1.4-3.3M3.3 2.4V5h2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.4 6.4l3.2 3.2M9.6 6.4 6.4 9.6" stroke-linecap="round"/></svg>'),
+  more:     icEm('<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.6" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="12.4" cy="8" r="1.25"/></svg>'),
+});
+// @r8-icones-fim
+// botão ⋯ do cabeçalho da Tarefa (index.html): o ícone vem da fonte, não de uma cópia do SVG no HTML
+{ const mb = document.getElementById('fwMore'); if (mb) mb.innerHTML = IC.more; }
 // R7: o motor escrevia eventos com emoji na frente (balão de fala, interrogação, ampulheta, setas de retomar…).
 // Os novos vêm em texto puro ("Você: …", "perguntou ao humano: …", "Na fila (1º): …"); aqui o histórico
 // ANTIGO é reescrito no mesmo formato ao chegar (snapshot/task_events) — assim toda tela e todo parser
@@ -218,7 +247,7 @@ async function connect(repo){
     await refresh();
   }catch(e){
     connected = false;
-    $id("connTxt").textContent = String(e);
+    { const h=humanErr(e,"Não consegui abrir o projeto"); $id("connTxt").textContent = h.msg; $id("connTxt").title = h.raw||""; }
     $id("conn").classList.remove("live");
   }
 }

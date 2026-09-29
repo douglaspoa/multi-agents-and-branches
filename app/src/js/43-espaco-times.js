@@ -63,7 +63,7 @@ function tsCardHtml(t, me, isAdmin){
   const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me);
   const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
   const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
-  const prov=list&&list.length?`<span class="tspv"><b>✓</b>${list.filter(x=>x.status==='done').length}/${list.length} provados</span>`:'';
+  const prov=list&&list.length?`<span class="tspv"><b>${IC.ok}</b>${list.filter(x=>x.status==='done').length}/${list.length} provados</span>`:'';
   const who=t.assignee||t.created_by;
   const bk=tsBucket(t), st=tsSt(t);
   const running=bk==='andamento' && t.status!=='backlog';
@@ -75,13 +75,13 @@ function tsCardHtml(t, me, isAdmin){
   return `<div class="tscard dcard-like${epSt?' has-ep':''}" data-ct="${escA(t.id)}"${epSt}>
     <div class="tt">${esc(t.title)}${teamTag}</div>
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
-    ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?'✓':st==='blk'?'!':'○'}</i>${esc(r)}</span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
+    ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i>${esc(r)}</span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
-    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">◆ ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="mono" data-lk="${escA(t.pr_url)}" style="color:var(--accent);background:none;border:0;cursor:pointer;font-size:10px;padding:0">PR ↗</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="mono" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" style="color:var(--text-2);background:none;border:0;cursor:pointer;font-size:10px;padding:0">${esc(c[1])} ↗</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
+    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="tslk" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" title="abrir a issue"><span class="mono">${esc(c[1])}</span> ${icEm(IC.extlink)}</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:${stColor(st)};border:1px solid currentColor">${esc(stLabel(st))}</span>`:running?`<span class="tstag run">${esc(stLabel(st))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
-      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" style="padding:3px 9px;font-size:10.5px">assumir ▸</button>`:`<button class="btn sm" disabled title="abra ${escA(proj.repo_remote||'o projeto certo')}" style="padding:3px 9px;font-size:10.5px">outro repo</button>`):''}
-      ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:10.5px">✕</button>`:''}
+      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" style="padding:3px 9px;font-size:10.5px">${IC.play} assumir</button>`:`<button class="btn sm" disabled title="abra ${escA(proj.repo_remote||'o projeto certo')}" style="padding:3px 9px;font-size:10.5px">outro repo</button>`):''}
+      ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:10.5px">${IC.x}</button>`:''}
     </div></div>`;
 }
 function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
@@ -477,7 +477,7 @@ async function cloudCatalog(orgId, isAdmin){
           cloudCatalog(orgId, isAdmin);
         }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent='enviar os deste projeto'; }
       }; }
-  }catch(e){ el.textContent='falhou: '+e.message; }
+  }catch(e){ el.textContent=humanErr(e,'Não consegui carregar').msg; }
 }
 
 /* ---- F4 (fatia): visão da organização pra owner/admin + chave de licença ---- */

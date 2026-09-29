@@ -45,7 +45,7 @@ function stageStepper(t){
     else if(i===curIdx) cls=(t.status==='error'?'err':(ACTIVE_ST.has(t.status)?'cur':'wait'));
     else cls='wait';
     const mark = cls==='done'?IC.check : cls==='err'?'!' : cls==='cur'?'<span class="spin"></span>' : (i+1);
-    const sub = (cls==='cur' && ev) ? `<div class="sact">${esc((GLYPH[ev.type]||'·')+' '+ev.text)}</div>` : '';
+    const sub = (cls==='cur' && ev) ? `<div class="sact">${esc(ev.text)}</div>` : '';
     const view = r.role==='planner'?'<span class="sview">ver plano ›</span>' : r.role==='designer'?'<span class="sview">ver design ›</span>' : '';
     return `<div class="step ${cls}" data-role="${escA(r.role)}" data-name="${escA(r.name)}"><span class="smark">${mark}</span><div class="stx"><span class="srole">${ROLE_PT[r.role]||r.role}${view}</span><span class="sname">${esc(r.name)}</span>${sub}</div></div>`;
   }).join("");
@@ -125,7 +125,7 @@ function renderBus(){
   parts.push(fc.andamento?go('andamento',`<b style="color:var(--st-run,var(--good))">${fc.andamento} em andamento</b>`,'ver na Central o que os agentes estão fazendo'):`<b style="color:var(--text-2)">0 em andamento</b>`);
   if(fc.prontas) parts.push(go('prontas',`<span style="color:${FLOW_SEC_COLOR.prontas}">${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar</span>`,'ver na Central as entregas prontas pra você revisar'));
   if(fc.praberto) parts.push(go('praberto',`<span style="color:${FLOW_SEC_COLOR.praberto}">${nPl(fc.praberto,'PR aberto','PRs abertos')}</span>`,'ver na Central os PRs esperando revisão/merge'));
-  if(totUsd||totTok) parts.push(`<span style="color:var(--accent);font-weight:600">${fmtCost(totUsd)} no total</span>`);
+  if(totUsd||totTok) parts.push(`<span class="buscost">${fmtCost(totUsd)} no total</span>`); // R8: custo não é CTA — sai do verde cheio
   // conflitos de arquivo entre agentes: resumo curto na barra, explicação no tooltip
   const claims=L(state.claims), yields=claims.filter(c=>c&&c.yieldedTo);
   const seen=new Set(); const uniq=[];

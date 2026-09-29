@@ -19,9 +19,9 @@ function kCard(t){
     : (t.prUrl && t.status!=='merged' && t.flag!=='closed' && ['review','delivered','running','thinking','queued','paused'].includes(t.status))?'PR aberto · aguardando revisão/merge'
     : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir ajuste'
     : t.status==='error'?'erro — veja o log'
-    : t.status==='aborted'?'abortada — descarte ou refaça'
+    : t.status==='aborted'?'interrompida — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
-    : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
+    : ACTIVE_ST.has(t.status)?(ev?ev.text:(t.agent+' trabalhando')):'';
   return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" tabindex="0" data-id="${t.id}">
     <div class="kctop">${t.status==='draft'?((!t.repo||t.repo===state.repo)?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:`<button class="kplay" disabled title="rascunho de outro projeto — abra ${escA(projShort(t.repo))} para iniciar">${IC.cright}</button>`):''}<b class="ktitle">${esc(t.title)}</b></div>
     ${typeof epTaskBadge==='function'&&t.epic?`<div class="kepic">${epTaskBadge(t)}</div>`:''}
@@ -187,7 +187,9 @@ async function sendArtifactSlack(taskId, name){
     // lê o token direto do cofre (llm.env) — não depende do cache do outro bloco
     let env=''; try{ env=await invoke('read_llm_env'); }catch(_){}
     if(!/(^|\n)\s*SLACK_BOT_TOKEN\s*=\s*\S/.test(env||'')){
-      alert('Configure primeiro o bot do Slack:\n\n1) Conta (botão da nuvem) → Chaves de modelo → + adicionar chave\n2) Nome: SLACK_BOT_TOKEN · Valor: o token do bot (xoxb-…) com os escopos files:write e chat:write\n3) No Slack, convide o bot no canal (/invite @seu-bot)\n\nDepois volte aqui e envie.'); return;
+      // R8: alert() no Tauri não é confiável (igual ao confirm) — o passo a passo vai num toast com o atalho pra Conta
+      toast('Pra enviar ao Slack, guarde antes a chave SLACK_BOT_TOKEN (token xoxb- do bot, com files:write e chat:write) em Conta › Chaves de modelo, e convide o bot no canal (/invite @seu-bot).','warn',
+        { label:'abrir Conta', fn:()=>{ if(window.openTab) window.openTab('conta'); } }); return;
     }
     let ch=lsGet('slackChannel')||'';
     const inp=await askText('Canal do Slack','ID do canal (ex.: C0123ABCD) — no Slack: clique no canal → Ver detalhes → ID no rodapé', ch);
