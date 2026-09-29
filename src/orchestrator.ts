@@ -39,9 +39,15 @@ export function branchName(spec: TaskSpec): string {
  * INTEIRO como nome ("C:\Users\…\spec.pdf") e a cópia pra refs/ falhava calada — o agente ficava sem a spec.
  */
 export function refName(src: string, taken: string[]): string {
-  const parts = src.split(/[\\/]/).filter(Boolean);
-  let name = parts.pop() || "ref";
-  if (taken.includes(name)) name = `${parts.pop() || taken.length}-${name}`;
+  const clean = (x: string) => x.replace(/[:*?"<>|]/g, "").trim(); // "C:" de drive não vira "C:-spec.pdf"
+  const parts = src.split(/[\\/]/).map(clean).filter(Boolean);
+  const base = parts.pop() || "ref";
+  let name = base;
+  // colide → prefixa a pasta; ainda colide (ou sem pasta) → -2, -3… até ficar livre
+  if (taken.includes(name) && parts.length) name = `${parts.pop()}-${base}`;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let n = 2; taken.includes(name); n++) name = `${stem}-${n}${ext}`;
   return name;
 }
 

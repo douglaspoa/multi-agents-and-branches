@@ -15,6 +15,12 @@ test("anexo com caminho do Windows vira só o nome do arquivo em refs/", () => {
   assert.equal(refName("C:\\repo\\.cardume\\artifacts\\t2\\ARCHITECTURE.md", ["ARCHITECTURE.md"]), "t2-ARCHITECTURE.md");
   assert.equal(refName("/r/.cardume/artifacts/t3/ARCHITECTURE.md", ["ARCHITECTURE.md"]), "t3-ARCHITECTURE.md");
   assert.equal(refName("pasta/", []), "pasta");
+  // arquivo na raiz do drive colidindo: sem ":" no nome
+  assert.equal(refName("C:\\spec.pdf", ["spec.pdf"]), "C-spec.pdf");
+  // prefixo da pasta também já usado → numera até achar livre
+  assert.equal(refName("/a/t2/ARCH.md", ["ARCH.md", "t2-ARCH.md"]), "t2-ARCH-2.md");
+  assert.equal(refName("/a/t2/ARCH.md", ["ARCH.md", "t2-ARCH.md", "t2-ARCH-2.md"]), "t2-ARCH-3.md");
+  assert.equal(refName("spec.pdf", ["spec.pdf"]), "spec-2.pdf");
 });
 
 test("filtro de cópia do perfil do Chrome reconhece o lockfile com separador do Windows", () => {
