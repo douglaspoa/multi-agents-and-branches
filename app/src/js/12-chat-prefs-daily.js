@@ -339,7 +339,8 @@ $id('dailyBtn').onclick=openDaily;
 function railIsCol(){ return document.querySelector('.app').classList.contains('railcol'); }
 function setRailCollapsed(v){
   document.querySelector('.app').classList.toggle('railcol', !!v);
-  document.documentElement.style.setProperty('--rail-w', v?'0px':'250px');
+  // aberta: tira o valor inline e deixa o CSS decidir (83-responsivo estreita a barra em janela pequena)
+  if(v) document.documentElement.style.setProperty('--rail-w','0px'); else document.documentElement.style.removeProperty('--rail-w');
   lsSet('railCollapsed', v?'1':'0');
   const b=$id('railToggle'); if(b) b.setAttribute('aria-pressed', v?'true':'false');
   requestAnimationFrame(syncChromeH); setTimeout(syncChromeH, 320); // o topo muda de altura ao recolher (com transição) — a view-aba desce junto
