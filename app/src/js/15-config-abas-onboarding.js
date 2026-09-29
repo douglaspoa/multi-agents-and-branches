@@ -2,21 +2,46 @@
 // ---------- configurações (⌘,) ----------
 // fecha Configurações: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
 function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab')) closeTabOfKind('cfg'); else if(o) o.style.display='none'; }
+// @puro-inicio cfgValidate — valores do formulário (texto dos inputs) → null (ok) ou { field, msg } do 1º problema
+function cfgValidate(v){
+  const num=x=>String(x==null?'':x).trim()===''?NaN:Number(String(x).replace(',','.'));
+  const n={ cap:num(v.cap), cost:num(v.cost), brl:num(v.brl), slots:num(v.slots), retry:num(v.retry) };
+  if(!(n.cap>=0)) return { field:'cfgCap', msg:'O teto por tarefa precisa ser um número maior ou igual a 0 (0 = sem teto).' };
+  if(!(n.cost>=0)) return { field:'cfgCost', msg:'O aviso de custo precisa ser um número maior ou igual a 0 (0 desliga).' };
+  if(!(n.brl>0)) return { field:'cfgBrl', msg:'A cotação do dólar precisa ser maior que zero.' };
+  if(!(Number.isInteger(n.slots) && n.slots>=1 && n.slots<=12)) return { field:'cfgSlots', msg:'Tarefas ao mesmo tempo: um número inteiro de 1 a 12.' };
+  if(!(Number.isInteger(n.retry) && n.retry>=0 && n.retry<=240)) return { field:'cfgLimitRetry', msg:'Retomar depois do limite: de 0 a 240 minutos (0 desliga).' };
+  return null;
+}
+// @puro-fim cfgValidate
 function openCfg(){
   const body=$id('cfgBody');
   body.innerHTML=`
-    <label>Teto por tarefa <span class="dim" style="text-transform:none;letter-spacing:0">(ao chegar nele a tarefa PAUSA e pergunta se continua — 0 = sem teto; dá pra mudar por tarefa ao criar)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0" step="1" value="${escA(String(costCapDefault()))}" style="width:110px"><span class="dim" id="cfgCapBrl"></span></div>
-    <label style="margin-top:16px">Cotação do dólar usada nas estimativas <span class="dim" style="text-transform:none;letter-spacing:0">(só pra mostrar o ≈ R$ ao lado do custo em US$)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">R$</span><input class="in" id="cfgBrl" type="number" min="0.5" step="0.05" value="${escA(String(usdBrlRate()))}" style="width:110px"><span class="dim">por US$ 1</span></div>
-    <label style="margin-top:16px">Aviso de custo <span class="dim" style="text-transform:none;letter-spacing:0">(só notifica ao cruzar, não pausa — 0 desliga)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">US$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}" style="width:110px"></div>
-    <label style="margin-top:16px">URL base das issues <span class="dim" style="text-transform:none;letter-spacing:0">(o código FND-853 vira link: base/FND-853)</span></label>
-    <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/sua-empresa/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
-    <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
-    <input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}" style="width:110px;margin-top:6px">
-    <label style="margin-top:16px">Retomar após limite de uso da IA <span class="dim" style="text-transform:none;letter-spacing:0">(quando bate o limite da conta, a tarefa espera e retoma sozinha a cada X min — 0 desliga)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><input class="in" id="cfgLimitRetry" type="number" min="0" max="240" step="5" value="60" style="width:110px"><span class="dim">min</span></div>
+    <div class="seclbl2">Custo <span class="dim cfgsecd">· quanto cada tarefa pode gastar e como o valor aparece</span></div>
+    <div class="cfggrid">
+      <div class="cfgf"><label for="cfgCap">Teto por tarefa</label>
+        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0" step="1" value="${escA(String(costCapDefault()))}"><span class="dim" id="cfgCapBrl"></span></div>
+        <p class="cfghint">Ao chegar nele a tarefa pausa e pergunta se continua. 0 = sem teto. Dá pra mudar por tarefa ao criar.</p></div>
+      <div class="cfgf"><label for="cfgCost">Aviso de custo</label>
+        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}"></div>
+        <p class="cfghint">Só avisa quando uma tarefa passa desse valor — não pausa. 0 desliga.</p></div>
+      <div class="cfgf"><label for="cfgBrl">Cotação do dólar</label>
+        <div class="cfgin"><span class="dim">R$</span><input class="in" id="cfgBrl" type="number" min="0.5" step="0.05" value="${escA(String(usdBrlRate()))}"><span class="dim">por US$ 1</span></div>
+        <p class="cfghint">Só pra mostrar o "≈ R$" ao lado do custo em dólar.</p></div>
+    </div>
+    <div class="seclbl2" style="margin-top:22px">Execução <span class="dim cfgsecd">· quantas tarefas rodam juntas e o que fazer no limite da IA</span></div>
+    <div class="cfggrid">
+      <div class="cfgf"><label for="cfgSlots">Tarefas ao mesmo tempo</label>
+        <div class="cfgin"><input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}"><span class="dim">de 1 a 12</span></div>
+        <p class="cfghint">Mais tarefas em paralelo terminam antes, mas pesam na máquina e no limite de uso da IA.</p></div>
+      <div class="cfgf"><label for="cfgLimitRetry">Retomar depois do limite da IA</label>
+        <div class="cfgin"><span class="dim">a cada</span><input class="in" id="cfgLimitRetry" type="number" min="0" max="240" step="5" value="60"><span class="dim">min</span></div>
+        <p class="cfghint">Quando a conta bate o limite de uso, a tarefa espera e tenta de novo sozinha. 0 desliga.</p></div>
+    </div>
+    <div class="seclbl2" style="margin-top:22px">Issues <span class="dim cfgsecd">· links dos códigos de issue</span></div>
+    <div class="cfgf"><label for="cfgIssueBase">Endereço base das issues</label>
+      <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/sua-empresa/issue" value="${escA(lsGet('issueBase')||'')}" style="max-width:560px">
+      <p class="cfghint">Com ele, um código como FND-853 na tarefa vira link pra base/FND-853.</p></div>
     <div class="seclbl2" style="margin-top:20px">IA padrão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· motor e versão de modelo pra toda demanda nova</span></div>
     <div class="aipick aipick-cfg" id="aiPickCfg" style="margin-top:8px"></div>
     <div id="raHost"></div>
@@ -40,13 +65,30 @@ function openCfg(){
   { const cap=$id('cfgCap'), brl=$id('cfgBrl'), out=$id('cfgCapBrl');
     const upd=()=>{ const v=Math.max(0, parseFloat(cap.value)||0), r=parseFloat(brl.value)||usdBrlRate(); out.textContent=v>0?'≈ R$ '+fmtNumBR(v*r,true):'sem teto'; };
     cap.oninput=upd; brl.oninput=upd; upd(); }
-  { const mark=()=>{ const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; }; body.oninput=mark; body.onchange=mark; } // o usuário vê que falta salvar
-  $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0)));
-    lsSet('costCap', String(Math.max(0, parseFloat($id('cfgCap').value)||0)));
-    { const r=parseFloat($id('cfgBrl').value); if(r>0) lsSet('usdBrl', String(r)); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
-    { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
-    { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
-    lastSig=''; cfgHide(); toast('Configurações salvas','ok'); };
+  // "alterações não salvas" só pros campos que dependem do botão salvar: IA padrão, gateway, GitHub, versão e
+  // disco se salvam sozinhos — antes mexer neles acendia o aviso (e o salvar não fazia nada com eles)
+  { const SELF='#aiPickCfg,#raHost,#ghHost,#updHost,#wsHost';
+    const mark=e=>{ if(e && e.target && e.target.closest && e.target.closest(SELF)) return; const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; };
+    body.oninput=mark; body.onchange=mark; }
+  $id('cfgSave').onclick=async()=>{
+    const btn=$id('cfgSave'); if(btn.disabled) return;
+    const v={ cap:$id('cfgCap').value, cost:$id('cfgCost').value, brl:$id('cfgBrl').value, slots:$id('cfgSlots').value, retry:$id('cfgLimitRetry').value };
+    // valor fora da faixa: avisa e foca o campo (antes era ajustado em silêncio — 0 tarefas virava 4, -3 virava 0)
+    const bad=cfgValidate(v); if(bad){ toast(bad.msg,'warn'); const f=$id(bad.field); if(f) f.focus(); return; }
+    const N=x=>Number(String(x).replace(',','.'));
+    lsSet('costWarn', String(N(v.cost))); lsSet('costCap', String(N(v.cap))); lsSet('usdBrl', String(N(v.brl)));
+    lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(N(v.slots));
+    lastSig=''; // o que já foi gravado vale agora, mesmo se o resto falhar
+    // settings.json (Rust): cada chave no seu try — a falha diz QUAL não gravou (antes: .catch(()=>{}) e "salvas")
+    const bv=$id('cfgBrowserVisible'), fails=[];
+    btn.disabled=true; btn.textContent='salvando…';
+    const w=async(key, value, nome)=>{ try{ await invoke('write_setting',{ key, value }); }catch(e){ fails.push({ nome, e }); } };
+    await w('limitRetryMin', String(N(v.retry)), 'retomar depois do limite da IA');
+    if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
+    btn.disabled=false; btn.textContent='salvar';
+    if(fails.length){ const d=$id('cfgDirty'); if(d) d.textContent='não salvou: '+fails.map(f=>f.nome).join(' e ');
+      showErr(fails[0].e,'Não consegui gravar "'+fails.map(f=>f.nome).join('" e "')+'" — o resto foi salvo'); return; }
+    cfgHide(); toast('Configurações salvas','ok'); };
   $id('cfgEnv').onclick=()=>{ cfgHide(); if(window.openTab) openTab('env'); else openEnv(); };
   bindClick('cfgBackend', ()=>{ cfgHide(); cloudCfgOpen=true; if(window.openTab) openTab('conta'); else openCloud(); });
   $id('cfgTour').onclick=()=>{ cfgHide(); openOnboarding(); };

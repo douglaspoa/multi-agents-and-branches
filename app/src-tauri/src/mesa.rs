@@ -278,6 +278,22 @@ pub fn list_in(repo: &Path) -> Vec<serde_json::Value> {
     out
 }
 
+/// Apaga o arquivo de UMA mesa (a tela usa pra mesa ilegível). `personas` não se apaga por aqui.
+pub fn delete_in(repo: &Path, id: &str) -> Result<(), String> {
+    if id == "personas" { return Err("id de mesa inválido".into()); }
+    let p = mesa_path(repo, id)?;
+    match std::fs::remove_file(&p) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("não consegui apagar a mesa ({id}): {e}")),
+    }
+}
+#[tauri::command(async)]
+pub fn mesa_delete(state: State<AppState>, repo: Option<String>, id: String) -> Result<(), String> {
+    let repo = mesa_repo(&state, repo)?;
+    delete_in(&repo, &id)
+}
+
 /// Resumo das mesas deste projeto, mais recente primeiro.
 #[tauri::command(async)]
 pub fn mesa_list(state: State<AppState>, repo: Option<String>) -> Result<Vec<serde_json::Value>, String> {
@@ -311,10 +327,15 @@ mod tests {
         save_to(&d, "personas", &serde_json::json!({"personas":[]})).unwrap();
         assert!(save_to(&d, "../fora", &serde_json::json!({})).is_err());
         let l = list_in(&d);
+        assert!(delete_in(&d, "../fora").is_err());
+        assert!(delete_in(&d, "personas").is_err());
         assert_eq!(l.len(), 2, "personas.json não é mesa");
         assert_eq!(l[0]["id"], "m2");
         assert_eq!(l[1]["personas"], 2);
         assert!(!mesas_dir(&d).join(".m1.json.tmp").exists());
+        delete_in(&d, "m1").unwrap();
+        assert_eq!(list_in(&d).len(), 1);
+        delete_in(&d, "m1").unwrap(); // já apagada: ok (idempotente)
         let _ = std::fs::remove_dir_all(&d);
     }
     #[test]
