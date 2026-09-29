@@ -49,7 +49,7 @@ function openCfg(){
     <div id="ghHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Navegador dos agentes</div>
     <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
-    <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app checa o canal do time no boot e a cada 6h — ou agora, aqui</span></div>
+    <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app procura versão nova sozinho a cada 2 min (e quando você volta pra janela) — ou agora, aqui</span></div>
     <div id="updHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta de trabalho do Starfork deste projeto <span class="mono" style="font-size:10.5px">(.cardume/)</span> — aprendizados ficam, o resto pode ir</span></div>
     <div id="wsHost" style="margin-top:8px"></div>
@@ -369,6 +369,7 @@ function showActiveView(){
   // modal (flex, sem .astab) a cada troca de aba — a "piscada"
   if(o){ syncChromeH(); o.classList.add('astab'); o.style.display='block'; requestAnimationFrame(syncChromeH); }
 }
+let _updBtnNode=null; // o botão "atualizar" sobrevive aos re-renders da barra de abas (ver renderTabs)
 function renderTabs(){
   const bar=$id('tabBar'); if(!bar) return;
   bar.style.display='flex'; bar.setAttribute('data-tauri-drag-region','');
@@ -377,6 +378,9 @@ function renderTabs(){
   // numera só as abas que ainda têm o título genérico ("Montar conversando 1, 2…")
   const counts={}; TABS.forEach(t=>{ if(t.title===((VIEW_META[t.kind]||{}).title||t.kind)) counts[t.kind]=(counts[t.kind]||0)+1; });
   const seen={};
+  // o botão "atualizar" mora DENTRO da barra: tira ele antes do innerHTML e devolve depois (guardado em
+  // _updBtnNode — antes o 2º render destruía o botão e o aviso de versão nova nunca aparecia).
+  { const u=$id('updBtn'); if(u) _updBtnNode=u; if(_updBtnNode && bar.contains(_updBtnNode)) _updBtnNode.remove(); }
   bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+'<span class="tablist" role="tablist" aria-label="abas abertas">'+TABS.map(t=>{
     const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
@@ -410,7 +414,8 @@ function renderTabs(){
   const add=$id('tabAdd'); if(add){ add.onclick=()=>openTab('nova'); add.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openTab('nova'); } }; } // R8 a11y: o + era um span fora do Tab
   { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
-  { const u=$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
+  // sem #tabRight o nó continua guardado em _updBtnNode e volta no próximo render (nunca se perde)
+  { const u=_updBtnNode||$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
   requestAnimationFrame(syncChromeH);
   tabsFit();
 }
@@ -438,14 +443,30 @@ $id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') c
 // Ordem do 1º uso: login (gate obrigatório do 44-onboarding) → ESTE tour → abrir/criar projeto.
 // Antes o tour abria em 900ms e o gate de login (3,2s) cobria ele no meio. Agora ele só começa com
 // sessão aberta e a tela de entrada fechada: obMaybeStart() é chamado pelo auHide/loginGateSync.
+// Texto pra quem NÃO programa (veto da Carla: sem branch/mock/gh por padrão). O técnico fica no Ambiente.
 const OB_STEPS=[
-  { t:'Bem-vindo ao Starfork', b:'Aqui, cada <b>tarefa</b> roda numa <b>cópia isolada do seu código</b> (uma branch só dela), tocada por agentes de IA — com plano, código, testes e <b>provas reais</b> (prints e saídas de verdade, nunca mock). Você acompanha tudo ao vivo e conversa com o agente como num chat.' },
-  { t:'Seu time vê o essencial', b:'Com a conta num time (<b>Conta e time</b>, no rodapé da barra lateral), suas tarefas viram <b>cartões compartilhados automaticamente</b>: título, status, custo e branch sincronizam — a <b>conversa do agente fica só na sua máquina</b> e as provas só sobem quando você publicar. O backlog do time fica na visão <b>Time</b> da Central.' },
-  { t:'Antes de começar', b:'O app depende de 4 coisas: <b>node</b>, <b>git</b>, <b>claude</b> (logado) e <b>gh</b> (autenticado). Vamos verificar agora — o que faltar vem com o comando de correção pronto pra copiar.', env:true },
-  { t:'Escolha o projeto', b:'Os agentes trabalham dentro de um projeto (uma pasta com git). Abra uma pasta que você já tem ou crie um projeto novo do zero — dá pra ter vários e trocar a qualquer hora em <b>Projetos</b>.', proj:true },
+  { t:'Bem-vindo ao Starfork', b:'Você conta o que precisa em português normal e <b>agentes de IA</b> fazem o trabalho — cada tarefa numa <b>cópia separada do seu projeto</b>, então uma não atrapalha a outra. No fim, cada entrega vem com <b>provas de verdade</b> (prints, testes, documentos) pra você revisar antes de aprovar.' },
+  { t:'Seu time vê o essencial', b:'Com a conta num time (<b>Conta e time</b>, no rodapé da barra lateral), o time vê o <b>andamento de cada tarefa</b>: título, status e custo sincronizam sozinhos. A <b>conversa com o agente fica só no seu computador</b>, e as provas só sobem quando você publicar.' },
+  { t:'O que o computador precisa', b:'Os agentes usam o <b>Git</b> (guarda o histórico) e o <b>Claude Code</b> (a IA, com login feito). O <b>GitHub</b> é recomendado — só serve pra publicar. Outros extras são opcionais. Estamos conferindo agora; o que faltar vem com o comando pronto pra copiar.', env:true },
+  { t:'Agora é com você', b:'Diga o que você quer fazer — um app, um site, um relatório, uma planilha — e o Starfork cria a pasta do projeto e a IA monta o plano com você. Se já tem uma pasta, é só abrir.', proj:true },
 ];
 let obStep=0;
-function openOnboarding(){ obStep=0; renderOb(); $id('obOverlay').style.display='flex'; }
+function openOnboarding(){ obStep=0; renderOb(); $id('obOverlay').style.display='flex'; setTimeout(()=>{ const b=$id('obNext'); if(b) b.focus(); },50); }
+// teclado: Esc pula o tour, → avança (antes só dava com o mouse)
+// outra janela do app por cima (askText, detalhes do erro…) → as teclas são dela, não do tour
+function obOtherModalOpen(){ const tx=$id('txOverlay'); return !!((tx && tx.style.display==='flex') || $id('errOverlay')); }
+document.addEventListener('keydown', e=>{
+  const ob=$id('obOverlay'); if(!ob || ob.style.display!=='flex') return;
+  if(obOtherModalOpen() || (e.target && e.target.closest && !e.target.closest('#obOverlay') && e.target!==document.body)) return;
+  if(e.key==='Tab'){ // foco preso no tour (é um diálogo modal)
+    const f=[...ob.querySelectorAll('button:not([disabled]),[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);
+    if(!f.length) return; const i=f.indexOf(document.activeElement);
+    if(e.shiftKey && (i<=0)){ e.preventDefault(); f[f.length-1].focus(); }
+    else if(!e.shiftKey && (i===-1 || i===f.length-1)){ e.preventDefault(); f[0].focus(); }
+    return; }
+  if(e.key==='Escape'){ e.preventDefault(); finishOb(); }
+  else if(e.key==='ArrowRight' && !/INPUT|TEXTAREA/.test((document.activeElement||{}).tagName||'')){ e.preventDefault(); const b=$id('obNext'); if(b) b.click(); }
+});
 // só no 1º uso, com sessão aberta e sem a tela de entrada/planos por cima
 function obMaybeStart(){
   if(lsGet('onboarded')) return;
@@ -460,26 +481,37 @@ function renderOb(){
   const last=obStep===OB_STEPS.length-1;
   const hasRepo=!!(state&&state.repo);
   $id('obBody').innerHTML=`
-    <div style="display:flex;gap:6px;margin-bottom:18px">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}</div>
-    <h2 style="font-size:20px;margin:0 0 10px">${s.t}</h2>
+    <div style="display:flex;gap:6px;margin-bottom:18px;align-items:center" role="progressbar" aria-valuemin="1" aria-valuemax="${OB_STEPS.length}" aria-valuenow="${obStep+1}" aria-label="passo ${obStep+1} de ${OB_STEPS.length}">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}<span class="dim mono" style="font-size:10.5px;margin-left:6px">${obStep+1}/${OB_STEPS.length}</span></div>
+    <h2 style="font-size:20px;margin:0 0 10px" id="obTitle">${s.t}</h2>
     <p style="color:var(--text-2);font-size:14px;line-height:1.65;margin:0">${s.b}</p>
     ${s.env?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:12px">verificando o ambiente…</div></div>':''}
-    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${hasRepo?`<span class="dim" style="font-size:12.5px;align-self:center">✓ projeto aberto: <b style="color:var(--text)">${esc(pathBase(state.repo))}</b></span>`:''}<button class="btn${hasRepo?'':' primary'}" id="obOpenDir">${ic('folder')}Abrir pasta</button><button class="btn" id="obNewProj">+ Criar projeto novo</button></div>`:''}
+    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center">${hasRepo?`<span class="dim" style="font-size:12.5px">✓ projeto aberto: <b style="color:var(--text)">${esc(pathBase(state.repo))}</b></span><span style="flex:1"></span>`:''}<button class="btn sm" id="obOpenDir">${ic('folder')}${hasRepo?'Abrir outra pasta':'Já tenho uma pasta'}</button></div>`:''}
     <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
-      <button class="btn sm" id="obSkip">pular</button><span style="flex:1"></span>
-      <button class="btn primary" id="obNext">${last?(hasRepo?'Começar':'depois'):'continuar'}</button>
+      <button class="btn sm" id="obSkip" title="Esc">pular</button><span style="flex:1"></span>
+      ${obStep>0?'<button class="btn sm" id="obBack">voltar</button>':''}
+      <button class="btn primary" id="obNext">${last?(hasRepo?'Começar':'Dizer o que eu quero fazer'):'continuar'}</button>
     </div>`;
   $id('obSkip').onclick=()=>{ finishOb(); };
-  $id('obNext').onclick=()=>{ if(!last){ obStep++; renderOb(); } else { finishOb(); coachStart(); } };
-  bindClick('obOpenDir', async()=>{ if(window.pickFolder) await window.pickFolder(); if(state&&state.repo){ finishOb(); coachStart(); } else renderOb(); });
-  bindClick('obNewProj', ()=>{ finishOb(); if(window.openNewProject) window.openNewProject(); });
+  $id('obNext').onclick=()=>{ if(!last){ obStep++; renderOb(); const b=$id('obNext'); if(b) b.focus(); return; }
+    finishOb();
+    // sem projeto: vai direto pra caixa "O que você quer fazer?" (Começar sem portões) — antes o botão dizia "depois"
+    // as dicas de primeira vez ficam pra quando o projeto abrir (36-comecar/noProjSync chama o coachStart)
+    if(!(state&&state.repo)){ lsSet('coachPending','1'); if(window.openTab) window.openTab('flow'); setTimeout(()=>{ const t=$id('emWhat'); if(t) t.focus(); },120); return; }
+    coachStart(); };
+  bindClick('obBack', ()=>{ if(obStep>0){ obStep--; renderOb(); } });
+  bindClick('obOpenDir', async()=>{ try{ if(window.pickFolder) await window.pickFolder(); }catch(_){ } if(state&&state.repo){ finishOb(); coachStart(); } else renderOb(); });
   // check de ambiente INTEGRADO no onboarding (redesign p16): fix inline com botão de copiar, sem bloquear a entrada
   if(s.env) runEnvCheck().then(()=>{
     const el=$id('obEnv'); if(!el) return;
-    el.innerHTML=(envChecks||[]).map(c=>`<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--border);font-size:12.5px">
-      <span style="color:${c.ok?'var(--good)':'var(--warn)'}">${c.ok?IC.ok:IC.warn}</span><div style="flex:1;min-width:0"><b>${esc(c.name)}</b> <span class="dim">${esc((c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:11px">rode no Terminal:</span><code class="mono" style="font-size:10.5px;color:var(--warn);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(c.fix)}">${esc(c.fix)}</code><button class="btn sm" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}</div></div>`).join('')
-      +((envChecks||[]).some(c=>!c.ok)?'<div class="dim" style="font-size:11.5px;margin-top:8px">Dá pra seguir mesmo assim — o que faltar fica com um aviso em <b>Mais › Ambiente</b>, no rodapé da barra lateral.</div>':'');
-    el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>{ try{ navigator.clipboard.writeText(b.dataset.envfix); b.textContent='copiado ✓'; }catch(_){ } }; });
+    const S=envSummary(envChecks);
+    el.innerHTML=(envChecks||[]).map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', tag=ENV_KIND_TAG[k], manual=/reinstale/i.test(c.fix||'');
+      // mesmo ícone da aba Ambiente: ✓ ok · ! obrigatório faltando · – recomendado/opcional faltando (neutro)
+      const icon=c.ok?`<span style="color:var(--good)">${IC.ok}</span>`:soft?'<span style="color:var(--text-3);font:600 13px var(--code);width:14px;text-align:center">–</span>':`<span style="color:var(--warn)">${IC.warn}</span>`;
+      return `<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--border);font-size:12.5px">
+      ${icon}<div style="flex:1;min-width:0"><b>${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}</b>${tag?` <span class="envtag">${tag}</span>`:''} <span class="dim">${esc(c.ok?(c.detail||'').slice(0,60):envWhat(c)||(c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:11px">${manual?'como resolver:':'rode no Terminal:'}</span>${manual?`<span style="font-size:11.5px;color:var(--warn)">${esc(c.fix)}</span>`:`<code class="mono" style="font-size:10.5px;color:${soft?'var(--text-2)':'var(--warn)'};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(c.fix)}">${esc(c.fix)}</code><button class="btn sm" data-envfix="${escA(c.fix)}">copiar</button>`}</div>`:''}</div></div>`; }).join('')
+      +(S.reqBad?'<div class="dim" style="font-size:11.5px;margin-top:8px">Dá pra seguir mesmo assim — o que faltar fica com um aviso em <b>Mais › Ambiente</b>, no rodapé da barra lateral.</div>'
+        :'<div style="font-size:12px;margin-top:8px;color:var(--good)">Tudo certo pra começar.'+(S.optBad?' <span class="dim">Os opcionais dá pra instalar depois.</span>':'')+'</div>');
+    el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>envCopy(b); });
   }).catch(()=>{});
 }
 function finishOb(){ lsSet('onboarded','1'); $id('obOverlay').style.display='none'; }
@@ -502,8 +534,9 @@ function coachStart(){
     if(i>=COACH.length){ done(); return; }
     const [id,t,b]=COACH[i];
     const a=$id(id);
-    if(!a){ i++; show(); return; }
-    const r=a.getBoundingClientRect();
+    const r=a?a.getBoundingClientRect():null;
+    // alvo que não está na tela (ex.: busca da Central sem projeto aberto) → pula, em vez de pôr a dica no canto (0,0)
+    if(!a || !r || (r.width===0 && r.height===0) || a.offsetParent===null){ i++; show(); return; }
     tipEl.innerHTML=`<b style="font-size:13px">${esc(t)}</b><div class="dim" style="font-size:12px;line-height:1.5;margin-top:4px">${esc(b)}</div>
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><button class="btn sm" id="coachSkip">pular tudo</button><span style="flex:1"></span><span class="dim" style="font-size:10.5px">${i+1}/${COACH.length}</span><button class="btn primary sm" id="coachNext">${i<COACH.length-1?'próximo':'entendi'}</button></div>`;
     const top=Math.min(window.innerHeight-160, r.bottom+10);
@@ -514,7 +547,9 @@ function coachStart(){
     $id('coachNext').onclick=()=>{ clear(); i++; show(); };
     $id('coachSkip').onclick=()=>{ clear(); done(); };
   };
-  const done=()=>{ lsSet('coached','1'); tipEl.remove(); };
+  const onKey=e=>{ if(e.key==='Escape'){ const sk=$id('coachSkip'); if(sk) sk.click(); } };
+  const done=()=>{ lsSet('coached','1'); tipEl.remove(); document.removeEventListener('keydown', onKey); };
+  document.addEventListener('keydown', onKey);
   show();
 }
 

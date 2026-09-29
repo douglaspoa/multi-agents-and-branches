@@ -147,6 +147,54 @@ async function sbFetch(path, opts, retried){
   if(!r.ok) throw new Error((j&&(j.message||j.hint||j.details))||('erro '+r.status));
   return j;
 }
+// @cloud-puro-inicio — erro da nuvem (PostgREST/RPC) em pt-BR, com o que fazer (testado em app/tests/onboarding-conta.test.mjs).
+// Antes a tela de Conta mostrava "Falhou: new row violates row-level security policy for table \"invites\"".
+// As RPCs do Starfork já respondem em pt-BR ("convite inválido ou expirado") — essas passam como estão.
+// Números de status só contam com prefixo ("erro 403", "HTTP 502") — um número solto no texto não é status.
+// ORDEM importa: sessão vem antes de permissão (401 = token vencido, não falta de papel).
+const CLOUD_ST=c=>new RegExp('\\b(erro|http|status)\\s*:?\\s*('+c+')\\b','i');
+const CLOUD_ERR=[
+  [/jwt|token (is )?expired|sess[ãa]o expirou/i, 'Sua sessão expirou — entre de novo na conta.'],
+  [CLOUD_ST('401'), 'Sua sessão expirou — entre de novo na conta.'],
+  [/row-level security|permission denied for|insufficient_privilege|42501/i, 'Você não tem permissão pra isso nesta organização — só o lead do time ou um admin pode.'],
+  [CLOUD_ST('403'), 'Você não tem permissão pra isso nesta organização — só o lead do time ou um admin pode.'],
+  [/duplicate key|already exists|unique constraint|23505/i, 'Isso já existe — a pessoa já está no time ou já tem um convite pra esse e-mail.'],
+  [CLOUD_ST('409'), 'Isso já existe — a pessoa já está no time ou já tem um convite pra esse e-mail.'],
+  [/foreign key|violates.*constraint.*fkey|23503|no rows/i, 'Esse item não existe mais — alguém mudou agora há pouco. Confira a lista e tente de novo.'],
+  // tabela/RPC que não existe no servidor = app mais novo que a nuvem (migration faltando)
+  [/could not find the (function|table)|relation .* does not exist|function .* does not exist|PGRST20[02]|not found/i, 'Recurso não encontrado — a nuvem pode estar desatualizada. Tente de novo mais tarde ou fale com o suporte do Starfork.'],
+  [CLOUD_ST('404'), 'Recurso não encontrado — a nuvem pode estar desatualizada. Tente de novo mais tarde ou fale com o suporte do Starfork.'],
+  [/invalid input syntax for type uuid|22P02/i, 'Esse código não é válido — confira se copiou o token inteiro.'],
+  [/check constraint|violates check|23514|value too long|22001/i, 'Algum campo ficou fora do formato aceito — confira e tente de novo.'],
+  [/failed to fetch|load failed|networkerror|sem conex[ãa]o/i, 'Sem conexão com a nuvem agora — cheque a internet/VPN e tente de novo.'],
+  [/internal server error|bad gateway|service unavailable|gateway time-?out/i, 'A nuvem do Starfork está com problema agora — tente de novo em alguns minutos.'],
+  [CLOUD_ST('5\\d\\d'), 'A nuvem do Starfork está com problema agora — tente de novo em alguns minutos.'],
+];
+// já está em português? (RPCs do Starfork, sbNetErr). Acento OU palavra que só existe em pt — nada de
+// "time/plano/sem", que também são palavras em inglês. Compartilhado com o checkout (44-onboarding).
+function isPtText(t){ return /[ãõçéêáíóúâô]/i.test(t) || /\b(nao|voce|convite|convites|assentos?|organizacao|usuario|invalido|expirado|permissao|nenhum|nenhuma|tente|obrigatorio)\b/i.test(t); }
+function cloudErrMsg(e, ctx){
+  const raw=String((e&&e.message)||e||'').trim();
+  const pre=ctx?String(ctx).replace(/[\s:.…—-]+$/,'')+': ':'';
+  const hit=CLOUD_ERR.find(([re])=>re.test(raw));
+  if(hit) return pre+hit[1];
+  if(isPtText(raw)) return pre+raw.charAt(0).toUpperCase()+raw.slice(1);
+  return pre+'Não deu certo agora — tente de novo em instantes.'+(raw?' ('+raw.slice(0,80)+')':'');
+}
+// a mensagem do convite (UMA só: a do "gerar convite" e a do "copiar mensagem" da lista eram cópias).
+// Desde a 0020 o convite pro e-mail entra SOZINHO ao criar a conta — o token é só o plano B.
+function cloudInviteMsg(teamName, orgName, email, token){
+  return `Você foi convidado(a) pro time ${teamName} da ${orgName} no Starfork.\n`
+    +`1. Baixe o Starfork em starfork.com.br e abra o app\n`
+    +`2. Crie a sua conta com o e-mail ${email} — você entra no time sozinho\n`
+    +`3. Se não entrar: em Conta e time › "aceitar convite", cole este token:\n${token}`;
+}
+// já existe convite AINDA VÁLIDO pra esse e-mail? (vencido não conta — dá pra convidar de novo)
+function cloudInvitePending(invites, mail, now){
+  const m=String(mail||'').trim().toLowerCase();
+  return (invites||[]).some(x=>String(x.email||'').toLowerCase()===m && !x.accepted_at && (!x.expires_at || new Date(x.expires_at).getTime()>now));
+}
+// @cloud-puro-fim
 const sbGet = (q)=>sbFetch('/rest/v1/'+q);
 const sbPost = (t,body)=>sbFetch('/rest/v1/'+t, { method:'POST', headers:{ 'Prefer':'return=representation' }, body: JSON.stringify(body) });
 const sbRpc = (fn,args)=>sbFetch('/rest/v1/rpc/'+fn, { method:'POST', body: JSON.stringify(args||{}) });
@@ -154,6 +202,7 @@ const sbRpc = (fn,args)=>sbFetch('/rest/v1/rpc/'+fn, { method:'POST', body: JSON
 // ---- estado da tela ----
 let cloudData = null;   // { org, teams, members(do time atual), meRole, profileByUser }
 let cloudMsg = '';      // feedback (erro/ok) da última ação
+let cloudInvLast = null; // convite recém-gerado: a mensagem pronta sobrevive ao redesenho da Conta
 function cloudTeamId(){ return lsGet('sb:team') || ''; }
 function cloudUserId(){ const s=SB.sess(); return s && s.user ? s.user.id : ''; }
 
@@ -235,7 +284,9 @@ function loginGateSync(){
 }
 setTimeout(()=>loginGateSync(), 3000); // depois do refresh de sessão do boot (arrow: usa a versão do 44-onboarding)
 
-function cloudMsgHtml(){ return cloudMsg ? `<div class="imhint" style="border-left:2px solid ${cloudMsg.startsWith('✓')?'var(--good)':'var(--warn)'};margin-bottom:12px">${esc(cloudMsg)}</div>` : ''; }
+// retorno da última ação: erro em destaque (antes era cinza-claro de 11px e passava batido) e anunciado ao leitor de tela
+function cloudMsgHtml(){ if(!cloudMsg) return ''; const ok=cloudMsg.startsWith('✓');
+  return `<div class="imhint cloudmsg ${ok?'ok':'bad'}" role="${ok?'status':'alert'}">${esc(cloudMsg)}</div>`; }
 
 async function renderCloud(){
   const body=$id('cloudBody'); if(!body) return;
@@ -267,7 +318,18 @@ async function renderCloud(){
     return;
   }
   // dados frescos
-  if(!cloudData){ ldPaint(body, skeletonHtml('lista',{ head:true, n:4, label:'buscando a conta' })); try{ await tabBusy('conta', cloudLoad(), { label:'buscando a conta e o time' }); }catch(e){ cloudMsg=humanErr(e, 'Não consegui carregar a conta').msg; SB.setSess(SB.sess()); } }
+  let loadErr=null;
+  if(!cloudData){ ldPaint(body, skeletonHtml('lista',{ head:true, n:4, label:'buscando a conta' })); try{ await tabBusy('conta', cloudLoad(), { label:'buscando a conta e o time' }); }catch(e){ loadErr=e; } }
+  // carga FALHOU (sem rede, servidor fora): erro com "tentar de novo". Antes caía no "Criar organização" —
+  // quem já tinha org, offline, via o formulário de criar outra (e podia criar uma duplicada).
+  // (mesmo que o cloudLoad tenha preenchido parte do cloudData antes de falhar: dado pela metade não é mostrado)
+  if(loadErr){
+    cloudData=null; head.textContent='Conta e time';
+    // o retorno da ação que disparou o recarregamento (ex.: "sem permissão") continua visível acima do erro
+    body.innerHTML=cloudMsgHtml()+errorHtml(loadErr, 'cloudRetry', 'Não consegui carregar a conta'); // "sair da conta" fica no cabeçalho
+    ldWireErr(body, loadErr, 'Não consegui carregar a conta', ()=>{ cloudMsg=''; renderCloud(); });
+    return;
+  }
   // 3) logado mas sem org → criar ou aceitar convite
   if(!cloudData || !cloudData.org){
     head.textContent='Conta e time · sua organização';
@@ -281,15 +343,18 @@ async function renderCloud(){
       <div style="display:flex;margin-top:12px"><span style="flex:1"></span><button class="btn" id="sbAccept">aceitar convite</button></div>
       <div style="display:flex;margin-top:18px"><button class="btn sm" id="sbLogout">sair da conta</button></div>`;
     $id('sbCreateOrg').onclick=async()=>{
+      const b=$id('sbCreateOrg'); if(b.disabled) return; b.disabled=true; b.textContent='criando…'; // 2 cliques = 2 organizações
       cloudMsg='';
       try{ const j=await sbRpc('create_org_with_team',{ p_org_name:$id('sbOrgName').value.trim()||'Minha org', p_team_name:$id('sbTeamName').value.trim()||'Time 1' }); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ organização criada'; }
-      catch(e){ cloudMsg='Falhou: '+e.message; }
+      catch(e){ cloudMsg=cloudErrMsg(e); }
       renderCloud();
     };
     $id('sbAccept').onclick=async()=>{
       cloudMsg='';
-      try{ const j=await sbRpc('accept_invite',{ p_token:$id('sbInvTok').value.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; }
-      catch(e){ cloudMsg='Falhou: '+e.message; }
+      const tok=$id('sbInvTok').value.trim();
+      if(!tok){ cloudMsg='Cole o token do convite que o lead te mandou (ou peça um convite pro seu e-mail — aí ele entra sozinho).'; renderCloud(); setTimeout(()=>{ const i=$id('sbInvTok'); if(i) i.focus(); },0); return; }
+      try{ const j=await sbRpc('accept_invite',{ p_token:tok }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; }
+      catch(e){ cloudMsg=cloudErrMsg(e); }
       renderCloud();
     };
     $id('sbLogout').onclick=()=>sbLogout();
@@ -335,7 +400,7 @@ async function renderCloud(){
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center;gap:8px"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbPassChange" title="define uma senha nova pra sua conta">trocar senha</button><button class="btn sm" id="sbLogout">sair</button></div>
     <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;
-  bindClick('sbTeamAdd', async()=>{ const n=await askText('Novo time','ex.: Data'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg='Falhou: '+e.message; } renderCloud(); });
+  bindClick('sbTeamAdd', async()=>{ const n=await askText('Novo time','ex.: Data'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg=cloudErrMsg(e); } renderCloud(); });
   // ações nos times: usar / promover-rebaixar / remover / adicionar membro
   body.querySelectorAll('[data-mact]').forEach(b=>{ b.onclick=async()=>{
     const act=b.dataset.mact, tid=b.dataset.team, uid=b.dataset.uid; cloudMsg='';
@@ -347,7 +412,7 @@ async function renderCloud(){
       if(act==='rename'){ const cur=(d.teams.find(x=>x.id===tid)||{}).name||''; const n=await askText('Renomear time',cur,cur); if(n===null||!n.trim()||n.trim()===cur){ return; } await sbFetch('/rest/v1/teams?id=eq.'+tid, { method:'PATCH', body: JSON.stringify({ name:n.trim() }) }); cloudMsg='✓ time renomeado'; }
       if(act==='delteam'){ const tm=(d.teamMembers[tid]||[]).length; const nm=(d.teams.find(x=>x.id===tid)||{}).name||'time'; if(!await askYes('Excluir o time "'+nm+'"?'+(tm?'\n\n'+tm+' membro(s) perdem o vínculo. As tarefas do time continuam no histórico.':''))) return; await sbFetch('/rest/v1/teams?id=eq.'+tid, { method:'DELETE' }); if(teamId===tid){ lsSet('sb:team',''); } cloudMsg='✓ time excluído'; }
       cloudData=null; renderCloud(); cloudBtnSync();
-    }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
+    }catch(e){ cloudMsg=cloudErrMsg(e); cloudData=null; renderCloud(); } // recarrega: o erro mais comum é a lista estar velha
   }; });
   // remover membro da ORG (admin): sai de todos os times + libera o assento
   body.querySelectorAll('[data-orgrm]').forEach(b=>{ b.onclick=async()=>{
@@ -358,33 +423,46 @@ async function renderCloud(){
       for(const t of d.teams){ await sbFetch('/rest/v1/team_members?team_id=eq.'+t.id+'&user_id=eq.'+uid, { method:'DELETE' }).catch(()=>{}); }
       await sbFetch('/rest/v1/org_members?org_id=eq.'+d.org.id+'&user_id=eq.'+uid, { method:'DELETE' });
       cloudData=null; cloudMsg='✓ '+nm+' removido da organização';
-    }catch(e){ cloudMsg='Falhou: '+e.message; }
+    }catch(e){ cloudMsg=cloudErrMsg(e); }
     renderCloud();
   }; });
   // convites pendentes: copiar mensagem / revogar
-  const invMsg=(iv)=>{ const tn=(d.teams.find(x=>x.id===iv.team_id)||{}).name||''; return `Você foi convidado(a) pro time ${tn} da ${d.org.name} no Starfork.\n1. Abra o Starfork e clique em Entrar\n2. Crie sua conta com o e-mail ${iv.email}\n3. Em "aceitar convite", cole o token:\n${iv.token}`; };
+  const invMsg=(iv)=>cloudInviteMsg((d.teams.find(x=>x.id===iv.team_id)||{}).name||'', d.org.name, iv.email, iv.token);
   body.querySelectorAll('[data-iact]').forEach(b=>{ b.onclick=async()=>{
     const iv=(d.invites||[]).find(x=>x.id===b.dataset.iv); if(!iv) return;
-    if(b.dataset.iact==='copy'){ navigator.clipboard.writeText(invMsg(iv)); b.textContent='copiado ✓'; return; }
+    if(b.dataset.iact==='copy'){ cloudCopy(invMsg(iv), b); return; }
     if(!await askYes('Revogar o convite de '+iv.email+'?')) return;
     cloudMsg='';
-    try{ await sbFetch('/rest/v1/invites?id=eq.'+iv.id, { method:'DELETE' }); cloudData=null; cloudMsg='✓ convite revogado'; }catch(e){ cloudMsg='Falhou: '+e.message; }
+    try{ await sbFetch('/rest/v1/invites?id=eq.'+iv.id, { method:'DELETE' }); cloudData=null; cloudMsg='✓ convite revogado'; }catch(e){ cloudMsg=cloudErrMsg(e); }
     renderCloud();
   }; });
+  { const inp=$id('sbInvEmail'); if(inp) inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('sbInvite'); if(b) b.click(); } }; }
   { const b=$id('sbInvite'); if(b) b.onclick=async()=>{
+      if(b.disabled) return;
       cloudMsg='';
+      const mail=$id('sbInvEmail').value.trim().toLowerCase();
+      const invErr=m=>{ const o=$id('sbInvOut'); if(o) o.innerHTML=`<div class="imhint" role="alert" style="margin-top:10px;border-left:2px solid var(--warn)">${esc(m)}</div>`; const i=$id('sbInvEmail'); if(i) i.focus(); };
+      // validação local: antes ia pro servidor e voltava em inglês (ou gerava convite pra "ana@x")
+      if(!mail) return invErr('Digite o e-mail da pessoa que você quer convidar.');
+      if(typeof authValidEmail==='function' && !authValidEmail(mail)) return invErr('Esse e-mail não parece válido — confira se está completo (ex.: ana@empresa.com).');
+      if(cloudInvitePending(d.invites, mail, Date.now())) return invErr('Já existe um convite pendente pra '+mail+' — use "copiar mensagem" na lista de convites abaixo.');
+      if(seatsFull) return invErr('Todos os '+d.org.seats+' assentos estão em uso — libere um assento ou amplie o plano antes de convidar.');
+      b.disabled=true;
       try{
-        const mail=$id('sbInvEmail').value.trim();
-        if(!mail){ $id('sbInvEmail').focus(); throw new Error('informe o e-mail da pessoa'); }
         const invTeamId=$id('sbInvTeam').value;
         const rows=await sbPost('invites',{ org_id:d.org.id, team_id:invTeamId, email:mail, role:$id('sbInvRole').value, created_by:cloudUserId() });
-        const tok=rows[0].token;
+        const tok=rows[0].token; (d.invites||(d.invites=[])).push(rows[0]); // 2º clique no mesmo e-mail já avisa que existe
         const teamName=(d.teams.find(x=>x.id===invTeamId)||{}).name||'';
-        const msg=`Você foi convidado(a) pro time ${teamName} da ${d.org.name} no Starfork.\n1. Abra o Starfork e clique em Entrar\n2. Crie sua conta com o e-mail ${mail}\n3. Em "aceitar convite", cole o token:\n${tok}`;
-        $id('sbInvOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
-        $id('sbInvCopy').onclick=function(){ navigator.clipboard.writeText(msg); this.textContent='copiado ✓'; };
-      }catch(e){ cloudMsg='Falhou: '+e.message; renderCloud(); }
+        const msg=cloudInviteMsg(teamName, d.org.name, mail, tok);
+        // redesenha a Conta (com os dados que já temos + o convite novo): a lista "Convites pendentes" ganha a linha
+        // com copiar/revogar; a mensagem pronta volta no mesmo lugar logo abaixo do campo
+        cloudInvLast={ mail, msg }; renderCloud();
+      }catch(e){ const o=$id('sbInvOut'); if(o) o.innerHTML=`<div class="imhint" role="alert" style="margin-top:10px;border-left:2px solid var(--warn)">${esc(cloudErrMsg(e))}</div>`; }
+      finally{ b.disabled=false; }
     }; }
+  if(cloudInvLast){ const { mail, msg }=cloudInvLast; cloudInvLast=null; const o=$id('sbInvOut');
+    if(o){ o.innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
+      $id('sbInvCopy').onclick=function(){ cloudCopy(msg, this); }; } }
   $id('sbLogout').onclick=()=>sbLogout();
   bindClick('sbPassChange', ()=>auShow('newpass', { backTo: ()=>{ if(window.openTab) window.openTab('conta'); } }));
   cloudCatalog(d.org.id, isAdmin);
@@ -392,13 +470,13 @@ async function renderCloud(){
     cloudOrgView().then(rows=>{
       const el=$id('sbOrgView'); if(!el) return;
       el.innerHTML = rows.length ? `<div class="costlist">`+rows.map(r=>`<div class="costrow"><span class="cnm">${esc(r.name)}</span><span class="dim" style="font-size:11px">${r.n} tarefas · ${r.run} em andamento · ${r.done} entregues</span><span class="cusd">${fmtUsd(r.usd)}</span></div>`).join('')+`</div>` : 'nenhum time ainda';
-    }).catch(e=>{ const el=$id('sbOrgView'); if(el) el.textContent='falhou: '+e.message; });
+    }).catch(e=>{ const el=$id('sbOrgView'); if(el) el.textContent=cloudErrMsg(e); });
   }
   { const b=$id('sbLicSet'); if(b) b.onclick=async()=>{
       const k=await askText('Chave de licença da organização','LOGCOMEX-…', d.org.license_key||''); if(k===null) return;
       cloudMsg='';
       try{ await sbFetch('/rest/v1/orgs?id=eq.'+d.org.id, { method:'PATCH', body: JSON.stringify({ license_key: k.trim()||null }) }); cloudData=null; cloudMsg='✓ licença atualizada'; }
-      catch(e){ cloudMsg='Falhou: '+e.message; }
+      catch(e){ cloudMsg=cloudErrMsg(e); }
       renderCloud();
     }; }
   cloudBtnSync();
@@ -406,6 +484,8 @@ async function renderCloud(){
   if(typeof orgDefaultsRenderCloud==='function') orgDefaultsRenderCloud(isAdmin);
   if(typeof secretsRenderCloud==='function') secretsRenderCloud();
 }
+// copiar pra área de transferência com retorno de verdade (antes: "copiado ✓" mesmo quando o sistema recusava)
+async function cloudCopy(text, btn){ try{ await navigator.clipboard.writeText(text); if(btn) btn.textContent='copiado ✓'; }catch(_){ if(btn) btn.textContent='não copiou — selecione o texto'; } }
 // seção "Padrões da organização" na Conta (admins editam; o resto só vê)
 function orgDefaultsRenderCloud(isAdmin){
   const body=$id('cloudBody'); if(!body||!SB.sess()) return;
@@ -452,7 +532,7 @@ function orgDefaultsRenderCloud(isAdmin){
       orgDefCache=null; orgDefAt=0;
       $id('orgTplMsg').textContent='✓ salvo — vale pra org inteira já';
       setTimeout(close, 900);
-    }catch(e){ $id('orgTplMsg').textContent='falhou: '+(e.message||e); }
+    }catch(e){ $id('orgTplMsg').textContent=cloudErrMsg(e); }
     finally{ b.disabled=false; }
   };
 }
