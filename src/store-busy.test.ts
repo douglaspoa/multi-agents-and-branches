@@ -70,6 +70,7 @@ test("fila órfã: ao pegar o turno, pedidos antigos (>30min) são descartados c
   try {
     const orch = new Orchestrator(dir);
     const st = orch.store;
+    st.createTask({ id: "t1", title: "t", objective: "o", agent: "A", roles: [], engine: "claude" } as never, "b", dir, "main"); // o lock exige a tarefa existir
     const old = Date.now() - 3 * 24 * 3600_000; // como as 3 mensagens presas desde 01/09 no logcomex-ai-v2
     st.db.prepare(`INSERT INTO work_queue (task_id, kind, payload, status, created_at) VALUES ('t1','talk','{"message":"esta demorando demais"}','queued',?)`).run(old);
     st.db.prepare(`INSERT INTO work_queue (task_id, kind, payload, status, created_at) VALUES ('t1','talk','{"message":"recente"}','queued',?)`).run(Date.now() - 60_000);
@@ -87,5 +88,42 @@ test("fila órfã: ao pegar o turno, pedidos antigos (>30min) são descartados c
     orch.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pedido que entra na fila no instante em que o turno acaba: roda na hora, UMA vez, sem 'Na fila' e sem soltar o lock no meio", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { realpathSync, writeFileSync } = await import("node:fs");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "starfork-late-")));
+  const repo = join(root, "repo");
+  const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  g("config", "user.email", "t@t"); g("config", "user.name", "t"); g("config", "commit.gpgsign", "false");
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  g("add", "-A"); g("commit", "-q", "-m", "base");
+  const orch = new Orchestrator(repo);
+  try {
+    orch.store.createTask({ id: "t", title: "t", objective: "o", agent: "A", roles: [], engine: "claude" } as never, "b", repo, "main");
+    // 1ª tentativa de lock perde (turno ainda rodando); a re-checagem logo depois ganha (turno acabou)
+    const o = orch as unknown as { tryLock(id: string): boolean; talkToAgentInner(...a: unknown[]): Promise<void> };
+    const real = o.tryLock.bind(orch);
+    let calls = 0;
+    o.tryLock = (id: string) => (++calls === 1 ? false : real(id));
+    const locksDuring: (number | null)[] = [];
+    let ran = 0;
+    o.talkToAgentInner = async () => { ran++; locksDuring.push(orch.store.busyPid("t")); };
+    await orch.talkToAgent("t", "oi, tudo certo?");
+    assert.equal(ran, 1);
+    assert.deepEqual(locksDuring, [process.pid], "roda segurando o lock");
+    assert.equal(orch.store.busyPid("t"), null);
+    assert.equal(orch.store.queueCount("t"), 0);
+    assert.ok(!orch.store.eventsForTask("t").some((e) => /^Na fila/.test(e.text)), "não anuncia fila pra algo que rodou na hora");
+    // queueDone condicional: o mesmo pedido nunca é tomado duas vezes
+    const id = orch.store.queueAdd("t", "talk", {});
+    assert.equal(orch.store.queueDone(id), true);
+    assert.equal(orch.store.queueDone(id), false);
+  } finally {
+    orch.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

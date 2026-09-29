@@ -26,15 +26,19 @@ function auHide(){ const o=auEl(); if(o) o.style.display='none'; au.waiting=fals
   setTimeout(()=>{ if(window.obMaybeStart) window.obMaybeStart(); }, 350); }
 function auOpen(){ return !!auEl() && auEl().style.display!=='none'; }
 // ---- copy da coluna esquerda por tela (do design) ----
+// Só promessas VERDADEIRAS aqui (antes: "a senha nunca sai da sua máquina", "Companion mobile pareado",
+// "teste em andamento", "o lead aprova" — nada disso era verdade na hora em que a tela aparecia).
 const AU_LEFT={
-  signup:{ h:'Sua equipe de agentes, rodando na sua máquina', s:'Cada tarefa roda numa cópia isolada do seu código. Nada some, nada colide.', b:[['g','Escreva a demanda com requisitos claros'],['c','Vários agentes em paralelo, cada um na sua cópia'],['p','Aprove a entrega e o PR abre sozinho']], f:'pareado com este Mac' },
-  login:{ h:'Bem-vindo de volta ao cockpit', s:'Suas demandas continuam aqui — entre pra ver o que rodou enquanto você esteve fora.', b:[['g','Tarefas em órbita ficam visíveis pro time'],['c','Custo por tarefa, sempre à vista'],['p','PRs prontos pra merge num clique']], f:'sessão local · nada sai da sua máquina' },
-  confirm:{ h:'Um passo e a sua estrela acende', s:'O código confirma que o e-mail é seu e liga sua conta à organização certa.', b:[['g','O link do e-mail também funciona'],['c','Você entra como membro; o lead aprova'],['p','Dá pra trocar de time depois']], f:'código expira em 10 minutos' },
-  newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres'],['c','Vale em todos os seus Macs'],['p','Sessões antigas continuam válidas']], f:'a senha nunca sai da sua máquina em texto' },
-  ready:{ h:'Tudo pronto — falta só o repo', s:'Sua conta está ativa nesta máquina. Conecte o repositório e escreva a primeira demanda.', b:[['g','Ambiente checado automaticamente'],['c','Equipes de agentes do time já sincronizadas'],['p','Companion mobile pareado']], f:'teste em andamento' },
+  signup:{ h:'Agentes de IA trabalhando pra você', s:'Você conta o que precisa em português normal; os agentes de IA fazem, cada um numa cópia separada do projeto. Nada some, nada colide.', b:[['g','Descreva o que quer — a IA monta o plano com você'],['c','Vários agentes em paralelo, sem um atrapalhar o outro'],['p','Você revisa e aprova antes de qualquer coisa entrar']], f:'os agentes rodam no seu computador' },
+  login:{ h:'Bem-vindo de volta', s:'Suas demandas continuam aqui — entre pra ver o que rodou enquanto você esteve fora.', b:[['g','O time vê o andamento de cada tarefa'],['c','Custo por tarefa, sempre à vista'],['p','Entregas prontas pra revisar num clique']], f:'os agentes rodam no seu computador' },
+  confirm:{ h:'Um passo e a sua estrela acende', s:'O código confirma que o e-mail é seu. Se alguém do seu time te convidou, você já entra no time certo.', b:[['g','O link do e-mail também funciona'],['c','Convite pro seu e-mail entra sozinho'],['p','Dá pra trocar de time depois']], f:'o código vale 10 minutos' },
+  newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres, letras e números'],['c','Vale em todos os seus computadores'],['p','Nada do que você fez se perde']], f:'conexão protegida · a senha vai criptografada' },
+  ready:{ h:'Conta ativa — agora é com você', s:'Conte o que você quer fazer e a IA monta o plano. Dá pra abrir uma pasta que já existe ou começar do zero.', b:[['g','Escreva o pedido em português normal'],['c','A IA monta o plano e pergunta o que faltar'],['p','Você aprova e acompanha ao vivo']], f:'conta ativa neste computador' },
+  ready_repo:{ h:'Tudo pronto — pode começar', s:'Sua conta está ativa e o projeto já está aberto. Escreva a primeira demanda.', b:[['g','Escreva o pedido em português normal'],['c','A IA monta o plano e pergunta o que faltar'],['p','Você aprova e acompanha ao vivo']], f:'conta ativa neste computador' },
 };
 const AU_DOT={ g:'var(--accent)', c:'#5ec8c8', p:'#c493bb' };
 function auLeftHtml(step){
+  if(step==='ready' && typeof state!=='undefined' && state && state.repo) step='ready_repo';
   const L=AU_LEFT[step]||AU_LEFT.signup;
   return `<div class="au-lin">
     <div class="au-brand"><span class="au-logo">S</span><span class="au-brandt">STARFORK</span></div>
@@ -42,7 +46,9 @@ function auLeftHtml(step){
     <div class="au-bul">${L.b.map(([c,t])=>`<div class="au-b"><i style="background:${AU_DOT[c]}"></i>${esc(t)}</div>`).join('')}</div>
     <div class="au-foot"><i></i>${esc(L.f)}</div></div>`;
 }
-function auProgress(n){ return `<div class="au-prog">${[1,2,3].map(i=>`<i class="${i<=n?'on':''}"></i>`).join('')}<span>passo ${n} de 3</span></div>`; }
+// cobrança desligada = não há tela de planos: são 2 passos (antes dizia "passo 1 de 3" e o 3º nunca vinha)
+function auProgress(n){ const tot=(typeof billingOn!=='undefined' && billingOn)||au.step==='plans'||au.step==='pay'?3:2; n=Math.min(n,tot);
+  return `<div class="au-prog">${Array.from({ length:tot },(_,k)=>k+1).map(i=>`<i class="${i<=n?'on':''}"></i>`).join('')}<span>passo ${n} de ${tot}</span></div>`; }
 // ações do erro ("entrar · esqueci a senha") viram links clicáveis por teclado
 function auActsHtml(){ return (au.acts||[]).length?`<span class="au-acts">${au.acts.map((a,i)=>`<a data-auact="${i}">${esc(a[0])}</a>`).join('<span aria-hidden="true"> · </span>')}</span>`:''; }
 // caixa geral (erros sem campo: rede, limite, servidor) — sempre escapada; fica logo acima dos botões
@@ -310,19 +316,31 @@ function auRenderNewpass(R, topbar, dis){
   $id('auPass').addEventListener('input',()=>auPassMeter('auPass'));
   return ()=>auPassMeter('auPass');
 }
+// Tela "pronto": diz a verdade do estado (projeto aberto? ambiente ok?) e leva pro próximo passo real.
+// Antes: "falta só o repo" mesmo com o projeto aberto, "Abrir o cockpit", "neste Mac" no Windows e o
+// ambiente sempre como "verificar", mesmo já checado.
 function auRenderReady(R, topbar){
     const seats=(myBilling&&myBilling.seats)||au.plan.seats||1, planName=(myBilling&&myBilling.plan==='team')?'Time':(myBilling&&myBilling.plan==='enterprise')?'Organização':(myBilling?'Solo':'');
     const trial=(myBilling&&myBilling.status==='trialing'&&myBilling.trial_end)?Math.max(0,Math.ceil((new Date(myBilling.trial_end)-Date.now())/864e5)):0;
     const hasRepo=!!(state&&state.repo);
-    R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos neste Mac.`:'Sua conta está ativa neste Mac.'}</p>
-      <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:var(--accent)">1</span><span>Conectar o repositório que os agentes vão trabalhar</span>${hasRepo?'<span class="au-tdone">✓ conectado</span>':'<button class="au-link" id="auRepo">conectar</button>'}</div>
-        <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Checar o ambiente: Node, Git, Claude Code e gh</span><button class="au-link" id="auEnv">verificar</button></div>
-        <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:''}</span><button class="au-link" id="auTeam">convidar</button></div></div>
-      <button class="au-btn primary big" id="auGo">Abrir o cockpit</button></div>`;
-    bindClick('auGo', ()=>{ auHide(); try{ if(window.openTab) window.openTab('flow'); }catch(_){ } });
-    bindClick('auRepo', ()=>{ if(window.pickFolder) window.pickFolder().then(()=>auRender()); });
+    const envS=(typeof envSummary==='function'&&envChecks)?envSummary(envChecks):null;
+    const envCell=!envS?'<button class="au-link" id="auEnv">verificar</button>'
+      : envS.reqBad?`<button class="au-link au-warnlink" id="auEnv">${envS.reqBad} pendência${envS.reqBad>1?'s':''} — ver</button>`
+      : '<span class="au-tdone">✓ tudo certo</span>';
+    const where='neste computador';
+    R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos ${where}.`:`Sua conta está ativa ${where}.`}</p>
+      <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:var(--accent)">1</span><span>${hasRepo?`Projeto aberto: <b>${esc(pathBase(state.repo))}</b>`:'Escolher o projeto — uma pasta sua ou um novo do zero'}</span>${hasRepo?'<span class="au-tdone">✓ aberto</span>':'<button class="au-link" id="auRepo">abrir pasta</button>'}</div>
+        <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Conferir o que o computador precisa (Git, Claude Code…)</span>${envCell}</div>
+        <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:' (opcional)'}</span><button class="au-link" id="auTeam">convidar</button></div></div>
+      <button class="au-btn primary big" id="auGo">${hasRepo?'Ir para a Central':'Começar — dizer o que eu quero fazer'}</button></div>`;
+    bindClick('auGo', ()=>{ auHide(); try{ if(window.openTab) window.openTab('flow'); }catch(_){ }
+      if(!hasRepo) setTimeout(()=>{ const t=$id('emWhat'); if(t) t.focus(); }, 120); });
+    bindClick('auRepo', ()=>{ if(window.pickFolder) Promise.resolve(window.pickFolder()).then(()=>auRender()).catch(()=>{}); });
     bindClick('auEnv', ()=>{ auHide(); if(window.openTab) window.openTab('env'); });
     bindClick('auTeam', ()=>{ auHide(); if(window.openTab) window.openTab('conta'); });
+    // ambiente ainda não checado: checa em segundo plano e atualiza a linha (sem travar a tela)
+    // (já rodando? runEnvCheck devolve a checagem em andamento — re-renderiza quando ela terminar)
+    if(!envS && typeof runEnvCheck==='function') runEnvCheck().then(()=>{ if(au.step==='ready' && auOpen()) auRender(); }).catch(()=>{});
 }
 const AU_GH='<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M8 .4a7.6 7.6 0 0 0-2.4 14.8c.4.1.5-.2.5-.4v-1.3c-2.1.5-2.6-1-2.6-1-.3-.9-.8-1.1-.8-1.1-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.8.8 2.2.6.1-.5.3-.8.5-1-1.7-.2-3.5-.8-3.5-3.7 0-.8.3-1.5.8-2-.1-.2-.3-1 .1-2 0 0 .6-.2 2.1.8a7.3 7.3 0 0 1 3.8 0c1.5-1 2.1-.8 2.1-.8.4 1 .2 1.8.1 2 .5.5.8 1.2.8 2 0 2.9-1.8 3.5-3.5 3.7.3.2.5.7.5 1.4v2.1c0 .2.1.5.5.4A7.6 7.6 0 0 0 8 .4z"/></svg>';
 const AU_GG='<svg viewBox="0 0 18 18" width="14" height="14"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>';
@@ -338,9 +356,9 @@ async function auOAuth(provider){
 }
 // ---- planos (lê billing_plans; sem seed mostra os preços do design, sem checkout) ----
 const AU_PLAN_DEFAULTS=[
-  { key:'individual', name:'Solo', who:'1 pessoa, 1 repo', perSeat:false, feats:['1 agente por vez, sem fila','Branch + worktree isolada por tarefa','Histórico de 30 dias'] },
+  { key:'individual', name:'Solo', who:'1 pessoa, 1 projeto', perSeat:false, feats:['1 agente por vez, sem fila','Cópia isolada do projeto por tarefa','Histórico de 30 dias'] },
   { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Agentes em paralelo, sem limite de fila','Equipes de agentes e personas compartilhadas','Daily automática e custo por pessoa','Preferências do projeto sincronizadas'] },
-  { key:'enterprise', name:'Organização', who:'vários times e repos', feats:['Tudo do Time, sem teto de assentos','SSO, auditoria e política por repo','Chaves de modelo próprias (BYOK)','Suporte dedicado'] },
+  { key:'enterprise', name:'Organização', who:'vários times e projetos', feats:['Tudo do Time, sem teto de assentos','SSO, auditoria e política por projeto','Chaves de modelo próprias (BYOK)','Suporte dedicado'] },
 ];
 const AU_FALLBACK_PRICE={ individual:{month:4900,year:3900}, team:{month:3900,year:3100} };
 function auPlanRow(key, interval){ return (billingPlans||[]).find(p=>p.plan===key&&p.interval===interval); }
@@ -360,27 +378,33 @@ function auRenderPlans(R, topbar){
   const trial=(auPlanRow(au.plan.key,iv)||{}).trial_days||14;
   R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>-20%</i></button></div></div>${auMsg()}
     <div class="au-plans">${cards}</div>
-    <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Starfork? <a id="auInvite">tenho um convite / verificar</a></span></div>
-    <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por repo e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
-      `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'cobrança ainda não ativada neste backend (BILLING-SETUP.md)'}</span></div>`}</div></div>`;
+    <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Starfork? <a id="auInvCheck">procurar convite pro meu e-mail</a> · <a id="auInvite">colar o token de um convite</a></span></div>
+    <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por projeto e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
+      `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'o pagamento ainda não está disponível — fale com o suporte do Starfork'}</span></div>`}</div></div>`;
   R.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>{ au.plan.key=b.dataset.plan; auRender(); });
   R.querySelectorAll('[data-iv]').forEach(b=>b.onclick=()=>{ au.plan.interval=b.dataset.iv; auRender(); });
   bindClick('auSeatM', ()=>{ au.plan.seats=Math.max(1,au.plan.seats-1); auRender(); });
   bindClick('auSeatP', ()=>{ const cap=(auPlanRow('team',iv)||{}).seats||12; au.plan.seats=Math.min(cap,au.plan.seats+1); auRender(); });
   bindClick('auGo', ()=>auShow('pay'));
   bindClick('auSales', ()=>openExternal('mailto:vendas@starfork.com.br?subject=Plano%20Organiza%C3%A7%C3%A3o%20Starfork'));
-  bindClick('auInvite', async()=>{
-    const tok=await askText('Convite do time','cole o token que o lead te mandou (se o convite foi pro seu e-mail, normalmente entra sozinho — deixe vazio pra só verificar)', '');
-    if(tok===null) return;
+  // Antes: um só link com askText "deixe vazio pra só verificar" — mas o askText devolve null no vazio, igual ao
+  // cancelar, então "só verificar" nunca fazia nada. Agora são duas ações.
+  const invGo=async(tok)=>{
+    if(au.busy) return;
     au.busy=true; au.msg=''; auRender();
-    try{
-      if(tok.trim()){ const j=await sbRpc('accept_invite',{ p_token:tok.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); }
-      cloudData=null; cloudAutoInvTried=false; await cloudLoad(); await billingSync();
-      if(billingActive()){ au.busy=false; auShow('ready'); return; }
-      au.msg=tok.trim()?'entrou no time, mas a organização não tem plano ativo — fale com o admin.':'nenhum convite pendente pro seu e-mail.';
-    }catch(e){ au.msg=auErr(e); }
+    let joined=false;
+    try{ if(tok.trim()){ const j=await sbRpc('accept_invite',{ p_token:tok.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); joined=true; } }
+    catch(e){ au.msg=(typeof cloudErrMsg==='function')?cloudErrMsg(e):auErr(e); au.busy=false; auRender(); return; }
+    // o aceite já valeu: se recarregar a conta/assinatura falhar, a pessoa precisa saber que ENTROU no time
+    try{ cloudData=null; cloudAutoInvTried=false; await cloudLoad(); await billingSync(); }
+    catch(e){ au.msg=joined?'Você entrou no time ✓ — mas não consegui atualizar a assinatura agora ('+((typeof cloudErrMsg==='function')?cloudErrMsg(e):auErr(e))+'). Tente de novo em instantes.':((typeof cloudErrMsg==='function')?cloudErrMsg(e):auErr(e)); au.busy=false; auRender(); return; }
+    if(billingActive()){ au.busy=false; auShow('ready'); return; }
+    const org=cloudData&&cloudData.org;
+    au.msg=(joined||org)?`Você já está ${org&&org.name?'na organização '+org.name:'no time'}, mas ela ainda não tem plano ativo — fale com quem administra a conta.`:'Nenhum convite pendente pro seu e-mail. Peça pro lead do time te convidar com este e-mail — aí você entra sozinho.';
     au.busy=false; auRender();
-  });
+  };
+  bindClick('auInvCheck', ()=>invGo(''));
+  bindClick('auInvite', async()=>{ const tok=await askText('Convite do time','cole o token que o lead te mandou', ''); if(tok) invGo(tok); });
 }
 function auRenderPay(R, topbar){
   const p=auPlanRow(au.plan.key, au.plan.interval); const iv=au.plan.interval; const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key);
@@ -388,9 +412,9 @@ function auRenderPay(R, topbar){
   const first=new Date(Date.now()+trial*864e5).toLocaleDateString('pt-BR');
   const name=(AU_PLAN_DEFAULTS.find(x=>x.key===au.plan.key)||{}).name||au.plan.key;
   R.innerHTML=topbar+`<div class="au-pay"><div class="au-payl"><button class="au-link" id="auToPlans">← planos</button><h2 class="au-h2">Pagamento</h2>${auMsg()}
-      <div class="au-methods"><button class="on">Cartão</button><button>Pix</button><button>Boleto/NF</button></div>
-      <p class="au-p">O pagamento acontece numa página segura da <b>Stripe</b>, no seu navegador — o cartão nunca passa pelo app. Cartão, Pix e boleto ficam disponíveis lá.</p>
-      ${au.waiting?`<div class="au-wait">${brandLoaderHtml('esperando a confirmação da Stripe…', { inline:true, now:true })}<div class="au-hint">Concluiu o pagamento? O app reconhece sozinho em instantes. <a id="auRecheck">verificar agora</a></div></div>`:`<button class="au-btn primary big" id="auGo">Começar teste de ${trial} dias</button><div class="au-hint" style="margin-top:10px">Sem cobrança agora. Avisamos 3 dias antes de renovar.</div>`}
+      <p class="au-p">O pagamento acontece numa página segura da <b>Stripe</b>, no seu navegador — o cartão nunca passa pelo app.</p>
+      <div class="au-methods" aria-label="formas de pagamento aceitas na Stripe"><span>Cartão</span><span>Pix</span><span>Boleto/NF</span><em>você escolhe lá</em></div>
+      ${au.waiting?`<div class="au-wait">${brandLoaderHtml('esperando a confirmação da Stripe…', { inline:true, now:true })}<div class="au-hint">Concluiu o pagamento? O app reconhece sozinho em instantes. <a id="auRecheck">verificar agora</a></div></div>`:`<button class="au-btn primary big" id="auGo"${au.busy?' disabled':''}>${au.busy?'abrindo a Stripe…':`Começar teste de ${trial} dias`}</button><div class="au-hint" style="margin-top:10px">Sem cobrança agora. Avisamos 3 dias antes de renovar.</div>`}
     </div>
     <aside class="au-payr"><div class="au-lbl" style="margin:0 0 10px">resumo</div><div class="au-sumt"><i></i>${esc(name)} · ${iv==='year'?'anual':'mensal'}</div>
       ${perSeat?`<div class="au-sumr"><span>Assento</span><b>${fmtBRL(per).replace(',00','')}/mês</b></div>`:''}<div class="au-sumr"><span>Assentos</span><b>${seats}</b></div><div class="au-sumr"><span>Após o teste</span><b>${fmtBRL(total).replace(',00','')}/${iv==='year'?(perSeat||au.plan.key!=='team'?'mês (anual)':'ano'):'mês'}</b></div>
@@ -401,19 +425,43 @@ function auRenderPay(R, topbar){
   bindClick('auGo', ()=>auCheckout());
   bindClick('auRecheck', async()=>{ try{ await billingSync(); }catch(_){ } if(billingActive()) auShow('ready'); else { au.msg='ainda não chegou a confirmação — tente de novo em alguns segundos.'; auRender(); } });
 }
+// erro do checkout em pt-BR (antes: "Não consegui abrir o checkout: Unexpected token '<'…" quando a function
+// respondia HTML, ou "HTTP 500") — puro, testado em app/tests/onboarding-conta.test.mjs
+function auCheckoutErr(status, body, e){
+  const m=String((body&&(body.error||body.message))||(e&&e.message)||'');
+  if(e && (e.network || /failed to fetch|load failed|networkerror/i.test(m))) return 'Sem conexão com o servidor de pagamento — confira a internet e tente de novo.';
+  if(status===401||status===403) return 'Sua sessão expirou — saia e entre de novo pra assinar.';
+  if(/seat|assento/i.test(m)) return 'O número de assentos não bate com o plano — ajuste e tente de novo.';
+  if(/\b(team(_?id)?|time)\b/i.test(m) && status>=400 && status<500) return 'Pra assinar o plano Time, crie ou entre num time primeiro (Conta e time).';
+  if(status===404) return 'O pagamento ainda não está disponível neste servidor — fale com o suporte do Starfork.';
+  if(status>=500 || !status) return 'O servidor de pagamento está com problema agora — tente de novo em alguns minutos.';
+  // RPC/function do Starfork que já fala português passa como veio
+  if(typeof isPtText==='function' ? isPtText(m) : /[ãõçéêáíóú]/i.test(m)) return m.charAt(0).toUpperCase()+m.slice(1);
+  return 'Não deu pra abrir o pagamento agora — tente de novo em instantes.';
+}
 async function auCheckout(){
-  const p=auPlanRow(au.plan.key, au.plan.interval); if(!p){ au.msg='plano não encontrado no backend.'; auRender(); return; }
-  if(au.plan.key==='team' && !cloudTeamId()){ au.msg='pra assinar o plano Time, crie ou entre num time primeiro (Conta → Sua organização).'; auRender(); return; }
-  au.busy=true; auRender();
+  if(au.busy) return; // 2 cliques = 2 sessões de checkout
+  const p=auPlanRow(au.plan.key, au.plan.interval); if(!p){ au.msg='Esse plano não está disponível agora — volte e escolha de novo.'; auRender(); return; }
+  if(au.plan.key==='team' && !cloudTeamId()){ au.msg='Pra assinar o plano Time, crie ou entre num time primeiro (Conta e time › Sua organização).'; auRender(); return; }
+  const sess=SB.sess(); if(!sess||!sess.access_token){ au.msg=T('auth.err.session_expired'); auRender(); return; }
+  au.busy=true; au.msg=''; auRender();
+  let r=null, j=null;
   try{
-    const r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST', headers:{ 'Content-Type':'application/json', 'apikey':SB.key(), 'Authorization':'Bearer '+SB.sess().access_token },
+    r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST', headers:{ 'Content-Type':'application/json', 'apikey':SB.key(), 'Authorization':'Bearer '+sess.access_token },
       body: JSON.stringify({ planId:p.id, teamId: au.plan.key==='team'?cloudTeamId():null, seats: (au.plan.key==='team'&&p.per_seat)?au.plan.seats:1 }) });
-    const j=await r.json(); if(!j.url) throw new Error(j.error||('HTTP '+r.status));
-    try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
-    au.waiting=true; au.busy=false; auRender();
-    if(_auTimer) clearInterval(_auTimer);
-    _auTimer=setInterval(async()=>{ if(au.step!=='pay'||!auOpen()){ clearInterval(_auTimer); _auTimer=null; return; } try{ await billingSync(); }catch(_){ } if(billingActive()){ clearInterval(_auTimer); _auTimer=null; auShow('ready'); } }, 5000);
-  }catch(e){ au.msg='Não consegui abrir o checkout: '+auErr(e); au.busy=false; auRender(); }
+    j=await r.json().catch(()=>null);
+  }catch(e){ // só é "sem conexão" quando o fetch diz isso; o resto (AbortError, bug) cai no genérico
+    const net=/failed to fetch|load failed|networkerror/i.test(String((e&&e.message)||e||''));
+    au.msg=auCheckoutErr(0, null, net?{ network:true, message:String(e&&e.message||'') }:e); au.busy=false; auRender(); return; }
+  // 200 sem url: a function respondeu fora do contrato — vai pro app_errors (o suporte acha) e a pessoa sabe que não é com ela
+  if(r.ok && (!j || !j.url)){
+    try{ if(window.logAppError) window.logAppError('checkout', new Error('stripe-checkout 200 sem url'), { plan:au.plan.key, interval:au.plan.interval }); }catch(_){ }
+    au.msg='A página de pagamento não abriu — o problema é do nosso lado e já foi registrado. Tente de novo em alguns minutos.'; au.busy=false; auRender(); return; }
+  if(!r.ok){ au.msg=auCheckoutErr(r.status, j); au.busy=false; auRender(); return; }
+  try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
+  au.waiting=true; au.busy=false; auRender();
+  if(_auTimer) clearInterval(_auTimer);
+  _auTimer=setInterval(async()=>{ if(au.step!=='pay'||!auOpen()){ clearInterval(_auTimer); _auTimer=null; return; } try{ await billingSync(); }catch(_){ } if(billingActive()){ clearInterval(_auTimer); _auTimer=null; auShow('ready'); } }, 5000);
 }
 // ---- gates: substituem o cadeado do cloudOverlay e o payOverlay antigo ----
 loginGateSync=function(){
