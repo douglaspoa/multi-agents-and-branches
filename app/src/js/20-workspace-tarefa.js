@@ -404,7 +404,7 @@ function phasesHtml(t){
 function fwSendRowHtml(t){
   const asking=pendingOf(t.id).length>0, working=fwIsWorking(t);
   const btns = asking ? `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">responder</button>`
-    : working ? `<button class="btn sm trk-stop" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">■ parar e enviar</button><button class="btn primary sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
+    : working ? `<button class="btn sm trk-stop" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">${IC.stop} parar e enviar</button><button class="btn primary sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
     : `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">enviar</button>`;
   const hint = asking ? '<span class="kbd">Enter</span> responde · <span class="kbd">⇧Enter</span> quebra linha'
     : working ? '<span class="kbd">Enter</span> põe na fila (não interrompe) · <span class="kbd">⌘Enter</span> para e envia já'
@@ -426,16 +426,16 @@ function fwPaintSendRow(t){
 function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
 function fwPrimaryAction(t){
   // rascunho: o topo não tinha ação nenhuma — começar é o próximo passo óbvio (mesmo ▶ iniciar da Central)
-  if(t.status==='draft') return { id:'fwStartDraft', html:'▶ iniciar', title:'começa a execução com o que já está no rascunho' };
+  if(t.status==='draft') return { id:'fwStartDraft', html:`${IC.play} iniciar`, title:'começa a execução com o que já está no rascunho' };
   if(pendingOf(t.id).length) return { id:'fwAnswer', html:`${IC.hand} responder`, title:'o agente fez uma pergunta — a resposta vai na conversa' };
-  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`■ parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
-  if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
+  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`${IC.stop} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
+  if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:`${IC.retry} rodar de novo`, title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
   if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia' };
-  if(t.status==='paused') return { id:'fwResume', html:'▶ continuar', title:'retoma a tarefa de onde parou' };
-  if(t.status==='plan-review') return { id:'fwApprovePlan', html:'▶ aprovar plano', title:'o plano está pronto — aprovar deixa o time começar a construir' };
+  if(t.status==='paused') return { id:'fwResume', html:`${IC.play} continuar`, title:'retoma a tarefa de onde parou' };
+  if(t.status==='plan-review') return { id:'fwApprovePlan', html:`${IC.ok} aprovar plano`, title:'o plano está pronto — aprovar deixa o time começar a construir' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
   if(t.prUrl){ const n=fwPrNum(t);
-    return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n} ↗`, title:'abrir o PR no GitHub' }
+    return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n}`, title:'abrir o PR no GitHub' }
       : { id:'fwPrGo', html:`${IC.merge} ver PR #${n}`, title:'comentários, checagens e merge do PR' }; }
   if(taskIsDone(t)) return null;
   if(['review','delivered'].includes(t.status)){
@@ -463,7 +463,7 @@ function fwMoreItems(t){
   if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
   if(t.prUrl){ const n=fwPrNum(t);
     if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
-    if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub ↗` });
+    if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub` });
     it.push({ k:'prcopy', label:'copiar link do PR' });
   } else if(!done && !nogit && !fwArtOnly(t) && t.status!=='draft' && !['review','delivered'].includes(t.status)){
     it.push({ k:'propen', label:'abrir PR', hint:'checagens do repo → commit & push → cria o PR' });
@@ -863,7 +863,7 @@ function fwRenderPrPage(t, main){
     </div>
     <div class="prright">
       ${info.state==='OPEN'?`<div class="prpgmerge">${prMergeBtnHtml(info,'prPgMerge','primary','font-weight:700')}${prMergeWhyHtml(info)}${fwPrUnblockHtml(info)}</div>`:''}
-      <div class="prcmtsh"><span class="prcmtsn mono">COMENTÁRIOS · ${cm.countTx}</span>${cm.toggle}</div>
+      <div class="prcmtsh"><span class="prcmtsn">Comentários · ${cm.countTx}</span>${cm.toggle}</div>
       <div style="margin-top:8px">${cm.html}</div>
       ${cm.open>1?`<button class="btn primary sm" id="prPgAll" style="margin-top:6px">${IC.ai} corrigir todos os ${cm.open} em aberto</button>`:''}
     </div>
@@ -955,7 +955,7 @@ function fwThreadHtml(t){
     if(e.type==='note' && (e.tool || /^(entregável novo registrado|issue registrada|pronto quando )/.test(tx))){ flush(); lastWho=''; out.push(toolChip(tx.replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       flush();
-      const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</div>`:'';
+      const who=e.agent!==lastWho?`<div class="cwho"><b>${esc(e.agent||'')}</b><span class="cwho-m"> · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</span></div>`:'';
       lastWho=e.agent;
       out.push(`<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
       continue;
@@ -968,7 +968,7 @@ function fwThreadHtml(t){
   // eco otimista: mensagens enviadas que o banco ainda não confirmou (ver fwOptim)
   for(const o of fwOptimFor(t.id, evs)) out.push(fwOptimHtml(o));
   return out.join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'TETO DE CUSTO · SUA DECISÃO':esc(((asking[0].agent||t.agent)||'').toUpperCase())+' · PERGUNTA PENDENTE'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'<b>Teto de custo</b><span class="cwho-m"> · sua decisão</span>':'<b>'+esc((asking[0].agent||t.agent)||'')+'</b><span class="cwho-m"> · pergunta pra você</span>'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
       return (Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts${sent!=null?' sent':''}">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}"${sent!=null?` disabled${sent===o?' class="on" aria-pressed="true"':''}`:''}>${esc(o)}</button>`).join('')}</div>`:'')
         +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'↳ escolha uma opção — o agente fica pausado até você decidir':'↳ responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
   + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
