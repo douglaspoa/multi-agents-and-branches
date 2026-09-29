@@ -59,7 +59,8 @@ async function emStart(){
     if(window.plStartWith) window.plStartWith(text);
   }catch(e){
     const m=String((e&&e.message)||e||'');
-    emShowErr(/não está instalado/.test(m) ? m : 'Não deu pra criar o projeto: '+m); // git ausente: o Rust já manda a mensagem com o conserto
+    // git ausente: o Rust já manda a mensagem com o conserto; o resto passa pelo tradutor único (sem inglês cru na tela)
+    emShowErr(/não está instalado/.test(m) ? m : ((typeof humanErr==='function') ? humanErr(e,'Não deu pra criar o projeto').msg : 'Não deu pra criar o projeto: '+m));
   }finally{
     emBusy=false; if(b){ b.disabled=false; b.textContent='Começar'; }
     emRenderWhere();
