@@ -1,0 +1,14 @@
+/* Starfork — 88-acessibilidade (R8): painel de atalhos + detalhes de foco das janelas.
+   O estilo de foco em si é UM só (--ring, em 10-base.css); aqui só o que é desta fatia. */
+/* a janela recebe foco quando não tem nada focável dentro (ex.: "colocando no ar") — sem anel na caixa inteira */
+[role=dialog]:focus-visible,[role=region]:focus-visible{box-shadow:none;outline:none}
+.kbdmodal{width:min(620px,100%)}
+.kbdmodal .mbody{display:grid;grid-template-columns:1fr;gap:14px;max-height:68vh;overflow:auto}
+.kbdsec{min-width:0}
+.kbdh{margin:0 0 6px;font-size:var(--fs-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.kbdlist{margin:0;display:flex;flex-direction:column}
+.kbdrow{display:grid;grid-template-columns:minmax(150px,auto) 1fr;gap:14px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)}
+.kbdrow:first-child{border-top:0}
+.kbdrow dt{white-space:nowrap}
+.kbdrow dd{margin:0;color:var(--text-2);font-size:var(--fs-sm)}
+.kbdrow kbd{display:inline-block;min-width:22px;text-align:center;font:500 11.5px/1.5 var(--mono);color:var(--text);background:var(--surface-3);border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:5px;padding:0 6px}
