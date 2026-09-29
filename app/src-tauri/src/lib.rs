@@ -3718,10 +3718,15 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 300)?;
+    // parável (orq_plan_stop → ORQ_PLAN_STOPPED): antes eram até 5 min de "montando o plano" sem saída
+    let out = output_stoppable(cmd, 300, &ORQ_PLAN_PID, "ORQ_PLAN_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(v["result"].as_str().unwrap_or("").to_string())
 }
+static ORQ_PLAN_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+/// PARA o orquestrador montando o plano (ai_orchestrate → ORQ_PLAN_STOPPED).
+#[tauri::command(async)]
+fn orq_plan_stop() -> Result<bool, String> { Ok(stop_slot(&ORQ_PLAN_PID)) }
 
 fn orch_dir(repo: &PathBuf) -> PathBuf {
     let d = repo.join(".cardume").join("orchestrations");
@@ -8530,6 +8535,7 @@ pub fn run() {
             issue_chat_stop,
             project_chat_stop,
             orq_chat_stop,
+            orq_plan_stop,
             create_skill,
             import_skill_md,
             git_skills,

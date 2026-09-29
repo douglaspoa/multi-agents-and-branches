@@ -148,3 +148,11 @@
 #ntOverlay #ntMissing{font:400 var(--fs-sm) var(--display);color:var(--text-3)}
 #ntOverlay #ntMissing.ok{color:var(--text-2)}
 #ntOverlay .in.missnow{border-color:color-mix(in srgb,var(--warn) 60%,var(--border))}
+
+/* ---- R8 (Dividir / orquestrador) ---- */
+.orq-busyrow{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;font:400 var(--fs-sm) var(--display)}
+.orq-busyrow .trk-stop{display:inline-flex}
+.orq-msg{display:flex;align-items:flex-start;gap:12px;font-family:var(--display);line-height:1.5}
+.orq-msg>span{flex:1;min-width:0}
+.orq-msg.err{background:color-mix(in srgb,var(--st-err,#e5534b) 8%,transparent);border:1px solid color-mix(in srgb,var(--st-err,#e5534b) 25%,var(--border));color:var(--text-2)}
+.orq-msg .btn{flex:none}
