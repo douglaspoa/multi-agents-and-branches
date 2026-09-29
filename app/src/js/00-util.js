@@ -82,34 +82,35 @@ async function askYes(message, title){
 // `short` = forma curta (etiqueta da barra lateral / espaço apertado) — derivada DESTE mapa, nunca inventada na tela.
 // 'pr-open' é um status DERIVADO (tarefa com PR aberto no GitHub), usado pelo taskSt(t) do 22.
 const STATUS_META={
-  draft:        { pt:'rascunho',          short:'rascunho', c:'var(--muted)',     ic:'·' },
-  backlog:      { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'·' },
-  queued:       { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'·' },
-  'plan-review':{ pt:'plano pra aprovar', short:'plano',    c:'var(--st-ask)',    ic:'?' },
-  running:      { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'●' },
-  thinking:     { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'●' },
-  asking:       { pt:'aguardando você',   short:'aguardando', c:'var(--st-ask)',    ic:'?' },
-  paused:       { pt:'pausada',           short:'pausada',  c:'var(--muted)',     ic:'❚❚' },
-  review:       { pt:'pronta pra revisar',short:'pra revisar', c:'var(--st-review)', ic:'◆' },
-  delivered:    { pt:'pronta pra revisar',short:'pra revisar', c:'var(--st-review)', ic:'◆' },
-  'pr-open':    { pt:'PR aberto',         short:'PR',       c:'var(--info)',      ic:'⌥' },
-  done:         { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'✓' },
-  merged:       { pt:'mergeada',          short:'mergeada', c:'var(--st-done)',   ic:'✓' },
-  closed:       { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'✓' },
-  error:        { pt:'erro',              short:'erro',     c:'var(--st-err)',    ic:'!' },
-  conflict:     { pt:'conflito',          short:'conflito', c:'var(--st-err)',    ic:'!' },
-  blocked:      { pt:'bloqueada',         short:'bloqueada',c:'var(--warn)',      ic:'⊘' },
-  aborted:      { pt:'abortada',          short:'abortada', c:'var(--muted)',     ic:'×' },
-  cancelled:    { pt:'cancelada',         short:'cancelada',c:'var(--muted)',     ic:'×' },
-  waiting:      { pt:'na espera',         short:'espera',   c:'var(--muted)',     ic:'·' },
+  draft:        { pt:'rascunho',          short:'rascunho', c:'var(--muted)',     ic:'stQueue' },
+  backlog:      { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'stQueue' },
+  queued:       { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'stQueue' },
+  'plan-review':{ pt:'plano pra aprovar', short:'plano',    c:'var(--st-ask)',    ic:'stAsk' },
+  running:      { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'stRun' },
+  thinking:     { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'stRun' },
+  asking:       { pt:'aguardando você',   short:'aguardando', c:'var(--st-ask)',    ic:'stAsk' },
+  paused:       { pt:'pausada',           short:'pausada',  c:'var(--muted)',     ic:'stPause' },
+  review:       { pt:'pronta pra revisar',short:'pra revisar', c:'var(--st-review)', ic:'stReview' },
+  delivered:    { pt:'pronta pra revisar',short:'pra revisar', c:'var(--st-review)', ic:'stReview' },
+  'pr-open':    { pt:'PR aberto',         short:'PR',       c:'var(--info)',      ic:'stPr' },
+  done:         { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'stDone' },
+  merged:       { pt:'integrada',         short:'integrada', c:'var(--st-done)',   ic:'stDone' },
+  closed:       { pt:'concluída',         short:'concluída',c:'var(--st-done)',   ic:'stDone' },
+  error:        { pt:'erro',              short:'erro',     c:'var(--st-err)',    ic:'stErr' },
+  conflict:     { pt:'conflito',          short:'conflito', c:'var(--st-err)',    ic:'stErr' },
+  blocked:      { pt:'bloqueada',         short:'bloqueada',c:'var(--warn)',      ic:'stBlock' },
+  aborted:      { pt:'interrompida',      short:'interrompida', c:'var(--muted)',     ic:'stX' },
+  cancelled:    { pt:'cancelada',         short:'cancelada',c:'var(--muted)',     ic:'stX' },
+  waiting:      { pt:'na espera',         short:'espera',   c:'var(--muted)',     ic:'stQueue' },
 };
-function stMeta(st){ return STATUS_META[st]||{ pt:String(st||'—'), c:'var(--muted)', ic:'·' }; }
+function stMeta(st){ return STATUS_META[st]||{ pt:String(st||'—'), c:'var(--muted)', ic:'stQueue' }; }
 function stLabel(st){ return stMeta(st).pt; }
 function stColor(st){ return stMeta(st).c; }
-function stIcon(st){ return stMeta(st).ic; }
+// ícone = SVG de IC (10-core) pela chave guardada em STATUS_META.ic; é HTML: NÃO passe por esc()
+function stIcon(st){ const k=stMeta(st).ic; return (typeof IC!=='undefined'&&IC[k])||''; }
 function stIsBad(st){ return st==='error'||st==='conflict'; }
 // selo de status padrão (mesma cara em todas as telas)
-function stBadge(st){ const m=stMeta(st); return '<span class="stbadge" style="--stc:'+m.c+'"><i>'+m.ic+'</i>'+m.pt+'</span>'; }
+function stBadge(st){ const m=stMeta(st); return '<span class="stbadge" style="--stc:'+m.c+'"><i>'+stIcon(st)+'</i>'+m.pt+'</span>'; }
 
 // ===== toast global: feedback curto de sucesso/aviso sem travar a tela (alert só pra erro fatal) =====
 // action (opcional): { label, fn } vira um botão no próprio toast (ex.: "abrir Ambiente");
