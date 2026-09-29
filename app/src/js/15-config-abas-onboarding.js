@@ -389,7 +389,7 @@ function renderTabs(){
     // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
     // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.
     return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
-  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
+  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-label="nova demanda" aria-keyshortcuts="Meta+N Control+N" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
   bar.querySelectorAll('[data-tk]').forEach(el=>{
     el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
     // botão do meio fecha a aba (como no navegador)
@@ -412,7 +412,7 @@ function renderTabs(){
   });
   // E6 (bug #9): o X da aba perguntava nada e jogava fora a edição não salva do arquivo (só ⌘W e o botão fechar perguntavam)
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); tabCloseGuarded(el.dataset.xk); });
-  const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
+  const add=$id('tabAdd'); if(add){ add.onclick=()=>openTab('nova'); add.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openTab('nova'); } }; } // R8 a11y: o + era um span fora do Tab
   { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
   // sem #tabRight o nó continua guardado em _updBtnNode e volta no próximo render (nunca se perde)
@@ -557,7 +557,43 @@ function coachStart(){
 // ---------- atalhos ----------
 // ⌘J/⌘, abrem como ABA (igual à barra lateral — antes viravam modal flutuante), ⌘W fecha a aba ativa,
 // ⌘1…⌘8 vão pra aba N e ⌘9 pra última (como no navegador). A lista fica no tooltip do "+" da barra de abas.
-const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba · ⌘⇧[ ⌘⇧] ou Ctrl+Tab / Ctrl+⇧Tab aba anterior/próxima · Delete fecha a aba em foco · arraste uma aba pra reordenar';
+// R8 a11y: UMA lista (tecla, o que faz) — o tooltip do "+" e o painel de atalhos (tecla ? ou ⌘/) saem daqui.
+// Faltavam: ⌘B dentro da tarefa, Esc, Enter/⇧Enter no chat, ⌘Enter nos campos de demanda, ←/→ nas abas e nos prints.
+// @puro-atalhos-inicio (testado em app/tests/acessibilidade.test.mjs)
+// tecla = lista de teclas; 'ou' entre elas é texto (não vira tecla desenhada)
+const SHORTCUTS=[
+  ['Abas e navegação', [
+    [['⌘N'],'nova demanda (sempre abre uma aba nova)'],
+    [['⌘K'],'buscar na Central de execuções'],
+    [['⌘J'],'chat do projeto'],
+    [['⌘,'],'configurações'],
+    [['⌘O'],'abrir pasta de projeto'],
+    [['⌘B'],'recolher/mostrar a barra lateral (numa tarefa: a lista de arquivos)'],
+    [['⌘W'],'fechar a aba atual'],
+    [['⌘1…⌘9'],'ir pra aba 1…8 (⌘9 = última)'],
+    [['⌘⇧[','⌘⇧]'],'aba anterior / próxima'],
+    [['Ctrl+Tab','Ctrl+⇧Tab'],'próxima / anterior aba'],
+    [['←','→'],'com o foco na barra de abas: passar de aba'],
+    [['Delete'],'fechar a aba em foco'],
+  ]],
+  ['Escrever e responder', [
+    [['Enter'],'enviar a mensagem no chat'],
+    [['⇧Enter'],'quebrar linha no chat'],
+    [['⌘Enter'],'continuar/iniciar nos campos de nova demanda'],
+    [['Esc'],'fechar a janela ou o detalhe aberto (não fecha com texto por enviar)'],
+  ]],
+  ['Provas e janelas', [
+    [['←','→'],'print anterior / próximo na visualização de provas'],
+    [['Tab','⇧Tab'],'andar pelos botões (numa janela, o foco fica dentro dela)'],
+    [['?','ou','⌘/'],'mostrar estes atalhos'],
+  ]],
+];
+const SHORTCUT_WORDS=new Set(['ou','e']);
+function shortcutsFlat(list){ return (list||[]).flatMap(g=>g[1]); }
+function shortcutKeysText(keys){ return (keys||[]).join(' '); }
+function shortcutsHelpText(list){ return 'Atalhos: '+shortcutsFlat(list).map(([k,d])=>shortcutKeysText(k)+' '+d).join(' · ')+' · arraste uma aba pra reordenar'; }
+// @puro-atalhos-fim
+const SHORTCUTS_HELP=shortcutsHelpText(SHORTCUTS);
 document.addEventListener('keydown', async e=>{
   if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
   const k=(e.key||'').toLowerCase();

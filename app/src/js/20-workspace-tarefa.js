@@ -592,7 +592,7 @@ function renderWorkspace(){
       bindClick('fwArchive', async(e)=>{ const b=e.currentTarget;
         // E11a: com entregáveis ainda não salvos, leva pra Entrega com a barra "Salvar entregáveis na pasta" (salva e conclui lá)
         if(fwArchiveNeedsSave(t)){ fwMode='entrega'; fwRememberTab(); renderWorkspace();
-          setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-save'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
+          setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-save'); if(s){ s.scrollIntoView(scrollOpts('center')); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
           toast('Salve os entregáveis numa pasta sua e conclua — ou use "só concluir".','info'); return; }
         b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
@@ -705,7 +705,7 @@ function renderWorkspace(){
       : !dvRaw.trim() ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div>sem diferenças neste arquivo em relação à base</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
       : `<div class="fwcode fwdv" id="fwCode">${diffViewHtml(diffHunks(dvRaw), { full:fwContentFor===t.id+'|'+fwPath?lines:null, sel, keyPre:t.id+'|'+fwPath+'|' })}</div>`;
     const body = fwEditing
-      ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
+      ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" data-tab-indent spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
       : codeView==='diff' ? dvBody
       : loadingFile ? skeletonHtml('lista',{ n:10, compact:true, inline:true, label:'abrindo o arquivo' })
       : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="dim" style="font-size:12px;white-space:pre-wrap" title="${escA(fwReadErr.slice(0,400))}">${esc(errShort(fwReadErr))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`

@@ -279,7 +279,7 @@ function renderDaily(){
   const body=$id('dailyBody'); if(!body||!dailyData) return;
   const iso=dailyIso||($id('dailyDate')||{}).value||'';
   const head=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">O que os agentes fizeram — pronto pra colar na reunião.</p></div>
-    <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" style="color:var(--text);padding:8px 12px">
+    <div class="as-actions"><input type="date" id="dlDate" aria-label="dia do resumo" class="as-btn as-mono" value="${escA(iso)}" style="color:var(--text);padding:8px 12px">
       <button class="as-btn" id="dlAI">resumo curto</button><button class="as-btn primary" id="dlDoc">DOC + PDF</button></div></div>`;
   if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div style="margin-top:22px">${emptyHtml({ icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"><rect x="2.6" y="3.4" width="10.8" height="10" rx="1.6"/><path d="M2.6 6.6h10.8M5.4 2.2v2.4M10.6 2.2v2.4"/></svg>', title:'Dia sem atividade', help:'Nenhuma tarefa deste projeto teve movimento em '+(iso?iso.split('-').reverse().join('/'):'nesse dia')+'.', action:{ label:'ver o dia anterior', id:'dlPrev', primary:false } })}</div></div>`; wireDaily(); return; }
   const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
@@ -290,7 +290,7 @@ function renderDaily(){
   const cards=dailyData.map(t=>{
     const cs=dailyCommits[t.id]||[];
     const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 12.5px/1.45 var(--code);min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:rgba(234,242,238,.62);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 12px var(--display);color:var(--text-3)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:12px">sem commits</div>';
-    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 12px/1.45 var(--display);color:rgba(234,242,238,.5)"><span style="color:rgba(255,255,255,.22)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:12px">—</div>';
+    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 12px/1.45 var(--display);color:rgba(234,242,238,.5)"><span aria-hidden="true" style="color:var(--text-3)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:12px">—</div>';
     return `<div class="as-card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
         <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>

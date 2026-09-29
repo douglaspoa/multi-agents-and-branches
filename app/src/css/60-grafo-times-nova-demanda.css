@@ -132,7 +132,7 @@
 #ntOverlay .ndh1{font-size:28px;margin:12px 0 6px}
 #ntOverlay .ndsub{margin-bottom:22px;max-width:680px}
 #ntOverlay #wizGuide{margin:-8px 0 20px}
-#ntOverlay #wizGuide summary{font:500 12px var(--display);color:rgba(255,255,255,.45);list-style:none;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+#ntOverlay #wizGuide summary{font:500 12px var(--display);color:var(--text-3);list-style:none;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 #ntOverlay #wizGuide summary::-webkit-details-marker{display:none}
 #ntOverlay #wizGuide summary:hover{color:var(--text)}
 #ntOverlay #wizGuideTx{margin-top:10px;border:1px solid rgba(255,255,255,.08)!important;border-radius:10px!important;background:var(--card-bg)!important;padding:14px 16px!important;font:400 13px/1.55 var(--display)!important;color:rgba(234,242,238,.7)}
@@ -144,7 +144,7 @@
 #ntOverlay .in,#ntOverlay .sel,#ntOverlay .ta{background:var(--card-bg);border:1px solid rgba(255,255,255,.1);border-radius:9px;color:var(--text);font:400 14px/1.5 var(--display);padding:11px 13px;box-shadow:none;width:100%}
 #ntOverlay .in.mono{font-family:var(--code);font-size:13px}
 #ntOverlay .in::placeholder,#ntOverlay .ta::placeholder{color:var(--text-3)}
-#ntOverlay .in:focus,#ntOverlay .sel:focus,#ntOverlay .ta:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent);outline:none}
+#ntOverlay .in:focus,#ntOverlay .sel:focus,#ntOverlay .ta:focus{border-color:var(--accent);box-shadow:var(--ring);outline:2px solid transparent}
 #ntOverlay .in.okf{border-color:color-mix(in srgb,var(--accent) 40%,rgba(255,255,255,.1))}
 #ntOverlay .in.missf{border-color:rgba(255,255,255,.1)} /* âmbar em campo ainda vazio era ruído */
 #ntOverlay .ta{min-height:180px}
@@ -224,7 +224,7 @@
 .aiic svg{width:15px;height:15px}
 .ain{font:600 13.5px var(--display)}
 .aiv{font:500 10.5px var(--code);color:var(--text-3)}
-.aidesc{font:400 12px var(--display);color:rgba(255,255,255,.45);margin:10px 2px 8px}
+.aidesc{font:400 12px var(--display);color:var(--text-3);margin:10px 2px 8px}
 .aimodels{display:flex;flex-wrap:wrap;gap:8px}
 .aimodel{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:var(--card-bg);color:var(--text);font:inherit;cursor:pointer;transition:.12s}
 .aimodel b{font:600 12.5px var(--display)}
@@ -241,7 +241,7 @@
 .tmhead{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px}
 .tmtl{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .tmtl .tmtitle{font:600 16px/1.2 var(--display);color:var(--text)}
-.tmmeta{flex-basis:100%;font:400 12px var(--display);color:rgba(255,255,255,.45)}
+.tmmeta{flex-basis:100%;font:400 12px var(--display);color:var(--text-3)}
 .tmr{display:flex;align-items:center;gap:8px;flex:none}
 .tmbadge.on{font:500 10.5px var(--code);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:var(--r-pill);padding:3px 9px;background:rgba(63,214,138,.06)}
 .mlist{display:flex;flex-direction:column}
@@ -252,7 +252,7 @@
 .mnm{flex:1;min-width:0;display:block;font:600 13.5px var(--display);color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mnm .mme{display:inline-block;margin-left:6px;font:500 10px var(--code);color:var(--text-3);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:1px 5px;vertical-align:1px}
 .mnm .msub{display:block;margin-top:2px;font:400 11.5px var(--display);color:var(--text-3)}
-.mrole{flex:none;font:500 10.5px var(--code);color:rgba(255,255,255,.45);border:1px solid rgba(255,255,255,.1);border-radius:var(--r-pill);padding:3px 9px}
+.mrole{flex:none;font:500 10.5px var(--code);color:var(--text-3);border:1px solid rgba(255,255,255,.1);border-radius:var(--r-pill);padding:3px 9px}
 .mrole.lead{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
 .macts{display:flex;align-items:center;gap:6px;flex:none}
 .mrm{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text-3);cursor:pointer;padding:0}
@@ -385,7 +385,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .au-lbl{display:block;margin:16px 0 7px;font:500 10.5px var(--code);letter-spacing:.14em;text-transform:uppercase;color:var(--text-3)}
 .au-in{width:100%;background:var(--card-bg);border:1px solid rgba(255,255,255,.1);border-radius:9px;color:var(--text);font:400 14px var(--display);padding:12px 14px}
 .au-in::placeholder{color:var(--text-3)}
-.au-in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.au-in:focus{outline:2px solid transparent;border-color:var(--accent);box-shadow:var(--ring)}
 .au-strength{display:flex;align-items:center;gap:5px;margin-top:8px}
 .au-strength i{height:2px;width:56px;background:rgba(255,255,255,.1);border-radius:var(--r-pill)}.au-strength i.on{background:var(--accent)}
 .au-strength span{margin-left:8px;font:400 11px var(--code);color:var(--text-3)}
@@ -397,7 +397,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .au-hint{font:400 12px/1.5 var(--display);color:var(--text-3)}.au-hint a{color:var(--accent);cursor:pointer}
 .au-code{display:flex;gap:10px;margin:6px 0 4px}
 .au-code input{width:56px;height:60px;text-align:center;font:600 22px var(--code);background:var(--card-bg);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:var(--text)}
-.au-code input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.au-code input:focus{outline:2px solid transparent;border-color:var(--accent);box-shadow:var(--ring)}
 .au-code input:not(:placeholder-shown){border-color:color-mix(in srgb,var(--accent) 50%,transparent)}
 .au-check{width:56px;height:56px;border-radius:14px;background:color-mix(in srgb,var(--accent) 12%,transparent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);display:grid;place-items:center;font:600 24px var(--display);color:var(--accent);margin-bottom:22px;box-shadow:0 0 30px color-mix(in srgb,var(--accent) 15%,transparent)}
 .au-todo{display:flex;flex-direction:column;gap:8px;margin:6px 0 24px}
@@ -446,7 +446,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .au-methods button.on{background:var(--accent);color:var(--on-accent);border-color:transparent}
 .au-methods{align-items:center;flex-wrap:wrap}
 .au-methods span{border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7);font:500 12px var(--display);padding:5px 12px;border-radius:99px}
-.au-methods em{font:400 12px var(--display);color:rgba(255,255,255,.4);font-style:normal}
+.au-methods em{font:400 12px var(--display);color:var(--text-3);font-style:normal}
 /* "trocar e-mail" não quebra no hífen ("trocar e-" / "mail") */
 .au-p a[data-act]{white-space:nowrap}
 .au-warnlink{color:var(--warn)!important}
@@ -501,8 +501,8 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .au-msg.info{border-left-color:var(--info);background:color-mix(in srgb,var(--info) 7%,transparent)}
 .au-acts{margin-left:6px;white-space:nowrap}.au-acts a,.au-p a{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .au-ref{display:block;margin-top:4px;font:400 10.5px var(--code);color:var(--text-3)}
-.au-link:focus-visible,.au-eye:focus-visible,.au-legal a:focus-visible,.au-acts a:focus-visible,.au-hint a:focus-visible,.au-p a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
-.au-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.au-link:focus-visible,.au-eye:focus-visible,.au-legal a:focus-visible,.au-acts a:focus-visible,.au-hint a:focus-visible,.au-p a:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);border-radius:3px}
+.au-btn:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);}
 /* aba Time: escopo meu time × organização inteira (super usuário) */
 .tsscope{display:inline-flex;gap:2px;background:var(--surface-3);border-radius:8px;padding:2px;margin-right:10px;align-self:center}
 .tsscope button{border:0;background:transparent;color:var(--text-2);font:500 11.5px var(--display);padding:3px 10px;border-radius:6px;cursor:pointer}
@@ -575,7 +575,7 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 /* fila dos épicos: um bloco por épico, borda na cor dele */
 .epqep{ border-left:3px solid var(--epc,var(--accent)); padding-left:10px; margin:4px 0 12px; }
 .epqh{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 2px 8px; cursor:pointer; user-select:none; }
-.epqh:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+.epqh:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);border-radius:6px; }
 .epqh .epqname{ font-size:13px; color:var(--epc,var(--accent)); }
 .epqh .epqk{ font:500 var(--fs-xs) var(--ui); color:var(--text-2); }
 .epqh .btn{ padding:3px 9px; font-size:10.5px; }
@@ -618,7 +618,8 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .epq-wv{ cursor:help; text-decoration:underline dotted color-mix(in srgb,currentColor 45%,transparent); text-underline-offset:3px; }
 .epqdots{ display:inline-flex; gap:4px; align-items:center; margin-left:6px; padding:3px 6px; border:1px solid var(--border); border-radius:var(--r-pill); }
 .epqdot{ width:9px; height:9px; padding:0; border-radius:50%; border:0; background:var(--stc,var(--muted)); cursor:pointer; flex:none; }
-.epqdot:hover,.epqdot:focus-visible{ outline:2px solid var(--stc,var(--muted)); outline-offset:2px; }
+.epqdot:hover{ outline:2px solid var(--stc,var(--muted)); outline-offset:2px; }
+.epqdot:focus-visible{ outline:2px solid transparent; box-shadow:var(--ring-inset); }
 .epqh .btn.ghost{ border:1px solid var(--border-strong); color:var(--text-2); }
 
 /* ---- R3-C2: página do épico — status 1x, faixa compacta de números, 1 primária, códigos com legenda ---- */

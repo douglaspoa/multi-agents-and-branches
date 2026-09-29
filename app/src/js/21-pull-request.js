@@ -303,7 +303,7 @@ function chkApproveClick(t){
   if(typeof entregaNonCode==='function' && entregaNonCode(t)){ fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); return; }
   const g=chkGate(t);
   if(!chkCanApprove(g)){ toast(chkBlockWhy(g),'warn'); fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
-    setTimeout(()=>{ const v=$id('enVerif'); if(v) v.scrollIntoView({ block:'center', behavior:'smooth' }); }, 60); return; }
+    setTimeout(()=>{ const v=$id('enVerif'); if(v) v.scrollIntoView(scrollOpts('center')); }, 60); return; }
   prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
 }
 // ---- "Preparando o PR" (redesign p13): verificação real → push → criar ----

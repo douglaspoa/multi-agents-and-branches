@@ -26,7 +26,7 @@
 .orq-main{flex:1;display:grid;grid-template-columns:1fr 360px;min-height:0}
 .orq-canvaswrap{display:flex;flex-direction:column;min-width:0;border-right:1px solid rgba(255,255,255,.08)}
 .orq-tools{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--display)}
-.orq-leg{display:inline-flex;align-items:center;gap:6px;font:400 11px var(--code);color:rgba(255,255,255,.45)}
+.orq-leg{display:inline-flex;align-items:center;gap:6px;font:400 11px var(--code);color:var(--text-3)}
 .orq-leg i{width:7px;height:7px;border-radius:50%;display:inline-block;margin-left:8px}
 .orq-zoom{display:inline-flex;border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden}
 .orq-zoom button{border:0;background:var(--card-bg);color:rgba(255,255,255,.7);font:500 12px var(--code);padding:6px 12px;cursor:pointer}
@@ -66,7 +66,7 @@
 .orq-nm{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3)}
 .orq-bar{height:2px;border-radius:var(--r-pill);background:rgba(255,255,255,.1);overflow:hidden}
 .orq-bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
-.orq-term{border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#0b0d0c;padding:6px 8px;font-size:9.5px;color:rgba(255,255,255,.45);display:flex;flex-direction:column;gap:3px;min-height:34px;overflow:hidden}
+.orq-term{border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#0b0d0c;padding:6px 8px;font-size:9.5px;color:var(--text-3);display:flex;flex-direction:column;gap:3px;min-height:34px;overflow:hidden}
 .orq-term span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .orq-open{border:0;border-top:1px solid rgba(255,255,255,.08);background:transparent;color:rgba(255,255,255,.55);font:500 10.5px var(--display);padding:7px 0 0;cursor:pointer;margin:0 -14px -4px;text-align:center}
 .orq-node.done .orq-open{color:var(--accent)}
@@ -84,7 +84,7 @@
 .orq-namein,.orq-objta,.orq-objin{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:9px;background:var(--card-bg);color:var(--text);font:400 13px var(--display);padding:9px 11px;outline:none}
 .orq-namein{font-weight:600;font-size:15px}
 .orq-objta{min-height:64px;resize:vertical;margin-bottom:8px}
-.orq-namein:focus,.orq-objta:focus,.orq-objin:focus{border-color:rgba(63,214,138,.5)}
+.orq-namein:focus,.orq-objta:focus,.orq-objin:focus{border-color:var(--accent);box-shadow:var(--ring)}
 .orq-kindrow{display:flex;gap:6px;flex-wrap:wrap}
 .orq-kind{border:1px solid rgba(255,255,255,.12);background:transparent;color:rgba(255,255,255,.62);font:500 11px var(--code);padding:5px 9px;border-radius:7px;cursor:pointer}
 .orq-kind.on{border-color:var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent)}
@@ -143,7 +143,7 @@
 .orq-ih b{font-size:17px;line-height:1.25;display:block;overflow-wrap:anywhere}
 .orq-ih .as-btn.sm{white-space:nowrap;margin-top:2px}
 .orq-meta{display:flex;gap:6px;font-size:11px;margin-top:4px;flex-wrap:wrap}
-.orq-branch{font-size:11px;color:rgba(255,255,255,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:-2px 0 10px;padding:5px 9px;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#0b0d0c}
+.orq-branch{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:-2px 0 10px;padding:5px 9px;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#0b0d0c}
 .orq-p{font-size:13.5px;line-height:1.55;color:rgba(255,255,255,.78)}
 .orq-objs{gap:7px}
 .orq-obj{align-items:flex-start;gap:11px;padding:10px 12px;border-radius:11px}
@@ -192,10 +192,10 @@
 .orq-chatbtn svg{margin-right:6px;vertical-align:-2px}
 .orq-chatin .as-btn svg{margin-right:5px}
 .orq-cm{font-size:12.5px;line-height:1.5;padding:8px 10px;border-radius:9px;max-width:92%;overflow-wrap:anywhere}
-.orq-cm.hint{align-self:stretch;font-size:12px;color:rgba(255,255,255,.45);background:transparent;padding:4px 2px;max-width:100%}
+.orq-cm.hint{align-self:stretch;font-size:12px;color:var(--text-3);background:transparent;padding:4px 2px;max-width:100%}
 .orq-chatin{display:flex;gap:8px;align-items:flex-end;margin-top:8px}
 .orq-chatin textarea{flex:1;min-width:0;resize:none;font:inherit;font-size:12.5px;line-height:1.45;color:var(--text);background:var(--card-bg);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:8px 10px;outline:none}
-.orq-chatin textarea:focus{border-color:var(--accent)}
+.orq-chatin textarea:focus{border-color:var(--accent);box-shadow:var(--ring)}
 .orq-chatpend{padding:8px 0 0}
 .orq-chatin .orq-attbtn{padding:8px 9px;display:grid;place-items:center;flex:none}
 .orq-chatin .orq-attbtn svg{width:14px;height:14px}

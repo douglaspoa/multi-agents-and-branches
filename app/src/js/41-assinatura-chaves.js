@@ -183,7 +183,7 @@ function routeAiCfgHtml(){
         ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="color:var(--ok,#3fb950)">✓ configurada</span><span class="dim mono" style="font-size:11px">••••${esc(key.slice(-4))}</span><span style="flex:1"></span><button class="btn sm" id="raKeyEdit">trocar</button></div>`
         : `<div style="display:flex;gap:8px;margin-top:6px"><input class="in mono" id="raKey" type="password" placeholder="cole a chave do gateway" style="flex:1"><button class="btn sm" id="raKeySave">salvar</button></div>`}
       <label style="margin-top:14px">Modelo</label>
-      <select class="sel" id="raModel" style="width:100%;margin-top:6px"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
+      <select class="sel" id="raModel" aria-label="modelo do gateway" style="width:100%;margin-top:6px"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
       <label style="margin-top:14px">Endpoint <span class="dim" style="text-transform:none;letter-spacing:0">(OpenAI-compatible)</span></label>
       <input class="in mono" id="raBase" value="${escA(baseUrl)}" placeholder="https://.../v1" style="margin-top:6px;font-size:12px"${hasKey?'':' disabled'}>
       <div class="two" style="margin-top:14px">
