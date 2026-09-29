@@ -298,17 +298,52 @@ let lastSig = "";
 // ---------- notificações nativas (via plugin do Tauri → atribuídas ao app) ----------
 let notifReady=false, notifOn=false, prevStatus={}, prevPr={}, prevPending=new Set();
 function notifApi(){ return (window.__TAURI__ && (window.__TAURI__.notification)) || null; }
+// macOS: o Rust usa UNUserNotificationCenter e responde a permissão (notif_status). 'unsupported' = Linux/
+// Windows ou binário fora do .app → vale a checagem do plugin, como antes.
+let notifState='';
+const NOTIF_OFF_MSG='Notificações do Starfork bloqueadas — abra Ajustes do Sistema › Notificações › Starfork e ative.';
+async function notifOpenSettings(){ try{ await invoke('notif_open_settings'); }catch(e){ showErr(e, 'Não consegui abrir os Ajustes do Sistema'); } }
+async function notifRefresh(){
+  let st='unsupported';
+  try{ st=String(await invokeQuiet('notif_status')||'unsupported'); }catch(_){ st='unsupported'; }
+  notifState=st;
+  return st;
+}
 async function initNotifs(){
+  const st=await notifRefresh();
+  if(st!=='unsupported'){
+    // notDetermined: o pedido de permissão está na tela (feito no boot pelo Rust) — deixa ligado
+    notifOn = st!=='denied';
+    if(st==='denied'){
+      // aviso UMA vez por bloqueio (volta a avisar se o usuário liberar e bloquear de novo)
+      if(!lsGet('notifDeniedWarned')){ lsSet('notifDeniedWarned','1'); toast(NOTIF_OFF_MSG, 'warn', { label:'abrir Ajustes', fn:notifOpenSettings }); }
+    } else lsSet('notifDeniedWarned','');
+    return;
+  }
   const n=notifApi(); if(!n){ return; }
   try{ let ok = await n.isPermissionGranted(); if(!ok){ const p=await n.requestPermission(); ok = p==='granted'; } notifOn=!!ok; }
   catch(_){ notifOn=false; }
+}
+// bloco "Notificações" das Configurações: estado atual + atalho pros Ajustes do Sistema
+async function notifCfgMount(){
+  const h=$id('notifHost'); if(!h) return;
+  h.innerHTML='<span class="dim">lendo…</span>';
+  const st=await notifRefresh();
+  if(st!=='unsupported') notifOn = st!=='denied';
+  const line={ authorized:'Notificações: ativadas', provisional:'Notificações: ativadas (entregues em silêncio na Central)',
+    notDetermined:'Notificações: aguardando sua resposta no pedido de permissão do macOS', denied:NOTIF_OFF_MSG,
+    unsupported:'Notificações: '+(notifOn?'ativadas':'desativadas')+' (pelo sistema)' }[st] || ('Notificações: '+st);
+  h.innerHTML='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span'+(st==='denied'?' style="color:var(--warn)"':'')+'>'+esc(line)+'</span>'
+    +(st!=='unsupported'?'<button class="btn sm" id="notifOpen" type="button">'+IC.extlink+' abrir Ajustes do Sistema</button>':'')+'</div>';
+  bindClick('notifOpen', notifOpenSettings);
 }
 let lastNotif=null; // {id, ts} — última notificação disparada (pro roteamento do clique)
 function pushNotif(title, body, taskId){
   if(!notifOn) return;
   if(taskId && !document.hasFocus()) lastNotif={ id:taskId, ts:Date.now() };
   // caminho nativo: atribuição correta (Starfork) — clicar abre o APP
-  invoke('notify_native', { title, body: String(body||'').slice(0,180), taskId: taskId||null })
+  // falha (sem permissão, fora do .app) → plugin; invokeQuiet: não é erro pra mostrar, é só o caminho B
+  invokeQuiet('notify_native', { title, body: String(body||'').slice(0,180), taskId: taskId||null })
     .catch(()=>{ const n=notifApi(); if(n) try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} });
 }
 function notifRoute(id){
@@ -324,6 +359,8 @@ function notifRoute(id){
 // após uma notificação (banner clicado ativa o app em segundos).
 try{ window.__TAURI__.event.listen('notif-open', (ev)=>{ lastNotif=null; notifRoute(ev.payload||''); }); }catch(_){ }
 window.addEventListener('focus', ()=>{
+  // liberou nos Ajustes e voltou pro app: religa sem reiniciar (e o bloco das Configurações acompanha)
+  if(notifState==='denied' || notifState==='notDetermined') notifRefresh().then(st=>{ if(st!=='unsupported') notifOn = st!=='denied'; if($id('notifHost')) notifCfgMount(); }).catch(()=>{});
   if(lastNotif && Date.now()-lastNotif.ts<180000){ const id=lastNotif.id; lastNotif=null; notifRoute(id); }
 });
 // ⌘K — busca global (redesign): vai pra Central de execuções e foca a busca.
