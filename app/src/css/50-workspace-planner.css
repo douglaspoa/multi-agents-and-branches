@@ -602,3 +602,34 @@ label.budgetfld .in{width:72px!important;flex:0 0 auto;padding:3px 6px!important
 .protopts label.howopt{text-transform:none!important;letter-spacing:0!important;font-weight:400!important;font-size:12.5px!important;display:flex!important;gap:10px;align-items:flex-start;cursor:pointer}
 .protopts .ht{font-weight:600;font-size:13px}
 .protopts .hd{color:var(--text-2);margin-top:3px;line-height:1.45}
+
+/* ---- R7 · tela da Tarefa ---- */
+/* caminho: a pasta encolhe, o nome do arquivo fica inteiro; "escrito por" cede espaço antes do caminho */
+.fwmhead .fwmpath{display:inline-flex;min-width:0;flex:0 1 auto;overflow:hidden}
+.fwmhead .fwmpath .fwmdir{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-weight:500}
+.fwmhead .fwmpath .fwmname{flex:none;white-space:nowrap}
+.fwmhead .fwmby{flex:0 1 auto;min-width:0}
+.fwmhead .fwmby .fwav{flex:none}
+.fwmhead .fwmby .fwmbytx{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* barra de contexto do chat: seta SVG que gira (só transform) */
+.fwctxchev{display:inline-flex;width:14px;height:14px;margin-left:6px;color:var(--muted);flex:none;transition:transform .15s}
+.fwctxchev svg{width:14px;height:14px}
+.fwctxchev.open{transform:rotate(90deg)}
+.fwctxbar:not(:has(.fwctxreq)) .fwctxchev{margin-left:auto}
+/* conversa larga: a barra de contexto tinha width:100% + margem 0 → encostava nas bordas da coluna */
+.fwcols.m-conversa .fwctx{width:auto;max-width:934px;margin-left:max(13px, calc((100% - 934px) / 2));margin-right:max(13px, calc((100% - 934px) / 2))}
+/* custo no rodapé da árvore: rótulo e valor não quebram no meio ("US$ 1,25 (≈ R$" / "6,88)") */
+.fwtreefoot .r{flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.fwtreefoot .r span{white-space:nowrap}
+.fwtreefoot .r b{white-space:nowrap;margin-left:auto}
+/* notas de sistema na conversa (fila, sessão retomada, PR aberto): alinhadas com a fala, texto normal —
+   antes eram mono, centralizadas, e viravam um bloco torto na coluna estreita */
+.fwthread .csys{align-self:stretch;max-width:none;text-align:left;font-family:var(--display, inherit);font-size:11px;line-height:1.45;padding:1px 2px 1px 40px;opacity:.9;overflow-wrap:anywhere}
+.fwthread .csys svg{width:12px;height:12px;vertical-align:-2px}
+/* pergunta respondida por opção: trava as outras e marca a escolhida até o snapshot confirmar */
+.askopts.sent button{cursor:default;opacity:.45}
+.askopts.sent button.on{opacity:1;background:color-mix(in srgb,var(--warn) 18%,transparent)}
+.asknote .spin{width:9px;height:9px;vertical-align:-1px}
+/* erro ao listar os arquivos: cabe na coluna estreita */
+.fwfileserr{padding:8px 4px}
+.fwfileserr .ld-empty{padding:14px 8px}

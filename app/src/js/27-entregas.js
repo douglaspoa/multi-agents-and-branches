@@ -301,7 +301,7 @@ function pvDecorateGlobe(t){
 // globo do topo: no ar → abre; fora do ar → leva pra Entrega, onde está o "subir de novo"
 function pvGlobeClick(t, url){
   const st=pvState(t);
-  if(st==='online' || st==='checando'){ invoke('open_url',{ url }).catch(()=>{}); return; }
+  if(st==='online' || st==='checando'){ invoke('open_url',{ url }).catch(e=>showErr(e, 'Não consegui abrir o app')); return; }
   fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
   setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-live'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
 }
@@ -342,7 +342,7 @@ async function pvStop(t){
 async function pvAskAgent(t){
   const msg='Suba de novo o servidor de preview desta tarefa e anuncie PREVIEW: http://127.0.0.1:PORTA/caminho, gravando também .cardume/preview.json (cmd, cwd, url) pra eu conseguir subir sozinho da próxima vez.';
   if(typeof fwSendText!=='function') return;
-  await fwSendText(t.id, msg); toast('pedido enviado ao agente','ok');
+  if(await fwSendText(t.id, msg)) toast('pedido enviado ao agente','ok'); else pvRerender(t.id); // falhou: o botão volta
 }
 // tick: só com a tarefa aberta, app visível e 1 checagem por vez
 function pvTick(){
@@ -386,7 +386,7 @@ function enLiveHtml(t){
     <button class="btn primary" id="enLiveOpen">${IC.globe} abrir o app</button></section>`;
 }
 function enWireLive(t){
-  bindClick('enLiveOpen', ()=>{ const pv=taskPreviewTarget(t); if(pv) invoke('open_url',{ url:pv }).catch(()=>{}); });
+  bindClick('enLiveOpen', ()=>{ const pv=taskPreviewTarget(t); if(pv) invoke('open_url',{ url:pv }).catch(e=>showErr(e, 'Não consegui abrir o app')); });
   bindClick('enLiveMob', async()=>{ const pv=taskPreviewTarget(t); if(!pv) return; const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
     if(tun){ if(typeof fwTunnelOff==='function') await fwTunnelOff(t); return; }
     toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); });
@@ -396,9 +396,7 @@ function enWireLive(t){
 }
 function fwRenderEntrega(t, main){
   const done=taskIsDone(t);
-  if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
-  const artC=artifactsCache[t.id];
-  if(!artC||artC.status!==t.status) loadArtifacts(t.id, t.status).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
+  fwReqProofsEnsure(t.id); fwArtsEnsure(t); // 1 leitura em voo por tarefa (antes: uma nova a cada render)
   if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
   if(!enDefDir) invoke('deliverables_default_dir').then(d=>{ if(d&&!enDefDir){ enDefDir=d; if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); } }).catch(()=>{});
   const arts=entregaArts(t);
