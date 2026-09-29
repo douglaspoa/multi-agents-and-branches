@@ -247,7 +247,7 @@ function howPopulate(){
     (team2.length?`<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px"><span class="mono" style="font-size:10px;letter-spacing:.08em;color:var(--muted)">FLUXOS DO TIME</span><span style="flex:1"></span><button class="btn sm" id="howManage" style="padding:2px 8px;font-size:10.5px">gerenciar</button></div>`+team2.map(optHtml).join(''):'');
   bindClick('howManage', ()=>{ closeHow(); openAgents(); });
   box.querySelectorAll('.howopt').forEach(l=>l.onclick=()=>{ box.querySelectorAll('.howopt').forEach(x=>x.classList.remove('on')); l.classList.add('on'); l.querySelector('input').checked=true; howAgentsRender(); });
-  $id('howModel').value=($id('ntModel')||{}).value||'';
+  setSelValue($id('howModel'), ($id('ntModel')||{}).value||''); // id completo (ex.: claude-opus-5-5) não some
   $id('howModel').onchange=howEstimateUpdate;
   howAgentsRender();
   { const hb=$id('howBudgetHost'); if(hb){ ntBudgetPending=null; hb.innerHTML=budgetFieldHtml('howBudget'); budgetFieldWire('howBudget'); } }

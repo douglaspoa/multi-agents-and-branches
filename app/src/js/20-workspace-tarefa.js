@@ -31,6 +31,10 @@ function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'
 // subtítulo do chat conforme o ESTADO (antes dizia "ele lembra o que fez" até em erro)
 function fwChatSubText(t){
   if(pendingOf(t.id).length) return 'aguardando sua resposta';
+  // fila do motor (snapshot: t.queued) — antes a mensagem "na fila" sumia sem nenhum sinal na tela
+  const q=+t.queued||0;
+  if(q && fwIsWorking(t)) return 'trabalhando… · '+nPl(q,'pedido','pedidos')+' na fila — ele lê quando terminar o turno atual';
+  if(q) return nPl(q,'pedido parado','pedidos parados')+' na fila (o turno que ia executar foi encerrado) — mande uma mensagem pra retomar';
   if(fwIsWorking(t)) return 'trabalhando…';
   if(t.status==='error'){ const ev=lastEventOf(t.id), h=ev?humanErr(ev.text):null; // E1: diz O QUE deu errado quando é um erro conhecido
     return (h&&h.id!=='generic'?h.msg+' ':'parou com erro — ')+(h&&h.action?'('+h.action.label+') e depois mande uma mensagem pra ele seguir':'mande uma mensagem pra ele tentar seguir, ou rode de novo'); }
@@ -287,7 +291,7 @@ function fwNowHtml(t){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
     const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
-    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>r.engine==='claude')?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc((GLYPH[ev.type]||'·')+' '+ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>aiCanTalk(r.engine))?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
   return fwPlan(t);
@@ -300,7 +304,7 @@ async function fwLiveUpdate(){
   if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
   const evs0=fwEvents.length?fwEvents:eventsOf(t.id);
   const rp=reqProofCache[t.id];
-  const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
+  const sig=[t.id,t.status,evs0.length,evs0.length?evs0[evs0.length-1].id:0,pendingOf(t.id).length,t.queued||0,(fwOptim[t.id]||[]).map(o=>o.st).join(','),(rp&&Array.isArray(rp.list))?rp.list.filter(x=>x.status==='done').length:'-'].join('|');
   // PR na tela e dados velhos (>60s) → busca de novo em segundo plano
   if(fwMode==='pr' && typeof prIsStale==='function' && prIsStale(t.id)){ loadPr(t.id,true).then(()=>{ if(fwTask===t.id&&fwMode==='pr') renderWorkspace(); }); }
   { const ag=$id('prAge'); const pi=prCache[t.id]; if(ag&&pi&&pi._at&&typeof prAgoTx==='function') ag.textContent=prAgoTx(pi._at); }
@@ -430,7 +434,7 @@ function fwMoreItems(t){
   (t.status!=='draft'&&Array.isArray(t.refs)?t.refs:[]).slice(0,6).forEach((r,i)=>{ const n=String(r).split('/').pop();
     it.push({ k:'ref:'+i, label:`ver referência · ${n}`, hint:'anexo da tarefa' }); });
   if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
-  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${modelFriendly(t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
+  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${aiRunLabel(t.engine, t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
   const cost=taskCost(t.id);
   { const cap=(typeof budgetOf==='function')?budgetOf(t):0;
     it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtCost(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}${cap>0?' · teto '+fmtCost(cap,{usdOnly:true}):''}`, info:true }); }
@@ -764,7 +768,12 @@ function fwRenderPrPage(t, main){
     main.innerHTML='<div class="empty"><span class="spin"></span> carregando o PR…</div>'; return; }
   if(!info.exists && info.error){
     // gh/rede falhou ≠ "não tem PR" — antes caía em "nenhum PR" e oferecia abrir OUTRO
-    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">não consegui falar com o GitHub</div><div class="mono dim" style="font-size:11px;max-width:560px;white-space:pre-wrap">${esc(String(info.error).slice(0,300))}</div><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button></div>`;
+    // sem acesso ao repo (conta errada no gh) ≠ sem rede: diz o que fazer, sem o texto cru do GraphQL
+    const noAcc=info.errKind==='access';
+    const head=noAcc?'o GitHub logado aqui (gh) não tem acesso a este repositório':'não consegui falar com o GitHub';
+    const det=noAcc?String(info.error).replace(/^GH_NO_ACCESS:\s*/,''):String(info.error);
+    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">${head}</div><div class="mono dim" style="font-size:11px;max-width:560px;white-space:pre-wrap">${esc(det.slice(0,300))}</div><div style="display:flex;gap:8px"><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button>${noAcc?'<button class="btn sm" id="prPgEnv">abrir Ambiente (conta do GitHub)</button>':''}</div></div>`;
+    bindClick('prPgEnv', ()=>{ if(window.openTab) window.openTab('env'); });
     bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='tentando…'; await loadPr(t.id,true); renderWorkspace(); });
     return;
   }
@@ -807,12 +816,12 @@ function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(
 function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
 // rótulo do modelo do agente na conversa (redesign p6: "VEGA · Opus")
-function agentModelLabel(t, name){
+// `ran` = o modelo que o MOTOR relatou ao iniciar a sessão ("sessão iniciada · <id>" / Route AI) — vale
+// mais que o configurado; sem isso, usa o motor+modelo do papel (antes: "Claude" fixo até em tarefa Codex).
+function agentModelLabel(t, name, ran){
+  if(ran) return ran;
   const r=(t.roles||[]).find(x=>x.name===name);
-  const m=String((r&&r.model)||t.model||'').toLowerCase();
-  const M={ opus:'Opus', sonnet:'Sonnet', haiku:'Haiku' };
-  const k=Object.keys(M).find(k=>m.includes(k));
-  return k?('Claude '+M[k]):'Claude';
+  return aiRunLabel((r&&r.engine)||t.engine, (r&&r.model)||t.model);
 }
 // ---- chip de tool: nome técnico de ferramenta vira algo legível e bonito ----
 const TOOL_IC = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.4 2.6a3 3 0 0 0 3.9 3.9l2.7 2.7a1.15 1.15 0 0 1-1.6 1.6L8.7 8.1A3 3 0 0 1 4.8 4.2l1.7 1.7 1.1-1.1z" stroke-linejoin="round"/></svg>';
@@ -846,10 +855,13 @@ function fwThreadHtml(t){
   const asking=pendingOf(t.id);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !asking.length;
   let lastWho='';
+  const ranBy={}; // agente → modelo que o motor relatou (o que RODOU de fato)
   const out=[]; let act=[];
   const flush=()=>{ if(act.length){ out.push(actLine(act)); act=[]; } };
   for(const e of evs){
     const tx=e.text||'';
+    { const m=tx.match(/^sessão iniciada · ([^\s·]+)/); if(m) ranBy[e.agent]=aiRunLabel('claude', m[1]);
+      const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; }
@@ -863,7 +875,7 @@ function fwThreadHtml(t){
     if(e.type==='note' && (e.tool || /^(entregável novo registrado|issue registrada|pronto quando )/.test(tx))){ flush(); lastWho=''; out.push(toolChip(tx.replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       flush();
-      const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${agentModelLabel(t,e.agent)}</div>`:'';
+      const who=e.agent!==lastWho?`<div class="cwho">${esc((e.agent||'').toUpperCase())} · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</div>`:'';
       lastWho=e.agent;
       out.push(`<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
       continue;
@@ -873,6 +885,8 @@ function fwThreadHtml(t){
     act.push(e);
   }
   flush();
+  // eco otimista: mensagens enviadas que o banco ainda não confirmou (ver fwOptim)
+  for(const o of fwOptimFor(t.id, evs)) out.push(fwOptimHtml(o));
   return out.join('')
   + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${esc(((asking[0].agent||t.agent)||'').toUpperCase())} · PERGUNTA PENDENTE</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:''}<div class="asknote">↳ responda abaixo (ou toque numa opção) — o turno continua</div></div></div></div>`:'')
   + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
@@ -898,7 +912,7 @@ async function fwShowMenu(t, kind){
   let items=[];
   if(kind==='req'){
     for(const s of CHAT_SKILLS) items.push({label:'/'+s.label+' — '+s.desc, kind:'skill', skill:s});
-    const ags=(t.roles||[]).filter(r=>r.engine==='claude');
+    const ags=(t.roles||[]).filter(r=>aiCanTalk(r.engine));
     if(ags.length>1) for(const r of ags) items.push({label:r.name+' · '+(ROLE_PT[r.role]||r.role), kind:'falar com', agent:r.name});
     const reqs=Array.isArray(t.requirements)?t.requirements:[];
     for(const r of reqs) items.push({label:r, kind:'requisito', ins:null, req:r});
@@ -923,7 +937,7 @@ async function fwShowMenu(t, kind){
     }
     if(it.agent){
       const t2=fwTaskObj();
-      const deflt=((t2&&t2.roles)||[]).find(r=>r.engine==='claude');
+      const deflt=((t2&&t2.roles)||[]).find(r=>aiCanTalk(r.engine));
       fwAgentSel = (deflt && it.agent===deflt.name) ? null : it.agent;
       i.value=i.value.replace(/[@/]$/,'');
       fwHideMenu(); renderWorkspace(); const ni=$id('fwInput'); if(ni) ni.focus();
@@ -945,10 +959,36 @@ async function fwSendText(taskId, text){
     const pend=pendingOf(t.id);
     if(pend.length){ await resolvePending(pend[0].id, text); }
     else { if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ try{ await stopTask(t.id); }catch(_){ } } await invoke('talk_task',{ taskId:t.id, message:text, asReq:false, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined; }
-    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; await refresh(); renderWorkspace();
+    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; refresh().catch(()=>{}); renderWorkspace();
   }catch(e){ showErr(e, 'Falha ao enviar'); }
 }
 const fwPend={}; // taskId → anexos importados ainda não enviados
+// ---- ECO OTIMISTA do envio (travamento 28/09) ----
+// Antes: o campo ficava desabilitado e a mensagem só aparecia depois de parar + talk_task + refresh
+// completo — com o snapshot ocupado eram 8,5s de tela "congelada" (medido no harness) e, se o
+// refresh estourava, nada aparecia. Agora a bolha entra NA HORA com o estado do envio e some quando
+// o evento real chega (fala "Você: …", resposta a pergunta, ou o aviso "Na fila (…)" do motor).
+const fwOptim={}; // taskId → [{ text, at, st:'enviando'|'lento'|'enviada'|'fila' }]
+function fwOptimFor(taskId, evs){
+  const list=fwOptim[taskId]; if(!list||!list.length) return [];
+  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
+  const seen=o=>(evs||[]).some(e=>{ if(e.ts && e.ts<o.at-60000) return false; const tx=String(e.text||'');
+    if(evIsUserMsg(e)) return norm(evUserText(tx))===norm(o.text);
+    if(tx.startsWith('humano respondeu:')) return norm(tx.replace(/^humano respondeu:\s*/,''))===norm(o.text);
+    return /^Na fila \(/.test(tx) && tx.includes(norm(o.text).slice(0,60)); });
+  // confirmada pelo banco (ou velha demais: 3 min) → sai da lista
+  fwOptim[taskId]=list.filter(o=>!seen(o) && Date.now()-o.at<180000);
+  return fwOptim[taskId];
+}
+function fwOptimHtml(o){
+  const cap = o.st==='lento' ? 'ainda enviando — o app está ocupado; pode continuar escrevendo'
+    : o.st==='fila' ? 'na fila — o agente lê quando terminar o turno atual'
+    : o.st==='enviada' ? 'enviada · aguardando o agente'
+    : 'enviando…';
+  return `<div class="cmsg you optim"><div class="cbub">${chatMd(o.text)}<div class="optim-st">${o.st==='enviando'||o.st==='lento'?'<span class="spin"></span> ':''}${esc(cap)}</div></div></div>`;
+}
+// repinta SÓ a conversa (não mexe no campo de texto) e desce pro fim
+function fwPaintThread(t){ const th=$id('fwThread'); if(!th||!t) return; th.innerHTML=fwThreadHtml(t); th.scrollTop=th.scrollHeight; }
 async function fwSendMsg(queueOnly){
   const t=fwTaskObj(); if(!t) return;
   const inp=$id('fwInput'); if(!inp) return; const typed=inp.value; let v=typed.trim();
@@ -960,7 +1000,14 @@ async function fwSendMsg(queueOnly){
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';
   const asReq=!!($id('fwAsReq')&&$id('fwAsReq').checked);
   const full = ctx+v+attPromptBlock(atts);
+  const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy);
+  const asking=pendingOf(t.id).length>0;
+  const op={ text:full, at:Date.now(), st:'enviando' };
+  (fwOptim[t.id]=fwOptim[t.id]||[]).push(op);
   inp.value=''; inp.disabled=true; fwDraft[t.id]='';
+  fwPaintThread(t);
+  // o campo NUNCA fica preso: se o backend demorar (runtime/banco ocupado), libera em 4s e avisa na bolha
+  const slow=setTimeout(()=>{ if(op.st!=='enviando') return; op.st='lento'; const i=$id('fwInput'); if(i) i.disabled=false; if(fwTask===t.id) fwPaintThread(fwTaskObj()); }, 4000);
   // tarefa PAUSADA (processo congelado): sem retomar, a mensagem entrava numa fila que nunca andava
   if(t.status==='paused' && t.busy){ try{ await invoke('resume_task',{ taskId:t.id }); lastSig=''; }catch(e){ console.error('retomar antes de enviar', e); } }
   try{
@@ -968,21 +1015,30 @@ async function fwSendMsg(queueOnly){
     if(pend.length){
       // pergunta aberta → responder CONTINUA o mesmo turno
       await resolvePending(pend[0].id, full);
-    } else if(!queueOnly && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy)){
+    } else if(!queueOnly && working){
       // trabalhando → para o turno atual (inclusive turno de fundo) e manda já
+      // (o stop_task só volta com o turno MORTO — senão a mensagem caía na fila do processo que morria)
       try{ await stopTask(t.id); }catch(_){ }
       await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     } else {
       // livre, ou o usuário escolheu "na fila" → o motor enfileira se ocupado
       await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     }
+    op.st=(queueOnly && working && !asking)?'fila':'enviada';
     artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; fwAsReqOn[t.id]=false;
-    lastSig=''; await refresh();
+    // refresh SEM await: a bolha já está na tela; o estado real chega no próximo snapshot
+    lastSig=''; refresh().catch(()=>{});
   }catch(e){
     // falhou: o texto e os anexos VOLTAM pro composer (antes a mensagem sumia)
-    fwDraft[t.id]=typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
+    fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op);
+    // (se ele já começou outra mensagem durante um envio lento, as duas ficam no campo)
+    const cur=(($id('fwInput')||{}).value||'').trim(); fwDraft[t.id]=cur?typed+'\n'+cur:typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
     showErr(e, 'Não consegui enviar — o texto voltou pro campo'); }
-  finally{ inp.disabled=false; renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); }
+  finally{
+    clearTimeout(slow);
+    const i0=$id('fwInput'); if(i0) i0.disabled=false;
+    if(fwTask===t.id){ renderWorkspace(); const i=$id('fwInput'); if(i) i.focus(); }
+  }
 }
 // fechar pelo botão: pergunta antes de jogar fora uma edição não salva
 $id('fwClose').onclick=async()=>{ if(!await fwLeaveEditor()) return; closeWorkspace(); };

@@ -33,6 +33,23 @@ export function branchName(spec: TaskSpec): string {
   return `${type}/${code}${spec.id}`;
 }
 
+/**
+ * Motor de um papel a partir do rótulo salvo. Tolera variações ("Claude · Opus 4.8", "CLAUDE"):
+ * o mock só entra quando pedido de fato — uma tarefa real cair no MockEngine por um nome fora
+ * da lista "concluía" com código de mentira.
+ */
+export function engineKind(name: string | undefined): "mock" | "codex" | "gateway" | "logcomex" | "claude" {
+  const n = String(name ?? "").trim().toLowerCase();
+  return n === "mock" ? "mock"
+    : n.startsWith("codex") ? "codex"
+    : n.startsWith("gateway") ? "gateway"
+    : n.startsWith("logcomex") ? "logcomex"
+    : n.startsWith("claude") ? "claude"
+    : (n === "" ? "mock" : "claude");
+}
+/** Papel capaz de conversar/retomar sessão (qualquer motor real — Claude, Codex, gateway). */
+const canTalk = (engine: string | undefined) => engineKind(engine) !== "mock";
+
 export class Orchestrator {
   ws: Workspace;
   git: GitService;
@@ -48,14 +65,8 @@ export class Orchestrator {
   }
 
   private engineFor(name: string, model: string | undefined, approval: TaskSpec["autonomy"]["approval"]): AgentEngine {
-    // tolera rótulos/variações ("Claude · Opus 4.8", "CLAUDE"): o mock só entra quando pedido de fato —
-    // uma tarefa real cair no MockEngine por um nome fora da lista "concluía" com código de mentira.
     const n = String(name ?? "").trim().toLowerCase();
-    const kind = n === "mock" ? "mock"
-      : n.startsWith("codex") ? "codex"
-      : (n.startsWith("gateway") || n.startsWith("logcomex")) ? (n.startsWith("gateway") ? "gateway" : "logcomex")
-      : n.startsWith("claude") ? "claude"
-      : (n === "" ? "mock" : "claude");
+    const kind = engineKind(name);
     if (kind !== n) console.warn(`[engine] "${name}" interpretado como ${kind}`);
     name = kind;
     if (name === "claude") return new ClaudeEngine({ model, approval });
@@ -687,12 +698,27 @@ export class Orchestrator {
       return;
     }
     this.store.setBusyPid(taskId, process.pid);
+    this.expireOrphanQueue(taskId);
     try {
       await fn();
     } finally {
       this.store.setBusyPid(taskId, null);
       await this.drainQueue(taskId);
     }
+  }
+
+  /** Pedidos "na fila" são drenados pelo processo que segurava o turno — se ele foi MORTO (■ parar,
+   * SIGKILL, app fechado), eles ficavam 'queued' pra sempre: no logcomex-ai-v2 havia 3 mensagens
+   * presas desde 01/09 ("esta demorando demais"…) numa tarefa já em 'review'. Aqui, ao pegar o
+   * lock: órfãos RECENTES seguem e rodam depois deste turno (drainQueue); os ANTIGOS (> 30 min)
+   * são descartados com aviso visível — rodar hoje um "tá demorando" de dias atrás é pior. */
+  private expireOrphanQueue(taskId: string, maxAgeMs = 30 * 60_000): void {
+    try {
+      const n = this.store.queueExpire(taskId, Date.now() - maxAgeMs);
+      if (n > 0) {
+        this.store.addEvent(taskId, "Sistema", "note", `Fila limpa: ${n === 1 ? "1 pedido antigo descartado" : `${n} pedidos antigos descartados`} — o turno que ia executá-los foi encerrado antes. Se ainda precisar, mande de novo.`, true);
+      }
+    } catch { /* banco antigo sem work_queue: nada a limpar */ }
   }
 
   /** Roda os pedidos enfileirados, em ordem, até esvaziar (ou outro processo assumir). */
@@ -727,6 +753,7 @@ export class Orchestrator {
       return;
     }
     this.store.setBusyPid(taskId, process.pid);
+    this.expireOrphanQueue(taskId);
     try {
       await this.runTaskInner(taskId);
     } finally {
@@ -741,7 +768,7 @@ export class Orchestrator {
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     await this.waitForScopeClear(taskId, spec); // sequential-lock: espera o escopo liberar antes de editar
-    const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
+    const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
     const startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
 
     for (let i = startIdx; i < roles.length; i++) {
@@ -925,8 +952,8 @@ export class Orchestrator {
 
     this.store.releaseClaims(taskId); // terminou de editar → libera os caminhos
     this.store.setStatus(taskId, "review");
-    const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
-    if (usesClaude) notify("Starfork", "Pronta para review ✓", task.title);
+    const usesAi = spec.roles.some((x) => canTalk(x.engine)) || canTalk(spec.engine);
+    if (usesAi) notify("Starfork", "Pronta para review ✓", task.title);
     this.appendHistory(taskId);      // memória de issues: entra no índice pesquisável
     this.harvestRunbook(task.worktree); // aprendizado de ambiente volta pro repo
     this.harvestBrain(task.worktree, taskId, task.title); // notas que o agente escreveu → cérebro
@@ -1015,7 +1042,7 @@ export class Orchestrator {
     const lines = diff.split("\n").length;
     this.store.addEvent(spec.id, spec.agent, "status", `review do ${branch} — ${lines} linhas de diff`, true);
 
-    const roles = spec.roles.length ? spec.roles : [{ role: "reviewer" as Role, name: spec.agent, engine: spec.engine }];
+    const roles = spec.roles.length ? spec.roles : [{ role: "reviewer" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
     for (let i = 0; i < roles.length; i++) {
       const r = roles[i];
       this.store.setStage(spec.id, r.role);
@@ -1065,7 +1092,7 @@ export class Orchestrator {
     ctx: string,
     sessionId: string
   ): Promise<string> {
-    if (role.engine !== "claude") return sessionId; // mock não continua sessão
+    if (!canTalk(role.engine)) return sessionId; // mock não continua sessão
     let guard = 0;
     while (guard++ < 20) {
       const open = this.store.openInstructions(taskId);
@@ -1208,9 +1235,9 @@ export class Orchestrator {
     const roles = spec.roles || [];
     const pref = kind === "doc" ? ["docs", "builder"] : ["builder", "tester"];
     const role =
-      roles.find((r) => pref.includes(r.role) && r.engine === "claude") ||
-      roles.find((r) => r.engine === "claude") ||
-      ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
+      roles.find((r) => pref.includes(r.role) && canTalk(r.engine)) ||
+      roles.find((r) => canTalk(r.engine)) ||
+      ({ role: "builder", name: spec.agent, engine: canTalk(spec.engine) ? spec.engine : "claude", model: spec.model } as (typeof roles)[number]);
 
     const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
     const TESTS = "TESTES REAIS na branch desta worktree — PROIBIDO testar num script isolado ou num front mockado que nao reflete o ambiente real. Faca: 1) suba o ambiente LOCAL de verdade nesta branch (as envs reais existem — procure `.env`, `code-refuge-relay/supabase`, docker-compose); 2) escreva e RODE os testes na suite real do projeto (unittest/pytest/vitest — a que o repo usa), exercitando a funcionalidade contra o ambiente que subiu; 3) salve a comprovacao em `.cardume/artifacts/tests.md` com os comandos e a SAIDA real (quantos passaram/falharam). Se algo nao subir/rodar, escreva EXATAMENTE o que travou (comando, erro literal) e PERGUNTE ao humano (mcp__cardume__ask_human) — nao improvise mock.";
@@ -1308,11 +1335,13 @@ export class Orchestrator {
     }
     const roles = spec.roles || [];
     // interlocutor: o agente escolhido no chat (/) ou o padrão (1º claude)
-    const deflt = roles.find((r) => r.engine === "claude");
-    const picked = agentName ? roles.find((r) => r.name === agentName && r.engine === "claude") : undefined;
+    // motor/modelo SÃO os da tarefa: antes só papéis "claude" conversavam e uma tarefa Codex/gateway
+    // caía num builder Claude genérico (o "segue no Claude sempre").
+    const deflt = roles.find((r) => canTalk(r.engine));
+    const picked = agentName ? roles.find((r) => r.name === agentName && canTalk(r.engine)) : undefined;
     const role =
       picked || deflt ||
-      ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
+      ({ role: "builder", name: spec.agent, engine: canTalk(spec.engine) ? spec.engine : "claude", model: spec.model } as (typeof roles)[number]);
     // sessão pertence ao último agente que falou — trocar de agente = turno
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;

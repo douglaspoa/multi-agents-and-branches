@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod memoria;
+#[cfg(test)]
+mod snapshot_perf;
 
 mod procsig {
     #[cfg(unix)]
@@ -271,6 +273,16 @@ fn claude_bin() -> String {
     "claude".to_string()
 }
 
+/// `--model <id>` pros chats no claude — só id seguro (mesma regra do set_task_model); vazio/inválido = padrão da assinatura.
+fn push_model(args: &mut Vec<String>, model: &Option<String>) {
+    if let Some(m) = model.as_deref().map(str::trim) {
+        if !m.is_empty() && m.len() <= 80 && m.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:/[]".contains(c)) {
+            args.push("--model".to_string());
+            args.push(m.to_string());
+        }
+    }
+}
+
 fn push_opt(args: &mut Vec<String>, flag: &str, val: &Option<String>) {
     if let Some(v) = val {
         if !v.is_empty() {
@@ -447,6 +459,22 @@ mod quick_project_tests {
 }
 
 #[cfg(test)]
+mod push_model_tests {
+    use super::push_model;
+    #[test]
+    fn modelo_escolhido_vira_flag_so_quando_valido() {
+        let mut a = vec![];
+        push_model(&mut a, &Some(" claude-opus-5-5 ".into()));
+        assert_eq!(a, vec!["--model".to_string(), "claude-opus-5-5".to_string()]);
+        for bad in [None, Some(String::new()), Some("  ".into()), Some("opus; rm -rf /".into())] {
+            let mut b: Vec<String> = vec![];
+            push_model(&mut b, &bad);
+            assert!(b.is_empty(), "{bad:?}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod slug_tests {
     use super::slug_id;
     #[test]
@@ -569,6 +597,14 @@ mod claude_json_tests {
 #[cfg(test)]
 mod artifact_tests {
     use super::*;
+    #[test]
+    fn nome_citado_pelo_agente_normaliza() {
+        assert_eq!(artifact_norm_name("./.cardume/artifacts/print.png", "t1"), "print.png");
+        assert_eq!(artifact_norm_name(".cardume/artifacts/t1/entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
+        assert_eq!(artifact_norm_name("t1/x.md", "t1"), "x.md");
+        assert_eq!(artifact_norm_name("entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
+        assert_eq!(artifact_norm_name("t10/x.md", "t1"), "t10/x.md");
+    }
     #[test]
     fn nome_com_subpasta_vale_mas_escape_nao() {
         assert!(artifact_name_ok("relatorio.pdf"));
@@ -816,7 +852,7 @@ fn task_budget_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Task {
     id: String,
@@ -854,9 +890,12 @@ struct Task {
     /// Um turno do MOTOR está rodando agora (lock busy_pid vivo) — pode ser um
     /// turno de fundo (verificar provas, rework) mesmo com status 'review'.
     busy: bool,
+    /// Pedidos (mensagens, entregáveis, rework) esperando na FILA do motor (work_queue 'queued').
+    /// Com `busy` false e isto > 0 = fila parada: o front avisa em vez de a mensagem "sumir".
+    queued: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Review {
     task_id: String,
@@ -867,7 +906,7 @@ struct Review {
     by_agent: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Event {
     id: i64,
@@ -880,7 +919,7 @@ struct Event {
     ok: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Claim {
     id: i64,
@@ -891,7 +930,7 @@ struct Claim {
     yielded_to: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Diff {
     task_id: String,
@@ -900,7 +939,7 @@ struct Diff {
     deletions: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Pending {
     id: i64,
@@ -912,7 +951,7 @@ struct Pending {
     created_at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Cost {
     task_id: String,
@@ -923,7 +962,7 @@ struct Cost {
     out_tok: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
     repo: Option<String>,
@@ -1244,9 +1283,15 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
     let conn = open(&dbpath)?;
-    let (branch, base): (String, String) = conn
+    // tarefa fora do state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem): não há
+    // commits a listar — vazio, não "Query returned no rows" (era o erro recorrente em app_errors)
+    let (branch, base): (String, String) = match conn
         .query_row("SELECT branch, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(|e| e.to_string())?;
+    {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(vec![]),
+        Err(e) => return Err(e.to_string()),
+    };
     let mb = merge_base_ref(&repo, &base, &branch);
     let out = Command::new("git")
         .arg("-C")
@@ -2054,7 +2099,17 @@ struct ArtifactContent {
 
 #[tauri::command(async)]
 fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
-    let path = artifact_path(&state, &task_id, &name)?;
+    // evidência que é arquivo do PRÓPRIO repo (ex.: "tests/login.test.ts"): só LEITURA, da worktree
+    let path = match artifact_path(&state, &task_id, &name) {
+        Ok(p) => p,
+        Err(e) => {
+            let rel = name.trim().trim_start_matches("./");
+            match task_worktree(&state, &task_id) {
+                Ok(wt) if artifact_name_ok(rel) && wt.join(rel).is_file() => wt.join(rel),
+                _ => return Err(e),
+            }
+        }
+    };
     let kind = artifact_kind(&name);
     if kind == "image" {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
@@ -2144,6 +2199,43 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
 }
 fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    snapshot_or_cached(path)
+}
+/// Último snapshot BOM por banco. Com o state.sqlite travado (checkpoint/recuperação do WAL depois de
+/// um processo morto, CLI fechando…), o snapshot esperava o busy_timeout inteiro (8s) = o mesmo prazo
+/// do front → "snapshot demorou >8s" e a tela parava justo depois de enviar mensagem. Agora a leitura
+/// desiste em SNAP_BUSY_MS e devolve o último estado bom (até 60s de idade); o próximo poll pega o novo.
+const SNAP_BUSY_MS: u64 = 2500;
+fn snap_cache() -> &'static Mutex<HashMap<PathBuf, (std::time::Instant, Snapshot)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<PathBuf, (std::time::Instant, Snapshot)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn snapshot_or_cached(path: Option<PathBuf>) -> Result<Snapshot, String> {
+    let Some(p) = path.clone() else { return snapshot_at(None) };
+    match snapshot_at(path) {
+        Ok(s) => {
+            snap_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(p, (std::time::Instant::now(), s.clone()));
+            Ok(s)
+        }
+        Err(e) => {
+            let hit = snap_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&p)
+                .filter(|(at, _)| at.elapsed() < std::time::Duration::from_secs(60))
+                .map(|(_, s)| s.clone());
+            match hit {
+                Some(s) => {
+                    web_log(format!("[rust] snapshot ocupado ({e}) — devolvi o último estado bom"));
+                    Ok(s)
+                }
+                None => Err(e),
+            }
+        }
+    }
+}
+/// O snapshot a partir do caminho do state.sqlite (sem State — dá pra medir/testar direto num banco).
+fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
     let path = match path {
         Some(p) => p,
         None => {
@@ -2162,6 +2254,7 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
         }
     };
     let conn = open(&path)?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(SNAP_BUSY_MS));
 
     // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only).
     // Coluna não some: "tem" fica em cache pra sempre por DB; "não tem" é reconferido a cada 30s.
@@ -2232,10 +2325,21 @@ fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
                     .unwrap_or(None)
                     .map(|pid| pid_alive(pid as i32))
                     .unwrap_or(false),
+                queued: 0,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
+    // fila do motor por tarefa (índice wq_task). Banco antigo sem work_queue: fica 0.
+    let mut tasks = tasks;
+    if let Ok(mut st) = conn.prepare("SELECT task_id, COUNT(*) FROM work_queue WHERE status='queued' GROUP BY task_id") {
+        if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+            let q: HashMap<String, i64> = rows.filter_map(|x| x.ok()).collect();
+            for t in tasks.iter_mut() {
+                if let Some(n) = q.get(&t.id) { t.queued = *n; }
+            }
+        }
+    }
 
     // Limita o payload: só os eventos mais recentes (evita serializar todo o
     // histórico a cada poll). 1200 cobre o uso real (com textos agora longos) e limita o
@@ -2921,7 +3025,7 @@ fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) 
 
 /// Momento do build (mtime do executável) — carimbo no rodapé pra saber qual
 /// versão está rodando (evita depurar tela de build antiga).
-#[tauri::command]
+#[tauri::command(async)]
 fn build_info() -> String {
     std::env::current_exe()
         .ok()
@@ -3085,23 +3189,40 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
     let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
-        signal_group(p, procsig::CONT);
-        signal_group(p, procsig::TERM);
-        let procs = state.procs.clone();
-        let tid = task_id.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            signal_group(p, procsig::KILL);
-            if let Ok(mut m) = procs.lock() {
-                if m.get(&tid) == Some(&p) {
-                    m.remove(&tid);
-                }
+        // ESPERA o turno morrer (≤ ~1,6s) antes de voltar: o "■ parar e enviar" do chat chama
+        // talk_task logo em seguida, e o motor novo via o busy_pid do processo AINDA VIVO → a
+        // mensagem ia pra fila de um turno que morria no SIGKILL sem drenar = presa pra sempre.
+        // Roda numa thread do runtime (comando async), não na da janela.
+        stop_and_wait(p, 1000);
+        if let Ok(mut m) = state.procs.lock() {
+            if m.get(&task_id) == Some(&p) {
+                m.remove(&task_id);
             }
-        });
+        }
     }
     // volta pra review (não 'aborted') pra poder continuar conversando
     set_task_status(&state, &task_id, "review")?;
     Ok(())
+}
+
+/// CONT + TERM no grupo, espera até `grace_ms` o processo sair; senão KILL e mais um respiro curto.
+/// Devolve se o processo morreu.
+fn stop_and_wait(p: i32, grace_ms: u64) -> bool {
+    signal_group(p, procsig::CONT);
+    signal_group(p, procsig::TERM);
+    let step = std::time::Duration::from_millis(50);
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_millis(grace_ms) {
+        if !pid_alive(p) { return true; }
+        std::thread::sleep(step);
+    }
+    signal_group(p, procsig::KILL);
+    let t1 = std::time::Instant::now();
+    while t1.elapsed() < std::time::Duration::from_millis(600) {
+        if !pid_alive(p) { return true; }
+        std::thread::sleep(step);
+    }
+    !pid_alive(p)
 }
 
 /// Aborta a tarefa: mata a árvore de processos (SIGCONT p/ destravar + SIGTERM,
@@ -3673,7 +3794,7 @@ fn tool_line(name: &str, input: &serde_json::Value) -> String {
 static PLANNER_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// PARA a resposta em andamento do planner ("montar conversando"): mata o grupo do claude.
-#[tauri::command]
+#[tauri::command(async)]
 fn ai_chat_stop() -> bool {
     let pid = PLANNER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
     if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
@@ -3682,7 +3803,7 @@ fn ai_chat_stop() -> bool {
 /// Planner conversando. Roda o claude em stream-json e, a cada tool_use, emite `planner-activity`
 /// ({ line }) pro chat mostrar o que a IA está fazendo; `ai_chat_stop` derruba o processo (PLANNER_STOPPED).
 #[tauri::command(async)]
-fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
     let sys = "Você é o PLANNER do Starfork: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o planner não começa do zero
@@ -3710,6 +3831,7 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
             args.push(sid.clone());
         }
     }
+    push_model(&mut args, &model); // IA padrão do usuário (Configurações) — antes o planner ignorava
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // grupo próprio (detach_new_group, dentro do helper): o "parar" derruba o claude E o que ele tiver aberto
@@ -3918,7 +4040,7 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let r2 = output_timeout(c2, 60)?;
     let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
     if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
-    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram o aviso de atualizar no próximo boot ou em até 6h{warn}", size as f64 / 1048576.0))
+    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time recebem o aviso de atualizar em até ~2 min{warn}", size as f64 / 1048576.0))
 }
 fn chrono_iso_now() -> String {
     let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();
@@ -3970,11 +4092,24 @@ fn llm_env_get(key: &str) -> Option<String> {
 }
 
 /// Resolve o caminho de um artefato (coletado no repo, ou AO VIVO na worktree).
+/// Nome como o AGENTE cita (evidência do requirements.json, link no chat): "./.cardume/artifacts/x.png",
+/// ".cardume/artifacts/<task>/x.png" → "x.png". Era a origem do "artefato não encontrado" ao clicar na prova.
+fn artifact_norm_name(name: &str, task_id: &str) -> String {
+    let mut n = name.trim().trim_start_matches("./");
+    n = n.strip_prefix(".cardume/artifacts/").unwrap_or(n);
+    if !task_id.is_empty() {
+        if let Some(rest) = n.strip_prefix(task_id).and_then(|r| r.strip_prefix('/')) { n = rest; }
+    }
+    n.to_string()
+}
+
 fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<PathBuf, String> {
+    let cited = name.trim().to_string();
+    let norm = artifact_norm_name(name, task_id);
+    let name = norm.as_str();
     if !artifact_name_ok(name) {
         return Err("nome de artefato inválido".into());
     }
-    let name = name.trim();
     // worktree AO VIVO primeiro (é a versão mais nova), depois a cópia coletada
     // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
     let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -3997,7 +4132,7 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
     for p in [col.join(name), col.join(task_id).join(name)] {
         if p.is_file() { return Ok(p); }
     }
-    Err("artefato não encontrado".into())
+    Err(format!("artefato não encontrado: {cited} (ainda não foi gerado ou já foi removido)"))
 }
 
 /// Envia um artefato pro Slack (files.getUploadURLExternal → PUT → completeUploadExternal).
@@ -4273,9 +4408,11 @@ fn tracker_http(method: String, url: String, headers: Option<std::collections::H
     }
     // GET é idempotente: repete 1x em falha transitória (DNS/VPN trocando, conexão caindo).
     // Escrita (POST/PUT/PATCH/DELETE) nunca repete — criaria issue/comentário em dobro.
-    // --compressed: as listas de issues vinham a 100 KB+ e estouravam os 30 s antigos.
-    let mut args: Vec<&str> = vec!["-sS", "--compressed", "--connect-timeout", "10", "--max-time", "60", "-w", "\n%{http_code}", "--config", "-"];
-    if m == "GET" { args.extend(["--retry", "1", "--retry-delay", "2", "--retry-all-errors"]); }
+    // --compressed: as listas de issues vinham a 100 KB+ (comprimidas cabem folgadas em 30 s).
+    // Teto DURO: conexão 10 s, chamada 30 s e a repetição só cabe dentro dos mesmos 30 s
+    // (--retry-max-time) — antes 60 s + retry podiam somar minutos com a rede caindo (curl 28).
+    let mut args: Vec<&str> = vec!["-sS", "--compressed", "--connect-timeout", "10", "--max-time", "30", "-w", "\n%{http_code}", "--config", "-"];
+    if m == "GET" { args.extend(["--retry", "1", "--retry-delay", "2", "--retry-max-time", "30", "--retry-all-errors"]); }
     let mut child = Command::new("curl")
         .args(&args)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
@@ -4356,7 +4493,7 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
 static ISSUE_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// PARA a pesquisa em andamento da aba "Nova issue" (mata o grupo do claude).
-#[tauri::command]
+#[tauri::command(async)]
 fn issue_chat_stop() -> bool {
     let pid = ISSUE_CHAT_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
     if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
@@ -4591,7 +4728,7 @@ fn fetch_task_ref(state: State<AppState>, task_id: String, url: String, anon: St
 /// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
 /// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
-#[tauri::command]
+#[tauri::command(async)]
 fn read_policy(state: State<AppState>) -> serde_json::Value {
     // devolve SÓ o que o REPO define — o JS monta a cadeia completa:
     // padrão do produto < política da ORG (nuvem) < .cardume do repo
@@ -4772,7 +4909,7 @@ fn apns_push(token: String, title: String, body: String, category: Option<String
 
 /// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
 /// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
-#[tauri::command]
+#[tauri::command(async)]
 fn is_dev_install() -> bool {
     std::env::var("CARDUME_CLI").map(|v| !v.is_empty()).unwrap_or(false)
 }
@@ -4869,7 +5006,7 @@ fn orq_chat_stop() -> Result<bool, String> { Ok(stop_slot(&ORQ_CHAT_PID)) }
 /// com leitura REAL do código — sem tarefa e sem editar nada. A conversa pode
 /// virar tarefa depois (a UI pede a spec pro mesmo session).
 #[tauri::command(async)]
-fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
     let sys = "Você é o copiloto do PROJETO aberto no Starfork, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o chat não começa do zero
@@ -4891,6 +5028,7 @@ fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, s
             args.push(sid.clone());
         }
     }
+    push_model(&mut args, &model); // IA padrão do usuário (Configurações) — antes o chat do projeto ignorava
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // stream: cada leitura/busca vira uma linha "o que a IA está fazendo" na tela (antes: só "lendo o projeto…"
@@ -4899,13 +5037,21 @@ fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, s
 }
 
 // ---------- revisão de arquivos da tarefa (abrir/editar/salvar) ----------
+/// Tarefa que não está no state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem).
+/// Estado legítimo: listas (arquivos/commits) devolvem vazio; o resto usa esta frase (o front não reporta).
+const TASK_GONE: &str = "esta tarefa não está neste projeto (foi apagada ou pertence a outro projeto)";
+/// Worktree já removida (merge/limpeza). Mandar mensagem na tarefa a recria (ensureTaskWorktree).
+const WT_GONE: &str = "a cópia de trabalho desta tarefa não existe mais (já foi limpa) — mande uma mensagem na conversa da tarefa pra retomá-la e ela é recriada";
+fn task_query_err(e: rusqlite::Error) -> String {
+    if matches!(e, rusqlite::Error::QueryReturnedNoRows) { TASK_GONE.to_string() } else { e.to_string() }
+}
 fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = open(&path)?;
     conn.query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| {
         Ok((PathBuf::from(r.get::<_, String>(0)?), r.get::<_, String>(1)?))
     })
-    .map_err(|e| e.to_string())
+    .map_err(task_query_err)
 }
 /// Ponto de comparação REAL da tarefa: merge-base entre a base e o HEAD da
 /// worktree, preferindo origin/<base>. Sem isso, se o agente mergear
@@ -4952,7 +5098,13 @@ struct TaskFile {
 /// Arquivos alterados pela tarefa (git diff base...HEAD na worktree).
 #[tauri::command(async)]
 fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, String> {
-    let (wt, base) = task_wt_base(&state, &task_id)?;
+    // tarefa de outro projeto/apagada ou worktree já limpa (merge): nada a listar — vazio, sem erro
+    let (wt, base) = match task_wt_base(&state, &task_id) {
+        Ok(v) => v,
+        Err(e) if e == TASK_GONE => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
+    if !wt.is_dir() { return Ok(vec![]); }
     // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
     // assim os arquivos aparecem ao vivo enquanto o agente edita, antes do commit.
     let base = task_diff_base(&wt, &base);
@@ -5037,7 +5189,26 @@ struct FileContent {
 fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<FileContent, String> {
     safe_rel(&path)?;
     let (wt, base) = task_wt_base(&state, &task_id)?;
-    let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| e.to_string())?;
+    if !wt.is_dir() {
+        // worktree limpa (tarefa mergeada/encerrada): mostra a versão da branch (ou da base) no repo
+        let repo = active_repo(&state)?;
+        let branch: String = open(&state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?)?
+            .query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get(0))
+            .unwrap_or_default();
+        let clean = base.trim_start_matches("origin/").to_string();
+        for rev in [branch, format!("origin/{clean}"), clean] {
+            if rev.is_empty() { continue; }
+            if let Ok(o) = Command::new("git").arg("-C").arg(&repo).args(["show", &format!("{rev}:{path}")]).output() {
+                if o.status.success() {
+                    return Ok(FileContent { content: String::from_utf8_lossy(&o.stdout).to_string(), added_lines: vec![] });
+                }
+            }
+        }
+        return Err(WT_GONE.into());
+    }
+    let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound { format!("o arquivo {path} não existe mais nesta cópia da tarefa (foi apagado ou renomeado)") } else { e.to_string() }
+    })?;
     // linhas novas (do diff unified=0): parse dos hunks @@ -a,b +c,d @@
     let mut added: Vec<i64> = Vec::new();
     let base = task_diff_base(&wt, &base);
@@ -5787,6 +5958,15 @@ fn gh_says_no_pr(stderr: &str) -> bool {
         || l.contains("not a git repository")
 }
 
+/// "GraphQL: Could not resolve to a Repository with the name 'org/repo'" = a conta logada no gh NÃO
+/// enxerga o repo (outra conta, sem convite, SSO não autorizado). Não é rede nem "sem PR": devolve o repo.
+fn gh_no_repo_access(stderr: &str) -> Option<String> {
+    let i = stderr.find("Could not resolve to a Repository")?;
+    let rest = &stderr[i..];
+    let name = rest.split('\'').nth(1).unwrap_or("").trim();
+    Some(if name.is_empty() { "este repositório".to_string() } else { name.to_string() })
+}
+
 /// statusCheckRollup → (total, falhando, pendentes). CheckRun usa status/conclusion; StatusContext usa state.
 fn pr_checks_summary(rollup: &serde_json::Value) -> (i64, i64, i64) {
     let (mut tot, mut fail, mut pend) = (0i64, 0i64, 0i64);
@@ -5902,6 +6082,9 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         let err = String::from_utf8_lossy(&view.stderr).to_string();
         if gh_says_no_pr(&err) {
             return Ok(empty);
+        }
+        if let Some(r) = gh_no_repo_access(&err) {
+            return Err(format!("GH_NO_ACCESS: a conta logada no gh não tem acesso a {r} — rode `gh auth switch` (ou `gh auth login`) com a conta que enxerga esse repositório; se a org usa SSO, `gh auth refresh -h github.com -s repo` e autorize"));
         }
         return Err(format!("gh pr view falhou: {}", err.trim()));
     }
@@ -6265,10 +6448,10 @@ fn task_worktree(state: &State<AppState>, task_id: &str) -> Result<PathBuf, Stri
     let conn = open(&db)?;
     let wt: String = conn
         .query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
+        .map_err(task_query_err)?;
     let p = PathBuf::from(&wt);
     if wt.is_empty() || !p.is_dir() {
-        return Err("a cópia de trabalho desta tarefa não existe mais (já foi limpa?)".into());
+        return Err(WT_GONE.into());
     }
     Ok(p)
 }
@@ -8282,6 +8465,12 @@ mod cardume_hygiene_tests {
 #[cfg(test)]
 mod pr_status_tests {
     use super::*;
+    #[test]
+    fn gh_sem_acesso_ao_repo_devolve_o_nome() {
+        let e = "GraphQL: Could not resolve to a Repository with the name 'market4u-ti/loja'. (repository)";
+        assert_eq!(gh_no_repo_access(e).as_deref(), Some("market4u-ti/loja"));
+        assert_eq!(gh_no_repo_access("no pull requests found"), None);
+    }
     #[test]
     fn review_threads_flatten_and_mark_answered_resolved() {
         let v = serde_json::json!({"data":{"viewer":{"login":"eu"},"repository":{"pullRequest":{"reviewThreads":{"nodes":[

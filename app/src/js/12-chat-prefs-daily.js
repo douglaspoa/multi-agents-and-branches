@@ -54,7 +54,7 @@ async function pcSend(){
   const ms=pcMsgs(key); ms.push({role:'user',text,atts:attLite(atts)}); pcSave(ms,key); inp.value=''; pcBusy=true; pcStopping=false; pcActs=[]; pcStartedAt=Date.now(); clearInterval(pcTick); pcTick=setInterval(()=>{ if(!pcBusy){ clearInterval(pcTick); pcTick=null; return; } pcActsPaint(); }, 1000); chatPinBottom('pcThread'); pcRender();
   try{
     const hist=pcMsgs(key).slice(0,-1).filter(m=>m.role!=='sys'); // aviso/erro NUNCA volta pro modelo como se fosse fala
-    const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'' }), lsGet(sidKey)||'', text+attPromptBlock(atts), hist);
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'', model:aiClaudeModel() }), lsGet(sidKey)||'', text+attPromptBlock(atts), hist);
     if(r.sessionId) lsSet(sidKey, r.sessionId);
     const ms2=pcMsgs(key);
     if(r.recovered) ms2.push({role:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});

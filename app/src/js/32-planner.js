@@ -380,7 +380,7 @@ async function plSend(text){
       const pede=new RegExp('\\b'+V+'\\b[^.]{0,20}épico','i').test(text), nega=new RegExp('\\b(n[ãa]o|nem|sem)\\b[^.]{0,12}\\b'+V+'\\b','i').test(text);
       if(plNoEpic && pede && !nega) plNoEpic=false; }
     const prompt = (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts) + (window.trfPromptBlock ? await trfPromptBlock(text) : '');
-    r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'' }), plSid, prompt, plMsgs.slice(0,-1));
+    r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'', model:aiClaudeModel() }), plSid, prompt, plMsgs.slice(0,-1));
   }catch(e){ err=e; }
   if(!err && !r) err=new Error('a IA não respondeu'); // resposta vazia não pode travar o planner (plBusy preso = "mando e não vai")
   await plInTab(myTab, async(here)=>{

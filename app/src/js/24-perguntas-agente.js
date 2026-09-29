@@ -26,7 +26,11 @@ async function editDraft(t){
   ntReq=Array.isArray(t.requirements)?t.requirements.slice():[];
   ntRefs=Array.isArray(t.refs)?t.refs.slice():[];
   if(t.base) $id('ntBase').value=t.base;
-  if(t.model) $id('ntModel').value=t.model;
+  // motor E modelo do rascunho (setSelValue: id completo fora da lista virava "" e caía no padrão)
+  if(t.engine) setSelValue($id('ntEngine'), t.engine);
+  setSelValue($id('ntModel'), t.model||'');
+  { const hm=$id('howModel'); if(hm) setSelValue(hm, t.model||''); }
+  if(typeof aiPickRender==='function') aiPickRender();
   renderNtList('ntDeliverables',ntDel); renderNtList('ntRequirements',ntReq); renderNtRefs();
   wizN=1; if(typeof wizRender==='function') wizRender();
   ntGate();
@@ -60,12 +64,13 @@ async function abortTask(taskId){
 }
 async function talkTask(taskId, message){
   const m=(message||'').trim(); if(!m) return;
-  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; commitsCache[taskId]=undefined; prCache[taskId]=undefined; lastSig=""; await refresh(); }
+  try{ await invoke("talk_task",{ taskId, message:m }); artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; commitsCache[taskId]=undefined; prCache[taskId]=undefined; lastSig=""; refresh().catch(()=>{}); }
   catch(e){ showErr(e, 'Falha ao conversar'); }
 }
 async function stopTask(taskId){
   if(typeof budgetQuiet!=='undefined') budgetQuiet.add(taskId); // parar ≠ "pronta pra revisar" (sem notificação falsa)
-  try{ await invoke("stop_task",{ taskId }); lastSig=""; await refresh(); }
+  // refresh SEM await: com o banco ocupado ele podia levar até 8s e o "parar e enviar" do chat esperava junto
+  try{ await invoke("stop_task",{ taskId }); lastSig=""; refresh().catch(()=>{}); }
   catch(e){ showErr(e, 'Falha ao parar'); }
 }
 // openChat: o "chat" da tarefa agora é o próprio workspace (colunas fw*)
