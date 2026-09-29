@@ -55,7 +55,11 @@ async function trkProjectOn(){
 }
 
 // ---------- executor do conector ----------
+// @puro-issues-inicio (testado em app/tests/issues.test.mjs)
 function trkPath(o, p){ if(!p) return o; return String(p).split('.').reduce((a,k)=>(a==null?a:a[k]), o); }
+// campo pelo caminho do conector; vazio → tenta os nomes mais comuns (conector sem "fields" ou editado à mão)
+function trkField(o, path, ...alts){ const v=trkPath(o, path); if(v!=null&&v!=='') return v; for(const a of alts){ if(o&&o[a]!=null&&o[a]!=='') return o[a]; } return undefined; }
+// @puro-issues-fim
 function trkUserVars(){ try{ return JSON.parse(lsGet('trk:uvars')||'{}'); }catch(_){ return {}; } }
 function trkCtx(extra){
   const c=trk.connector, ctx={};
@@ -557,8 +561,8 @@ function trkBoardHtml(){
   return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar código, título ou pessoa"></div>
       ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa',linkedN,'issues com uma tarefa do Starfork vinculada')}${(unN||trkFilter==='unseen')?chip('unseen','mudaram',unN,'mudaram desde a última vez que você olhou'):''}${epChips}
-      <span style="flex:1"></span><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
-      <button class="btn trk-refresh" id="trkRefresh" title="atualizar agora" aria-label="atualizar as issues agora"${trkBusy==='load'?' disabled':''}>${IC.refresh}</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</div>
+      <span class="trk-tacts"><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
+      <button class="btn trk-refresh" id="trkRefresh" title="atualizar agora" aria-label="atualizar as issues agora"${trkBusy==='load'?' disabled':''}>${IC.refresh}</button>${c.ops.create?'<button class="sk-add" id="trkNewBtn">+ nova issue</button>':''}</span></div>
     ${trkErr&&!first?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:(trkBgErr?`<div class="imhint" style="border-left:2px solid var(--warn)">${esc(trkBgErr)}</div>`:'')}
     ${area}`;
 }
@@ -835,6 +839,7 @@ async function trkNICreate(){
 }
 // Issue → tarefa JÁ PREENCHIDA: a descrição que o painel gera é "objetivo + Requisitos: - … + Projeto/Responsável";
 // desmonta isso de volta (requisitos viram requisitos, metadados somem) e pula direto pra "Quem executa?".
+// @puro-issuespec-inicio
 function trkIssueSpec(i){
   const lines=String(i.description||'').replace(/\r/g,'').split('\n'); const obj=[], reqs=[]; let inReq=false;
   for(const raw of lines){ const l=raw.trim();
@@ -845,6 +850,7 @@ function trkIssueSpec(i){
   const r=i.raw||{}, goal=String(r.final_goal||r.goal||'').trim();
   return { title:i.title, objective:obj.join('\n').trim(), reqs:reqs.filter(Boolean), goal, bug:/bug/i.test(String(r.activity_type||r.type||'')) };
 }
+// @puro-issuespec-fim
 async function trkIssueToTask(i){
   const sp=trkIssueSpec(i);
   // listas ANTES de abrir (o formulário as renderiza ao abrir); campos de texto depois
@@ -895,8 +901,7 @@ async function trkSelect(code){
   if(c.ops.comments&&i){
     try{ const d=await trkCall('comments',{ code:i.code, id:i.id }); const f=c.ops.comments.fields||{};
       // conector sem "fields" (ou gerado à mão): cai nos nomes mais comuns — antes o texto vinha vazio quando a API chamava de body
-      const pick=(m,k,...alts)=>{ const v=trkPath(m,k); if(v!=null&&v!=='') return v; for(const a of alts){ if(m&&m[a]!=null&&m[a]!=='') return m[a]; } return undefined; };
-      trkComments=(trkPath(d,c.ops.comments.itemsPath)||(Array.isArray(d)?d:[])).map(m=>({ author:(trkPerson(pick(m,f.author||'author','user','created_by','author_name'))||{}).label, text:pick(m,f.text||'text','body','comment','content','message'), createdAt:pick(m,f.createdAt||'created_at','createdAt','date') })); }
+      trkComments=(trkPath(d,c.ops.comments.itemsPath)||(Array.isArray(d)?d:[])).map(m=>({ author:(trkPerson(trkField(m,f.author||'author','user','created_by','author_name'))||{}).label, text:trkField(m,f.text||'text','body','comment','content','message'), createdAt:trkField(m,f.createdAt||'created_at','createdAt','date') })); }
     catch(e){ trkComments=[]; if(trkSel===code) trkCmErr=trkErrText(e); }
     if(trkSel===code) issRender();
   }
