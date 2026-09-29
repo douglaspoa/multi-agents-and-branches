@@ -240,7 +240,7 @@ function chkBlockWhy(g){
     : g.st==='notrun' ? 'rode a verificação (testes e checagens automáticas) antes de aprovar'
     : g.st==='stale' ? 'o código mudou depois da última verificação — rode de novo pra liberar'
     : g.st==='running' ? 'a verificação está rodando…'
-    : g.st==='err' ? (humanErr(g.err).id==='wt-gone' ? humanErr(g.err).msg : 'não deu pra conferir a verificação: '+g.err)
+    : g.st==='err' ? humanErr(g.err,'Não deu pra conferir a verificação').msg
     : g.st==='loading' ? 'conferindo a verificação…' : '';
 }
 async function chkRun(t){

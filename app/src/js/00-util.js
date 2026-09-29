@@ -155,6 +155,8 @@ const ERR_ACTIONS={
   gitinit: ()=>{ if(typeof gitGate==='function') return gitGate(); },
   publish: ()=>{ if(typeof publishGithub==='function') return publishGithub(); },
   conta:   ()=>{ if(window.openTab) window.openTab('conta'); },
+  // wt-gone: abre a conversa da tarefa aberta (mandar uma mensagem recria a cópia) e põe o foco na caixa
+  conversa:()=>{ if(typeof fwTask!=='undefined' && fwTask && typeof renderWorkspace==='function'){ fwMode='conversa'; renderWorkspace(); setTimeout(()=>{ const i=document.getElementById('fwInput'); if(i) i.focus(); },60); } },
 };
 // ORDEM importa: o primeiro que casa vence (ex.: "'origin' does not appear… Could not read from remote"
 // é SEM REMOTE, não rede; "Permission denied (publickey)… Could not read from remote" é permissão).
@@ -162,14 +164,17 @@ const ERR_CATALOG=[
   // antes do gh-auth: a frase orienta com "gh auth switch/login" e casaria lá
   { id:'gh-no-access', re:/^GH_NO_ACCESS:|could not resolve to a repository/i,
     msg:'A conta logada no GitHub (gh) não tem acesso a este repositório — troque pra conta certa (gh auth switch) ou entre com ela (gh auth login).', act:'github', label:'abrir Ambiente' },
-  { id:'wt-gone', re:/c[óo]pia de trabalho desta tarefa n[ãa]o existe mais/i,
-    msg:'A cópia de trabalho desta tarefa já foi limpa — mande uma mensagem na conversa da tarefa pra retomá-la (ela é recriada).' },
-  { id:'claude-missing', re:/spawn claude ENOENT|claude:?\s*(command )?not found|n[aã]o (encontrei|achei) o (bin[aá]rio do )?claude|claude (code )?n[aã]o (est[aá] )?instalado|claude[^\n]{0,40}ENOENT/i,
+  // wt-gone ANTES dos *-missing: spawn com a pasta da tarefa apagada também dá ENOENT/os error 2
+  { id:'wt-gone', re:/c[óo]pia de trabalho desta tarefa n[ãa]o existe mais|worktree[^\n]{0,200}(os error 2\b|no such file|ENOENT)|(os error 2\b|no such file|ENOENT)[^\n]{0,200}worktree/i,
+    msg:'A cópia de trabalho desta tarefa já foi limpa — mande uma mensagem na conversa da tarefa pra retomá-la (ela é recriada).', act:'conversa', label:'abrir a conversa' },
+  { id:'claude-missing', re:/spawn claude ENOENT|claude:?\s*(command )?not found|command not found: claude\b|n[aã]o (encontrei|achei) o (bin[aá]rio do )?claude|claude (code )?n[aã]o (est[aá] )?instalado|claude[^\n]{0,40}ENOENT|falha ao rodar claude:[^\n]{0,120}(os error 2\b|no such file or directory|program not found|cannot find the file)/i,
     msg:'O Claude Code não está instalado neste computador.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
   { id:'claude-login', re:/please run \/login|run \/login|invalid api key|not logged in|n[aã]o est[aá] logado no claude|authentication_error|oauth token (has )?expired|oauth session expired|failed to authenticate|login do claude( code)? expirou|claude auth login|x-api-key/i,
     msg:'O Claude Code precisa de login (ou o login expirou) — abra um terminal, rode `claude` e digite /login (ou `claude auth login`), depois envie de novo.', act:'env', label:'abrir Ambiente' },
-  { id:'gh-missing', re:/spawn gh ENOENT|\bgh:?\s*(command )?not found|gh n[aã]o (est[aá] )?instalado|github cli n[aã]o/i,
+  { id:'gh-missing', re:/spawn gh ENOENT|\bgh:?\s*(command )?not found(?!\s*\(HTTP)|command not found: gh\b|gh n[aã]o (est[aá] )?instalado|github cli n[aã]o|(gh indispon[ií]vel|sem resposta do GitHub \(gh\)|^gh):[^\n]{0,120}(os error 2\b|no such file or directory|program not found|cannot find the file)/i,
     msg:'O GitHub CLI (gh) não está instalado.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+  { id:'git-missing', re:/spawn git ENOENT|\bgit:?\s*(command )?not found(?!\s*\(HTTP)|command not found: git\b|git n[aã]o (est[aá] )?instalado|xcrun: error: invalid active developer path|^git:[^\n]{0,120}(os error 2\b|no such file or directory|program not found|cannot find the file)/i,
+    msg:'O git não está instalado (ou as ferramentas de linha de comando do Mac precisam ser reinstaladas).', act:'env', label:'ver como instalar (Mais › Ambiente)' },
   { id:'gh-auth', re:/gh auth login|authentication required|not logged into any github|bad credentials|requires authentication|gh sem login|to get started with github cli/i,
     msg:'Conecte sua conta do GitHub.', act:'github', label:'abrir Ambiente' },
   { id:'session', re:/jwt expired|invalid jwt|sess[aã]o expirou|refresh[_ ]token/i,
@@ -178,15 +183,62 @@ const ERR_CATALOG=[
     msg:'Esta pasta ainda não é um repositório git.', act:'gitinit', label:'criar repositório' },
   { id:'no-remote', re:/'origin' does not appear to be a git repository|no such remote|no configured push destination|does not appear to be a git repository|sem remote|no git remotes? found|none of the git remotes/i,
     msg:'Este projeto ainda não está no GitHub.', act:'publish', label:'publicar no GitHub' },
-  { id:'disk', re:/ENOSPC|no space left on device|disk (is )?full|disco (est[aá] )?cheio/i,
+  // R8: git — mudanças locais no caminho, lock de outro git, branch/commit que não existe, PR já aberto/sem mudanças
+  { id:'git-dirty', re:/local changes to the following files would be overwritten|please commit your changes or stash them|you have unstaged changes|cannot (pull|rebase) with (rebase|uncommitted)|your index contains uncommitted changes/i,
+    msg:'Há mudanças ainda não salvas (sem commit) que seriam sobrescritas — salve ou descarte essas mudanças e tente de novo.' },
+  // nome de branch que colide com outra ("feat" x "feat/login"): "cannot lock ref … exists; cannot create"
+  { id:'branch-clash', re:/cannot lock ref[^\n]*(exists; cannot create|is at [0-9a-f]+ but expected)|'refs\/heads\/[^']+' exists; cannot create/i,
+    msg:'O nome da branch colide com outra que já existe (ex.: "feat" e "feat/login" não podem coexistir) — escolha outro nome.' },
+  // lock sem permissão (pasta de outro usuário/protegida) não é "espere": vai pra permissão
+  { id:'permission', re:/\.lock'?:?\s*permission denied|unable to create '[^']*\.lock': permission denied/i,
+    msg:'Sem permissão pra essa ação (arquivo protegido ou conta sem acesso ao repositório).' },
+  { id:'git-lock', re:/index\.lock|unable to create '[^']*\.lock'|another git process seems to be running|cannot lock ref/i,
+    msg:'Outro comando do git está rodando nesta pasta (ou travou no meio) — espere alguns segundos e tente de novo.' },
+  { id:'branch-exists', re:/a branch named .{1,120} already exists|reference already exists|already exists on remote/i,
+    msg:'Já existe uma branch com esse nome — escolha outro nome ou use a que já existe.' },
+  { id:'git-ref', re:/invalid reference|pathspec .{1,200} did not match|unknown revision|not a valid object name|couldn'?t find remote ref|bad revision/i,
+    msg:'A branch ou o commit indicado não existe mais (pode ter sido apagado ou renomeado).' },
+  { id:'pr-exists', re:/a pull request for branch .{1,200} already exists/i,
+    msg:'Já existe um PR aberto para esta branch.' },
+  { id:'no-commits', re:/no commits between/i,
+    msg:'Não há mudanças novas para abrir o PR — a branch está igual à base.' },
+  { id:'nothing-to-commit', re:/nothing to commit|nada para commitar|no changes added to commit/i,
+    msg:'Não há nada novo pra salvar — nenhum arquivo mudou desde o último commit.' },
+  { id:'no-pr', re:/no pull requests? found for branch|no open pull requests?/i,
+    msg:'Ainda não existe PR para esta branch.' },
+  // R8: banco local (SQLite) — outra operação segurando o arquivo
+  { id:'db-locked', re:/database is locked|database table is locked|SQLITE_BUSY|SQLITE_LOCKED|banco (local )?(est[aá] )?(ocupado|travado)/i,
+    msg:'O banco local está ocupado por outra operação do Starfork — espere alguns segundos e tente de novo.' },
+  { id:'db-broken', re:/database disk image is malformed|file is not a database|SQLITE_CORRUPT/i,
+    msg:'O banco local do projeto está danificado — reabra o app; se continuar, veja os detalhes.' },
+  { id:'db-old', re:/no such table|no such column|has no column named/i,
+    msg:'O app está desatualizado em relação aos dados deste projeto — atualize o Starfork e abra de novo.' },
+  // R8: registro duplicado (Supabase/Postgres)
+  { id:'duplicate', re:/duplicate key value|violates unique constraint|\b23505\b|already registered|j[aá] existe um registro/i,
+    msg:'Já existe um registro igual — nada foi criado; use outro nome ou abra o existente.' },
+  { id:'disk', re:/ENOSPC|no space left on device|disk (is )?full|disco (est[aá] )?cheio|os error (28|112)\b|not enough space on the disk/i,
     msg:'O disco está cheio — libere espaço e tente de novo.' },
   { id:'ai-limit', re:/rate.?limit|usage limit|\b429\b|too many requests|overloaded|quota exceeded|limite de uso|credit balance is too low|hit your limit/i,
     msg:'A IA atingiu o limite de uso agora — espere alguns minutos e tente de novo.' },
   { id:'conflict', re:/merge conflict|CONFLICT \(|automatic merge failed|conflito de merge|not possible to fast-forward|\(fetch first\)|non-fast-forward|is not mergeable|merge commit cannot be cleanly created/i,
     msg:'Deu conflito com mudanças que já estão na base — resolva o conflito (ou peça pra IA resolver) e tente de novo.' },
-  { id:'permission', re:/permission denied|EACCES|EPERM|operation not permitted|\b403\b|forbidden|protected branch|write access .* not granted|must have (admin|push) (rights|access)|resource not accessible/i,
+  { id:'cloud-permission', re:/row-level security|insufficient_privilege|\b42501\b|permission denied for (table|relation|schema|function)/i,
+    msg:'Sua função na organização/time não permite isso — peça pra um admin do time fazer (ou te dar a permissão).' },
+  { id:'permission', re:/permission denied|EACCES|EPERM|operation not permitted|\b403\b|forbidden|protected branch|write access .* not granted|must have (admin|push) (rights|access)|resource not accessible|access is denied|os error (5|13)\b/i,
     msg:'Sem permissão pra essa ação (arquivo protegido ou conta sem acesso ao repositório).' },
-  { id:'network', re:/failed to fetch|load failed|networkerror|network is unreachable|timed? ?out|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|could not resolve host|couldn'?t resolve|temporary failure in name resolution|\boffline\b|sem conex[aã]o|unable to access|failed to connect|could not read from remote|connection (refused|reset)/i,
+  // R8: arquivo em uso (Windows os error 32 / EBUSY)
+  { id:'file-busy', re:/EBUSY|resource busy|os error (16|32|33)\b|being used by another process|text file busy/i,
+    msg:'O arquivo está em uso por outro programa — feche esse programa e tente de novo.' },
+  // R8: arquivo/pasta que sumiu (depois de claude/gh/git-missing, que também são ENOENT)
+  { id:'not-found', re:/no such file or directory|ENOENT|os error 2\b|cannot find the (file|path) specified[^\n]*|the system cannot find|n[aã]o encontrad[oa]: \//i,
+    msg:'Arquivo ou pasta não encontrado — pode ter sido movido, renomeado ou apagado.' },
+  // R8: servidor com problema (5xx) ≠ sem internet
+  { id:'server', re:/\bHTTP[ /]?5\d\d\b|status(?: code)?:? ?5\d\d\b|\b50[0234] (internal|bad|service|gateway)|internal server error|bad gateway|service unavailable|gateway time-?out|PGRST00[0-3]/i,
+    msg:'O servidor está com problema agora — tente de novo em alguns minutos.' },
+  // R8: resposta num formato inesperado (JSON quebrado/cortado)
+  { id:'bad-json', re:/^(?![\s\S]*invalid args)[\s\S]*(?:unexpected token .{0,40}(in json|is not valid json)|is not valid json|unexpected end of json|json\.parse: |json parse error|expected value at line|eof while parsing|invalid json|json inv[aá]lido|trailing characters at line)/i,
+    msg:'A resposta veio num formato inesperado — tente de novo; se repetir, veja os detalhes.' },
+  { id:'network', re:/failed to fetch|load failed|networkerror|network is unreachable|timed? ?out|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|could not resolve host|couldn'?t resolve|temporary failure in name resolution|\boffline\b|sem conex[aã]o|unable to access|failed to connect|could not read from remote|connection (refused|reset|closed)|EAI_AGAIN|EHOSTUNREACH|dns error|error sending request|tempo esgotado|demorou demais|os error (60|61|65|10060|10061)\b/i,
     msg:'Sem conexão agora — cheque a internet/VPN e tente de novo.' },
 ];
 // ctx (opcional): o que se tentava fazer ("Falha ao abrir o PR") — vira o prefixo da mensagem
@@ -229,7 +281,10 @@ function showErr(e, ctx){
   toast(h.msg, 'err', h.action||det, h.action?det:null);
   return h;
 }
-window.humanErr=humanErr; window.showErr=showErr;
+// texto curto pra caber numa linha da tela: a frase do catálogo quando é erro conhecido, senão a 1ª linha do cru
+// (sem o "Algo deu errado:" — quem chama já tem o próprio título, ex.: "não consegui gerar o diff")
+function errShort(e){ const h=humanErr(e); return h.id==='generic' ? (errFirstLine(h.raw)||'erro sem detalhe') : h.msg; }
+window.humanErr=humanErr; window.showErr=showErr; window.errShort=errShort;
 // nº de arquivos de um diff: o backend (Rust, struct Diff) manda `files` como NÚMERO;
 // versões antigas/mock mandavam lista — aceita os dois (antes saía "undefined arquivo(s)")
 function diffFiles(d){ if(!d) return 0; const f=d.files; return typeof f==='number'?f:(Array.isArray(f)?f.length:0); }

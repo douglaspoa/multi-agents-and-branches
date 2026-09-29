@@ -53,7 +53,9 @@ a.memlink.broken{color:var(--muted);border-bottom-color:var(--muted)}
 a.memlink.broken::after{content:" · criar esta nota";font-size:10.5px;color:var(--muted)}
 .memback{margin-top:22px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12.5px}
 .memback .memlbl{width:100%}
-.memfile{font:11px var(--mono);margin-top:14px}
+.memfile{font:11.5px var(--display);margin-top:14px}
+.memfile summary{cursor:pointer;width:max-content}
+.memfile .mono{display:block;font:11px var(--mono);margin-top:6px;user-select:all}
 .memempty{padding:18px;color:var(--muted);font-size:12.5px;line-height:1.5}
 .memempty.big{max-width:460px;margin:60px auto;text-align:center;color:var(--text-2)}
 .memempty.big svg{color:var(--accent)}

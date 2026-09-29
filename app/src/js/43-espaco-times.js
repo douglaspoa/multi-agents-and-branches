@@ -477,7 +477,7 @@ async function cloudCatalog(orgId, isAdmin){
           cloudCatalog(orgId, isAdmin);
         }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent='enviar os deste projeto'; }
       }; }
-  }catch(e){ el.textContent='falhou: '+e.message; }
+  }catch(e){ el.textContent=humanErr(e,'Não consegui carregar').msg; }
 }
 
 /* ---- F4 (fatia): visão da organização pra owner/admin + chave de licença ---- */
