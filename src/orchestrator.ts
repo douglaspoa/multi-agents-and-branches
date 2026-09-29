@@ -814,7 +814,25 @@ export class Orchestrator {
     }
   }
 
+  /** Qualquer exceção que ESCAPE do pipeline (banco ocupado além do retry, spec corrompido, git) deixava
+   * a tarefa em "rodando"/"pensando" pra sempre — sem processo nenhum, o card girando e o "iniciar"
+   * bloqueado. Agora ela vai pra "erro" com o motivo no chat (dá pra retomar) e o erro segue pra cima. */
   private async runTaskInner(taskId: string): Promise<void> {
+    try {
+      await this.runTaskPipeline(taskId);
+    } catch (err) {
+      const msg = (err as Error)?.message || String(err);
+      try {
+        if (this.store.getTask(taskId)) {
+          this.store.addEvent(taskId, "Sistema", "error", `a execução parou por um erro inesperado: ${msg.slice(0, 300)}`, false);
+          this.store.setStatus(taskId, "error");
+        }
+      } catch { /* banco indisponível: o erro original é o que importa */ }
+      throw err;
+    }
+  }
+
+  private async runTaskPipeline(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;

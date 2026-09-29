@@ -64,3 +64,35 @@ test("6 processos pedem o lock AO MESMO TEMPO: só um ganha", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("erro inesperado no meio do pipeline: a tarefa vai pra 'erro' (antes: 'rodando' pra sempre) e o lock é solto", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { realpathSync, writeFileSync } = await import("node:fs");
+  const { Orchestrator } = await import("./orchestrator.ts");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "starfork-pipe-")));
+  const repo = join(root, "repo");
+  const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  g("config", "user.email", "t@t"); g("config", "user.name", "t"); g("config", "commit.gpgsign", "false");
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  g("add", "-A"); g("commit", "-q", "-m", "base");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask({
+      id: "t-x", title: "t", objective: "x", deliverables: [], requirements: [],
+      scope: { owns: [], offLimits: [] },
+      autonomy: { clarifications: "assume", commit: "at-end", runTests: false, approval: "auto" },
+      engine: "mock", agent: "Vega", roles: [{ role: "builder", name: "Vega", engine: "mock" }], light: true, base: "main",
+    } as unknown as TaskSpec);
+    // o contexto do papel é montado DEPOIS do status "rodando" — uma exceção aqui escapava do pipeline
+    orch.bus.buildContext = () => { throw new Error("database is locked"); };
+    await assert.rejects(orch.runTask("t-x"), /database is locked/);
+    const t = orch.store.getTask("t-x")!;
+    assert.equal(t.status, "error");
+    assert.equal(orch.store.busyPid("t-x"), null);
+    assert.ok(orch.store.eventsForTask("t-x").some((e) => e.type === "error" && /erro inesperado: database is locked/.test(e.text)));
+  } finally {
+    orch.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
