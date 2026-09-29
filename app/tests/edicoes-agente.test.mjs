@@ -27,9 +27,9 @@ function load(extra = {}) {
   ctx.sbFetch = async (path, opts) => { calls.push(['patch', path, JSON.parse(opts.body)]); if (ctx.patchEmpty > 0) { ctx.patchEmpty--; return []; } return [{}]; };
   ctx.sbPost = async (t, b) => { calls.push(['post', t, b]); return [{}]; };
   ctx.invoke = async (cmd, a) => { calls.push([cmd, a]); if (cmd === 'task_edit_cli') return JSON.stringify({ ok: true, mode: ctx.cliMode || 'queued', message: 'ok' }); return null; };
-  ctx.invokeQuiet = async (cmd, a) => { calls.push([cmd, a]); if (cmd === 'agent_edits_pending') return ctx.pending || []; return null; };
+  ctx.invokeQuiet = async (cmd, a) => { calls.push([cmd, a]); if (cmd === 'agent_edits_pending') return ctx.pending || []; if (cmd === 'epic_context_requests') return ctx.ctxReq || []; return null; };
   vm.createContext(ctx);
-  vm.runInContext(src + '\nthis.api={ aeValidate, aeApplyEpic, aeDecideEpic, aeUndoEpic, aeApplyCard, aeDecideCard, aeUndoCard, aeEventHtml, aeEpicHistHtml, aeEpicBadge, aeTick, aeApplyOne, aeWaiting, aeRetry };', ctx);
+  vm.runInContext(src + '\nthis.api={ aeValidate, aeApplyEpic, aeDecideEpic, aeUndoEpic, aeApplyCard, aeDecideCard, aeUndoCard, aeEventHtml, aeEpicHistHtml, aeEpicBadge, aeTick, aeApplyOne, aeWaiting, aeRetry, aeCtxTick, aeCtxRefresh };', ctx);
   return ctx;
 }
 const NOW = '2026-09-29T12:00:00.000Z';
@@ -252,4 +252,25 @@ test('fiação: a conversa delega spec-edit/spec-proposal, o index carrega o scr
   assert.match(ep, /aeEpicHistHtml\(sp, can, tasks, ep\.id\)/);
   const css = readFileSync(new URL('../src/css/81-chat.css', import.meta.url), 'utf8');
   assert.match(css, /\.ae-a\{/);
+});
+
+test('contexto vivo: pedido do motor → grava o JSON do épico com as irmãs do MESMO projeto; épico sem tarefa aqui é ignorado', async () => {
+  const c = load();
+  c.state.tasks = [{ id: 'autor', status: 'running', epic: { epicId: EP } }];
+  c.rows['epics?'] = { id: EP, name: 'Auth', spec: { doneWhen: [{ id: 'D2', text: 'x', checkedBy: 'u' }] } };
+  c.sbGet = async (q) => { c.calls.push(['get', q]); if (q.startsWith('epics')) return [c.rows['epics?']];
+    return [{ id: CARD, local_id: 'autor', title: 'Login', status: 'running', epic_id: EP, project_id: PROJ, spec: { requirements: ['a'] } },
+      { id: 'cccccccc-0000-0000-0000-000000000009', local_id: 'card-z', title: 'Outro projeto', status: 'backlog', epic_id: EP, project_id: 'outro', spec: {} }]; };
+  c.ctxReq = [EP, '99999999-0000-0000-0000-000000000000'];
+  await c.api.aeCtxTick();
+  const w = c.calls.filter((x) => x[0] === 'write_epic_context');
+  assert.equal(w.length, 1, 'só o épico com tarefa neste repo');
+  const j = JSON.parse(w[0][1].json);
+  assert.equal(j.epicId, EP);
+  assert.deepEqual(J(j.siblings.map((s) => [s.cloudId, s.localId, s.machineLocal])), [[CARD, 'autor', true]]);
+  assert.deepEqual(J(j.doneWhen), [{ id: 'D2', text: 'x', checked: true }]);
+  assert.ok(c.calls.some((x) => x[0] === 'get' && x[1].includes('epic_id=eq.' + EP)));
+  c.calls.length = 0; c.ctxReq = [];
+  await c.api.aeCtxRefresh([EP], false);
+  assert.ok(!c.calls.some((x) => x[0] === 'write_epic_context'), 'throttle: acabou de gravar');
 });

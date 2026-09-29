@@ -10,6 +10,7 @@ import { buildReview } from "./review.ts";
 import { ghBin, netEnv, netTimeoutMs, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
+import { prepEpicTurn } from "./epic-context.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { userInfo } from "node:os";
@@ -382,6 +383,11 @@ export class Orchestrator {
    * marcar um item provado. O contexto compilado do épico (goal, irmãs, decisões) é do épico 2 — aqui é só o
    * mínimo pra o revisor saber julgar e o builder não inventar escopo.
    */
+  /** Início de todo turno de tarefa de épico: EPIC.md + "pronto quando" frescos do contexto que o app grava. */
+  private prepEpic(spec: TaskSpec, cwd: string): void {
+    try { prepEpicTurn({ store: this.store, cardumeDir: this.ws.dir, spec, cwd }); } catch { /* best-effort: o turno segue */ }
+  }
+
   epicContext(spec: TaskSpec): string {
     if (!spec.epicId) return "";
     const dw = (spec.epicDoneWhen ?? []).filter(Boolean);
@@ -888,6 +894,7 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
+      this.prepEpic(spec, task.worktree);
       const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
@@ -1218,6 +1225,7 @@ export class Orchestrator {
       if (!open.length) break;
       this.store.addEvent(taskId, role.name, "note", `aplicando ${open.length} instrução(ões) enviada(s) por você`, true, role.role);
       this.store.setStatus(taskId, "running");
+      this.prepEpic(spec, worktree);
       const engine = this.engineFor(role.engine, role.model, spec.autonomy.approval);
       const instruction =
         `O humano enviou instruções adicionais no meio da execução — talvez tenha lembrado de algo. ` +
@@ -1374,6 +1382,7 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
+    this.prepEpic(spec, task.worktree);
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
@@ -1465,6 +1474,7 @@ export class Orchestrator {
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
+    this.prepEpic(spec, task.worktree);
     const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec, message) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     // recriada → ao fim do turno volta pra "pronta pra revisar" (não pro limbo mergeada-sem-worktree)
     const prev: AgentStatus = recreated && ["merged", "done", "aborted", "cancelled", "error"].includes(task.status) ? "review" : task.status;
