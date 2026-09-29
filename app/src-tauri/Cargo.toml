@@ -22,10 +22,14 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 libc = "0.2"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync"] }
 
-# Notificação nativa com clique útil só existe no macOS (bundle + resposta do
-# clique). No Linux/Windows o tauri-plugin-notification cobre o envio.
+# Notificação nativa com clique útil só existe no macOS: UNUserNotificationCenter
+# (a API atual — a NSUserNotification antiga parou de aparecer depois do rename do
+# app). No Linux/Windows o tauri-plugin-notification cobre o envio.
 [target.'cfg(target_os = "macos")'.dependencies]
-mac-notification-sys = "0.6"
+objc2 = { version = "0.6", features = ["exception"] }
+block2 = "0.6"
+objc2-foundation = "0.3"
+objc2-user-notifications = "0.3"
 
 [profile.dev]
 incremental = true

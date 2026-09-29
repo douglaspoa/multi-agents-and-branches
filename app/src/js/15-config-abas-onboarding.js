@@ -49,6 +49,8 @@ function openCfg(){
     <div id="ghHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Navegador dos agentes</div>
     <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
+    <div class="seclbl2" style="margin-top:20px">Notificações <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· avisos de tarefa pronta, plano pra aprovar, falha — clicar abre a tarefa</span></div>
+    <div id="notifHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app procura versão nova sozinho a cada 2 min (e quando você volta pra janela) — ou agora, aqui</span></div>
     <div id="updHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta de trabalho do Starfork deste projeto <span class="mono" style="font-size:10.5px">(.cardume/)</span> — aprendizados ficam, o resto pode ir</span></div>
@@ -67,7 +69,7 @@ function openCfg(){
     cap.oninput=upd; brl.oninput=upd; upd(); }
   // "alterações não salvas" só pros campos que dependem do botão salvar: IA padrão, gateway, GitHub, versão e
   // disco se salvam sozinhos — antes mexer neles acendia o aviso (e o salvar não fazia nada com eles)
-  { const SELF='#aiPickCfg,#raHost,#ghHost,#updHost,#wsHost';
+  { const SELF='#aiPickCfg,#raHost,#ghHost,#updHost,#wsHost,#notifHost';
     const mark=e=>{ if(e && e.target && e.target.closest && e.target.closest(SELF)) return; const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; };
     body.oninput=mark; body.onchange=mark; }
   $id('cfgSave').onclick=async()=>{
@@ -97,6 +99,7 @@ function openCfg(){
   if(typeof ghMount==='function') ghMount();
   if(typeof updRenderCfg==='function') updRenderCfg();
   wsMount();
+  if(typeof notifCfgMount==='function') notifCfgMount();
   if(typeof aiPickRender==='function' && typeof AI_TARGET_CFG!=='undefined') aiPickRender(AI_TARGET_CFG);
   aiPlainWatch($id('aiPickCfg'));
   $id('cfgOverlay').style.display='flex';
