@@ -131,9 +131,9 @@ function chatMsgHtml(m){
   const w=m.who||m.role, t=String(m.text||'');
   if(w==='you'||w==='user') return `<div class="plmsg you chatmsg"><div class="plbub">${esc(t)}${attRowHtml(m.atts)}</div></div>`;
   if(w==='sys') return `<div class="plmsg sys chatmsg"><div class="plbub">${esc(t)}</div></div>`;
-  return `<div class="plmsg bot chatmsg"><span class="plav">✦</span><div class="plbub">${mdToHtml(t)}${chatCopyBtn()}</div></div>`;
+  return `<div class="plmsg bot chatmsg"><span class="plav">${IC.starfork}</span><div class="plbub">${mdToHtml(t)}${chatCopyBtn()}</div></div>`;
 }
-function chatThinkHtml(inner){ return `<div class="plmsg bot chatmsg"><span class="plav">✦</span><div class="plbub think">${inner||'<span class="pltyping"><i></i><i></i><i></i></span>'}</div></div>`; }
+function chatThinkHtml(inner){ return `<div class="plmsg bot chatmsg"><span class="plav">${IC.starfork}</span><div class="plbub think">${inner||'<span class="pltyping"><i></i><i></i><i></i></span>'}</div></div>`; }
 document.addEventListener('click', e=>{
   const cp=e.target.closest&&e.target.closest('.chatmsg .ccopy'); if(!cp) return;
   const cl=cp.parentElement.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove());

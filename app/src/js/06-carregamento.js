@@ -39,14 +39,12 @@ function skeletonHtml(kind, o){
     : `<div class="ld-sk ld-sk-${k}${o.head?' ld-hashead':''}${ldMotion()}" role="status" aria-busy="true" aria-label="${lbl}">${o.head?LD_HEAD:''}${f(o)}<div class="ld-slow"></div></div>`;
   return o.wrap?`<div class="${ldA(o.wrap)}">${h}</div>`:h;
 }
-// loader da marca: a estrela que se bifurca (mesmo desenho do logo .brand), em traço. Só em espera longa (> 1,5 s,
+// loader da marca: a estrela que se bifurca (IC.starfork, o mesmo símbolo do logo), em traço. Só em espera longa (> 1,5 s,
 // via CSS) e só onde NÃO há skeleton com a forma do conteúdo. o.now: aparece já (quem chama já esperou os 1,5 s).
 function brandLoaderHtml(label, o){
   o=o||{};
   return `<div class="ld-brand${o.now?' ld-now':''}${o.inline?' ld-inline':''}${ldMotion()}" role="status" aria-busy="true">`
-    +`<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.1" stroke-linecap="round">`
-    +`<path class="ld-t1" pathLength="1" d="M5 14L9.5 9"/><path class="ld-t2" pathLength="1" d="M9.5 9L15 11.5"/><path class="ld-t3" pathLength="1" d="M9.5 9L12 4"/></g>`
-    +`<g fill="currentColor"><circle class="ld-n0" cx="5" cy="14" r="1.5"/><circle class="ld-n1" cx="9.5" cy="9" r="2.2"/><circle class="ld-n2" cx="15" cy="11.5" r="1.5"/><circle class="ld-n3" cx="12" cy="4" r="1.4"/></g></svg>`
+    +IC.starfork
     +`<div class="ld-bl">${label?esc(label):'carregando'}</div><div class="ld-slow"></div></div>`;
 }
 // ícone por chave: IC.* (svg pronto) ou _ICONS.* (só os paths, ex.: folder) — o tamanho quem dá é o CSS do estado

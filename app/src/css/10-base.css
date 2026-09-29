@@ -13,6 +13,13 @@
   --shadow:0 0 0 .5px rgba(0,0,0,.55), 0 16px 44px rgba(0,0,0,.62);
   --shadow-sm:0 1px 2px rgba(0,0,0,.45);
   --ring:0 0 0 3.5px color-mix(in srgb, var(--accent) 30%, transparent);
+  /* repaginada C: o verde cheio (--accent) é só do CTA primário, do foco e de "rodando".
+     Seleção, badge e borda de destaque usam o soft (fundo) + line (borda), com texto claro (--text).
+     Derivados de --accent: um tema claro que redefina --accent/--text já herda os dois. */
+  --accent-soft:color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line:color-mix(in srgb, var(--accent) 40%, transparent);
+  /* escala tipográfica (aplicada nas telas das repaginadas A/B; o resto migra tela a tela) */
+  --fs-xs:11px; --fs-sm:12.5px; --fs-md:14px; --fs-lg:18px; --fs-xl:28px;
 }
 /* dark-only: o design é escuro em qualquer tema do SO */
 /* app é dark-only: color-scheme SEMPRE dark (sem isso, com o macOS em dark o

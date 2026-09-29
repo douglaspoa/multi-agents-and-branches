@@ -1,0 +1,110 @@
+[
+  {
+    "id": "R7-ID-1",
+    "area": "identidade",
+    "titulo": "Um símbolo único da marca: a estrela que se bifurca",
+    "antes": "O logo era um desenho de constelação (4 pontos ligados) num quadrado verde cheio; o SVG estava copiado no index.html e no loader.",
+    "depois": "Uma estrela de 4 pontas com um tronco e um ramo (branch), definida só em IC.starfork (10-core.js). O logo da sidebar é preenchido por ela, num quadrado com fundo soft e o símbolo em verde. É legível a 16 px.",
+    "motivo": "\"Starfork\" só aparecia como texto. O símbolo junta estrela e fork e passa a ser a assinatura da marca.",
+    "arquivos": [
+      "app/src/js/10-core.js",
+      "app/src/index.html",
+      "app/src/css/30-refino-macos.css"
+    ],
+    "como_ver": "Abra o app e olhe o topo da sidebar.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/before/marca-zoom.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/after/marca-zoom.png"
+    }
+  },
+  {
+    "id": "R7-ID-2",
+    "area": "identidade",
+    "titulo": "O mesmo símbolo na aba Nova demanda e no avatar da IA",
+    "antes": "A aba Nova demanda tinha um balão com faísca; o avatar da IA no planner era o caractere ✦ (e ◆ no card do épico).",
+    "depois": "A aba (VIEW_META nova/planner) e o avatar .plav do planner, do chat do projeto e do épico do time usam IC.starfork.",
+    "motivo": "O mesmo símbolo aparece nos três pontos de marca. Não depende da fonte que desenha o glifo.",
+    "arquivos": [
+      "app/src/js/15-config-abas-onboarding.js",
+      "app/src/js/32-planner.js",
+      "app/src/js/30-anexos.js",
+      "app/src/js/46-epico-time.js",
+      "app/src/css/87-nova-demanda.css"
+    ],
+    "como_ver": "Clique em Nova demanda e veja o ícone da aba e o avatar ao lado das respostas da IA.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/before/planner-topo.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/after/planner-topo.png"
+    }
+  },
+  {
+    "id": "R7-ID-3",
+    "area": "carregamento",
+    "titulo": "O loader da marca desenha o símbolo novo em traço",
+    "antes": "O loader do PR A desenhava a constelação antiga, com um SVG próprio.",
+    "depois": "brandLoaderHtml reusa IC.starfork: a estrela sem preenchimento e os 3 traços desenhados por stroke-dashoffset. Com movimento reduzido, fica estático.",
+    "motivo": "Um símbolo só, sem outra cópia do SVG.",
+    "arquivos": [
+      "app/src/js/06-carregamento.js",
+      "app/src/css/86-carregamento.css",
+      "app/tests/carregamento.test.mjs"
+    ],
+    "como_ver": "É a espera longa (mais de 1,5 s) de uma aba sem skeleton. No print, o quadro está parado.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/before/loader-marca.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/after/loader-marca.png"
+    }
+  },
+  {
+    "id": "R7-ID-4",
+    "area": "cores",
+    "titulo": "Verde disciplinado: o verde cheio fica só no CTA, no foco e em \"rodando\"",
+    "antes": "Chips de dependência selecionados, borda e título do card do épico, opção selecionada do popover, chip de tipo definido, hover dos exemplos, ícones do estado vazio e barra de progresso estavam todos em verde cheio.",
+    "depois": "Novos tokens --accent-soft (fundo) e --accent-line (borda), derivados de --accent, com texto claro. O verde cheio fica em \"enviar\", \"Aprovar e criar\", no foco e em \"rodando\". A tela antiga (.ndtype/.ndm/.ndmbadge) também usa o soft.",
+    "motivo": "O verde estava em tudo e já não dizia \"aqui\".",
+    "arquivos": [
+      "app/src/css/10-base.css",
+      "app/src/css/87-nova-demanda.css",
+      "app/src/css/20-abas-e-telas.css"
+    ],
+    "como_ver": "Na Nova demanda com um épico proposto, compare os chips \"depois de\" com o botão Aprovar.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/before/plano-zoom.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/after/plano-zoom.png"
+    }
+  },
+  {
+    "id": "R7-ID-5",
+    "area": "tipografia",
+    "titulo": "Escala tipográfica em tokens nas telas das repaginadas A e B",
+    "antes": "Havia tamanhos soltos (10.5, 11, 11.5, 12, 12.5, 13, 15, 30 px) na mesma tela.",
+    "depois": "Escala --fs-xs 11 / --fs-sm 12.5 / --fs-md 14 / --fs-lg 18 / --fs-xl 28, aplicada a toda fonte de 87-nova-demanda.css e 86-carregamento.css. O resto do app migra tela por tela.",
+    "motivo": "Menos degraus deixam a hierarquia legível. Não entra nenhuma família nova.",
+    "arquivos": [
+      "app/src/css/10-base.css",
+      "app/src/css/87-nova-demanda.css",
+      "app/src/css/86-carregamento.css"
+    ],
+    "como_ver": "Abra Nova demanda, primeiro vazia (novo) e depois com rascunho.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/before/planner-vazio.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/after/planner-vazio.png"
+    }
+  },
+  {
+    "id": "R7-ID-6",
+    "area": "identidade",
+    "titulo": "Ícone do app (fonte SVG) com o símbolo novo",
+    "antes": "icon.svg mostrava a constelação num céu azul.",
+    "depois": "icon.svg mostra a estrela que se bifurca em verde, sobre a paleta escura do app. Os PNG, o ICNS e o ICO NÃO foram regenerados porque o @tauri-apps/cli não está instalado; falta rodar `npx tauri icon app/src-tauri/icons/icon.svg`.",
+    "motivo": "É a marca fora do app. A spec proíbe trocar os ícones do sistema sem o pipeline do Tauri.",
+    "arquivos": [
+      "app/src-tauri/icons/icon.svg"
+    ],
+    "como_ver": "Abra app/src-tauri/icons/icon.svg.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/before/icone-app.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/identidade/after/icone-app.png"
+    }
+  }
+]
