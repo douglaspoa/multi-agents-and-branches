@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex};
 mod agent_edits;
 mod memoria;
 mod mesa;
+#[cfg(target_os = "macos")]
+mod notif_mac;
 #[cfg(test)]
 mod snapshot_perf;
 
@@ -8080,42 +8082,52 @@ fn web_log(line: String) {
     }
 }
 
-/// Notificação NATIVA com clique útil. O plugin (notify-rust) cai no bundle do
-/// Editor de Script quando não registra o app — clicar abria o editor. Aqui:
-/// mac-notification-sys com o bundle do Starfork + resposta do clique →
-/// evento "notif-open" pro front abrir a tarefa certa.
+/// Notificação NATIVA com clique útil. macOS: UNUserNotificationCenter (notif_mac.rs)
+/// com o id da tarefa no userInfo — o clique volta pelo delegate como evento
+/// "notif-open". Erro (sem permissão, fora do .app) volta pro front, que cai no
+/// tauri-plugin-notification. Linux/Windows: plugin direto (sem roteamento do clique).
 #[tauri::command(async)]
-fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) {
+async fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    std::thread::spawn(move || {
-        use mac_notification_sys::{Notification, NotificationResponse};
-        let sent = Notification::default()
-            .title(&title)
-            .message(&body)
-            .sound("Ping")
-            .send();
-        if let Ok(NotificationResponse::Click | NotificationResponse::ActionButton(_)) = sent {
-            use tauri::{Emitter, Manager};
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-            let _ = app.emit("notif-open", task_id.unwrap_or_default());
-        }
-    });
-    // Linux/Windows: sem resposta de clique nativa — envia pelo tauri-plugin-notification
-    // (já registrado). Perde só o "clicar abre a tarefa", não a notificação.
+    {
+        let _ = app;
+        notif_mac::post(title, body, task_id).await
+    }
     #[cfg(not(target_os = "macos"))]
     {
         use tauri_plugin_notification::NotificationExt;
         let _ = task_id;
-        let _ = app
-            .notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show();
+        app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())
+    }
+}
+
+/// Permissão de notificação do app: authorized · denied · notDetermined ·
+/// provisional · unsupported (fora do macOS, ou binário fora do .app — o front
+/// então usa a checagem do plugin).
+#[tauri::command(async)]
+async fn notif_status() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        notif_mac::status().await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("unsupported".to_string())
+    }
+}
+
+/// Abre Ajustes do Sistema › Notificações (URL fixa — o open_url só aceita http/https).
+#[tauri::command(async)]
+fn notif_open_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        os_open(std::ffi::OsStr::new("x-apple.systempreferences:com.apple.Notifications-Settings.extension"))
+            .map_err(|e| format!("não consegui abrir os Ajustes do Sistema: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("disponível só no macOS".to_string())
     }
 }
 
@@ -8585,9 +8597,10 @@ fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // registra o bundle nas notificações UMA vez (senão a lib cai no Editor de Script)
-    #[cfg(target_os = "macos")]
-    let _ = mac_notification_sys::set_application("dev.constellation.app");
+    // Quem notifica é o APP (UNUserNotificationCenter/plugin). As do motor via osascript saem como
+    // "Editor de Script" (clicar abre o editor) e duplicam as do app: cala em TODO processo filho
+    // (spawn_tracked já seta; aqui cobre qualquer outro caminho que suba o motor). Antes de qualquer thread.
+    std::env::set_var("CARDUME_NOTIFY", "0");
     web_log("[rust] app iniciou".to_string());
     // RUNTIME PRÓPRIO COM FOLGA: o padrão do Tauri tem 1 thread por núcleo (10 aqui) e os comandos
     // `#[tauri::command(async)]` síncronos rodam DIRETO nessas threads. Comandos que esperam algo externo
@@ -8632,6 +8645,9 @@ pub fn run() {
                 let cand = dir.join("engine").join("cli.mjs");
                 let _ = ENGINE_RESOURCE.set(cand.is_file().then_some(cand));
             }
+            // notificações: delegate (clique → tarefa; banner com o app na frente) + pedido de permissão
+            #[cfg(target_os = "macos")]
+            notif_mac::init(app.handle().clone());
             Ok(())
         })
         .manage(AppState::from_env())
@@ -8771,6 +8787,8 @@ pub fn run() {
             is_dev_install,
             apply_update,
             notify_native,
+            notif_status,
+            notif_open_settings,
             web_log,
             tunnel_start,
             tunnel_stop,
