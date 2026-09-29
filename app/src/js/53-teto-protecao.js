@@ -83,8 +83,9 @@ function budgetWatch(){
 // tarefas paradas pelo teto/pelo humano não disparam o falso "Pronta para review ✓"
 const budgetQuiet=new Set();
 async function budgetAnswer(pendId, answer){
-  const p=((state&&state.pending)||[]).find(x=>x.id===pendId); if(!p) return;
-  const t=(state.tasks||[]).find(x=>x.id===p.taskId); if(!t) return;
+  // não achou: ERRO (antes voltava calado e a tela tratava como respondida — opções travadas, tarefa parada)
+  const p=((state&&state.pending)||[]).find(x=>x.id===pendId); if(!p) throw new Error('essa pergunta do teto de custo já não está aberta — atualize a tela');
+  const t=(state.tasks||[]).find(x=>x.id===p.taskId); if(!t) throw new Error('não achei a tarefa desta pergunta do teto de custo');
   const hit=(t.spec||{}).budgetHit||{}, cap=+hit.cap||budgetOf(t);
   const stop=/^\s*(parar|para\b|pare|stop|n[ãa]o\b)/i.test(String(answer||''));
   budgetBusy.add(t.id);

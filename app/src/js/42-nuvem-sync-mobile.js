@@ -277,7 +277,8 @@ async function cloudIntentTick(){
           const cmts=((info&&info.comments)||[]).filter(c=>!c.inReplyTo);
           const ci=cmts.findIndex(c=>String(c.id)===String(it.commentId));
           if(ci<0) return finish(false,'comentário não encontrado');
-          await prFixOne(lid, ci);
+          // prFixOne devolve false quando não chegou ao agente (não achou o comentário, envio falhou, teto de custo aberto)
+          if(!await prFixOne(lid, ci)) return finish(false,'não consegui mandar a correção pro agente');
           return finish(true,'agente acordado pra corrigir o comentário');
         }catch(e){ return finish(false,String(e)); }
       }
@@ -446,7 +447,13 @@ async function cloudQuestionsTick(){
         // resposta vinda do celular → entrega ao agente e fecha
         if(isPend){
           // id negativo = pergunta do TETO de custo (sintética, 53-teto-protecao) — não existe no banco
-          if(+q.local_pending_id<0 && typeof budgetAnswer==='function') await budgetAnswer(+q.local_pending_id, q.answer||'');
+          // budgetAnswer agora LANÇA no erro: sem isto o PATCH abaixo era pulado e a resposta era reaplicada a cada 7s
+          // (podendo repetir um "parar" pela metade). Falhou → avisa no feed e fecha mesmo assim (a pergunta do teto
+          // continua aberta no desktop, onde dá pra responder de novo).
+          if(+q.local_pending_id<0 && typeof budgetAnswer==='function'){
+            try{ await budgetAnswer(+q.local_pending_id, q.answer||''); }
+            catch(err){ sbPost('task_feed',{ task_id:q.task_id, agent:'Sistema', kind:'error', text:'A resposta do teto de custo vinda do celular não foi aplicada: '+String(err&&err.message||err).slice(0,180)+' — responda de novo no computador.' }).catch(()=>{}); }
+          }
           else { try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; } }
         }
         await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});

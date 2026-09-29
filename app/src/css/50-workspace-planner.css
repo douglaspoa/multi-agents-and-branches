@@ -618,7 +618,7 @@ label.budgetfld .in{width:72px!important;flex:0 0 auto;padding:3px 6px!important
 .fwctxchev{display:inline-flex;width:14px;height:14px;margin-left:6px;color:var(--muted);flex:none;transition:transform .15s}
 .fwctxchev svg{width:14px;height:14px}
 .fwctxchev.open{transform:rotate(90deg)}
-.fwctxbar:not(:has(.fwctxreq)) .fwctxchev{margin-left:auto}
+.fwctxchev.solo{margin-left:auto} /* classe em vez de :has() (WebKitGTK no Linux) */
 /* conversa larga: a barra de contexto tinha width:100% + margem 0 → encostava nas bordas da coluna */
 .fwcols.m-conversa .fwctx{width:auto;max-width:934px;margin-left:max(13px, calc((100% - 934px) / 2));margin-right:max(13px, calc((100% - 934px) / 2))}
 /* custo no rodapé da árvore: rótulo e valor não quebram no meio ("US$ 1,25 (≈ R$" / "6,88)") */

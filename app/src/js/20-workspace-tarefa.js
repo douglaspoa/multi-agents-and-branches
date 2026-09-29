@@ -12,21 +12,37 @@ const fwArtLoading={}; // taskId → carga de artefatos em voo (1 por vez)
 const fwRpLoading={};  // taskId → leitura do requirements.json em voo (1 por vez)
 // provas por requisito: UMA leitura por vez por tarefa. Antes a Entrega e a lista de requisitos chamavam
 // loadReqProofs a cada render enquanto o cache estava vazio → várias leituras iguais em paralelo por tick.
+// Invalidação no meio da carga (um envio zera o cache): cada invalidação sobe a geração da tarefa; a carga que
+// termina numa geração velha descarta o resultado e busca de novo (antes gravava o dado velho e travava a nova).
+const fwRpGen={}, fwArtGen={};
+function fwInvalidate(taskId){ fwRpGen[taskId]=(fwRpGen[taskId]||0)+1; fwArtGen[taskId]=(fwArtGen[taskId]||0)+1; artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; }
 function fwReqProofsEnsure(taskId){
   if(reqProofCache[taskId]!==undefined || fwRpLoading[taskId]) return;
-  fwRpLoading[taskId]=1;
-  loadReqProofs(taskId).finally(()=>{ delete fwRpLoading[taskId]; if(fwTask===taskId && fwVisible()) renderWorkspace(); });
+  const g=fwRpGen[taskId]||0; fwRpLoading[taskId]=1;
+  loadReqProofs(taskId).finally(()=>{ delete fwRpLoading[taskId];
+    if((fwRpGen[taskId]||0)!==g){ reqProofCache[taskId]=undefined; if(fwTask===taskId) fwReqProofsEnsure(taskId); return; }
+    if(fwTask===taskId && fwVisible()) renderWorkspace(); });
 }
 // artefatos: idem (a tela da tarefa e a Entrega pediam a mesma lista no mesmo render)
 function fwArtsEnsure(t){
   const c=artifactsCache[t.id];
   if((c && c.status===t.status) || fwArtLoading[t.id]) return;
-  fwArtLoading[t.id]=1;
-  loadArtifacts(t.id, t.status).finally(()=>{ delete fwArtLoading[t.id]; if(fwTask===t.id && fwVisible()) renderWorkspace(); });
+  const g=fwArtGen[t.id]||0; fwArtLoading[t.id]=1;
+  loadArtifacts(t.id, t.status).finally(()=>{ delete fwArtLoading[t.id];
+    if((fwArtGen[t.id]||0)!==g){ artifactsCache[t.id]=undefined; const cur=fwTask===t.id?fwTaskObj():null; if(cur) fwArtsEnsure(cur); return; }
+    if(fwTask===t.id && fwVisible()) renderWorkspace(); });
 }
 let fwFilesLoading=false; // task_files ainda não respondeu (≠ "nada ainda")
 let fwFilesErr='';         // task_files falhou (≠ "nada ainda": antes o erro virava a frase "nada ainda" e mentia)
-const fwAskSent={};       // pendingId → resposta já enviada (trava as opções: 2 cliques = 2 respostas pra mesma pergunta)
+const fwAskSent={};       // fwAskKey(pergunta) → resposta já enviada (trava as opções: 2 cliques = 2 respostas pra mesma pergunta)
+// chave = id + criação: o id da pergunta do TETO é fixo por tarefa (budgetPendId) — só o id faria o PRÓXIMO teto
+// nascer com as opções travadas
+function fwAskKey(p){ return p.id+'|'+(p.createdAt||''); }
+function fwAskIsSent(p){ return fwAskSent[fwAskKey(p)]!=null; }
+// solta as travas das perguntas que já saíram do pending (respondidas de verdade)
+function fwAskPrune(){ const live=new Set(((state&&state.pending)||[]).map(fwAskKey)); for(const k of Object.keys(fwAskSent)) if(!live.has(k)) delete fwAskSent[k]; }
+// pergunta do teto de custo (sintética, id < 0): quem responde é a PESSOA — um envio automático nunca vale como resposta
+function fwIsBudgetAsk(p){ return !!p && (p.kind==='budget' || +p.id<0); }
 let fwFileLoading='';     // 'taskId|path' do read_file em voo (sem "editar" enquanto não chegou)
 let fwReadErr='';         // read_file falhou → mostra o erro e NÃO deixa editar (salvaria o texto do erro no arquivo)
 // árvore de arquivos recolhível (« / » / ⌘B). Sem escolha salva: recolhida em janela estreita.
@@ -122,7 +138,7 @@ function fwDelivHtml(files, dels){
 }
 // caminho no cabeçalho do Código/Revisão: a PASTA encolhe (…) e o NOME do arquivo fica sempre inteiro
 // (antes cortava no fim: "src/page…" — justamente o nome sumia)
-function fwPathHtml(p){ const s=String(p||''), i=s.lastIndexOf('/'); return `<span class="fwmpath mono" title="${escA(s)}">${i>=0?`<span class="fwmdir">${esc(s.slice(0,i+1))}</span>`:''}<span class="fwmname">${esc(s.slice(i+1))}</span></span>`; }
+function fwPathHtml(p){ const s=String(p||'').replace(/\/+$/,''), i=s.lastIndexOf('/'); return `<span class="fwmpath mono" title="${escA(s)}">${i>=0?`<span class="fwmdir">${esc(s.slice(0,i+1))}</span>`:''}<span class="fwmname">${esc(s.slice(i+1))}</span></span>`; }
 function fwTagTitle(f,tag){ return f.doc?'anexo/documento (não é alteração de código)':tag==='A'?'adicionado nesta tarefa':'modificado nesta tarefa'; }
 function fwBuildTree(files){
   const root={dirs:{},files:[]};
@@ -311,7 +327,7 @@ function fwCtxBarHtml(t){
     }
   }
   // seta de verdade (SVG) — o "▸" de 10px sumia e parecia um ponto solto no canto
-  return `${st}${reqPart}<span class="fwctxchev${fwCtxOpen?' open':''}" aria-hidden="true">${IC.cright}</span>`;
+  return `${st}${reqPart}<span class="fwctxchev${fwCtxOpen?' open':''}${reqPart?'':' solo'}" aria-hidden="true">${IC.cright}</span>`;
 }
 function fwNowHtml(t){
   const ev=lastEventOf(t.id);
@@ -329,6 +345,7 @@ let fwPrimShown=''; // id da ação principal que o topo está mostrando
 let fwPvShown=null; // preview (ícone de globo) que o cabeçalho da tarefa está mostrando
 async function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
+  fwAskPrune(); // pergunta que saiu do pending solta a trava (o próximo teto da mesma tarefa nasce destravado)
   if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
   const evs0=fwEvents.length?fwEvents:eventsOf(t.id);
   const rp=reqProofCache[t.id];
@@ -372,9 +389,10 @@ const PHASES=['Descoberta','Despacho','Execução','Revisão','PR'];
 function taskPhase(t){
   if(t.prUrl) return 5;
   if(['review','delivered','merged','done','conflict'].includes(t.status)) return 4;
+  // 'queued' está no ACTIVE_ST: tem que vir ANTES da checagem de execução (senão nunca caía em Despacho)
+  if(['queued','plan-review'].includes(t.status)) return 2;
   // erro/abortada pararam NA execução (antes caíam em "Descoberta", como se nem tivessem começado)
   if(ACTIVE_ST.has(t.status)||['thinking','paused','error','aborted'].includes(t.status)) return 3;
-  if(['queued','plan-review'].includes(t.status)) return 2;
   return 1;
 }
 function phasesHtml(t){
@@ -408,7 +426,7 @@ function fwPaintSendRow(t){
 function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
 function fwPrimaryAction(t){
   // rascunho: o topo não tinha ação nenhuma — começar é o próximo passo óbvio (mesmo ▶ iniciar da Central)
-  if(t.status==='draft') return { id:'fwStartDraft', html:`${IC.cright} iniciar`, title:'começa a execução com o que já está no rascunho' };
+  if(t.status==='draft') return { id:'fwStartDraft', html:'▶ iniciar', title:'começa a execução com o que já está no rascunho' };
   if(pendingOf(t.id).length) return { id:'fwAnswer', html:`${IC.hand} responder`, title:'o agente fez uma pergunta — a resposta vai na conversa' };
   if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`■ parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
   if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:'↻ rodar de novo', title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
@@ -612,7 +630,7 @@ function renderWorkspace(){
   tree.dataset.tk=t.id; tree.scrollTop=treeTop;
   tree.querySelectorAll('[data-art]').forEach(b=>{ if(!b.title) b.title=b.dataset.art; b.onclick=(e)=>{ e.stopPropagation(); openArtifact(t.id, b.dataset.art); }; }); // nome inteiro no tooltip ("print-tot…")
   tree.querySelectorAll('[data-fwg]').forEach(b=>b.onclick=()=>{ fwGroupMode=b.dataset.fwg; renderWorkspace(); });
-  bindClick('fwFilesRetry', ()=>{ fwFilesErr=''; fwFilesLoading=true; fwFilesAt=0; renderWorkspace(); const tk=t.id;
+  bindClick('fwFilesRetry', ()=>{ fwFilesErr=''; fwFilesLoading=true; fwFilesAt=Date.now(); renderWorkspace(); // o tick não dispara outra carga em paralelo const tk=t.id;
     invoke('task_files',{ taskId:tk }).then(f=>{ if(fwTask===tk){ fwFiles=f||[]; fwFilesSig=''; } }).catch(e=>{ if(fwTask===tk) fwFilesErr=String(e&&e.message||e)||'erro desconhecido'; }).finally(()=>{ if(fwTask===tk){ fwFilesLoading=false; renderWorkspace(); } }); });
   // status por arquivo enquanto a tarefa roda: só "editando" (tocado há <3 min) ganha texto; o resto é um
   // pontinho discreto com o detalhe no tooltip — antes um selo "CONCLUÍDO" em CADA arquivo comia a largura
@@ -751,8 +769,8 @@ function renderWorkspace(){
   { const pp=$id('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
     const ao=e.target.closest('[data-askopt]');
-    if(ao){ const p=pendingOf(t.id)[0]; if(p && !fwAskSent[p.id]){ const ans=ao.dataset.askopt; fwAskSent[p.id]=ans; fwPaintThread(t);
-        resolvePending(p.id, ans).catch(err=>{ delete fwAskSent[p.id]; if(fwTask===t.id) fwPaintThread(fwTaskObj()); showErr(err, 'Não consegui enviar a resposta'); }); } return; }
+    if(ao){ const p=pendingOf(t.id)[0]; if(p && !fwAskIsSent(p)){ const ans=ao.dataset.askopt, k=fwAskKey(p); fwAskSent[k]=ans; fwPaintThread(t);
+        resolvePending(p.id, ans).catch(err=>{ delete fwAskSent[k]; if(fwTask===t.id) fwPaintThread(fwTaskObj()); showErr(err, 'Não consegui enviar a resposta'); }); } return; }
     const cp=e.target.closest('.ccopy');
     if(cp){ const bub=cp.parentElement; const cl=bub.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove()); try{ navigator.clipboard.writeText(cl.innerText.trim()); cp.textContent='✓'; setTimeout(()=>{cp.textContent='⧉';},900); }catch(_){} return; }
     const a=e.target.closest('[data-art]'); if(a){ openArtifact(t.id, a.dataset.art); return; }
@@ -856,7 +874,7 @@ function fwRenderPrPage(t, main){
   bindClick('prPgMerge', async()=>{ if(await mergePr(t.id)) renderWorkspace(); });
   bindClick('prPgResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
   bindClick('prPgFixChecks', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='enviando…';
-    const failing=(info.checks||[]).filter(c=>/FAILURE|ERROR|TIMED_OUT|CANCELLED/i.test(String(c.conclusion||''))).map(c=>c.name).filter(Boolean);
+    const failing=Array.isArray(info.failingChecks)?info.failingChecks.filter(Boolean):[]; // PrInfo.failing_checks (lib.rs)
     const ok=await fwSendText(t.id, `As checagens do PR #${info.number} estão falhando no GitHub${failing.length?` (${failing.join(', ')})`:''}. Veja o log de cada uma (gh pr checks ${info.number} / gh run view --log-failed), corrija a causa na branch, rode os testes localmente e faça commit + push.`);
     if(ok){ fwMode='conversa'; fwRememberTab(); } renderWorkspace(); });
   // só troca pra conversa se o envio deu certo (antes trocava na hora e o erro sumia)
@@ -871,7 +889,10 @@ const mdMemo=new Map(); // evId:len → html (evita re-parsear a thread toda a c
 function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(k); if(v===undefined){ v=chatMd(t); if(mdMemo.size>800) mdMemo.clear(); mdMemo.set(k,v); } return v; }
 // notas "de sistema" (não são fala do agente) viram linha discreta central
 // link nas notas ("PR aberto: https://…") vira clicável — antes era texto cru que nem dava pra abrir
-function fwLinkify(tx){ return esc(tx).replace(/https?:\/\/[^\s<>"']+[^\s<>"'.,;:)]/g, u=>`<a class="lnk" href="#" data-ext="${u}">${u.replace(/^https?:\/\//,'')}</a>`); }
+// (acha as URLs no texto CRU e escapa cada pedaço — no texto já escapado a URL engolia "&lt;b&gt")
+function fwLinkify(tx){ const s=String(tx||''), re=/https?:\/\/[^\s<>"']+[^\s<>"'.,;:)]/g; let out='', last=0, m;
+  while((m=re.exec(s))){ out+=esc(s.slice(last,m.index))+`<a class="lnk" href="#" data-ext="${escA(m[0])}">${esc(m[0].replace(/^https?:\/\//,''))}</a>`; last=m.index+m[0].length; }
+  return out+esc(s.slice(last)); }
 function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
 // rótulo do modelo do agente na conversa (redesign p6: "VEGA · Opus")
@@ -947,7 +968,7 @@ function fwThreadHtml(t){
   // eco otimista: mensagens enviadas que o banco ainda não confirmou (ver fwOptim)
   for(const o of fwOptimFor(t.id, evs)) out.push(fwOptimHtml(o));
   return out.join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'TETO DE CUSTO · SUA DECISÃO':esc(((asking[0].agent||t.agent)||'').toUpperCase())+' · PERGUNTA PENDENTE'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[asking[0].id];
+  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'TETO DE CUSTO · SUA DECISÃO':esc(((asking[0].agent||t.agent)||'').toUpperCase())+' · PERGUNTA PENDENTE'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
       return (Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts${sent!=null?' sent':''}">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}"${sent!=null?` disabled${sent===o?' class="on" aria-pressed="true"':''}`:''}>${esc(o)}</button>`).join('')}</div>`:'')
         +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'↳ escolha uma opção — o agente fica pausado até você decidir':'↳ responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
   + (working?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><span class="blink">▍</span> trabalhando…</div></div>`:'');
@@ -1020,22 +1041,24 @@ async function fwShowMenu(t, kind){
 // chamou trocava de tela/avisava "enviado" mesmo com falha. Devolve true/false.
 async function fwSendText(taskId, text){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t||!String(text||'').trim()) return false;
-  const pend=pendingOf(t.id).filter(p=>!fwAskSent[p.id]);
+  const pend=pendingOf(t.id).filter(p=>!fwAskIsSent(p));
+  // teto de custo aberto: skill/verificar/aplicar correção/pedir preview NÃO podem virar a resposta — qualquer texto
+  // que não seja "parar" amplia o teto e retoma o gasto. A tarefa fica pausada até a pessoa decidir.
+  if(pend.some(fwIsBudgetAsk)){ toast('a tarefa está pausada no teto de custo — responda a pergunta do teto primeiro','warn'); return false; }
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy);
   const op={ text, at:Date.now(), st:'enviando' };
   (fwOptim[t.id]=fwOptim[t.id]||[]).push(op);
   if(fwTask===t.id) fwPaintThread(t);
   try{
     if(t.status==='paused' && t.busy && !pend.length){ try{ await invoke('resume_task',{ taskId:t.id }); }catch(e){ console.error('retomar antes de enviar', e); } }
-    if(pend.length){ fwAskSent[pend[0].id]=text; await resolvePending(pend[0].id, text); }
+    if(pend.length){ fwAskSent[fwAskKey(pend[0])]=text; await resolvePending(pend[0].id, text); }
     else { await invoke('talk_task',{ taskId:t.id, message:text, asReq:false, agent:fwTask===t.id?fwAgentSel:null }); commitsCache[t.id]=undefined; prCache[t.id]=undefined; }
     op.st=(working&&!pend.length)?'fila':'enviada';
-    if(pend.length && +pend[0].id<0) fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op);
-    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; lastSig=''; refresh().catch(()=>{});
+    fwInvalidate(t.id); lastSig=''; refresh().catch(()=>{});
     if(fwTask===t.id) renderWorkspace();
     return true;
   }catch(e){
-    if(pend.length) delete fwAskSent[pend[0].id];
+    if(pend.length) delete fwAskSent[fwAskKey(pend[0])];
     fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op);
     if(fwTask===t.id) fwPaintThread(fwTaskObj());
     showErr(e, 'Falha ao enviar'); return false;
@@ -1051,10 +1074,16 @@ const fwOptim={}; // taskId → [{ text, at, st:'enviando'|'lento'|'enviada'|'fi
 function fwOptimFor(taskId, evs){
   const list=fwOptim[taskId]; if(!list||!list.length) return [];
   const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
-  const seen=o=>(evs||[]).some(e=>{ if(e.ts && e.ts<o.at-60000) return false; const tx=String(e.text||'');
-    if(evIsUserMsg(e)) return norm(evUserText(tx))===norm(o.text);
-    if(tx.startsWith('humano respondeu:')) return norm(tx.replace(/^humano respondeu:\s*/,''))===norm(o.text);
-    return /^Na fila \(/.test(tx) && tx.includes(norm(o.text).slice(0,60)); });
+  // só confirma com evento DEPOIS do envio (2s de folga de relógio) e cada evento confirma UMA bolha — antes a
+  // janela era "até 60s antes" e comparava ts ISO (texto) com número: um texto fixo repetido ("verificar requisitos")
+  // era dado como confirmado pelo evento do clique anterior e a 2ª bolha sumia na hora
+  const tsOf=e=>{ const v=e&&e.ts; return typeof v==='number'?v:(Date.parse(v||'')||0); };
+  const used=new Set();
+  const seen=o=>(evs||[]).some((e,i)=>{ if(used.has(i)) return false; const ts=tsOf(e); if(ts && ts<o.at-2000) return false; const tx=String(e.text||'');
+    const hit = evIsUserMsg(e) ? norm(evUserText(tx))===norm(o.text)
+      : tx.startsWith('humano respondeu:') ? norm(tx.replace(/^humano respondeu:\s*/,''))===norm(o.text)
+      : (/^Na fila \(/.test(tx) && tx.includes(norm(o.text).slice(0,60)));
+    if(hit) used.add(i); return hit; });
   // confirmada pelo banco (ou velha demais: 3 min) → sai da lista
   fwOptim[taskId]=list.filter(o=>!seen(o) && Date.now()-o.at<180000);
   return fwOptim[taskId];
@@ -1080,7 +1109,9 @@ async function fwSendMsg(queueOnly){
   const asReq=!!($id('fwAsReq')&&$id('fwAsReq').checked);
   const full = ctx+v+attPromptBlock(atts);
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy);
-  const asking=pendingOf(t.id).length>0;
+  // pergunta já respondida (opção clicada, snapshot ainda não chegou) não conta: a mensagem vai como conversa
+  const pend0=pendingOf(t.id).filter(p=>!fwAskIsSent(p));
+  const asking=pend0.length>0;
   const op={ text:full, at:Date.now(), st:'enviando' }; let answered=null;
   (fwOptim[t.id]=fwOptim[t.id]||[]).push(op);
   inp.value=''; inp.disabled=true; fwDraft[t.id]='';
@@ -1090,13 +1121,13 @@ async function fwSendMsg(queueOnly){
   // tarefa PAUSADA (processo congelado): sem retomar, a mensagem entrava numa fila que nunca andava
   // …MAS não quando há pergunta aberta: a pausa do TETO DE CUSTO é uma pergunta — responder "parar aqui" pelo
   // campo retomava o agente (gastando) antes de parar; quem retoma nesse caso é a própria resposta
-  if(t.status==='paused' && t.busy && !pendingOf(t.id).length){ try{ await invoke('resume_task',{ taskId:t.id }); lastSig=''; }catch(e){ console.error('retomar antes de enviar', e); } }
+  if(t.status==='paused' && t.busy && !asking){ try{ await invoke('resume_task',{ taskId:t.id }); lastSig=''; }catch(e){ console.error('retomar antes de enviar', e); } }
   try{
     // pergunta já respondida (opção clicada, snapshot ainda não chegou) não recebe 2ª resposta: vai como mensagem
-    const pend=pendingOf(t.id).filter(p=>!fwAskSent[p.id]);
+    const pend=pendingOf(t.id).filter(p=>!fwAskIsSent(p));
     if(pend.length){
       // pergunta aberta → responder CONTINUA o mesmo turno
-      answered=pend[0].id; fwAskSent[answered]=full;
+      answered=pend[0]; fwAskSent[fwAskKey(answered)]=full;
       await resolvePending(pend[0].id, full);
     } else if(!queueOnly && working){
       // trabalhando → para o turno atual (inclusive turno de fundo) e manda já
@@ -1110,8 +1141,8 @@ async function fwSendMsg(queueOnly){
     op.st=(queueOnly && working && !asking)?'fila':'enviada';
     // pergunta sintética (teto de custo, id < 0) não gera o evento "humano respondeu" que apagaria a bolha:
     // sem isto ela ficava 3 min "aguardando o agente"
-    if(answered!=null && +answered<0) fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op);
-    artifactsCache[t.id]=undefined; reqProofCache[t.id]=undefined; fwAsReqOn[t.id]=false;
+    if(answered && fwIsBudgetAsk(answered)) fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op);
+    fwInvalidate(t.id); fwAsReqOn[t.id]=false;
     // a seleção de linhas foi usada NESTA mensagem: sai (antes ficava e prefixava "Sobre arquivo:linhas" em
     // todas as mensagens seguintes). Se o usuário já marcou outro trecho durante o envio, esse fica.
     { const s2=fwSelRange(); if(sel && s2 && s2.a===sel.a && s2.b===sel.b){ fwSelA=0; fwSelB=0; } }
@@ -1119,7 +1150,7 @@ async function fwSendMsg(queueOnly){
     lastSig=''; refresh().catch(()=>{});
   }catch(e){
     // falhou: o texto e os anexos VOLTAM pro composer (antes a mensagem sumia)
-    fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op); if(answered) delete fwAskSent[answered];
+    fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op); if(answered) delete fwAskSent[fwAskKey(answered)];
     // (se ele já começou outra mensagem durante um envio lento, as duas ficam no campo)
     const cur=(($id('fwInput')||{}).value||'').trim(); fwDraft[t.id]=cur?typed+'\n'+cur:typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
     showErr(e, 'Não consegui enviar — o texto voltou pro campo'); }

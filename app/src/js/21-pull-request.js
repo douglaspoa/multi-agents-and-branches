@@ -137,7 +137,7 @@ document.addEventListener('click', async e=>{
   const gh=e.target.closest('[data-prgh]'); if(gh){ openExternal(gh.dataset.prgh); return; }
   const sd=e.target.closest('[data-prshowdone]'); if(sd){ lsSet('prShowDone', lsGet('prShowDone')==='1'?'0':'1'); prRerender(sd.dataset.prtask); return; }
   const rs=e.target.closest('[data-prresolve]'); if(rs){ prResolveThread(rs.dataset.prtask, rs.dataset.prresolve, rs); return; }
-  const fr=e.target.closest('[data-prfixrev]'); if(fr){ fr.disabled=true; fr.textContent='enviando…'; try{ await prFixReview(fr.dataset.prtask, fr.dataset.prfixrev); }finally{ prRerender(fr.dataset.prtask); } return; }
+  const fr=e.target.closest('[data-prfixrev]'); if(fr){ fr.disabled=true; fr.textContent='enviando…'; try{ if(await prFixReview(fr.dataset.prtask, fr.dataset.prfixrev)) toast('pedido enviado ao agente','ok'); /* false: o motivo já apareceu (showErr/toast) */ }finally{ prRerender(fr.dataset.prtask); } return; }
 });
 // resolve a thread no GitHub (mutation resolveReviewThread) — some da lista na hora
 async function prResolveThread(taskId, threadId, btn){
