@@ -117,6 +117,8 @@ function stBadge(st){ const m=stMeta(st); return '<span class="stbadge" style="-
 function toast(msg, kind, action, extra){
   let el=$id('appToast'); if(!el){ el=document.createElement('div'); el.id='appToast'; el.setAttribute('role','status'); document.body.appendChild(el); }
   el.className='apptoast '+(kind||'info'); el.textContent='';
+  // R8 a11y: erro é anunciado na hora pelo leitor de tela (alert); o resto espera a fala atual (status)
+  el.setAttribute('role', kind==='err'?'alert':'status');
   const tx=document.createElement('span'); tx.className='apptoast-t'; tx.textContent=String(msg); el.appendChild(tx);
   const hide=()=>{ el.style.display='none'; };
   const btns=[action, extra].filter(a=>a && a.label && typeof a.fn==='function');

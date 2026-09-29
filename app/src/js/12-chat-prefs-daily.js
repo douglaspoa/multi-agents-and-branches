@@ -269,7 +269,7 @@ function renderDaily(){
   const body=$id('dailyBody'); if(!body||!dailyData) return;
   const iso=dailyIso||($id('dailyDate')||{}).value||'';
   const head=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">O que os agentes fizeram — pronto pra colar na reunião.</p></div>
-    <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" style="color:var(--text);padding:8px 12px">
+    <div class="as-actions"><input type="date" id="dlDate" aria-label="dia do resumo" class="as-btn as-mono" value="${escA(iso)}" style="color:var(--text);padding:8px 12px">
       <button class="as-btn" id="dlAI">resumo curto</button><button class="as-btn primary" id="dlDoc">DOC + PDF</button></div></div>`;
   if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div style="margin-top:22px">${emptyHtml({ icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"><rect x="2.6" y="3.4" width="10.8" height="10" rx="1.6"/><path d="M2.6 6.6h10.8M5.4 2.2v2.4M10.6 2.2v2.4"/></svg>', title:'Dia sem atividade', help:'Nenhuma tarefa deste projeto teve movimento em '+(iso?iso.split('-').reverse().join('/'):'nesse dia')+'.', action:{ label:'ver o dia anterior', id:'dlPrev', primary:false } })}</div></div>`; wireDaily(); return; }
   const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
