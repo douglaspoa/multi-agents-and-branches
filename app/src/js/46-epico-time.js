@@ -25,6 +25,24 @@ function epTaskBadge(t){
   const w=parseInt(e.wave,10)||0, nm=epNameOf(id)||'épico';
   return `<span class="tsepc epbadge" data-epbadge="${escA(id)}" style="--epc:${epColor(id)}" title="${escA('tarefa do épico “'+nm+'”'+(w?' · onda '+w+' ('+EP_WAVE_TIP+')':'')+' — clique pra abrir o épico')}"><span class="epic">${IC.epic}</span><span class="epn">${esc(nm.slice(0,60))}</span>${w?'<span class="epw"> · onda '+w+'</span>':''}</span>`;
 }
+// "criada por Fulano" na tarefa LOCAL que veio de um cartão de OUTRA pessoa (assumida no Time / fila do épico):
+// acha o cartão da nuvem pelo sb:tmap (ou local_id) no que já está em memória (Time + irmãs dos épicos) — sem ida à rede.
+let taskOriginIdx={ a:null, b:null, m:{} };
+function taskOriginCard(t){
+  if(!t) return null;
+  const a=(typeof teamTasks!=='undefined'&&teamTasks)||null, b=(typeof epQueue!=='undefined'&&epQueue.sibsOf)||null;
+  if(taskOriginIdx.a!==a || taskOriginIdx.b!==b){
+    const m={}, put=c=>{ if(!c) return; m[c.id]=c; if(c.local_id) m['l:'+c.local_id]=c; };
+    (a||[]).forEach(put); Object.values(b||{}).forEach(l=>(l||[]).forEach(put)); taskOriginIdx={ a, b, m };
+  }
+  const m=taskOriginIdx.m, cid=(typeof tmap==='function')?tmap()[t.id]:null;
+  return (cid&&m[cid]) || m['l:'+t.id] || null;
+}
+function taskOriginHtml(t){
+  const ct=taskOriginCard(t); const w=ct?ctWhoLabel(ct, cloudUserId(), tmName):'';
+  return w?`<span class="dc-who" title="${escA('cartão do time — '+w)}">${esc(w)}</span>`:'';
+}
+window.taskOriginHtml=taskOriginHtml;
 // R5-2: A regra ÚNICA de "entregue" no progresso de épico (página, cabeçalho da fila, KPI, Time):
 // mergeada/concluída/finalizada. Pronta pra revisar e PR aberto ainda NÃO contam (aparecem como "em revisão").
 // Aceita cartão da nuvem (tem team_id → status efetivo via tsSt, que usa a tarefa local se houver) ou tarefa local.
@@ -124,7 +142,7 @@ function epicPageRender(){
       : bad ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a tarefa pra ver o erro">ver o problema</button>` : '';
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
     return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:stIcon(est)}</span><div class="en-rt">
-      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${stTx}${t.assignee?' · '+esc(tmName(t.assignee)):''}</span></div>
+      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${stTx}${(()=>{ const me=cloudUserId(), w=[ctWhoLabel(t, me, tmName), t.assignee&&t.assignee===me?'com você':''].filter(Boolean).join(' · '); return w?' · '+esc(w):''; })()}</span></div>
       ${vtx||cov.length?`<div class="ep-verify">${vtx?IC.ok+' prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
@@ -325,10 +343,12 @@ document.addEventListener('keydown', e=>{
 // Cartão de épico no backlog do time é só NUVEM (não está no state.sqlite) — sem isto ele só aparecia
 // na aba Time/épico. A cada 20s: busca o backlog dos épicos do time, pinta a seção "Na fila dos épicos"
 // no quadro (epBoardHtml) e inicia sozinha a tarefa com spec.autoStart cujos pré-requisitos (spec.after)
-// estão TODOS mergeados — só na máquina de quem CRIOU o cartão (claim_task ainda protege de corrida).
+// estão TODOS mergeados — só em cartão MEU (ctMineFor: atribuído a mim, ou sem responsável e criado por mim) e do
+// projeto aberto (claim_task ainda protege de corrida). A fila da Central mostra só o que é meu e de projeto que
+// existe nesta máquina (ctExecOk); o resto do backlog do time mora na aba Time.
 const EP_AUTO_READY=new Set(['merged','done']);
 let epAutoBusy=false, epAutoIdle=false; const epAutoWarned=new Set();
-let epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, progOf:{}, sibsOf:{}, here:'', at:0 };
+let epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, progOf:{}, sibsOf:{}, here:'', localIds:[], at:0 };
 // pronta = mergeada/concluída OU FINALIZADA (flag closed): finalizar é o "terminei" do usuário — antes só merged/done
 // contava e a onda seguinte nunca começava depois de você finalizar a anterior (24/09)
 function epDepDone(a){ const q=epQueue; return EP_AUTO_READY.has(q.stOf[a]) || q.flagOf[a]==='closed'; }
@@ -360,14 +380,17 @@ async function epicAutoStartTick(){
       const ok=epDelivered(t); p.n++; if(ok) p.ok++; // R5-2: regra única de entregue
       const w=Math.max(1, parseInt((t.spec||{}).wave,10)||1); if(!ok && (!p.wave || w<p.wave)) p.wave=w; });
     const hereIds=await repoRemoteIds(), here=hereIds.remote;
-    const sig=JSON.stringify([rows.map(r=>r.id+(r.spec&&r.spec.autoStart?'a':'')), deps.map(d=>d.id+d.status+(d.flag||'')), here, eps.map(e=>e.id+e.name), progOf, sibs.map(t=>t.id+t.status+(t.flag||'')+(t.pr_url?'p':''))]);
+    const localIds=await localRemoteIdsList().catch(()=>[]); // projetos desta máquina: cartão de projeto que não tenho não entra na Execução
+    const sig=JSON.stringify([rows.map(r=>r.id+(r.spec&&r.spec.autoStart?'a':'')), deps.map(d=>d.id+d.status+(d.flag||'')), here, localIds.map(x=>x.remote), eps.map(e=>e.id+e.name), progOf, sibs.map(t=>t.id+t.status+(t.flag||'')+(t.pr_url?'p':''))]);
     const changed=sig!==epQueue.sig;
-    epQueue={ rows, here, hereIds, sig, at:Date.now(), progOf, sibsOf,
+    epQueue={ rows, here, hereIds, localIds, sig, at:Date.now(), progOf, sibsOf,
       stOf:Object.fromEntries(deps.map(d=>[d.id,d.status])), effOf:Object.fromEntries(deps.map(d=>[d.id,epEffSt(d)])), flagOf:Object.fromEntries(deps.map(d=>[d.id,d.flag||null])), titleOf:Object.fromEntries(deps.map(d=>[d.id,d.title])),
       epicOf:Object.fromEntries(eps.map(e=>[e.id,e.name])), projOf:Object.fromEntries(projs.map(p=>[p.id,p])) };
     if(changed) lastSig=''; // o refresh (com a trava de clique) redesenha — nunca renderFlow direto daqui
     // pré-requisito apagado do backlog não trava a fila; cancelado/abortado trava (alguém decide)
-    const ready=rows.filter(t=>ctWaiting(t) && t.created_by===cloudUserId() && !epDepsLeft(t).length);
+    // só o que é MEU (atribuído a mim; sem responsável = quem criou) — cartão de outra pessoa nunca começa sozinho aqui
+    const me=cloudUserId();
+    const ready=rows.filter(t=>ctWaiting(t) && ctMineFor(t, me) && !epDepsLeft(t).length);
     for(const ct of ready){
       const pj=epQueue.projOf[ct.project_id]||{};
       if(pj.repo_remote && !remoteSame(pj.repo_remote, hereIds)){ // teamClaimStart roda no projeto ABERTO: outro repo espera (e avisa uma vez)
@@ -394,12 +417,21 @@ function epqType(ct){
 }
 const epqWave=ct=>Math.max(1, parseInt((ct.spec||{}).wave,10)||1);
 // M3: a fila respeita os MESMOS filtros da Central (busca, status, tipo, agente, épico, projeto) — antes sumia com a busca
+// A regra ÚNICA do que da fila é MEU (Execução): ctExecOk (42) = meu e de projeto que existe nesta máquina.
+// O projeto aberto sempre conta como local (a lista de projetos pode ainda não ter chegado).
+function epqLocalIds(){ const q=epQueue; return (q.localIds||[]).concat(q.hereIds?[q.hereIds]:(q.here?[{ remote:q.here }]:[])); }
+function epQueueMine(){
+  const q=epQueue, me=cloudUserId(), loc=epqLocalIds();
+  return (q.rows||[]).filter(ct=>ctExecOk(ct, me, q.projOf[ct.project_id], loc));
+}
+// backlog de épico que NÃO é meu (de outra pessoa / sem dono / projeto que não tenho aqui) — mora na aba Time
+function epQueueTeamCount(){ return Math.max(0, ((epQueue.rows||[]).length) - epQueueMine().length); }
 function epQueueList(ignoreStatus){
   const q=epQueue, all=(typeof projFilter!=='undefined'&&projFilter==='all');
   const qq=String((typeof flowQuery!=='undefined'&&flowQuery)||'').trim().toLowerCase();
   const fs=(typeof flowStatus!=='undefined')?flowStatus:'all', fe=(typeof flowEpic!=='undefined')?flowEpic:'all';
   const ft=(typeof flowType!=='undefined')?flowType:'all', fa=(typeof flowAgent!=='undefined')?flowAgent:'all';
-  return (q.rows||[]).filter(ct=>{
+  return epQueueMine().filter(ct=>{
     const pj=q.projOf[ct.project_id]||{};
     if(!(all || !pj.repo_remote || remoteSame(pj.repo_remote, q.hereIds||{ remote:q.here }))) return false;
     if(!ignoreStatus && fs!=='all' && fs!=='epicos') return false; // outro chip de status escolhido: a fila sai
@@ -425,8 +457,9 @@ function epqRowHtml(ct, showProj, me, isAdmin, primary){
     ? `<button class="btn sm ghost" data-epqgo="${escA(ct.id)}" title="ainda depende de ${left.length} tarefa(s) — assumir e iniciar agora mesmo assim">iniciar mesmo assim</button>`
     : `<button class="btn sm${primary?' primary':''}" data-epqgo="${escA(ct.id)}" title="assumir e iniciar agora nesta máquina${primary?' — próxima recomendada deste épico':''}">${IC.play} iniciar</button>`;
   // M4: remover (DELETE na nuvem) só pra quem criou ou admin, e fora do caminho do ▶ — no menu ⋯
+  const who=ctWhoLabel(ct, me, tmName); // veio de outra pessoa (ex.: atribuída a mim) → "criada por Fulano"
   const menu=(ct.created_by===me||isAdmin)?`<button class="btn sm ghost" data-epqmenu="${escA(ct.id)}" title="mais ações" aria-label="mais ações">${IC.more}</button>`:'';
-  return `<div class="epq" data-epq="${escA(ct.id)}"><span class="epq-dot${left.length?' wait':''}" style="--stc:${stColor(stk)}" title="${escA(stLabel(stk))}"></span><div class="epq-body"><div class="epq-t">${esc(ct.title)}</div><div class="epq-m">${showProj&&pj.name?`<span class="epq-proj">${esc(pj.name)}</span>`:''}<span class="epq-wv" title="${escA(EP_WAVE_TIP)}">onda ${epqWave(ct)}</span><span class="epq-st">${st}</span></div></div><div class="epq-acts">${go}${menu}</div></div>`;
+  return `<div class="epq" data-epq="${escA(ct.id)}"><span class="epq-dot${left.length?' wait':''}" style="--stc:${stColor(stk)}" title="${escA(stLabel(stk))}"></span><div class="epq-body"><div class="epq-t">${esc(ct.title)}</div><div class="epq-m">${showProj&&pj.name?`<span class="epq-proj">${esc(pj.name)}</span>`:''}<span class="epq-wv" title="${escA(EP_WAVE_TIP)}">onda ${epqWave(ct)}</span><span class="epq-st">${st}</span>${who?`<span class="epq-who">${esc(who)}</span>`:''}</div></div><div class="epq-acts">${go}${menu}</div></div>`;
 }
 // R3-C1: TODAS as tarefas do épico (nuvem + locais já iniciadas), cada uma com o status efetivo — o cabeçalho do grupo
 // resume o épico inteiro (antes dizia "4 na fila" com 7 tarefas no épico e as rodando/em PR soltas em outras seções)
@@ -562,7 +595,7 @@ async function epCardCancel(ct){
   lastSig=''; epicAutoStartTick();
 }
 window.epCardStart=epCardStart; window.epCardCancel=epCardCancel;
-window.epBoardHtml=epBoardHtml; window.epWireBoard=epWireBoard;
+window.epBoardHtml=epBoardHtml; window.epWireBoard=epWireBoard; window.epQueueTeamCount=epQueueTeamCount;
 // épico já criado (antes disto existir): liga o início automático nas tarefas com pré-requisito
 async function epicAutoOn(ep){
   const c=epCache[ep.id]||{ tasks:[] };
