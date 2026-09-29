@@ -101,8 +101,10 @@ async function budgetAnswer(pendId, answer){
       else await invoke('resume_task',{ taskId:t.id });
       toast('Teto ampliado pra '+fmtCost(next),'ok');
     }
-  }catch(e){ showErr(e, 'Não deu pra aplicar a resposta do teto'); }
-  finally{ budgetBusy.delete(t.id); lastSig=''; await refresh(); }
+  }
+  // o erro SOBE (quem respondeu mostra e destrava as opções): antes era engolido aqui e a conversa achava que
+  // a resposta tinha ido — opções travadas e a tarefa parada no teto sem aviso
+  finally{ budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
 }
 // teto escolhido na criação (planner / Como executar) → vai pro spec depois do new_task
 let ntBudgetPending=null;

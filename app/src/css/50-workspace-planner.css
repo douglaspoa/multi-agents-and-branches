@@ -633,3 +633,5 @@ label.budgetfld .in{width:72px!important;flex:0 0 auto;padding:3px 6px!important
 /* erro ao listar os arquivos: cabe na coluna estreita */
 .fwfileserr{padding:8px 4px}
 .fwfileserr .ld-empty{padding:14px 8px}
+.fwctxreq{white-space:nowrap;min-width:0}
+.fwctxnp{color:var(--warn)}

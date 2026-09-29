@@ -154,8 +154,9 @@ function enVerifHtml(t){
     : g.st==='loading' ? 'conferindo a versão do código desta tarefa…'
     : g.st==='err' ? esc(g.err)
     : g.st==='running' ? `rodando <b>${esc(live.cur?live.cur.label:'…')}</b> (${Math.min(live.done.length+1,g.on.length)} de ${g.on.length}) na cópia desta tarefa`
-    : g.st==='notrun' ? 'ainda não rodou nesta versão do código — rode pra liberar a aprovação'
-    : g.st==='stale' ? `<b>desatualizada</b>: o agente mexeu no código depois (verificada ${esc(short(r&&r.head))}${r&&r.dirty?'+':''}, agora ${esc(short(cur&&cur.head))}${cur&&cur.dirty?'+':''}). Rode de novo.`
+    // tarefa já concluída: não há aprovação a liberar (antes pedia "rode pra liberar a aprovação" até em tarefa mergeada)
+    : g.st==='notrun' ? (pre ? 'ainda não rodou nesta versão do código — rode pra liberar a aprovação' : done ? 'não rodou antes de concluir — dá pra rodar agora só pra conferir o código' : 'ainda não rodou nesta versão do código')
+    : g.st==='stale' ? `<b>desatualizada</b>: o agente mexeu no código depois (verificada ${esc(short(r&&r.head))}${r&&r.dirty?'+':''}, agora ${esc(short(cur&&cur.head))}${cur&&cur.dirty?'+':''}).${done?'':' Rode de novo.'}`
     : g.st==='fail' ? `<b>${nPl(g.bad.length,'checagem')} falhou</b> na versão atual — a aprovação fica bloqueada até corrigir (ou liberar com um motivo)`
     : g.st==='pass' ? `tudo verde na versão atual <span class="mono dim">${esc(short(r.head))}${r.dirty?'+':''}</span> · ${esc(agoShort(r.at))==='agora'?'agora':'há '+esc(agoShort(r.at))}`
     : g.st==='override' ? `${IC.warn} liberada ${g.was==='fail'?'com checagem falhando':'sem verificação'}: <b>${esc(g.ov.reason)}</b>` : '';
@@ -179,9 +180,11 @@ function enVerifHtml(t){
       <span style="flex:1"></span>
       ${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
       <button class="btn primary" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button></div>` : '';
-  return `<section class="en-sec en-verif vf-${g.st}" id="enVerif">
+  // concluída: sem o tom de alerta (amarelo) de "falta rodar" — é só informação
+  const pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
+  return `<section class="en-sec en-verif vf-${done&&['notrun','stale'].includes(g.st)?'done':g.st}" id="enVerif">
     <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade (exit code e log)</span><span style="flex:1"></span>
-      <span class="vf-pill ${pill[1]}">${pill[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
+      <span class="vf-pill ${pillShown[1]}">${pillShown[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
     <div class="vf-sum">${sum}</div>
     ${rows?`<div class="vf-rows">${rows}</div>`:''}
     ${cfgOpen?`<div class="vf-cfg" id="enChkCfg"></div>`:''}
@@ -197,7 +200,7 @@ function enWireVerif(t, main){
   bindClick('vfOverride', async()=>{ const g=chkGate(t); if(await chkOverride(t, g)){ renderWorkspace(); prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); } });
   bindClick('vfFix', async()=>{ const g=chkGate(t); if(g.st!=='fail') return;
     const msg='A verificação do projeto falhou na sua cópia. Corrija e rode de novo antes de entregar:\n\n'+g.bad.map(b=>`### ${b.label} — \`${b.cmd}\` (${b.timedOut?'passou do tempo-limite':'exit '+b.exitCode})\n\`\`\`\n${String(b.log||'').split('\n').slice(-40).join('\n')}\n\`\`\``).join('\n\n');
-    if(typeof fwSendText==='function'){ await fwSendText(t.id, msg); toast('log enviado ao agente','ok'); } });
+    if(typeof fwSendText==='function' && await fwSendText(t.id, msg)) toast('log enviado ao agente','ok'); }); // falhou: o showErr do envio já disse
   const cfgBox=$id('enChkCfg'); if(cfgBox && typeof chkCfgEditor==='function') chkCfgEditor(cfgBox, t.id, ()=>{ delete chkCfg[t.id]; chkRefresh(t.id); });
 }
 // ---- Prévia do entregável (FT-6) ----
@@ -416,12 +419,14 @@ function fwRenderEntrega(t, main){
   const dels=(t.deliverables||[]).filter(Boolean);
   const timeline=stageStepper(t).replace('<div class="seclbl" style="margin-top:13px">Etapas</div>','');
   const dur=fmtDurMs(taskDurationMs(t));
+  // sem requisitos: "0/0 requisitos provados" parecia reprovação — vira "—"
+  const reqKpi = rows.length ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>` : `<div class="en-kpi" title="esta demanda não tem critérios de aceite"><b>—</b><span>sem requisitos</span></div>`;
   const kpis = nonCode
-    ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
+    ? `${reqKpi}
        <div class="en-kpi"><b>${arts.length}</b><span>${arts.length===1?'arquivo entregue':'arquivos entregues'}</span></div>
        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${cost.usd>0?fmtCost(cost.usd):'duração'}</span></div>`
     : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
-        <div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
+        ${reqKpi}
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
         <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
   const pvSec=enPvHtml(t, nonCode?arts:docs);
