@@ -53,8 +53,9 @@ async function openPlanner(){
   plReset();
   $id('plannerOverlay').style.display='flex';
   // só o esqueleto do chat enquanto o rascunho é lido (o resto da Nova demanda/planner é o PR B)
-  { const th=$id('plThread'); if(th) ldPaint(th, skeletonHtml('chat', { n:2, composer:false, label:'abrindo o rascunho' })); }
-  let draft=null; try{ draft=await invoke('load_draft'); }catch(_){}
+  // (plQuiet = renderPlanner não vai pintar esta aba: aí não põe esqueleto que ninguém tiraria)
+  { const th=$id('plThread'); if(th && !plQuiet) ldPaint(th, skeletonHtml('chat', { n:2, composer:false, label:'abrindo o rascunho' })); }
+  let draft=null; try{ draft=await invoke('load_draft'); }catch(e){ console.warn('[planner] rascunho não lido', e); }
   if(draft){ try{ const d=JSON.parse(draft);
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
       plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=plPlanRestore(d.plan); plNoEpic=!!d.noEpic;
@@ -64,6 +65,7 @@ async function openPlanner(){
   }catch(_){} }
   if(!plMsgs.length){ plMsgs.push({who:'bot', text:'Bora montar conversando. Em uma ou duas frases: qual é o objetivo — o que precisa ser feito e por quê? (se for grande e tiver várias frentes, eu proponho um épico com tarefas em paralelo pra você aprovar)'}); plMsgs.push({who:'bot', kind:'model'}); }
   renderPlanner(); plRenderRefs();
+  { const th=$id('plThread'); if(plQuiet && th && th.querySelector(':scope>.ld-sk')) ldPaint(th, ''); } // render pulado: sem esqueleto órfão
   const i=$id('plInput'); if(i) i.focus();
   plOpenDone=seq;
 }

@@ -10,10 +10,15 @@ const _invokeRaw = (cmd, args) => {
   const done=()=>{ __inflight.delete(id); const ms=Date.now()-t0; if(ms>3000) __diagLog('[lento] '+cmd+' '+ms+'ms · em voo: '+__inflightTx()); };
   return window.__TAURI__.core.invoke(cmd, args).then(r=>{ done(); return r; }, e=>{ done(); throw e; });
 };
-{ let last=Date.now(); setInterval(()=>{ const now=Date.now(), lag=now-last-500; last=now;
+{ let last=Date.now(), skip=false;
+  // janela voltou (oculta/suspensa): o 1º tick mede o tempo parado, não bloqueio — zera a base e pula esse tick
+  document.addEventListener('visibilitychange', ()=>{ last=Date.now(); skip=true; });
+  setInterval(()=>{ const now=Date.now(), lag=now-last-500; last=now;
     if(lag>1500) __diagLog('[lag] página bloqueada '+lag+'ms · em voo: '+__inflightTx()+' · aba: '+((typeof activeTab!=='undefined'&&activeTab)||'?'));
-    // sem PerformanceObserver('longtask') (WKWebView do macOS não tem): o atraso do próprio timer vira a estimativa
-    else if(!__perfLtNative && !document.hidden && lag>=50 && lag<60000) perfLongtask(lag, true); }, 500); }
+    // sem PerformanceObserver('longtask') (WKWebView do macOS não tem): o atraso do próprio timer vira a estimativa;
+    // > 5 s é o Mac dormindo/timer congelado, não tarefa longa
+    if(skip){ skip=false; return; }
+    if(lag<=1500 && !__perfLtNative && !document.hidden && lag>=50 && lag<=5000) perfLongtask(lag, true); }, 500); }
 // MEDIÇÃO (regra da Júlia: medir antes e depois de mexer no carregamento). Vai pro mesmo log, com throttle de
 // 1 linha por segundo: [aba] <kind> 1º paint Nms (abrir → 1º quadro pintado), [aba] <kind> dados Nms (tabBusy,
 // 06-carregamento) e [longtask] Nms (tarefas longas do mesmo segundo viram UMA linha). ?debug=1 também joga no console.
@@ -40,6 +45,7 @@ function perfTabOpen(kind){
   const t0=performance.now(), k='aba:'+kind; try{ performance.mark(k+':abrir'); }catch(_){ }
   requestAnimationFrame(()=>setTimeout(()=>{ const ms=Math.round(performance.now()-t0);
     try{ performance.mark(k+':paint'); performance.measure(k, k+':abrir', k+':paint'); }catch(_){ }
+    try{ performance.clearMarks(k+':abrir'); performance.clearMarks(k+':paint'); performance.clearMeasures(k); }catch(_){ } // não acumula a cada aba aberta
     perfLog('[aba] '+kind+' 1º paint '+ms+'ms'); }, 0));
 }
 // Envelope de rastreabilidade: TODA falha de comando de backend (login, PR,
@@ -329,7 +335,9 @@ const costWarned=new Set();
 async function refresh(){
   let snap;
   try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
-  catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); } return; }
+  catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); }
+    if(typeof ldBootFail==='function') ldBootFail(e, ()=>refresh()); // boot sem snapshot: erro com "tentar de novo", não esqueleto eterno
+    return; }
   // pergunta do teto de custo = pendência sintética; entra ANTES do detectNotifs (vira "Precisa de você")
   if(typeof budgetInject==='function') try{ budgetInject(snap); }catch(e){ tickErr('budgetInject', e); }
   evNormAll(snap&&snap.events); // R7: histórico antigo com emoji no prefixo → formato novo

@@ -193,7 +193,7 @@ function orqRenderBrief(body){
     <div class="ndeyebrow" style="color:var(--accent)">dividir entre vários agentes</div>
     <h1 class="ndh1" style="margin-top:10px">Descreva o problema inteiro</h1>
     <p class="ndsub">Não precisa quebrar em tarefas. Um agente orquestrador lê isso, propõe as fases e abre um subagente para cada uma. Você aprova o plano antes de qualquer coisa rodar.</p>
-    ${orq.busy?brandLoaderHtml('o orquestrador está lendo o repositório e montando o plano…'):`
+    ${orq.busy?brandLoaderHtml('o orquestrador está lendo o repositório e montando o plano…', { now:true }):`
     <div class="attrow attpend" id="orqPend" style="display:${orq.atts.length?'flex':'none'}"></div>
     ${chatComposerHtml({ cls:'orq-briefcc', input:'orqTa', attach:'orqAtt', rows:5, value:orq.briefing,
       placeholder:'ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar',

@@ -312,7 +312,7 @@ function pvKind(name){ const n=String(name||'').toLowerCase();
 // conteúdo já lido (read_artifact) → HTML da prévia
 function artPreviewHtml(name, c){
   const k=pvKind(name);
-  if(!c) return skeletonHtml('lista',{ n:6, compact:true, label:'carregando a prévia' });
+  if(!c) return skeletonHtml('lista',{ n:6, compact:true, inline:true, label:'carregando a prévia' });
   if(c.err) return `<div class="en-empty" style="color:var(--warn)">não consegui ler o arquivo: ${esc(c.err)}</div>`;
   if(k==='image' && c.dataUrl) return `<div class="pvimg"><img src="${c.dataUrl}" alt="${escA(name)}"></div>`;
   if(k==='pdf' && c.dataUrl) return `<iframe class="pvpdf" src="${c.dataUrl}#zoom=page-width" title="${escA(name)}"></iframe>`;

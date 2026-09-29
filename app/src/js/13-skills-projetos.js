@@ -167,7 +167,7 @@ function projetosRender(ov){
     </div>`;
   }).join('');
   const list=n ? `<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div>`
-    : projNewOpen ? '' : emptyHtml({ icon:ic('folder',28), title:'Nenhum projeto ainda', help:'Crie um projeto novo ou abra uma pasta que já existe nesta máquina.', action:{ id:'projEmptyNew', label:'+ novo projeto' } });
+    : projNewOpen ? '' : emptyHtml({ icon:'folder', title:'Nenhum projeto ainda', help:'Crie um projeto novo ou abra uma pasta que já existe nesta máquina.', action:{ id:'projEmptyNew', label:'+ novo projeto' } });
   body.innerHTML=`<div class="appscreen">${head}${projNewOpen?projNewHtml():''}${list}</div>`;
   { const b=body.querySelector('#projEmptyNew'); if(b) b.onclick=()=>{ const nb=body.querySelector('#projNewBtn'); if(nb) nb.click(); }; }
   { const b=body.querySelector('#projAddBtn2'); if(b) b.onclick=()=>{ if(window.pickFolder) window.pickFolder(); }; }

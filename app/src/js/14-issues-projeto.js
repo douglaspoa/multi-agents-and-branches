@@ -541,8 +541,8 @@ function trkBoardHtml(){
   // 1ª carga: kanban-esqueleto (nunca colunas vazias com "—"); falhou sem nada na tela: erro com "tentar de novo";
   // o painel respondeu vazio: vazio padrão com UMA ação
   const first=!trkIssuesAt;
-  const area = first && trkBusy==='load' ? skeletonHtml('kanban', { cols:Math.min(5, Math.max(3, cols.length)), label:'buscando issues' })
-    : first && trkErr ? errorHtml(trkErr, 'trkRetry')
+  const area = first && trkBusy==='load' ? skeletonHtml('kanban', { cols:Math.min(5, Math.max(3, cols.length)), inline:true, label:'buscando issues' })
+    : first && trkErr ? errorHtml(trkErr, 'trkRetry', null, { human:true }) // trkErr já é texto humano (trkErrText)
     : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras no passo 2.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
     : `<div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
   return `${trkSecretsHint()}<div class="trk-tools">
@@ -854,7 +854,7 @@ function trkDetailHtml(){
   const c=trk.connector, p=trkPerson(i.assignee), tasks=trkTasksFor(i.code);
   const free=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!trkTaskCode(t));
   const comm=!c.ops.comments?`<p class="trk-rs">Este painel não expõe comentários pela API — observo status e atualizações.</p>`
-    :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, label:'carregando comentários' })
+    :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando comentários' })
     :(trkComments.map(m=>`<div class="trk-cm"><b>${esc(m.author||'—')}</b> <span class="dim">${trkAgo(m.createdAt)}</span><div>${esc(m.text||'')}</div></div>`).join('')||'<p class="trk-rs">nenhum comentário</p>')
      +(c.ops.addComment?`<div class="trk-bar" style="margin-top:8px"><input class="in" id="trkCmIn" placeholder="comentar…"><button class="btn" id="trkCmSend">enviar</button></div>`:'');
   return `<aside class="trk-detail"><div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span><span style="flex:1"></span>${i.url?`<button class="btn sm" data-lk="${escA(i.url)}">abrir ↗</button>`:''}<button class="x" id="trkDClose">${IC.x}</button></div>

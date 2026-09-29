@@ -162,14 +162,18 @@ function agSlug(s){ return (String(s||"").toLowerCase().normalize("NFD").replace
 function uniqueId(base){ let id=base, n=2; while(cfgEdit.agents.some(a=>a.id===id)){ id=base+"-"+n; n++; } return id; }
 async function openAgents(){
   ovShow('agOverlay'); // a aba abre NA HORA (antes só aparecia depois do await) — com os agentes e equipes em esqueleto
+  // enquanto o catálogo não chega (ou se a leitura falhar), nada de salvar/adicionar/importar em cima de um cfgEdit
+  // velho (de outro projeto) ou vazio — isso apagava o catálogo
+  cfgEdit = { agents:[], workflows:[] }; agOpen = -1; agLock(true);
   { const w=$id('wfList'); if(w) ldPaint(w, skeletonHtml('lista', { n:2 })); }
   await loadInto($id('agList'), 'cards', ()=>invoke("config").catch(e=>{ const w=$id('wfList'); if(w) ldPaint(w, ''); throw e; }), (cfg)=>{
     cfg=cfg||{};
     cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
     agOpen = -1;
-    renderAg(); renderWf();
+    renderAg(); renderWf(); agLock(false);
   }, { label:'lendo os agentes do projeto', ctx:'Não consegui ler os agentes', shape:{ n:6 } });
 }
+function agLock(on){ ['agSave','agAdd','wfAdd','agImport'].forEach(id=>{ const b=$id(id); if(b) b.disabled=!!on; }); }
 function closeAgents(){ ovHide("agOverlay"); } // aba: fecha a aba (não deixa em branco)
 const ROLES=["planner","builder","reviewer","designer","tester","docs","security"];
 const PALETTE=["#1e9e4a","#e6b53c","#0a72e0","#a05cff","#e5484d","#12a3a3","#e07b39","#ec4899"];
