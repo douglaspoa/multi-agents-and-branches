@@ -65,6 +65,7 @@
 .sk-sub{margin:7px 0 0;font:400 13.5px/1.5 var(--display);color:rgba(255,255,255,.48);max-width:560px}
 .sk-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
 .sk-search{display:flex;align-items:center;gap:9px;padding:9px 13px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:var(--surface-2);min-width:230px}
+.sk-search:focus-within{border-color:var(--accent);box-shadow:var(--ring)} /* R8 a11y: o input interno é outline:none — o foco aparece na caixa */
 .sk-search .sk-sd{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.3);flex:none}
 .sk-search input{flex:1;font:400 13px var(--display);background:none;border:none;outline:none;color:var(--text)}
 .sk-stats{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 0 20px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:22px}
@@ -110,7 +111,7 @@
 .pc-thread{display:flex;flex-direction:column;gap:12px;padding:12px 0}
 .pc-empty{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:22px;padding:50px 0 30px;text-align:center}
 .pc-empty-t{max-width:520px;font:600 19px/1.4 var(--display);color:var(--text)}
-.pc-empty-d{max-width:520px;font:400 13.5px/1.6 var(--display);color:rgba(255,255,255,.45)}
+.pc-empty-d{max-width:520px;font:400 13.5px/1.6 var(--display);color:var(--text-3)}
 .pc-sugg{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;width:100%;max-width:840px}
 .pc-sc{text-align:left;padding:14px 16px;border:1px solid rgba(255,255,255,.09);border-radius:11px;background:var(--surface-2);display:flex;flex-direction:column;gap:6px;cursor:pointer}
 .pc-sc:hover{border-color:rgba(255,255,255,.2)}

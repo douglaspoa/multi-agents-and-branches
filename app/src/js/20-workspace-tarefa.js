@@ -587,7 +587,7 @@ function renderWorkspace(){
       bindClick('fwArchive', async(e)=>{ const b=e.currentTarget;
         // E11a: com entregáveis ainda não salvos, leva pra Entrega com a barra "Salvar entregáveis na pasta" (salva e conclui lá)
         if(fwArchiveNeedsSave(t)){ fwMode='entrega'; fwRememberTab(); renderWorkspace();
-          setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-save'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
+          setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-save'); if(s){ s.scrollIntoView({ block:'center', behavior:(ldReduced()?'auto':'smooth') }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
           toast('Salve os entregáveis numa pasta sua e conclua — ou use "só concluir".','info'); return; }
         b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });

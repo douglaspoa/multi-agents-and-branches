@@ -12,7 +12,9 @@
   --r:12px; --r-sm:8px; --r-xs:6px;
   --shadow:0 0 0 .5px rgba(0,0,0,.55), 0 16px 44px rgba(0,0,0,.62);
   --shadow-sm:0 1px 2px rgba(0,0,0,.45);
-  --ring:0 0 0 3.5px color-mix(in srgb, var(--accent) 30%, transparent);
+  /* R8 a11y: o anel de foco era 30% do verde (1,9:1 sobre o fundo — abaixo dos 3:1 do WCAG 1.4.11 pra indicador
+     de foco). 55% dá ~3,6:1 em todas as superfícies (bg/surface/surface-3) sem mudar a cor da marca. */
+  --ring:0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
   /* repaginada C: o verde cheio (--accent) é só do CTA primário, do foco e de "rodando" — e da marca
      (o símbolo IC.starfork no logo, no avatar da IA e no loader pode ser verde cheio; é assinatura, não seleção).
      Seleção, badge e borda de destaque usam o soft (fundo) + line (borda), com texto claro (--text).
@@ -225,5 +227,13 @@ body{
 /* estados que faltavam: desabilitado parece desabilitado; foco por teclado visível */
 .btn:disabled,.btn[disabled],.iconbtn:disabled,.as-btn:disabled,.au-btn:disabled{opacity:.45;cursor:not-allowed;filter:none;box-shadow:none}
 :where(button,.btn,.iconbtn,[role=tab],[tabindex]):focus-visible{outline:none;box-shadow:var(--ring)}
+/* R8 a11y: UM estilo de foco pro app inteiro (o anel --ring). Links, summary, select, checkbox/rádio e papéis ARIA
+   clicáveis não tinham foco nenhum (ou o contorno azul do sistema, diferente de tela pra tela). */
+:where(a[href],a[role=button],summary,select,input[type=checkbox],input[type=radio],input[type=date],[role=button],[role=option],[role=menuitem],[role=switch],[role=link]):focus-visible{outline:none;box-shadow:var(--ring)}
+/* R8 a11y: "reduzir movimento" do macOS (Acessibilidade › Tela) vale pro app inteiro — antes só 4 telas respeitavam.
+   Animação vira estado final instantâneo; nada some (opacidade final é mantida porque a animação ainda "roda" 1x). */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;animation-delay:0s!important;transition-duration:.001ms!important;transition-delay:0s!important;scroll-behavior:auto!important}
+}
 /* arrastar arquivo pra qualquer caixa de chat mostra onde vai soltar */
 .dropping{outline:2px dashed color-mix(in srgb,var(--accent) 60%,transparent)!important;outline-offset:2px;background:color-mix(in srgb,var(--accent) 6%,transparent)!important}

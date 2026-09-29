@@ -306,7 +306,7 @@ function pvGlobeClick(t, url){
   const st=pvState(t);
   if(st==='online' || st==='checando'){ invoke('open_url',{ url }).catch(e=>showErr(e, 'Não consegui abrir o app')); return; }
   fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
-  setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-live'); if(s){ s.scrollIntoView({ block:'center', behavior:'smooth' }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
+  setTimeout(()=>{ const s=document.querySelector('#fwOverlay .en-live'); if(s){ s.scrollIntoView({ block:'center', behavior:(ldReduced()?'auto':'smooth') }); s.classList.add('flash'); setTimeout(()=>s.classList.remove('flash'),1600); } }, 60);
 }
 async function pvLoadLog(taskId){
   try{ const r=await invoke('preview_log_tail',{ taskId }); if(r && pvRun[taskId]){ pvRun[taskId].log=r.log||''; pvRun[taskId].exitCode=r.exitCode; } return r; }catch(_){ return null; }
@@ -457,7 +457,7 @@ function fwRenderEntrega(t, main){
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-docpdf]').forEach(b=>b.onclick=()=>entregaDocPdf(t, b.dataset.docpdf, b));
   main.querySelectorAll('[data-docslack]').forEach(b=>b.onclick=()=>sendArtifactSlack(t.id, b.dataset.docslack));
-  main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView({ block:'start', behavior:'smooth' }); }, 40); });
+  main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView({ block:'start', behavior:(ldReduced()?'auto':'smooth') }); }, 40); });
   main.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>{ if(b.dataset.hash&&typeof openCommit==='function') openCommit(b.dataset.hash); });
   main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>showErr(e, 'Não abriu a pasta')));
   bindClick('enGen', ()=>entregaGenReport(t));
@@ -474,7 +474,7 @@ function lbOpen(taskId, names, idx){ lbTask=taskId; lbList=names; lbIdx=idx||0; 
 function lbShow(){
   const name=lbList[lbIdx]; if(!name) return;
   $id('lbCap').textContent=`${name} · ${lbIdx+1} de ${lbList.length}`;
-  const img=$id('lbImg'); const th=artThumbCache[lbTask+'|'+name];
+  const img=$id('lbImg'); img.alt='prova: '+name; const th=artThumbCache[lbTask+'|'+name]; // R8 a11y: o print tinha alt vazio
   if(th){ img.src=th; } else { img.removeAttribute('src'); invoke('read_artifact',{ taskId:lbTask, name }).then(c=>{ artThumbCache[lbTask+'|'+name]=c.dataUrl||null; if(lbList[lbIdx]===name) img.src=c.dataUrl||''; }).catch(()=>{}); }
   $id('lbPrev').style.visibility=lbIdx>0?'visible':'hidden'; $id('lbNext').style.visibility=lbIdx<lbList.length-1?'visible':'hidden';
 }

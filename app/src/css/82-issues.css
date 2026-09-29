@@ -3,7 +3,7 @@
 #issuesOverlay.astab .mhead{display:none} /* a tela tem H1 próprio */
 .sk-screen.trk{width:100%;min-width:0}
 .trk label{text-transform:none;letter-spacing:0;margin:0}
-.trk-name{font-weight:400;color:rgba(255,255,255,.45)}
+.trk-name{font-weight:400;color:var(--text-3)}
 .trk-steps{margin-left:auto;display:flex;gap:4px;padding:4px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:var(--surface-2)}
 .trk-step{display:flex;align-items:center;gap:8px;font:500 12.5px var(--display);color:rgba(255,255,255,.55);background:none;border:0;padding:7px 12px;border-radius:8px;cursor:pointer}
 .trk-step i{font:600 10px var(--code);font-style:normal;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.2)}

@@ -109,7 +109,7 @@
 /* ---- Central: seções recolhíveis (B4), cor do épico no cartão (F2), fila dos épicos na grade ---- */
 #flow .sech[data-sectog] { cursor: pointer; user-select: none; }
 #flow .sech[data-sectog]:hover { color: var(--text); }
-#flow .sech[data-sectog]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+#flow .sech[data-sectog]:focus-visible {outline:none;box-shadow:var(--ring);border-radius: 6px; }
 .sech .secchev { color: var(--text-3, var(--muted)); font-size: 10px; width: 10px; flex: none; }
 #flow.gridview .secgrp.epqgrp { display: block; }
 .dcard.has-ep { border-left: 3px solid var(--epc); }
