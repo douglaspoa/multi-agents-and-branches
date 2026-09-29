@@ -477,6 +477,12 @@ export class Store {
       .all(taskId) as { id: number; text: string }[];
   }
 
+  /** Cancela uma instrução que ainda não foi entregue. true = estava aberta e foi cancelada. */
+  cancelInstruction(id: number): boolean {
+    const r = this.db.prepare(`UPDATE instruction SET status = 'cancelled', applied_at = ? WHERE id = ? AND status = 'open'`).run(Date.now(), id);
+    return Number(r.changes) > 0;
+  }
+
   markInstructionApplied(id: number): void {
     this.db.prepare(`UPDATE instruction SET status = 'applied', applied_at = ? WHERE id = ?`).run(Date.now(), id);
   }

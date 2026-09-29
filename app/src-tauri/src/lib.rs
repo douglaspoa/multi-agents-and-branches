@@ -563,15 +563,18 @@ mod budget_spec_tests {
     #[test]
     fn snapshot_carries_budget_keys_only() {
         let sp = serde_json::json!({"kind":"build","budgetUsd":7.5,"budgetHit":{"cap":5,"mode":"paused"},"deliverables":[]});
-        let b = task_budget_spec(&sp).expect("tem teto");
+        let b = task_front_spec(&sp).expect("tem teto");
         assert_eq!(b["budgetUsd"], 7.5);
         assert_eq!(b["budgetHit"]["mode"], "paused");
         assert!(b.get("kind").is_none());
-        assert!(task_budget_spec(&serde_json::json!({"kind":"build"})).is_none());
-        assert!(task_budget_spec(&serde_json::json!({"budgetHit":null})).is_none());
-        // rastro das edições de agente também vai pro front (t.spec.agentEdits)
-        let e = task_budget_spec(&serde_json::json!({"agentEdits":[{"id":"e1"}],"objective":"x"})).expect("tem rastro");
+        assert!(task_front_spec(&serde_json::json!({"kind":"build"})).is_none());
+        assert!(task_front_spec(&serde_json::json!({"budgetHit":null})).is_none());
+        // rastro das edições de agente vai RESUMIDO pro front (t.spec.agentEdits) + propostas
+        let e = task_front_spec(&serde_json::json!({"agentEdits":[{"id":"e1","changes":[{"field":"objective","before":"a","after":"b"}]}],"agentProposals":[{"id":"p1","status":"open"}],"objective":"x"})).expect("tem rastro");
         assert_eq!(e["agentEdits"][0]["id"], "e1");
+        assert_eq!(e["agentEdits"][0]["fields"][0], "objective");
+        assert!(e["agentEdits"][0].get("changes").is_none());
+        assert_eq!(e["agentProposals"][0]["id"], "p1");
         assert!(e.get("objective").is_none());
     }
 }
@@ -879,12 +882,18 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
     Ok(())
 }
 
-/// chaves do teto de custo que o front precisa ver no snapshot (None quando a tarefa não tem nenhuma)
-fn task_budget_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
+/// O pedaço do spec que o front lê em `t.spec` no snapshot (None quando não há nada):
+/// teto de custo (budgetUsd, budgetHit), o RESUMO das edições de agente (agentEdits: quem/quando/campos —
+/// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
+fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    // agentEdits: rastro das edições de spec feitas por agentes (src/agent-edits.ts) — a conversa mostra antes/depois e "desfazer"
-    for k in ["budgetUsd", "budgetHit", "agentEdits"] {
+    for k in ["budgetUsd", "budgetHit"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
+    }
+    if let Some(e) = agent_edits::compact_edits(spec) { m.insert("agentEdits".into(), e); }
+    if let Some(p) = spec.get("agentProposals").and_then(|v| v.as_array()) {
+        let tail: Vec<serde_json::Value> = p.iter().rev().take(10).rev().cloned().collect();
+        m.insert("agentProposals".into(), serde_json::Value::Array(tail));
     }
     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
 }
@@ -1434,10 +1443,13 @@ fn agent_edits_done(state: State<AppState>, id: String, outcome: String, msg: Op
     agent_edits::mark_done(&repo.join(".cardume").join("agent-edits"), &id, &outcome, &msg.unwrap_or_default())
 }
 
-/// Edita (ou desfaz uma edição de) a spec de uma tarefa LOCAL sem acionar o agente dela.
-/// Proxy do CLI `cardume task edit <id> --json [--patch <json>] [--undo <editId>]`.
+/// Edita / desfaz / decide proposta na spec de uma tarefa LOCAL sem acionar o agente dela.
+/// Proxy do CLI `cardume task edit <id> --json [--patch <json>] [--edit-id <id>] [--undo|--approve|--reject <id>]`.
+/// Ok = JSON do resultado (com `mode`: applied | queued | proposed | unchanged); Err = mensagem do motor.
 #[tauri::command(async)]
-fn task_edit_cli(state: State<AppState>, task_id: String, patch: Option<String>, undo: Option<String>, by_agent: Option<String>, by_task: Option<String>) -> Result<String, String> {
+#[allow(clippy::too_many_arguments)]
+fn task_edit_cli(state: State<AppState>, task_id: String, patch: Option<String>, undo: Option<String>, approve: Option<String>, reject: Option<String>,
+                 edit_id: Option<String>, by_agent: Option<String>, by_task: Option<String>, note: Option<String>) -> Result<String, String> {
     let repo = active_repo(&state)?;
     let mut args = vec![
         "--disable-warning=ExperimentalWarning".to_string(),
@@ -1451,17 +1463,41 @@ fn task_edit_cli(state: State<AppState>, task_id: String, patch: Option<String>,
         "--by-agent".to_string(),
         by_agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Você".to_string()),
     ];
-    if let Some(p) = patch { args.push("--patch".into()); args.push(p); }
-    if let Some(u) = undo { args.push("--undo".into()); args.push(u); }
-    if let Some(t) = by_task.filter(|s| !s.trim().is_empty()) { args.push("--by-task".into()); args.push(t); }
-    let out = Command::new(node_bin()).args(&args).current_dir(&repo).output().map_err(|e| e.to_string())?;
-    let so = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let v: serde_json::Value = serde_json::from_str(so.lines().last().unwrap_or("")).map_err(|_| {
-        let se = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        if se.is_empty() { format!("resposta inesperada do motor: {so}") } else { se }
-    })?;
-    let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
-    if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) { Ok(msg) } else { Err(msg) }
+    for (flag, v) in [("--patch", patch), ("--undo", undo), ("--approve", approve), ("--reject", reject), ("--edit-id", edit_id), ("--by-task", by_task), ("--note", note)] {
+        if let Some(v) = v.filter(|s| !s.trim().is_empty()) { args.push(flag.into()); args.push(v); }
+    }
+    let out = Command::new(node_bin()).args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
+    agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+
+/// Lista OFICIAL do "pronto quando" (da nuvem) → cópias locais das tarefas abertas do épico (CLI `epic sync`).
+#[tauri::command(async)]
+fn epic_sync_cli(state: State<AppState>, epic_id: String, done_when: Vec<String>, seq: Option<i64>, note: Option<String>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let patch = serde_json::json!({ "doneWhen": done_when, "seq": seq.unwrap_or(0) }).to_string();
+    let mut args = vec![
+        "--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "epic".into(), "sync".into(), epic_id,
+        "--json".into(), "--repo".into(), repo.display().to_string(), "--by-agent".into(), "Starfork".into(), "--patch".into(), patch,
+    ];
+    if let Some(n) = note.filter(|s| !s.trim().is_empty()) { args.push("--note".into()); args.push(n); }
+    let out = Command::new(node_bin()).args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
+    agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+
+/// Detalhe COMPLETO (antes → depois) de uma edição/proposta de agente — o snapshot só leva o resumo.
+#[tauri::command(async)]
+fn task_agent_edit(state: State<AppState>, task_id: String, edit_id: String) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(3000));
+    let spec_json: String = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get(0)).map_err(|_| "tarefa não encontrada".to_string())?;
+    let spec: serde_json::Value = serde_json::from_str(&spec_json).map_err(|_| "spec ilegível".to_string())?;
+    for k in ["agentEdits", "agentProposals"] {
+        if let Some(hit) = spec.get(k).and_then(|v| v.as_array()).and_then(|a| a.iter().find(|e| e.get("id").and_then(|x| x.as_str()) == Some(edit_id.as_str()))) {
+            return Ok(hit.clone());
+        }
+    }
+    Err("edição não encontrada (saiu do rastro)".into())
 }
 
 // ---------- lista de projetos (switcher multi-projeto) ----------
@@ -2400,7 +2436,7 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
                 },
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
-                spec: task_budget_spec(&spec),
+                spec: task_front_spec(&spec),
                 busy: r
                     .get::<_, Option<i64>>(16)
                     .unwrap_or(None)
@@ -8628,6 +8664,8 @@ pub fn run() {
             agent_edits_pending,
             agent_edits_done,
             task_edit_cli,
+            epic_sync_cli,
+            task_agent_edit,
             resolve_conflict,
             list_projects,
             projects_overview,

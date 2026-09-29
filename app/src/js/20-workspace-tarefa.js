@@ -956,7 +956,7 @@ function fwThreadHtml(t){
     if(e.agent==='Sistema' && e.type==='note'){ const ic=evSysIcon(tx); if(ic){ flush(); out.push(`<div class="csys">${ic} ${esc(tx)}</div>`); continue; } }
     if(tx.startsWith('perguntou ao humano:')) continue; // a pergunta já aparece no card destacado
     // outro agente (ou este) mudou a SPEC desta tarefa (47-edicoes-agente): card com antes → depois + desfazer
-    if(e.type==='spec-edit' && typeof aeEventHtml==='function'){ flush(); lastWho=''; out.push(aeEventHtml(t, e)); continue; }
+    if((e.type==='spec-edit'||e.type==='spec-proposal') && typeof aeEventHtml==='function'){ flush(); lastWho=''; out.push(aeEventHtml(t, e)); continue; }
     // chamada de ferramenta crua (ToolSearch, mcp__…): é ruído interno — o valor
     // está no RESULTADO (entregável/issue registrados, abaixo). Esconde a chamada, igual o Claude faz.
     if(e.type==='note' && looksLikeTool(tx)) continue;

@@ -12,7 +12,7 @@ import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
 import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
-import { editEpic, editTask, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
+import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
 // ---------- parse de flags simples (src/util/args.ts) ----------
 const list = (s?: string) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
@@ -687,7 +687,12 @@ async function cmdDemo() {
 function editAuthor(store: Store, a: Args): EditAuthor {
   const taskId = a.flags["by-task"] || process.env.CARDUME_TASK || undefined;
   const t = taskId ? store.getTask(taskId) : undefined;
-  return { agent: a.flags["by-agent"] || process.env.CARDUME_AGENT || "Você", taskId: t?.id ?? taskId, taskTitle: t?.title };
+  return {
+    agent: a.flags["by-agent"] || process.env.CARDUME_AGENT || "Você",
+    taskId: t?.id ?? taskId,
+    taskTitle: t?.title,
+    role: a.flags["by-role"] ?? process.env.CARDUME_ROLE ?? undefined,
+  };
 }
 
 function printEdit(r: EditResult, json: boolean): void {
@@ -697,33 +702,45 @@ function printEdit(r: EditResult, json: boolean): void {
   if (!r.ok) process.exitCode = 1;
 }
 
-/** --patch '<json>' (o app manda a edição inteira) ou flags soltas. */
-function taskEditInput(a: Args): TaskEditInput {
-  if (a.flags.patch) return JSON.parse(a.flags.patch) as TaskEditInput;
-  const nums = (xs?: string[]) => (xs ?? []).flatMap((x) => x.split(",")).map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
-  return {
-    title: a.flags.title,
-    objective: a.flags.objective,
-    reqAdd: a.multi["req-add"],
-    reqRemove: nums(a.multi["req-remove"]),
-    deliverables: a.multi.deliverable,
-    delivAdd: a.multi["deliv-add"],
-    owns: a.flags.owns !== undefined ? list(a.flags.owns) : undefined,
-    off: a.flags.off !== undefined ? list(a.flags.off) : undefined,
-    note: a.flags.note,
-  };
+/** --patch '<json>' (o app manda a edição inteira; o formato é validado) ou flags soltas. */
+function parsePatch(a: Args): { ok: true; v: unknown } | { ok: false; message: string } {
+  try { return { ok: true, v: JSON.parse(a.flags.patch) }; } catch { return { ok: false, message: "--patch não é um JSON válido" }; }
 }
 
 function cmdTaskEdit(repo: string, id: string | undefined, a: Args) {
   const store = openStore(repo);
+  const json = !!a.flags.json;
   try {
     const by = editAuthor(store, a);
-    if (a.flags.undo) return printEdit(undoTaskEdit({ store, targetId: id ?? "", editId: a.flags.undo, by }), !!a.flags.json);
+    if (a.flags.undo) return printEdit(undoTaskEdit({ store, targetId: id ?? "", editId: a.flags.undo, by }), json);
+    if (a.flags.approve || a.flags.reject) {
+      return printEdit(decideProposal({ store, targetId: id ?? "", proposalId: a.flags.approve || a.flags.reject, approve: !!a.flags.approve, by, msg: a.flags.note }), json);
+    }
     let input: TaskEditInput;
-    try { input = taskEditInput(a); } catch { return printEdit({ ok: false, message: "--patch não é um JSON válido" }, !!a.flags.json); }
+    if (a.flags.patch !== undefined) {
+      const p = parsePatch(a);
+      if (!p.ok) return printEdit(p, json);
+      const bad = checkTaskShape(p.v);
+      if (bad) return printEdit({ ok: false, message: bad }, json);
+      input = p.v as TaskEditInput;
+    } else {
+      input = {
+        title: a.flags.title,
+        objective: a.flags.objective,
+        reqAdd: a.multi["req-add"],
+        reqRemove: a.multi["req-remove"],
+        deliverables: a.multi.deliverable,
+        delivAdd: a.multi["deliv-add"],
+        owns: a.flags.owns !== undefined ? list(a.flags.owns) : undefined,
+        off: a.flags.off !== undefined ? list(a.flags.off) : undefined,
+        note: a.flags.note,
+      };
+    }
     const author = by.taskId ? store.getTask(by.taskId) : undefined;
-    const epicId = a.flags["epic-id"] || (author ? (JSON.parse(author.spec_json) as TaskSpec).epicId : undefined);
-    printEdit(editTask({ store, cardumeDir: new Workspace(repo).dir, targetId: id ?? "", input, by, epicId }), !!a.flags.json);
+    let authorEpic: string | undefined;
+    try { authorEpic = author ? (JSON.parse(author.spec_json) as TaskSpec).epicId : undefined; } catch { /* spec antiga */ }
+    const epicId = a.flags["epic-id"] || authorEpic;
+    printEdit(editTask({ store, cardumeDir: new Workspace(repo).dir, targetId: id ?? "", input, by, epicId, editId: a.flags["edit-id"] || undefined }), json);
   } finally {
     store.close();
   }
@@ -731,21 +748,40 @@ function cmdTaskEdit(repo: string, id: string | undefined, a: Args) {
 
 function cmdEpicEdit(repo: string, id: string | undefined, a: Args) {
   const store = openStore(repo);
+  const json = !!a.flags.json;
   try {
     let input: EpicEditInput;
-    try {
-      input = a.flags.patch
-        ? (JSON.parse(a.flags.patch) as EpicEditInput)
-        : {
-            description: a.flags.description,
-            outcome: a.flags.outcome,
-            doneWhenAdd: a.multi["done-when-add"],
-            doneWhenRemove: (a.multi["done-when-remove"] ?? []).flatMap((x) => x.split(",")).map((x) => x.trim()).filter(Boolean),
-            reqAdd: a.multi["req-add"],
-            note: a.flags.note,
-          };
-    } catch { return printEdit({ ok: false, message: "--patch não é um JSON válido" }, !!a.flags.json); }
-    printEdit(editEpic({ store, cardumeDir: new Workspace(repo).dir, epicId: id ?? "", input, by: editAuthor(store, a) }), !!a.flags.json);
+    if (a.flags.patch !== undefined) {
+      const p = parsePatch(a);
+      if (!p.ok) return printEdit(p, json);
+      const bad = checkEpicShape(p.v);
+      if (bad) return printEdit({ ok: false, message: bad }, json);
+      input = p.v as EpicEditInput;
+    } else {
+      input = {
+        description: a.flags.description,
+        outcome: a.flags.outcome,
+        doneWhenAdd: a.multi["done-when-add"],
+        doneWhenRemove: (a.multi["done-when-remove"] ?? []).flatMap((x) => x.split(",")).map((x) => x.trim()).filter(Boolean),
+        reqAdd: a.multi["req-add"],
+        note: a.flags.note,
+      };
+    }
+    printEdit(editEpic({ store, cardumeDir: new Workspace(repo).dir, epicId: id ?? "", input, by: editAuthor(store, a) }), json);
+  } finally {
+    store.close();
+  }
+}
+
+/** O app manda a lista oficial do "pronto quando" (--patch '{"doneWhen":[...],"seq":N}') → cópias locais. */
+function cmdEpicSync(repo: string, id: string | undefined, a: Args) {
+  const store = openStore(repo);
+  const json = !!a.flags.json;
+  try {
+    const p = parsePatch(a);
+    if (!p.ok) return printEdit(p, json);
+    const v = (p.v ?? {}) as { doneWhen?: unknown; seq?: unknown };
+    printEdit(syncEpicDoneWhen({ store, epicId: id ?? "", doneWhen: v.doneWhen, seq: Number(v.seq) || 0, by: editAuthor(store, a), note: a.flags.note }), json);
   } finally {
     store.close();
   }
@@ -825,6 +861,7 @@ async function main() {
       break;
     case "epic":
       if (a._[1] === "edit") cmdEpicEdit(repo, a._[2], a);
+      else if (a._[1] === "sync") cmdEpicSync(repo, a._[2], a);
       else { console.error(c.red("✕ use: cardume epic edit <epicId> [--description …] [--note \"por quê\"]")); process.exitCode = 1; }
       break;
     default:
@@ -849,8 +886,9 @@ ${c.dim("acompanhar")}
 ${c.dim("entregar & integrar")}
   ${c.green("cardume deliver")} ${c.dim("<taskId> --kind doc|tests|proof|all")}  gera artefato sob demanda
   ${c.green("cardume talk")} ${c.dim('<taskId> --msg "..." [--as-req] [--agent <nome>]')}  conversa com o agente (retoma a sessão)
-  ${c.green("cardume task edit")} ${c.dim('<taskId> [--objective …] [--title …] [--req-add …] [--req-remove <n>] [--owns …] [--off …] [--deliverable …] [--deliv-add …] --note "por quê"')}
-      muda a spec de uma tarefa (irmã/rascunho) SEM acionar o agente dela; rodando → chega no próximo turno
+  ${c.green("cardume task edit")} ${c.dim('<taskId> [--objective …] [--title …] [--req-add …] [--req-remove "<texto>"] [--owns …] [--off …] [--deliverable …] [--deliv-add …] --note "por quê"')}
+      muda a spec de uma tarefa (irmã/rascunho) SEM acionar o agente dela; rodando → chega no próximo turno;
+      remover requisito/estreitar owns/off vira proposta (--approve/--reject <id> decidem; --undo <id> desfaz)
   ${c.green("cardume epic edit")} ${c.dim('<epicId> [--description …] [--outcome …] [--done-when-add …] [--done-when-remove D3] [--req-add …] --note "por quê"')}
       muda o épico (o app aplica no épico do time, com histórico)
   ${c.green("cardume export")} ${c.dim("<taskId> [--out <arquivo.md>]")}  relatório Markdown p/ descrição de PR

@@ -93,7 +93,7 @@ const TOOLS = [
   {
     name: "edit_task",
     description:
-      "Atualize a SPEC de uma tarefa do projeto quando a ideia mudou conforme você programa — tipicamente uma tarefa IRMÃ do seu épico (ids em .cardume/refs/EPIC.md) ou um rascunho; também serve pra própria tarefa. Muda objetivo/título/requisitos/entregáveis/escopo SEM iniciar, retomar nem conversar com o agente dela (NÃO use talk pra isso). Se ela estiver rodando, a mudança chega ao agente dela no PRÓXIMO turno, sem interromper. Tarefa mergeada/concluída não muda. Sempre diga o porquê em `note` — o humano vê o rastro e pode desfazer.",
+      "Atualize a SPEC de uma tarefa do projeto quando a ideia mudou conforme você programa — tipicamente uma tarefa IRMÃ do seu épico (ids em .cardume/refs/EPIC.md) ou um rascunho; também serve pra própria tarefa. Muda objetivo/título/requisitos/entregáveis/escopo SEM iniciar, retomar nem conversar com o agente dela (NÃO use talk pra isso). Se ela estiver rodando, a mudança chega ao agente dela no PRÓXIMO turno, sem interromper. Acrescentar/reescrever vale na hora; REMOVER requisito ou estreitar owns/off vira PROPOSTA que o humano aprova. Tarefa mergeada/concluída não muda; o papel revisor não edita. Sempre diga o porquê em `note` — o humano vê o rastro e pode desfazer.",
     inputSchema: {
       type: "object",
       properties: {
@@ -101,10 +101,11 @@ const TOOLS = [
         objective: { type: "string", description: "Objetivo novo (substitui)." },
         title: { type: "string", description: "Título novo (substitui)." },
         requirements_add: { type: "array", items: { type: "string" }, description: "Requisitos a ACRESCENTAR (curtos e verificáveis)." },
-        requirements_remove: { type: "array", items: { type: "integer" }, description: "Posições (1 = primeiro) dos requisitos ATUAIS a remover." },
+        requirements_remove: { type: "array", items: { type: "string" }, description: "TEXTO exato dos requisitos a remover — vira PROPOSTA que o humano aprova ou recusa (até lá o requisito vale)." },
         deliverables: { type: "array", items: { type: "string" }, description: "Lista NOVA de entregáveis (substitui a atual)." },
-        owns: { type: "array", items: { type: "string" }, description: "Escopo novo (caminhos/globs que ela pode mexer) — substitui." },
-        off: { type: "array", items: { type: "string" }, description: "Caminhos proibidos novos — substitui." },
+        deliverables_add: { type: "array", items: { type: "string" }, description: "Entregáveis a ACRESCENTAR." },
+        owns: { type: "array", items: { type: "string" }, description: "Escopo desejado (caminhos/globs): o que entra vale na hora; o que sai vira proposta." },
+        off: { type: "array", items: { type: "string" }, description: "Caminhos proibidos desejados: o que entra vale na hora; o que sai vira proposta." },
         note: { type: "string", description: "POR QUE mudou (1 frase). Obrigatório." },
       },
       required: ["task_id", "note"],
@@ -113,7 +114,7 @@ const TOOLS = [
   {
     name: "edit_epic",
     description:
-      "Atualize o ÉPICO desta tarefa (id em epic.id no TASK.yaml) quando a ideia mudou: descrição, outcome, requisitos novos e o 'pronto quando' (acrescentar/remover itens). Não aciona nenhum agente. O app aplica no épico do time e guarda no histórico com o seu motivo; a cópia do 'pronto quando' no TASK.yaml das tarefas deste computador é atualizada na hora. Sempre diga o porquê em `note`.",
+      "Atualize o ÉPICO desta tarefa (id em epic.id no TASK.yaml) quando a ideia mudou: descrição, outcome, requisitos novos e o 'pronto quando' (acrescentar/remover itens). Não aciona nenhum agente. O app aplica no épico do time e guarda no histórico com o seu motivo; a cópia do 'pronto quando' no TASK.yaml das tarefas deste computador ganha os itens novos na hora. Remover item do 'pronto quando' vira PROPOSTA. O papel revisor não edita. Sempre diga o porquê em `note`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -121,7 +122,7 @@ const TOOLS = [
         description: { type: "string", description: "Descrição nova (substitui)." },
         outcome: { type: "string", description: "Resultado esperado novo (substitui)." },
         done_when_add: { type: "array", items: { type: "string" }, description: "Itens NOVOS do 'pronto quando' (checagem que uma pessoa roda)." },
-        done_when_remove: { type: "array", items: { type: "string" }, description: "Ids (ex.: 'D3') do 'pronto quando' a remover — item já marcado não sai." },
+        done_when_remove: { type: "array", items: { type: "string" }, description: "Ids (ex.: 'D3') do 'pronto quando' a remover — vira PROPOSTA pra quem cuida do épico; item já marcado não sai." },
         requirements_add: { type: "array", items: { type: "string" }, description: "Requisitos NOVOS do épico." },
         note: { type: "string", description: "POR QUE mudou (1 frase). Obrigatório." },
       },
@@ -278,7 +279,7 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     const me = store.getTask(TASK);
     let myEpic: string | undefined;
     try { myEpic = me ? (JSON.parse(me.spec_json) as TaskSpec).epicId : undefined; } catch { /* spec antiga */ }
-    const by: EditAuthor = { agent: AGENT, taskId: TASK || undefined, taskTitle: me?.title };
+    const by: EditAuthor = { agent: AGENT, taskId: TASK || undefined, taskTitle: me?.title, role: ROLE || undefined };
     const arr = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x)) : undefined);
     const str = (v: unknown) => (typeof v === "string" ? v : undefined);
     try {
@@ -287,8 +288,8 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
             store, cardumeDir: dirname(DB!), targetId: String(args?.task_id ?? ""), by, epicId: myEpic,
             input: {
               objective: str(args?.objective), title: str(args?.title), reqAdd: arr(args?.requirements_add),
-              reqRemove: Array.isArray(args?.requirements_remove) ? args.requirements_remove.map(Number) : undefined,
-              deliverables: arr(args?.deliverables), owns: arr(args?.owns), off: arr(args?.off), note: str(args?.note),
+              reqRemove: arr(args?.requirements_remove),
+              deliverables: arr(args?.deliverables), delivAdd: arr(args?.deliverables_add), owns: arr(args?.owns), off: arr(args?.off), note: str(args?.note),
             },
           })
         : editEpic({

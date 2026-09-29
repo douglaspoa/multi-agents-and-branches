@@ -18,7 +18,7 @@ export const TEXT_FLAGS = new Set([
   "plan-approval", "wave", "out", "roles", "clarifications", "bus-policy",
   // task edit / epic edit (src/agent-edits.ts)
   "req-add", "req-remove", "deliv-add", "note", "by-agent", "by-task", "description", "outcome", "done-when-add", "done-when-remove",
-  "patch", "undo",
+  "patch", "undo", "edit-id", "reject", "by-role",
 ]);
 
 /** Flags SEM valor (booleanas). */

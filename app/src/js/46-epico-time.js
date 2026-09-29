@@ -164,7 +164,7 @@ function epicPageRender(){
         <div class="seclbl2">Pronto quando <span class="dim">· D1, D2… = critérios; o épico só fecha com tudo marcado${can?'':' · só quem criou (ou admin) marca'}</span></div>${dwHtml}
         ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
-        ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can):''}
+        ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can, tasks, ep.id):''}
         ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas ondas começam sozinhas</button></div>`:''}
         ${!dw.length&&ep.status!=='done'&&can?`<div style="margin-top:14px"><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
       </section>
@@ -240,7 +240,7 @@ async function epicCompileContext(epicId, forTask){
   const stPt=s=>stLabel(s);
   const byId={}; sibs.forEach(t=>{ byId[t.id]=t; });
   const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Starfork ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', '',
-    'id do épico: '+ep.id+' — a ideia mudou? atualize com mcp__cardume__edit_epic (épico) / mcp__cardume__edit_task (irmãs, pelo id abaixo). Nenhum agente é acionado.', ''];
+    'id do épico: '+ep.id+' — a ideia mudou? atualize com mcp__cardume__edit_epic (épico) / mcp__cardume__edit_task (irmãs, pelo id abaixo; requisito se remove pelo TEXTO e vira proposta). Nenhum agente é acionado.', ''];
   L.push('## Objetivo', epCut(sp.outcome||sp.description||('Épico do time "'+ep.name+'".'),400)); if(sp.outcome&&sp.description) L.push(epCut(sp.description,300)); L.push('');
   if(reqs.length){ L.push('## Requisitos do épico'); reqs.slice(0,12).forEach(r=>L.push('- '+(r.id||'R?')+': '+epCut(r.text,200))); L.push(''); }
   if(dw.length){ L.push('## Pronto quando (o épico só fecha com tudo marcado)'); dw.slice(0,8).forEach((d,i)=>L.push('- '+(d.checkedBy?'[x]':'[ ]')+' '+(d.id||('D'+(i+1)))+': '+epCut(d.text,200))); L.push(''); }
@@ -250,7 +250,7 @@ async function epicCompileContext(epicId, forTask){
     sibs.slice(0,15).forEach(t=>{ const s=t.spec||{}; const me=!!(forTask&&t.id===forTask.id);
       const dep=(Array.isArray(s.after)?s.after:[]).map(a=>byId[a]?epCut(byId[a].title,40):'').filter(Boolean);
       const sid=(t.local_id&&!String(t.local_id).startsWith('card-'))?t.local_id:t.id; // iniciada: id local (o motor acha aqui); no backlog: id do cartão
-      L.push('- '+(me?'**ESTA → **':'')+epCut(t.title,80)+' · id '+sid+' · onda '+(parseInt(s.wave,10)||1)+' · '+stPt(t.status)+(s.verify?' · prova: '+epCut(s.verify,120):'')+(Array.isArray(s.covers)&&s.covers.length?' · cobre '+s.covers.join(','):'')+(dep.length?' · depois de: '+dep.join('; '):'')+(s.owns?' · escopo: '+epCut(s.owns,60):'')); });
+      L.push('- '+(me?'**ESTA → **':'')+epCut(t.title,80)+' · id '+sid+' · onda '+(parseInt(s.wave,10)||1)+' · '+stPt(t.status)+(s.verify?' · prova: '+epCut(s.verify,120):'')+(Array.isArray(s.covers)&&s.covers.length?' · cobre '+s.covers.join(','):'')+(dep.length?' · depois de: '+dep.join('; '):'')+(s.owns?' · escopo: '+epCut(s.owns,60):'')+(Array.isArray(s.requirements)&&s.requirements.length&&!me?' · requisitos: '+s.requirements.slice(0,6).map(r=>epCut(r,70)).join(' | '):'')); });
     L.push('');
   }
   const notes=Array.isArray(sp.notes)?sp.notes:[]; if(notes.length){ L.push('## Decisões e pendências'); notes.slice(0,8).forEach(n=>L.push('- '+epCut((n&&n.kind?n.kind+': ':'')+(n&&n.text||n),200))); L.push(''); }
