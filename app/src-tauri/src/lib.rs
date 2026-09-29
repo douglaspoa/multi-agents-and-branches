@@ -430,6 +430,21 @@ mod stoppable_tests {
         assert!(!stop_slot(&TEST_PID)); // nada rodando → false
     }
     #[test]
+    fn stoppable_por_chave_so_derruba_o_proprio_pedido() {
+        let spawn = |k: &'static str| std::thread::spawn(move || { let mut c = Command::new("sh"); c.args(["-c", "sleep 20"]); output_stoppable_keyed(c, 30, k, "K_STOPPED") });
+        let (a, b) = (spawn("t-a"), spawn("t-b"));
+        let has = |k: &str| KEYED_PIDS.lock().unwrap().as_ref().map_or(false, |m| m.contains_key(k));
+        let t0 = std::time::Instant::now();
+        while !(has("t-a") && has("t-b")) && t0.elapsed().as_secs() < 5 { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        assert!(stop_keyed("t-a"));
+        assert_eq!(a.join().unwrap().err().as_deref(), Some("K_STOPPED"));
+        assert!(has("t-b"), "o outro pedido continua rodando");
+        assert!(!stop_keyed("t-a"));
+        assert!(stop_keyed("t-b"));
+        assert_eq!(b.join().unwrap().err().as_deref(), Some("K_STOPPED"));
+        assert!(!has("t-b"));
+    }
+    #[test]
     fn output_stoppable_ok_quando_termina() {
         static P2: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
         let mut c = Command::new("sh");
@@ -663,13 +678,29 @@ fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, S
 /// (detach_new_group) e o pid fica em `slot` pra um comando *_stop derrubar o grupo
 /// inteiro (signal_group). Parado pelo usuário → Err(`stopped`); estourou o tempo →
 /// Err("comando expirou…"). Mesmo padrão do issue_chat/ISSUE_CHAT_PID.
-fn output_stoppable(mut cmd: Command, secs: u64, slot: &'static std::sync::atomic::AtomicI32, stopped: &str) -> Result<std::process::Output, String> {
+fn output_stoppable(cmd: Command, secs: u64, slot: &'static std::sync::atomic::AtomicI32, stopped: &str) -> Result<std::process::Output, String> {
+    use std::sync::atomic::Ordering;
+    // só zera se ainda for o MEU pid (outra chamada pode ter começado)
+    output_stoppable_with(cmd, secs, stopped, &|pid| slot.store(pid, Ordering::SeqCst), &|pid| { let _ = slot.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst); })
+}
+/// Pids PARÁVEIS por pedido (chave vinda do front): duas abas fazendo a mesma coisa não se derrubam.
+static KEYED_PIDS: std::sync::Mutex<Option<std::collections::HashMap<String, i32>>> = std::sync::Mutex::new(None);
+fn keyed_set(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { g.get_or_insert_with(Default::default).insert(key.to_string(), pid); } }
+fn keyed_clear(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { if let Some(m) = g.as_mut() { if m.get(key) == Some(&pid) { m.remove(key); } } } }
+fn stop_keyed(key: &str) -> bool {
+    let pid = KEYED_PIDS.lock().ok().and_then(|mut g| g.as_mut().and_then(|m| m.remove(key)));
+    match pid { Some(p) if p > 0 => { signal_group(p, procsig::KILL); true } _ => false }
+}
+fn output_stoppable_keyed(cmd: Command, secs: u64, key: &str, stopped: &str) -> Result<std::process::Output, String> {
+    output_stoppable_with(cmd, secs, stopped, &|pid| keyed_set(key, pid), &|pid| keyed_clear(key, pid))
+}
+fn output_stoppable_with(mut cmd: Command, secs: u64, stopped: &str, on_start: &dyn Fn(i32), on_end: &dyn Fn(i32)) -> Result<std::process::Output, String> {
     use std::sync::atomic::{AtomicBool, Ordering};
     detach_new_group(&mut cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     let pid = child.id() as i32;
-    slot.store(pid, Ordering::SeqCst);
+    on_start(pid);
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     let timed_out = std::sync::Arc::new(AtomicBool::new(false));
     let timed_out2 = timed_out.clone();
@@ -679,8 +710,7 @@ fn output_stoppable(mut cmd: Command, secs: u64, slot: &'static std::sync::atomi
     let out = child.wait_with_output();
     let _ = tx.send(());
     let _ = watch.join();
-    // só zera se ainda for o MEU pid (outra chamada pode ter começado)
-    let _ = slot.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst);
+    on_end(pid);
     let out = out.map_err(|e| e.to_string())?;
     if out.status.code().is_none() {
         return Err(if timed_out.load(Ordering::SeqCst) { format!("comando expirou após {secs}s (rede indisponível?)") } else { stopped.to_string() });
@@ -3695,7 +3725,7 @@ fn set_task_model(state: State<AppState>, task_id: String, model: String) -> Res
 /// Pede ao orquestrador (claude headless, só leitura no repo) um PLANO em JSON:
 /// fases com objetivos verificáveis, dependências e autonomia. Nada é criado aqui.
 #[tauri::command(async)]
-fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>) -> Result<String, String> {
+fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>, req_id: Option<String>) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let sys = "Você é o ORQUESTRADOR do Starfork. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
     // memória do projeto (índice + notas relevantes ao briefing): o orquestrador não começa do zero
@@ -3718,14 +3748,17 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // parável (orq_plan_stop → ORQ_PLAN_STOPPED): antes eram até 5 min de "montando o plano" sem saída
-    let out = output_stoppable(cmd, 300, &ORQ_PLAN_PID, "ORQ_PLAN_STOPPED")?;
+    // chave por pedido (req_id do front): duas abas "Dividir" montando plano ao mesmo tempo, o parar de uma não derruba a outra
+    let key = format!("orq-plan:{}", req_id.unwrap_or_default());
+    let out = output_stoppable_keyed(cmd, ORQ_PLAN_SECS, &key, "ORQ_PLAN_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(v["result"].as_str().unwrap_or("").to_string())
 }
-static ORQ_PLAN_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-/// PARA o orquestrador montando o plano (ai_orchestrate → ORQ_PLAN_STOPPED).
+/// Prazo do ai_orchestrate — o front mostra o mesmo número (ORQ_PLAN_SECS em 34-orquestrador.js).
+const ORQ_PLAN_SECS: u64 = 300;
+/// PARA o orquestrador montando o plano do pedido `req_id` (ai_orchestrate → ORQ_PLAN_STOPPED).
 #[tauri::command(async)]
-fn orq_plan_stop() -> Result<bool, String> { Ok(stop_slot(&ORQ_PLAN_PID)) }
+fn orq_plan_stop(req_id: String) -> Result<bool, String> { Ok(stop_keyed(&format!("orq-plan:{req_id}"))) }
 
 fn orch_dir(repo: &PathBuf) -> PathBuf {
     let d = repo.join(".cardume").join("orchestrations");

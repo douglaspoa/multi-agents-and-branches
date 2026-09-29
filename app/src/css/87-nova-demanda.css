@@ -114,7 +114,7 @@
 .plmeshfoot .plcreatehint{font-size:var(--fs-xs);line-height:1.45;margin-top:6px}
 .plmesh textarea.plfv{resize:none;min-height:44px}
 /* o card do épico ocupa a largura do fio (antes: 82% + avatar, apertado em 1024) */
-.plthread .plmsg.bot:has(> .plplan){max-width:100%;align-self:stretch}
+.plthread .plmsg.plmsg-plan{max-width:100%;align-self:stretch}
 .plplan .ppchip.static{cursor:default}
 .plplan .ppmini{border:0;background:none;color:var(--text-3);font:inherit;font-size:var(--fs-xs);padding:0 4px;margin-left:2px;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
 .plplan .ppmini:hover{color:var(--text)}
@@ -125,12 +125,11 @@
   .plplan .ppfoot .ndprev{padding:5px 6px}
   .plplan .ppfoot .ndprev-i{padding:2px 4px}
 }
+
+/* 1024: resumo mais estreito, card do épico sem avatar; tipo + modo + enviar numa linha só (antes o "enviar" caía pra linha de baixo) */
 @media (max-width:1100px){
   #plannerOverlay .plcols:not(.plempty){grid-template-columns:minmax(0,1fr) 272px}
-  #plannerOverlay .plthread .plmsg.bot:has(> .plplan) .plav{display:none}
-}
-/* composer em 1024: tipo + modo + enviar cabem numa linha só (antes o "enviar" caía pra linha de baixo) */
-@media (max-width:1100px){
+  #plannerOverlay .plthread .plmsg.plmsg-plan .plav{display:none}
   #plannerOverlay .ndchip-l{display:none}
   #plannerOverlay .ndctl{gap:5px;margin-left:2px}
   #plannerOverlay .orq-seg.ndseg-sm button{padding:3px 7px}
@@ -147,7 +146,7 @@
 /* o que falta: texto normal, não terminal */
 #ntOverlay #ntMissing{font:400 var(--fs-sm) var(--display);color:var(--text-3)}
 #ntOverlay #ntMissing.ok{color:var(--text-2)}
-#ntOverlay .in.missnow{border-color:color-mix(in srgb,var(--warn) 60%,var(--border))}
+#ntOverlay .missnow{border-color:color-mix(in srgb,var(--warn) 60%,var(--border));outline:1px solid color-mix(in srgb,var(--warn) 45%,transparent);outline-offset:1px}
 
 /* ---- R8 (Dividir / orquestrador) ---- */
 .orq-busyrow{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;font:400 var(--fs-sm) var(--display)}

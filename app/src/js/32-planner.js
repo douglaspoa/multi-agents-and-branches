@@ -29,7 +29,13 @@ function plYaml(){
 let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plBusy=false, plRefs=[], plPlan=null, plNoEpic=false;
 let plActs=[], plStopping=false; // plActs: o que a IA está fazendo agora (uma linha por ação), vindo do evento planner-activity
 let plPend=[]; // anexos importados, ainda não enviados
-function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null,kind:''}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; if(typeof plAfterEdit!=='undefined') plAfterEdit=new Set(); }
+// R8: estado do "pensando" e do card — no topo (let declarado depois = ReferenceError se usado antes da linha)
+let plAfterEdit=new Set(); // tarefas do épico com os chips de "depois de" abertos pra editar
+let plBusyAt=0, plBusyTick=null;
+// geração: cada conversa (plReset) e cada envio ganham um id. Resposta de uma conversa que já foi trocada
+// ("+ novo" com a IA respondendo) é descartada; plInflight = envios ainda sem resposta (restaura o busy da aba)
+let plGenSeq=0, plConv=0, plCurGen=0; const plInflight=new Set();
+function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null,kind:''}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; plAfterEdit=new Set(); plConv=++plGenSeq; plBusy=false; plStopping=false; plCurGen=0; plBusyAt=0; }
 function plRenderRefs(){
   const el=$id('plRefsBar'); if(!el) return;
   el.innerHTML = plRefs.map((p,i)=>{ const n=pathBase(p); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">${IC.x}</button></span>`; }).join('');
@@ -37,7 +43,8 @@ function plRenderRefs(){
 }
 // anexos do planner: composer único; o que entra também vira ref da tarefa criada
 function plWireComposer(){ chatComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); },
-  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop }, busyHint:plBusyInfo(plBusyAt?Date.now()-plBusyAt:0, plActs.length, plActs[plActs.length-1]).hint }); }
+  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop } });
+  if(plBusy) plActsPaint(); } // a dica ao vivo (tempo + ação atual) é do plActsPaint — nada de texto congelado no wire
 function plVal(k){ if(k==='engine'&&plFields.engineLabel) return plFields.engineLabel; if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
 function plState(k){ if(plHas(k)) return 'ok'; if(plAsking===k) return 'ask'; return 'wait'; }
@@ -115,8 +122,9 @@ function closePlanner(){ $id('plannerOverlay').style.display='none'; if(window.c
 function plShow(){ $id('plannerOverlay').style.display='flex'; { const txt=window.ndTakeCarry?window.ndTakeCarry():''; const inp=$id('plInput'); if(txt && inp && !inp.value.trim()) inp.value=txt; } { const k=window.ndTakeCarryKind?window.ndTakeCarryKind():''; if(k) plFields.kind=k; } renderPlanner(); plRenderRefs(); const i=$id('plInput'); if(i) i.focus(); }
 window.plShow=plShow;
 window.TAB_STATE_planner={
-  get:()=>({ _title:(plFields&&plFields.title)||'', plOwnsDraft, plFields, plSid, plMsgs, plChips, plAsking, plDone, plRefs, plPlan, plNoEpic, plPend }),
-  set:(st)=>{ plFields=st.plFields||{}; plSid=st.plSid||''; plMsgs=st.plMsgs||[]; plChips=st.plChips||[]; plAsking=st.plAsking||''; plDone=!!st.plDone; plBusy=false; plRefs=st.plRefs||[]; plPlan=plPlanRestore(st.plPlan); plNoEpic=!!st.plNoEpic; plPend=st.plPend||[]; plOwnsDraft=st.plOwnsDraft!==false; }
+  get:()=>({ _title:(plFields&&plFields.title)||'', plOwnsDraft, plFields, plSid, plMsgs, plChips, plAsking, plDone, plRefs, plPlan, plNoEpic, plPend, plConv, plBusyGen:plBusy?plCurGen:0, plBusyAt, plActs:plActs.slice() }),
+  // busy volta de verdade se o envio desta aba ainda está no ar (antes: sempre false → Aprovar/criar religavam no meio da resposta)
+  set:(st)=>{ plFields=st.plFields||{}; plSid=st.plSid||''; plMsgs=st.plMsgs||[]; plChips=st.plChips||[]; plAsking=st.plAsking||''; plDone=!!st.plDone; plCurGen=st.plBusyGen||0; plBusy=!!(plCurGen && plInflight.has(plCurGen)); plBusyAt=plBusy?(st.plBusyAt||Date.now()):0; plActs=plBusy?(st.plActs||[]):[]; plConv=st.plConv||(st.plConv=++plGenSeq); plRefs=st.plRefs||[]; plPlan=plPlanRestore(st.plPlan); plNoEpic=!!st.plNoEpic; plPend=st.plPend||[]; plOwnsDraft=st.plOwnsDraft!==false; plAfterEdit=new Set(); if(plBusy && !plQuiet) plBusyStart(plBusyAt); }
 };
 function plApplyPatch(patch){
   if(!patch||typeof patch!=='object') return;
@@ -429,11 +437,10 @@ function plPlanCardHtml(bare){
     ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time (botão Conta, no rodapé da barra lateral) pra aprovar.</div>`:''}
     <div class="ppfoot">${plPlanCtx.origin?'':plPreviewHtml(plPreviewFields())}<span class="ppfoot-sp"></span><button class="btn sm" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'descartar'}</button><button class="btn primary sm" id="ppApprove"${(noTeam||PLP().locked||(busyHere))?' disabled':''}${busyHere?' title="espere a IA responder — ela pode ajustar o plano"':''}>${PLP().locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
   </div>`;
-  return bare?inner:`<div class="plmsg bot"><span class="plav">${IC.starfork}</span>${inner}</div>`;
+  return bare?inner:`<div class="plmsg bot plmsg-plan"><span class="plav">${IC.starfork}</span>${inner}</div>`; // plmsg-plan: largura toda (sem :has(), que o WebKitGTK não garante)
 }
 // R8: "depois de" enxuto — mostra só os pré-requisitos marcados ("começa já" sem nenhum) + "mudar"; os chips de
 // todas as irmãs só aparecem ao editar (antes: toda tarefa listava todas as outras, 2 linhas de chips apagados por tarefa)
-let plAfterEdit=new Set();
 function plAfterRowHtml(x, i, after, others, dis){
   const short=t=>esc(t.length>28?t.slice(0,27)+'…':t);
   if(plAfterEdit.has(x.idx) && !dis) return `<span class="ppafter">↳ depois de: ${others.map(o=>`<button type="button" class="ppchip${after.includes(o.idx)?' on':''}" data-ppafter="${i}:${o.idx}" title="${escA(o.title)}" aria-pressed="${after.includes(o.idx)}">${short(o.title)}</button>`).join('')}<button type="button" class="ppmini" data-ppafterx="${x.idx}">ok</button></span>`;
@@ -462,7 +469,7 @@ function plWirePlanCard(){
   });
   card.querySelectorAll('[data-ppaftere]').forEach(b=>b.onclick=()=>{ plAfterEdit.add(+b.dataset.ppaftere); plPlanRerender(); });
   card.querySelectorAll('[data-ppafterx]').forEach(b=>b.onclick=()=>{ plAfterEdit.delete(+b.dataset.ppafterx); plPlanRerender(); });
-  const dc=$id('ppDiscard'); if(dc) dc.onclick=()=>{ if(plPlanCtx.onDiscard){ plPlanCtx.onDiscard(); return; } plPlan=null; plNoEpic=true; plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
+  const dc=$id('ppDiscard'); if(dc) dc.onclick=()=>{ if(plPlanCtx.onDiscard){ plPlanCtx.onDiscard(); return; } plPlan=null; plNoEpic=true; plAfterEdit=new Set(); plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
   const ap=$id('ppApprove'); if(ap) ap.onclick=plCreateEpic;
   if(!plPlanCtx.origin) plWirePreview(card.querySelector('.ppfoot'));
 }
@@ -515,7 +522,7 @@ async function plCreateEpic(){
     }
     // painel de issues ligado: épico vira issue pai + filhas com bloqueio (só se o conector tem pai; senão fica como hoje)
     try{ if(window.trkPublishEpic) await trkPublishEpic(ep[0], created); }catch(e){ console.warn('publicar épico', e); }
-    const ctx=plPlanCtx; if(ctx.origin) bdPlan=null; else plPlan=null; plPlanRender=null; plPlanCtx={};
+    const ctx=plPlanCtx; if(ctx.origin) bdPlan=null; else plPlan=null; plAfterEdit=new Set(); plPlanRender=null; plPlanCtx={};
     if(ctx.onDone) ctx.onDone(ep[0]); else { await plClearDraft(); closePlanner(); } // BUG-8: não fecha/zera a aba "Preencher eu mesmo" (outra demanda)
     lsSet('tmEpic', ep[0].id); teamTasks=null; teamPaintSig=''; if(!ctx.stay) setView('team'); // stay: quem hospeda (Mesa) não perde a tela
     const w1=created.filter(c=>c.wave===1);
@@ -537,7 +544,6 @@ function renderPlannerMeterOnly(){
 // R8: igual ao chat do projeto — há quanto tempo, quantas ações e o que está fazendo AGORA, no fio E na dica do composer.
 // Passou de PL_SLOW_MS sem resposta: avisa que dá pra parar e reenviar sem perder nada (antes: "pensando" mudo por minutos).
 const PL_SLOW_MS=90000;
-let plBusyAt=0, plBusyTick=null;
 // PURA: ms desde o envio + nº de ações + última ação → { tempo, head, hint, slow }. Testada em app/tests/r8-planner-form-orq.test.mjs
 function plBusyInfo(ms, nActs, last){
   const s=Math.max(0, Math.round((+ms||0)/1000)), tempo=s<60?s+'s':Math.floor(s/60)+'min '+String(s%60).padStart(2,'0')+'s';
@@ -557,7 +563,7 @@ function plActsPaint(){
   const el=$id('plActs'); if(el){ const h=plActsHtml(); if(el.__html!==h){ el.innerHTML=h; el.__html=h; } }
   if(plBusy && !plQuiet){ const i=$id('plInput'), box=i&&i.closest('.cc'); if(box) chatHintLine(box, plBusyInfo(Date.now()-plBusyAt, plActs.length, plActs[plActs.length-1]).hint, true); }
 }
-function plBusyStart(){ plBusyAt=Date.now(); clearInterval(plBusyTick); plBusyTick=setInterval(()=>{ if(!plBusy){ clearInterval(plBusyTick); plBusyTick=null; return; } plActsPaint(); }, 1000); }
+function plBusyStart(at){ plBusyAt=at||Date.now(); clearInterval(plBusyTick); plBusyTick=setInterval(()=>{ if(!plBusy){ clearInterval(plBusyTick); plBusyTick=null; return; } plActsPaint(); }, 1000); }
 try{ window.__TAURI__.event.listen('planner-activity', ev=>{ if(!plBusy) return; const l=String((ev&&ev.payload&&ev.payload.line)||'').trim(); if(!l) return; plActs.push(l); if(plActs.length>40) plActs.shift(); plActsPaint(); }); }catch(_){ }
 async function plStop(){ if(!plBusy) return; plStopping=true; plActs.push('parando…'); plActsPaint(); try{ await invoke('ai_chat_stop'); }catch(_){ } }
 // Resposta da IA volta pra ABA QUE PERGUNTOU: com 2 "Montar conversando", trocar de aba enquanto a IA pensava
@@ -585,7 +591,7 @@ function plTakeBack(text, atts){
   const last=plMsgs[plMsgs.length-1]; if(!(last && last.who==='you' && last.text===text)) return false;
   plMsgs.pop(); if(atts && atts.length) plPend=atts.concat(plPend);
   const i=$id('plInput'); if(i && !i.value.trim()){ i.value=text; i.dispatchEvent(new Event('input')); }
-  else if(i){ i.value=text+'\n\n'+i.value; }
+  else if(i){ i.value=text+'\n\n'+i.value; i.dispatchEvent(new Event('input')); } // re-cresce a caixa
   return true;
 }
 async function plSend(text){
@@ -593,7 +599,7 @@ async function plSend(text){
   const atts=plPend.splice(0);
   if(!text && atts.length) text='Anexei estes arquivos — leia e extraia o contexto (spec, print do bug, etc.).';
   if(!text) return;
-  const myTab=activeTab; // a aba que perguntou
+  const myTab=activeTab, conv=plConv, gen=++plGenSeq; plCurGen=gen; plInflight.add(gen); // a aba e a conversa que perguntaram
   const inp=$id('plInput'); if(inp) inp.value='';
   plMsgs.push({who:'you', text, atts}); plChips=[]; plBusy=true; plActs=[]; plStopping=false; plBusyStart(); chatPinBottom('plThread'); renderPlanner(); plActsPaint(); // miniatura fica na memória; o rascunho salva só o essencial
   plAutoSave(true); // PERSISTE já a sua mensagem — antes da IA responder (sobrevive a queda/fechamento)
@@ -610,17 +616,20 @@ async function plSend(text){
     r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'', model:aiClaudeModel() }), plSid, prompt, plMsgs.slice(0,-1));
   }catch(e){ err=e; }
   if(!err && !r) err=new Error('a IA não respondeu'); // resposta vazia não pode travar o planner (plBusy preso = "mando e não vai")
+  plInflight.delete(gen);
   await plInTab(myTab, async(here)=>{
+    // a conversa foi trocada ("+ novo") enquanto a IA pensava: a resposta (ou o "Parado.") é da conversa velha — descarta
+    if(plConv!==conv){ if(plCurGen===gen){ plBusy=false; plStopping=false; } return; }
     if(err){ const e=err; plBusy=false; let msg=(e&&(e.message||(typeof e==='string'?e:'')))||String(e||''); msg=msg.replace(/^\[object Object\]$/,'').trim();
       // R8: parado OU falhou → a mensagem (e os anexos) voltam pra caixa desta aba; antes o erro dizia "é só enviar de novo"
       // com a caixa vazia (tinha que redigitar) e o parar perdia os anexos. Noutra aba, a mensagem fica na conversa.
       const back=here && plTakeBack(text, atts);
-      if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; if(!back && !here){ const last=plMsgs[plMsgs.length-1]; if(last&&last.who==='you'&&last.text===text) plMsgs.pop(); }
-        plMsgs.push({who:'sys', text:back?'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.':'Parado.'}); renderPlanner(); plAutoSave(true); return; }
+      if(plStopping||/PLANNER_STOPPED/.test(msg)){ plStopping=false; // noutra aba a mensagem FICA na conversa (a caixa daquela aba não está na tela)
+        plMsgs.push({who:'sys', text:back?'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.':'Parado. Sua mensagem ficou na conversa.'}); renderPlanner(); plAutoSave(true); return; }
       const tail=back?' Sua mensagem voltou pra caixa — é só enviar de novo.':' Sua mensagem ficou salva na conversa.';
       // erro conhecido (login do Claude expirado, Claude não instalado, limite de uso…) → a mensagem certa + botão;
       // só "demorou demais" quando é de fato tempo esgotado (antes "Login do Claude Code EXPIROU" caía aqui)
-      { const h=humanErr(msg); if(h.id!=='generic' && h.id!=='network'){ msg=h.msg+tail; if(h.action) showErr(h.msg); }
+      { const h=humanErr(msg); if(h.id!=='generic' && h.id!=='network'){ msg=h.msg+tail; if(h.action) toast(h.msg,'err',h.action); } // a ação do catálogo (entrar, instalar…) vira o botão do aviso
         else if(/timeout|timed out|demorou|rede indispon|tempo esgotado/i.test(msg)) msg='A IA demorou demais pra responder (rede lenta?).'+tail;
         else msg=(msg?'Não deu pra falar com a IA: '+errFirstLine(msg)+'.':'Algo falhou ao falar com a IA.')+tail; }
       plMsgs.push({who:'sys', text:msg}); renderPlanner(); plAutoSave(true); return; }
@@ -635,7 +644,7 @@ async function plSend(text){
       plDone=!!obj.done;
       plChips=Array.isArray(obj.chips)?obj.chips.slice(0,4):[];
       // a IA propôs um ÉPICO (várias tarefas paralelas) → vira preview aprovável no chat
-      if(!plNoEpic && obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length) plPlan=plPlanFrom(obj.plan);
+      if(!plNoEpic && obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length){ plPlan=plPlanFrom(obj.plan); plAfterEdit=new Set(); } // idx do plano novo ≠ do velho
       if(obj.say) plMsgs.push({who:'bot', text:String(obj.say)});
       // você confirmou (done) e os obrigatórios fecharam → cria automaticamente (só com a aba NA TELA:
       // criar fecha abas — não pode rodar por baixo da aba que você está usando)

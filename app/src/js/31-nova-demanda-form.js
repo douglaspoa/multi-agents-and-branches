@@ -172,11 +172,23 @@ function wizRender(){
       if(last){ wizLaunch(); return; }
       if(!st.ok()){ const m=$id('wizMiss'); if(m){ m.innerHTML=IC.warn+' '+esc(st.miss||'complete esta etapa'); clearTimeout(m.__t); m.__t=setTimeout(()=>{ if(m) m.textContent=''; },4000); }
         // R8: leva o cursor pro 1º campo que falta (antes só um aviso que sumia em 2,6 s, sem dizer onde)
-        { const f=(NT_REQUIRED[ntMode]||[]).map(([id])=>$id(id)).find(e=>e && e.offsetParent && !e.value.trim()) || document.querySelector(ntMode==='fix'?'#ntFixReqs input, #ntFixReqAdd':'#ntRequirements input, #ntReqAdd');
+        { const f=wizMissField(st);
           if(f){ try{ f.focus(); f.classList.add('missnow'); f.addEventListener('input',()=>f.classList.remove('missnow'),{once:true}); f.scrollIntoView({block:'nearest'}); }catch(_){} } }
         return; }
       wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender();
     }; }
+}
+// o 1º campo que falta NA ETAPA ATUAL: só as seções que ela mostra (st.show), só campos visíveis;
+// obrigatório vazio, senão o 1º requisito vazio, senão o "+ item" da lista de requisitos
+function wizMissField(st){
+  const cont=$id(ntMode==='fix'?'ntFixFields':'ntBuildFields'); if(!cont||!st) return null;
+  const secs=[...cont.querySelectorAll('.wstep')].filter(e=>(st.show||[]).includes(+e.dataset.w));
+  const req=new Set((NT_REQUIRED[ntMode]||[]).map(([id])=>id));
+  const vis=e=>e && e.offsetParent!==null && !e.disabled;
+  for(const sec of secs){ const f=[...sec.querySelectorAll('input,textarea')].find(e=>vis(e) && req.has(e.id) && !e.value.trim()); if(f) return f; }
+  for(const sec of secs){ const f=[...sec.querySelectorAll('#ntRequirements input, #ntFixReqs input')].find(e=>vis(e) && !e.value.trim()); if(f) return f; }
+  for(const sec of secs){ const b=sec.querySelector('#ntReqAdd, #ntFixReqAdd'); if(vis(b)) return b; }
+  return null;
 }
 // Time & épico: aparece numa etapa só do wizard (fora dele, quem manda é ntShareSync)
 function wizShareApply(st){

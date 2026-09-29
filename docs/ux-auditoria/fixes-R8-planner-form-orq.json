@@ -54,7 +54,7 @@
     "area": "planner-form-orq",
     "titulo": "Planner: erro da IA devolve a mensagem pra caixa (bug)",
     "antes": "O erro dizia \"sua mensagem foi salva — é só enviar de novo\", mas a caixa ficava vazia: era preciso redigitar. O \"parar\" perdia os anexos. Erro genérico mostrava texto cru.",
-    "depois": "A mensagem e os anexos voltam pra caixa; o aviso diz isso. Erro desconhecido vira \"Não deu pra falar com a IA: <1ª linha>\".",
+    "depois": "A mensagem e os anexos voltam pra caixa; o aviso diz isso. Erro desconhecido vira \"Não deu pra falar com a IA: <1ª linha>\". Com a resposta caindo noutra aba, a mensagem fica na conversa daquela aba; erro com ação do catálogo (entrar, instalar) vira aviso com o botão. \"+ novo\" com a IA respondendo descarta a resposta velha (id de geração).",
     "motivo": "Estado de erro com recuperação em 1 clique.",
     "arquivos": [
       "app/src/js/32-planner.js"
@@ -77,8 +77,8 @@
     ],
     "como_ver": "Planner com épico proposto: olhe o rodapé do Resumo.",
     "shots": {
-      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/before/planner-1440.png",
-      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/after/planner-1440.png"
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/before/planner-cta-foot.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/after/planner-cta-foot.png"
     }
   },
   {
@@ -86,15 +86,15 @@
     "area": "planner-form-orq",
     "titulo": "Planner: não aprova nem cria com a IA respondendo (bug)",
     "antes": "Dava pra aprovar o épico (ou criar a tarefa) enquanto a IA ainda respondia: criava o plano velho, fechava a aba e a resposta caía no vazio.",
-    "depois": "Aprovar/criar ficam desativados com dica \"espere a IA responder\" até a resposta chegar.",
+    "depois": "Aprovar/criar ficam desativados com dica \"espere a IA responder\" até a resposta chegar. Trocar de aba no meio da resposta não religa os botões (o busy da aba volta do envio ainda no ar).",
     "motivo": "Condição de corrida entre resposta da IA e criação.",
     "arquivos": [
       "app/src/js/32-planner.js"
     ],
     "como_ver": "Envie uma mensagem com épico proposto e tente aprovar.",
     "shots": {
-      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/before/planner-busy-1440.png",
-      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/after/planner-busy-1440.png"
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/before/planner-approve-busy.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/after/planner-approve-busy.png"
     }
   },
   {
@@ -152,7 +152,7 @@
     "area": "planner-form-orq",
     "titulo": "Resumo: listas crescem com o conteúdo",
     "antes": "O 3º requisito ficava cortado numa caixa de 2 linhas.",
-    "depois": "As caixas do resumo crescem até ~160px, sem alça de redimensionar.",
+    "depois": "As caixas do resumo crescem com o conteúdo pelo mesmo chatGrow dos chats (limite de 160px, depois rolam), sem alça de redimensionar.",
     "motivo": "Legibilidade do resumo.",
     "arquivos": [
       "app/src/js/32-planner.js",
@@ -239,7 +239,7 @@
     "area": "planner-form-orq",
     "titulo": "Dividir: parar e tempo ao montar o plano",
     "antes": "Até 5 min de \"montando o plano\" sem tempo nem como interromper.",
-    "depois": "\"há 41s · costuma levar de 30 s a 2 min\" + ■ parar (novo comando orq_plan_stop; o ai_orchestrate agora é parável). Depois de 2 min avisa que está demorando.",
+    "depois": "\"há 41s · costuma levar de 30 s a 2 min\" + ■ parar (\"parando…\" enquanto derruba). Cada pedido leva um reqId e o Rust guarda um processo por pedido (orq_plan_stop(reqId)): com duas abas Dividir, o parar de uma não derruba a outra. O prazo (ORQ_PLAN_SECS=300) é o mesmo no Rust e no texto do front.",
     "motivo": "Carregamento com saída.",
     "arquivos": [
       "app/src/js/34-orquestrador.js",
@@ -274,7 +274,7 @@
     "area": "planner-form-orq",
     "titulo": "Dividir: resposta cai na aba certa (bug)",
     "antes": "Com duas abas Dividir, trocar de aba enquanto o orquestrador pensava fazia o plano (e a resposta da conversa) cair na aba que estava na tela.",
-    "depois": "Montar plano, aprovar e conversar guardam o estado da aba que pediu e só repintam se ela estiver na tela.",
+    "depois": "Montar plano, aprovar e conversar guardam o estado da aba que pediu (relógio incluído) e só repintam se ela estiver na tela; o aprovar grava o plano capturado; parar com a resposta já chegando não mostra o plano; \"montando\" restaurado sem pedido no ar se solta.",
     "motivo": "Condição de corrida (TAB_STATE troca o objeto orq).",
     "arquivos": [
       "app/src/js/34-orquestrador.js"
@@ -297,8 +297,8 @@
     ],
     "como_ver": "Plano proposto → refazer.",
     "shots": {
-      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/before/orq-chat-1440.png",
-      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/after/orq-erro-1440.png"
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/before/orq-refazer-1440.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/planner-form-orq/after/orq-refazer-1440.png"
     }
   }
 ]
