@@ -1,0 +1,26 @@
+[
+ {
+  "titulo": "Avatares de agente em emoji",
+  "motivo": "São conteúdo escolhido pelo usuário e ficam gravados no catálogo (cardume.config.json); trocar por SVG muda o formato de dado e quebra catálogos existentes/compartilhados — fica pra uma rodada com migração."
+ },
+ {
+  "titulo": "Glifos ◆ ▶ ⎇ ⊘ em textos de épico e issue",
+  "motivo": "São convenção visual compartilhada com a Central e o STATUS_META (fonte única); trocar só nesta área criaria inconsistência — melhor numa passada global do IC.*."
+ },
+ {
+  "titulo": "Categoria do agente mostrada em inglês no editor (planner, builder…)",
+  "motivo": "O valor é o papel que o motor lê; traduzir no campo exige separar rótulo de valor no datalist (mudança de contrato do catálogo)."
+ },
+ {
+  "titulo": "Fechar a aba Agentes pelo X da barra de abas sem perguntar",
+  "motivo": "closeTab é síncrono e compartilhado por todas as abas (15-config-abas); um gancho assíncrono de 'antes de fechar' mexe no motor de abas de todas as ondas."
+ },
+ {
+  "titulo": "Páginas extras que falham na paginação das issues (trkFetchIssues)",
+  "motivo": "Hoje uma página que falha vira lista vazia calada; avisar exige distinguir 'fim da lista' de 'falha' por conector — risco de falso alarme sem um painel real pra testar."
+ },
+ {
+  "titulo": "Quadro de issues em 1024 com rolagem horizontal",
+  "motivo": "5 colunas de 170px não cabem; a rolagem funciona. Colapsar colunas vazias ou virar lista em telas estreitas é redesenho maior."
+ }
+]

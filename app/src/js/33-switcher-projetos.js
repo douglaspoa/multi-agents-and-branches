@@ -146,7 +146,7 @@ document.addEventListener("keydown", e=>{
     // (rascunho perdido) e deixava a aba Agentes em branco. Agora só o que é MODAL (não aba) fecha aqui.
     const nt=$id('ntOverlay'), ag=$id('agOverlay');
     if(nt && nt.style.display!=='none' && !nt.classList.contains('astab') && !escBusy(e)){ closeNewTask(); return; }
-    if(ag && ag.style.display!=='none' && !ag.classList.contains('astab') && !escBusy(e)){ closeAgents(); return; }
+    if(ag && ag.style.display!=='none' && !ag.classList.contains('astab') && !escBusy(e)){ cancelAgents(); return; } // pergunta se há mudança não salva
     return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
@@ -158,23 +158,70 @@ document.addEventListener("keydown", e=>{
 /* ---------- editor Agentes & Equipes ---------- */
 let cfgEdit = { agents:[], workflows:[] };
 function escA(s){ return esc(s).replace(/"/g,"&quot;"); }
+// @puro-agentes-inicio (testado em app/tests/agentes.test.mjs — sem DOM nem estado global)
 function agSlug(s){ return (String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,24))||"item"; }
+// cabeçalho do .md de subagente (bloco entre ---): aceita CRLF (arquivo salvo no Windows), BOM, cabeçalho vazio
+// (---\n---) e valor em bloco do YAML (description: > / |, com as linhas indentadas seguintes) — antes o regex só
+// casava com \n e o arquivo inteiro virava persona, com o nome do arquivo no lugar do nome do agente
+function agFrontmatter(content){
+  const txt=String(content||'').replace(/^﻿/,'').replace(/\r\n?/g,'\n');
+  const m=txt.match(/^---[ \t]*\n(?:([\s\S]*?)\n)?---[ \t]*(?:\n|$)([\s\S]*)$/);
+  if(!m) return { fm:{}, body:txt.trim() };
+  const fm={}, lines=(m[1]||'').split('\n');
+  for(let n=0;n<lines.length;n++){
+    const line=lines[n]; if(/^\s/.test(line)||!line.trim()) continue; // continuação solta (já tratada abaixo)
+    const i=line.indexOf(':'); if(i<=0) continue;
+    const k=line.slice(0,i).trim().toLowerCase(); let v=line.slice(i+1).trim();
+    const block=v.match(/^([>|])[+-]?$/), more=[];
+    while(n+1<lines.length && (/^\s+\S/.test(lines[n+1]) || (!lines[n+1].trim() && block))){ n++; more.push(lines[n].trim()); }
+    while(more.length && !more[more.length-1]) more.pop();
+    if(block) v=block[1]==='|' ? more.join('\n') : more.join(' ').replace(/\s+/g,' ').trim(); // | mantém as quebras; > junta
+    else if(more.length) v=(v+' '+more.join(' ')).trim(); // valor simples quebrado em várias linhas
+    fm[k]=v.replace(/^["']|["']$/g,'');
+  }
+  return { fm, body:m[2].trim() };
+}
+// .md de subagente → agente (sem id; quem chama dá o id único). Sem nome no cabeçalho: nome do arquivo sem .md
+function agFromMd(filename, content){
+  const { fm, body }=agFrontmatter(content);
+  const name=fm.name || String(filename||'agente').replace(/\.md$/i,'') || 'agente';
+  const persona=((fm.description ? fm.description.trim()+(body?' ':'') : '')+body).trim();
+  return { name, role: fm.role || fm.category || 'builder', engine: (fm.engine==='mock'?'mock':'claude'), model: fm.model||undefined, color: fm.color || '#1e9e4a', avatar: fm.avatar || '', persona };
+}
+// id de equipe ÚNICO sem NUNCA renomear um id existente: 1º reserva todos os ids que já existem, depois dá id
+// só às equipes sem id (duas "Nova equipe" viravam nova-equipe e a 2ª sobrescrevia a 1ª). Devolve se mudou algo.
+function wfEnsureIds(workflows){
+  const used=new Set((workflows||[]).map(w=>w&&w.id).filter(Boolean)); let changed=false;
+  (workflows||[]).forEach(w=>{ if(!w||w.id) return;
+    const base=agSlug(w.name||'equipe'); let id=base, n=2; while(used.has(id)){ id=base+'-'+n; n++; } w.id=id; used.add(id); changed=true; });
+  return changed;
+}
+// agente removido sai de TODAS as equipes (antes a etapa ficava órfã, mostrando o id cru); devolve quantas equipes mudaram
+function wfDropAgent(workflows, agentId){
+  let n=0; (workflows||[]).forEach(w=>{ const before=(w.steps||[]).length; w.steps=(w.steps||[]).filter(s=>s!==agentId); if(w.steps.length!==before) n++; });
+  return n;
+}
+// @puro-agentes-fim
+let agBase=''; // catálogo como veio do disco: cancelar com mudança não salva pergunta antes de descartar
+function agDirty(){ return !!agBase && JSON.stringify(cfgEdit)!==agBase; }
 function uniqueId(base){ let id=base, n=2; while(cfgEdit.agents.some(a=>a.id===id)){ id=base+"-"+n; n++; } return id; }
 async function openAgents(){
   ovShow('agOverlay'); // a aba abre NA HORA (antes só aparecia depois do await) — com os agentes e equipes em esqueleto
   // enquanto o catálogo não chega (ou se a leitura falhar), nada de salvar/adicionar/importar em cima de um cfgEdit
   // velho (de outro projeto) ou vazio — isso apagava o catálogo
-  cfgEdit = { agents:[], workflows:[] }; agOpen = -1; agLock(true);
+  cfgEdit = { agents:[], workflows:[] }; agBase=''; agOpen = -1; agLock(true);
   { const w=$id('wfList'); if(w) ldPaint(w, skeletonHtml('lista', { n:2 })); }
   await loadInto($id('agList'), 'cards', ()=>invoke("config").catch(e=>{ const w=$id('wfList'); if(w) ldPaint(w, ''); throw e; }), (cfg)=>{
     cfg=cfg||{};
     cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
+    agBase = JSON.stringify(cfgEdit);
     agOpen = -1;
     renderAg(); renderWf(); agLock(false);
   }, { label:'lendo os agentes do projeto', ctx:'Não consegui ler os agentes', shape:{ n:6 } });
 }
 function agLock(on){ ['agSave','agAdd','wfAdd','agImport'].forEach(id=>{ const b=$id(id); if(b) b.disabled=!!on; }); }
 function closeAgents(){ ovHide("agOverlay"); } // aba: fecha a aba (não deixa em branco)
+async function cancelAgents(){ if(agDirty() && !await askYes('Descartar as mudanças nos agentes e equipes?\n\nNada foi salvo ainda.')) return; agBase=''; closeAgents(); }
 const ROLES=["planner","builder","reviewer","designer","tester","docs","security"];
 const PALETTE=["#1e9e4a","#e6b53c","#0a72e0","#a05cff","#e5484d","#12a3a3","#e07b39","#ec4899"];
 const GLYPHS=["🦊","🦉","🐙","🐢","🦋","🐝","🦁","🐬","🧠","⚡","🛠️","🔍","🎨","🧪","📝","🛡️"];
@@ -192,7 +239,7 @@ function agEditor(i){
     </div>
     <div class="two">
       <div><label>Categoria</label><input class="in" list="catList" data-i="${i}" data-k="role" value="${escA(a.role||'')}" placeholder="ex.: designer, backend…"></div>
-      <div><label>Motor</label><select class="sel" data-i="${i}" data-k="engine" style="width:100%"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select></div>
+      <div><label>Motor</label><select class="sel" data-i="${i}" data-k="engine" style="width:100%"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option>${(typeof devInstall!=='undefined'&&devInstall)||a.engine==='mock'?`<option value="mock"${a.engine==='mock'?' selected':''}>Mock (teste, sem IA)</option>`:''}</select></div>
     </div>
     <label style="display:block;margin-top:10px">Persona (instrução)</label>
     <textarea class="agpersona" data-i="${i}" data-k="persona" placeholder="o que este agente faz e como pensa">${esc(a.persona||'')}</textarea>
@@ -223,7 +270,10 @@ function renderAg(){
     const h=()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; if(inp.dataset.k==='color') renderAg(); };
     inp.addEventListener("input",h); inp.addEventListener("change",h);
   });
-  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ cfgEdit.agents.splice(+b.dataset.del,1); agOpen=-1; renderAg(); renderWf(); });
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{ const i=+b.dataset.del, a=cfgEdit.agents[i]; if(!a) return;
+    const inTeams=cfgEdit.workflows.filter(w=>(w.steps||[]).includes(a.id)).map(w=>w.name||'equipe');
+    if(inTeams.length && !await askYes('Remover '+(a.name||'este agente')+'?\n\nEle sai também de '+(inTeams.length===1?'da equipe "'+inTeams[0]+'"':inTeams.length+' equipes ('+inTeams.join(', ')+')')+'.')) return;
+    cfgEdit.agents.splice(i,1); if(a.id) wfDropAgent(cfgEdit.workflows, a.id); agOpen=-1; renderAg(); renderWf(); });
   el.querySelectorAll("[data-color]").forEach(s=>s.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+s.dataset.color].color=s.dataset.c; renderAg(); });
   el.querySelectorAll("[data-glyph]").forEach(b=>b.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+b.dataset.glyph].avatar=b.dataset.g; renderAg(); });
 }
@@ -245,7 +295,7 @@ function renderWf(){
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
   el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow" data-drop="${i}">
     <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome da equipe (ex.: planejar → construir → revisar)"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:10px">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
-    <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente do grid pra cá →</span>'}</div>
+    <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span>${byId[sid]?`<b>${esc(byId[sid].name)}</b>`:`<b class="stepgone" title="${escA('o agente '+sid+' não existe mais no catálogo — tire esta etapa')}">agente removido</b>`}<button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente pra cá, ou escolha ao lado →</span>'}${cfgEdit.agents.length?`<select class="sel wfaddsel" data-wadd="${i}" aria-label="adicionar etapa nesta equipe"><option value="">+ etapa…</option>${cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name||a.id||'agente')}</option>`).join('')}</select>`:''}</div>
   </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
   el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
@@ -256,7 +306,7 @@ function renderWf(){
     if(!SB.sess()||!orgId){ toast('Entre na sua conta e numa organização primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     b.disabled=true; const o=b.textContent; b.textContent='publicando…';
     try{
-      if(!w.id) w.id=agSlug(w.name);
+      wfEnsureIds(cfgEdit.workflows); // id único (duas equipes com o mesmo nome não se sobrescrevem no catálogo do time)
       const byId2=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
       for(const sid of (w.steps||[])){ const a=byId2[sid]; if(!a) continue; if(!a.id) a.id=uniqueId(agSlug(a.name));
         await sbFetch('/rest/v1/org_agents?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:a.id, name:a.name, role:a.role||'builder', engine:a.engine||'claude', model:a.model||null, color:a.color||null, persona:a.persona||'' }) }); }
@@ -265,6 +315,8 @@ function renderWf(){
       setTimeout(()=>{ b.disabled=false; b.textContent=o; }, 3000);
     }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent=o; }
   });
+  // adicionar etapa sem arrastar (teclado, trackpad difícil): o select no fim da equipe
+  el.querySelectorAll("[data-wadd]").forEach(sel=>sel.onchange=()=>{ const wi=+sel.dataset.wadd; let id=sel.value; if(!id&&sel.selectedIndex>0){ const a=cfgEdit.agents[sel.selectedIndex-1]; if(a){ a.id=uniqueId(agSlug(a.name||'agente')); id=a.id; } } if(id) wfInsert(wi, id, null); });
   el.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows[+b.dataset.wi].steps.splice(+b.dataset.rm,1); renderWf(); });
   // chips arrastáveis (reordenar etapas, inclusive entre equipes)
   el.querySelectorAll(".stepchip").forEach(chip=>{
@@ -282,15 +334,7 @@ function renderWf(){
   });
 }
 function parseAgentMd(filename, content){
-  let fm={}, body=content;
-  const m = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
-  if(m){
-    m[1].split("\n").forEach(line=>{ const i=line.indexOf(":"); if(i>0){ const k=line.slice(0,i).trim().toLowerCase(); const v=line.slice(i+1).trim().replace(/^["']|["']$/g,""); fm[k]=v; } });
-    body = m[2].trim();
-  }
-  const name = fm.name || filename;
-  const persona = (fm.description ? fm.description.trim()+(body?" ":"") : "") + body;
-  return { id: uniqueId(agSlug(name)), name, role: fm.role || fm.category || "builder", engine: (fm.engine==="mock"?"mock":"claude"), model: fm.model||undefined, color: fm.color || "#1e9e4a", avatar: fm.avatar || "", persona: persona.trim() };
+  const a=agFromMd(filename, content); return Object.assign({ id: uniqueId(agSlug(a.name)) }, a);
 }
 async function importAgents(){
   let files;
@@ -301,20 +345,20 @@ async function importAgents(){
 }
 async function saveConfig(){
   cfgEdit.agents.forEach(a=>{ if(!a.id) a.id=uniqueId(agSlug(a.name)); });
-  cfgEdit.workflows.forEach(w=>{ if(!w.id) w.id=agSlug(w.name); if(!w.steps) w.steps=[]; });
+  wfEnsureIds(cfgEdit.workflows); cfgEdit.workflows.forEach(w=>{ if(!w.steps) w.steps=[]; });
   const btn=$id("agSave"); btn.disabled=true; btn.textContent="salvando…";
-  try{ await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); lastSig=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
+  try{ await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); agBase=''; lastSig=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
   catch(e){ showErr(e, 'Falha ao salvar catálogo'); }
   finally{ btn.disabled=false; btn.textContent="salvar catálogo"; }
 }
 $id("agentsBtn").onclick = openAgents;
-$id("agClose").onclick = closeAgents;
-$id("agCancel").onclick = closeAgents;
+$id("agClose").onclick = cancelAgents;
+$id("agCancel").onclick = cancelAgents;
 $id("agSave").onclick = saveConfig;
 $id("agAdd").onclick = addAgent;
 $id("agImport").onclick = importAgents;
 $id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Nova equipe", steps:[] }); renderWf(); };
-$id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
+$id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") cancelAgents(); });
 
 // rede de segurança global: o registro de erro solto/promise sem catch fica no 52-erros (app_errors) e no
 // 10-core (web_log) — aqui só evita o aviso padrão do WebView pra rejeição sem catch (o console.error

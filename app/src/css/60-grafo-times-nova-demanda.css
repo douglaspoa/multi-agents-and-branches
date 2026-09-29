@@ -725,3 +725,12 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .ckcfg .ckrow .ckcmd{font:400 11px var(--code);text-transform:none;color:var(--text-3)}
 .ckcfg .ckrow .cksrc{text-transform:none;letter-spacing:normal}
 .ckcfg .ckrow input[type=checkbox]{accent-color:var(--accent);flex:none}
+
+/* ---- R7 (projetos): remover é destrutivo = discreto e no canto; faixa "publicar no GitHub" no projeto aberto sem remote ---- */
+#projetosOverlay .pc2acts .btn.danger{border-color:transparent;color:color-mix(in srgb,var(--crit) 80%,var(--text-2))}
+#projetosOverlay .pc2acts .btn.danger:hover{border-color:color-mix(in srgb,var(--crit) 40%,transparent);background:color-mix(in srgb,var(--crit) 8%,transparent);color:var(--crit)}
+.pc2pub{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:9px 11px;border:1px dashed color-mix(in srgb,var(--info) 40%,var(--border));border-radius:var(--r-sm);font-size:12px}
+.pc2pub .dim{flex:1;min-width:180px}
+.pc2pub .btn svg{margin-right:5px}
+/* R7 (projetos): as opções do "novo projeto" herdavam o rótulo em CAIXA ALTA do formulário — texto normal, fácil de ler */
+#projNewCard label.pn-opt{text-transform:none;letter-spacing:normal;font-family:var(--display);color:var(--text);font-weight:400}

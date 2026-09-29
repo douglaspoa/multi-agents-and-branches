@@ -195,6 +195,13 @@
 #ndOverlay.astab .mbody{max-width:none;margin:0}
 #ndOverlay.astab .modal{background:var(--bg)}
 .ndinner{width:100%;max-width:1040px}
+/* R7 (agentes): etapa cujo agente foi removido + "+ etapa" sem arrastar */
+.stepchip .stepgone{color:var(--warn);font-weight:500;font-style:italic}
+.wfaddsel{font-size:11px;padding:3px 6px;height:auto;width:auto;max-width:160px;color:var(--text-2);background:transparent;border:1px dashed var(--border-strong);border-radius:var(--r-sm);cursor:pointer}
+.wfaddsel:hover{color:var(--text);border-color:var(--border-strong)}
+.wfaddsel:focus-visible{color:var(--text);outline:none;box-shadow:var(--ring)}
+/* R7 (skills): vazio/busca sem resultado ocupa a grade toda (antes ficava espremido na 1ª coluna) */
+.sk-grid > .ld-empty{grid-column:1/-1}
 
 /* Configurações (R7): campos em grupos com a explicação embaixo (antes: rótulo em CAIXA ALTA com o texto todo entre parênteses) */
 #cfgBody .cfgsecd{text-transform:none;letter-spacing:0;font-weight:400}
