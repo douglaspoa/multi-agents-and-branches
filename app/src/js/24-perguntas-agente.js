@@ -58,7 +58,7 @@ async function resumeTask(taskId){
 }
 async function abortTask(taskId){
   const t=state.tasks.find(x=>x.id===taskId);
-  if(!await askYes(`Abortar a tarefa de ${t?t.agent:'agente'}?\nO processo do agente é encerrado; a branch/worktree é preservada pra inspeção.`)) return;
+  if(!await askYes(`Interromper a tarefa de ${t?t.agent:'agente'}?\nO processo do agente é encerrado; a branch/worktree é preservada pra inspeção.`)) return;
   try{ await invoke("abort_task",{taskId}); await refresh(); }
   catch(e){ showErr(e, 'Falha ao abortar'); }
 }

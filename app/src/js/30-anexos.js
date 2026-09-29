@@ -75,7 +75,7 @@ function chatComposerHtml(o){
   const dis=o.disabled?' disabled':'';
   return `<div class="cc${o.cls?' '+o.cls:''}"><textarea class="in cc-ta" id="${o.input}" rows="${o.rows||2}" placeholder="${escA(o.placeholder||'')}"${dis}>${esc(o.value||'')}</textarea>`+
     `<div class="cc-row">${o.attach?`<button class="btn sm cc-clip" id="${o.attach}" title="${escA(o.attachTitle||'anexar print, PDF ou doc — ou cole (⌘V) / arraste')}"${dis}>${CHAT_CLIP_SVG}</button>`:''}${o.extras||''}<span class="cc-sp"></span>${o.right||''}`+
-    `${o.stop?`<button class="btn sm trk-stop" id="${o.stop}" style="display:none" title="${escA(o.stopTitle||'interrompe a IA agora')}">■ parar</button>`:''}`+
+    `${o.stop?`<button class="btn sm trk-stop" id="${o.stop}" style="display:none" title="${escA(o.stopTitle||'interrompe a IA agora')}">${IC.stop} parar</button>`:''}`+
     `${o.send?`<button class="btn primary sm cc-send" id="${o.send}"${dis}>${o.sendHtml||'enviar'}</button>`:''}</div></div>`;
 }
 // marcação antiga (botões soltos ao lado da caixa) → layout único. Idempotente; roda a cada render.

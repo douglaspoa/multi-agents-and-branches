@@ -145,7 +145,7 @@ function orqRailRows(){
   if(!list.length){ if(!orq.list) orqLoadList(); return ''; }
   return list.slice(0,4).map(p=>{ const s=orqPlanStats(p); const tone=orqPlanTone(p, s); const col=tone.col;
     const tag=p.status==='planned'?'plano':s.ask?'pergunta: '+s.ask:s.rev?'revise':`${s.done}/${s.total}`;
-    return `<div class="prow2 orqrow" data-orq="${escA(p.id)}" title="${escA(tone.label)} — abrir o grafo"><span class="d" style="background:${col}"></span><span class="tt">◉ ${esc(p.title||'plano')}</span><span class="tg mono" style="color:${col}">${tag}</span></div>`; }).join('');
+    return `<div class="prow2 orqrow" data-orq="${escA(p.id)}" title="${escA(tone.label)} — abrir o grafo"><span class="d" style="background:${col}"></span><span class="tt"><span class="orqic">${IC.orq}</span>${esc(p.title||'plano')}</span><span class="tg" style="color:${col}">${tag}</span></div>`; }).join('');
 }
 // quadro (Execução): cartão por plano com as fases e o progresso
 function orqBoardHtml(scope){
@@ -156,10 +156,10 @@ function orqBoardHtml(scope){
     const tone=orqPlanTone(p, s); const label=tone.label;
     const col=tone.col;
     const chips=(p.phases||[]).map((ph,i)=>`<span class="orqc-ph" style="--c:${orqColor(ph.kind)}" title="${escA(ph.name)} · ${escA(s.st[i].label)}"><i style="background:${s.st[i].color}"></i><b>${orqBadge(ph.kind)}</b>${esc(ph.name)}</span>`).join('');
-    return `<div class="orqcard" data-orq="${escA(p.id)}"><div class="orqc-top"><span class="orqc-ring"></span><span class="orqc-title">${esc(p.title||'plano')}</span>${orqProjName(p)?`<span class="orqc-proj mono${orqOtherRepo(p)?' other':''}" title="${escA(p.repo)}">${esc(orqProjName(p))}</span>`:''}<span class="orqc-st mono" style="color:${col}">${esc(label)}</span><button class="btn sm" data-orq="${escA(p.id)}">abrir grafo ↗</button></div>
+    return `<div class="orqcard" data-orq="${escA(p.id)}"><div class="orqc-top"><span class="orqc-ring"></span><span class="orqc-title">${esc(p.title||'plano')}</span>${orqProjName(p)?`<span class="orqc-proj${orqOtherRepo(p)?' other':''}" title="${escA(p.repo)}">${esc(orqProjName(p))}</span>`:''}<span class="orqc-st" style="color:${col}">${esc(label)}</span><button class="btn sm" data-orq="${escA(p.id)}">abrir grafo</button></div>
       ${p.summary?`<div class="orqc-sum">${esc(String(p.summary).slice(0,200))}</div>`:''}
       <div class="orqc-bar"><i style="width:${pct}%"></i></div><div class="orqc-phs">${chips}</div></div>`; }).join('');
-  return `<div class="secgrp orqgrp"><div class="sech">◉ Planos do orquestrador <span class="n">${list.length}</span></div>${cards}</div>`;
+  return `<div class="secgrp orqgrp"><div class="sech"><span class="secic">${IC.orq}</span>Planos do orquestrador <span class="n">${list.length}</span></div>${cards}</div>`;
 }
 function orqWireOpeners(root){ (root||document).querySelectorAll('[data-orq]').forEach(b=>{ if(b.dataset.orqWired) return; b.dataset.orqWired='1'; b.onclick=(e)=>{ e.stopPropagation(); orqOpenPlan(b.dataset.orq, b.dataset.orqTask||null); }; }); }
 window.orqRailRows=orqRailRows; window.orqBoardHtml=orqBoardHtml; window.orqWireOpeners=orqWireOpeners;
