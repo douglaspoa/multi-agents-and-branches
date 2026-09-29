@@ -1,0 +1,286 @@
+[
+ {
+  "id": "R7-OCA-01",
+  "titulo": "Aviso de versão nova voltou a funcionar (botão \"atualizar\" sumia)",
+  "antes": "A barra de abas era redesenhada com innerHTML e destruía o botão \"atualizar\" que morava dentro dela. Toda checagem de versão quebrava em \"Cannot read properties of null (reading 'style')\": nem o botão nem o aviso de versão nova apareciam, e Configurações mostrava esse erro em inglês.",
+  "depois": "O botão é retirado antes do redesenho e devolvido depois; a checagem tolera o botão ausente. Com versão nova, aparece o botão \"atualizar · versão\" no topo, o toast com \"atualizar agora\" e o bloco Versão diz \"versão nova disponível\".",
+  "motivo": "Sem isso ninguém recebia atualização pelo app — bug crítico de distribuição.",
+  "arquivos": [
+   "app/src/js/15-config-abas-onboarding.js",
+   "app/src/js/11-ambiente-updater.js"
+  ],
+  "como_ver": "Configurações › Versão com um latest.json mais novo que o build (ou esperar a checagem de 2 min).",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/update-avail.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/update-avail.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-02",
+  "titulo": "\"verificar agora\" não fica mais preso em \"verificando…\"",
+  "antes": "Sem sessão, em instalação de desenvolvimento ou fora do Mac, o checkUpdate saía com return antes de redesenhar: o botão ficava desabilitado em \"verificando…\" para sempre e a mensagem era a da checagem anterior.",
+  "depois": "A checagem roda num try/finally que sempre redesenha o bloco Versão; a mensagem de erro passa pelo tradutor único (humanErr) em vez de texto cru.",
+  "motivo": "Bug lógico: o botão parecia travado e a informação era falsa.",
+  "arquivos": [
+   "app/src/js/11-ambiente-updater.js"
+  ],
+  "como_ver": "Sair da conta › Configurações › Versão › verificar agora.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/cfg-check-nosess.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/cfg-check-nosess.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-03",
+  "titulo": "Ambiente: opcional não é pendência (gh e túnel do preview)",
+  "antes": "Qualquer item faltando contava como \"pendência — resolva pra as tarefas rodarem\", acendia o ponto do Mais e abria a aba Ambiente sozinha a cada boot — inclusive o \"Túnel do preview (opcional)\" e o gh, que não impedem nenhuma tarefa.",
+  "depois": "envKind/envSummary separam obrigatório (Node, Motor, Git, Claude Code), recomendado (gh) e opcional (túnel). Só o obrigatório acende o ponto e abre a aba. O banner diz \"Tudo pronto — as tarefas rodam\" com \"2 opcionais faltando\".",
+  "motivo": "Quem não tem cloudflared/gh (a maioria dos vibe coders) era interrompido em todo boot por um falso problema.",
+  "arquivos": [
+   "app/src/js/11-ambiente-updater.js",
+   "app/src/js/15-config-abas-onboarding.js"
+  ],
+  "como_ver": "Mais › Ambiente sem gh e sem cloudflared.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/env-opt.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/env-opt.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-04",
+  "titulo": "Ambiente explicado em linguagem de gente, com \"rode no Terminal\"",
+  "antes": "Cada card mostrava só o nome técnico (node, git, claude, gh), a versão e um comando solto. O \"copiar\" dizia \"copiado ✓\" mesmo quando a área de transferência recusava.",
+  "depois": "Cada card diz pra que serve a peça (\"A IA que faz o trabalho…\", \"Só pra publicar no GitHub… Dá pra começar sem\"), tem selo recomendado/opcional, o comando vem com \"rode no Terminal:\" e o copiar só confirma quando copiou (senão seleciona o texto). Grade vira 1 coluna em janela estreita.",
+  "motivo": "Público principal não sabe o que é gh/node; o comando sem contexto não ajuda.",
+  "arquivos": [
+   "app/src/js/11-ambiente-updater.js",
+   "app/src/css/20-abas-e-telas.css",
+   "app/src/css/83-responsivo.css"
+  ],
+  "como_ver": "Mais › Ambiente com Claude Code ausente.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/env-bad.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/env-bad.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-05",
+  "titulo": "Conta: falha ao carregar mostra erro com \"tentar de novo\" (não o \"Criar organização\")",
+  "antes": "Se a carga da conta falhava (sem rede, servidor fora), a tela caía no formulário \"Criar organização + primeiro time\" com um aviso cinza pequeno — quem já tinha organização podia criar uma duplicada.",
+  "depois": "errorHtml padrão com a mensagem humana, o detalhe técnico recolhido e \"tentar de novo\". O \"criar\" da organização também não aceita clique duplo.",
+  "motivo": "Estado impossível exibido como real; risco de dado duplicado na nuvem.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js"
+  ],
+  "como_ver": "Conta e time com a rede fora.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/conta-offline.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/conta-offline.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-06",
+  "titulo": "Erros da nuvem em pt-BR (cloudErrMsg) e visíveis",
+  "antes": "Toda ação da Conta mostrava \"Falhou: \"+mensagem crua do PostgREST (\"new row violates row-level security policy…\", \"duplicate key…\", \"erro 403\"), num texto cinza de 11px que passava batido.",
+  "depois": "cloudErrMsg traduz permissão, duplicado, item removido, token inválido, sessão, rede e 5xx, com o que fazer; mensagens das RPCs do Starfork (já em pt-BR) passam como estão. O retorno fica numa faixa legível com role=alert.",
+  "motivo": "Regra da casa: nenhum texto em inglês cru na tela; erro precisa dizer o próximo passo.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/css/20-abas-e-telas.css"
+  ],
+  "como_ver": "Conta e time › \"tornar lead\" sem ser lead/admin.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/conta-err.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/conta-err.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-07",
+  "titulo": "Convite: validação antes de enviar, Enter envia, mensagem única e verdadeira",
+  "antes": "\"gerar convite\" aceitava \"ana@x\", e-mail repetido e org sem assento, e voltava com erro do servidor. A mensagem do convite (duplicada em 2 lugares) mandava colar token, embora desde a 0020 o convite entre sozinho. Copiar dizia \"copiado ✓\" mesmo falhando.",
+  "depois": "Valida formato, convite já pendente e assentos antes de ir ao servidor, com o erro logo abaixo do campo; Enter envia; botão não envia 2x; lista local já conhece o convite novo. cloudInviteMsg é a fonte única: \"crie a conta com esse e-mail — você entra no time sozinho\", token como plano B. Token vazio no \"aceitar convite\" explica o que fazer.",
+  "motivo": "Atrito e erros evitáveis no fluxo de trazer o time.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js"
+  ],
+  "como_ver": "Conta e time › Convidar gente nova › digitar \"ana@x\" e gerar.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/conta-invite-bad.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/conta-invite-bad.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-08",
+  "titulo": "Planos: \"procurar convite pro meu e-mail\" funciona",
+  "antes": "Um único link abria um campo dizendo \"deixe vazio pra só verificar\" — mas o askText devolve null no vazio (igual a cancelar), então verificar nunca fazia nada.",
+  "depois": "Duas ações: \"procurar convite pro meu e-mail\" (verifica direto) e \"colar o token de um convite\". A mensagem diferencia \"nenhum convite\" de \"você já está na organização X, sem plano ativo\".",
+  "motivo": "Bug lógico que deixava o convidado preso na tela de planos.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Tela de planos (conta sem assinatura) › procurar convite.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/plans-invite.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/plans-invite.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-09",
+  "titulo": "Pagamento: erro do checkout em pt-BR e sem clique duplo",
+  "antes": "Se a function respondia HTML/erro, a tela mostrava \"Não consegui abrir o checkout: Failed to execute 'json' on 'Response': Unexpected token '<'…\". Dois cliques abriam duas sessões da Stripe. As \"abas\" Cartão/Pix/Boleto eram botões que não faziam nada.",
+  "depois": "auCheckoutErr traduz rede, sessão, 404, 5xx e erros de time/assento; o botão vira \"abrindo a Stripe…\" e ignora o 2º clique; as formas de pagamento viram selos informativos (\"você escolhe lá\").",
+  "motivo": "Tela de dinheiro precisa ser a mais confiável; controle falso confunde.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Planos › Continuar para o pagamento com a function fora do ar.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/pay-err.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/pay-err.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-10",
+  "titulo": "Telas de conta só com promessas verdadeiras",
+  "antes": "A coluna da marca dizia \"a senha nunca sai da sua máquina em texto\", \"sessão local · nada sai da sua máquina\", \"Companion mobile pareado\", \"teste em andamento\", \"Você entra como membro; o lead aprova\" e \"pareado com este Mac\" antes mesmo de criar a conta.",
+  "depois": "Textos revisados: o que o produto faz de fato (agentes em cópias separadas, você aprova antes, convite entra sozinho, conexão protegida), sem PR/repo por padrão, e \"computador\" em vez de \"Mac\".",
+  "motivo": "Afirmação falsa de segurança numa tela de login é risco de confiança (e legal).",
+  "arquivos": [
+   "app/src/js/44-onboarding.js",
+   "app/src/js/39-i18n-auth.js"
+  ],
+  "como_ver": "Sair da conta › telas Entrar / Criar conta / Confirmar / Nova senha.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/signup.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/signup.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-11",
+  "titulo": "Tela \"pronto\" com o estado real e próximo passo certo",
+  "antes": "\"Tudo pronto — falta só o repo\" mesmo com o projeto aberto (e \"✓ conectado\" ao lado), ambiente sempre como \"verificar\", \"neste Mac\" e o botão \"Abrir o cockpit\".",
+  "depois": "Título e passos seguem o estado: projeto aberto ou \"Escolher o projeto\", ambiente com \"✓ tudo certo\" ou \"N pendências — ver\" (checa em segundo plano), convite marcado opcional. Sem projeto, o botão principal é \"Começar — dizer o que eu quero fazer\" e leva ao campo da tela inicial.",
+  "motivo": "Primeira impressão pós-cadastro contradizia a si mesma.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Criar conta até o fim (ou auShow(\"ready\")).",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/ready.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/ready.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-12",
+  "titulo": "Tour de boas-vindas sem jargão e terminando no \"O que você quer fazer?\"",
+  "antes": "O tour falava em branch, \"nunca mock\", gh obrigatório e \"uma pasta com git\"; o último passo sem projeto tinha o botão \"depois\" e mandava pro fluxo de criar projeto com GitHub. Só mouse.",
+  "depois": "Texto pra quem não programa (Git e Claude Code explicados, GitHub opcional), contador 1/4 com aria, botão \"voltar\", Esc pula e → avança. Sem projeto, o último passo é \"Dizer o que eu quero fazer\" e cai na caixa do Começar sem portões; \"Já tenho uma pasta\" fica secundário. A checagem dentro do tour usa a mesma regra obrigatório/opcional.",
+  "motivo": "Veto da Carla (sem siglas de git por padrão) e do Marcos (nada entre a pessoa e a primeira resposta da IA).",
+  "arquivos": [
+   "app/src/js/15-config-abas-onboarding.js"
+  ],
+  "como_ver": "Primeiro uso (sem \"onboarded\" no localStorage), sem projeto aberto.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/ob-last-norepo.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/ob-last-norepo.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-13",
+  "titulo": "Time sem conta leva direto ao login",
+  "antes": "Na visão Time sem sessão, o botão \"abrir Time na nuvem\" abria um painel intermediário que só tinha outro botão \"Entrar\".",
+  "depois": "Estado vazio padrão (emptyHtml) com texto claro e o botão \"Entrar ou criar conta\" que abre a tela de entrada; com conta mas sem time, \"Abrir Conta e time\".",
+  "motivo": "Um clique a menos e sem tela morta no meio.",
+  "arquivos": [
+   "app/src/js/43-espaco-times.js"
+  ],
+  "como_ver": "Central › Time, deslogado.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/time-nosess.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/time-nosess.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-14",
+  "titulo": "Criar conta/entrar: passos e textos coerentes",
+  "antes": "\"passo 1 de 3\" mesmo com a cobrança desligada (não existe o 3º passo); \"Entrar\" repetia \"bem-vindo de volta\" e o mesmo subtítulo das duas colunas; o erro de senha mostrava \"esqueci a senha\" duas vezes; \"trocar e-mail\" quebrava no hífen (\"trocar e-\" / \"mail\").",
+  "depois": "Contador de passos segue a cobrança (1 de 2 sem planos); subtítulos distintos; erro com um único link de ação; link sem quebra.",
+  "motivo": "Polimento das telas de conta, que precisam estar redondas.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js",
+   "app/src/js/39-i18n-auth.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Sair da conta › Entrar com senha errada; Criar conta.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/login-err.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/login-err.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-15",
+  "titulo": "Layout em 1024/1280: barra lateral, rodapé e filtros",
+  "antes": "Em 1024px a barra lateral de 250px espremia a Central; o relógio do rodapé quebrava em 2 linhas (\"sincronizado ·\" / hora); a busca da Central ficava ~40px desalinhada dos chips porque o espaçador inline (flex:1) vencia a regra responsiva.",
+  "depois": "Barra lateral de 220px até 1100px (o JS só fixa --rail-w quando recolhe), relógio sem quebra e resumo com reticências, espaçador ocupa a própria linha com altura 0. Telas de conta em janela baixa escondem os destaques da coluna da marca.",
+  "motivo": "Pedido de revisão responsiva global em 1024/1280.",
+  "arquivos": [
+   "app/src/css/83-responsivo.css",
+   "app/src/js/12-chat-prefs-daily.js"
+  ],
+  "como_ver": "Janela com 1024×700 na Central.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/home-1024.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/home-1024.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-16",
+  "titulo": "Configurações: texto da Versão condiz com o comportamento",
+  "antes": "\"o app checa o canal do time no boot e a cada 6h\", mas o código checa a cada 2 minutos e ao voltar o foco.",
+  "depois": "\"o app procura versão nova sozinho a cada 2 min (e quando você volta pra janela) — ou agora, aqui\".",
+  "motivo": "Texto enganoso sobre atualização.",
+  "arquivos": [
+   "app/src/js/15-config-abas-onboarding.js"
+  ],
+  "como_ver": "Configurações › Versão.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/cfg-versao.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/cfg-versao.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ },
+ {
+  "id": "R7-OCA-17",
+  "titulo": "Começar sem portões: erro ao criar a pasta traduzido",
+  "antes": "Falha ao criar o projeto mostrava \"Não deu pra criar o projeto: \"+texto cru do sistema.",
+  "depois": "Passa pelo humanErr (disco cheio, permissão, etc. com o que fazer); o caso \"git não instalado\" continua com a mensagem do Rust, que já traz o conserto. Campo do caminho na barra lateral sem \"repo\".",
+  "motivo": "Regra da casa: erro sempre humano.",
+  "arquivos": [
+   "app/src/js/36-comecar.js",
+   "app/src/index.html"
+  ],
+  "como_ver": "Tela sem projeto › Começar com o disco cheio/sem permissão.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/before/empty-no-project.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/onboarding-conta-ambiente/after/empty-no-project.png"
+  },
+  "area": "onboarding-conta-ambiente"
+ }
+]

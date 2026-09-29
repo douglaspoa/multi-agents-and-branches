@@ -444,6 +444,12 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .au-methods{display:flex;gap:8px;margin:14px 0 16px}
 .au-methods button{border:1px solid rgba(255,255,255,.12);background:var(--card-bg);color:rgba(255,255,255,.7);font:500 12.5px var(--display);padding:7px 14px;border-radius:9px;cursor:default}
 .au-methods button.on{background:var(--accent);color:var(--on-accent);border-color:transparent}
+.au-methods{align-items:center;flex-wrap:wrap}
+.au-methods span{border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7);font:500 12px var(--display);padding:5px 12px;border-radius:99px}
+.au-methods em{font:400 12px var(--display);color:rgba(255,255,255,.4);font-style:normal}
+/* "trocar e-mail" não quebra no hífen ("trocar e-" / "mail") */
+.au-p a[data-act]{white-space:nowrap}
+.au-warnlink{color:var(--warn)!important}
 .au-wait{margin-top:8px;display:flex;flex-direction:column;gap:10px}
 .au-sumt{display:flex;align-items:center;gap:8px;font:600 14px var(--display);padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.08)}
 .au-sumt i{width:8px;height:8px;border-radius:2px;background:var(--accent);transform:rotate(45deg)}
