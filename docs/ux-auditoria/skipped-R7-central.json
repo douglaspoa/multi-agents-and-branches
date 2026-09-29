@@ -1,0 +1,26 @@
+[
+  {
+    "titulo": "Grafo de branches sem botão na navegação",
+    "motivo": "O ícone do grafo saiu de propósito no commit 1443515 ('só Fluxo/Kanban'); hoje ele só abre por 'abrir grafo' do orquestrador ou pela visão salva. Recolocar o ícone é decisão de produto, então não mexi."
+  },
+  {
+    "titulo": "'Concluídas hoje' conta pela data de criação",
+    "motivo": "flowBucket separa hoje/anteriores por createdAt, porque a Task não tem data de conclusão. Corrigir exige um campo novo na struct Task (contrato de dados), o que está fora do escopo da onda."
+  },
+  {
+    "titulo": "Glifos de texto (✓ ◆ ⌥ ❙❙) nos menus ⋯ e de status",
+    "motivo": "Seguem o STATUS_META (00-util), que também usa glifos. Trocar só aqui criaria inconsistência, e trocar o STATUS_META mexe em todas as telas (arquivo compartilhado)."
+  },
+  {
+    "titulo": "Título 'Central' e resumo somem no Kanban/Grafo/Time",
+    "motivo": "A barra de navegação dessas vistas (renderNavTabs) não tem o cabeçalho da lista. Unificar mexe no layout .chead de todas as vistas; fica para uma rodada com medição."
+  },
+  {
+    "titulo": "'Visão geral' repete o nome da aba no Time",
+    "motivo": "Cosmético, e o espaço do Time tem outra dona na UI (43-espaco-times). Só ajustei o responsivo e o bug de escape."
+  },
+  {
+    "titulo": "Estado vazio sem projeto nenhum (0 tarefas) não fotografado",
+    "motivo": "O shim recarrega o snapshot a cada tick e não há cena com 0 tarefas e repo aberto sem editar o shim compartilhado. O código do vazio (flowEmptyHtml) cobre o caso 'nenhuma tarefa em andamento'."
+  }
+]

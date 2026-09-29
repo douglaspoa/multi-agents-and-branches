@@ -188,11 +188,13 @@ async function wsClean(what, question){
 }
 
 /* ===== MOTOR DE ABAS (Chrome-style): as views que eram janela viram aba ===== */
+// a Nova demanda usa o símbolo da marca (IC.starfork, de 10-core) — typeof: os testes carregam este arquivo sem o 10-core
+const SF_TAB_IC=(typeof IC!=='undefined'&&IC.starforkG)||'';
 const VIEW_META={
   projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
   orq:{title:'Dividir',icon:'<circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="1.8"/><circle cx="12" cy="12" r="1.8"/><path d="M6 7.2l4.2-2.4M6 8.8l4.2 2.4"/>'},
-  nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
-  planner:{title:'Nova demanda',icon:'<path d="M12.8 8.4c0 2.4-2.2 4.3-4.9 4.3-.6 0-1.2-.1-1.8-.3L3.2 13.4l.8-2.2A4.1 4.1 0 0 1 3 8.4" stroke-linejoin="round"/><path d="M10.4 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" stroke-linejoin="round"/>'},
+  nova:{title:'Nova demanda',icon:SF_TAB_IC},
+  planner:{title:'Nova demanda',icon:SF_TAB_IC},
   form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   prefs:{title:'Preferências do projeto',icon:'<path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.3" fill="currentColor"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor"/><circle cx="5" cy="11.5" r="1.3" fill="currentColor"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
@@ -317,6 +319,34 @@ function closeTab(id){
   activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView();
 }
+// R7: reordenar abas arrastando. A aba fixa (Central) fica sempre na frente; soltar sobre outra aba põe a
+// arrastada no lugar dela. Devolve true quando mudou. Pura sobre TABS (testada em app/tests/central.test.mjs).
+let tabDragId=null;
+// entra DEPOIS do alvo? (arrastando pra direita, ou soltando sobre uma aba fixa) — o marcador e o tabMove usam a mesma regra
+function tabDropAfter(fromId, toId){
+  const from=TABS.findIndex(t=>t.id===fromId), to=TABS.findIndex(t=>t.id===toId);
+  return from<to || !!(TABS[to]&&TABS[to].pin);
+}
+function tabMove(fromId, toId){
+  const from=TABS.findIndex(t=>t.id===fromId), to=TABS.findIndex(t=>t.id===toId);
+  if(from<0 || to<0 || from===to || TABS[from].pin) return false;
+  const after=tabDropAfter(fromId, toId);
+  const [t]=TABS.splice(from,1);
+  let at=TABS.findIndex(x=>x.id===toId); if(after) at++;
+  // nunca antes das fixas: sem outra aba livre (a arrastada era a única), o mínimo é depois de todas as fixas
+  const firstFree=TABS.findIndex(x=>!x.pin), minAt=firstFree<0?TABS.length:firstFree;
+  if(at<minAt) at=minAt;
+  TABS.splice(at,0,t);
+  return true;
+}
+// fecha uma aba passando pela guarda de edição não salva (X, botão do meio, Delete). Devolve true se fechou.
+async function tabCloseGuarded(id){
+  const t=tabById(id); if(!t || t.pin) return false;
+  if(!await tabLeaveGuard(id, true)) return false;
+  closeTab(id); return true;
+}
+// próxima/anterior aba (⌘⇧] / ⌘⇧[ e Ctrl+Tab / Ctrl+⇧Tab), em volta
+function tabStepId(dir){ const i=TABS.findIndex(t=>t.id===activeTab); if(!TABS.length) return null; return TABS[((i<0?0:i)+dir+TABS.length)%TABS.length].id; }
 // fecha a aba ATIVA desse kind (ou a última aberta) — usado pelos botões "fechar" das views
 function closeTabOfKind(kind){ const cur=tabById(activeTab); const t=(cur&&cur.kind===kind)?cur:tabsOfKind(kind).slice(-1)[0]; if(t) closeTab(t.id); }
 window.closeTabOfKind=closeTabOfKind;
@@ -345,20 +375,57 @@ function renderTabs(){
   // numera só as abas que ainda têm o título genérico ("Montar conversando 1, 2…")
   const counts={}; TABS.forEach(t=>{ if(t.title===((VIEW_META[t.kind]||{}).title||t.kind)) counts[t.kind]=(counts[t.kind]||0)+1; });
   const seen={};
-  bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+TABS.map(t=>{
+  bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+'<span class="tablist" role="tablist" aria-label="abas abertas">'+TABS.map(t=>{
     const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
-    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">${IC.x}</span>`}</span>`;
-  }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
-  bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=async e=>{ if(e.target.dataset.xk) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); });
+    // R7: aba pelo teclado (role=tab, Tab chega, Enter abre, ←/→ passa, Delete/Backspace fecha), título inteiro no
+    // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
+    // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.
+    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
+  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
+  bar.querySelectorAll('[data-tk]').forEach(el=>{
+    el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
+    // botão do meio fecha a aba (como no navegador)
+    // (mousedown do meio: sem isso o Windows/Linux liga o autoscroll ou cola a seleção)
+    el.addEventListener('mousedown', e=>{ if(e.button===1) e.preventDefault(); });
+    el.addEventListener('auxclick', e=>{ if(e.button!==1) return; e.preventDefault(); tabCloseGuarded(el.dataset.tk); });
+    el.onkeydown=e=>{
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
+      else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); tabCloseGuarded(el.dataset.tk).then(ok=>{ if(ok){ const n=bar.querySelector('.tab.on'); if(n) n.focus(); } }); }
+      else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault(); const l=[...bar.querySelectorAll('[data-tk]')], i=l.indexOf(el); const n=l[(i+(e.key==='ArrowRight'?1:-1)+l.length)%l.length]; if(n) n.focus(); }
+    };
+    if(el.getAttribute('draggable')==='true'){
+      el.addEventListener('dragstart', e=>{ tabDragId=el.dataset.tk; el.classList.add('dragging'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', tabDragId); }catch(_){ } });
+      el.addEventListener('dragend', ()=>{ tabDragId=null; el.classList.remove('dragging'); bar.querySelectorAll('.tab.dropto,.tab.dropafter').forEach(x=>x.classList.remove('dropto','dropafter')); });
+    }
+    // marca o lado certo: arrastando pra direita (ou sobre a fixa) entra DEPOIS do alvo
+    el.addEventListener('dragover', e=>{ if(!tabDragId || tabDragId===el.dataset.tk) return; e.preventDefault(); const after=tabDropAfter(tabDragId, el.dataset.tk); el.classList.toggle('dropafter', after); el.classList.toggle('dropto', !after); });
+    el.addEventListener('dragleave', ()=>el.classList.remove('dropto','dropafter'));
+    el.addEventListener('drop', e=>{ if(!tabDragId) return; e.preventDefault(); const from=tabDragId; tabDragId=null; if(tabMove(from, el.dataset.tk)) renderTabs(); });
+  });
   // E6 (bug #9): o X da aba perguntava nada e jogava fora a edição não salva do arquivo (só ⌘W e o botão fechar perguntavam)
-  bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=async e=>{ e.stopPropagation(); const id=el.dataset.xk; if(!await tabLeaveGuard(id, true)) return; closeTab(id); });
+  bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); tabCloseGuarded(el.dataset.xk); });
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
   { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
   { const u=$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
   requestAnimationFrame(syncChromeH);
+  tabsFit();
 }
+// R7: barra de abas lotada → modo compacto (menos respiro; o X das abas de fundo só no hover, como no navegador) e
+// rola até a ativa. Recalcula no render e ao redimensionar a janela.
+function tabsFit(){
+  const bar=$id('tabBar'); if(!bar) return;
+  // mede SEMPRE no tamanho normal e usa folga pra não ficar piscando no limite ao redimensionar:
+  // entra no compacto quando transborda; só sai com 32px sobrando (o .tabgrow é o espaço livre)
+  const was=bar.classList.contains('crowded'); bar.classList.remove('crowded');
+  const over=bar.scrollWidth-bar.clientWidth, g=bar.querySelector('.tabgrow');
+  const slack=over>1 ? -over : ((g?g.offsetWidth:0)-12);
+  bar.classList.toggle('crowded', was ? slack<32 : slack<0);
+  const on=bar.querySelector('.tab.on');
+  if(on && bar.scrollWidth>bar.clientWidth+1) try{ on.scrollIntoView({ block:'nearest', inline:'nearest' }); }catch(_){ }
+}
+{ let tm=null; window.addEventListener('resize', ()=>{ clearTimeout(tm); tm=setTimeout(tabsFit, 150); }); }
 $id('bdClose').onclick=()=>bdClosePlan();
 $id('bdCancel').onclick=()=>bdClosePlan();
 $id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdClosePlan(); });
@@ -452,7 +519,7 @@ function coachStart(){
 // ---------- atalhos ----------
 // ⌘J/⌘, abrem como ABA (igual à barra lateral — antes viravam modal flutuante), ⌘W fecha a aba ativa,
 // ⌘1…⌘8 vão pra aba N e ⌘9 pra última (como no navegador). A lista fica no tooltip do "+" da barra de abas.
-const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba';
+const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba · ⌘⇧[ ⌘⇧] ou Ctrl+Tab / Ctrl+⇧Tab aba anterior/próxima · Delete fecha a aba em foco · arraste uma aba pra reordenar';
 document.addEventListener('keydown', async e=>{
   if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
   const k=(e.key||'').toLowerCase();
@@ -463,7 +530,12 @@ document.addEventListener('keydown', async e=>{
     // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")
     if(t.kind==='task' && typeof fwLeaveEditor==='function' && !await fwLeaveEditor()) return;
     if(tabById(t.id)) closeTab(t.id); }
-  else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t) activateTab(t.id); }
+  // R7: ⌘1…⌘9 passa pela MESMA guarda do clique na aba — antes ia direto e jogava fora a edição não salva do arquivo
+  else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t && t.id!==activeTab && await tabLeaveGuard(t.id, false)) activateTab(t.id); }
+  // pela TECLA produzida (e.key), não pela posição física (e.code): no ABNT2 os colchetes ficam em outro lugar
+  else if((e.shiftKey && ['[',']','{','}'].includes(e.key)) || (e.ctrlKey && k==='tab')){
+    e.preventDefault(); const dir=(e.key==='['||e.key==='{'||(k==='tab'&&e.shiftKey))?-1:1; const id=tabStepId(dir);
+    if(id && id!==activeTab && await tabLeaveGuard(id, false)) activateTab(id); }
 });
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
