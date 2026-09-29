@@ -345,6 +345,12 @@ async function openNewTask(){
   }
   setNtMode(ntMode);
   { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; }
+  // texto que veio do "Conversar" (seletor de modo no composer): vira título + objetivo, sem apagar o que já está preenchido
+  { const txt=window.ndTakeCarry?window.ndTakeCarry():''; if(txt){
+      const F={ build:['ntTitle','ntObj'], fix:['ntFixTitle','ntFixObj'], design:['ntDzTitle','ntDzObj'], invest:['ntInvTitle','ntInvObj'] }[ntMode];
+      const first=txt.split('\n')[0].split(/(?<=[.!?])\s/)[0].slice(0,80).trim();
+      if(F){ const t=$id(F[0]), o=$id(F[1]); if(t && !t.value.trim()) t.value=first; if(o && !o.value.trim()) o.value=txt; }
+      else if(ntMode==='review'){ const pr=$id('ntPr'); const u=txt.match(/https?:\/\/\S+/); if(pr && u && !pr.value.trim()) pr.value=u[0]; } } }
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   ntFillProjects();
   $id("ntOverlay").style.display = "flex";
@@ -512,7 +518,13 @@ function setNtMode(m){
   ntGate();
   if(typeof aiPickRender==='function') aiPickRender();
 }
-{ const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{ if(window.openTab) window.openTab('nova'); }; }
+// "trocar" o tipo: um popover aqui mesmo (repaginada B — não existe mais a tela de tipos; com nd:legacy volta pra ela)
+{ const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{
+  if((window.ndLegacy&&window.ndLegacy()) || !window.ndPopover){ if(window.openTab) window.openTab('nova'); return; }
+  const cur=(ntDocsPreset&&ntMode==='build')?'docs':ntMode;
+  ndPopover(sw, `<div class="ndpop-h">Tipo de demanda</div>${ND_TYPES.map(t=>`<button type="button" class="ndpop-opt${t.k===cur?' on':''}" data-ntswap="${t.k}"><b>${esc(t.name)}</b><span>${esc(t.desc)}</span></button>`).join('')}`,
+    p=>p.querySelectorAll('[data-ntswap]').forEach(b=>b.onclick=()=>{ const k=b.dataset.ntswap; ntDocsPreset=(k==='docs'); setNtMode((window.ND_TO_MODE||{})[k]||'build'); { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; } ndPopClose(); }));
+}; }
 // o toggle Formulário|Markdown mora na linha do eyebrow (à direita); a barra "SPEC" solta some
 { const seg=document.querySelector('#ntRight .ntviewbar .seg2'), pr=document.querySelector('#wizHead .nf-progrow'), vb=document.querySelector('#ntRight .ntviewbar');
   if(seg&&pr){ seg.style.marginLeft='auto'; pr.appendChild(seg); } if(vb) vb.style.display='none'; }

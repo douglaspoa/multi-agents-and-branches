@@ -150,7 +150,7 @@ const VIEW_META={
   projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
   orq:{title:'Orquestrador',icon:'<circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="1.8"/><circle cx="12" cy="12" r="1.8"/><path d="M6 7.2l4.2-2.4M6 8.8l4.2 2.4"/>'},
   nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
-  planner:{title:'Montar conversando',icon:'<path d="M12.8 8.4c0 2.4-2.2 4.3-4.9 4.3-.6 0-1.2-.1-1.8-.3L3.2 13.4l.8-2.2A4.1 4.1 0 0 1 3 8.4" stroke-linejoin="round"/><path d="M10.4 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" stroke-linejoin="round"/>'},
+  planner:{title:'Nova demanda',icon:'<path d="M12.8 8.4c0 2.4-2.2 4.3-4.9 4.3-.6 0-1.2-.1-1.8-.3L3.2 13.4l.8-2.2A4.1 4.1 0 0 1 3 8.4" stroke-linejoin="round"/><path d="M10.4 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" stroke-linejoin="round"/>'},
   form:{title:'Preencher eu mesmo',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   prefs:{title:'Preferências do projeto',icon:'<path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.3" fill="currentColor"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor"/><circle cx="5" cy="11.5" r="1.3" fill="currentColor"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
@@ -238,6 +238,9 @@ function openTab(kind, opts){
     openTab('projetos'); return; }
   // criar demanda/plano exige branch: pasta sem git passa pelo "criar repositório" antes
   if(['nova','form','planner','orq'].includes(kind) && typeof repoHasGit==='function' && !repoHasGit()){ gitGate().then(ok=>{ if(ok) openTab(kind, opts); }); return; }
+  // repaginada B: "Nova demanda" (botão, +, n, ghostNew, trocar tipo) abre DIRETO no planner vazio — uma tela só.
+  // A tela antiga de 2 passos fica atrás de lsGet('nd:legacy')==='1' por uma versão.
+  if(kind==='nova' && !(window.ndLegacy && window.ndLegacy())) kind='planner';
   if(kind==='flow'){ activateTab('flow'); return; }
   let tab=null;
   if(MULTI_KINDS.has(kind)){
