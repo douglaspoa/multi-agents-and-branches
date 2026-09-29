@@ -1,6 +1,25 @@
 // Starfork — 11-ambiente-updater
 // ---------- preflight de ambiente ----------
 let envChecks=null, envCheckedAt=0, envChecking=false;
+// @env-puro-inicio — classificação das checagens (testado em app/tests/onboarding-conta.test.mjs)
+// O Rust manda nomes fixos (lib.rs env_check). Nem tudo é obrigatório: sem gh o app roda (só não publica no
+// GitHub/abre PR) e o túnel do preview é "(opcional)" no próprio nome. Antes QUALQUER item faltando contava
+// como "pendência — resolva pra as tarefas rodarem", acendia o ponto do Mais e abria a aba Ambiente a cada boot.
+function envKind(c){ const n=String((c&&c.name)||''); if(/opcional/i.test(n)) return 'opt'; if(/github cli|\bgh\b/i.test(n)) return 'rec'; return 'req'; }
+// pra que serve cada peça, em linguagem de gente (quem não programa não sabe o que é "gh")
+function envWhat(c){ const n=String((c&&c.name)||'');
+  if(/node/i.test(n)) return 'Roda o motor que coordena os agentes.';
+  if(/motor/i.test(n)) return 'Vem dentro do app — é quem liga os agentes às tarefas.';
+  if(/^git\b/i.test(n)) return 'Guarda o histórico e dá a cada tarefa a sua cópia isolada do projeto.';
+  if(/claude/i.test(n)) return 'A IA que faz o trabalho. Precisa estar instalada e com login feito.';
+  if(/github cli|\bgh\b/i.test(n)) return 'Só pra publicar no GitHub e abrir PRs. Dá pra começar sem.';
+  if(/t[úu]nel|preview/i.test(n)) return 'Abre a prévia do app no celular. O resto funciona sem.';
+  return ''; }
+function envSummary(list){
+  const a=Array.isArray(list)?list:[]; const bad=a.filter(c=>!c.ok);
+  return { tot:a.length, okN:a.length-bad.length, reqBad:bad.filter(c=>envKind(c)==='req').length, optBad:bad.filter(c=>envKind(c)!=='req').length };
+}
+// @env-puro-fim
 async function runEnvCheck(){
   envChecking=true;
   // sempre LISTA: resposta fora do formato (versão velha/mock) virava "envChecks.some is not a function"
@@ -8,7 +27,8 @@ async function runEnvCheck(){
   catch(e){ envChecks=[{name:'Verificação', ok:false, detail:String(e), fix:''}]; }
   finally{ envChecking=false; }
   envCheckedAt=Date.now();
-  const bad=envChecks.some(c=>!c.ok);
+  // só o que IMPEDE a tarefa de rodar acende o ponto e abre a tela sozinho (gh/túnel faltando, não)
+  const bad=envSummary(envChecks).reqBad>0;
   const dot=$id('envDot'); if(dot) dot.style.display=bad?'block':'none';
   return bad;
 }
@@ -16,26 +36,31 @@ function renderEnv(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const el=$id('envBody'); if(!el) return;
   if(!envChecks){ ldPaint(el, '<div class="appscreen">'+skeletonHtml('lista',{ head:true, n:6, label:'verificando o ambiente' })+'</div>'); return; }
-  const okN=envChecks.filter(c=>c.ok).length, tot=envChecks.length, bad=tot-okN;
-  const banner = bad
-    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} ok</span></div>`
-    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} checagens ok</span></div>`;
-  const cards=envChecks.map(c=>`<div class="as-card" style="display:flex;gap:13px;align-items:flex-start">
-    <span class="as-chk" style="background:${c.ok?'var(--accent)':'var(--warn)'}">${c.ok?'✓':'!'}</span>
+  const S=envSummary(envChecks), okN=S.okN, tot=S.tot;
+  const banner = S.reqBad
+    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${S.reqBad} pendência${S.reqBad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} ok</span></div>`
+    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${S.optBad?`${S.optBad} opciona${S.optBad>1?'is':'l'} faltando · `:''}${okN} de ${tot} ok</span></div>`;
+  const KIND_TAG={ req:'', rec:'recomendado', opt:'opcional' };
+  const cards=envChecks.map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', what=envWhat(c);
+    return `<div class="as-card envcard" style="display:flex;gap:13px;align-items:flex-start">
+    <span class="as-chk" style="background:${c.ok?'var(--accent)':soft?'var(--text-3)':'var(--warn)'}">${c.ok?'✓':soft?'–':'!'}</span>
     <div style="min-width:0;flex:1">
-      <div style="font:600 14.5px var(--display)">${esc(c.name)}</div>
+      <div style="font:600 14.5px var(--display);display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}${KIND_TAG[k]?`<span class="envtag">${KIND_TAG[k]}</span>`:''}</div>
+      ${what?`<div style="margin-top:4px;font-size:12.5px;color:var(--text-2)">${esc(what)}</div>`:''}
       <div style="margin-top:6px;font:400 11.5px/1.5 var(--code);color:var(--text-3);word-break:break-all">${esc(c.detail||'')}</div>
-      ${c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:9px"><code class="as-mono" style="font-size:11.5px;background:#141817;border:1px solid rgba(255,255,255,.1);padding:5px 9px;border-radius:6px;color:var(--text)">${esc(c.fix)}</code><button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button></div>`:''}
-    </div></div>`).join('');
+      ${c.fix?`<div class="envfix"><span class="dim" style="font-size:11.5px">${/reinstale/i.test(c.fix)?'como resolver:':'rode no Terminal:'}</span><code class="as-mono">${esc(c.fix)}</code>${/reinstale/i.test(c.fix)?'':`<button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button>`}</div>`:''}
+    </div></div>`; }).join('');
   el.innerHTML=`<div class="appscreen">
     <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>
       <div class="as-actions"><span class="as-note" title="${envCheckedAt?escA(new Date(envCheckedAt).toLocaleString('pt-BR')):''}">${envChecking?'verificando de novo…':'última checagem: '+envAgo()}</span><button class="as-btn" id="envRecheck2">verificar de novo</button></div></div>
     ${banner}
-    <div class="as-grid" style="grid-template-columns:repeat(auto-fill,minmax(400px,1fr))">${cards}</div>
+    <div class="as-grid" style="grid-template-columns:repeat(auto-fill,minmax(min(400px,100%),1fr))">${cards}</div>
   </div>`;
-  el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>{ navigator.clipboard.writeText(b.dataset.envfix); b.textContent='copiado ✓'; }; });
-  { const b=el.querySelector('#envRecheck2'); if(b) b.onclick=async()=>{ envChecks=null; renderEnv(); await runEnvCheck(); renderEnv(); }; }
+  el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>envCopy(b); });
+  { const b=el.querySelector('#envRecheck2'); if(b) b.onclick=async()=>{ envChecks=null; renderEnv(); await tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); }; }
 }
+// copiar o comando: a área de transferência pode recusar (janela sem foco) — antes falhava calado e o botão dizia "copiado"
+async function envCopy(b){ try{ await navigator.clipboard.writeText(b.dataset.envfix); b.textContent='copiado ✓'; }catch(_){ b.textContent='selecione e copie'; const c=b.parentElement&&b.parentElement.querySelector('code'); if(c){ try{ const r=document.createRange(); r.selectNodeContents(c); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); }catch(__){ } } } }
 // quanto tempo faz a última checagem ("agora" só quando foi mesmo agora — antes mostrava "agora" com resultado velho)
 function envAgo(){ if(!envCheckedAt) return '—'; const s=Math.round((Date.now()-envCheckedAt)/1000); if(s<60) return 'agora'; const m=Math.round(s/60); if(m<60) return 'há '+m+' min'; const h=Math.round(m/60); return h<24?'há '+h+' h':new Date(envCheckedAt).toLocaleDateString('pt-BR'); }
 async function openEnv(){ $id('envOverlay').style.display='flex'; const p=tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); await p; renderEnv(); }
@@ -69,14 +94,21 @@ $id('txInput').addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.targ
 let updInfo=null;
 let updLast={ at:0, ok:false, msg:'', dev:false, mine:0 };
 let updToastFor=0;
+// A checagem em si; quem chama é o checkUpdate, que SEMPRE redesenha o bloco da tela ao final.
+// (antes: sem sessão, instalação de dev e Windows/Linux saíam com return antes do redesenho →
+// o "verificar agora" das Configurações ficava preso em "verificando…" e desabilitado)
 async function checkUpdate(manual){
-  updLast.at=Date.now();
+  try{ return await updCheckOnce(manual); }
+  finally{ if(manual && typeof updRenderCfg==='function') updRenderCfg(); }
+}
+async function updCheckOnce(manual){
+  updLast.at=Date.now(); updLast.dev=false;
   try{
     if(!SB.sess()){ updLast.ok=false; updLast.msg='sem sessão — entre na conta pra receber atualizações'; return updLast; }
     if(await invoke('is_dev_install')){ updLast.ok=true; updLast.dev=true; updLast.msg='instalação de desenvolvimento — não se auto-atualiza (use scripts/deploy-local.sh)'; return updLast; }
     // E8 (bug #16): o canal só publica o .app do Mac (zip + ditto) — no Windows/Linux o "atualizar" falhava
     // com "No such file or directory". Lá o botão não aparece e a tela diz onde baixar.
-    if(osKind()!=='mac'){ updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; } updLast.ok=true; updLast.msg='atualização automática só no Mac por enquanto — baixe a versão nova em starfork.com.br'; if(manual && typeof updRenderCfg==='function') updRenderCfg(); return updLast; }
+    if(osKind()!=='mac'){ updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; } updLast.ok=true; updLast.msg='atualização automática só no Mac por enquanto — baixe a versão nova em starfork.com.br'; return updLast; }
     // sbFetch renova o token expirado sozinho (a checagem do boot caía no 401 e ficava muda por 6h)
     const j=await sbFetch('/storage/v1/object/releases/latest.json', { headers:{ 'Cache-Control':'no-store' } });
     const mine=Number(await invoke('build_info'))||0;
@@ -96,9 +128,15 @@ async function checkUpdate(manual){
       updInfo=null; $id('updBtn').style.display='none';
       updLast.ok=true; updLast.msg='você está na versão mais recente'+(j&&j.version?' (canal: '+j.version+')':'');
     }
-  }catch(e){ updLast.ok=false; updLast.msg='não deu pra checar: '+(e&&e.message||e); }
-  if(manual && typeof updRenderCfg==='function') updRenderCfg();
+  }catch(e){ updLast.ok=false; updLast.msg=updErrMsg(e); }
   return updLast;
+}
+// erro da checagem em pt-BR (antes: "não deu pra checar: Failed to fetch" / "erro 400")
+function updErrMsg(e){
+  const raw=String((e&&e.message)||e||'');
+  if(/\b(400|404)\b|not.?found|object not found/i.test(raw)) return 'o canal de versões não respondeu agora — tente de novo mais tarde';
+  const h=(typeof humanErr==='function')?humanErr(e,'não deu pra checar'):{ msg:'não deu pra checar: '+raw };
+  return String(h.msg).replace(/^N/,'n');
 }
 async function applyUpdate(btn, confirmed){
   if(!updInfo || osKind()!=='mac') return;
