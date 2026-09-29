@@ -345,6 +345,15 @@ async function openNewTask(){
   }
   setNtMode(ntMode);
   { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; }
+  // o que veio do "Conversar" (seletor de modo): texto → título + objetivo; entregas/requisitos que a conversa já montou
+  // entram nas listas. Nada que já está preenchido é apagado.
+  { const c=window.ndTakeCarryAll?window.ndTakeCarryAll():{}; if(c.text){
+      const F={ build:['ntTitle','ntObj'], fix:['ntFixTitle','ntFixObj'], design:['ntDzTitle','ntDzObj'], invest:['ntInvTitle','ntInvObj'] }[ntMode];
+      const sp=ndSplitCarry(c.text, c.title);
+      if(F){ const t=$id(F[0]), o=$id(F[1]); if(t && !t.value.trim()) t.value=sp.title; if(o && !o.value.trim()) o.value=sp.objective; }
+      else if(ntMode==='review'){ const pr=$id('ntPr'); const u=c.text.match(/https?:\/\/\S+/); if(pr && u && !pr.value.trim()) pr.value=u[0]; }
+      if(ntMode==='build'){ if(!ntDel.filter(Boolean).length && (c.deliverables||[]).length) ntDel=c.deliverables.slice(); if(!ntReq.filter(Boolean).length && (c.requirements||[]).length) ntReq=c.requirements.slice(); renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); }
+      else if(ntMode==='fix' && !ntFixReq.filter(Boolean).length && (c.requirements||[]).length){ ntFixReq=c.requirements.slice(); renderNtList("ntFixReqs", ntFixReq); } } }
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   ntFillProjects();
   $id("ntOverlay").style.display = "flex";
@@ -512,7 +521,13 @@ function setNtMode(m){
   ntGate();
   if(typeof aiPickRender==='function') aiPickRender();
 }
-{ const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{ if(window.openTab) window.openTab('nova'); }; }
+// "trocar" o tipo: um popover aqui mesmo (repaginada B — não existe mais a tela de tipos; com nd:legacy volta pra ela)
+{ const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{
+  if((window.ndLegacy&&window.ndLegacy()) || !window.ndPopover){ if(window.openTab) window.openTab('nova'); return; }
+  const cur=(ntDocsPreset&&ntMode==='build')?'docs':ntMode;
+  ndPopover(sw, `<div class="ndpop-h">Tipo de demanda</div>${ND_TYPES.map(t=>`<button type="button" class="ndpop-opt${t.k===cur?' on':''}" data-ntswap="${t.k}"><b>${esc(t.name)}</b><span>${esc(t.desc)}</span></button>`).join('')}`,
+    p=>p.querySelectorAll('[data-ntswap]').forEach(b=>b.onclick=()=>{ const k=b.dataset.ntswap; ntDocsPreset=(k==='docs'); setNtMode((window.ND_TO_MODE||{})[k]||'build'); { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; } ndPopClose(); }));
+}; }
 // o toggle Formulário|Markdown mora na linha do eyebrow (à direita); a barra "SPEC" solta some
 { const seg=document.querySelector('#ntRight .ntviewbar .seg2'), pr=document.querySelector('#wizHead .nf-progrow'), vb=document.querySelector('#ntRight .ntviewbar');
   if(seg&&pr){ seg.style.marginLeft='auto'; pr.appendChild(seg); } if(vb) vb.style.display='none'; }

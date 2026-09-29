@@ -114,7 +114,7 @@ function orqLayout(plan){
 function orqEdge(a,b,cls){ const x1=a.x+a.w, y1=a.y+a.h/2, x2=b.x, y2=b.y+b.h/2; const c=Math.max(30,(x2-x1)/2); return `<path class="${cls}" d="M${x1},${y1} C${x1+c},${y1} ${x2-c},${y2} ${x2},${y2}"/>`; }
 
 // ---- render ----
-function orqShow(){ ndInjectFonts&&ndInjectFonts(); $id('orqOverlay').style.display='flex'; if(!orq.list||Date.now()-orqListAt>20000) orqLoadList().then(orqRender); orqRender(); }
+function orqShow(){ ndInjectFonts&&ndInjectFonts(); { const c=window.ndTakeCarryAll?window.ndTakeCarryAll():{}; if(c.text && orq.step==='brief' && !orq.briefing.trim()) orq.briefing=[c.title&&c.title!==c.text?c.title+'\n\n':'', c.text, (c.deliverables||[]).length?'\n\nEntregas:\n'+c.deliverables.map(x=>'- '+x).join('\n'):'', (c.requirements||[]).length?'\n\nRequisitos:\n'+c.requirements.map(x=>'- '+x).join('\n'):''].join(''); } $id('orqOverlay').style.display='flex'; if(!orq.list||Date.now()-orqListAt>20000) orqLoadList().then(orqRender); orqRender(); }
 async function orqLoadList(){ const before=JSON.stringify((orq.list||[]).map(p=>[p.id,p.status,(p.phases||[]).map(x=>x.taskId)])); try{ orq.list=await invoke('orch_list'); }catch(_){ orq.list=[]; } orqListAt=Date.now(); const after=JSON.stringify((orq.list||[]).map(p=>[p.id,p.status,(p.phases||[]).map(x=>x.taskId)])); if(before!==after){ lastSig=''; } }
 // abre o grafo de um plano salvo (sidebar, quadro, chip da tarefa)
 async function orqOpenPlan(id, taskId){
