@@ -56,6 +56,23 @@ const CT_ST_PT=Object.fromEntries(Object.keys(STATUS_META).map(k=>[k, stLabel(k)
 // backlog + autoStart + pré-requisitos = NA ESPERA (começa sozinha — 46-epico-time: epicAutoStartTick).
 // "Aguardando você" é reservado pro que depende do HUMANO; tarefa esperando outra tarefa é "na espera".
 function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
+// @exec-inicio — de QUEM é um cartão da nuvem (regra única da Execução × Time; testado em exec-minhas.test.mjs)
+// meu = atribuído a mim; sem responsável, é de quem criou. Cartão de outra pessoa (ou atribuído a outra) é do TIME:
+// mora na aba Time até eu assumir (claim_task grava assignee = eu → vira meu).
+function ctMineFor(ct, me){ if(!ct || !me) return false; return ct.assignee ? ct.assignee===me : ct.created_by===me; }
+// o projeto do cartão existe nesta máquina? (sem projeto/sem remote = não dá pra saber → não esconde)
+function ctProjLocal(pj, localList){ return !pj || !pj.repo_remote || remoteLocal(pj.repo_remote, localList); }
+// entra na MINHA Execução (fila dos épicos, contagens, início automático): meu E de um projeto que tenho aqui
+function ctExecOk(ct, me, pj, localList){ return ctMineFor(ct, me) && ctProjLocal(pj, localList); }
+// "criada por Fulano · com Beltrano" — só o que envolve OUTRA pessoa; eu não apareço (o que é todo meu não ganha nada)
+function ctWhoLabel(ct, me, nameOf){
+  if(!ct) return '';
+  const by=ct.created_by||'', as=ct.assignee||'', out=[];
+  if(by && by!==me) out.push('criada por '+nameOf(by));
+  if(as && as!==by && as!==me) out.push('com '+nameOf(as));
+  return out.join(' · ');
+}
+// @exec-fim
 function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(typeof tsSt==='function'?tsSt(ct):ct.status); } // R5-1: status efetivo (PR aberto/pergunta)
 
 async function cloudEnsureProject(){
@@ -610,6 +627,7 @@ async function teamFetchRun(){
     if(tsOrgScope()) ((cloudData&&cloudData.orgMembers)||[]).forEach(m=>uids.add(m.user_id)); // membro da org sem time também aparece
     if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
     { const ids=await repoRemoteIds(); teamRepoRemote=ids.remote; teamRepoIds=ids; }
+    await localRemoteIdsList().catch(()=>[]); // cartão de projeto que não existe nesta máquina ganha o aviso (tsCardHtml)
     teamTasks=tasks; teamFetchedAt=Date.now();
   } finally { teamFetching=false; }
 }

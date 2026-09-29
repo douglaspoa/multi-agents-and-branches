@@ -60,7 +60,11 @@ function ctPhaseBar(t){
 function tsCardHtml(t, me, isAdmin){
   const proj=teamProj[t.project_id]||{};
   const sameRepo=!proj.repo_remote||remoteSame(proj.repo_remote, teamRepoIds||{ remote:teamRepoRemote });
+  // projeto que não existe nesta máquina (nenhum projeto local com esse remote): aparece no Time, marcado, sem ▶
+  const here=((typeof localRemoteList!=='undefined'&&localRemoteList)||[]).concat(teamRepoIds?[teamRepoIds]:[]);
+  const isLocal=sameRepo||ctProjLocal(proj, here);
   const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me);
+  const whoTx=ctWhoLabel(t, me, tmName); // "criada por Fulano" — o que é todo meu não ganha nada
   const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
   const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
   const prov=list&&list.length?`<span class="tspv"><b>${IC.ok}</b>${list.filter(x=>x.status==='done').length}/${list.length} provados</span>`:'';
@@ -77,10 +81,11 @@ function tsCardHtml(t, me, isAdmin){
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
     ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i>${esc(r)}</span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
-    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="tslk" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" title="abrir a issue"><span class="mono">${esc(c[1])}</span> ${icEm(IC.extlink)}</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}</div>
+    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="tslk" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" title="abrir a issue"><span class="mono">${esc(c[1])}</span> ${icEm(IC.extlink)}</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
+    ${whoTx?`<div class="tswho" title="${escA(whoTx)}">${esc(whoTx)}</div>`:''}
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:${stColor(st)};border:1px solid currentColor">${esc(stLabel(st))}</span>`:running?`<span class="tstag run">${esc(stLabel(st))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
-      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" style="padding:3px 9px;font-size:10.5px">${IC.play} assumir</button>`:`<button class="btn sm" disabled title="abra ${escA(proj.repo_remote||'o projeto certo')}" style="padding:3px 9px;font-size:10.5px">outro repo</button>`):''}
+      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" title="assumir e iniciar nesta máquina — a tarefa passa pra sua Execução" style="padding:3px 9px;font-size:10.5px">${IC.play} assumir</button>`:isLocal?`<button class="btn sm" data-act="openproj" title="${escA('a tarefa é do projeto '+(proj.name||proj.repo_remote||'')+' — abrir ele aqui pra assumir')}" style="padding:3px 9px;font-size:10.5px">abrir ${esc(proj.name||'o projeto')}</button>`:''):''}
       ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:10.5px">${IC.x}</button>`:''}
     </div></div>`;
 }
@@ -252,7 +257,7 @@ function renderTeamBoard(){
     invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ showErr(err, 'Falha'); b.disabled=false; b.textContent='revisar com agente'; }); }; });
   el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;
-    if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
+    if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='openproj'){ if(typeof epOpenProjectOf==='function') epOpenProjectOf(teamProj[ct.project_id]||{}); } else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
 }
 
 // itens do "pronto quando" do épico ("D1: texto") — vão no TASK.yaml pra o revisor saber o que julgar
@@ -276,7 +281,10 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
     if(ct.epic_id && window.epicMarkInProgress) epicMarkInProgress(ct.epic_id); // 1ª tarefa rodando → épico em andamento
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
-    teamTasks=null; lastSig=''; await refresh(); if(!opts.silent) setView('flow');
+    // some da fila dos épicos NA HORA (o tick da nuvem só volta em até 20 s) e aparece na MINHA Execução
+    if(typeof epQueue!=='undefined' && epQueue.rows) epQueue.rows=epQueue.rows.filter(r=>r.id!==ct.id);
+    teamTasks=null; lastSig=''; allTasksAt=0; await refresh();
+    if(!opts.silent){ flowScope='exec'; lsSet('flowScope','exec'); setView('flow'); }
     return localId;
   }catch(e){ if(opts.silent) throw e; showErr(e, 'Não deu pra assumir & iniciar'); if(btn){ btn.disabled=false; btn.textContent='assumir & iniciar'; } }
 }

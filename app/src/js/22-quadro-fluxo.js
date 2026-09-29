@@ -205,12 +205,15 @@ function renderFlowFilters(){
   // abas da Central: Execução (o que está vivo) · Concluídas (portfólio) · Time (espaço próprio)
   if(flowScope!=='done') flowScope='exec';
   const TABS=[['exec','Execução'],['done','Concluídas'],['team','Time']];
+  // Execução = SÓ o que é meu (tarefas locais + cartões que assumi). Backlog do time de outra pessoa / sem dono /
+  // de projeto que não tenho aqui mora no Time — o número na aba avisa e o clique abre direto o Quadro do time
+  const nTeamQ=(typeof epQueueTeamCount==='function')?epQueueTeamCount():0;
   // ordem manual (arrastar na grade) vale DENTRO de cada seção; "restaurar" volta pra mais recentes primeiro —
   // fica como link discreto junto dos controles de vista (antes era um botão no meio dos chips de status)
   const manualOn=flowScope!=='done' && lsGet('flowManual')!=='0' && srcAll.some(t=>t.sortOrder!=null);
   const resetBtn=manualOn?`<button class="fvlink" id="flowResetOrder" title="você reordenou arrastando — volta pra ordem automática (mais recentes primeiro em cada seção)">↺ restaurar ordem</button>`:'';
   const tabsHtml=`<div class="ftabs">`+
-    TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}">${l}</button>`).join('')+
+    TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}"${k==='team'&&nTeamQ?` title="${escA(nPl(nTeamQ,'tarefa','tarefas')+' do time na fila (de outras pessoas ou de projetos que você não tem aqui) — assuma lá pra trazer pra sua Execução')}"`:''}>${l}${k==='team'&&nTeamQ?`<span class="n">${nTeamQ}</span>`:''}</button>`).join('')+
     `<span class="grow"></span>`+resetBtn+
     `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
     `<span class="fvsep"></span>`+
@@ -227,7 +230,7 @@ function renderFlowFilters(){
     (projFilter!=='all'&&!pl.some(([p])=>p===projFilter)?`<option value="${escA(projFilter)}" selected>${esc(projShort(projFilter))}</option>`:'')+
     `</select>` : '';
   const epIds=[...new Set(srcAll.filter(flowScopeOk).map(t=>(t.epic&&t.epic.epicId)||'')
-    .concat(flowScope==='done'?[]:((typeof epQueue!=='undefined'&&epQueue.rows)||[]).map(r=>r.epic_id)).filter(Boolean))];
+    .concat(flowScope==='done'?[]:((typeof epQueueMine==='function')?epQueueMine():[]).map(r=>r.epic_id)).filter(Boolean))];
   if(flowEpic!=='all' && !epIds.includes(flowEpic)) epIds.push(flowEpic); // o escolhido fica na lista (pra poder limpar)
   const epName=id=>(typeof epNameOf==='function'&&epNameOf(id))||'épico';
   const epicSel = epIds.length ? `<select class="sel ffsel" id="ffEpic" title="filtrar por épico">`+
@@ -270,7 +273,7 @@ function renderFlowFilters(){
   bindClick('flowResetOrder', ()=>{ lsSet('flowManual','0'); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
-    if(k==='team'){ tmView='people'; lsSet('tmView','people'); teamPaintSig=''; setView('team'); return; } // PDF p7: time por PESSOA
+    if(k==='team'){ const v=nTeamQ?'board':'people'; tmView=v; lsSet('tmView',v); teamPaintSig=''; setView('team'); return; } // PDF p7: time por PESSOA; com backlog do time esperando → o Quadro
     flowScope=k; lsSet('flowScope',k); lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));

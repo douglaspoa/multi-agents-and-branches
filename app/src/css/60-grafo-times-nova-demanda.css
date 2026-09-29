@@ -741,3 +741,10 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .pc2pub .btn svg{margin-right:5px}
 /* R7 (projetos): as opções do "novo projeto" herdavam o rótulo em CAIXA ALTA do formulário — texto normal, fácil de ler */
 #projNewCard label.pn-opt{text-transform:none;letter-spacing:normal;font-family:var(--display);color:var(--text);font-weight:400}
+
+/* Execução só com o que é meu (fix/execucao-so-minhas): origem do cartão + projeto que não existe nesta máquina */
+.ftabs .ft .n{ font:600 10px var(--ui); color:var(--muted); margin-left:5px; font-variant-numeric:tabular-nums; }
+.epq-who, .dc-who{ font:500 var(--fs-xs) var(--ui); color:var(--text-2); white-space:nowrap; }
+.dc-who{ flex:none; overflow:hidden; text-overflow:ellipsis; max-width:220px; }
+.tswho{ font-size:10.5px; color:var(--text-2); margin-top:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tsnolocal{ font:500 9.5px var(--ui); color:var(--muted); border:1px dashed var(--border-strong); border-radius:8px; padding:1px 7px; white-space:normal; line-height:1.35; }

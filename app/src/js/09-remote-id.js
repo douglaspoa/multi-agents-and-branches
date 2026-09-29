@@ -8,6 +8,8 @@
 function remoteIdsList(ids){ const out=[]; if(ids){ [ids.remote, ids.legacy].forEach(v=>{ if(v && !out.includes(v)) out.push(v); }); } return out; }
 // `r` é deste projeto (forma nova OU antiga)?
 function remoteSame(r, ids){ return !!r && remoteIdsList(ids).includes(r); }
+// `r` é de ALGUM projeto desta máquina? `list` = [{remote,legacy}, …] (um por projeto local — localRemoteIdsList)
+function remoteLocal(r, list){ return !!r && (list||[]).some(ids=>remoteSame(r, ids)); }
 // filtro PostgREST: col=eq.X (uma forma) ou col=in.("X","Y") (nova + antiga)
 function remoteInQ(col, ids){
   const v=remoteIdsList(ids); if(!v.length) return col+'=eq.';
@@ -46,4 +48,18 @@ async function repoRemoteIds(path){
   catch(_){ try{ const r=String(await invokeQuiet(path?'repo_remote_of':'repo_remote', path?{ path }:undefined)||''); if(r) ids={ remote:r, legacy:r }; }catch(_){ } }
   if(ids) remoteIdsCache[k]={ ids, at:Date.now() };
   return ids||{ remote:'', legacy:'' };
+}
+// ids {remote,legacy} de TODOS os projetos locais (list_projects) + o aberto — "esse projeto existe nesta máquina?"
+// (fila dos épicos na Central, cartões do Time). Cache de 60 s; guarda a última lista pra leitura síncrona.
+let localRemoteList=[], localRemoteAt=0, localRemoteP=null;
+function localRemoteIdsList(){
+  if(Date.now()-localRemoteAt<60000 && localRemoteList.length) return Promise.resolve(localRemoteList);
+  if(localRemoteP) return localRemoteP;
+  localRemoteP=(async()=>{
+    const out=[]; const push=ids=>{ if(ids && ids.remote && !out.some(x=>x.remote===ids.remote)) out.push(ids); };
+    try{ push(await repoRemoteIds()); }catch(_){ }
+    try{ const locals=(await invokeQuiet('list_projects'))||[]; for(const p of locals){ if(p&&p.path){ try{ push(await repoRemoteIds(p.path)); }catch(_){ } } } }catch(_){ }
+    localRemoteList=out; localRemoteAt=Date.now(); return out;
+  })().finally(()=>{ localRemoteP=null; });
+  return localRemoteP;
 }
