@@ -50,6 +50,9 @@
 .fwcols.notree .fwtree{display:none}
 .fwcols.notree{grid-template-columns:1fr 348px}
 .fwcols.m-conversa.notree{grid-template-columns:1fr}
+/* Entrega sem árvore (janela < 1100px): o `.fwcols.notree` do responsivo (1fr 300px) vencia o `m-entrega` e deixava
+   uma coluna VAZIA de 300px à direita — a Entrega ficava espremida em ~470px */
+.fwcols.m-entrega.notree{grid-template-columns:1fr}
 .fwcols.m-revisao.notree{grid-template-columns:1fr 348px}
 .fwcols.m-pr.notree{grid-template-columns:1fr 348px}
 .fwtreebtn{flex:none;width:22px;height:22px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-3);color:var(--muted);border-radius:6px;cursor:pointer;font-size:12px;line-height:1;padding:0}

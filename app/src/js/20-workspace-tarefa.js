@@ -66,9 +66,10 @@ function fwChatSubText(t){
 // "resolver conflito": o mesmo fluxo do botão do card (a IA mergeia a base e resolve na worktree)
 async function fwResolveConflict(taskId, btn){
   if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return;
+  const orig=btn?btn.innerHTML:'';
   if(btn){ btn.disabled=true; btn.textContent='resolvendo…'; }
-  try{ await invoke('resolve_conflict',{ taskId }); lastSig=''; await refresh(); }
-  catch(err){ showErr(err, 'Falhou'); if(btn) btn.disabled=false; }
+  try{ await invoke('resolve_conflict',{ taskId }); prCache[taskId]=undefined; lastSig=''; await refresh(); }
+  catch(err){ showErr(err, 'Não consegui resolver o conflito'); if(btn){ btn.disabled=false; btn.innerHTML=orig; } } // o rótulo volta (ficava "resolvendo…" pra sempre)
   renderWorkspace();
 }
 // pinta a seleção de linhas durante o arraste sem re-render completo (leve)
@@ -572,7 +573,8 @@ function renderWorkspace(){
           toast('Salve os entregáveis numa pasta sua e conclua — ou use "só concluir".','info'); return; }
         b.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } renderWorkspace(); });
       bindClick('fwRerun', async()=>{ await rerunTask(t.id); renderWorkspace(); });
-      bindClick('fwResume', async()=>{ await resumeTask(t.id); renderWorkspace(); });
+      // 1 pedido por clique: duplo clique em "continuar" mandava dois resume_task
+      bindClick('fwResume', async(e)=>{ e.currentTarget.disabled=true; await resumeTask(t.id); renderWorkspace(); });
       bindClick('fwApprovePlan', async()=>{ await startTask(t.id); renderWorkspace(); });
       bindClick('fwStartDraft', async(e)=>{ e.currentTarget.disabled=true; await startTask(t.id); renderWorkspace(); });
       bindClick('fwResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
@@ -590,7 +592,9 @@ function renderWorkspace(){
   const body = fwFiles.length
     ? (fwGroupMode==='deliverable'&&canDeliv ? fwDelivHtml(fwFiles, dels) : `<div class="fwtreebody">${fwTreeHtml(fwBuildTree(fwFiles),0)}</div>`)
     : fwFilesLoading ? '<div style="padding:8px">'+skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' })+'</div>'
-    : fwFilesErr ? '<div class="fwfileserr">'+errorHtml(fwFilesErr, 'fwFilesRetry', 'listar os arquivos da tarefa')+'</div>'
+    // texto humano fixo (o catálogo genérico lia "not a git repository" e oferecia "criar repositório" — errado aqui);
+    // o erro cru fica no tooltip
+    : fwFilesErr ? `<div class="fwfileserr" title="${escA(fwFilesErr.slice(0,400))}">`+errorHtml('Não consegui listar os arquivos desta tarefa', 'fwFilesRetry', null, { human:true })+'</div>'
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const cost=taskCost(t.id);
   const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div></div>`;
@@ -752,6 +756,7 @@ function renderWorkspace(){
     const cp=e.target.closest('.ccopy');
     if(cp){ const bub=cp.parentElement; const cl=bub.cloneNode(true); cl.querySelectorAll('.ccopy').forEach(x=>x.remove()); try{ navigator.clipboard.writeText(cl.innerText.trim()); cp.textContent='✓'; setTimeout(()=>{cp.textContent='⧉';},900); }catch(_){} return; }
     const a=e.target.closest('[data-art]'); if(a){ openArtifact(t.id, a.dataset.art); return; }
+    const ext=e.target.closest('[data-ext]'); if(ext){ e.preventDefault(); openExternal(ext.dataset.ext); return; }
     if(e.target.closest('#fwReqCheck')){ fwSendText(t.id, 'Verifique AGORA cada requisito do TASK.yaml, um a um: diga se está cumprido, linke a evidência real (print e/ou teste) e gere/atualize .cardume/artifacts/requirements.json. Se algum não estiver cumprido, me pergunte via ask_human antes de finalizar.'); return; }
   };
   { const i=$id('fwInput'); if(i){
@@ -865,6 +870,8 @@ function chatMd(t){ try{ const sp=attSplit(t); return mdToHtml(sp.text)+attRowHt
 const mdMemo=new Map(); // evId:len → html (evita re-parsear a thread toda a cada tick)
 function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(k); if(v===undefined){ v=chatMd(t); if(mdMemo.size>800) mdMemo.clear(); mdMemo.set(k,v); } return v; }
 // notas "de sistema" (não são fala do agente) viram linha discreta central
+// link nas notas ("PR aberto: https://…") vira clicável — antes era texto cru que nem dava pra abrir
+function fwLinkify(tx){ return esc(tx).replace(/https?:\/\/[^\s<>"']+[^\s<>"'.,;:)]/g, u=>`<a class="lnk" href="#" data-ext="${u}">${u.replace(/^https?:\/\//,'')}</a>`); }
 function isMetaNote(txt){ return /^(claude finalizou|\d+ artefato\(s\)|resumo técnico|sessão iniciada|requisito adicionado:|stderr:|PR aberto|PR NÃO aberto|falha ao finalizar)/i.test(String(txt||'')); }
 // thread REAL (dos eventos do banco — persiste) + pergunta aberta destacada
 // rótulo do modelo do agente na conversa (redesign p6: "VEGA · Opus")
@@ -916,7 +923,7 @@ function fwThreadHtml(t){
       const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
-    if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; }
+    if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${fwLinkify(tx)}</div>`); continue; }
     // nota de sistema do motor (fila, limite de uso, sessão retomada, rota de IA): linha de sistema com ícone
     if(e.agent==='Sistema' && e.type==='note'){ const ic=evSysIcon(tx); if(ic){ flush(); out.push(`<div class="csys">${ic} ${esc(tx)}</div>`); continue; } }
     if(tx.startsWith('perguntou ao humano:')) continue; // a pergunta já aparece no card destacado
