@@ -5,9 +5,9 @@
 // chave que faltar no idioma cai no pt-BR (nunca some texto).
 const I18N={ 'pt-BR':{
   // ---- erros do servidor (GoTrue) — sempre com o próximo passo ----
-  'auth.err.invalid_credentials':'E-mail ou senha incorretos. Confira a senha (Caps Lock?) ou use “esqueci a senha”.',
+  'auth.err.invalid_credentials':'E-mail ou senha incorretos. Confira a senha (Caps Lock ligado?) ou crie uma nova:',
   'auth.err.email_not_confirmed':'Seu e-mail ainda não foi confirmado. Digite o código de 6 dígitos que enviamos no cadastro — ou peça um novo.',
-  'auth.err.user_exists':'Já existe uma conta com esse e-mail. Entre com a sua senha ou use “esqueci a senha”.',
+  'auth.err.user_exists':'Já existe uma conta com esse e-mail:',
   'auth.err.weak_password':'Senha fraca demais. Use {min}+ caracteres misturando letras e números.',
   'auth.err.weak_password_length':'Senha curta demais: use pelo menos {min} caracteres.',
   'auth.err.weak_password_pwned':'Essa senha aparece em vazamentos conhecidos e é fácil de adivinhar. Escolha outra — uma frase com números funciona bem.',
@@ -71,7 +71,7 @@ const I18N={ 'pt-BR':{
   'auth.signup.email':'E-mail', 'auth.signup.pass':'Senha', 'auth.signup.pass_ph':'mínimo {min} caracteres',
   'auth.signup.go':'Criar conta', 'auth.signup.busy':'criando…', 'auth.signup.have':'já tenho conta',
   'auth.signup.legal':'Ao continuar você aceita os <a data-ext="https://starfork.com.br/termos">termos</a> e a <a data-ext="https://starfork.com.br/privacidade">privacidade</a>.',
-  'auth.login.eyebrow':'bem-vindo de volta', 'auth.login.title':'Entrar',
+  'auth.login.eyebrow':'sua conta', 'auth.login.title':'Entrar',
   'auth.login.sub':'Use o e-mail e a senha da sua conta Starfork.',
   'auth.login.email':'E-mail', 'auth.login.pass':'Senha', 'auth.login.pass_ph':'sua senha', 'auth.login.forgot':'esqueci a senha',
   'auth.login.go':'Entrar', 'auth.login.busy':'entrando…', 'auth.login.code':'Entrar com código por e-mail',
