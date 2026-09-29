@@ -43,6 +43,11 @@ test("run(): processo que deixa um neto segurando o stdout NÃO trava a promessa
   const t0 = Date.now();
   const r = await run("bash", ["-c", "sleep 20 & echo pronto"]);
   assert.equal(r.stdout.trim(), "pronto");
+  assert.equal(r.truncated, true, "cortado por causa do neto: marcado");
+  // saída GRANDE normal: nada é cortado nem marcado
+  const big = await run(process.execPath, ["-e", "process.stdout.write('x'.repeat(5*1024*1024))"]);
+  assert.equal(big.stdout.length, 5 * 1024 * 1024);
+  assert.equal(big.truncated, undefined);
   assert.ok(Date.now() - t0 < 8000, `demorou ${Date.now() - t0}ms (antes: esperava o neto, 20s)`);
 });
 

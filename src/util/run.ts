@@ -3,6 +3,8 @@ import { execFile } from "node:child_process";
 export interface RunResult {
   stdout: string;
   stderr: string;
+  /** A saída foi CORTADA: o processo saiu mas um neto segurou o pipe além da folga. */
+  truncated?: boolean;
 }
 
 /** Wrapper Promise em cima de execFile — usado para chamar o git. */
@@ -12,6 +14,7 @@ export function run(
   opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number } = {}
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
+    let truncated = false;
     const cp = execFile(
       cmd,
       args,
@@ -22,16 +25,20 @@ export function run(
           (err as Error & { stderr?: string; stdout?: string }).stdout = stdout; // o git merge diz "CONFLICT" no stdout
           reject(err);
         } else {
-          resolve({ stdout, stderr });
+          resolve(truncated ? { stdout, stderr, truncated } : { stdout, stderr });
         }
       }
     );
     // O callback do execFile espera o 'close' (todos os pipes fechados). Um NETO que herda o
     // stdout — `npm run dev &` num setup.sh, um daemon do git/gh — segurava a promessa pra sempre
-    // mesmo com o processo já morto (e o timeout não ajuda: ele só mata o filho). Saiu → 2s pra
-    // drenar e fecha os pipes.
+    // mesmo com o processo já morto. Saiu → 2s de folga; só então, e só se a saída ainda não
+    // terminou, fecha os pipes e marca o resultado como cortado (com aviso no log).
     cp.on("exit", () => {
       const t = setTimeout(() => {
+        const open = (st: NodeJS.ReadableStream | null | undefined) => !!st && !(st as unknown as { readableEnded?: boolean }).readableEnded;
+        if (!open(cp.stdout) && !open(cp.stderr)) return;
+        truncated = true;
+        console.warn(`[run] ${cmd}: saída cortada — um processo filho segurou o pipe depois que ${cmd} terminou`);
         cp.stdout?.destroy();
         cp.stderr?.destroy();
       }, 2000);
