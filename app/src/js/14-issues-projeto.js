@@ -227,7 +227,8 @@ async function trkBgRun(fn){
     trkBackoffMs=Math.min(Math.max(trkBackoffMs*2, 4*60000), 30*60000); // 4 → 8 → 16 → 30 min
     trkNextAt=Date.now()+trkBackoffMs;
     const h=(typeof humanErr==='function')?humanErr(trkErrText(e)):null;
-    const why=(h&&h.id!=='generic')?h.msg:trkErrText(e).slice(0,160);
+    // R8: só as classes que valem pra um painel externo (Jira/Linear/…): "conecte sua conta do GitHub" ou "pasta sem git" seriam falsos aqui
+    const why=(h&&['network','server','bad-json','permission'].includes(h.id))?h.msg:trkErrText(e).slice(0,160);
     trkBgErr='Não consegui atualizar o painel agora ('+why.replace(/[.\s]+$/,'')+'). Tento de novo em '+Math.round(trkBackoffMs/60000)+' min — ou clique em atualizar.';
     trkBgRepaint(); return false;
   }

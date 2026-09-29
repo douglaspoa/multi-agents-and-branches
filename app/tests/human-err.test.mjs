@@ -189,3 +189,18 @@ test('cada item do catálogo tem mensagem em pt-BR e ação com rótulo', () => 
     if (c.act) assert.ok(c.label, c.id + ' sem rótulo');
   }
 });
+
+test('mensagens do Rust com binário ausente (os error 2) = não instalado, não "arquivo sumiu"', () => {
+  assert.equal(id('falha ao rodar claude: No such file or directory (os error 2)'), 'claude-missing');
+  assert.equal(id('gh indisponível: No such file or directory (os error 2)'), 'gh-missing');
+  assert.equal(id('sem resposta do GitHub (gh): program not found'), 'gh-missing');
+  assert.equal(id('git: No such file or directory (os error 2)'), 'git-missing');
+  assert.equal(id('JSON inválido da IA: expected value at line 1 column 1'), 'bad-json');
+  // arquivo comum que sumiu continua "não encontrado"
+  assert.equal(id('não consegui abrir a pasta: No such file or directory (os error 2)'), 'not-found');
+});
+
+test('bug: "gh: Not Found (HTTP 404)" é recurso inexistente, não "gh não instalado"', () => {
+  assert.notEqual(id('gh: Not Found (HTTP 404)'), 'gh-missing');
+  assert.equal(id('zsh: command not found: gh'.replace('command not found: gh','gh: command not found')), 'gh-missing');
+});
