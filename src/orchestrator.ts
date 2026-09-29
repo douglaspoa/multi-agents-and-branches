@@ -34,6 +34,18 @@ export function branchName(spec: TaskSpec): string {
 }
 
 /**
+ * Nome do anexo em .cardume/refs/. Mesmo nome de 2 origens (ex.: ARCHITECTURE.md de 2 tarefas
+ * referenciadas) → prefixa a pasta. Aceita "/" e "\": no Windows o split só por "/" devolvia o CAMINHO
+ * INTEIRO como nome ("C:\Users\…\spec.pdf") e a cópia pra refs/ falhava calada — o agente ficava sem a spec.
+ */
+export function refName(src: string, taken: string[]): string {
+  const parts = src.split(/[\\/]/).filter(Boolean);
+  let name = parts.pop() || "ref";
+  if (taken.includes(name)) name = `${parts.pop() || taken.length}-${name}`;
+  return name;
+}
+
+/**
  * Motor de um papel a partir do rótulo salvo. Tolera variações ("Claude · Opus 4.8", "CLAUDE"):
  * o mock só entra quando pedido de fato — uma tarefa real cair no MockEngine por um nome fora
  * da lista "concluía" com código de mentira.
@@ -135,10 +147,7 @@ export class Orchestrator {
       const names: string[] = [];
       for (const src of refSources) {
         try {
-          // mesmo nome de 2 origens (ex.: ARCHITECTURE.md de 2 tarefas referenciadas) → prefixa a pasta
-          const parts = src.split("/");
-          let name = parts.pop() || "ref";
-          if (names.includes(name)) name = `${parts.pop() || names.length}-${name}`;
+          const name = refName(src, names);
           await cp(src, join(refDir, name), { recursive: true });
           names.push(name);
         } catch { /* ignora arquivo inacessível */ }

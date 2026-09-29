@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { killProcess } from "./claude.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 
 /**
@@ -30,11 +32,12 @@ function resolveCodex(): string {
   return "codex";
 }
 
-/** Chaves de modelo da CONTA (sincronizadas pelo app) → env do processo filho. */
-function loadLlmEnv(): Record<string, string> {
+/** Chaves de modelo da CONTA (sincronizadas pelo app) → env do processo filho.
+ * homedir(), não $HOME: no Windows não existe HOME (é USERPROFILE) e a chave do gateway nunca chegava. */
+export function loadLlmEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   try {
-    const p = join(process.env.HOME ?? "", ".constellation", "llm.env");
+    const p = join(homedir(), ".constellation", "llm.env");
     for (const line of readFileSync(p, "utf8").split("\n")) {
       const m = line.trim().match(/^([A-Z][A-Z0-9_]{2,63})=(.*)$/);
       if (m) out[m[1]] = m[2];
@@ -79,7 +82,7 @@ function buildPrompt(input: RunInput): string {
 }
 
 /** Mapeia uma linha JSONL do `codex exec --json` em AgentEvents (defensivo entre versões). */
-function mapCodexLine(line: string): AgentEvent[] {
+export function mapCodexLine(line: string): AgentEvent[] {
   const s = line.trim();
   if (!s) return [];
   let o: Record<string, unknown>;
@@ -98,12 +101,17 @@ function mapCodexLine(line: string): AgentEvent[] {
   const sid = (o as { session_id?: unknown }).session_id ?? (o as { thread_id?: unknown }).thread_id;
   if (typeof sid === "string" && sid) evs.push({ type: "session", text: sid });
 
-  if (/error/i.test(itemType)) {
-    evs.push({ type: "error", text: (text || s).slice(0, 400), status: "error" });
+  // `turn.failed` traz o motivo em error.message (limite, rede, chave inválida) — antes caía em
+  // nenhum ramo e o turno morria só com "codex saiu com código 1", sem o porquê (e sem retry/espera)
+  const errObj = (o as { error?: unknown }).error;
+  const errMsg = errObj && typeof errObj === "object" ? String((errObj as { message?: unknown }).message ?? "") : typeof errObj === "string" ? errObj : "";
+  if (/error|failed/i.test(itemType) || /\.failed$/.test(t)) {
+    evs.push({ type: "error", text: (errMsg || text || s).slice(0, 400), status: "error" });
   } else if (/command|exec|shell/i.test(itemType)) {
     const cmd = (item as { command?: unknown }).command;
     const shown = Array.isArray(cmd) ? cmd.join(" ") : String(cmd ?? text ?? "");
-    if (shown && !/end|completed|output/i.test(itemType)) evs.push({ type: "bash", text: shown.slice(0, 300) });
+    // o mesmo comando chega em item.started E item.completed: mostra uma vez só (no início)
+    if (shown && !/end|completed|output/i.test(itemType) && !/completed|updated/i.test(t)) evs.push({ type: "bash", text: shown.slice(0, 300) });
   } else if (/patch|file_change|apply/i.test(itemType)) {
     const changes = (item as { changes?: unknown }).changes;
     const paths = changes && typeof changes === "object" ? Object.keys(changes as object).join(", ") : text;
@@ -174,13 +182,16 @@ export class CodexEngine implements AgentEngine {
         n();
       }
     };
+    let exited = false;
+    let sawDone = false;
+    child.on("exit", () => { exited = true; });
     const idleMin = 30;
-    let killTimer: ReturnType<typeof setTimeout>;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const resetIdle = () => {
       clearTimeout(killTimer);
       killTimer = setTimeout(() => {
         queue.push({ type: "error", text: `inatividade de ${idleMin}min — codex encerrado`, status: "error" });
-        try { child.kill("SIGTERM"); } catch { /* já morreu */ }
+        killProcess(child, () => exited);
         done = true;
         wake();
       }, idleMin * 60 * 1000);
@@ -189,7 +200,7 @@ export class CodexEngine implements AgentEngine {
 
     rl.on("line", (line) => {
       resetIdle();
-      for (const ev of mapCodexLine(line)) queue.push(ev);
+      for (const ev of mapCodexLine(line)) { if (ev.type === "done") sawDone = true; queue.push(ev); }
       wake();
     });
     child.stderr.on("data", (d) => {
@@ -200,7 +211,8 @@ export class CodexEngine implements AgentEngine {
     });
     child.on("close", (code) => {
       clearTimeout(killTimer);
-      if (!queue.some((e) => e.type === "done")) {
+      // `done` já ENTREGUE não fica na fila: sem o sawDone vinha um 2º "done" (ou um erro falso) no fim
+      if (!sawDone && !done) {
         queue.push({
           type: code === 0 ? "done" : "error",
           text: code === 0 ? "codex finalizou" : `codex saiu com código ${code}`,
@@ -212,6 +224,7 @@ export class CodexEngine implements AgentEngine {
       wake();
     });
     child.on("error", (err) => {
+      exited = true;
       clearTimeout(killTimer);
       queue.push({
         type: "error",
@@ -222,14 +235,19 @@ export class CodexEngine implements AgentEngine {
       wake();
     });
 
-    yield { type: "status", text: `iniciando ${this.displayName}${this.model ? ` (${this.model})` : ""}`, status: "running" };
+    try {
+      yield { type: "status", text: `iniciando ${this.displayName}${this.model ? ` (${this.model})` : ""}`, status: "running" };
 
-    while (!done || queue.length > 0) {
-      if (queue.length === 0) {
-        await new Promise<void>((r) => { notify = r; });
-        continue;
+      while (!done || queue.length > 0) {
+        if (queue.length === 0) {
+          await new Promise<void>((r) => { notify = r; });
+          continue;
+        }
+        yield queue.shift()!;
       }
-      yield queue.shift()!;
+    } finally {
+      clearTimeout(killTimer);
+      if (!exited) killProcess(child, () => exited); // turno abandonado → nada de codex órfão
     }
   }
 }

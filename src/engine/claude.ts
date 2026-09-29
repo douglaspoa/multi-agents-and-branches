@@ -18,7 +18,9 @@ import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
  * CÓPIA própria semeada com os cookies/logins atuais — cada tarefa no seu Chrome.
  */
 export function browserProfileFor(cwd: string, taskId: string): string {
-  const repoKey = (cwd.split("/.cardume/")[0] || cwd).replace(/[^a-zA-Z0-9]+/g, "_").slice(-60);
+  // separador dos DOIS jeitos: no Windows a worktree é C:\…\.cardume\worktrees\t — o split só por "/"
+  // dava uma chave por TAREFA (perfil novo, login perdido) em vez de uma por repo
+  const repoKey = (cwd.split(/[\\/]\.cardume[\\/]/)[0] || cwd).replace(/[^a-zA-Z0-9]+/g, "_").slice(-60);
   const root = join(homedir(), ".constellation", "browser");
   const shared = join(root, repoKey);
   mkdirSync(shared, { recursive: true });
@@ -39,13 +41,19 @@ export function browserProfileFor(cwd: string, taskId: string): string {
   if (!existsSync(mine)) {
     const skip = new Set(["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile", "Cache", "Code Cache", "GPUCache", "GrShaderCache", "ShaderCache", "DawnCache", "CacheStorage", "Crashpad"]);
     try {
-      cpSync(shared, mine, { recursive: true, filter: (src) => !skip.has(src.split("/").pop() ?? "") });
+      cpSync(shared, mine, { recursive: true, filter: (src) => !skip.has(lastSeg(src)) });
     } catch {
       // cópia parcial ou perfil sem nada ainda: perfil vazio próprio (funciona, só sem login salvo)
       mkdirSync(mine, { recursive: true });
     }
   }
   return mine;
+}
+
+/** Último pedaço de um caminho com "/" OU "\\" (no Windows o filtro de cópia comparava o caminho inteiro
+ * e copiava o `lockfile`/caches do Chrome junto — a cópia nascia "em uso"). */
+export function lastSeg(p: string): string {
+  return p.split(/[\\/]/).filter(Boolean).pop() ?? "";
 }
 
 /** "Mostrar o navegador dos agentes" (Configurações → ~/.constellation/settings.json). Padrão: segundo plano. */
