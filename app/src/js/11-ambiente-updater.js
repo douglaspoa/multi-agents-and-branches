@@ -5,7 +5,11 @@ let envChecks=null, envCheckedAt=0, envChecking=false;
 // O Rust manda nomes fixos (lib.rs env_check). Nem tudo é obrigatório: sem gh o app roda (só não publica no
 // GitHub/abre PR) e o túnel do preview é "(opcional)" no próprio nome. Antes QUALQUER item faltando contava
 // como "pendência — resolva pra as tarefas rodarem", acendia o ponto do Mais e abria a aba Ambiente a cada boot.
-function envKind(c){ const n=String((c&&c.name)||''); if(/opcional/i.test(n)) return 'opt'; if(/github cli|\bgh\b/i.test(n)) return 'rec'; return 'req'; }
+// o Rust manda `kind` (req/rec/opt); o regex pelo nome fica só pra versão velha do backend/mock
+function envKind(c){ const k=c&&c.kind; if(k==='req'||k==='rec'||k==='opt') return k;
+  const n=String((c&&c.name)||''); if(/opcional/i.test(n)) return 'opt'; if(/github cli|\bgh\b/i.test(n)) return 'rec'; return 'req'; }
+// selo ÚNICO (aba Ambiente e tour de boas-vindas)
+const ENV_KIND_TAG={ req:'', rec:'recomendado', opt:'opcional' };
 // pra que serve cada peça, em linguagem de gente (quem não programa não sabe o que é "gh")
 function envWhat(c){ const n=String((c&&c.name)||'');
   if(/node/i.test(n)) return 'Roda o motor que coordena os agentes.';
@@ -20,7 +24,11 @@ function envSummary(list){
   return { tot:a.length, okN:a.length-bad.length, reqBad:bad.filter(c=>envKind(c)==='req').length, optBad:bad.filter(c=>envKind(c)!=='req').length };
 }
 // @env-puro-fim
-async function runEnvCheck(){
+// uma checagem por vez: quem chama durante uma em andamento recebe A MESMA promise (a tela "pronto" e o tour
+// esperam por ela em vez de ficarem presos em "verificar")
+let _envCheckP=null;
+function runEnvCheck(){ if(!_envCheckP) _envCheckP=envCheckOnce().finally(()=>{ _envCheckP=null; }); return _envCheckP; }
+async function envCheckOnce(){
   envChecking=true;
   // sempre LISTA: resposta fora do formato (versão velha/mock) virava "envChecks.some is not a function"
   try{ const r=await invoke('env_check'); envChecks=Array.isArray(r)?r:[{name:'Verificação', ok:false, detail:'resposta inesperada da verificação do ambiente', fix:''}]; }
@@ -40,12 +48,11 @@ function renderEnv(){
   const banner = S.reqBad
     ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${S.reqBad} pendência${S.reqBad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} ok</span></div>`
     : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${S.optBad?`${S.optBad} opciona${S.optBad>1?'is':'l'} faltando · `:''}${okN} de ${tot} ok</span></div>`;
-  const KIND_TAG={ req:'', rec:'recomendado', opt:'opcional' };
   const cards=envChecks.map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', what=envWhat(c);
     return `<div class="as-card envcard" style="display:flex;gap:13px;align-items:flex-start">
     <span class="as-chk" style="background:${c.ok?'var(--accent)':soft?'var(--text-3)':'var(--warn)'}">${c.ok?'✓':soft?'–':'!'}</span>
     <div style="min-width:0;flex:1">
-      <div style="font:600 14.5px var(--display);display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}${KIND_TAG[k]?`<span class="envtag">${KIND_TAG[k]}</span>`:''}</div>
+      <div style="font:600 14.5px var(--display);display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}${ENV_KIND_TAG[k]?`<span class="envtag">${ENV_KIND_TAG[k]}</span>`:''}</div>
       ${what?`<div style="margin-top:4px;font-size:12.5px;color:var(--text-2)">${esc(what)}</div>`:''}
       <div style="margin-top:6px;font:400 11.5px/1.5 var(--code);color:var(--text-3);word-break:break-all">${esc(c.detail||'')}</div>
       ${c.fix?`<div class="envfix"><span class="dim" style="font-size:11.5px">${/reinstale/i.test(c.fix)?'como resolver:':'rode no Terminal:'}</span><code class="as-mono">${esc(c.fix)}</code>${/reinstale/i.test(c.fix)?'':`<button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button>`}</div>`:''}
@@ -122,7 +129,7 @@ async function updCheckOnce(manual){
       if(updToastFor!==j.buildMs){
         updToastFor=j.buildMs;
         toast('Versão nova do Starfork'+(j.version?' ('+j.version+')':'')+(j.notes?' — '+j.notes:'')+'. Atualiza em ~10s; tarefas rodando continuam.', 'info',
-          { label:'atualizar agora', fn:()=>applyUpdate($id('updBtn')||$id('updApplyCfg')||document.createElement('button'), true) }, { label:'depois', fn:()=>{} });
+          { label:'atualizar agora', fn:()=>applyUpdate($id('updBtn')||$id('updApplyCfg'), true) }, { label:'depois', fn:()=>{} });
       }
     }else{
       updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; }
@@ -141,13 +148,16 @@ function updErrMsg(e){
 async function applyUpdate(btn, confirmed){
   if(!updInfo || osKind()!=='mac') return;
   if(!confirmed && !await askYes('Atualizar o Starfork agora?\n\n'+(updInfo.notes||'Versão nova disponível.')+'\n\nO app baixa, troca e reabre sozinho (~10s). Tarefas rodando continuam — os agentes são processos separados.')) return;
-  btn.disabled=true; btn.textContent='baixando…';
+  // progresso no botão quando ele está na tela; senão (veio do toast, botão fora da barra) num toast de status
+  const onScreen=!!(btn && btn.isConnected);
+  const say=t=>{ if(onScreen) btn.textContent=t; else toast('Atualização: '+t,'info'); };
+  if(onScreen) btn.disabled=true; say('baixando…');
   try{
     const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Starfork-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
-    btn.textContent='instalando…';
+    say('instalando…');
     await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });
-    btn.textContent='reabrindo…';
-  }catch(e){ showErr(e, 'Atualização falhou (dá pra baixar a versão nova manualmente em starfork.com.br)'); btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; }
+    say('reabrindo…');
+  }catch(e){ showErr(e, 'Atualização falhou (dá pra baixar a versão nova manualmente em starfork.com.br)'); if(onScreen){ btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; } }
 }
 { const b=$id('updBtn'); if(b) b.onclick=function(){ applyUpdate(this); }; }
 // boot: tenta aos 5s e, enquanto não conseguir uma checagem válida (sessão ainda

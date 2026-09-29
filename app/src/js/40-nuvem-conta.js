@@ -150,23 +150,35 @@ async function sbFetch(path, opts, retried){
 // @cloud-puro-inicio — erro da nuvem (PostgREST/RPC) em pt-BR, com o que fazer (testado em app/tests/onboarding-conta.test.mjs).
 // Antes a tela de Conta mostrava "Falhou: new row violates row-level security policy for table \"invites\"".
 // As RPCs do Starfork já respondem em pt-BR ("convite inválido ou expirado") — essas passam como estão.
+// Números de status só contam com prefixo ("erro 403", "HTTP 502") — um número solto no texto não é status.
+// ORDEM importa: sessão vem antes de permissão (401 = token vencido, não falta de papel).
+const CLOUD_ST=c=>new RegExp('\\b(erro|http|status)\\s*:?\\s*('+c+')\\b','i');
 const CLOUD_ERR=[
-  [/row-level security|permission denied for|not allowed|insufficient_privilege|\b(401|403)\b/i, 'Você não tem permissão pra isso nesta organização — só o lead do time ou um admin pode.'],
-  [/duplicate key|already exists|unique constraint|23505|\b409\b/i, 'Isso já existe — a pessoa já está no time ou já tem um convite pra esse e-mail.'],
-  [/foreign key|violates.*constraint.*fkey|23503|\b404\b|not found|no rows/i, 'Esse item não existe mais — alguém mudou agora há pouco. Confira a lista e tente de novo.'],
+  [/jwt|token (is )?expired|sess[ãa]o expirou/i, 'Sua sessão expirou — entre de novo na conta.'],
+  [CLOUD_ST('401'), 'Sua sessão expirou — entre de novo na conta.'],
+  [/row-level security|permission denied for|insufficient_privilege|42501/i, 'Você não tem permissão pra isso nesta organização — só o lead do time ou um admin pode.'],
+  [CLOUD_ST('403'), 'Você não tem permissão pra isso nesta organização — só o lead do time ou um admin pode.'],
+  [/duplicate key|already exists|unique constraint|23505/i, 'Isso já existe — a pessoa já está no time ou já tem um convite pra esse e-mail.'],
+  [CLOUD_ST('409'), 'Isso já existe — a pessoa já está no time ou já tem um convite pra esse e-mail.'],
+  [/foreign key|violates.*constraint.*fkey|23503|no rows/i, 'Esse item não existe mais — alguém mudou agora há pouco. Confira a lista e tente de novo.'],
+  // tabela/RPC que não existe no servidor = app mais novo que a nuvem (migration faltando)
+  [/could not find the (function|table)|relation .* does not exist|function .* does not exist|PGRST20[02]|not found/i, 'Recurso não encontrado — a nuvem pode estar desatualizada. Tente de novo mais tarde ou fale com o suporte do Starfork.'],
+  [CLOUD_ST('404'), 'Recurso não encontrado — a nuvem pode estar desatualizada. Tente de novo mais tarde ou fale com o suporte do Starfork.'],
   [/invalid input syntax for type uuid|22P02/i, 'Esse código não é válido — confira se copiou o token inteiro.'],
   [/check constraint|violates check|23514|value too long|22001/i, 'Algum campo ficou fora do formato aceito — confira e tente de novo.'],
-  [/jwt|token (is )?expired|sess[ãa]o expirou/i, 'Sua sessão expirou — entre de novo na conta.'],
   [/failed to fetch|load failed|networkerror|sem conex[ãa]o/i, 'Sem conexão com a nuvem agora — cheque a internet/VPN e tente de novo.'],
-  [/\b5\d\d\b|internal server error|bad gateway|service unavailable/i, 'A nuvem do Starfork está com problema agora — tente de novo em alguns minutos.'],
+  [/internal server error|bad gateway|service unavailable|gateway time-?out/i, 'A nuvem do Starfork está com problema agora — tente de novo em alguns minutos.'],
+  [CLOUD_ST('5\\d\\d'), 'A nuvem do Starfork está com problema agora — tente de novo em alguns minutos.'],
 ];
+// já está em português? (RPCs do Starfork, sbNetErr). Acento OU palavra que só existe em pt — nada de
+// "time/plano/sem", que também são palavras em inglês. Compartilhado com o checkout (44-onboarding).
+function isPtText(t){ return /[ãõçéêáíóúâô]/i.test(t) || /\b(nao|voce|convite|convites|assentos?|organizacao|usuario|invalido|expirado|permissao|nenhum|nenhuma|tente|obrigatorio)\b/i.test(t); }
 function cloudErrMsg(e, ctx){
   const raw=String((e&&e.message)||e||'').trim();
   const pre=ctx?String(ctx).replace(/[\s:.…—-]+$/,'')+': ':'';
   const hit=CLOUD_ERR.find(([re])=>re.test(raw));
   if(hit) return pre+hit[1];
-  // mensagem já em português (RPC do Starfork / sbNetErr): mostra como veio, com a 1ª letra maiúscula
-  if(/[ãõçéêáíóú]|\b(n[aã]o|sem|convite|assentos?|plano|time)\b/i.test(raw)) return pre+raw.charAt(0).toUpperCase()+raw.slice(1);
+  if(isPtText(raw)) return pre+raw.charAt(0).toUpperCase()+raw.slice(1);
   return pre+'Não deu certo agora — tente de novo em instantes.'+(raw?' ('+raw.slice(0,80)+')':'');
 }
 // a mensagem do convite (UMA só: a do "gerar convite" e a do "copiar mensagem" da lista eram cópias).
@@ -177,6 +189,11 @@ function cloudInviteMsg(teamName, orgName, email, token){
     +`2. Crie a sua conta com o e-mail ${email} — você entra no time sozinho\n`
     +`3. Se não entrar: em Conta e time › "aceitar convite", cole este token:\n${token}`;
 }
+// já existe convite AINDA VÁLIDO pra esse e-mail? (vencido não conta — dá pra convidar de novo)
+function cloudInvitePending(invites, mail, now){
+  const m=String(mail||'').trim().toLowerCase();
+  return (invites||[]).some(x=>String(x.email||'').toLowerCase()===m && !x.accepted_at && (!x.expires_at || new Date(x.expires_at).getTime()>now));
+}
 // @cloud-puro-fim
 const sbGet = (q)=>sbFetch('/rest/v1/'+q);
 const sbPost = (t,body)=>sbFetch('/rest/v1/'+t, { method:'POST', headers:{ 'Prefer':'return=representation' }, body: JSON.stringify(body) });
@@ -185,6 +202,7 @@ const sbRpc = (fn,args)=>sbFetch('/rest/v1/rpc/'+fn, { method:'POST', body: JSON
 // ---- estado da tela ----
 let cloudData = null;   // { org, teams, members(do time atual), meRole, profileByUser }
 let cloudMsg = '';      // feedback (erro/ok) da última ação
+let cloudInvLast = null; // convite recém-gerado: a mensagem pronta sobrevive ao redesenho da Conta
 function cloudTeamId(){ return lsGet('sb:team') || ''; }
 function cloudUserId(){ const s=SB.sess(); return s && s.user ? s.user.id : ''; }
 
@@ -304,9 +322,11 @@ async function renderCloud(){
   if(!cloudData){ ldPaint(body, skeletonHtml('lista',{ head:true, n:4, label:'buscando a conta' })); try{ await tabBusy('conta', cloudLoad(), { label:'buscando a conta e o time' }); }catch(e){ loadErr=e; } }
   // carga FALHOU (sem rede, servidor fora): erro com "tentar de novo". Antes caía no "Criar organização" —
   // quem já tinha org, offline, via o formulário de criar outra (e podia criar uma duplicada).
-  if(!cloudData && loadErr){
-    head.textContent='Conta e time';
-    body.innerHTML=errorHtml(loadErr, 'cloudRetry', 'Não consegui carregar a conta'); // "sair da conta" fica no cabeçalho
+  // (mesmo que o cloudLoad tenha preenchido parte do cloudData antes de falhar: dado pela metade não é mostrado)
+  if(loadErr){
+    cloudData=null; head.textContent='Conta e time';
+    // o retorno da ação que disparou o recarregamento (ex.: "sem permissão") continua visível acima do erro
+    body.innerHTML=cloudMsgHtml()+errorHtml(loadErr, 'cloudRetry', 'Não consegui carregar a conta'); // "sair da conta" fica no cabeçalho
     ldWireErr(body, loadErr, 'Não consegui carregar a conta', ()=>{ cloudMsg=''; renderCloud(); });
     return;
   }
@@ -425,7 +445,7 @@ async function renderCloud(){
       // validação local: antes ia pro servidor e voltava em inglês (ou gerava convite pra "ana@x")
       if(!mail) return invErr('Digite o e-mail da pessoa que você quer convidar.');
       if(typeof authValidEmail==='function' && !authValidEmail(mail)) return invErr('Esse e-mail não parece válido — confira se está completo (ex.: ana@empresa.com).');
-      if((d.invites||[]).some(x=>String(x.email||'').toLowerCase()===mail)) return invErr('Já existe um convite pendente pra '+mail+' — use "copiar mensagem" na lista de convites abaixo.');
+      if(cloudInvitePending(d.invites, mail, Date.now())) return invErr('Já existe um convite pendente pra '+mail+' — use "copiar mensagem" na lista de convites abaixo.');
       if(seatsFull) return invErr('Todos os '+d.org.seats+' assentos estão em uso — libere um assento ou amplie o plano antes de convidar.');
       b.disabled=true;
       try{
@@ -434,12 +454,15 @@ async function renderCloud(){
         const tok=rows[0].token; (d.invites||(d.invites=[])).push(rows[0]); // 2º clique no mesmo e-mail já avisa que existe
         const teamName=(d.teams.find(x=>x.id===invTeamId)||{}).name||'';
         const msg=cloudInviteMsg(teamName, d.org.name, mail, tok);
-        $id('sbInvOut').innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
-        $id('sbInvCopy').onclick=function(){ cloudCopy(msg, this); };
-        $id('sbInvEmail').value='';
+        // redesenha a Conta (com os dados que já temos + o convite novo): a lista "Convites pendentes" ganha a linha
+        // com copiar/revogar; a mensagem pronta volta no mesmo lugar logo abaixo do campo
+        cloudInvLast={ mail, msg }; renderCloud();
       }catch(e){ const o=$id('sbInvOut'); if(o) o.innerHTML=`<div class="imhint" role="alert" style="margin-top:10px;border-left:2px solid var(--warn)">${esc(cloudErrMsg(e))}</div>`; }
       finally{ b.disabled=false; }
     }; }
+  if(cloudInvLast){ const { mail, msg }=cloudInvLast; cloudInvLast=null; const o=$id('sbInvOut');
+    if(o){ o.innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
+      $id('sbInvCopy').onclick=function(){ cloudCopy(msg, this); }; } }
   $id('sbLogout').onclick=()=>sbLogout();
   bindClick('sbPassChange', ()=>auShow('newpass', { backTo: ()=>{ if(window.openTab) window.openTab('conta'); } }));
   cloudCatalog(d.org.id, isAdmin);

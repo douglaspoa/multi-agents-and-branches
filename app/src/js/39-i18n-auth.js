@@ -5,9 +5,9 @@
 // chave que faltar no idioma cai no pt-BR (nunca some texto).
 const I18N={ 'pt-BR':{
   // ---- erros do servidor (GoTrue) — sempre com o próximo passo ----
-  'auth.err.invalid_credentials':'E-mail ou senha incorretos. Confira a senha (Caps Lock ligado?) ou crie uma nova:',
+  'auth.err.invalid_credentials':'E-mail ou senha incorretos. Confira a senha (Caps Lock ligado?) ou crie uma nova.',
   'auth.err.email_not_confirmed':'Seu e-mail ainda não foi confirmado. Digite o código de 6 dígitos que enviamos no cadastro — ou peça um novo.',
-  'auth.err.user_exists':'Já existe uma conta com esse e-mail:',
+  'auth.err.user_exists':'Já existe uma conta com esse e-mail. Entre com a sua senha ou crie uma nova.',
   'auth.err.weak_password':'Senha fraca demais. Use {min}+ caracteres misturando letras e números.',
   'auth.err.weak_password_length':'Senha curta demais: use pelo menos {min} caracteres.',
   'auth.err.weak_password_pwned':'Essa senha aparece em vazamentos conhecidos e é fácil de adivinhar. Escolha outra — uma frase com números funciona bem.',

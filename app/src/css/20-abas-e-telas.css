@@ -218,5 +218,5 @@
 
 /* Conta e time: retorno da última ação (erro/sucesso) legível */
 .imhint.cloudmsg{margin-bottom:12px;font-size:12.5px;line-height:1.5;color:var(--text);padding:9px 12px;border-radius:8px}
-.imhint.cloudmsg.bad{border-left:2px solid var(--warn);background:color-mix(in srgb,var(--warn) 8%,transparent)}
-.imhint.cloudmsg.ok{border-left:2px solid var(--good);background:color-mix(in srgb,var(--good) 7%,transparent)}
+.imhint.cloudmsg.bad{border-left:2px solid var(--warn);background:rgba(240,180,73,.08);background:color-mix(in srgb,var(--warn) 8%,transparent)}
+.imhint.cloudmsg.ok{border-left:2px solid var(--good);background:rgba(63,214,138,.07);background:color-mix(in srgb,var(--good) 7%,transparent)}

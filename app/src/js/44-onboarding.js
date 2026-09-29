@@ -339,7 +339,8 @@ function auRenderReady(R, topbar){
     bindClick('auEnv', ()=>{ auHide(); if(window.openTab) window.openTab('env'); });
     bindClick('auTeam', ()=>{ auHide(); if(window.openTab) window.openTab('conta'); });
     // ambiente ainda não checado: checa em segundo plano e atualiza a linha (sem travar a tela)
-    if(!envS && typeof runEnvCheck==='function' && !envChecking) runEnvCheck().then(()=>{ if(au.step==='ready' && auOpen()) auRender(); }).catch(()=>{});
+    // (já rodando? runEnvCheck devolve a checagem em andamento — re-renderiza quando ela terminar)
+    if(!envS && typeof runEnvCheck==='function') runEnvCheck().then(()=>{ if(au.step==='ready' && auOpen()) auRender(); }).catch(()=>{});
 }
 const AU_GH='<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M8 .4a7.6 7.6 0 0 0-2.4 14.8c.4.1.5-.2.5-.4v-1.3c-2.1.5-2.6-1-2.6-1-.3-.9-.8-1.1-.8-1.1-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.8.8 2.2.6.1-.5.3-.8.5-1-1.7-.2-3.5-.8-3.5-3.7 0-.8.3-1.5.8-2-.1-.2-.3-1 .1-2 0 0 .6-.2 2.1.8a7.3 7.3 0 0 1 3.8 0c1.5-1 2.1-.8 2.1-.8.4 1 .2 1.8.1 2 .5.5.8 1.2.8 2 0 2.9-1.8 3.5-3.5 3.7.3.2.5.7.5 1.4v2.1c0 .2.1.5.5.4A7.6 7.6 0 0 0 8 .4z"/></svg>';
 const AU_GG='<svg viewBox="0 0 18 18" width="14" height="14"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>';
@@ -391,13 +392,15 @@ function auRenderPlans(R, topbar){
   const invGo=async(tok)=>{
     if(au.busy) return;
     au.busy=true; au.msg=''; auRender();
-    try{
-      if(tok.trim()){ const j=await sbRpc('accept_invite',{ p_token:tok.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); }
-      cloudData=null; cloudAutoInvTried=false; await cloudLoad(); await billingSync();
-      if(billingActive()){ au.busy=false; auShow('ready'); return; }
-      const org=cloudData&&cloudData.org;
-      au.msg=(tok.trim()||org)?`Você já está ${org&&org.name?'na organização '+org.name:'no time'}, mas ela ainda não tem plano ativo — fale com quem administra a conta.`:'Nenhum convite pendente pro seu e-mail. Peça pro lead do time te convidar com este e-mail — aí você entra sozinho.';
-    }catch(e){ au.msg=(typeof cloudErrMsg==='function')?cloudErrMsg(e):auErr(e); }
+    let joined=false;
+    try{ if(tok.trim()){ const j=await sbRpc('accept_invite',{ p_token:tok.trim() }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); joined=true; } }
+    catch(e){ au.msg=(typeof cloudErrMsg==='function')?cloudErrMsg(e):auErr(e); au.busy=false; auRender(); return; }
+    // o aceite já valeu: se recarregar a conta/assinatura falhar, a pessoa precisa saber que ENTROU no time
+    try{ cloudData=null; cloudAutoInvTried=false; await cloudLoad(); await billingSync(); }
+    catch(e){ au.msg=joined?'Você entrou no time ✓ — mas não consegui atualizar a assinatura agora ('+((typeof cloudErrMsg==='function')?cloudErrMsg(e):auErr(e))+'). Tente de novo em instantes.':((typeof cloudErrMsg==='function')?cloudErrMsg(e):auErr(e)); au.busy=false; auRender(); return; }
+    if(billingActive()){ au.busy=false; auShow('ready'); return; }
+    const org=cloudData&&cloudData.org;
+    au.msg=(joined||org)?`Você já está ${org&&org.name?'na organização '+org.name:'no time'}, mas ela ainda não tem plano ativo — fale com quem administra a conta.`:'Nenhum convite pendente pro seu e-mail. Peça pro lead do time te convidar com este e-mail — aí você entra sozinho.';
     au.busy=false; auRender();
   };
   bindClick('auInvCheck', ()=>invGo(''));
@@ -433,7 +436,7 @@ function auCheckoutErr(status, body, e){
   if(status===404) return 'O pagamento ainda não está disponível neste servidor — fale com o suporte do Starfork.';
   if(status>=500 || !status) return 'O servidor de pagamento está com problema agora — tente de novo em alguns minutos.';
   // RPC/function do Starfork que já fala português passa como veio
-  if(/[ãõçéêáíóú]|\b(n[aã]o|sem|plano|assinatura|pagamento|cobran)/i.test(m)) return m.charAt(0).toUpperCase()+m.slice(1);
+  if(typeof isPtText==='function' ? isPtText(m) : /[ãõçéêáíóú]/i.test(m)) return m.charAt(0).toUpperCase()+m.slice(1);
   return 'Não deu pra abrir o pagamento agora — tente de novo em instantes.';
 }
 async function auCheckout(){
@@ -447,8 +450,14 @@ async function auCheckout(){
     r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST', headers:{ 'Content-Type':'application/json', 'apikey':SB.key(), 'Authorization':'Bearer '+sess.access_token },
       body: JSON.stringify({ planId:p.id, teamId: au.plan.key==='team'?cloudTeamId():null, seats: (au.plan.key==='team'&&p.per_seat)?au.plan.seats:1 }) });
     j=await r.json().catch(()=>null);
-  }catch(e){ au.msg=auCheckoutErr(0, null, Object.assign(e||{}, { network:true })); au.busy=false; auRender(); return; }
-  if(!r.ok || !j || !j.url){ au.msg=auCheckoutErr(r.ok?0:r.status, j); au.busy=false; auRender(); return; }
+  }catch(e){ // só é "sem conexão" quando o fetch diz isso; o resto (AbortError, bug) cai no genérico
+    const net=/failed to fetch|load failed|networkerror/i.test(String((e&&e.message)||e||''));
+    au.msg=auCheckoutErr(0, null, net?{ network:true, message:String(e&&e.message||'') }:e); au.busy=false; auRender(); return; }
+  // 200 sem url: a function respondeu fora do contrato — vai pro app_errors (o suporte acha) e a pessoa sabe que não é com ela
+  if(r.ok && (!j || !j.url)){
+    try{ if(window.logAppError) window.logAppError('checkout', new Error('stripe-checkout 200 sem url'), { plan:au.plan.key, interval:au.plan.interval }); }catch(_){ }
+    au.msg='A página de pagamento não abriu — o problema é do nosso lado e já foi registrado. Tente de novo em alguns minutos.'; au.busy=false; auRender(); return; }
+  if(!r.ok){ au.msg=auCheckoutErr(r.status, j); au.busy=false; auRender(); return; }
   try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
   au.waiting=true; au.busy=false; auRender();
   if(_auTimer) clearInterval(_auTimer);

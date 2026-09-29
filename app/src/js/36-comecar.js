@@ -42,7 +42,24 @@ function emRenderWhere(){
     try{ const t=await invoke('quick_project_target',{ name:nm }); if(t && t!==emTarget && emCurName()===nm){ emTarget=String(t); emRenderWhere(); } }catch(_){}
   }, 350);
 }
-function emShowErr(msg){ const e=$id('emErr'); if(!e) return; e.style.display=msg?'block':'none'; e.textContent=msg||''; }
+function emShowErr(msg, raw){ const e=$id('emErr'); if(!e) return; e.style.display=msg?'block':'none'; e.textContent=msg||'';
+  // texto cru só a um clique ("ver detalhes"), nunca na frase
+  if(msg && raw && typeof errDetails==='function'){ const a=document.createElement('a'); a.textContent=' ver detalhes'; a.style.cursor='pointer'; a.style.textDecoration='underline'; a.tabIndex=0; a.onclick=()=>errDetails({ msg, raw, action:null }); e.appendChild(a); } }
+// @em-puro-inicio — erro ao criar a pasta do projeto em pt-BR (testado em app/tests/onboarding-conta.test.mjs)
+const EM_ERR=[
+  [/não está instalado/i, null], // git ausente: o Rust já manda a frase com o conserto
+  [/EEXIST|file exists|already exists|j[aá] existe/i, 'Já existe uma pasta com esse nome — clique em "mudar nome" e escolha outro.'],
+  [/EACCES|EPERM|permission denied|operation not permitted|sem permiss/i, 'O Starfork não tem permissão pra criar a pasta em Documentos. Libere em Ajustes do Sistema › Privacidade e Segurança › Arquivos e Pastas e tente de novo.'],
+  [/EROFS|read-only|somente leitura|só leitura/i, 'O disco está como somente leitura — não dá pra criar a pasta aí.'],
+  [/ENOSPC|no space left|disk (is )?full|disco cheio/i, 'O disco está cheio — libere espaço e tente de novo.'],
+  [/ENOENT|no such file|not found|n[aã]o encontrad/i, 'A pasta Documentos não foi encontrada neste computador — crie-a (ou abra uma pasta que já tenha) e tente de novo.'],
+];
+function emErrMsg(raw){
+  raw=String(raw||''); const hit=EM_ERR.find(([re])=>re.test(raw));
+  if(hit) return { msg:hit[1]||raw, raw:hit[1]?raw:'' };
+  return { msg:'Não deu pra criar a pasta do projeto agora — tente de novo.', raw };
+}
+// @em-puro-fim
 async function emStart(){
   if(emBusy) return;
   const ta=$id('emWhat'); const text=((ta&&ta.value)||'').trim();
@@ -59,8 +76,7 @@ async function emStart(){
     if(window.plStartWith) window.plStartWith(text);
   }catch(e){
     const m=String((e&&e.message)||e||'');
-    // git ausente: o Rust já manda a mensagem com o conserto; o resto passa pelo tradutor único (sem inglês cru na tela)
-    emShowErr(/não está instalado/.test(m) ? m : ((typeof humanErr==='function') ? humanErr(e,'Não deu pra criar o projeto').msg : 'Não deu pra criar o projeto: '+m));
+    const h=emErrMsg(m); emShowErr(h.msg, h.raw);
   }finally{
     emBusy=false; if(b){ b.disabled=false; b.textContent='Começar'; }
     emRenderWhere();
@@ -81,6 +97,8 @@ const NOPROJ_IDS=['skillsBtn','issuesBtn','agentsBtn','pcBtn','dailyBtn'];
 const NOPROJ_TIP='abra ou crie um projeto primeiro';
 function noProjSync(){
   const none=!(typeof state!=='undefined' && state && state.repo);
+  // tour terminado sem projeto: as dicas de primeira vez começam quando o 1º projeto abrir
+  if(!none && lsGet('coachPending')==='1'){ lsSet('coachPending',''); if(typeof coachStart==='function') setTimeout(coachStart, 800); }
   NOPROJ_IDS.forEach(id=>{ const b=$id(id); if(!b) return;
     if(b.dataset.tip0===undefined) b.dataset.tip0=b.getAttribute('title')||'';
     b.classList.toggle('noproj', none);
