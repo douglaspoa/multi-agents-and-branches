@@ -275,6 +275,20 @@ function closeTab(id){
   activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView();
 }
+// R7: reordenar abas arrastando. A aba fixa (Central) fica sempre na frente; soltar sobre outra aba põe a
+// arrastada no lugar dela. Devolve true quando mudou. Pura sobre TABS (testada em app/tests/central.test.mjs).
+let tabDragId=null;
+function tabMove(fromId, toId){
+  const from=TABS.findIndex(t=>t.id===fromId), to=TABS.findIndex(t=>t.id===toId);
+  if(from<0 || to<0 || from===to || TABS[from].pin) return false;
+  const [t]=TABS.splice(from,1);
+  let at=TABS.findIndex(x=>x.id===toId); if(from<to) at++;       // soltar à direita de onde estava: entra depois do alvo
+  const firstFree=TABS.findIndex(x=>!x.pin); if(firstFree>=0 && at<firstFree) at=firstFree; // nunca antes das fixas
+  TABS.splice(Math.max(0,at),0,t);
+  return true;
+}
+// próxima/anterior aba (⌘⇧] / ⌘⇧[ e Ctrl+Tab / Ctrl+⇧Tab), em volta
+function tabStepId(dir){ const i=TABS.findIndex(t=>t.id===activeTab); if(!TABS.length) return null; return TABS[((i<0?0:i)+dir+TABS.length)%TABS.length].id; }
 // fecha a aba ATIVA desse kind (ou a última aberta) — usado pelos botões "fechar" das views
 function closeTabOfKind(kind){ const cur=tabById(activeTab); const t=(cur&&cur.kind===kind)?cur:tabsOfKind(kind).slice(-1)[0]; if(t) closeTab(t.id); }
 window.closeTabOfKind=closeTabOfKind;
@@ -306,9 +320,27 @@ function renderTabs(){
   bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+TABS.map(t=>{
     const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
-    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">${IC.x}</span>`}</span>`;
+    // R7: aba pelo teclado (role=tab, Tab chega, Enter abre, ←/→ passa), título inteiro no tooltip (o texto corta em 28)
+    // e arrastável pra reordenar (a Central fica fixa na frente)
+    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" role="button" aria-label="fechar a aba ${escA(title)}" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
   }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
-  bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=async e=>{ if(e.target.dataset.xk) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); });
+  bar.setAttribute('role','tablist');
+  bar.querySelectorAll('[data-tk]').forEach(el=>{
+    el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
+    // botão do meio fecha a aba (como no navegador)
+    el.addEventListener('auxclick', async e=>{ if(e.button!==1) return; e.preventDefault(); const id=el.dataset.tk; const t=tabById(id); if(!t||t.pin) return; if(!await tabLeaveGuard(id, true)) return; closeTab(id); });
+    el.onkeydown=e=>{
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
+      else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault(); const l=[...bar.querySelectorAll('[data-tk]')], i=l.indexOf(el); const n=l[(i+(e.key==='ArrowRight'?1:-1)+l.length)%l.length]; if(n) n.focus(); }
+    };
+    if(el.getAttribute('draggable')==='true'){
+      el.addEventListener('dragstart', e=>{ tabDragId=el.dataset.tk; el.classList.add('dragging'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', tabDragId); }catch(_){ } });
+      el.addEventListener('dragend', ()=>{ tabDragId=null; el.classList.remove('dragging'); bar.querySelectorAll('.tab.dropto').forEach(x=>x.classList.remove('dropto')); });
+    }
+    el.addEventListener('dragover', e=>{ if(!tabDragId || tabDragId===el.dataset.tk) return; e.preventDefault(); el.classList.add('dropto'); });
+    el.addEventListener('dragleave', ()=>el.classList.remove('dropto'));
+    el.addEventListener('drop', e=>{ if(!tabDragId) return; e.preventDefault(); const from=tabDragId; tabDragId=null; if(tabMove(from, el.dataset.tk)) renderTabs(); });
+  });
   // E6 (bug #9): o X da aba perguntava nada e jogava fora a edição não salva do arquivo (só ⌘W e o botão fechar perguntavam)
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=async e=>{ e.stopPropagation(); const id=el.dataset.xk; if(!await tabLeaveGuard(id, true)) return; closeTab(id); });
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
@@ -410,7 +442,7 @@ function coachStart(){
 // ---------- atalhos ----------
 // ⌘J/⌘, abrem como ABA (igual à barra lateral — antes viravam modal flutuante), ⌘W fecha a aba ativa,
 // ⌘1…⌘8 vão pra aba N e ⌘9 pra última (como no navegador). A lista fica no tooltip do "+" da barra de abas.
-const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba';
+const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba · ⌘⇧[ ⌘⇧] aba anterior/próxima · arraste uma aba pra reordenar';
 document.addEventListener('keydown', async e=>{
   if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
   const k=(e.key||'').toLowerCase();
@@ -421,7 +453,11 @@ document.addEventListener('keydown', async e=>{
     // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")
     if(t.kind==='task' && typeof fwLeaveEditor==='function' && !await fwLeaveEditor()) return;
     if(tabById(t.id)) closeTab(t.id); }
-  else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t) activateTab(t.id); }
+  // R7: ⌘1…⌘9 passa pela MESMA guarda do clique na aba — antes ia direto e jogava fora a edição não salva do arquivo
+  else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t && t.id!==activeTab && await tabLeaveGuard(t.id, false)) activateTab(t.id); }
+  else if((e.shiftKey && (e.code==='BracketRight'||e.code==='BracketLeft')) || (e.ctrlKey && k==='tab')){
+    e.preventDefault(); const dir=(e.code==='BracketLeft'||(k==='tab'&&e.shiftKey))?-1:1; const id=tabStepId(dir);
+    if(id && id!==activeTab && await tabLeaveGuard(id, false)) activateTab(id); }
 });
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
