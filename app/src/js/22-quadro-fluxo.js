@@ -91,12 +91,21 @@ function dayLabel(ts){
   if(same(d,y)) return 'Ontem';
   return d.toLocaleDateString('pt-BR',{ day:'2-digit', month:'short', ...(d.getFullYear()!==today.getFullYear()?{year:'numeric'}:{}) });
 }
+// R7: quando a tarefa foi criada, em ms. O snapshot do projeto aberto manda `createdAt` (a struct Task do Rust é
+// camelCase); o agregado de outro projeto (normAgg) e a nuvem mandam `created_at` (número ou ISO). Antes o quadro
+// lia só `created_at`: nas tarefas do projeto aberto era undefined → "Hoje/Últimos 7 dias" escondiam TODAS e a
+// ordem "mais recentes primeiro" (Central, Grafo, Concluídas) não ordenava nada. Segundos viram ms.
+// É A fonte única de "quando foi criada" (53-teto-protecao: taskCreatedMs delega pra cá).
+function taskTs(t){
+  const ms=v=>{ const n=typeof v==='number'?v:Date.parse(v||''); return n>0?(n<1e12?n*1000:n):0; };
+  return t ? (ms(t.createdAt)||ms(t.created_at)) : 0;
+}
 function inPeriod(t){
   if(flowPeriod==='all') return true;
-  const now=Date.now(), d=new Date();
-  if(flowPeriod==='today'){ return t.created_at >= new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
-  if(flowPeriod==='week'){ return t.created_at >= now-7*864e5; }
-  if(flowPeriod==='month'){ return t.created_at >= now-30*864e5; }
+  const now=Date.now(), d=new Date(), ts=taskTs(t);
+  if(flowPeriod==='today'){ return ts >= new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+  if(flowPeriod==='week'){ return ts >= now-7*864e5; }
+  if(flowPeriod==='month'){ return ts >= now-30*864e5; }
   return true;
 }
 // agentes de uma tarefa = líder + toda a equipe (papéis) — assim o filtro cobre "agente" e "equipe"
@@ -255,11 +264,7 @@ function renderFlowFilters(){
   { const h=tabsHtml + filterRow + advHtml; if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
   { const s=$id('ffProj'); if(s) s.onchange=(e)=>{ projFilter=e.target.value; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); }; }
   { const s=$id('ffEpic'); if(s) s.onchange=(e)=>{ flowEpic=e.target.value; flowSetF('flowEpic',flowEpic); lastSig=''; renderFlow(); }; }
-  bindClick('ffClearAll', ()=>{
-    flowStatus='all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all'; projFilter='all'; lsSet('projFilter','all');
-    ['flowStatus','flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all'));
-    lastSig=''; renderFlow();
-  });
+  bindClick('ffClearAll', flowClearFilters);
   bindClick('flowResetOrder', ()=>{ lsSet('flowManual','0'); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
@@ -280,6 +285,36 @@ function renderFlowFilters(){
   const s=$id('ffSearch');
   s.oninput=(e)=>{ flowQuery=e.target.value; lastSig=''; renderFlow(); };
   if(wasSearch){ s.focus(); try{ s.setSelectionRange(caret,caret); }catch(e){} }
+}
+// limpa TODOS os filtros da Central (menos a busca) — o "limpar" do aviso de filtros ativos e o do estado vazio
+function flowClearFilters(){
+  flowStatus='all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all'; projFilter='all'; lsSet('projFilter','all');
+  ['flowStatus','flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all'));
+  lastSig=''; renderFlow();
+}
+// R7: atalhos que pulam pra Central numa visão exata (contagem da barra de status, "+N na Central" da barra
+// lateral): zeram busca e os OUTROS filtros salvos — senão a lista mostrava menos que o N clicado.
+// o = { status, proj } (proj: caminho do projeto ou 'all')
+function flowJump(o){
+  o=o||{};
+  flowQuery=''; { const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; }
+  flowScope='exec'; lsSet('flowScope','exec');
+  flowStatus=o.status||'all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all';
+  ['flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all')); flowSetF('flowStatus', flowStatus);
+  projFilter=o.proj||'all'; lsSet('projFilter', projFilter);
+  if(window.openTab) window.openTab('flow');
+  if(curView()!=='flow') setView('flow'); else { lastSig=''; render(); }
+}
+// R7: o vazio da lista da Central diz POR QUE está vazia e dá a saída (limpar busca, limpar filtros, nova demanda)
+function flowEmptyHtml(){
+  const q=flowQuery.trim();
+  // em Concluídas os chips de status não filtram (flowVisible ignora flowStatus lá) — não conta como filtro
+  const anyF=(flowScope!=='done'&&flowStatus!=='all')||flowType!=='all'||flowPeriod!=='all'||flowAgent!=='all'||flowEpic!=='all'||projFilter!=='all';
+  if(q && anyF) return emptyHtml({ icon:'search', title:'Nenhuma tarefa com “'+q+'” nestes filtros', help:'A busca e os filtros escolhidos, juntos, escondem todas as tarefas.', action:{ id:'flowClearAll', label:'limpar tudo', primary:false } });
+  if(q) return emptyHtml({ icon:'search', title:'Nenhuma tarefa com “'+q+'” no nome', help:'Confira a grafia ou busque por outra palavra do título.', action:{ id:'flowClearSearch', label:'limpar busca', primary:false } });
+  if(anyF) return emptyHtml({ icon:'search', title:'Nenhuma tarefa neste filtro', help:'Os filtros escolhidos estão escondendo as tarefas.', action:{ id:'flowClearFilters', label:'limpar filtros', primary:false } });
+  if(flowScope==='done') return emptyHtml({ icon:'checkc', title:'Nada concluído ainda', help:'Quando você concluir ou mergear uma entrega, ela aparece aqui com as provas e os documentos.' });
+  return emptyHtml({ icon:'spark', title:'Nenhuma tarefa em andamento', help:'Descreva o que precisa ser feito e os agentes cuidam do resto.', action:{ id:'flowEmptyNew', label:'Nova demanda' } });
 }
 // barra de navegação NOVA nas demais vistas (Kanban/Grafo/Atividade/Time) —
 // mesma linguagem da home; o seg2 antigo não aparece mais em lugar nenhum
@@ -305,7 +340,7 @@ let flowDragId=null;
 function flowBucket(t){
   if(t.status==='draft') return 'rascunho';
   if((t.flag==='closed'||['merged','done'].includes(t.status))) {
-    const d=new Date(t.createdAt||t.created_at); const today=new Date();
+    const d=new Date(taskTs(t)); const today=new Date();
     return (d.toDateString()===today.toDateString())?'hoje':'anteriores';
   }
   if(pendingOf(t.id).length || ['plan-review','error','conflict','aborted'].includes(t.status)) return 'aguardando';
@@ -476,20 +511,20 @@ function openTaskMenu(taskId, anchor){
   // re-render da troca tira o botão original do DOM.
   if(!t){ const r=anchor&&anchor.getBoundingClientRect?anchor.getBoundingClientRect():null;
     crossRun(taskId, ()=>openTaskMenu(taskId, r?{ getBoundingClientRect:()=>r }:anchor)); return; }
-  $id('tmenuPop')?.remove();
+  menuClose($id('tmenuPop'));
   const pop=document.createElement('div');
   pop.id='tmenuPop';
   pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   const item=(label,fn,danger)=>{ const b=document.createElement('button');
     b.textContent=label; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ pop.remove(); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
+    b.onclick=async()=>{ menuClose(pop); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
     pop.appendChild(b); };
   const ty=taskType(t);
   const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
   // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
   if(t.flag!=='closed') item('✓ concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
-  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); pop.remove(); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
+  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); menuClose(pop); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
   if(t.flag==='closed') item('reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}));
   if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como mergeada', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
@@ -508,8 +543,29 @@ function openTaskMenu(taskId, anchor){
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
   pop.style.left=Math.max(10, Math.min(window.innerWidth-pop.offsetWidth-10, r.right-pop.offsetWidth))+'px';
-  setTimeout(()=>{ const close=(e)=>{ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click',close); } }; document.addEventListener('click',close); },0);
+  menuWire(pop, anchor);
 }
+// R7: menus ⋯ e de status pelo teclado — foco no 1º item, ↑/↓ navega, Esc fecha e devolve o foco a quem abriu,
+// Tab sai. O clique fora fecha e o ouvinte do documento sai junto (antes ficava pendurado até o próximo clique).
+function menuWire(pop, anchor){
+  const items=()=>[...pop.querySelectorAll('button')];
+  // quem recebe o foco de volta: o botão/cartão que abriu (no botão direito o alvo é um <span> dentro do cartão)
+  const back=(anchor && anchor.closest) ? anchor.closest('[tabindex],button') : null;
+  let off=null;
+  pop.__close=()=>{ pop.remove(); if(off){ off(); off=null; } };
+  pop.setAttribute('role','menu');
+  items().forEach(b=>{ b.setAttribute('role','menuitem'); b.tabIndex=-1; });
+  pop.addEventListener('keydown',e=>{
+    const l=items(), i=l.indexOf(document.activeElement);
+    if(e.key==='Escape'||e.key==='Tab'){ e.preventDefault(); e.stopPropagation(); pop.__close(); if(back) back.focus(); }
+    else if(e.key==='ArrowDown'){ e.preventDefault(); (l[(i+1)%l.length]||l[0]).focus(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); (l[(i-1+l.length)%l.length]||l[0]).focus(); }
+  });
+  const first=items()[0]; if(first) first.focus({ preventScroll:true });
+  setTimeout(()=>{ if(!pop.isConnected) return; const onDoc=(e)=>{ if(!pop.contains(e.target)) pop.__close(); }; document.addEventListener('click',onDoc); off=()=>document.removeEventListener('click',onDoc); },0);
+}
+// fecha o menu E solta o ouvinte do documento (os itens chamam isto, não pop.remove())
+function menuClose(pop){ if(pop && pop.__close) pop.__close(); else if(pop) pop.remove(); }
 // dropdown de status direto no chip "Review/Rodando/..." do card
 function openStatusMenu(taskId, anchor){
   // tarefa do projeto atual OU de outro projeto (card agregado no board integrado).
@@ -519,7 +575,7 @@ function openStatusMenu(taskId, anchor){
   if(!t){ const a=(allTasksCache||[]).find(x=>x.id===taskId); if(a){ t=a; crossRepo=(a.repo&&a.repo!==state.repo)?a.repo:null; } }
   if(!t) return;
   const ensureProj=async()=>{ if(crossRepo && window.switchProject){ await window.switchProject(crossRepo); crossRepo=null; } };
-  $id('stmenuPop')?.remove();
+  menuClose($id('stmenuPop'));
   const closed = t.flag==='closed';
   const cancelled = t.status==='cancelled';
   // estado "atual" pra marcar o ●: cancelada e encerrada vencem; review/delivered contam como review
@@ -545,20 +601,20 @@ function openStatusMenu(taskId, anchor){
     b.innerHTML=`<span style="color:${o.col}">${o.label}</span>${on?'<span style="margin-left:auto;opacity:.7">●</span>':''}`;
     b.style.cssText='display:flex;align-items:center;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
-    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };
+    b.onclick=async()=>{ menuClose(pop); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };
     pop.appendChild(b); });
   // encerrada: oferece reabrir explicitamente no rodapé
   if(closed){ const b=document.createElement('button');
     b.textContent='reabrir (volta pra fila)';
     b.style.cssText='display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--border);margin-top:4px;padding:8px 10px;background:none;color:var(--text);font:inherit;font-size:12px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ pop.remove(); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Falhou'); } };
+    b.onclick=async()=>{ menuClose(pop); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Falhou'); } };
     pop.appendChild(b); }
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
   pop.style.left=Math.max(10, Math.min(window.innerWidth-pop.offsetWidth-10, r.right-pop.offsetWidth))+'px';
-  setTimeout(()=>{ const close=(e)=>{ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click',close); } }; document.addEventListener('click',close); },0);
+  menuWire(pop, anchor);
 }
 // a task JÁ foi iniciada (tem PR ou commits)? Se sim, clicar abre o workspace
 // mesmo com status 'draft' — senão iria pro editor e não dava pra falar com o agente.
@@ -616,18 +672,18 @@ function renderFlow(){
     const manual=lsGet('flowManual')!=='0' && vis.some(t=>t.sortOrder!=null);
     const so=t=>t.sortOrder==null?-1:t.sortOrder;
     tasks = manual
-      ? vis.sort((a,b)=> so(a)-so(b) || b.created_at-a.created_at)
-      : vis.sort((a,b)=> b.created_at-a.created_at);
-    if(!tasks.length){ html = epHtml ? epHtml : flowQuery.trim()
-      ? `<div class="empty">nenhuma tarefa para <b>"${esc(flowQuery.trim())}"</b> · <a class="lnk" id="flowClearSearch" style="cursor:pointer">limpar busca</a></div>`
-      : '<div class="empty">nenhuma tarefa neste filtro.</div>'; }
+      ? vis.sort((a,b)=> so(a)-so(b) || taskTs(b)-taskTs(a))
+      : vis.sort((a,b)=> taskTs(b)-taskTs(a));
+    // R7: vazio com saída. Antes: "nenhuma tarefa neste filtro." sem botão — e, com a fila dos épicos na tela,
+    // nem isso (os épicos apareciam sozinhos e parecia que o filtro tinha falhado)
+    if(!tasks.length){ html = (flowStatus==='epicos' && epHtml) ? epHtml : flowEmptyHtml()+epHtml; }
     else {
       grouped = flowGroupBy==='day';
       const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowDemandCard(t));
       const byProject = flowScope==='done' && projFilter==='all' && projList().length>1;
       if(grouped){
         const g=new Map();
-        for(const t of tasks){ const d=new Date(t.createdAt||t.created_at); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
+        for(const t of tasks){ const d=new Date(taskTs(t)); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         const keys=[...g.keys()].sort((a,b)=>b-a);
         html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${nPl(g.get(k).length,'tarefa')}</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("") + epHtml;
       } else if(byProject){
@@ -660,6 +716,9 @@ function renderFlow(){
     h.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); h.onclick(e); } };
   });
   bindClick('ghostNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
+  bindClick('flowClearFilters', flowClearFilters);
+  bindClick('flowClearAll', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; flowClearFilters(); });
+  bindClick('flowEmptyNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
@@ -671,6 +730,13 @@ function renderFlow(){
       openOrEdit(t);
     };
     row.addEventListener('contextmenu',(e)=>{ e.preventDefault(); openTaskMenu(row.dataset.id, e.target); });
+  });
+  // R7: cartões pelo teclado — Tab chega neles, Enter/Espaço abre, a tecla de menu (ou Shift+F10) abre o ⋯
+  el.querySelectorAll('.frow,.dcard,.fcard').forEach(r=>{
+    if(!r.hasAttribute('tabindex')) r.tabIndex=0;
+    r.onkeydown=(e)=>{ if(e.target!==r) return;
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); }
+      else if(r.dataset.id && (e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))){ e.preventDefault(); openTaskMenu(r.dataset.id, r); } };
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowpr; crossRun(id, ()=>prPrepOpen(id, lsGet('prBase:'+id)||'main')); });

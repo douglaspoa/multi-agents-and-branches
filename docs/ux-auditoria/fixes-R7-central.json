@@ -1,0 +1,290 @@
+[
+  {
+    "id": "R7-central-01",
+    "area": "central",
+    "titulo": "Filtro de período e ordem 'mais recentes' voltaram a funcionar",
+    "antes": "Com 'Últimos 7 dias' ou 'Hoje', a Central mostrava só as tarefas de outros projetos (Todas 2 de 13); a ordem 'mais recentes primeiro' não ordenava nada no projeto aberto, nem no Grafo e no relatório do período.",
+    "depois": "O filtro de período mostra as tarefas do projeto aberto (Todas 13) e as listas saem das mais novas para as mais antigas.",
+    "motivo": "O quadro lia t.created_at, mas a struct Task do Rust manda createdAt (camelCase). Novo taskTs() lê os dois formatos (número ou ISO, segundos ou ms).",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js",
+      "app/src/js/25-grafo.js",
+      "app/src/js/27-entregas.js",
+      "app/src/js/23-kanban-artefatos-editor.js",
+      "app/tests/central.test.mjs"
+    ],
+    "como_ver": "Central > ícone de filtros > 'Últimos 7 dias'.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/periodo-7dias.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/periodo-7dias.png"
+    }
+  },
+  {
+    "id": "R7-central-02",
+    "area": "central",
+    "titulo": "Lista vazia explica o motivo e oferece a saída",
+    "antes": "Com um filtro que não achava nada aparecia 'nenhuma tarefa neste filtro.' sem botão. Com a fila dos épicos na tela nem isso aparecia, e parecia que o filtro tinha falhado.",
+    "depois": "Estado vazio padrão (emptyHtml) com o motivo e um botão: 'limpar busca', 'limpar filtros' ou 'Nova demanda'.",
+    "motivo": "Estado vazio sem ação é beco sem saída, principalmente para quem não lembra que deixou um filtro salvo.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js"
+    ],
+    "como_ver": "Central > Todos os tipos > Docs (0).",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/home-filtro-vazio.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/home-filtro-vazio.png"
+    }
+  },
+  {
+    "id": "R7-central-03",
+    "area": "central",
+    "titulo": "Barra de status: cada contagem leva à Central já filtrada",
+    "antes": "'5 aguardando você · 4 em andamento · 2 prontas pra revisar · 1 PR aberto' era só texto; 'prontas' e 'PR aberto' ficavam em cinza, com cor diferente dos chips.",
+    "depois": "Cada contagem é clicável e abre a Central (Execução) filtrada naquela etapa, de qualquer vista. As cores são as mesmas dos chips (FLOW_SEC_COLOR).",
+    "motivo": "A barra de status é o resumo que fica sempre à vista, e o clique natural nela é 'me mostra essas'.",
+    "arquivos": [
+      "app/src/js/26-sidebar-projetos.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Em qualquer vista (ex.: Kanban), clique em '2 prontas pra revisar' na barra inferior.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/statusbar.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/statusbar-clique-prontas.png"
+    }
+  },
+  {
+    "id": "R7-central-04",
+    "area": "central",
+    "titulo": "Kanban: soltar numa coluna explica, concluir pergunta e erro aparece",
+    "antes": "Soltar um cartão numa coluna que não aceita a mudança só devolvia o cartão, sem explicação. Arrastar uma tarefa rodando para 'Concluídas' fechava sem perguntar, e o erro ao concluir era engolido.",
+    "depois": "Aparece um aviso do que dá para fazer pelo Kanban. Concluir algo em andamento pede confirmação (askYes), o erro vem pelo showErr e o sucesso mostra 'concluída — saiu da fila'.",
+    "motivo": "Arrasto que falha em silêncio parece travamento. Tirar da fila uma tarefa viva é uma ação que merece confirmação.",
+    "arquivos": [
+      "app/src/js/23-kanban-artefatos-editor.js",
+      "app/tests/central.test.mjs"
+    ],
+    "como_ver": "Kanban: arraste 'Checkout em uma página' para 'PR aberto'.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/kanban-soltar.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/kanban-soltar.png"
+    }
+  },
+  {
+    "id": "R7-central-05",
+    "area": "central",
+    "titulo": "Kanban: as 6 colunas cabem em 1440px",
+    "antes": "Em 1440px a coluna 'Concluídas' ficava cortada fora da tela, e em 1024px só cabiam 3 colunas.",
+    "depois": "As colunas encolhem até 176px: 6 cabem em 1440px e 4 em 1024px. O nome da coluna ganha … em vez de quebrar em duas linhas.",
+    "motivo": "A etapa final do fluxo não pode sumir da tela no tamanho de janela mais comum.",
+    "arquivos": [
+      "app/src/css/40-sidebar-quadro.css",
+      "app/src/js/23-kanban-artefatos-editor.js"
+    ],
+    "como_ver": "Central > ícone Kanban, com a janela em 1440px e em 1024px.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/kanban.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/kanban.png"
+    }
+  },
+  {
+    "id": "R7-central-06",
+    "area": "central",
+    "titulo": "Kanban pelo teclado e com menu de contexto",
+    "antes": "Os cartões do Kanban não recebiam foco e o botão direito não fazia nada (na lista, abria o menu ⋯).",
+    "depois": "Tab chega no cartão, Enter/Espaço abre e o botão direito, a tecla de menu ou Shift+F10 abrem o menu ⋯ (o mesmo da lista).",
+    "motivo": "Acessibilidade de teclado e consistência com a lista da Central.",
+    "arquivos": [
+      "app/src/js/23-kanban-artefatos-editor.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Kanban: Tab até um cartão e Enter; ou botão direito num cartão.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/kanban.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/kanban.png"
+    }
+  },
+  {
+    "id": "R7-central-07",
+    "area": "central",
+    "titulo": "Cartões da Central pelo teclado",
+    "antes": "Os cartões da lista e da grade não recebiam foco. Só dava para abrir uma tarefa com o mouse.",
+    "depois": "Tab chega em cada cartão (com anel de foco verde), Enter/Espaço abre e a tecla de menu (ou Shift+F10) abre o ⋯.",
+    "motivo": "Acessibilidade de teclado na tela principal do app.",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Central: Tab até um cartão e Enter.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/home.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/home.png"
+    }
+  },
+  {
+    "id": "R7-central-08",
+    "area": "central",
+    "titulo": "Menus ⋯ e de status navegáveis pelo teclado",
+    "antes": "Os menus abriam sem foco. Esc não fechava e as setas não andavam. O ouvinte de clique do documento ficava pendurado até o próximo clique.",
+    "depois": "Foco no 1º item, ↑/↓ navega, Esc fecha e devolve o foco ao botão, Tab sai. Os itens têm role=menuitem e o ouvinte sai junto com o menu.",
+    "motivo": "Menu que só funciona com mouse; o vazamento de ouvinte também foi resolvido (menuWire, um lugar só para os dois menus).",
+    "arquivos": [
+      "app/src/js/22-quadro-fluxo.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Central: clique no ⋯ de um cartão e use ↑/↓ e Esc.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/abas-menu.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/abas-menu.png"
+    }
+  },
+  {
+    "id": "R7-central-09",
+    "area": "central",
+    "titulo": "Abas: reordenar arrastando, botão do meio fecha, teclado e tooltip",
+    "antes": "As abas não podiam ser reordenadas nem recebiam foco pelo teclado, o título cortado não tinha tooltip e o botão do meio não fazia nada.",
+    "depois": "Arraste uma aba para reordenar (a Central fica fixa na frente). O botão do meio fecha a aba, com a guarda de edição não salva. role=tab/aria-selected, ←/→ entre abas, Enter abre e o tooltip mostra o nome inteiro.",
+    "motivo": "Reordenar e fechar com o botão do meio são gestos esperados numa barra de abas. Faltava o suporte de teclado e de leitor de tela.",
+    "arquivos": [
+      "app/src/js/15-config-abas-onboarding.js",
+      "app/src/css/40-sidebar-quadro.css",
+      "app/tests/central.test.mjs"
+    ],
+    "como_ver": "Abra 3 abas (Projetos, Skills, Daily) e arraste Daily para antes de Projetos.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/abas-menu.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/abas-menu.png"
+    }
+  },
+  {
+    "id": "R7-central-10",
+    "area": "central",
+    "titulo": "⌘1…⌘9 não descarta mais a edição não salva; novos ⌘⇧[ e ⌘⇧]",
+    "antes": "O clique na aba e o ⌘W perguntavam antes de jogar fora um arquivo em edição, mas o ⌘1…⌘9 trocava direto e perdia a edição.",
+    "depois": "⌘1…⌘9 passa pela mesma guarda (tabLeaveGuard). ⌘⇧[ / ⌘⇧] (e Ctrl+Tab / Ctrl+⇧Tab) vão para a aba anterior/próxima, e a lista de atalhos do '+' foi atualizada.",
+    "motivo": "Bug de perda de dados por atalho. Navegar entre abas pelo teclado é padrão em apps com abas.",
+    "arquivos": [
+      "app/src/js/15-config-abas-onboarding.js",
+      "app/tests/central.test.mjs"
+    ],
+    "como_ver": "Edite um arquivo na aba de uma tarefa e aperte ⌘1: agora pergunta antes.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/abas-menu.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/abas-menu.png"
+    }
+  },
+  {
+    "id": "R7-central-11",
+    "area": "central",
+    "titulo": "Muitas abas: encolhem e a ativa fica sempre à vista",
+    "antes": "Com muitas abas abertas em 1024px as últimas sumiam pela direita, sem barra de rolagem, e a aba ativa (uma tarefa) podia ficar invisível.",
+    "depois": "As abas encolhem com …, e o X das abas de fundo aparece só no hover no modo lotado. A barra rola até a aba ativa, e isso é recalculado ao redimensionar a janela.",
+    "motivo": "Sem ver a aba ativa, o usuário perde o contexto de onde está.",
+    "arquivos": [
+      "app/src/js/15-config-abas-onboarding.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Janela em 1024px: abra umas 10 abas e depois uma tarefa.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/abas-muitas-1024.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/abas-muitas-1024.png"
+    }
+  },
+  {
+    "id": "R7-central-12",
+    "area": "central",
+    "titulo": "Barra lateral: total real, '+N na Central', tooltip e teclado",
+    "antes": "O número ao lado do projeto era o das linhas mostradas, cortado em 12, então com 20 demandas aparecia '12' sem aviso. Títulos cortados não tinham tooltip, as linhas não recebiam foco e o ponto das tarefas de outros projetos usava cores próprias (revisão em amarelo, o resto cinza).",
+    "depois": "Mostra o total de demandas vivas, com uma linha '+N na Central' que abre a Central filtrada no projeto. O título inteiro aparece no tooltip, as linhas recebem foco (Enter abre) e o ponto usa stColor/stLabel (fonte única).",
+    "motivo": "Contagem errada engana. Fonte única de status é regra da casa.",
+    "arquivos": [
+      "app/src/js/25-grafo.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Barra lateral: passe o mouse num título cortado; com mais de 12 demandas, veja a linha '+N na Central'.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/home.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/home.png"
+    }
+  },
+  {
+    "id": "R7-central-13",
+    "area": "central",
+    "titulo": "Grafo: clicar no trilho abre a tarefa e o render parou de reescrever tudo",
+    "antes": "Clicar numa linha do grafo só 'selecionava' a tarefa, sem efeito visível, porque o painel lateral antigo não existe mais. O grafo inteiro era reescrito a cada tick do snapshot (piscava e podia engolir o clique), e o vazio era um texto solto.",
+    "depois": "O clique (ou Enter) abre a tarefa. innerHTML só troca quando o HTML muda (setHtmlGuarded), e o vazio é o padrão, com 'Nova demanda'.",
+    "motivo": "Clique sem efeito parece bug. A regra de desempenho da casa diz que render em tick só troca innerHTML se o HTML mudou.",
+    "arquivos": [
+      "app/src/js/25-grafo.js"
+    ],
+    "como_ver": "Abra o grafo (plano do orquestrador > abrir grafo, ou a visão salva) e clique numa linha.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/grafo.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/grafo.png"
+    }
+  },
+  {
+    "id": "R7-central-14",
+    "area": "central",
+    "titulo": "Visão do Time em 1024px sem quebras",
+    "antes": "Em 1024px as abas do Time quebravam em duas linhas ('Visão / geral', 'PRs pra / revisar'), assim como o seletor 'meu time / toda a organização' e o 'time Loja'. O custo por membro saía cortado ('US$ 11,7').",
+    "depois": "As abas e o seletor ficam em uma linha e o rótulo repetido 'time Loja' some abaixo de 1180px (o subtítulo já diz). O custo por membro não quebra.",
+    "motivo": "Responsivo em 1024px é requisito da casa.",
+    "arquivos": [
+      "app/src/js/43-espaco-times.js",
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Central > Time com a janela em 1024px.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/time-1024.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/time-1024.png"
+    }
+  },
+  {
+    "id": "R7-central-15",
+    "area": "central",
+    "titulo": "Nome de membro cortado podia quebrar o HTML (Time)",
+    "antes": "Em 'Entregas por membro' o nome era escapado e só depois cortado em 14 caracteres (esc(nome).slice). Um nome com & ou < podia ser cortado no meio da entidade HTML e quebrar a linha.",
+    "depois": "Corta primeiro e escapa depois, com o nome inteiro no tooltip.",
+    "motivo": "Bug lógico de escape: a ordem esc→slice pode gerar markup inválido.",
+    "arquivos": [
+      "app/src/js/43-espaco-times.js"
+    ],
+    "como_ver": "Central > Time > Visão geral > Entregas por membro.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/time.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/time.png"
+    }
+  },
+  {
+    "id": "R7-central-16",
+    "area": "central",
+    "titulo": "Relógio da barra de status não quebra mais em 1024px",
+    "antes": "Em 1024px, 'sincronizado · 23:14:51' quebrava em duas linhas e empurrava a barra de status.",
+    "depois": "O relógio fica numa linha e o resumo ganha … quando não cabe.",
+    "motivo": "Responsivo em 1024px.",
+    "arquivos": [
+      "app/src/css/40-sidebar-quadro.css"
+    ],
+    "como_ver": "Qualquer tela com a janela em 1024px.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/home-1024.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/home-1024.png"
+    }
+  },
+  {
+    "id": "R7-central-17",
+    "area": "central",
+    "titulo": "Reordenar arrastando: erro deixou de ser silencioso",
+    "antes": "Se reorder_tasks falhava, o erro ia só para o console e a ordem voltava sem explicação.",
+    "depois": "Mostra o erro humano (showErr: 'Não deu pra reordenar') e redesenha a lista.",
+    "motivo": "Erro engolido é bug da casa ('manual = bug', 'sem erro mudo').",
+    "arquivos": [
+      "app/src/js/23-kanban-artefatos-editor.js"
+    ],
+    "como_ver": "Central em grade: arraste um cartão sobre outro com o banco indisponível.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/before/home.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/central/after/home.png"
+    }
+  }
+]

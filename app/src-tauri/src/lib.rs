@@ -8479,6 +8479,7 @@ pub fn run() {
             mesa::mesa_stop,
             mesa::mesa_resume,
             mesa::mesa_save,
+            mesa::mesa_delete,
             mesa::mesa_read,
             mesa::mesa_list,
             preview_alive,

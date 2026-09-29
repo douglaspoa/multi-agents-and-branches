@@ -2,21 +2,46 @@
 // ---------- configurações (⌘,) ----------
 // fecha Configurações: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
 function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab')) closeTabOfKind('cfg'); else if(o) o.style.display='none'; }
+// @puro-inicio cfgValidate — valores do formulário (texto dos inputs) → null (ok) ou { field, msg } do 1º problema
+function cfgValidate(v){
+  const num=x=>String(x==null?'':x).trim()===''?NaN:Number(String(x).replace(',','.'));
+  const n={ cap:num(v.cap), cost:num(v.cost), brl:num(v.brl), slots:num(v.slots), retry:num(v.retry) };
+  if(!(n.cap>=0)) return { field:'cfgCap', msg:'O teto por tarefa precisa ser um número maior ou igual a 0 (0 = sem teto).' };
+  if(!(n.cost>=0)) return { field:'cfgCost', msg:'O aviso de custo precisa ser um número maior ou igual a 0 (0 desliga).' };
+  if(!(n.brl>0)) return { field:'cfgBrl', msg:'A cotação do dólar precisa ser maior que zero.' };
+  if(!(Number.isInteger(n.slots) && n.slots>=1 && n.slots<=12)) return { field:'cfgSlots', msg:'Tarefas ao mesmo tempo: um número inteiro de 1 a 12.' };
+  if(!(Number.isInteger(n.retry) && n.retry>=0 && n.retry<=240)) return { field:'cfgLimitRetry', msg:'Retomar depois do limite: de 0 a 240 minutos (0 desliga).' };
+  return null;
+}
+// @puro-fim cfgValidate
 function openCfg(){
   const body=$id('cfgBody');
   body.innerHTML=`
-    <label>Teto por tarefa <span class="dim" style="text-transform:none;letter-spacing:0">(ao chegar nele a tarefa PAUSA e pergunta se continua — 0 = sem teto; dá pra mudar por tarefa ao criar)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0" step="1" value="${escA(String(costCapDefault()))}" style="width:110px"><span class="dim" id="cfgCapBrl"></span></div>
-    <label style="margin-top:16px">Cotação do dólar usada nas estimativas <span class="dim" style="text-transform:none;letter-spacing:0">(só pra mostrar o ≈ R$ ao lado do custo em US$)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">R$</span><input class="in" id="cfgBrl" type="number" min="0.5" step="0.05" value="${escA(String(usdBrlRate()))}" style="width:110px"><span class="dim">por US$ 1</span></div>
-    <label style="margin-top:16px">Aviso de custo <span class="dim" style="text-transform:none;letter-spacing:0">(só notifica ao cruzar, não pausa — 0 desliga)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="dim">US$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}" style="width:110px"></div>
-    <label style="margin-top:16px">URL base das issues <span class="dim" style="text-transform:none;letter-spacing:0">(o código FND-853 vira link: base/FND-853)</span></label>
-    <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/sua-empresa/issue" value="${escA(lsGet('issueBase')||'')}" style="margin-top:6px">
-    <label style="margin-top:16px">Tarefas em paralelo (slots)</label>
-    <input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}" style="width:110px;margin-top:6px">
-    <label style="margin-top:16px">Retomar após limite de uso da IA <span class="dim" style="text-transform:none;letter-spacing:0">(quando bate o limite da conta, a tarefa espera e retoma sozinha a cada X min — 0 desliga)</span></label>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><input class="in" id="cfgLimitRetry" type="number" min="0" max="240" step="5" value="60" style="width:110px"><span class="dim">min</span></div>
+    <div class="seclbl2">Custo <span class="dim cfgsecd">· quanto cada tarefa pode gastar e como o valor aparece</span></div>
+    <div class="cfggrid">
+      <div class="cfgf"><label for="cfgCap">Teto por tarefa</label>
+        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0" step="1" value="${escA(String(costCapDefault()))}"><span class="dim" id="cfgCapBrl"></span></div>
+        <p class="cfghint">Ao chegar nele a tarefa pausa e pergunta se continua. 0 = sem teto. Dá pra mudar por tarefa ao criar.</p></div>
+      <div class="cfgf"><label for="cfgCost">Aviso de custo</label>
+        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}"></div>
+        <p class="cfghint">Só avisa quando uma tarefa passa desse valor — não pausa. 0 desliga.</p></div>
+      <div class="cfgf"><label for="cfgBrl">Cotação do dólar</label>
+        <div class="cfgin"><span class="dim">R$</span><input class="in" id="cfgBrl" type="number" min="0.5" step="0.05" value="${escA(String(usdBrlRate()))}"><span class="dim">por US$ 1</span></div>
+        <p class="cfghint">Só pra mostrar o "≈ R$" ao lado do custo em dólar.</p></div>
+    </div>
+    <div class="seclbl2" style="margin-top:22px">Execução <span class="dim cfgsecd">· quantas tarefas rodam juntas e o que fazer no limite da IA</span></div>
+    <div class="cfggrid">
+      <div class="cfgf"><label for="cfgSlots">Tarefas ao mesmo tempo</label>
+        <div class="cfgin"><input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}"><span class="dim">de 1 a 12</span></div>
+        <p class="cfghint">Mais tarefas em paralelo terminam antes, mas pesam na máquina e no limite de uso da IA.</p></div>
+      <div class="cfgf"><label for="cfgLimitRetry">Retomar depois do limite da IA</label>
+        <div class="cfgin"><span class="dim">a cada</span><input class="in" id="cfgLimitRetry" type="number" min="0" max="240" step="5" value="60"><span class="dim">min</span></div>
+        <p class="cfghint">Quando a conta bate o limite de uso, a tarefa espera e tenta de novo sozinha. 0 desliga.</p></div>
+    </div>
+    <div class="seclbl2" style="margin-top:22px">Issues <span class="dim cfgsecd">· links dos códigos de issue</span></div>
+    <div class="cfgf"><label for="cfgIssueBase">Endereço base das issues</label>
+      <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/sua-empresa/issue" value="${escA(lsGet('issueBase')||'')}" style="max-width:560px">
+      <p class="cfghint">Com ele, um código como FND-853 na tarefa vira link pra base/FND-853.</p></div>
     <div class="seclbl2" style="margin-top:20px">IA padrão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· motor e versão de modelo pra toda demanda nova</span></div>
     <div class="aipick aipick-cfg" id="aiPickCfg" style="margin-top:8px"></div>
     <div id="raHost"></div>
@@ -40,13 +65,30 @@ function openCfg(){
   { const cap=$id('cfgCap'), brl=$id('cfgBrl'), out=$id('cfgCapBrl');
     const upd=()=>{ const v=Math.max(0, parseFloat(cap.value)||0), r=parseFloat(brl.value)||usdBrlRate(); out.textContent=v>0?'≈ R$ '+fmtNumBR(v*r,true):'sem teto'; };
     cap.oninput=upd; brl.oninput=upd; upd(); }
-  { const mark=()=>{ const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; }; body.oninput=mark; body.onchange=mark; } // o usuário vê que falta salvar
-  $id('cfgSave').onclick=()=>{ lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0)));
-    lsSet('costCap', String(Math.max(0, parseFloat($id('cfgCap').value)||0)));
-    { const r=parseFloat($id('cfgBrl').value); if(r>0) lsSet('usdBrl', String(r)); } lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
-    { const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)); invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) }).catch(()=>{}); }
-    { const bv=$id('cfgBrowserVisible'); if(bv) invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' }).catch(()=>{}); }
-    lastSig=''; cfgHide(); toast('Configurações salvas','ok'); };
+  // "alterações não salvas" só pros campos que dependem do botão salvar: IA padrão, gateway, GitHub, versão e
+  // disco se salvam sozinhos — antes mexer neles acendia o aviso (e o salvar não fazia nada com eles)
+  { const SELF='#aiPickCfg,#raHost,#ghHost,#updHost,#wsHost';
+    const mark=e=>{ if(e && e.target && e.target.closest && e.target.closest(SELF)) return; const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; };
+    body.oninput=mark; body.onchange=mark; }
+  $id('cfgSave').onclick=async()=>{
+    const btn=$id('cfgSave'); if(btn.disabled) return;
+    const v={ cap:$id('cfgCap').value, cost:$id('cfgCost').value, brl:$id('cfgBrl').value, slots:$id('cfgSlots').value, retry:$id('cfgLimitRetry').value };
+    // valor fora da faixa: avisa e foca o campo (antes era ajustado em silêncio — 0 tarefas virava 4, -3 virava 0)
+    const bad=cfgValidate(v); if(bad){ toast(bad.msg,'warn'); const f=$id(bad.field); if(f) f.focus(); return; }
+    const N=x=>Number(String(x).replace(',','.'));
+    lsSet('costWarn', String(N(v.cost))); lsSet('costCap', String(N(v.cap))); lsSet('usdBrl', String(N(v.brl)));
+    lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(N(v.slots));
+    lastSig=''; // o que já foi gravado vale agora, mesmo se o resto falhar
+    // settings.json (Rust): cada chave no seu try — a falha diz QUAL não gravou (antes: .catch(()=>{}) e "salvas")
+    const bv=$id('cfgBrowserVisible'), fails=[];
+    btn.disabled=true; btn.textContent='salvando…';
+    const w=async(key, value, nome)=>{ try{ await invoke('write_setting',{ key, value }); }catch(e){ fails.push({ nome, e }); } };
+    await w('limitRetryMin', String(N(v.retry)), 'retomar depois do limite da IA');
+    if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
+    btn.disabled=false; btn.textContent='salvar';
+    if(fails.length){ const d=$id('cfgDirty'); if(d) d.textContent='não salvou: '+fails.map(f=>f.nome).join(' e ');
+      showErr(fails[0].e,'Não consegui gravar "'+fails.map(f=>f.nome).join('" e "')+'" — o resto foi salvo'); return; }
+    cfgHide(); toast('Configurações salvas','ok'); };
   $id('cfgEnv').onclick=()=>{ cfgHide(); if(window.openTab) openTab('env'); else openEnv(); };
   bindClick('cfgBackend', ()=>{ cfgHide(); cloudCfgOpen=true; if(window.openTab) openTab('conta'); else openCloud(); });
   $id('cfgTour').onclick=()=>{ cfgHide(); openOnboarding(); };
@@ -146,11 +188,13 @@ async function wsClean(what, question){
 }
 
 /* ===== MOTOR DE ABAS (Chrome-style): as views que eram janela viram aba ===== */
+// a Nova demanda usa o símbolo da marca (IC.starfork, de 10-core) — typeof: os testes carregam este arquivo sem o 10-core
+const SF_TAB_IC=(typeof IC!=='undefined'&&IC.starforkG)||'';
 const VIEW_META={
   projetos:{title:'Projetos',icon:'<path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/>'},
   orq:{title:'Dividir',icon:'<circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="1.8"/><circle cx="12" cy="12" r="1.8"/><path d="M6 7.2l4.2-2.4M6 8.8l4.2 2.4"/>'},
-  nova:{title:'Nova demanda',icon:'<path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/>'},
-  planner:{title:'Nova demanda',icon:'<path d="M12.8 8.4c0 2.4-2.2 4.3-4.9 4.3-.6 0-1.2-.1-1.8-.3L3.2 13.4l.8-2.2A4.1 4.1 0 0 1 3 8.4" stroke-linejoin="round"/><path d="M10.4 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" stroke-linejoin="round"/>'},
+  nova:{title:'Nova demanda',icon:SF_TAB_IC},
+  planner:{title:'Nova demanda',icon:SF_TAB_IC},
   form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   prefs:{title:'Preferências do projeto',icon:'<path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.3" fill="currentColor"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor"/><circle cx="5" cy="11.5" r="1.3" fill="currentColor"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
@@ -275,6 +319,34 @@ function closeTab(id){
   activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView();
 }
+// R7: reordenar abas arrastando. A aba fixa (Central) fica sempre na frente; soltar sobre outra aba põe a
+// arrastada no lugar dela. Devolve true quando mudou. Pura sobre TABS (testada em app/tests/central.test.mjs).
+let tabDragId=null;
+// entra DEPOIS do alvo? (arrastando pra direita, ou soltando sobre uma aba fixa) — o marcador e o tabMove usam a mesma regra
+function tabDropAfter(fromId, toId){
+  const from=TABS.findIndex(t=>t.id===fromId), to=TABS.findIndex(t=>t.id===toId);
+  return from<to || !!(TABS[to]&&TABS[to].pin);
+}
+function tabMove(fromId, toId){
+  const from=TABS.findIndex(t=>t.id===fromId), to=TABS.findIndex(t=>t.id===toId);
+  if(from<0 || to<0 || from===to || TABS[from].pin) return false;
+  const after=tabDropAfter(fromId, toId);
+  const [t]=TABS.splice(from,1);
+  let at=TABS.findIndex(x=>x.id===toId); if(after) at++;
+  // nunca antes das fixas: sem outra aba livre (a arrastada era a única), o mínimo é depois de todas as fixas
+  const firstFree=TABS.findIndex(x=>!x.pin), minAt=firstFree<0?TABS.length:firstFree;
+  if(at<minAt) at=minAt;
+  TABS.splice(at,0,t);
+  return true;
+}
+// fecha uma aba passando pela guarda de edição não salva (X, botão do meio, Delete). Devolve true se fechou.
+async function tabCloseGuarded(id){
+  const t=tabById(id); if(!t || t.pin) return false;
+  if(!await tabLeaveGuard(id, true)) return false;
+  closeTab(id); return true;
+}
+// próxima/anterior aba (⌘⇧] / ⌘⇧[ e Ctrl+Tab / Ctrl+⇧Tab), em volta
+function tabStepId(dir){ const i=TABS.findIndex(t=>t.id===activeTab); if(!TABS.length) return null; return TABS[((i<0?0:i)+dir+TABS.length)%TABS.length].id; }
 // fecha a aba ATIVA desse kind (ou a última aberta) — usado pelos botões "fechar" das views
 function closeTabOfKind(kind){ const cur=tabById(activeTab); const t=(cur&&cur.kind===kind)?cur:tabsOfKind(kind).slice(-1)[0]; if(t) closeTab(t.id); }
 window.closeTabOfKind=closeTabOfKind;
@@ -303,20 +375,57 @@ function renderTabs(){
   // numera só as abas que ainda têm o título genérico ("Montar conversando 1, 2…")
   const counts={}; TABS.forEach(t=>{ if(t.title===((VIEW_META[t.kind]||{}).title||t.kind)) counts[t.kind]=(counts[t.kind]||0)+1; });
   const seen={};
-  bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+TABS.map(t=>{
+  bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+'<span class="tablist" role="tablist" aria-label="abas abertas">'+TABS.map(t=>{
     const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
-    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}">${IC.x}</span>`}</span>`;
-  }).join('')+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
-  bar.querySelectorAll('[data-tk]').forEach(el=>el.onclick=async e=>{ if(e.target.dataset.xk) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); });
+    // R7: aba pelo teclado (role=tab, Tab chega, Enter abre, ←/→ passa, Delete/Backspace fecha), título inteiro no
+    // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
+    // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.
+    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
+  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
+  bar.querySelectorAll('[data-tk]').forEach(el=>{
+    el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
+    // botão do meio fecha a aba (como no navegador)
+    // (mousedown do meio: sem isso o Windows/Linux liga o autoscroll ou cola a seleção)
+    el.addEventListener('mousedown', e=>{ if(e.button===1) e.preventDefault(); });
+    el.addEventListener('auxclick', e=>{ if(e.button!==1) return; e.preventDefault(); tabCloseGuarded(el.dataset.tk); });
+    el.onkeydown=e=>{
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
+      else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); tabCloseGuarded(el.dataset.tk).then(ok=>{ if(ok){ const n=bar.querySelector('.tab.on'); if(n) n.focus(); } }); }
+      else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault(); const l=[...bar.querySelectorAll('[data-tk]')], i=l.indexOf(el); const n=l[(i+(e.key==='ArrowRight'?1:-1)+l.length)%l.length]; if(n) n.focus(); }
+    };
+    if(el.getAttribute('draggable')==='true'){
+      el.addEventListener('dragstart', e=>{ tabDragId=el.dataset.tk; el.classList.add('dragging'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', tabDragId); }catch(_){ } });
+      el.addEventListener('dragend', ()=>{ tabDragId=null; el.classList.remove('dragging'); bar.querySelectorAll('.tab.dropto,.tab.dropafter').forEach(x=>x.classList.remove('dropto','dropafter')); });
+    }
+    // marca o lado certo: arrastando pra direita (ou sobre a fixa) entra DEPOIS do alvo
+    el.addEventListener('dragover', e=>{ if(!tabDragId || tabDragId===el.dataset.tk) return; e.preventDefault(); const after=tabDropAfter(tabDragId, el.dataset.tk); el.classList.toggle('dropafter', after); el.classList.toggle('dropto', !after); });
+    el.addEventListener('dragleave', ()=>el.classList.remove('dropto','dropafter'));
+    el.addEventListener('drop', e=>{ if(!tabDragId) return; e.preventDefault(); const from=tabDragId; tabDragId=null; if(tabMove(from, el.dataset.tk)) renderTabs(); });
+  });
   // E6 (bug #9): o X da aba perguntava nada e jogava fora a edição não salva do arquivo (só ⌘W e o botão fechar perguntavam)
-  bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=async e=>{ e.stopPropagation(); const id=el.dataset.xk; if(!await tabLeaveGuard(id, true)) return; closeTab(id); });
+  bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); tabCloseGuarded(el.dataset.xk); });
   const add=$id('tabAdd'); if(add) add.onclick=()=>openTab('nova');
   { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
   { const u=$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
   requestAnimationFrame(syncChromeH);
+  tabsFit();
 }
+// R7: barra de abas lotada → modo compacto (menos respiro; o X das abas de fundo só no hover, como no navegador) e
+// rola até a ativa. Recalcula no render e ao redimensionar a janela.
+function tabsFit(){
+  const bar=$id('tabBar'); if(!bar) return;
+  // mede SEMPRE no tamanho normal e usa folga pra não ficar piscando no limite ao redimensionar:
+  // entra no compacto quando transborda; só sai com 32px sobrando (o .tabgrow é o espaço livre)
+  const was=bar.classList.contains('crowded'); bar.classList.remove('crowded');
+  const over=bar.scrollWidth-bar.clientWidth, g=bar.querySelector('.tabgrow');
+  const slack=over>1 ? -over : ((g?g.offsetWidth:0)-12);
+  bar.classList.toggle('crowded', was ? slack<32 : slack<0);
+  const on=bar.querySelector('.tab.on');
+  if(on && bar.scrollWidth>bar.clientWidth+1) try{ on.scrollIntoView({ block:'nearest', inline:'nearest' }); }catch(_){ }
+}
+{ let tm=null; window.addEventListener('resize', ()=>{ clearTimeout(tm); tm=setTimeout(tabsFit, 150); }); }
 $id('bdClose').onclick=()=>bdClosePlan();
 $id('bdCancel').onclick=()=>bdClosePlan();
 $id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdClosePlan(); });
@@ -410,7 +519,7 @@ function coachStart(){
 // ---------- atalhos ----------
 // ⌘J/⌘, abrem como ABA (igual à barra lateral — antes viravam modal flutuante), ⌘W fecha a aba ativa,
 // ⌘1…⌘8 vão pra aba N e ⌘9 pra última (como no navegador). A lista fica no tooltip do "+" da barra de abas.
-const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba';
+const SHORTCUTS_HELP='Atalhos: ⌘N nova demanda · ⌘K buscar · ⌘J chat do projeto · ⌘, configurações · ⌘O abrir pasta · ⌘B barra lateral · ⌘W fechar aba · ⌘1…⌘9 ir pra aba · ⌘⇧[ ⌘⇧] ou Ctrl+Tab / Ctrl+⇧Tab aba anterior/próxima · Delete fecha a aba em foco · arraste uma aba pra reordenar';
 document.addEventListener('keydown', async e=>{
   if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
   const k=(e.key||'').toLowerCase();
@@ -421,7 +530,12 @@ document.addEventListener('keydown', async e=>{
     // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")
     if(t.kind==='task' && typeof fwLeaveEditor==='function' && !await fwLeaveEditor()) return;
     if(tabById(t.id)) closeTab(t.id); }
-  else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t) activateTab(t.id); }
+  // R7: ⌘1…⌘9 passa pela MESMA guarda do clique na aba — antes ia direto e jogava fora a edição não salva do arquivo
+  else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t && t.id!==activeTab && await tabLeaveGuard(t.id, false)) activateTab(t.id); }
+  // pela TECLA produzida (e.key), não pela posição física (e.code): no ABNT2 os colchetes ficam em outro lugar
+  else if((e.shiftKey && ['[',']','{','}'].includes(e.key)) || (e.ctrlKey && k==='tab')){
+    e.preventDefault(); const dir=(e.key==='['||e.key==='{'||(k==='tab'&&e.shiftKey))?-1:1; const id=tabStepId(dir);
+    if(id && id!==activeTab && await tabLeaveGuard(id, false)) activateTab(id); }
 });
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }

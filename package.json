@@ -10,7 +10,7 @@
     "cardume": "node --disable-warning=ExperimentalWarning src/cli.ts",
     "demo": "node --disable-warning=ExperimentalWarning src/cli.ts demo",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=ExperimentalWarning --test src/engine/protect.test.ts src/worktree-recreate.test.ts src/memory.test.ts src/model-engine.test.ts src/store-busy.test.ts app/tests/memoria.test.mjs app/tests/mesa.test.mjs app/tests/nova-demanda.test.mjs app/tests/remote-id.test.mjs app/tests/carregamento.test.mjs app/tests/tarefa.test.mjs"
+    "test": "node --disable-warning=ExperimentalWarning --test src/engine/protect.test.ts src/worktree-recreate.test.ts src/memory.test.ts src/model-engine.test.ts src/store-busy.test.ts app/tests/memoria.test.mjs app/tests/mesa.test.mjs app/tests/nova-demanda.test.mjs app/tests/remote-id.test.mjs app/tests/carregamento.test.mjs app/tests/tarefa.test.mjs app/tests/r7-chat-memoria-mesa.test.mjs app/tests/central.test.mjs app/tests/identidade.test.mjs"
   },
   "engines": {
     "node": ">=22.6"

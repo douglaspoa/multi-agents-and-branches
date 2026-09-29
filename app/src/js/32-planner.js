@@ -307,8 +307,8 @@ function plWirePreview(root){
 function plModelCardHtml(m, bare){
   const d=aiDefaults(); const hasDef=!!d.model||d.eng!=='claude';
   const lbl=(e,mo)=>`${aiModelName(mo)} · ${(AI_ENGINES.find(x=>x.id===e)||{}).name||e}`;
-  if(m.choice && !bare){ return `<div class="plmsg bot"><span class="plav">✦</span><div class="plbub plmodel done"><b>IA desta demanda:</b> ${esc(lbl(m.choice.eng,m.choice.model))}${m.choice.saved?' <span class="plmtag">salvo como padrão</span>':''} <a class="plmchg" data-plm="change">trocar</a></div></div>`; }
-  const wrap=h=>bare?`<div class="plmodel plmodel-bare">${h}</div>`:`<div class="plmsg bot"><span class="plav">✦</span><div class="plbub plmodel">${h}</div></div>`;
+  if(m.choice && !bare){ return `<div class="plmsg bot"><span class="plav">${IC.starfork}</span><div class="plbub plmodel done"><b>IA desta demanda:</b> ${esc(lbl(m.choice.eng,m.choice.model))}${m.choice.saved?' <span class="plmtag">salvo como padrão</span>':''} <a class="plmchg" data-plm="change">trocar</a></div></div>`; }
+  const wrap=h=>bare?`<div class="plmodel plmodel-bare">${h}</div>`:`<div class="plmsg bot"><span class="plav">${IC.starfork}</span><div class="plbub plmodel">${h}</div></div>`;
   const quick=[['claude','claude-opus-5-5','Opus 5.5'],['claude','claude-sonnet-5','Sonnet 5'],['claude','claude-haiku-4-5-20251001','Haiku 4.5']];
   return wrap(`
     ${hasDef?`Com qual IA? Seu padrão é <b>${esc(lbl(d.eng,d.model))}</b>.`:`Com qual IA quer montar esta demanda? Você ainda não tem um <b>padrão</b> — escolha aqui e, se quiser, eu guardo como padrão pras próximas.`}
@@ -411,7 +411,7 @@ function plPlanCardHtml(bare){
   const n=PLP().tasks.filter(x=>x.on).length;
   const dw=PLP().doneWhen||[], rq=PLP().requirements||[];
   const inner=`<div class="plplan" id="plPlanCard">
-    <div class="pphead">◆ Épico proposto — revise e aprove</div>
+    <div class="pphead">${IC.starforkEm} Épico proposto — revise e aprove</div>
     <input class="ppname" id="ppName" value="${escA(PLP().epic)}" placeholder="nome do épico"${dis}>
     <textarea class="ppedit ppout" id="ppOutcome" rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(PLP().outcome||'')}</textarea>
     ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">Requisitos <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${esc(r.text)}</div>`).join('')}</div>`:''}
@@ -422,7 +422,7 @@ function plPlanCardHtml(bare){
     ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time (botão Conta, no rodapé da barra lateral) pra aprovar.</div>`:''}
     <div class="ppfoot">${plPlanCtx.origin?'':plPreviewHtml(plPreviewFields())}<span class="ppfoot-sp"></span><button class="btn sm" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'descartar'}</button><button class="btn primary sm" id="ppApprove"${(noTeam||PLP().locked)?' disabled':''}>${PLP().locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
   </div>`;
-  return bare?inner:`<div class="plmsg bot"><span class="plav">◆</span>${inner}</div>`;
+  return bare?inner:`<div class="plmsg bot"><span class="plav">${IC.starfork}</span>${inner}</div>`;
 }
 function plWirePlanCard(){
   const card=$id('plPlanCard'); if(!card || PLP().locked) return; // enquanto grava na nuvem, nada muda
