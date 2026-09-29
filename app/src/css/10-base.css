@@ -224,6 +224,8 @@ body{
 .apptoast-btn.ghost{background:none;border-color:transparent;color:var(--muted);text-decoration:underline;padding:4px 4px}
 /* estados que faltavam: desabilitado parece desabilitado; foco por teclado visível */
 .btn:disabled,.btn[disabled],.iconbtn:disabled,.as-btn:disabled,.au-btn:disabled{opacity:.45;cursor:not-allowed;filter:none;box-shadow:none}
+/* R8: primário bloqueado não pode parecer clicável (antes "merge PR" bloqueado seguia verde, só mais apagado) */
+.btn.primary:disabled,.btn.primary[disabled],.as-btn.primary:disabled{background:var(--surface-2);border-color:var(--border);color:var(--text-3);opacity:.85}
 :where(button,.btn,.iconbtn,[role=tab],[tabindex]):focus-visible{outline:none;box-shadow:var(--ring)}
 /* arrastar arquivo pra qualquer caixa de chat mostra onde vai soltar */
 .dropping{outline:2px dashed color-mix(in srgb,var(--accent) 60%,transparent)!important;outline-offset:2px;background:color-mix(in srgb,var(--accent) 6%,transparent)!important}
