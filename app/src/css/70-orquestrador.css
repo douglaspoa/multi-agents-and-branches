@@ -33,7 +33,6 @@
 .orq-zoom button:nth-child(2){color:var(--accent);background:rgba(63,214,138,.12)}
 .orq-canvas{flex:1;position:relative;overflow:hidden;background:#080a09;cursor:grab;background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1px);background-size:22px 22px}
 .orq-canvas.drag{cursor:grabbing}
-.orq-sky{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.9}
 .orq-world{position:absolute;left:0;top:0;transform-origin:0 0}
 .orq-svg{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
 .orq-e{fill:none;stroke:rgba(255,255,255,.22);stroke-width:1.5}

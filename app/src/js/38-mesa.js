@@ -285,10 +285,11 @@ async function openMesa(){
     if(MESA.cur && MESA.cur.repo!==state.repo) MESA.cur=null;
   }
   ovShow(ov);
-  const body=$id('mesaBody'); if(body && MESA.view==='lista' && !MESA.list.length) body.innerHTML='<div class="dim" style="padding:24px">carregando as mesas…</div>';
-  await Promise.all([mesaLoadList(), mesaLoadGen()]);
-  if(!MESA.pick) MESA.pick=new Set(MESA_PERSONAS.map(p=>p.id));
-  mesaRender();
+  // lista de mesas em esqueleto na hora (mesa aberta/lista já pintada fica até a leitura chegar)
+  await loadInto($id('mesaBody'), 'lista', ()=>Promise.all([mesaLoadList(), mesaLoadGen()]), ()=>{
+    if(!MESA.pick) MESA.pick=new Set(MESA_PERSONAS.map(p=>p.id));
+    mesaRender();
+  }, { label:'buscando as mesas', keep:!(MESA.view==='lista' && !MESA.list.length), shape:{ wrap:'mesawrap', head:true, n:5 } });
 }
 window.openMesa=openMesa;
 async function mesaOpenOne(id){

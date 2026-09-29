@@ -65,18 +65,18 @@ function ctPageRender(){
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence.map(e=>String(e).split('/').pop())));
   const proofsHtml = imgs.length
     ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=c.urls[a.storage_path]; return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${escA(th)}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evidenceNames.has(String(a.name).split('/').pop())?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}</div>`
-    : `<div class="en-empty">${c.loaded?'nenhum print publicado — quem executa publica as provas pelo botão "publicar provas pro time" na tarefa dele':'carregando provas…'}</div>`;
+    : `<div class="en-empty">${c.loaded?'nenhum print publicado — quem executa publica as provas pelo botão "publicar provas pro time" na tarefa dele':skeletonHtml('lista',{ n:2, compact:true, label:'carregando as provas' })}</div>`;
   const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>{ const a=findArt(e); return a?`<button class="reqevb mono" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">${esc(e)}</button>`:`<span class="reqevb mono" title="essa evidência ainda não foi publicada pro time" style="opacity:.5;cursor:default">${esc(e)}</span>`; }).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem requisitos no cartão</div>';
   const docIc=n=>/\.pdf$/i.test(n)?'PDF':/\.html?$/i.test(n)?'HTML':/\.md$/i.test(n)?'MD':/\.json$/i.test(n)?'JSON':'TXT';
   const docsHtml = docs.length
     ? docs.map(a=>`<div class="en-doc"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${a.created_at?'há '+agoTx(a.created_at):''}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">abrir</button><button class="btn sm ghost" data-cdl="${escA(a.storage_path)}" title="abrir no navegador (link assinado, 1h)">↗</button></span></div>`).join('')
-    : `<div class="en-empty">${c.loaded?'nenhum documento publicado ainda':'carregando…'}</div>`;
+    : `<div class="en-empty">${c.loaded?'nenhum documento publicado ainda':skeletonHtml('lista',{ n:2, compact:true, label:'carregando os documentos' })}</div>`;
   const dels=(sp.deliverables||[]).filter(Boolean);
   const K={created:'criou o cartão',edited:'editou o cartão',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas',comment:'comentou',status:'mudou o status'};
   const act=c.act||[];
   const timeline = act.length
     ? `<div class="stepper">${act.map((a,i)=>{ const last=i===act.length-1; return `<div class="step ${last?'cur':'done'}" style="cursor:default"><span class="smark">${last?'●':'✓'}</span><span class="stx"><span class="srole" style="text-transform:none">${esc(tmName(a.user_id))} · ${esc(K[a.kind]||a.kind)}</span><span class="sname">${esc(new Date(a.at).toLocaleString('pt-BR'))}${a.body?' — '+esc(String(a.body).slice(0,160)):''}</span></span></div>`; }).join('')}</div>`
-    : `<div class="en-empty">${c.loaded?'sem atividade registrada':'carregando…'}</div>`;
+    : `<div class="en-empty">${c.loaded?'sem atividade registrada':skeletonHtml('lista',{ n:3, compact:true, label:'carregando a atividade' })}</div>`;
   const note = ct.last_note ? `<div class="seclbl2" style="margin-top:14px">Última nota do agente${ct.stage?` <span class="dim">· ${esc(ct.stage)}</span>`:''}</div><div class="en-how">${esc(ct.last_note)}</div>` : '';
   main.innerHTML=`<div class="enpage">
     <div class="en-head">

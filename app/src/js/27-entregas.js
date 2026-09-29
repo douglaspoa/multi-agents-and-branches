@@ -503,7 +503,7 @@ async function entregaFacts(t){
 async function entregaGenReport(t){
   const out=$id('enGenOut'), b=$id('enGen'); if(!out) return;
   if(b) b.disabled=true;
-  out.innerHTML=cosmosHtml('a IA está escrevendo o relatório da entrega…','inline');
+  ldPaint(out, brandLoaderHtml('a IA está escrevendo o relatório da entrega…', { inline:true }));
   try{
     const md=await invoke('ai_task_report',{ text: await entregaFacts(t), kind:'entrega', label:'Relatório de entrega — '+t.title });
     await invoke('write_artifact',{ taskId:t.id, name:'RELATORIO-ENTREGA.md', content:md });

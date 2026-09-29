@@ -267,7 +267,7 @@ async function renderCloud(){
     return;
   }
   // dados frescos
-  if(!cloudData){ body.innerHTML=cosmosHtml('carregando a conta…'); try{ await cloudLoad(); }catch(e){ cloudMsg='Falhou: '+e.message; SB.setSess(SB.sess()); } }
+  if(!cloudData){ ldPaint(body, skeletonHtml('lista',{ head:true, n:4, label:'buscando a conta' })); try{ await tabBusy('conta', cloudLoad(), { label:'buscando a conta e o time' }); }catch(e){ cloudMsg=humanErr(e, 'Não consegui carregar a conta').msg; SB.setSess(SB.sess()); } }
   // 3) logado mas sem org → criar ou aceitar convite
   if(!cloudData || !cloudData.org){
     head.textContent='Conta e time · sua organização';
@@ -329,9 +329,9 @@ async function renderCloud(){
     ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Membros da organização <span class="n">${seatsUsed}</span></div>
     <div class="mlist tm2">${(d.orgMembers||[]).map(om=>`<div class="mrow"><span class="mav" style="background:${agentColor(pName(om.user_id))}">${esc(pName(om.user_id).slice(0,2).toUpperCase())}</span><span class="mnm">${esc(pName(om.user_id))}${om.user_id===cloudUserId()?' <span class="mme">você</span>':''}</span><span class="mrole${om.role==='owner'||om.role==='admin'?' lead':''}">${esc(om.role)}</span>${(om.role!=='owner'&&om.user_id!==cloudUserId())?`<span class="macts"><button class="btn sm ghost" data-orgrm="${escA(om.user_id)}" title="remove da organização e de todos os times — libera o assento">remover da org</button></span>`:''}</div>`).join('')}</div>`:''}
     <div class="seclbl2" style="margin-top:18px">Agentes &amp; equipes da organização</div>
-    <div id="sbCat" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>
+    <div id="sbCat" class="dim" style="font-size:12px;padding:4px 2px">${skeletonHtml('lista',{ n:2, compact:true, label:'carregando o catálogo' })}</div>
     <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="copia os agentes e equipes da organização pras configurações do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
-    ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:12px;padding:4px 2px">carregando…</div>`:''}
+    ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:12px;padding:4px 2px">${skeletonHtml('lista',{ n:2, compact:true, label:'carregando a visão da organização' })}</div>`:''}
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center;gap:8px"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbPassChange" title="define uma senha nova pra sua conta">trocar senha</button><button class="btn sm" id="sbLogout">sair</button></div>
     <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;

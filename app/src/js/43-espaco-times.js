@@ -94,12 +94,12 @@ function renderTeamBoard(){
     return;
   }
   if(!teamTasks){
-    el.innerHTML=cosmosHtml('carregando o espaço do time…'); teamPaintSig='';
-    teamFetch(true).then(()=>{
-      if(teamTasks){ renderTeamBoard(); return; }
-      el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn);margin:12px">Não consegui carregar o time. <button class="btn sm" id="tbRetry">tentar de novo</button></div>';
-      const b=$id('tbRetry'); if(b) b.onclick=()=>{ teamPaintSig=''; renderTeamBoard(); };
-    }).catch(e=>{ el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn);margin:12px">Falhou: '+esc(e.message)+'</div>'; });
+    // uma carga por vez (o refresh chama isto a cada tick); falhou: o erro fica com "tentar de novo" (e só tenta sozinho após 30 s)
+    if(el.__tbLoading || (el.querySelector(':scope>.ld-err') && Date.now()-(el.__tbErrAt||0)<30000)) return;
+    teamPaintSig=''; el.__tbLoading=true;
+    loadInto(el, 'kanban', ()=>teamFetch(true).then(()=>{ if(!teamTasks) throw new Error('o time não respondeu'); }), ()=>{ teamPaintSig=''; renderTeamBoard(); },
+      { label:'buscando as tarefas do time', ctx:'Não consegui carregar o espaço do time', shape:{ cols:4 } })
+      .then(r=>{ el.__tbLoading=false; if(r==='fail') el.__tbErrAt=Date.now(); });
     return;
   }
   if(Date.now()-teamFetchedAt>10000){ teamFetch().then(()=>renderTeamBoard()).catch(()=>{}); }
@@ -299,7 +299,7 @@ function openCloudTask(ct){
     <select class="sel" id="ctEpic" style="width:100%"><option value="">— sem épico —</option>${teamEpics.map(e=>`<option value="${escA(e.id)}"${ct.epic_id===e.id?' selected':''}>${esc(e.name)}</option>`).join('')}</select>
     <div id="ctReqProof"></div>
     <div id="ctProofs"></div>
-    <div id="ctAct" class="dim" style="font-size:11px;margin-top:12px">carregando atividade…</div>
+    <div id="ctAct" class="dim" style="font-size:11px;margin-top:12px">${skeletonHtml('lista',{ n:3, compact:true, label:'carregando a atividade' })}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${canEdit?'<button class="btn primary" id="ctSave">salvar alterações</button>':''}</div>`;
   // requisitos com prova (sincronizados do requirements.json do dev)
   { const rp=ct.requirements_proof; const el=$id('ctReqProof');

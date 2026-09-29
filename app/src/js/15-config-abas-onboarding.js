@@ -283,7 +283,7 @@ function showActiveView(){
   if(t.kind==='flow') return; // o quadro (.body) já aparece
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
   loadTabState(t);      // devolve o estado guardado desta aba (views múltiplas)
-  if(!(KEEP_ON_SWITCH.has(t.kind) && t.loaded)){ viewOpen(t.kind, t); t.loaded=true; }  // popula + mostra (os abridores setam display='flex' = layout de MODAL)
+  if(!(KEEP_ON_SWITCH.has(t.kind) && t.loaded)){ if(typeof perfTabOpen==='function') perfTabOpen(t.kind); viewOpen(t.kind, t); t.loaded=true; }  // popula + mostra (os abridores setam display='flex' = layout de MODAL)
   const o=$id(target);
   // vira ABA no MESMO quadro: antes era num requestAnimationFrame e a tela pintava 1 quadro como
   // modal (flex, sem .astab) a cada troca de aba — a "piscada"

@@ -52,6 +52,8 @@ async function openPlanner(){
   const seq=++plOpenSeq;
   plReset();
   $id('plannerOverlay').style.display='flex';
+  // só o esqueleto do chat enquanto o rascunho é lido (o resto da Nova demanda/planner é o PR B)
+  { const th=$id('plThread'); if(th) ldPaint(th, skeletonHtml('chat', { n:2, composer:false, label:'abrindo o rascunho' })); }
   let draft=null; try{ draft=await invoke('load_draft'); }catch(_){}
   if(draft){ try{ const d=JSON.parse(draft);
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){

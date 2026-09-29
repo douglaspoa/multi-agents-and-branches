@@ -44,7 +44,7 @@ function renderGraph(){
         <span class="mono dim" style="font-size:10px">${esc(t.base||'main')} → ${esc(t.branch)}</span>
         ${stBadge(taskSt(t))}${t.flag==='blocked'?' <span class="flagbadge blk">bloqueada</span>':''}
       </div>
-      <div class="grrail">${cs===undefined?'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">carregando commits…</span>':(cs.length?rail(t):'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
+      <div class="grrail">${cs===undefined?'<div style="padding:8px 16px">'+skeletonHtml('lista',{ n:2, compact:true, label:'carregando os commits' })+'</div>':(cs.length?rail(t):'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
     </div>`;
   }).join('');
   const mainRow=mainCommits.length?`<div class="grmain"><span class="mono" style="color:var(--text-2);font-size:11px;font-weight:700">main</span><div class="grmc">${mainCommits.slice(0,12).map(c=>`<span class="gmdot" data-hash="${escA(c.hash)}" title="${escA((c.subject||'').slice(0,90))}"></span>`).join('')}</div><span class="dim" style="font-size:10.5px">últimos ${Math.min(12,mainCommits.length)} commits · clique num ponto pra ver o diff</span></div>`:'';
@@ -107,7 +107,7 @@ let curCommit=null;
 async function openCommit(hash){
   curCommit=hash;
   const ov=$id("cmOverlay"), body=$id("cmBody");
-  ov.style.display="flex"; body.innerHTML=cosmosHtml('carregando…','inline');
+  ov.style.display="flex"; ldPaint(body, skeletonHtml('tabela',{ n:6, cols:2, label:'carregando o commit' }));
   let d; try{ d=await invoke("commit_detail",{hash}); }
   catch(e){ body.innerHTML='<div class="dim" style="font-size:12px">'+esc(String(e))+'</div>'; return; }
   const files = parseDiff(d.diff);

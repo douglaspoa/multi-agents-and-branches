@@ -184,7 +184,6 @@ function orqRender(){
   if(orq.step==='brief') orqRenderBrief(body); else orqRenderPlan(body);
   stick($id('orqChat'));
   body.querySelectorAll('[data-orqgo]').forEach(b=>b.onclick=()=>{ if(b.dataset.orqgo&&window.openTab) window.openTab(b.dataset.orqgo); });
-  if(typeof cosmosMount==='function') cosmosMount(body);
 }
 function orqRenderBrief(body){
   const prev=(orq.list||[]).slice(0,6);
@@ -194,7 +193,7 @@ function orqRenderBrief(body){
     <div class="ndeyebrow" style="color:var(--accent)">dividir entre vários agentes</div>
     <h1 class="ndh1" style="margin-top:10px">Descreva o problema inteiro</h1>
     <p class="ndsub">Não precisa quebrar em tarefas. Um agente orquestrador lê isso, propõe as fases e abre um subagente para cada uma. Você aprova o plano antes de qualquer coisa rodar.</p>
-    ${orq.busy?cosmosHtml('o orquestrador está lendo o repositório e montando o plano…'):`
+    ${orq.busy?brandLoaderHtml('o orquestrador está lendo o repositório e montando o plano…'):`
     <div class="attrow attpend" id="orqPend" style="display:${orq.atts.length?'flex':'none'}"></div>
     ${chatComposerHtml({ cls:'orq-briefcc', input:'orqTa', attach:'orqAtt', rows:5, value:orq.briefing,
       placeholder:'ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar',
@@ -294,7 +293,7 @@ function orqRenderPlan(body){
         <span class="orq-leg"><i style="background:${ORQ_ST.running}"></i>rodando <i style="background:${ORQ_ST.asking}"></i>perguntou · responda <i style="background:${ORQ_ST.review}"></i>entregou · revise <i style="background:${ORQ_ST.done}"></i>pronto <i style="background:${ORQ_ST.error}"></i>erro <i style="background:rgba(255,255,255,.35)"></i>esperando</span>
         <span style="flex:1"></span><span class="mono dim" style="font-size:11px">arraste o fundo</span>
         <span class="orq-zoom"><button data-orqz="-">−</button><button data-orqz="fit">ajustado</button><button data-orqz="+">+</button></span></div>
-      <div class="orq-canvas" id="orqCanvas"><canvas class="cosmos-c orq-sky"></canvas>
+      <div class="orq-canvas" id="orqCanvas">
         <div class="orq-world" id="orqWorld" style="transform:translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})"><svg class="orq-svg" width="${pos.__size.w}" height="${pos.__size.h}">${edges}</svg>${orqNode}${nodes}</div></div>
     </div>
     <aside class="orq-insp" id="orqInsp">${orq.addOpen?orqAddHtml():orqInspHtml()}</aside>

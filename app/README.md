@@ -57,7 +57,7 @@ app/
       83-responsivo.css     (R7, por último) regras gerais de redimensionamento: título com prioridade, selos (épico/protegido/branch) encolhem com …, nada mais largo que a coluna
     js/                     scripts clássicos, escopo global compartilhado, carregados em ORDEM
       00-util.js            $id(), bindClick(), lsGet/lsSet, syncChromeH, pathBase/pathDir, osKind, toast (com ação) e o catálogo de erros pt-BR humanErr/showErr — helpers usados por todos
-      05-cosmos.js          céu estrelado dos loadings (cosmosHtml/cosmosStart)
+      06-carregamento.js    carregamento único: skeletonHtml/brandLoaderHtml/emptyHtml/errorHtml, tabBusy (barra da aba) e loadInto (pinta, depois busca) — css/86-carregamento.css
       10-core.js            invoke, ícones (IC.* — SVG; nada de emoji como ícone), refresh() do snapshot, notificações, evNorm (eventos antigos com emoji no prefixo → formato novo)
       11-ambiente-updater.js  preflight (node/git/claude/gh) e updater
       12-chat-prefs-daily.js  chat do projeto, preferências do projeto, daily/relatório

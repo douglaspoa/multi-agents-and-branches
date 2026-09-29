@@ -15,7 +15,7 @@ async function runEnvCheck(){
 function renderEnv(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const el=$id('envBody'); if(!el) return;
-  if(!envChecks){ el.innerHTML='<div class="appscreen">'+cosmosHtml('verificando o ambiente…')+'</div>'; return; }
+  if(!envChecks){ ldPaint(el, '<div class="appscreen">'+skeletonHtml('lista',{ head:true, n:6, label:'verificando o ambiente' })+'</div>'); return; }
   const okN=envChecks.filter(c=>c.ok).length, tot=envChecks.length, bad=tot-okN;
   const banner = bad
     ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${bad} pendência${bad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} ok</span></div>`
@@ -38,10 +38,10 @@ function renderEnv(){
 }
 // quanto tempo faz a última checagem ("agora" só quando foi mesmo agora — antes mostrava "agora" com resultado velho)
 function envAgo(){ if(!envCheckedAt) return '—'; const s=Math.round((Date.now()-envCheckedAt)/1000); if(s<60) return 'agora'; const m=Math.round(s/60); if(m<60) return 'há '+m+' min'; const h=Math.round(m/60); return h<24?'há '+h+' h':new Date(envCheckedAt).toLocaleDateString('pt-BR'); }
-async function openEnv(){ $id('envOverlay').style.display='flex'; const p=runEnvCheck(); renderEnv(); await p; renderEnv(); }
+async function openEnv(){ $id('envOverlay').style.display='flex'; const p=tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); await p; renderEnv(); }
 $id('envBtn').onclick=openEnv;
 $id('envClose').onclick=()=>{ ovHide('envOverlay'); };
-$id('envRecheck').onclick=async()=>{ envChecks=null; renderEnv(); await runEnvCheck(); renderEnv(); };
+$id('envRecheck').onclick=async()=>{ envChecks=null; renderEnv(); await tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); };
 $id('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') ovHide('envOverlay'); });
 // boot: valida em background; problema → abre a tela sozinho (1x por sessão)
 setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')){ if(window.openTab) window.openTab('env'); else openEnv(); } }, 2500);
