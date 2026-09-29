@@ -1672,6 +1672,13 @@ export class Orchestrator {
   async mergeTask(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    // merge do HUMANO já em andamento no repo principal: recusa ANTES — nunca abortar um merge que não
+    // foi a gente que começou (o abort jogaria fora a resolução dele)
+    if (await this.git.mergeInProgress()) {
+      const why = mergeFailReason("MERGE_HEAD exists");
+      this.store.addEvent(taskId, task.agent, "error", `não deu pra mergear: ${why}`, false);
+      throw new Error(`não deu pra mergear em ${task.base}: ${why}`);
+    }
     try {
       await this.git.mergeBranch(task.branch, `starfork: merge ${task.title} (${task.branch})`);
     } catch (err) {
@@ -1679,7 +1686,8 @@ export class Orchestrator {
       // commitada no repo principal, base não está em check-out, branch sumiu) virava "conflict" — a
       // tarefa ia pra "em conflito" e o humano/IA tentava resolver um conflito que não existia.
       const e = err as Error & { stderr?: string; stdout?: string };
-      const text = `${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message ?? ""}`;
+      // só a SAÍDA do git: e.message repete a linha de comando (o -m com o título da tarefa, que pode ter "conflict")
+      const text = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
       if (await this.git.hasUnmerged() || /CONFLICT|Automatic merge failed/i.test(text)) {
         await this.git.abortMerge();
         this.store.setStatus(taskId, "conflict");

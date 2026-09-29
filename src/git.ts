@@ -270,6 +270,16 @@ export class GitService {
     await run("git", ["-C", this.repo, "merge", "--no-ff", "-m", message, branch]);
   }
 
+  /** Já há um merge em andamento no repo principal (MERGE_HEAD ou arquivos em conflito)? */
+  async mergeInProgress(): Promise<boolean> {
+    try {
+      await run("git", ["-C", this.repo, "rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+      return true;
+    } catch {
+      return this.hasUnmerged();
+    }
+  }
+
   /** Há arquivos em conflito (merge parado no meio) no repo principal? */
   async hasUnmerged(): Promise<boolean> {
     try {

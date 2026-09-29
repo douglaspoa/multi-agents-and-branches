@@ -80,3 +80,39 @@ test("motivos legíveis", () => {
   assert.match(mergeFailReason("fatal: You have not concluded your merge (MERGE_HEAD exists)."), /merge em andamento/);
   assert.equal(mergeFailReason("Command failed: git merge\nfatal: algo novo"), "algo novo");
 });
+
+test("merge do HUMANO já em andamento no repo principal: recusa antes e NÃO aborta a resolução dele", async () => {
+  const { root, repo, orch } = await setup();
+  try {
+    // o humano mergeia outra branch que conflita e deixa a resolução pela metade
+    git(repo, "checkout", "-q", "-b", "outra");
+    writeFileSync(join(repo, "app.txt"), "linha da outra\n");
+    git(repo, "commit", "-q", "-am", "outra");
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "app.txt"), "linha da main\n");
+    git(repo, "commit", "-q", "-am", "main");
+    try { git(repo, "merge", "outra"); } catch { /* conflito esperado */ }
+    writeFileSync(join(repo, "app.txt"), "resolução do humano\n");
+    await assert.rejects(orch.mergeTask("t-m"), /merge em andamento/);
+    assert.equal(orch.store.getTask("t-m")!.status, "review");
+    git(repo, "rev-parse", "-q", "--verify", "MERGE_HEAD"); // merge dele continua lá
+    assert.equal((await import("node:fs")).readFileSync(join(repo, "app.txt"), "utf8"), "resolução do humano\n");
+  } finally {
+    orch.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("título da tarefa com 'conflict' não faz uma falha comum virar conflito", async () => {
+  const { root, repo, orch } = await setup();
+  try {
+    const t = orch.store.getTask("t-m")!;
+    orch.store.db.prepare("UPDATE task SET title = ? WHERE id = ?").run("Fix CONFLICT banner (Automatic merge failed)", t.id);
+    writeFileSync(join(repo, "app.txt"), "edição não commitada\n");
+    await assert.rejects(orch.mergeTask("t-m"), /mudanças não commitadas/);
+    assert.equal(orch.store.getTask("t-m")!.status, "review");
+  } finally {
+    orch.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
