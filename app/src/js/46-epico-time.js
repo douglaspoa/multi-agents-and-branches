@@ -123,7 +123,7 @@ function epicPageRender(){
                               : `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a entrega pra revisar">revisar</button>`)
       : bad ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a tarefa pra ver o erro">ver o problema</button>` : '';
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
-    return `<div class="ep-task" data-ept="${escA(t.id)}" role="button" tabindex="0" aria-label="${escA(t.title+' — '+stLabel(est))}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:esc(stIcon(est))}</span><div class="en-rt">
+    return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:esc(stIcon(est))}</span><div class="en-rt">
       <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${stTx}${t.assignee?' · '+esc(tmName(t.assignee)):''}</span></div>
       ${vtx||cov.length?`<div class="ep-verify">${vtx?'✓ prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
@@ -196,7 +196,9 @@ let epDwBusy=false; // um PATCH do checklist por vez: dois cliques rápidos liam
 async function epicToggleDone(ep, idx, on){
   if(epDwBusy) return; epDwBusy=true;
   document.querySelectorAll('#epicPageMain [data-epdw]').forEach(x=>{ x.disabled=true; });
-  try{ await epicToggleDoneRun(ep, idx, on); } finally{ epDwBusy=false; }
+  try{ await epicToggleDoneRun(ep, idx, on); }
+  finally{ epDwBusy=false; // sempre destrava: redesenha a página do épico (se ainda é ela) ou só reabilita os checkboxes
+    if(epTab&&epTab.id===ep.id) epicPageRender(); else document.querySelectorAll('#epicPageMain [data-epdw]').forEach(x=>{ x.disabled=false; }); }
 }
 async function epicToggleDoneRun(ep, idx, on){
   // parte do spec FRESCO da nuvem: outro membro ou o agente revisor podem ter marcado itens enquanto a aba ficou aberta
@@ -532,12 +534,21 @@ async function epCardStart(ct, btn){
     const pj=(typeof teamProj!=='undefined'&&teamProj&&teamProj[ct.project_id])||(ct.project_id?((await sbGet('projects?select=name,repo_remote&id=eq.'+ct.project_id))[0]||{}):{});
     const hereIds=await repoRemoteIds();
     // alert() no Tauri não é confiável (igual ao confirm) — o aviso vai no toast, com o atalho pra trocar de projeto
-    if(pj.repo_remote && hereIds.remote && !remoteSame(pj.repo_remote, hereIds)){ toast('Esta tarefa é do projeto '+(pj.name||pj.repo_remote)+'. Abra esse projeto e clique em iniciar de novo.','warn',{ label:'abrir Projetos', fn:()=>{ if(window.openTab) window.openTab('projetos'); } }); return; }
+    if(pj.repo_remote && hereIds.remote && !remoteSame(pj.repo_remote, hereIds)){ toast('Esta tarefa é do projeto '+(pj.name||pj.repo_remote)+'. Abra esse projeto e clique em iniciar de novo.','warn',{ label:'abrir '+(pj.name||'o projeto'), fn:()=>epOpenProjectOf(pj) }); return; }
     const left=((ct.spec||{}).after||[]).filter(a=>(a in epQueue.stOf) && !epDepDone(a));
     if(left.length && !await askYes('Ainda depende de: '+left.map(a=>epQueue.titleOf[a]||a).join(', ')+' (não concluída).\n\nIniciar mesmo assim?')) return;
     await teamClaimStart(ct, btn||null);
     epicAutoStartTick();
   }catch(e){ showErr(e, 'Não deu pra iniciar'); }
+}
+// abre (troca pra) o projeto LOCAL cujo remote é o do cartão; não achou nesta máquina → aba Projetos
+async function epOpenProjectOf(pj){
+  try{
+    const locals=(await invoke('list_projects'))||[];
+    for(const p of locals){ const ids=await repoRemoteIds(p.path); if(remoteSame(pj.repo_remote, ids)){ if(window.switchProject) await window.switchProject(p.path); return; } }
+  }catch(e){ console.warn('abrir projeto do cartão', e); }
+  toast('O projeto '+(pj.name||pj.repo_remote||'')+' não está aberto nesta máquina — abra ou clone a pasta dele em Projetos.','warn');
+  if(window.openTab) window.openTab('projetos');
 }
 // ✕ cancelar = tirar do backlog do time (as que dependiam dela deixam de esperar por ela)
 async function epCardCancel(ct){

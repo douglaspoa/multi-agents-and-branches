@@ -198,6 +198,7 @@
 /* R7 (agentes): etapa cujo agente foi removido + "+ etapa" sem arrastar */
 .stepchip .stepgone{color:var(--warn);font-weight:500;font-style:italic}
 .wfaddsel{font-size:11px;padding:3px 6px;height:auto;width:auto;max-width:160px;color:var(--text-2);background:transparent;border:1px dashed var(--border-strong);border-radius:var(--r-sm);cursor:pointer}
-.wfaddsel:hover,.wfaddsel:focus-visible{color:var(--text);border-color:rgba(255,255,255,.3)}
+.wfaddsel:hover{color:var(--text);border-color:var(--border-strong)}
+.wfaddsel:focus-visible{color:var(--text);outline:none;box-shadow:var(--ring)}
 /* R7 (skills): vazio/busca sem resultado ocupa a grade toda (antes ficava espremido na 1ª coluna) */
 .sk-grid > .ld-empty{grid-column:1/-1}

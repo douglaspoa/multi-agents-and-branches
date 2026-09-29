@@ -120,13 +120,12 @@
 .trk-tl .trk-task{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:var(--stc,var(--accent));border-color:color-mix(in srgb,var(--stc,var(--accent)) 40%,transparent)}
 .trk-ih .trk-pri,.trk-ih .trk-code{flex:none}
 .trk-ih .trk-epb{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.trk-tools .sk-search{min-width:290px;flex:0 1 320px}
+.trk-tools .sk-search{min-width:200px;flex:0 1 280px} /* R7: menor — a barra cabe numa linha em 1440 */
 .trk-tools .sk-search input{min-width:0;text-overflow:ellipsis}
 .trk-epgh .mono{flex:none}
 /* R7 (issues/épico): cartão da issue e cabeçalho do grupo navegáveis por teclado */
-.trk-issue:focus-visible,.trk-epgh:focus-visible,.ep-task:focus-visible{outline:none;box-shadow:var(--ring);border-color:rgba(255,255,255,.3)}
-/* R7: a barra do quadro cabe numa linha em 1440 — busca um pouco menor e "atualizar" vira ícone (a ação primária "+ nova issue" não cai sozinha na 2ª linha) */
-.trk-tools .sk-search{min-width:200px;flex:0 1 280px}
+.trk-issue:focus-visible,.trk-epgh:focus-visible,.ep-task:focus-visible{outline:none;box-shadow:var(--ring);border-color:var(--border-strong)}
+/* R7: "atualizar" vira ícone e as ações ficam agrupadas à direita (a ação primária "+ nova issue" não cai sozinha na 2ª linha) */
 .trk-tools .trk-refresh{padding:7px 9px;line-height:0}
 .trk-tools .trk-refresh svg{width:14px;height:14px}
 .trk-tools .trk-tacts{margin-left:auto;display:flex;align-items:center;gap:8px}

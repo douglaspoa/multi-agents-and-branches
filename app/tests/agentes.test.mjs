@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../src/js/33-switcher-projetos.js', import.meta.url), 'utf8');
 const i = src.indexOf('// @puro-agentes-inicio'), j = src.indexOf('// @puro-agentes-fim');
 assert.ok(i >= 0 && j > i);
-const A = new Function(src.slice(i, j) + '\nreturn { agSlug, agFrontmatter, wfEnsureIds, wfDropAgent };')();
+const A = new Function(src.slice(i, j) + '\nreturn { agSlug, agFrontmatter, agFromMd, wfEnsureIds, wfDropAgent };')();
 
 test('frontmatter com LF', () => {
   const r = A.agFrontmatter('---\nname: revisor\ndescription: "revisa PR"\nmodel: sonnet\n---\n\nVocê revisa.\n');
@@ -31,15 +31,33 @@ test('sem cabeçalho: tudo vira corpo; cabeçalho sem corpo não quebra', () => 
   assert.equal(r.body, '');
 });
 
-test('equipes com o mesmo nome ganham ids diferentes; id existente é mantido', () => {
-  const ws = [{ id: '', name: 'Nova equipe' }, { id: '', name: 'Nova equipe' }, { id: 'plano', name: 'Plano' }, { id: 'plano', name: 'Cópia' }];
-  A.wfEnsureIds(ws);
-  const ids = ws.map(w => w.id);
-  assert.equal(ids[0], 'nova-equipe');
-  assert.equal(ids[1], 'nova-equipe-2');
-  assert.equal(ids[2], 'plano');
-  assert.notEqual(ids[3], 'plano');
-  assert.equal(new Set(ids).size, ids.length);
+test('equipes sem id ganham ids únicos; id existente NUNCA é renomeado', () => {
+  const ws = [{ id: '', name: 'Nova equipe' }, { id: 'nova-equipe', name: 'Antiga' }, { id: '', name: 'Nova equipe' }, { id: 'plano', name: 'Plano' }, { id: 'plano', name: 'Cópia' }];
+  assert.equal(A.wfEnsureIds(ws), true);
+  assert.equal(ws[1].id, 'nova-equipe');          // a existente fica com o dela
+  assert.equal(ws[0].id, 'nova-equipe-2');        // a nova desvia do id reservado
+  assert.equal(ws[2].id, 'nova-equipe-3');
+  assert.deepEqual([ws[3].id, ws[4].id], ['plano', 'plano']); // existentes nunca mudam
+  assert.equal(A.wfEnsureIds(ws), false);         // nada a fazer = nada mudou
+});
+
+test('cabeçalho vazio (---/---) e valores em bloco do YAML (> e |)', () => {
+  assert.deepEqual(A.agFrontmatter('---\n---\nsó corpo'), { fm: {}, body: 'só corpo' });
+  const r = A.agFrontmatter('---\nname: rev\ndescription: >\n  Revisa o PR\n  com calma.\nnotes: |\n  linha 1\n  linha 2\nmodel: sonnet\n---\nCorpo');
+  assert.equal(r.fm.description, 'Revisa o PR com calma.');
+  assert.equal(r.fm.notes, 'linha 1\nlinha 2');
+  assert.equal(r.fm.model, 'sonnet');
+  assert.equal(r.body, 'Corpo');
+  const c = A.agFrontmatter('---\r\ndescription: >-\r\n  a\r\n  b\r\nname: x\r\n---\r\n');
+  assert.equal(c.fm.description, 'a b'); assert.equal(c.fm.name, 'x');
+});
+
+test('agFromMd: sem nome no cabeçalho usa o arquivo sem .md; descrição entra na persona', () => {
+  const a = A.agFromMd('revisor-pr.md', '---\ndescription: revisa PR\n---\nOlhe testes.');
+  assert.equal(a.name, 'revisor-pr');
+  assert.equal(a.persona, 'revisa PR Olhe testes.');
+  assert.equal(a.engine, 'claude'); assert.equal(a.role, 'builder');
+  assert.equal(A.agFromMd('x.MD', 'sem cabeçalho').name, 'x');
 });
 
 test('agente removido sai de todas as equipes', () => {

@@ -266,6 +266,8 @@ async function tabLeaveGuard(targetId, closing){
 function closeTab(id){
   const i=TABS.findIndex(t=>t.id===id); if(i<0||TABS[i].pin) return;
   const kind=TABS[i].kind;
+  // Agentes & Equipes com edição não salva: o X da aba passa pelo mesmo "descartar?" do cancelar (33 cancelAgents)
+  if(kind==='agents' && typeof agDirty==='function' && agDirty() && typeof cancelAgents==='function'){ cancelAgents(); return; }
   TABS.splice(i,1);
   // esconde o overlay do kind se nenhuma OUTRA aba do mesmo kind sobrou
   if(!TABS.some(t=>t.kind===kind)){ const o=$id(VIEW_OVERLAY[kind]); if(o){ o.classList.remove('astab'); o.style.display='none'; } }

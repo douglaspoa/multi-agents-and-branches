@@ -146,7 +146,7 @@ document.addEventListener("keydown", e=>{
     // (rascunho perdido) e deixava a aba Agentes em branco. Agora só o que é MODAL (não aba) fecha aqui.
     const nt=$id('ntOverlay'), ag=$id('agOverlay');
     if(nt && nt.style.display!=='none' && !nt.classList.contains('astab') && !escBusy(e)){ closeNewTask(); return; }
-    if(ag && ag.style.display!=='none' && !ag.classList.contains('astab') && !escBusy(e)){ closeAgents(); return; }
+    if(ag && ag.style.display!=='none' && !ag.classList.contains('astab') && !escBusy(e)){ cancelAgents(); return; } // pergunta se há mudança não salva
     return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
@@ -160,21 +160,41 @@ let cfgEdit = { agents:[], workflows:[] };
 function escA(s){ return esc(s).replace(/"/g,"&quot;"); }
 // @puro-agentes-inicio (testado em app/tests/agentes.test.mjs — sem DOM nem estado global)
 function agSlug(s){ return (String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,24))||"item"; }
-// cabeçalho do .md de subagente (bloco entre ---): aceita CRLF (arquivo salvo no Windows) e BOM — antes o
-// regex só casava com \n e o arquivo inteiro virava persona, com o nome do arquivo no lugar do nome do agente
+// cabeçalho do .md de subagente (bloco entre ---): aceita CRLF (arquivo salvo no Windows), BOM, cabeçalho vazio
+// (---\n---) e valor em bloco do YAML (description: > / |, com as linhas indentadas seguintes) — antes o regex só
+// casava com \n e o arquivo inteiro virava persona, com o nome do arquivo no lugar do nome do agente
 function agFrontmatter(content){
-  const txt=String(content||'').replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
-  const m=txt.match(/^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)([\s\S]*)$/);
+  const txt=String(content||'').replace(/^﻿/,'').replace(/\r\n?/g,'\n');
+  const m=txt.match(/^---[ \t]*\n(?:([\s\S]*?)\n)?---[ \t]*(?:\n|$)([\s\S]*)$/);
   if(!m) return { fm:{}, body:txt.trim() };
-  const fm={}; m[1].split('\n').forEach(line=>{ const i=line.indexOf(':'); if(i>0){ const k=line.slice(0,i).trim().toLowerCase(); fm[k]=line.slice(i+1).trim().replace(/^["']|["']$/g,''); } });
+  const fm={}, lines=(m[1]||'').split('\n');
+  for(let n=0;n<lines.length;n++){
+    const line=lines[n]; if(/^\s/.test(line)||!line.trim()) continue; // continuação solta (já tratada abaixo)
+    const i=line.indexOf(':'); if(i<=0) continue;
+    const k=line.slice(0,i).trim().toLowerCase(); let v=line.slice(i+1).trim();
+    const block=v.match(/^([>|])[+-]?$/), more=[];
+    while(n+1<lines.length && (/^\s+\S/.test(lines[n+1]) || (!lines[n+1].trim() && block))){ n++; more.push(lines[n].trim()); }
+    while(more.length && !more[more.length-1]) more.pop();
+    if(block) v=block[1]==='|' ? more.join('\n') : more.join(' ').replace(/\s+/g,' ').trim(); // | mantém as quebras; > junta
+    else if(more.length) v=(v+' '+more.join(' ')).trim(); // valor simples quebrado em várias linhas
+    fm[k]=v.replace(/^["']|["']$/g,'');
+  }
   return { fm, body:m[2].trim() };
 }
-// id de equipe ÚNICO: duas equipes "Nova equipe" viravam o mesmo id (nova-equipe) e a 2ª sobrescrevia a 1ª ao escolher
+// .md de subagente → agente (sem id; quem chama dá o id único). Sem nome no cabeçalho: nome do arquivo sem .md
+function agFromMd(filename, content){
+  const { fm, body }=agFrontmatter(content);
+  const name=fm.name || String(filename||'agente').replace(/\.md$/i,'') || 'agente';
+  const persona=((fm.description ? fm.description.trim()+(body?' ':'') : '')+body).trim();
+  return { name, role: fm.role || fm.category || 'builder', engine: (fm.engine==='mock'?'mock':'claude'), model: fm.model||undefined, color: fm.color || '#1e9e4a', avatar: fm.avatar || '', persona };
+}
+// id de equipe ÚNICO sem NUNCA renomear um id existente: 1º reserva todos os ids que já existem, depois dá id
+// só às equipes sem id (duas "Nova equipe" viravam nova-equipe e a 2ª sobrescrevia a 1ª). Devolve se mudou algo.
 function wfEnsureIds(workflows){
-  const used=new Set();
-  (workflows||[]).forEach(w=>{ if(w.id && !used.has(w.id)){ used.add(w.id); return; }
-    const base=agSlug(w.name||'equipe'); let id=base, n=2; while(used.has(id)){ id=base+'-'+n; n++; } w.id=id; used.add(id); });
-  return workflows;
+  const used=new Set((workflows||[]).map(w=>w&&w.id).filter(Boolean)); let changed=false;
+  (workflows||[]).forEach(w=>{ if(!w||w.id) return;
+    const base=agSlug(w.name||'equipe'); let id=base, n=2; while(used.has(id)){ id=base+'-'+n; n++; } w.id=id; used.add(id); changed=true; });
+  return changed;
 }
 // agente removido sai de TODAS as equipes (antes a etapa ficava órfã, mostrando o id cru); devolve quantas equipes mudaram
 function wfDropAgent(workflows, agentId){
@@ -314,10 +334,7 @@ function renderWf(){
   });
 }
 function parseAgentMd(filename, content){
-  const { fm, body }=agFrontmatter(content);
-  const name = fm.name || String(filename||'agente').replace(/\.md$/i,'');
-  const persona = (fm.description ? fm.description.trim()+(body?" ":"") : "") + body;
-  return { id: uniqueId(agSlug(name)), name, role: fm.role || fm.category || "builder", engine: (fm.engine==="mock"?"mock":"claude"), model: fm.model||undefined, color: fm.color || "#1e9e4a", avatar: fm.avatar || "", persona: persona.trim() };
+  const a=agFromMd(filename, content); return Object.assign({ id: uniqueId(agSlug(a.name)) }, a);
 }
 async function importAgents(){
   let files;
@@ -341,7 +358,7 @@ $id("agSave").onclick = saveConfig;
 $id("agAdd").onclick = addAgent;
 $id("agImport").onclick = importAgents;
 $id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Nova equipe", steps:[] }); renderWf(); };
-$id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
+$id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") cancelAgents(); });
 
 // rede de segurança global: o registro de erro solto/promise sem catch fica no 52-erros (app_errors) e no
 // 10-core (web_log) — aqui só evita o aviso padrão do WebView pra rejeição sem catch (o console.error

@@ -59,6 +59,47 @@ async function trkProjectOn(){
 function trkPath(o, p){ if(!p) return o; return String(p).split('.').reduce((a,k)=>(a==null?a:a[k]), o); }
 // campo pelo caminho do conector; vazio → tenta os nomes mais comuns (conector sem "fields" ou editado à mão)
 function trkField(o, path, ...alts){ const v=trkPath(o, path); if(v!=null&&v!=='') return v; for(const a of alts){ if(o&&o[a]!=null&&o[a]!=='') return o[a]; } return undefined; }
+// idem, mas só valor simples (texto/data): objeto (ex.: corpo em ADF do Jira) é pulado — senão virava "[object Object]"
+function trkFieldPrim(o, path, ...alts){ const ok=v=>v!=null&&v!==''&&typeof v!=='object';
+  const v=trkPath(o, path); if(ok(v)) return v; for(const a of alts){ if(o&&ok(o[a])) return o[a]; } return undefined; }
+// {{x}} → ctx.x; {{secret.X}} fica intacto (o Rust resolve). Chave de body/query que resolve vazia some.
+function trkFill(v, ctx){
+  if(typeof v==='string') return v.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g,(m,k)=>ctx[k]==null?'':String(ctx[k]));
+  if(Array.isArray(v)) return v.map(x=>trkFill(x,ctx));
+  if(v&&typeof v==='object'){ const o={}; for(const k in v){ const r=trkFill(v[k],ctx); if(r!==''&&r!=null) o[k]=r; } return o; }
+  return v;
+}
+// variáveis do comentário: {{text}} é o contrato; {{body}}/{{comment}} só entram se o template da operação os cita
+// e o conector NÃO declara uma variável própria com esse nome (senão sobrescreveríamos a dele)
+function trkCommentVars(op, text, ownVars){
+  const tpl=JSON.stringify({ p:(op&&op.path)||'', q:(op&&op.query)||{}, b:(op&&op.body)||{}, h:(op&&op.headers)||{} });
+  const own=new Set(ownVars||[]), out={ text };
+  ['body','comment'].forEach(k=>{ if(!own.has(k) && new RegExp('\\{\\{\\s*'+k+'\\s*\\}\\}').test(tpl)) out[k]=text; });
+  return out;
+}
+// estado do envio de comentário POR ISSUE (rascunho, erro, enviando): trocar de issue no meio não mistura nada.
+// Devolve 'skip' | 'fail' | 'reload' (enviou e a issue continua aberta) | 'done' (enviou, mas o usuário já está em outra)
+async function trkCmSendRun(st, code, text, send, cur){
+  if(!code||!text||st.sending[code]) return 'skip';
+  st.drafts[code]=text; st.sending[code]=true; delete st.errs[code];
+  try{ await send(); delete st.drafts[code]; delete st.sending[code]; return cur()===code?'reload':'done'; }
+  catch(e){ delete st.sending[code]; st.errs[code]=e; return 'fail'; }
+}
+// comentários da issue `code`: só aplica se ela ainda é a aberta (resposta atrasada de A não pisa nos de B)
+async function trkCommentsLoad(code, fetchList, cur, apply){
+  let list=[], err=null; try{ list=await fetchList(); }catch(e){ err=e; }
+  if(cur()!==code) return false; apply(list, err); return true;
+}
+// vazio do quadro filtrado: o texto diz o que está ativo (busca, filtro ou os dois)
+function trkEmptyFilterText(q, filter){
+  q=String(q||'').trim(); filter=filter||'all';
+  const fl=filter==='linked'?'“com tarefa”':filter==='unseen'?'“mudaram”':filter.startsWith('ep:')?'do épico '+filter.slice(3):'';
+  if(q&&fl) return { title:'Nenhuma issue com “'+q+'” no filtro '+fl, help:'A busca e o filtro juntos não acham nada — “mostrar todas” limpa os dois.' };
+  if(q) return { title:'Nenhuma issue com “'+q+'”', help:'A busca olha código, título e pessoa. Tente outra palavra.' };
+  if(filter==='unseen') return { title:'Nenhuma issue neste filtro', help:'Nada mudou desde a última vez que você olhou.' };
+  if(filter==='linked') return { title:'Nenhuma issue neste filtro', help:'Nenhuma issue tem tarefa vinculada ainda — abra uma issue e clique em “criar tarefa desta issue”.' };
+  return { title:'Nenhuma issue neste filtro', help:'Volte pra lista completa.' };
+}
 // @puro-issues-fim
 function trkUserVars(){ try{ return JSON.parse(lsGet('trk:uvars')||'{}'); }catch(_){ return {}; } }
 function trkCtx(extra){
@@ -66,13 +107,6 @@ function trkCtx(extra){
   (c.vars||[]).forEach(v=>{ ctx[v.name]=v.value||''; });
   Object.assign(ctx, trk.vars||{}, trkUserVars(), extra||{});
   return ctx;
-}
-// {{x}} → ctx.x; {{secret.X}} fica intacto (o Rust resolve). Chave de body/query que resolve vazia some.
-function trkFill(v, ctx){
-  if(typeof v==='string') return v.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g,(m,k)=>ctx[k]==null?'':String(ctx[k]));
-  if(Array.isArray(v)) return v.map(x=>trkFill(x,ctx));
-  if(v&&typeof v==='object'){ const o={}; for(const k in v){ const r=trkFill(v[k],ctx); if(r!==''&&r!=null) o[k]=r; } return o; }
-  return v;
 }
 // Campo que a API usa pro responsável (ex.: assignee_email): do conector, ou visto nas issues já lidas.
 function trkAssignKey(){ const f=(trk.connector.fields||{}).assigneeEmail; if(f&&!String(f).includes('.')) return String(f);
@@ -294,9 +328,10 @@ async function openIssues(){
   const mm=$id('moreMenu'); if(mm) mm.style.display='none';
   $id('issuesOverlay').style.display='flex';
   trkMsg=''; trkSel=null;
+  const want=trkWantView; trkWantView=''; // consumido já: se a carga falhar, não vale pra próxima abertura
   // pinta o kanban-esqueleto NA HORA; a config do painel (nuvem/local) chega depois e o quadro busca as issues
   await loadInto($id('issuesBody'), 'kanban', ()=>trkLoad(true), ()=>{
-    trkView=trkWantView||(trkReady()?'board':'conn'); trkWantView=''; // quem abriu pode pedir um estágio (ex.: "abrir a Conexão" da Nova issue)
+    trkView=want||(trkReady()?'board':'conn'); // quem abriu pode pedir um estágio (ex.: "abrir a Conexão" da Nova issue)
     issRender();
     if(trkView==='board') trkReload();
     trkLoadProjects();
@@ -344,7 +379,7 @@ function issRender(){
 let trkSecretSt={}, trkJsonOpen=false, trkTest='';
 // comentários da issue aberta: erro de leitura (antes virava "nenhum comentário" calado), rascunho (sobrevive a
 // re-render e a falha no envio) e envio em curso (sem clique duplo = comentário duplicado)
-let trkCmErr='', trkCmDraft='', trkCmSending=false, trkCmSendErr='';
+let trkCmErr='', trkCm={ drafts:{}, errs:{}, sending:{} }; // trkCm: por código da issue (trkCmSendRun)
 function trkConnHtml(){
   const c=trk.connector;
   const ops=c?[...new Set(Object.keys(c.ops||{}).concat('assign'))].map(k=>{ const o=trkOp(k); const nm={list:'listar',create:'criar',updateStatus:'mudar status',assign:'trocar responsável',comments:'ler comentários',addComment:'comentar'}[k]||k;
@@ -556,7 +591,8 @@ function trkBoardHtml(){
   const area = first && trkBusy==='load' ? skeletonHtml('kanban', { cols:Math.min(5, Math.max(3, cols.length)), inline:true, label:'buscando issues' })
     : first && trkErr ? errorHtml(trkErr, 'trkRetry', null, { human:true }) // trkErr já é texto humano (trkErrText)
     : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras no passo 2.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
-    : filteredOut ? emptyHtml({ icon:'search', title:q?'Nenhuma issue com “'+trkQ.trim()+'”':'Nenhuma issue neste filtro', help:trkFilter==='unseen'?'Nada mudou desde a última vez que você olhou.':trkFilter==='linked'?'Nenhuma issue tem tarefa vinculada ainda — abra uma issue e clique em “criar tarefa desta issue”.':'Tente outra busca ou volte pra lista completa.', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } })
+    // o detalhe aberto (e o comentário sendo digitado) continua ao lado do vazio; emptyHtml escapa título e ajuda
+    : filteredOut ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${emptyHtml(Object.assign({ icon:'search', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } }, trkEmptyFilterText(trkQ, trkFilter)))}</div>${trkSel?trkDetailHtml():''}</div>`
     : `<div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
   return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar código, título ou pessoa"></div>
@@ -741,7 +777,10 @@ function trkNIRender(){
   const o=$id('issuesBulkBody'), n=trkNI; if(!o||!n) return;
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   if(!trkReady()||!trk.connector.ops.create){ o.innerHTML='<div class="sk-screen trk"><h1 class="sk-h1">Nova issue</h1>'+emptyHtml({ icon:'doc', title:trkReady()?'Este painel não deixa criar issues':'Conecte o painel de issues primeiro', help:trkReady()?'A documentação da API não tem como criar issue — dá pra gerar a conexão de novo com uma doc mais completa.':'Em Issues → Conexão você cola a documentação da API e a IA monta a conexão.', action:{ id:'trkNIGoConn', label:'abrir a Conexão' } })+'</div>';
-    const g=$id('trkNIGoConn'); if(g) g.onclick=()=>{ trkWantView='conn'; closeTabOfKind('issuesbulk'); openTab('issues'); }; return; }
+    const g=$id('trkNIGoConn'); if(g) g.onclick=()=>{ if(window.closeTabOfKind) closeTabOfKind('issuesbulk');
+      trkWantView='conn'; if(window.openTab) window.openTab('issues'); else openIssues();
+      // aba já aberta e só focada (sem recarregar): aplica direto e não deixa o pedido pendurado
+      if(trkWantView && trk && $id('issuesOverlay') && $id('issuesOverlay').style.display!=='none'){ trkWantView=''; trkView='conn'; trkMsg=''; trkSel=null; issRender(); } }; return; }
   const keep=document.activeElement&&document.activeElement.id==='trkNIInput', iv=$id('trkNIInput')?$id('trkNIInput').value:'';
   const todo=trkNITodo(), made=n.items.filter(i=>i.state==='ok').length, openQ=todo.reduce((a,i)=>a+i.open.length,0);
   const canAssign=JSON.stringify((trkOp('create')||{}).body||{}).includes('{{assignee}}');
@@ -873,7 +912,7 @@ function trkDetailHtml(){
     :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando comentários' })
     :trkCmErr?errorHtml('Não consegui ler os comentários: '+trkCmErr, 'trkCmRetry', null, { human:true })
     :(trkComments.map(m=>`<div class="trk-cm"><b>${esc(m.author||'—')}</b> <span class="dim">${trkAgo(m.createdAt)}</span><div>${esc(m.text||'')}</div></div>`).join('')||'<p class="trk-rs">nenhum comentário</p>')
-     +(c.ops.addComment?`<div class="trk-bar" style="margin-top:8px"><input class="in" id="trkCmIn" value="${escA(trkCmDraft)}" placeholder="comentar… (Enter envia)"${trkCmSending?' disabled':''}><button class="btn" id="trkCmSend"${trkCmSending?' disabled':''}>${trkCmSending?'enviando…':'enviar'}</button></div>${trkCmSendErr?`<div class="trk-rs" role="alert" style="color:var(--warn);margin-top:6px">${esc(trkCmSendErr)} — o texto ficou na caixa, é só enviar de novo.</div>`:''}`:'');
+     +(c.ops.addComment?`<div class="trk-bar" style="margin-top:8px"><input class="in" id="trkCmIn" value="${escA(trkCm.drafts[i.code]||'')}" placeholder="comentar… (Enter envia)"${trkCm.sending[i.code]?' disabled':''}><button class="btn" id="trkCmSend"${trkCm.sending[i.code]?' disabled':''}>${trkCm.sending[i.code]?'enviando…':'enviar'}</button></div>${trkCm.errs[i.code]?`<div class="trk-rs" role="alert" style="color:var(--warn);margin-top:6px">Não enviei o comentário: ${esc(trkErrText(trkCm.errs[i.code]))} — o texto ficou na caixa, é só enviar de novo.</div>`:''}`:'');
   return `<aside class="trk-detail"><div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span><span style="flex:1"></span>${i.url?`<button class="btn sm" data-lk="${escA(i.url)}">abrir ↗</button>`:''}<button class="x" id="trkDClose">${IC.x}</button></div>
     <h2 class="trk-dt">${esc(i.title)}</h2>
     <div class="trk-grid2" style="gap:10px"><label class="trk-f">Status<select class="in" id="trkDStatus"${c.ops.updateStatus?'':' disabled'}>${(c.statuses||[]).map(s=>`<option value="${escA(s.id)}"${s.id===i.status?' selected':''}>${esc(s.label||s.id)}</option>`).join('')}</select></label>
@@ -895,15 +934,16 @@ async function trkMove(code, statusId){
   catch(e){ i.status=old; trkErr='Não movi '+code+': '+trkErrText(e); issRender(); }
 }
 async function trkSelect(code){
-  if(trkSel!==code){ trkCmDraft=''; trkCmSendErr=''; }
   trkSel=code; trkComments=null; trkCmErr=''; trkMarkSeen(code); issRender();
   const c=trk.connector, i=trkIssues.find(x=>x.code===code);
   if(c.ops.comments&&i){
-    try{ const d=await trkCall('comments',{ code:i.code, id:i.id }); const f=c.ops.comments.fields||{};
+    const f=c.ops.comments.fields||{};
+    const shown=await trkCommentsLoad(code, async()=>{ const d=await trkCall('comments',{ code:i.code, id:i.id });
       // conector sem "fields" (ou gerado à mão): cai nos nomes mais comuns — antes o texto vinha vazio quando a API chamava de body
-      trkComments=(trkPath(d,c.ops.comments.itemsPath)||(Array.isArray(d)?d:[])).map(m=>({ author:(trkPerson(trkField(m,f.author||'author','user','created_by','author_name'))||{}).label, text:trkField(m,f.text||'text','body','comment','content','message'), createdAt:trkField(m,f.createdAt||'created_at','createdAt','date') })); }
-    catch(e){ trkComments=[]; if(trkSel===code) trkCmErr=trkErrText(e); }
-    if(trkSel===code) issRender();
+      return (trkPath(d,c.ops.comments.itemsPath)||(Array.isArray(d)?d:[])).map(m=>({ author:(trkPerson(trkField(m,f.author||'author','user','created_by','author_name'))||{}).label,
+        text:trkFieldPrim(m,f.text||'text','body','comment','content','message'), createdAt:trkFieldPrim(m,f.createdAt||'created_at','createdAt','date') })); },
+      ()=>trkSel, (list, err)=>{ trkComments=list; trkCmErr=err?trkErrText(err):''; });
+    if(shown) issRender();
   }
 }
 function trkBoardWire(body){
@@ -932,17 +972,23 @@ function trkBoardWire(body){
   { const s=body.querySelector('#trkDStatus'); if(s) s.onchange=()=>trkMove(trkSel, s.value); }
   body.querySelectorAll('[data-trkopen]').forEach(b=>b.onclick=()=>openWorkspace(b.dataset.trkopen));
   // vínculo feito à mão pelo "vincular a uma tarefa existente…" agora tem volta (antes: escolheu errado, ficava pra sempre)
-  body.querySelectorAll('[data-trkunlink]').forEach(b=>b.onclick=()=>{ const l=trkLinks(); delete l[b.dataset.trkunlink]; lsSet('trk:links',JSON.stringify(l)); issRender(); toast('Vínculo desfeito.','ok'); });
+  body.querySelectorAll('[data-trkunlink]').forEach(b=>b.onclick=()=>{ const tid=b.dataset.trkunlink, l=trkLinks(), code=l[tid]; if(!code) return;
+    delete l[tid]; lsSet('trk:links',JSON.stringify(l)); trkSyncAt=0; trkSyncTasks(); issRender();
+    const t=((typeof state!=='undefined'&&state.tasks)||[]).find(x=>x.id===tid);
+    const undo={ label:'desfazer', fn:()=>{ const m=trkLinks(); m[tid]=code; lsSet('trk:links',JSON.stringify(m)); trkSyncAt=0; trkSyncTasks(); issRender(); } };
+    if(t && trkTaskCode(t)===code) toast('Vínculo manual desfeito, mas a tarefa ainda está vinculada pela URL/código da issue.','warn',undo);
+    else toast('Vínculo desfeito.','ok',undo); });
   body.querySelectorAll('.trk-detail [data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   { const s=body.querySelector('#trkLinkSel'); if(s) s.onchange=()=>{ if(!s.value) return; const l=trkLinks(); l[s.value]=trkSel; lsSet('trk:links',JSON.stringify(l)); issRender(); trkSyncAt=0; trkSyncTasks(); }; }
   on('trkMkTask', async()=>{ const i=trkIssues.find(x=>x.code===trkSel); if(i) trkIssueToTask(i); });
-  const cmSend=async()=>{ const t=(($id('trkCmIn')||{}).value||'').trim(), i=trkIssues.find(x=>x.code===trkSel); if(!t||!i||trkCmSending) return;
-    trkCmDraft=t; trkCmSending=true; trkCmSendErr=''; issRender();
-    // {{text}} é o contrato; body/comment cobrem conector editado à mão (antes o comentário ia vazio)
-    try{ await trkCall('addComment',{ code:i.code, id:i.id, text:t, body:t, comment:t }); trkCmDraft=''; trkCmSending=false; trkSelect(i.code); }
-    catch(e){ trkCmSending=false; trkCmSendErr='Não enviei o comentário: '+trkErrText(e); issRender(); const n=$id('trkCmIn'); if(n) n.focus(); } };
+  const cmSend=async()=>{ const code=trkSel, t=(($id('trkCmIn')||{}).value||'').trim(), i=trkIssues.find(x=>x.code===code); if(!t||!i) return;
+    const vars=trkCommentVars(trkOp('addComment'), t, (trk.connector.vars||[]).map(v=>v.name));
+    const run=trkCmSendRun(trkCm, code, t, ()=>trkCall('addComment', Object.assign({ code:i.code, id:i.id }, vars)), ()=>trkSel);
+    issRender(); const r=await run;
+    if(r==='reload') trkSelect(code); // enviou e a issue continua aberta: relê os comentários
+    else if(r==='fail' && trkSel===code){ issRender(); const n=$id('trkCmIn'); if(n) n.focus(); } }; // em outra issue: o erro e o rascunho esperam na dela
   on('trkCmSend', cmSend); on('trkCmRetry', ()=>{ if(trkSel) trkSelect(trkSel); });
-  { const ci=body.querySelector('#trkCmIn'); if(ci){ ci.oninput=()=>{ trkCmDraft=ci.value; };
+  { const ci=body.querySelector('#trkCmIn'); if(ci){ ci.oninput=()=>{ if(trkSel) trkCm.drafts[trkSel]=ci.value; };
       ci.onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){ e.preventDefault(); cmSend(); } }; } }
 }
 
@@ -965,6 +1011,6 @@ document.addEventListener('keydown', e=>{
   if(e.key!=='Escape'||!trkSel) return; const o=$id('issuesOverlay');
   if(!o||o.style.display==='none'||trkView!=='board'||escBusy(e)) return;
   e.stopImmediatePropagation(); const code=trkSel; trkSel=null; issRender();
-  const c=[...document.querySelectorAll('#issuesBody .trk-issue[data-trkcode]')].find(x=>x.dataset.trkcode===code); if(c) c.focus();
+  const c=[...document.querySelectorAll('#issuesBody [data-trkcode]')].find(x=>x.dataset.trkcode===code); if(c) c.focus();
 }, true);
 $id('issuesOverlay').addEventListener('click',e=>{ if(e.target.id==='issuesOverlay') ovHide('issuesOverlay'); });

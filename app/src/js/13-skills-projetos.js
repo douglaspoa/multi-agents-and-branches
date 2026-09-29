@@ -94,12 +94,17 @@ function skAiCreate(){
 // "Criar projeto novo" (tela vazia, onboarding): abre a aba Projetos já com o formulário de projeto novo aberto
 function openNewProject(){ projNewOpen=true; projNewMsg=''; if(window.openTab) window.openTab('projetos'); else openProjetos(); setTimeout(()=>{ const i=$id('pnName'); if(i) i.focus(); }, 400); }
 window.openNewProject=openNewProject;
+// @puro-skills-inicio (testado em app/tests/skills.test.mjs)
+// foto do "ligada?" POR NOME: se a lista for recarregada/reordenada no meio, a volta não troca uma skill pela outra
+function skSnapshot(list){ const m={}; (list||[]).forEach(s=>{ if(s&&s.name!=null) m[s.name]=!!s.active; }); return m; }
+function skRestore(list, snap){ (list||[]).forEach(s=>{ if(s && Object.prototype.hasOwnProperty.call(snap||{}, s.name)) s.active=snap[s.name]; }); return list; }
+// @puro-skills-fim
 async function skSetAll(on){
-  const before=(skList||[]).map(s=>s.active); // falhou salvar: volta como estava (antes a tela mostrava tudo ligado sem ter salvo)
+  const before=skSnapshot(skList); // falhou salvar: volta como estava (antes a tela mostrava tudo ligado sem ter salvo)
   (skList||[]).forEach(s=>s.active=on);
   const active=on?(skList||[]).map(x=>({name:x.name,description:x.description||''})):[];
   try{ await invoke('set_active_skills',{ skills: active }); }
-  catch(e){ (skList||[]).forEach((s,i)=>{ s.active=before[i]; }); showErr(e, on?'Não consegui ligar as skills':'Não consegui desligar as skills'); }
+  catch(e){ skRestore(skList, before); showErr(e, on?'Não consegui ligar as skills':'Não consegui desligar as skills'); }
   skRender();
 }
 async function skToggle(name, on){
@@ -167,8 +172,8 @@ function projetosRender(ov){
       <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="as-badge" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)">aberto</span>':''}</div>
       <div class="pc2meta">${bits.join(' · ')}</div>
       <div class="pc2path mono">${esc(p.path)}</div>
-      ${p.path===state.repo&&typeof repoHasRemote==='function'&&!repoHasRemote()?`<div class="pc2pub"><span class="dim">${repoHasGit()?'só no seu computador — o time e os PRs precisam dele no GitHub':'pasta sem git — publicar cria o repositório e envia pro GitHub'}</span><button class="btn sm primary" data-pjpub="${escA(p.path)}">${IC.push}publicar no GitHub</button></div>`:''}
-      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}" title="abrir a pasta do projeto">${osKind()==='mac'?'Finder':'abrir pasta'}</button><span style="flex:1"></span><button class="btn sm ghost danger" data-pjrm="${escA(p.path)}" title="tira da lista do Starfork — não apaga nenhum arquivo">remover</button></div>
+      ${p.path===state.repo&&typeof repoHasRemote==='function'&&!repoHasRemote()?`<div class="pc2pub"><span class="dim">${(typeof repoHasGit!=='function'||repoHasGit())?'só no seu computador — o time e os PRs precisam dele no GitHub':'pasta sem git — publicar cria o repositório e envia pro GitHub'}</span><button class="btn sm primary" data-pjpub="${escA(p.path)}">${(typeof IC!=='undefined'&&IC.push)||''}publicar no GitHub</button></div>`:''}
+      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}" title="abrir a pasta do projeto">${(typeof osKind!=='function'||osKind()==='mac')?'Finder':'abrir pasta'}</button><span style="flex:1"></span><button class="btn sm ghost danger" data-pjrm="${escA(p.path)}" title="tira da lista do Starfork — não apaga nenhum arquivo">remover</button></div>
     </div>`;
   }).join('');
   const list=n ? `<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div>`
@@ -184,7 +189,12 @@ function projetosRender(ov){
   body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('reveal_project',{path:b.dataset.pjfx}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')));
   // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
   // E4 na aba Projetos: o projeto aberto sem GitHub ganha o "publicar" aqui mesmo (antes só aparecia na hora do PR)
-  body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=async()=>{ b.disabled=true; const ok=await publishGithub(); if(ok) openProjetos(); else b.disabled=false; });
+  body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=async()=>{
+    if(b.dataset.pjpub!==state.repo){ openProjetos(); return; } // o projeto aberto mudou desde o desenho: publicar agora iria pro projeto errado
+    if(typeof publishGithub!=='function') return;
+    b.disabled=true; let ok=false;
+    try{ ok=await publishGithub(); }catch(e){ showErr(e, 'Não consegui publicar no GitHub'); }
+    if(ok) openProjetos(); else b.disabled=false; });
   body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return;
     try{ await invoke('remove_project',{path:p}); }catch(e){ showErr(e, 'Não consegui remover o projeto da lista'); return; } // antes o erro sumia calado e a lista recarregava como se tivesse removido
     if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
