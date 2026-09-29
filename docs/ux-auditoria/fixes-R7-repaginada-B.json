@@ -1,0 +1,50 @@
+[
+ {
+  "id": "RB-1",
+  "area": "Nova demanda",
+  "titulo": "Uma tela só: a Nova demanda abre direto no 'Montar conversando'",
+  "antes": "Uma página com uma caixa e 'Continuar →', que só levava para outra página onde se escrevia de novo.",
+  "depois": "O planner abre acolhedor: o projeto em destaque, 'O que precisa ser feito?', 6 exemplos clicáveis (3 de projetos que não são software) e o composer já com foco. A tela antiga fica atrás de uma flag por uma versão.",
+  "motivo": "Pedido do Douglas ('só um atrito') e F1 da mesa, com 26 pontos e voto de todos.",
+  "arquivos": [
+   "app/src/js/32-planner.js",
+   "app/src/js/14-nova-demanda-inicio.js",
+   "app/src/css/87-nova-demanda.css"
+  ],
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repb/before-nova.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repb/after-vazio.png"
+  }
+ },
+ {
+  "id": "RB-2",
+  "area": "Nova demanda",
+  "titulo": "'Mais opções' virou controles no composer",
+  "antes": "Um <details> nativo com triângulo que despejava o layout antigo inteiro embaixo, com um 2º botão 'Continuar'.",
+  "depois": "O chip 'Tipo: Automático ▾', com popover dos 6 tipos, e o seletor pequeno 'Conversar · Formulário · Dividir' ficam dentro do composer. O texto já digitado vai junto na troca de modo.",
+  "motivo": "'Aquela parte de outras opções está bem feia' e F2 da mesa. A Lia vetou esconder as opções mais fundo.",
+  "arquivos": [
+   "app/src/js/32-planner.js",
+   "app/src/js/14-nova-demanda-inicio.js"
+  ],
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/cur/nova-mais-opcoes.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repb/after-tipo-pop.png"
+  }
+ },
+ {
+  "id": "RB-3",
+  "area": "Nova demanda",
+  "titulo": "Prévia em linguagem de gente antes de aprovar, e a criação segue a prévia",
+  "antes": "A IA escolhia tipo, modelo e escopo sem mostrar. O Resumo exibia slug, globs e 'arquivos proibidos'.",
+  "depois": "Acima do Aprovar aparece 'Tipo · Entrega · Vira · IA · Mexe em · Custo', cada item clicável. O técnico fica em 'Detalhes técnicos'. A tarefa é criada como a prévia diz: correção vira fix/, e investigação ou documentação entrega documento sem PR. A IA escolhida vale para todas as tarefas do épico.",
+  "motivo": "Conflito Carla × Rafa resolvido pela mesa, mais a decisão do Douglas na revisão: a criação segue a prévia.",
+  "arquivos": [
+   "app/src/js/32-planner.js"
+  ],
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repb/before-planner.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repb/after-ia-pop.png"
+  }
+ }
+]

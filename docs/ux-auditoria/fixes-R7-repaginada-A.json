@@ -1,0 +1,67 @@
+[
+ {
+  "id": "RA-1",
+  "area": "Carregamento",
+  "titulo": "Issues: esqueleto do quadro no lugar das estrelinhas",
+  "antes": "Um retângulo de estrelas animado em canvas (cosmos), sem relação com a tela e sem dizer o que estava carregando. Gastava CPU com rAF a 60fps.",
+  "depois": "A aba abre na hora com o esqueleto do kanban (5 colunas), uma barra de 2px no topo e, depois de 4 s, o texto 'ainda carregando: buscando issues…'.",
+  "motivo": "Pedido do Douglas ('framezinho de estrelas bem feio') e voto 6/6 da mesa em F3. A Júlia e a Lia vetaram canvas/rAF.",
+  "arquivos": [
+   "app/src/js/06-carregamento.js",
+   "app/src/css/86-carregamento.css",
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repa-before/issues-board.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repa-states/issues-buscando-4s.png"
+  }
+ },
+ {
+  "id": "RA-2",
+  "area": "Carregamento",
+  "titulo": "Esperas longas com a marca Starfork e etapas",
+  "antes": "'Colocando no ar' e outras esperas longas mostravam o canvas de estrelas.",
+  "depois": "A estrela que se bifurca aparece desenhada em traço só depois de 1,5 s, com as etapas marcadas ('spec montada ✓ · criando a issue e a branch…').",
+  "motivo": "F4 da mesa: carregamento com a forma da marca, sem spinner genérico. Só transform/opacity, e respeita 'reduzir movimento'.",
+  "arquivos": [
+   "app/src/js/06-carregamento.js"
+  ],
+  "shots": {
+   "before": null,
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repa-states/go-marca.png"
+  }
+ },
+ {
+  "id": "RA-3",
+  "area": "Carregamento",
+  "titulo": "Erro e vazio padronizados, com ação",
+  "antes": "Falhas viravam uma lista vazia ou um 'carregando…' eterno. Projetos, Agentes e Memória engoliam o erro.",
+  "depois": "Um estado de erro com a mensagem em pt-BR, 'tentar de novo' e a ação do catálogo quando houver. Um estado vazio com ícone, uma frase e um botão. Toda carga tem deadline de 30 s.",
+  "motivo": "Regra da mesa: nunca 'carregando…' eterno. O usuário precisa de uma saída.",
+  "arquivos": [
+   "app/src/js/06-carregamento.js",
+   "app/src/js/13-skills-projetos.js"
+  ],
+  "shots": {
+   "before": null,
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repa-states/skills-erro.png"
+  }
+ },
+ {
+  "id": "RA-4",
+  "area": "Carregamento",
+  "titulo": "Aba pinta antes de buscar (Agentes, Planner, Skills, Projetos, Time, Memória, Mesa)",
+  "antes": "Agentes e Planner ficavam em branco até a resposta do backend. As outras abas mostravam o cosmos ou um texto solto.",
+  "depois": "Aparece um esqueleto com a forma da tela depois de 150 ms, sem piscar quando a resposta é rápida. Uma resposta atrasada de outra aba é descartada.",
+  "motivo": "'A tela só meio que trava e vem outra': medimos 4 a 38 ms de 1º paint. A sensação de travamento vinha da tela vazia enquanto os dados não chegavam.",
+  "arquivos": [
+   "app/src/js/06-carregamento.js",
+   "app/src/js/33-switcher-projetos.js",
+   "app/src/js/32-planner.js"
+  ],
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repa-before/skills.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/repa-states/skills-4s.png"
+  }
+ }
+]
