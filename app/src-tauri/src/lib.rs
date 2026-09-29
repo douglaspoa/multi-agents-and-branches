@@ -8052,6 +8052,7 @@ pub fn run() {
             memoria::memory_open_obsidian,
             mesa::mesa_ask,
             mesa::mesa_stop,
+            mesa::mesa_resume,
             mesa::mesa_save,
             mesa::mesa_read,
             mesa::mesa_list,
@@ -8220,6 +8221,7 @@ pub fn run() {
         .run(|_app, event| {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
+                mesa::mesa_kill_all(); // personas da mesa rodam em grupo destacado: não sobrevivem ao app
                 let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
             }
         });

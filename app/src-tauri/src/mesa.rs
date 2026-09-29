@@ -8,10 +8,11 @@
 //!   - `mesa_stop`: derruba todas as personas em andamento daquela mesa.
 //! Todo acesso a arquivo é TRAVADO em `.cardume/mesas/` (id validado, sem separador).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::State;
 
 use super::{claude_bin, claude_cmd, claude_json, detach_new_group, memoria, procsig, protect_args, protect_on, repo_or, signal_group, AppState};
@@ -83,26 +84,43 @@ pub fn repo_summary(repo: &Path) -> String {
 // processos: várias personas em paralelo por mesa, todas paráveis
 // ---------------------------------------------------------------------------
 
-fn pids() -> &'static Mutex<HashMap<String, Vec<i32>>> {
-    static P: OnceLock<Mutex<HashMap<String, Vec<i32>>>> = OnceLock::new();
+type Killed = Arc<AtomicBool>;
+fn pids() -> &'static Mutex<HashMap<String, Vec<(i32, Killed)>>> {
+    static P: OnceLock<Mutex<HashMap<String, Vec<(i32, Killed)>>>> = OnceLock::new();
     P.get_or_init(|| Mutex::new(HashMap::new()))
 }
-fn pid_add(id: &str, pid: i32) { pids().lock().unwrap_or_else(|e| e.into_inner()).entry(id.to_string()).or_default().push(pid); }
+/// Mesas paradas pelo usuário: chamada que ainda NÃO spawnou é recusada (senão rodava até 300 s
+/// depois do "parar"). `mesa_resume` limpa ao continuar/argumentar.
+fn stopped() -> &'static Mutex<HashSet<String>> {
+    static S: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+fn is_stopped(id: &str) -> bool { stopped().lock().unwrap_or_else(|e| e.into_inner()).contains(id) }
 fn pid_del(id: &str, pid: i32) {
     let mut m = pids().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(v) = m.get_mut(id) { v.retain(|p| *p != pid); if v.is_empty() { m.remove(id); } }
+    if let Some(v) = m.get_mut(id) { v.retain(|(p, _)| *p != pid); if v.is_empty() { m.remove(id); } }
 }
+fn kill_list(list: &[(i32, Killed)]) { for (p, k) in list { k.store(true, Ordering::SeqCst); signal_group(*p, procsig::KILL); } }
 
-/// Roda o claude num grupo próprio, com teto de tempo, registrado sob o id da mesa.
-fn run_stoppable(mut cmd: std::process::Command, secs: u64, id: &str) -> Result<std::process::Output, String> {
-    use std::sync::atomic::{AtomicBool, Ordering};
+/// Roda o claude num grupo próprio, com teto de tempo, registrado sob o id da mesa. `input` vai
+/// pelo stdin (o prompt não cabe na linha de comando do Windows, 32K). Parado/estourado é
+/// decidido por flags explícitas — no Windows o taskkill devolve código 1, não "sem código".
+fn run_stoppable(mut cmd: std::process::Command, secs: u64, id: &str, input: Option<String>) -> Result<std::process::Output, String> {
+    if is_stopped(id) { return Err(STOPPED.to_string()); }
     detach_new_group(&mut cmd);
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     let pid = child.id() as i32;
-    pid_add(id, pid);
+    let killed: Killed = Arc::new(AtomicBool::new(false));
+    pids().lock().unwrap_or_else(|e| e.into_inner()).entry(id.to_string()).or_default().push((pid, killed.clone()));
+    // o "parar" pode ter chegado entre a checagem e o registro do pid
+    if is_stopped(id) { kill_list(&[(pid, killed.clone())]); }
+    let writer = match (input, child.stdin.take()) {
+        (Some(t), Some(mut w)) => Some(std::thread::spawn(move || { use std::io::Write; let _ = w.write_all(t.as_bytes()); })),
+        _ => None,
+    };
     let (tx, rx) = std::sync::mpsc::channel::<()>();
-    let timed_out = std::sync::Arc::new(AtomicBool::new(false));
+    let timed_out = Arc::new(AtomicBool::new(false));
     let t2 = timed_out.clone();
     let watch = std::thread::spawn(move || {
         if rx.recv_timeout(std::time::Duration::from_secs(secs)).is_err() { t2.store(true, Ordering::SeqCst); signal_group(pid, procsig::KILL); }
@@ -110,12 +128,35 @@ fn run_stoppable(mut cmd: std::process::Command, secs: u64, id: &str) -> Result<
     let out = child.wait_with_output();
     let _ = tx.send(());
     let _ = watch.join();
+    if let Some(w) = writer { let _ = w.join(); }
     pid_del(id, pid);
-    let out = out.map_err(|e| e.to_string())?;
-    if out.status.code().is_none() {
-        return Err(if timed_out.load(Ordering::SeqCst) { format!("a persona demorou mais de {secs}s e foi interrompida") } else { STOPPED.to_string() });
+    if timed_out.load(Ordering::SeqCst) { return Err(format!("a persona demorou mais de {secs}s e foi interrompida")); }
+    if killed.load(Ordering::SeqCst) { return Err(STOPPED.to_string()); }
+    out.map_err(|e| e.to_string())
+}
+
+/// Custo do wrapper JSON do claude (também quando a chamada deu erro — ele cobra igual).
+fn cost_of(out: &std::process::Output) -> f64 {
+    serde_json::from_slice::<serde_json::Value>(String::from_utf8_lossy(&out.stdout).trim().as_bytes())
+        .ok()
+        .and_then(|v| v["total_cost_usd"].as_f64().or_else(|| v["cost_usd"].as_f64()))
+        .unwrap_or(0.0)
+}
+
+/// Repo EXPLÍCITO que não existe mais = erro (cair no projeto ativo gravaria a mesa no projeto errado).
+fn mesa_repo(state: &State<AppState>, repo: Option<String>) -> Result<PathBuf, String> {
+    if let Some(r) = repo.as_ref().map(|r| r.trim()).filter(|r| !r.is_empty()) {
+        if !Path::new(r).is_dir() { return Err("projeto da mesa não encontrado".into()); }
     }
-    Ok(out)
+    repo_or(state, repo)
+}
+
+/// Teto do system prompt (cérebro + README podem crescer sem limite).
+pub const SYS_CAP: usize = 12000;
+pub fn cap_sys(sys: String) -> String {
+    if sys.chars().count() <= SYS_CAP { return sys; }
+    let t: String = sys.chars().take(SYS_CAP).collect();
+    format!("{t}\n\n(contexto do projeto cortado aqui por tamanho)")
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +164,8 @@ fn run_stoppable(mut cmd: std::process::Command, secs: u64, id: &str) -> Result<
 // ---------------------------------------------------------------------------
 
 /// UMA persona responde UMA vez, isolada (não vê as outras além do que vier no prompt).
-/// `json`: a resposta tem que ser só o bloco JSON pedido. Devolve `{ text, costUsd }`.
+/// `json`: a resposta tem que ser só o bloco JSON pedido. Devolve `{ text, costUsd }`, ou
+/// `{ error, costUsd }` quando o claude respondeu com erro mas cobrou.
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 pub fn mesa_ask(
@@ -131,16 +173,17 @@ pub fn mesa_ask(
     model: Option<String>, json: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     if !ok_id(&id) { return Err("id de mesa inválido".into()); }
-    let repo = repo_or(&state, repo)?;
+    let repo = mesa_repo(&state, repo)?;
     let mut sys = format!(
         "{}\n\nVocê pode ler arquivos do projeto (Read, Grep, Glob) se precisar confirmar algo, mas NÃO edita nada e responde em português do Brasil.\n\n{}",
         persona_sys.trim(), repo_summary(&repo)
     );
     if json.unwrap_or(false) { sys.push_str("\n\nFORMATO: responda SOMENTE com o bloco ```json pedido — nada de texto fora dele."); }
     let query: String = prompt.chars().take(1200).collect();
-    let sys = memoria::with_memory(&sys, &repo, &query);
+    let sys = cap_sys(memoria::with_memory(&sys, &repo, &query));
+    // prompt pelo stdin (`claude -p` sem prompt posicional lê o stdin)
     let mut args: Vec<String> = vec![
-        "-p".into(), prompt,
+        "-p".into(),
         "--output-format".into(), "json".into(),
         "--append-system-prompt".into(), sys,
         "--allowedTools".into(), "Read,Grep,Glob".into(),
@@ -149,18 +192,36 @@ pub fn mesa_ask(
     args.extend(protect_args(protect_on(&repo))); // por último: a flag é variádica
     let mut cmd = claude_cmd(&claude_bin());
     cmd.args(&args).current_dir(&repo);
-    let out = run_stoppable(cmd, ASK_SECS, &id)?;
-    let v = claude_json(&out)?;
-    let cost = v["total_cost_usd"].as_f64().or_else(|| v["cost_usd"].as_f64()).unwrap_or(0.0);
-    Ok(serde_json::json!({ "text": v["result"].as_str().unwrap_or(""), "costUsd": cost }))
+    let out = run_stoppable(cmd, ASK_SECS, &id, Some(prompt))?;
+    let cost = cost_of(&out);
+    match claude_json(&out) {
+        Ok(v) => Ok(serde_json::json!({ "text": v["result"].as_str().unwrap_or(""), "costUsd": cost })),
+        Err(e) if cost > 0.0 => Ok(serde_json::json!({ "error": e, "costUsd": cost })),
+        Err(e) => Err(e),
+    }
 }
 
-/// Para TODAS as personas em andamento desta mesa. true = havia alguma rodando.
+/// Para TODAS as personas desta mesa — as que estão rodando e as que ainda iam começar.
+pub fn stop_id(id: &str) -> bool {
+    stopped().lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_string());
+    let list = pids().lock().unwrap_or_else(|e| e.into_inner()).remove(id).unwrap_or_default();
+    kill_list(&list);
+    !list.is_empty()
+}
 #[tauri::command(async)]
-pub fn mesa_stop(id: String) -> Result<bool, String> {
-    let list = pids().lock().unwrap_or_else(|e| e.into_inner()).remove(&id).unwrap_or_default();
-    for p in &list { signal_group(*p, procsig::KILL); }
-    Ok(!list.is_empty())
+pub fn mesa_stop(id: String) -> Result<bool, String> { Ok(stop_id(&id)) }
+
+/// Libera a mesa pra rodar de novo depois de um "parar" (Continuar / argumentar).
+#[tauri::command(async)]
+pub fn mesa_resume(id: String) -> Result<(), String> {
+    stopped().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    Ok(())
+}
+
+/// App fechando: nenhuma persona fica rodando (os grupos são destacados do app).
+pub fn mesa_kill_all() {
+    let all: Vec<(i32, Killed)> = pids().lock().unwrap_or_else(|e| e.into_inner()).drain().flat_map(|(_, v)| v).collect();
+    kill_list(&all);
 }
 
 pub fn save_to(repo: &Path, id: &str, data: &serde_json::Value) -> Result<(), String> {
@@ -168,26 +229,31 @@ pub fn save_to(repo: &Path, id: &str, data: &serde_json::Value) -> Result<(), St
     std::fs::create_dir_all(mesas_dir(repo)).map_err(|e| e.to_string())?;
     let s = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
     // grava num temporário e renomeia: fechar o app no meio não deixa JSON pela metade
-    let tmp = mesas_dir(repo).join(format!(".{id}.json.tmp"));
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let tmp = mesas_dir(repo).join(format!(".{id}.{}-{}.tmp", std::process::id(), SEQ.fetch_add(1, Ordering::SeqCst)));
     std::fs::write(&tmp, s).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
+    std::fs::rename(&tmp, &p).map_err(|e| { let _ = std::fs::remove_file(&tmp); e.to_string() })
 }
 
 /// Salva a mesa (ou `personas`, as personas geradas do projeto) em .cardume/mesas/<id>.json.
 #[tauri::command(async)]
 pub fn mesa_save(state: State<AppState>, repo: Option<String>, id: String, data: serde_json::Value) -> Result<(), String> {
-    let repo = repo_or(&state, repo)?;
+    let repo = mesa_repo(&state, repo)?;
     save_to(&repo, &id, &data)
 }
 
 /// Lê uma mesa (ou `personas`). Arquivo ausente → null.
 #[tauri::command(async)]
 pub fn mesa_read(state: State<AppState>, repo: Option<String>, id: String) -> Result<serde_json::Value, String> {
-    let repo = repo_or(&state, repo)?;
-    let p = mesa_path(&repo, &id)?;
+    let repo = mesa_repo(&state, repo)?;
+    read_from(&repo, &id)
+}
+pub fn read_from(repo: &Path, id: &str) -> Result<serde_json::Value, String> {
+    let p = mesa_path(repo, id)?;
     match std::fs::read_to_string(&p) {
         Ok(s) => serde_json::from_str(&s).map_err(|e| format!("mesa corrompida ({id}): {e}")),
-        Err(_) => Ok(serde_json::Value::Null),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::Value::Null),
+        Err(e) => Err(format!("não consegui ler a mesa ({id}): {e}")),
     }
 }
 
@@ -197,7 +263,10 @@ pub fn list_in(repo: &Path) -> Vec<serde_json::Value> {
             let n = e.file_name().to_string_lossy().to_string();
             let id = n.strip_suffix(".json")?.to_string();
             if !ok_id(&id) || id == "personas" { return None; }
-            let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok()?;
+            let v: serde_json::Value = match std::fs::read_to_string(e.path()).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+                Some(v) => v,
+                None => return Some(serde_json::json!({ "id": id, "status": "corrompida", "tema": format!("(arquivo {n} ilegível)"), "personas": 0, "rounds": 0 })),
+            };
             Some(serde_json::json!({
                 "id": id, "tema": v["tema"], "status": v["status"], "createdAt": v["createdAt"], "updatedAt": v["updatedAt"],
                 "costUsd": v["costUsd"], "personas": v["personas"].as_array().map(|a| a.len()).unwrap_or(0),
@@ -212,7 +281,7 @@ pub fn list_in(repo: &Path) -> Vec<serde_json::Value> {
 /// Resumo das mesas deste projeto, mais recente primeiro.
 #[tauri::command(async)]
 pub fn mesa_list(state: State<AppState>, repo: Option<String>) -> Result<Vec<serde_json::Value>, String> {
-    let repo = repo_or(&state, repo)?;
+    let repo = mesa_repo(&state, repo)?;
     Ok(list_in(&repo))
 }
 
@@ -265,6 +334,57 @@ mod tests {
     }
     #[test]
     fn parar_sem_nada_rodando() {
-        assert!(!mesa_stop("nao-existe".into()).unwrap());
+        assert!(!stop_id("nao-existe-x"));
+        mesa_resume("nao-existe-x".into()).unwrap();
+    }
+    #[test]
+    fn corrompida_aparece_e_ausente_e_null() {
+        let d = tmp("corr");
+        std::fs::create_dir_all(mesas_dir(&d)).unwrap();
+        std::fs::write(mesas_dir(&d).join("m9.json"), "{ quebrado").unwrap();
+        let l = list_in(&d);
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0]["status"], "corrompida");
+        assert!(read_from(&d, "m9").is_err());
+        assert!(read_from(&d, "nao-tem").unwrap().is_null());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn system_prompt_com_teto() {
+        let s = cap_sys("x".repeat(SYS_CAP + 500));
+        assert!(s.chars().count() < SYS_CAP + 100 && s.ends_with("por tamanho)"));
+        assert_eq!(cap_sys("curto".into()), "curto");
+    }
+    #[cfg(unix)]
+    fn sleep30() -> std::process::Command { let mut c = std::process::Command::new("sleep"); c.arg("30"); c }
+    #[cfg(unix)]
+    #[test]
+    fn parar_derruba_quem_esta_rodando() {
+        let id = "t-stop-run";
+        let h = std::thread::spawn(move || run_stoppable(sleep30(), 60, id, None));
+        let t0 = std::time::Instant::now();
+        let mut hit = false;
+        while t0.elapsed().as_secs() < 5 && !pids().lock().unwrap().contains_key(id) { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        if stop_id(id) { hit = true; }
+        assert!(hit, "tinha processo rodando");
+        assert_eq!(h.join().unwrap().unwrap_err(), STOPPED);
+        assert!(t0.elapsed().as_secs() < 10);
+        mesa_resume(id.into()).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn estourar_o_tempo_nao_e_parar() {
+        let e = run_stoppable(sleep30(), 1, "t-timeout", None).unwrap_err();
+        assert!(e.contains("demorou mais de 1s"), "{e}");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn parado_antes_de_comecar_recusa() {
+        let id = "t-stop-before";
+        stop_id(id);
+        assert_eq!(run_stoppable(sleep30(), 60, id, None).unwrap_err(), STOPPED);
+        mesa_resume(id.into()).unwrap();
+        let out = run_stoppable(std::process::Command::new("cat"), 10, id, Some("oi pelo stdin".into())).unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "oi pelo stdin");
     }
 }

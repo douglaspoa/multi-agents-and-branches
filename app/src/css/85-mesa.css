@@ -105,3 +105,4 @@
 .mesachat{max-height:340px;padding:8px 2px;margin-bottom:8px;border:1px solid var(--border);border-radius:var(--r-sm)}
 .mesatgt{max-width:250px;font-size:12px;padding:3px 6px}
 @media (max-width:760px){ .mesacards{grid-template-columns:1fr} .mesawrap{padding:16px 16px 0} }
+.mesaobs{font-size:12px;margin-top:6px;color:var(--text-2)}

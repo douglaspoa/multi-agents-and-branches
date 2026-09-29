@@ -49,7 +49,7 @@ function mesaParsePersonas(text, taken){
   return out;
 }
 // ---- prompts das rodadas ----
-const MESA_JSON_VOTO='{"fala":"sua reação ao debate em 1-2 parágrafos curtos","top5":[{"id":"F1","peso":5,"porque":"..."}],"vetos":[{"id":"F2","motivo":"..."},{"texto":"princípio que não pode entrar","motivo":"..."}]}';
+const MESA_JSON_VOTO='{"fala":"sua reação ao debate em 1-2 parágrafos curtos","top5":[{"id":"F1","peso":5,"porque":"..."}],"vetos":[{"id":"F2","motivo":"..."},{"texto":"princípio que não pode entrar","motivo":"..."}],"observacoes":"(opcional) ideia nova que não está na lista"}';
 const MESA_RETRY='\n\nATENÇÃO: a sua resposta anterior não veio no JSON pedido. Responda SOMENTE com o bloco ```json no formato pedido, nada fora dele.';
 function mesaR1Prompt(tema){
   return `Tema da mesa: "${tema}"\n\nRODADA 1 — a sua posição. Sem ver as outras personas, diga o que acha que deve ser feito sobre esse tema neste projeto, do seu ponto de vista, e proponha de 2 a 4 features ou mudanças concretas.\n\nResponda SOMENTE com um bloco \`\`\`json no formato {"posicao":"sua posição em 1 a 3 parágrafos curtos (markdown)","propostas":[{"titulo":"nome curto (até 70 caracteres)","descricao":"o que é, em 1-2 frases","porque":"por que importa pra você"}]}`;
@@ -71,7 +71,7 @@ function mesaVoteLine(v, cands){
 function mesaArgPrompt(tema, personas, prev, cands, tally, argumento){
   const falas=(personas||[]).map(p=>{ const r=prev&&prev[p.id]; return `### ${p.nome} (${p.papel})\n${r&&r.texto?r.texto:'(não respondeu)'}\n${mesaVoteLine(r&&r.voto, cands)}`; }).join('\n\n');
   const ap=(tally&&tally.rows||[]).filter(r=>r.total>0).map(r=>`${r.id} ${r.titulo}: ${r.total} pts${r.vetadoPor.length?' (vetada)':''}`).join('\n');
-  return `Tema da mesa: "${tema}"\n\nREVOTO — a pessoa dona do projeto trouxe um argumento novo pra mesa:\n> ${String(argumento||'').replace(/\n/g,'\n> ')}\n\nComo a mesa estava na última rodada:\n\n${falas}\n\nApuração até aqui:\n${ap||'(nenhum voto válido)'}\n\nFeatures em votação:\n${mesaCandsText(cands)}\n\nLeve o argumento a sério — ele pode mudar ou não o seu voto; diga por quê na fala. Depois ${mesaVoteAsk(cands)}`;
+  return `Tema da mesa: "${tema}"\n\nREVOTO — a pessoa dona do projeto trouxe um argumento novo pra mesa:\n> ${String(argumento||'').replace(/\n/g,'\n> ')}\n\nComo a mesa estava na última rodada:\n\n${falas}\n\nApuração até aqui:\n${ap||'(nenhum voto válido)'}\n\nFeatures em votação:\n${mesaCandsText(cands)}\n\nLeve o argumento a sério — ele pode mudar ou não o seu voto; diga por quê na fala. Só dá pra votar e vetar as features da lista (${(cands||[]).map(c=>c.id).join(', ')}) — o revoto NÃO cria feature nova; se o argumento te deu uma ideia nova, escreva no campo "observacoes". Depois ${mesaVoteAsk(cands)}`;
 }
 function mesaAskPrompt(tema, persona, hist, pergunta){
   const h=hist||{}, chat=(h.chat||[]).slice(-10).map(x=>(x.who==='you'?'Dono do projeto: ':persona.nome+': ')+x.text).join('\n');
@@ -102,7 +102,7 @@ function mesaParsePosition(text){
 // voto de UMA persona: aceita JSON cercado de texto; descarta item inválido com aviso; sem nenhum voto válido → ok:false
 function mesaParseVote(text, candIds){
   const o=mesaParseJson(text); if(!o) return { ok:false, erro:'a resposta não trouxe JSON', warns:[] };
-  const ids=new Set((candIds||[]).map(String)), warns=[];
+  const ids=new Set((candIds||[]).map(String)), warns=[], maxPeso=Math.min(5, ids.size);
   const normId=v=>String(v==null?'':v).trim().toUpperCase().replace(/^F?\s*(\d+)$/,'F$1');
   const src=Array.isArray(o.top5)?o.top5:Array.isArray(o.top)?o.top:Array.isArray(o.votos)?o.votos:null;
   if(!src) return { ok:false, erro:'o JSON não tem a lista top5', warns };
@@ -111,10 +111,9 @@ function mesaParseVote(text, candIds){
     if(!x||typeof x!=='object'){ warns.push('item de voto inválido ignorado'); continue; }
     const id=normId(x.id!=null?x.id:x.feature), peso=Number(x.peso!=null?x.peso:x.weight);
     if(!ids.has(id)){ warns.push('voto em feature desconhecida ('+(id||'sem id')+') ignorado'); continue; }
-    if(!Number.isInteger(peso)||peso<1||peso>5){ warns.push('peso inválido em '+id+' ignorado'); continue; }
+    if(!Number.isInteger(peso)||peso<1||peso>maxPeso){ warns.push('peso inválido em '+id+' ('+(x.peso)+', vai de 1 a '+maxPeso+') ignorado'); continue; }
     if(usedId.has(id)){ warns.push(id+' votada duas vezes — valeu a primeira'); continue; }
     if(usedPeso.has(peso)){ warns.push('peso '+peso+' repetido ('+id+') ignorado'); continue; }
-    if(top.length>=5){ warns.push('mais de 5 votos — o excedente foi ignorado'); break; }
     usedId.add(id); usedPeso.add(peso); top.push({ id, peso, porque:String(x.porque||x.motivo||'').trim().slice(0,400) });
   }
   if(!top.length) return { ok:false, erro:'nenhum voto válido', warns };
@@ -130,7 +129,32 @@ function mesaParseVote(text, candIds){
     const texto=String(x.texto||x.feature||x.principio||'').trim();
     if(texto) vetos.push({ texto:texto.slice(0,200), motivo }); else if(id) warns.push('veto em feature desconhecida ('+id+') ignorado');
   }
-  return { ok:true, vote:{ fala:String(o.fala||o.debate||o.posicao||'').trim(), top, vetos }, warns };
+  const obs=String(o.observacoes||o.observações||'').trim().slice(0,600);
+  return { ok:true, vote:Object.assign({ fala:String(o.fala||o.debate||o.posicao||'').trim(), top, vetos }, obs?{ obs }:{}), warns };
+}
+// resposta de voto de UMA persona: 1ª tentativa ok → vale; malformada → pede de novo UMA vez; 2ª ruim → voto
+// descartado com aviso (a persona respondeu — não é "falhou")
+function mesaVoteOutcome(first, retry, rawText){
+  if(first && first.ok) return { kind:'ok', vote:first.vote, warns:first.warns||[] };
+  if(!retry) return { kind:'retry' };
+  if(retry.ok) return { kind:'ok', vote:retry.vote, warns:retry.warns||[] };
+  const txt=(mesaParseJson(rawText)||{}).fala||rawText||'';
+  return { kind:'discard', erro:retry.erro||(first&&first.erro)||'voto inválido', texto:String(txt).trim() };
+}
+// quem ainda falta responder numa rodada; withFailed (Continuar / tentar de novo) inclui quem falhou
+function mesaRoundMissing(m, r, withFailed){ return (m.personas||[]).filter(p=>{ const x=r.resp&&r.resp[p.id]; return !x || x.st==='pendente' || x.st==='parada' || (withFailed && x.st==='falhou'); }); }
+function mesaRoundValid(r){ return Object.values((r&&r.resp)||{}).filter(x=>x && x.st==='ok' && (r.tipo!=='voto' || x.voto)).length; }
+// próximo passo da mesa: rodar uma rodada / abrir a votação / concluída / interrompida (rodada sem nenhuma resposta válida)
+function mesaNextStep(m, withFailed){
+  for(const r of (m.rounds||[])){
+    if(mesaRoundMissing(m, r, withFailed).length) return { kind:'run', round:r };
+    if(!mesaRoundValid(r)) return { kind:'interrupted', round:r };
+  }
+  if(!mesaVoteRounds(m).length && (m.rounds||[]).length){
+    const cands=mesaCandidates(m.personas, m.rounds[0].resp);
+    return cands.length ? { kind:'open-vote', cands } : { kind:'concluded', aviso:'Nenhuma persona trouxe proposta válida — não há o que votar. Rode de novo com outro tema ou outras personas.' };
+  }
+  return { kind:'concluded' };
 }
 // apuração: soma dos pesos, quem vetou, empate e "votada por todos" (entre as personas com voto válido)
 function mesaTally(cands, votes, personas){
@@ -167,8 +191,9 @@ function mesaDecision(tally, escolhas, max){
   return { rows, sugeridas:rows.filter(r=>r.sugerida), aprovadas:rows.filter(r=>r.escolha==='aprovada'), rejeitadas:rows.filter(r=>r.escolha==='rejeitada') };
 }
 // custo previsto (US$ [lo,hi]): personas × rodadas na régua do roughEstimate (est), ou a tabela própria sem ela
+const MESA_RETRY_MARGIN=1.15; // rodada de voto: margem pro voto malformado que é pedido de novo
 function mesaCost(nPersonas, nRounds, model, est){
-  const calls=Math.max(1,+nPersonas||1)*Math.max(1,+nRounds||1);
+  const calls=Math.max(1,+nPersonas||1)*(1+(Math.max(1,+nRounds||1)-1)*MESA_RETRY_MARGIN);
   const m=String(model||'').toLowerCase().replace(/.*(opus|sonnet|haiku).*/,'$1');
   const base=typeof est==='function'?est(calls, m):null;
   if(Array.isArray(base)) return [base[0]*MESA_TURN, base[1]*MESA_TURN];
@@ -236,11 +261,12 @@ function mesaNewId(){ return 'm-'+Date.now().toString(36)+'-'+Math.random().toSt
 
 // ---- disco: grava a mesa a cada resposta (fila por mesa: nunca duas escritas cruzadas) ----
 // _q (fila de gravação) fica fora; epicoPend._made (o que o épico já criou na nuvem) vai junto — retomar depois de fechar o app
-function mesaData(m){ return JSON.parse(JSON.stringify(m, (k,v)=>k==='_q'?undefined:v)); }
+function mesaData(m){ return JSON.parse(JSON.stringify(m, (k,v)=>(k==='_q'||k==='_saveErr')?undefined:v)); }
 function mesaSave(m){
   m.updatedAt=Date.now();
   const data=mesaData(m);
-  m._q=(m._q||Promise.resolve()).then(()=>invoke('mesa_save',{ repo:m.repo, id:m.id, data })).catch(e=>console.error('mesa: salvar', e));
+  m._q=(m._q||Promise.resolve()).then(()=>invoke('mesa_save',{ repo:m.repo, id:m.id, data })).then(()=>{ m._saveErr=false; })
+    .catch(e=>{ console.error('mesa: salvar', e); if(!m._saveErr){ m._saveErr=true; showErr(e,'Não consegui salvar a mesa "'+m.tema+'" no disco'); } });
   return m._q;
 }
 async function mesaLoadList(){
@@ -271,94 +297,95 @@ async function mesaOpenOne(id){
   let m=live;
   if(!m){ try{ m=await invoke('mesa_read',{ repo:MESA.repo, id }); }catch(e){ showErr(e,'Não consegui abrir a mesa'); return; } }
   if(!m){ toast('Essa mesa não existe mais.','warn'); await mesaLoadList(); mesaRender(); return; }
-  m.repo=m.repo||MESA.repo; MESA.cur=m; MESA.view='mesa'; MESA.target='mesa'; MESA.draft='';
+  if(!live) m.repo=MESA.repo; // o caminho gravado no JSON pode estar velho (pasta movida): vale a pasta de onde foi lida
+  MESA.cur=m; MESA.view='mesa'; MESA.target='mesa'; MESA.draft='';
   mesaRender();
 }
 
 // ---- chamada de UMA persona ----
 async function mesaAsk(m, sys, prompt, json){
   const r=await invoke('mesa_ask',{ repo:m.repo, id:m.id, personaSys:sys, prompt, model:m.model||MESA_MODEL, json:!!json });
-  m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0);
+  m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0); // erro do claude também cobra — entra no gasto
+  if(r && r.error) throw new Error(r.error);
   return String((r&&r.text)||'');
 }
 function mesaErrMsg(e){ try{ const h=humanErr(e); return h.msg; }catch(_){ return String(e&&e.message||e); } }
 
 // ---- orquestração: rodada por rodada, personas em paralelo, stop, teto entre rodadas ----
-function mesaRoundMissing(m, r){ return (m.personas||[]).filter(p=>{ const x=r.resp&&r.resp[p.id]; return !x || x.st==='pendente' || x.st==='parada'; }); }
-async function mesaRun(m){
+const MESA_POOL=3; // personas ao mesmo tempo (várias chamadas ao claude em paralelo pesam na máquina e na cota)
+function mesaCapAsk(m, what){
+  const base=m.capBase||mesaCapBase();
+  return askYes(`A mesa "${m.tema}" chegou no teto de R$ ${fmtNumBR(m.capBrl,true)} (já gastou ${fmtCost(m.costUsd)}).\n\nContinuar com mais R$ ${fmtNumBR(base,true)} pra ${what}?`, 'Teto da mesa')
+    .then(go=>{ if(go) m.capBrl=(+m.capBrl||0)+base; return go; });
+}
+// opts.retryFailed: Continuar / tentar de novo — quem falhou entra de novo (só na 1ª passada, senão repetiria pra sempre)
+async function mesaRun(m, opts){
   if(mesaRunning(m)) return;
   const run={ stop:false, m }; MESA.runs[m.id]=run;
-  m.status='rodando'; await mesaSave(m); mesaPaint(m);
+  let withFailed=!!(opts&&opts.retryFailed);
+  try{ await invoke('mesa_resume',{ id:m.id }); }catch(_){ }
+  m.status='rodando'; m.aviso=''; await mesaSave(m); mesaPaint(m);
   try{
     for(;;){
       if(run.stop){ m.status='parada'; break; }
-      const r=(m.rounds||[]).find(x=>mesaRoundMissing(m,x).length);
-      if(!r){
-        const vr=mesaVoteRounds(m);
-        if(!vr.length && m.rounds.length){ // rodada 1 fechou: monta as features em votação e abre a rodada 2
-          m.cands=mesaCandidates(m.personas, m.rounds[0].resp);
-          if(!m.cands.length){ m.status='concluida'; m.aviso='Nenhuma persona trouxe proposta válida — não há o que votar. Rode de novo com outro tema ou outras personas.'; break; }
-          m.rounds.push({ n:m.rounds.length+1, tipo:'voto', titulo:'Debate e voto', resp:{}, avisos:[] });
-          MESA.open[m.id]=null;
-          continue;
-        }
-        m.status='concluida'; break;
-      }
-      // teto próprio da mesa: só ENTRE rodadas (rodada que ainda não começou)
-      const started=Object.values(r.resp||{}).some(x=>x && x.st!=='pendente' && x.st!=='parada');
-      if(!started && mesaCapHit(m.costUsd, m.capBrl, usdBrlRate())){
-        mesaPaint(m);
-        const base=m.capBase||mesaCapBase();
-        const go=await askYes(`A mesa "${m.tema}" chegou no teto de R$ ${fmtNumBR(m.capBrl,true)} (já gastou ${fmtCost(m.costUsd)}).\n\nContinuar com mais R$ ${fmtNumBR(base,true)} pra rodar "${r.titulo}"?`, 'Teto da mesa');
-        if(!go){ m.status='pausada'; break; }
-        m.capBrl=(+m.capBrl||0)+base;
-      }
-      await mesaRunRound(m, r, run);
+      const wf=withFailed, step=mesaNextStep(m, wf); withFailed=false;
+      if(step.kind==='open-vote'){ // rodada 1 fechou: features em votação + rodada 2
+        m.cands=step.cands;
+        m.rounds.push({ n:m.rounds.length+1, tipo:'voto', titulo:'Debate e voto', resp:{}, avisos:[] });
+        MESA.open[m.id]=null; continue; }
+      if(step.kind==='concluded'){ m.status='concluida'; if(step.aviso) m.aviso=step.aviso; break; }
+      if(step.kind==='interrupted'){ m.status='interrompida'; m.aviso=`Rodada ${step.round.n}: nenhuma persona deu uma resposta válida — veja o erro de cada uma e tente de novo.`; break; }
+      const r=step.round;
+      // o teto é conferido antes de CADA persona começar (mesaRunRound) — aqui é o aviso de início de rodada
+      if(mesaCapHit(m.costUsd, m.capBrl, usdBrlRate())){ mesaPaint(m); if(!await mesaCapAsk(m, `rodar "${r.titulo}"`)){ m.status='pausada'; break; } }
+      const capped=await mesaRunRound(m, r, run, wf);
+      if(capped && !run.stop){ mesaPaint(m); if(!await mesaCapAsk(m, `terminar "${r.titulo}"`)){ m.status='pausada'; break; } }
     }
   }catch(e){ console.error('mesa:', e); m.status='parada'; showErr(e,'A mesa parou'); }
   finally{
     delete MESA.runs[m.id];
     await mesaSave(m);
-    if(MESA.repo===m.repo) await mesaLoadList();
+    if(MESA.repo===m.repo){ await mesaLoadList(); if(MESA.view==='lista') mesaPaint(m); }
     mesaPaint(m);
     if(m.status==='concluida' && mesaVoteRounds(m).length && !(mesaVisible() && MESA.cur===m)) toast(`Mesa "${m.tema}" concluída — veja a votação e aprove as features.`,'ok',{ label:'abrir', fn:()=>{ if(window.openTab) openTab('mesa'); if(MESA.repo===m.repo){ MESA.cur=m; MESA.view='mesa'; mesaRender(); } } });
   }
 }
-async function mesaRunRound(m, r, run){
-  const todo=mesaRoundMissing(m, r);
+// roda quem falta, no máximo MESA_POOL por vez; devolve true se parou de lançar porque bateu no teto
+async function mesaRunRound(m, r, run, withFailed){
+  const todo=mesaRoundMissing(m, r, withFailed);
   r.resp=r.resp||{}; r.avisos=r.avisos||[];
   todo.forEach(p=>{ r.resp[p.id]={ st:'pendente' }; });
   mesaPaint(m);
   const idx=m.rounds.indexOf(r), prevVote=mesaVoteRounds(m).filter(x=>m.rounds.indexOf(x)<idx).pop();
   const candIds=(m.cands||[]).map(c=>c.id);
-  const promptOf=()=>{
-    if(r.tipo==='posicao') return mesaR1Prompt(m.tema);
-    if(r.argumento && prevVote) return mesaArgPrompt(m.tema, m.personas, prevVote.resp, m.cands, mesaTally(m.cands, mesaVotesOf(prevVote), m.personas), r.argumento);
-    return mesaR2Prompt(m.tema, m.personas, m.rounds[0].resp, m.cands);
-  };
-  const prompt=promptOf();
-  await Promise.all(todo.map(async p=>{
+  const prompt=r.tipo==='posicao'?mesaR1Prompt(m.tema)
+    :(r.argumento && prevVote)?mesaArgPrompt(m.tema, m.personas, prevVote.resp, m.cands, mesaTally(m.cands, mesaVotesOf(prevVote), m.personas), r.argumento)
+    :mesaR2Prompt(m.tema, m.personas, m.rounds[0].resp, m.cands);
+  const STOP=new Error('MESA_STOPPED');
+  const one=async p=>{
     const sys=mesaPersonaSys(p);
+    const chk=()=>{ if(run.stop) throw STOP; };
     try{
-      if(run.stop) throw new Error('MESA_STOPPED');
-      const text=await mesaAsk(m, sys, prompt, true);
+      chk();
+      const text=await mesaAsk(m, sys, prompt, true); chk();
       if(r.tipo==='posicao'){
         const x=mesaParsePosition(text);
         r.resp[p.id]={ st:'ok', texto:x.texto, propostas:x.propostas, aviso:x.aviso||'', at:Date.now() };
         if(x.aviso) r.avisos.push(p.nome+': '+x.aviso);
       } else {
-        let v=mesaParseVote(text, candIds), raw=text;
-        if(!v.ok && !run.stop){ // voto malformado: UMA nova tentativa pedindo só o JSON
+        const first=mesaParseVote(text, candIds);
+        let out=mesaVoteOutcome(first, null, text), raw=text;
+        if(out.kind==='retry'){ // voto malformado: UMA nova tentativa pedindo só o JSON
           r.resp[p.id]={ st:'pendente', aviso:'voto malformado — pedindo de novo só o JSON' }; mesaPaint(m);
-          raw=await mesaAsk(m, sys, prompt+MESA_RETRY, true); v=mesaParseVote(raw, candIds);
+          raw=await mesaAsk(m, sys, prompt+MESA_RETRY, true); chk();
+          out=mesaVoteOutcome(first, mesaParseVote(raw, candIds), raw);
         }
-        if(v.ok){
-          r.resp[p.id]={ st:'ok', texto:v.vote.fala, voto:v.vote, aviso:v.warns.join(' · '), at:Date.now() };
-          if(v.warns.length) r.avisos.push(p.nome+': '+v.warns.join(' · '));
+        if(out.kind==='ok'){
+          r.resp[p.id]={ st:'ok', texto:out.vote.fala, voto:out.vote, aviso:out.warns.join(' · '), at:Date.now() };
+          if(out.warns.length) r.avisos.push(p.nome+': '+out.warns.join(' · '));
         } else {
-          const txt=(mesaParseJson(raw)||{}).fala||raw;
-          r.resp[p.id]={ st:'ok', texto:String(txt||'').trim(), voto:null, aviso:'voto descartado ('+v.erro+')', at:Date.now() };
-          r.avisos.push(p.nome+': voto descartado ('+v.erro+')');
+          r.resp[p.id]={ st:'ok', texto:out.texto, voto:null, aviso:'voto descartado ('+out.erro+')', at:Date.now() };
+          r.avisos.push(p.nome+': voto descartado ('+out.erro+')');
         }
       }
     }catch(e){
@@ -366,7 +393,18 @@ async function mesaRunRound(m, r, run){
       r.resp[p.id]=(run.stop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:mesaErrMsg(e), at:Date.now() };
     }
     await mesaSave(m); mesaPaint(m);
-  }));
+  };
+  const queue=todo.slice(); let capped=false;
+  const worker=async()=>{
+    while(queue.length && !run.stop && !capped){
+      if(mesaCapHit(m.costUsd, m.capBrl, usdBrlRate())){ capped=true; break; }
+      await one(queue.shift());
+    }
+  };
+  await Promise.all(Array.from({ length:Math.min(MESA_POOL, queue.length) }, worker));
+  queue.forEach(p=>{ delete r.resp[p.id]; }); // não lançadas (parar/teto): voltam pra "na fila"
+  if(queue.length) { await mesaSave(m); mesaPaint(m); }
+  return capped && queue.length>0;
 }
 async function mesaStop(m){
   const run=MESA.runs[m.id]; if(!run) return;
@@ -393,17 +431,20 @@ async function mesaStart(){
 async function mesaGenerate(){
   if(MESA.genBusy) return;
   const tema=String(($id('mesaTema')||{}).value||'').trim(); MESA.tema=tema;
+  const repo=MESA.repo; // trocar de projeto no meio não pode gravar as personas no projeto errado
   MESA.genBusy=true; mesaRender();
-  const tmp={ id:'personas', repo:MESA.repo, model:MESA_MODEL, costUsd:0 };
+  const tmp={ id:'personas', repo, model:MESA_MODEL, costUsd:0 };
+  let ok=false;
   try{
     const text=await mesaAsk(tmp, MESA_GEN_SYS, mesaGenPrompt(tema), true);
     const ps=mesaParsePersonas(text, MESA_PERSONAS.map(p=>p.id));
-    if(!ps.length){ toast('A IA não devolveu personas válidas — tente de novo.','warn'); return; }
-    MESA.gen=ps; ps.forEach(p=>MESA.pick.add(p.id));
-    await invoke('mesa_save',{ repo:MESA.repo, id:'personas', data:{ personas:ps, tema, at:Date.now() } });
-    toast(`${ps.length} personas geradas pra este projeto (${fmtCost(tmp.costUsd)}).`,'ok');
-  }catch(e){ if(!/MESA_STOPPED/.test(String(e&&e.message||e))) showErr(e,'Não consegui gerar as personas'); }
-  finally{ MESA.genBusy=false; mesaRender(); }
+    if(!ps.length){ toast(`A IA não devolveu personas válidas — tente de novo (custou ${fmtCost(tmp.costUsd)}).`,'warn'); return; }
+    await invoke('mesa_save',{ repo, id:'personas', data:{ personas:ps, tema, at:Date.now() } });
+    ok=true;
+    if(MESA.repo===repo){ MESA.gen=ps; ps.forEach(p=>MESA.pick.add(p.id)); }
+    toast(`${ps.length} personas geradas pra ${MESA.repo===repo?'este projeto':'o projeto '+pathBase(repo)} (custou ${fmtCost(tmp.costUsd)}).`,'ok');
+  }catch(e){ if(!/MESA_STOPPED/.test(String(e&&e.message||e))) showErr(e,'Não consegui gerar as personas'+(tmp.costUsd?' (custou '+fmtCost(tmp.costUsd)+')':'')); }
+  finally{ MESA.genBusy=false; if(!ok || MESA.repo===repo) mesaRender(); }
 }
 
 // ---- argumentar: com a mesa (revoto) ou com uma persona ----
@@ -429,6 +470,7 @@ async function mesaArgue(){
   const hist={ posicao:r1.texto||'', voto:lr.voto||null, fala:lr.texto||'', cands:m.cands, chat:chat.slice() };
   chat.push({ who:'you', text });
   MESA.chatBusy=true; chatPinBottom('mesaChat'); mesaRender();
+  try{ await invoke('mesa_resume',{ id:m.id }); }catch(_){ } // um "parar" anterior não pode recusar a pergunta
   try{
     const ans=await mesaAsk(m, mesaPersonaSys(p), mesaAskPrompt(m.tema, p, hist, text), false);
     chat.push({ who:'bot', text:ans||'(sem resposta)' });
@@ -455,8 +497,15 @@ async function mesaCreate(){
   const D=mesaDecisionOf(m); if(!D) return;
   const done=new Set(((m.criadas&&m.criadas.itens)||[]).map(x=>x.fid));
   // épico que caiu no meio: "Criar demandas" de novo RETOMA o mesmo épico (idempotente), não vira tarefa solta
+  // A retomada segue a decisão ATUAL: o que você rejeitou depois sai do épico; o que já foi criado fica criado.
   const resume=m.epicoPend||null;
-  const ap=resume?D.dec.rows.filter(r=>resume.tasks.some(t=>t.fid===r.id) && !done.has(r.id)):D.dec.aprovadas.filter(r=>!done.has(r.id));
+  const madeRows=(resume&&resume._made&&resume._made.rows)||{}, isMade=t=>!!madeRows['i'+t.idx];
+  const apIds=new Set(D.dec.aprovadas.map(r=>r.id));
+  const ap=resume?D.dec.aprovadas.filter(r=>resume.tasks.some(t=>t.fid===r.id && !isMade(t)) && !done.has(r.id)):D.dec.aprovadas.filter(r=>!done.has(r.id));
+  if(resume && !ap.length && resume._made && resume._made.ep){ // nada mais a criar no épico: fecha a pendência
+    m.criadas=Object.assign({}, m.criadas||{}, { epico:{ id:resume._made.ep.id, name:resume._made.ep.name } }); m.epicoPend=null; await mesaSave(m); mesaPaint(m);
+    if(!D.dec.aprovadas.some(r=>!done.has(r.id) && !resume.tasks.some(t=>t.fid===r.id))) { toast('O épico da mesa está completo.','ok'); return; }
+    return mesaCreate(); }
   if(!ap.length){ toast(D.dec.aprovadas.length?'As aprovadas já viraram demanda.':'Aprove pelo menos uma feature (✓ na tabela) antes de criar demandas.','warn'); return; }
   if(m.repo!==state.repo){
     toast(`Esta mesa é do projeto ${pathBase(m.repo)} — abra ele pra criar as demandas lá.`,'warn', window.switchProject?{ label:'abrir o projeto', fn:()=>window.switchProject(m.repo) }:null);
@@ -475,17 +524,20 @@ async function mesaCreate(){
     if(asEpic){
       if(plPlanCtx && plPlanCtx.origin && !(m.epicoPend && plPlanCtx.origin.mesa===m.id)){ toast('Feche o "Desdobrar" aberto antes — ele usa o mesmo cartão de épico.','warn'); return; }
       // hospeda o plCreateEpic (o mesmo do planner/desdobrar): idempotente — tentar de novo não repete o que já foi criado
-      const plan=m.epicoPend||{ epic:('Mesa: '+m.tema).slice(0,80), outcome:'', requirements:[],
+      const plan=resume||{ epic:('Mesa: '+m.tema).slice(0,80), outcome:'', requirements:[],
         doneWhen:ap.map(r=>r.titulo+' entregue').slice(0,6), boundaries:[],
         tasks:ap.map((r,i)=>({ idx:i, fid:r.id, title:r.titulo.slice(0,90), objective:obj(r), requirements:[], owns:'', verify:'', covers:[], after:[], risk:'', hitl:false, boundaries:[], wave:1, on:true })) };
       const livres=(D.tally.vetosLivres||[]).map(v=>v.texto+(v.motivo?' — '+v.motivo:'')).slice(0,6); if(livres.length) plan.boundaries=livres;
+      if(resume) plan.tasks.forEach(t=>{ if(isMade(t)){ t.on=true; return; } t.on=apIds.has(t.fid); const row=D.dec.rows.find(r=>r.id===t.fid); if(t.on && row) t.objective=obj(row); });
       m.epicoPend=plan; let made=null;
+      await mesaSave(m); // o plano (e o _made que o plCreateEpic vai preenchendo) está no disco ANTES do 1º insert
       bdPlan=plan; plPlanRender=()=>{};
-      plPlanCtx={ origin:{ title:'mesa '+m.tema, mesa:m.id }, originNote:'', description:`Decidido na mesa de personas "${m.tema}" (${(m.personas||[]).map(p=>p.nome).join(', ')}).`, onDone:ep=>{ made=ep; }, onDiscard:()=>{} };
+      plPlanCtx={ origin:{ title:'mesa '+m.tema, mesa:m.id }, originNote:'', stay:true, noStartPrompt:true, onMade:()=>mesaSave(m),
+        description:`Decidido na mesa de personas "${m.tema}" (${(m.personas||[]).map(p=>p.nome).join(', ')}).`, onDone:ep=>{ made=ep; }, onDiscard:()=>{} };
       try{ await plCreateEpic(); }
-      finally{ if(plPlanCtx && plPlanCtx.origin && plPlanCtx.origin.mesa===m.id){ plPlanCtx={}; plPlanRender=null; bdPlan=null; } }
+      finally{ if(plPlanCtx && plPlanCtx.origin && plPlanCtx.origin.mesa===m.id){ plPlanCtx={}; plPlanRender=null; bdPlan=null; } await mesaSave(m); }
       const rows=(plan._made&&plan._made.rows)||{};
-      plan.tasks.forEach(t=>{ const row=rows['i'+t.idx]; if(row){ if(!done.has(t.fid)) itens.push({ fid:t.fid, titulo:t.title, cloudId:row.id }); } else faltou.push(t.title); });
+      plan.tasks.forEach(t=>{ const row=rows['i'+t.idx]; if(row){ if(!done.has(t.fid)) itens.push({ fid:t.fid, titulo:t.title, cloudId:row.id }); } else if(t.on) faltou.push(t.title); });
       if(made){ m.epicoPend=null; m.criadas=Object.assign({}, m.criadas||{}, { epico:{ id:made.id, name:made.name } }); }
     } else {
       for(const r of ap){
@@ -520,7 +572,10 @@ async function mesaWriteDecisionNote(m, dec, itens){
     const criadas=all.map(x=>`- ${x.titulo}${x.taskId?' (tarefa '+x.taskId+')':' (no épico'+(m.criadas&&m.criadas.epico?' '+m.criadas.epico.name:'')+')'}`).join('\n');
     const note={ title:('Decisão da mesa: '+m.tema).slice(0,110), type:'decisão', tags:['mesa'], updated:memToday(), by:memWho(), origem:'pessoa', body:mesaNoteBody(m, dec, criadas), extra:{} };
     const sc=prev?prev.scope:scope;
-    const r=await invoke('memory_write',{ repo:m.repo, scope:sc, slug:prev?prev.slug:null, content:memSerialize(note), expectMtime:null, create:!prev });
+    let r;
+    try{ r=await invoke('memory_write',{ repo:m.repo, scope:sc, slug:prev?prev.slug:null, content:memSerialize(note), expectMtime:null, create:!prev }); }
+    catch(e){ if(!prev) throw e; // a nota anterior sumiu (apagada/movida na Memória): cria uma nova
+      r=await invoke('memory_write',{ repo:m.repo, scope, slug:null, content:memSerialize(note), expectMtime:null, create:true }); }
     m.criadas=m.criadas||{}; m.criadas.nota={ scope:r.scope||sc, slug:r.slug||(prev&&prev.slug) };
     await mesaSave(m);
     if(m.criadas.nota.scope==='time' && typeof memTeamSync==='function') memTeamSync().catch(()=>{});
@@ -528,7 +583,8 @@ async function mesaWriteDecisionNote(m, dec, itens){
 }
 
 // ---------------- tela ----------------
-function mesaPaint(m){ if(mesaVisible() && ((MESA.view==='mesa' && MESA.cur===m) || MESA.view==='lista')) mesaRender(); }
+// a lista só muda quando MESA.list é recarregada (mesaRun faz isso no fim) — evento de persona não redesenha a lista
+function mesaPaint(m){ if(mesaVisible() && MESA.view==='mesa' && MESA.cur===m) mesaRender(); }
 function mesaCapture(){
   const a=$id('mesaArgIn'); if(a) MESA.draft=a.value;
   const t=$id('mesaTema'); if(t) MESA.tema=t.value;
@@ -536,11 +592,18 @@ function mesaCapture(){
 function mesaRender(){
   const body=$id('mesaBody'); if(!body) return;
   mesaCapture();
+  const html='<div class="mesawrap">'+(MESA.view==='nova'?mesaNovaHtml():MESA.view==='mesa'&&MESA.cur?mesaMesaHtml(MESA.cur):mesaListaHtml())+'</div>';
+  if(body.__html===html) return; // nada mudou: não mexe no DOM (foco, seleção e rolagem ficam)
   const scr=body.querySelector('.mesascroll'), top=scr?scr.scrollTop:0;
   const keep=stickBottom($id('mesaChat'));
-  body.innerHTML='<div class="mesawrap">'+(MESA.view==='nova'?mesaNovaHtml():MESA.view==='mesa'&&MESA.cur?mesaMesaHtml(MESA.cur):mesaListaHtml())+'</div>';
+  // o que está sendo digitado sobrevive ao redesenho: valor, foco e seleção
+  const ae=document.activeElement, fid=ae&&body.contains(ae)&&ae.id?ae.id:null;
+  const sel=fid&&typeof ae.selectionStart==='number'?[ae.selectionStart, ae.selectionEnd]:null;
+  body.innerHTML=html; body.__html=html;
   const scr2=body.querySelector('.mesascroll'); if(scr2) scr2.scrollTop=top;
   keep($id('mesaChat'));
+  const a=$id('mesaArgIn'); if(a && a.value!==MESA.draft) a.value=MESA.draft;
+  if(fid){ const el=$id(fid); if(el){ el.focus(); if(sel && typeof el.setSelectionRange==='function') try{ el.setSelectionRange(sel[0], sel[1]); }catch(_){ } } }
   mesaWire(body);
 }
 function mesaHead(title, sub, acts){
@@ -591,6 +654,7 @@ function mesaPersonaCard(m, r, p){
     if(r.tipo==='posicao' && (x.propostas||[]).length) body+=`<div class="mesaprops">${x.propostas.map(q=>`<div><b>${mesaEsc(q.titulo)}</b>${q.descricao?' — '+mesaEsc(q.descricao):''}${q.porque?`<span class="dim"> · ${mesaEsc(q.porque)}</span>`:''}</div>`).join('')}</div>`;
     if(r.tipo==='voto' && x.voto){
       const t=id=>((m.cands||[]).find(c=>c.id===id)||{}).titulo||id;
+      if(x.voto.obs) body+=`<div class="mesaobs"><span class="dim">observações:</span> ${mesaEsc(x.voto.obs)}</div>`;
       body+=`<div class="mesavotes">${x.voto.top.map(v=>`<span class="mesav" title="${mesaEsc(v.porque||'')}"><i>${v.peso}</i>${mesaEsc(t(v.id))}</span>`).join('')}${(x.voto.vetos||[]).map(v=>`<span class="mesav veto" title="${mesaEsc(v.motivo||'')}"><i>veto</i>${mesaEsc(v.id?t(v.id):v.texto)}</span>`).join('')}</div>`;
     }
   }
@@ -625,7 +689,7 @@ function mesaTableHtml(m, D){
 function mesaMesaHtml(m){
   const st=mesaStatusOf(m), running=mesaRunning(m), run=MESA.runs[m.id];
   const acts=(running?`<button class="btn" id="mesaStop"${run&&run.stop?' disabled':''}>${IC.stopsq}${run&&run.stop?'parando…':'Parar'}</button>`:'')+
-    (!running && ['pausada','parada','interrompida'].includes(st)?`<button class="btn primary" id="mesaCont">${IC.play}Continuar</button>`:'')+
+    (!running && ['pausada','parada','interrompida'].includes(st)?`<button class="btn primary" id="mesaCont">${IC.play}${m.status==='interrompida'?'Tentar de novo':'Continuar'}</button>`:'')+
     `<button class="btn" id="mesaBack">${IC.back}mesas</button>`;
   const cap=+m.capBrl>0?` · teto R$ ${fmtNumBR(m.capBrl,true)}`:'';
   const sub=`${mesaStBadge(st)} · ${(m.personas||[]).map(p=>mesaEsc(p.nome)).join(', ')} · gastou ${mesaEsc(fmtCost(+m.costUsd||0))}${cap}`+(m.repo!==state.repo?` · projeto ${mesaEsc(pathBase(m.repo))}`:'');
@@ -678,7 +742,7 @@ function mesaWire(body){
   bindClick('mesaGen', mesaGenerate);
   bindClick('mesaGo', mesaStart);
   bindClick('mesaStop', ()=>MESA.cur&&mesaStop(MESA.cur));
-  bindClick('mesaCont', ()=>MESA.cur&&mesaRun(MESA.cur));
+  bindClick('mesaCont', ()=>MESA.cur&&mesaRun(MESA.cur, { retryFailed:true }));
   bindClick('mesaCreate', mesaCreate);
   bindClick('mesaApSug', async()=>{ const m=MESA.cur, D=m&&mesaDecisionOf(m); if(!D) return; D.dec.sugeridas.forEach(r=>{ if(!m.escolhas[r.id]) m.escolhas[r.id]='aprovada'; }); await mesaSave(m); mesaRender(); });
   bindClick('mesaNote', ev=>{ ev.preventDefault(); const c=MESA.cur&&MESA.cur.criadas; if(!c||!c.nota) return; MEM.sel={ scope:c.nota.scope, slug:c.nota.slug }; if(window.openTab) openTab('memoria'); });
@@ -696,6 +760,7 @@ function mesaWire(body){
       stop:{ btn:'', busy:()=>MESA.chatBusy||mesaRunning(MESA.cur), fn:()=>{} }, onSend:mesaArgue,
       hint:'Enter envia · ⇧Enter quebra linha', busyHint:mesaRunning(MESA.cur)?'a mesa está rodando — argumente quando a rodada terminar':(MESA.chatBusy?'esperando a resposta…':'') });
     bindClick('mesaArgSend', mesaArgue);
+    { const i=$id('mesaArgIn'); if(i){ i.onpaste=null; i.ondrop=null; i.ondragover=null; i.ondragleave=null; } } // sem anexos aqui: colar/arrastar arquivo não some num array descartado
   }
 }
 

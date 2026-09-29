@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../src/js/38-mesa.js', import.meta.url), 'utf8');
 const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.ok(i >= 0 && j > i, 'trecho não encontrado: ' + a); return s.slice(i, j); };
 const pure = cut(src, '// @puro-inicio', '// @puro-fim');
-const M = new Function(pure + '\nreturn { MESA_PERSONAS, MESA_MODEL, mesaParseJson, mesaParsePersonas, mesaParsePosition, mesaCandidates, mesaParseVote, mesaTally, mesaDecision, mesaCost, mesaCapHit, mesaDiff, mesaJustify, mesaNoteBody, mesaR1Prompt, mesaR2Prompt, mesaArgPrompt, mesaAskPrompt, mesaVotesOf };')();
+const M = new Function(pure + '\nreturn { MESA_PERSONAS, MESA_MODEL, mesaParseJson, mesaParsePersonas, mesaParsePosition, mesaCandidates, mesaParseVote, mesaTally, mesaDecision, mesaCost, mesaCapHit, mesaDiff, mesaJustify, mesaNoteBody, mesaR1Prompt, mesaR2Prompt, mesaArgPrompt, mesaAskPrompt, mesaVotesOf, mesaVoteOutcome, mesaNextStep, mesaRoundMissing };')();
+const planner = readFileSync(new URL('../src/js/32-planner.js', import.meta.url), 'utf8');
+const plOriginSuffix = new Function(cut(planner, 'function plOriginSuffix', '\n}') + '\n}\nreturn plOriginSuffix;')();
 
 const cands = ['A', 'B', 'C', 'D', 'E', 'F'].map((t, i) => ({ id: 'F' + (i + 1), titulo: 'Feature ' + t, descricao: 'desc ' + t, autores: ['Bia'] }));
 const ids = cands.map((c) => c.id);
@@ -97,10 +99,10 @@ test('decisão: empate no corte entra junto; votada por todos entra mesmo fora d
 
 test('custo: personas × rodadas; régua do roughEstimate quando existe', () => {
   const [lo, hi] = M.mesaCost(5, 2, 'claude-sonnet-5');
-  assert.ok(Math.abs(lo - 0.5) < 1e-9 && Math.abs(hi - 2) < 1e-9, `${lo} ${hi}`);
+  assert.ok(Math.abs(lo - 0.5375) < 1e-9 && Math.abs(hi - 2.15) < 1e-9, `${lo} ${hi}` + ' (5 × (1 + 1,15 de margem do revoto))');
   const est = (n, m) => (assert.equal(m, 'sonnet'), [n * 0.12, n * 0.5]);
   const [a, b] = M.mesaCost(4, 2, 'claude-sonnet-5', est);
-  assert.ok(Math.abs(a - 0.384) < 1e-9 && Math.abs(b - 1.6) < 1e-9, `${a} ${b}`);
+  assert.ok(Math.abs(a - 8.6 * 0.12 * 0.4) < 1e-9 && Math.abs(b - 8.6 * 0.5 * 0.4) < 1e-9, `${a} ${b}`);
   assert.equal(M.mesaCapHit(1, 5.5, 5.5), true);
   assert.equal(M.mesaCapHit(0.9, 5.5, 5.5), false);
   assert.equal(M.mesaCapHit(100, 0, 5.5), false, 'teto 0 = sem teto');
@@ -156,4 +158,64 @@ test('prompts: rodada 2 leva as posições e as features; argumento leva o argum
   assert.match(a, /> não temos backend/); assert.match(a, /F1 Feature A: 5 pts/);
   const q = M.mesaAskPrompt('tema X', P[1], { posicao: 'P-RAFA', voto: vote([['F2', 5]]), cands, chat: [] }, 'por que vetou?');
   assert.match(q, /P-RAFA/); assert.match(q, /Responda só como Rafa/); assert.ok(!q.includes('POSICAO-BIA'));
+});
+
+test('parse de voto: peso acima do nº de features cai; observações passam', () => {
+  const ids3 = ['F1', 'F2', 'F3'];
+  const r = M.mesaParseVote('{"top5":[{"id":"F1","peso":5},{"id":"F2","peso":3},{"id":"F3","peso":1}],"observacoes":"ideia nova: lembrete por WhatsApp"}', ids3);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.vote.top.map((t) => t.id + t.peso), ['F2' + 3, 'F3' + 1]);
+  assert.match(r.warns.join(' '), /peso inválido em F1/);
+  assert.equal(r.vote.obs, 'ideia nova: lembrete por WhatsApp');
+});
+
+test('voto: malformado → uma nova tentativa → descartado com aviso (não "falhou")', () => {
+  const bad = M.mesaParseVote('sem json', ids);
+  assert.equal(M.mesaVoteOutcome(bad, null, 'sem json').kind, 'retry');
+  const again = M.mesaVoteOutcome(bad, M.mesaParseVote('{"fala":"ainda sem voto"}', ids), '{"fala":"ainda sem voto"}');
+  assert.equal(again.kind, 'discard');
+  assert.equal(again.texto, 'ainda sem voto');
+  assert.ok(again.erro);
+  const fixed = M.mesaVoteOutcome(bad, M.mesaParseVote('{"top5":[{"id":"F1","peso":5}]}', ids), '');
+  assert.equal(fixed.kind, 'ok');
+  assert.equal(M.mesaVoteOutcome(M.mesaParseVote('{"top5":[{"id":"F2","peso":5}]}', ids), null, '').kind, 'ok', 'válido na 1ª não pede de novo');
+});
+
+test('próximo passo: rodada 1 → features → rodada 2 → concluída; tudo falhou → interrompida; Continuar inclui quem falhou', () => {
+  const base = () => ({ personas: P.slice(0, 2), rounds: [{ n: 1, tipo: 'posicao', resp: {} }] });
+  const m = base();
+  assert.equal(M.mesaNextStep(m).kind, 'run');
+  m.rounds[0].resp = { bia: { st: 'ok', propostas: [{ titulo: 'A' }] }, rafa: { st: 'falhou' } };
+  const s1 = M.mesaNextStep(m);
+  assert.equal(s1.kind, 'open-vote');
+  assert.deepEqual(s1.cands.map((c) => c.titulo), ['A']);
+  assert.equal(M.mesaNextStep(m, true).kind, 'run', 'Continuar: quem falhou roda de novo');
+  assert.deepEqual(M.mesaRoundMissing(m, m.rounds[0], true).map((p) => p.id), ['rafa']);
+  assert.deepEqual(M.mesaRoundMissing(m, m.rounds[0]).map((p) => p.id), []);
+  m.cands = s1.cands;
+  m.rounds.push({ n: 2, tipo: 'voto', resp: { bia: { st: 'ok', voto: vote([['F1', 1]]) }, rafa: { st: 'ok', voto: null } } });
+  assert.equal(M.mesaNextStep(m).kind, 'concluded');
+  const dead = base();
+  dead.rounds[0].resp = { bia: { st: 'falhou' }, rafa: { st: 'falhou' } };
+  assert.equal(M.mesaNextStep(dead).kind, 'interrupted');
+  const novotes = base();
+  novotes.rounds[0].resp = { bia: { st: 'ok', propostas: [{ titulo: 'A' }] }, rafa: { st: 'ok', propostas: [] } };
+  novotes.rounds.push({ n: 2, tipo: 'voto', resp: { bia: { st: 'ok', voto: null }, rafa: { st: 'falhou' } } });
+  assert.equal(M.mesaNextStep(novotes).kind, 'interrupted', 'rodada de voto sem nenhum voto válido');
+  const noprops = base();
+  noprops.rounds[0].resp = { bia: { st: 'ok', propostas: [] }, rafa: { st: 'ok', propostas: [] } };
+  assert.equal(M.mesaNextStep(noprops).kind, 'concluded');
+  assert.ok(M.mesaNextStep(noprops).aviso);
+});
+
+test('revoto: prompt diz que só vota nas features da lista e ideia nova vai em observacoes', () => {
+  const t = M.mesaTally(cands.slice(0, 2), {}, P);
+  const a = M.mesaArgPrompt('tema', P, {}, cands.slice(0, 2), t, 'arg');
+  assert.match(a, /\(F1, F2\)/); assert.match(a, /NÃO cria feature nova/); assert.match(a, /observacoes/);
+});
+
+test('planner: sufixo de origem — originNote "" suprime, ausente mantém o padrão', () => {
+  assert.equal(plOriginSuffix({}), '');
+  assert.equal(plOriginSuffix({ origin: { title: 'T' }, originNote: '' }), '');
+  assert.match(plOriginSuffix({ origin: { title: 'T' } }), /\(Origem: tarefa "T"/);
 });
