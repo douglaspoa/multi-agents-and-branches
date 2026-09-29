@@ -432,11 +432,67 @@ async function aeTick(){
       delete aeRetry[e.id];
       await invokeQuiet('agent_edits_done',{ id:e.id, outcome:r.outcome, msg:r.msg||'' }).catch(()=>{});
       if(r.outcome==='refused') await aeNotifyRefused(e, r.msg||'');
+      if(['applied','proposed','cloud-only'].includes(r.outcome) && e.epicId) aeCtxRefresh([e.epicId], true).catch(()=>{}); // irmãs/épico mudaram: o contexto do motor acompanha
     }
     Object.keys(aeWaiting).forEach(k=>{ if(!waiting[k]) delete aeWaiting[k]; }); Object.assign(aeWaiting, waiting);
   }finally{ aeBusy=false; }
 }
 tickLoop('agentEdits', aeTick, 10000, 4000);
+
+// ---- CONTEXTO VIVO DO ÉPICO pro motor (.cardume/epic-context/<epicId>.json, src/epic-context.ts) ----
+// O motor não fala com a nuvem e as irmãs quase sempre só existem lá: o app grava, pra cada épico que tem tarefa
+// neste repo, o épico + as irmãs (ids da nuvem e locais, títulos, status, requisitos). O motor regenera o EPIC.md
+// a cada turno e resolve o alvo do edit_task por id OU título. Motor pediu (refresh-request) → atende em segundos.
+// PURA: o JSON do contexto (só cartões do MESMO projeto)
+function aeEpicContextJson(ep, cards, localIds, projectId, nowIso, ownerName){
+  const sp=(ep&&ep.spec)||{}; const here=new Set(localIds||[]);
+  const own=typeof ownerName==='function'?ownerName:()=>null;
+  return {
+    epicId:ep.id, title:ep.name||'', description:sp.description||'', outcome:sp.outcome||'',
+    requirements:(Array.isArray(sp.requirements)?sp.requirements:[]).map(r=>({ id:String(r.id||''), text:String(r.text||'') })),
+    doneWhen:(Array.isArray(sp.doneWhen)?sp.doneWhen:[]).map((d,k)=>({ id:String(d.id||('D'+(k+1))), text:String(d.text||''), checked:!!d.checkedBy })),
+    siblings:(cards||[]).filter(c=>c && c.epic_id===ep.id && (!projectId || c.project_id===projectId)).map(c=>{
+      const lid=c.local_id&&!String(c.local_id).startsWith('card-')?String(c.local_id):null;
+      return { cloudId:c.id, localId:lid, title:(c.spec&&c.spec.title)||c.title||'', status:c.status||'', requirements:Array.isArray((c.spec||{}).requirements)?c.spec.requirements.map(String):[],
+        owner:c.assignee?own(c.assignee):null, machineLocal:!!(lid&&here.has(lid)) }; }),
+    updatedAt:nowIso, projectId:projectId||null,
+  };
+}
+const aeCtxAt={}; let aeCtxBusy=false;
+function aeLocalEpicIds(){ return [...new Set((state.tasks||[]).map(t=>t.epic&&t.epic.epicId).filter(Boolean))]; }
+async function aeCtxRefresh(epicIds, force){
+  if(!SB.sess() || !cloudTeamId()) return 0;
+  const mine=new Set(aeLocalEpicIds()); // só épicos com tarefa NESTE repo (mesmo projeto)
+  const ids=[...new Set(epicIds||[])].filter(id=>aeIsUuid(id)&&mine.has(id)&&(force||Date.now()-(aeCtxAt[id]||0)>30000));
+  if(!ids.length) return 0;
+  const proj=await cloudEnsureProject().catch(()=>null); const pid=proj&&proj.id;
+  const localIds=(state.tasks||[]).map(t=>t.id); let n=0;
+  for(const id of ids){
+    try{
+      const [ep, cards]=await Promise.all([
+        sbGet('epics?select=id,name,spec,status&id=eq.'+aeEnc(id)).then(r=>(r||[])[0]||null),
+        sbGet('tasks?select=id,local_id,title,status,assignee,spec,project_id,epic_id&epic_id=eq.'+aeEnc(id)+'&order=created_at').then(r=>r||[]),
+      ]);
+      if(!ep) continue;
+      const json=aeEpicContextJson(ep, cards, localIds, pid, new Date().toISOString(), typeof tmName==='function'?tmName:null);
+      await invokeQuiet('write_epic_context',{ epicId:id, json:JSON.stringify(json) });
+      aeCtxAt[id]=Date.now(); n++;
+    }catch(e){ console.warn('contexto do épico não gravado', id, e&&e.message||e); }
+  }
+  return n;
+}
+// a cada 3s: o motor pediu contexto fresco? (a cada ~60s, todos os épicos locais — throttle de 30s por épico)
+let aeCtxLast=0;
+async function aeCtxTick(){
+  if(aeCtxBusy || !SB.sess() || !cloudTeamId()) return;
+  aeCtxBusy=true;
+  try{
+    const req=await invokeQuiet('epic_context_requests').catch(()=>[]);
+    if(Array.isArray(req)&&req.length) await aeCtxRefresh(req, true);
+    if(Date.now()-aeCtxLast>60000){ aeCtxLast=Date.now(); await aeCtxRefresh(aeLocalEpicIds(), false); }
+  }finally{ aeCtxBusy=false; }
+}
+tickLoop('epicContext', aeCtxTick, 3000, 2500);
 
 // ---- ações do humano (desfazer / aprovar / recusar) ----
 async function aeEpicUndo(ep, editId){

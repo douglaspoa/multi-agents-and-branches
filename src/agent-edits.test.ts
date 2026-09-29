@@ -166,8 +166,8 @@ test("irmã só na nuvem: pendência de cartão; dedup só contra PENDENTE (depo
     e.add("autor", "running", { epicId: EPIC });
     const input = { objective: "outro jeito", note: "descobri X" };
     const T = "aaaaaaaa-0000-0000-0000-000000000001";
-    const a = editTask({ store: e.store, cardumeDir: e.dir, targetId: T, by: B, input, epicId: EPIC });
-    const b = editTask({ store: e.store, cardumeDir: e.dir, targetId: T, by: B, input, epicId: EPIC });
+    const a = editTask({ store: e.store, cardumeDir: e.dir, targetId: T, by: B, input, epicId: EPIC, knownCloud: true });
+    const b = editTask({ store: e.store, cardumeDir: e.dir, targetId: T, by: B, input, epicId: EPIC, knownCloud: true });
     assert.equal(a.ok && a.mode, "pending");
     assert.equal(a.ok && a.id, b.ok && b.id);
     const f = join(e.dir, "agent-edits", `card-${T}.jsonl`);
@@ -176,7 +176,7 @@ test("irmã só na nuvem: pendência de cartão; dedup só contra PENDENTE (depo
     assert.equal(row.kind, "card");
     assert.equal(row.by.role, "builder");
     appendFileSync(join(e.dir, "agent-edits", "applied.jsonl"), JSON.stringify({ id: row.id, outcome: "applied" }) + "\n");
-    const c = editTask({ store: e.store, cardumeDir: e.dir, targetId: T, by: B, input, epicId: EPIC });
+    const c = editTask({ store: e.store, cardumeDir: e.dir, targetId: T, by: B, input, epicId: EPIC, knownCloud: true });
     assert.notEqual(c.ok && c.id, row.id);
     assert.equal(readFileSync(f, "utf8").trim().split("\n").length, 2);
     assert.ok(!existsSync(join(e.dir, "agent-edits", ".lock")), "trava liberada");

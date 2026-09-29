@@ -11,6 +11,7 @@ import { CoordinationBus } from "../bus.ts";
 import { notify } from "../util/notify.ts";
 import { dirname } from "node:path";
 import { editEpic, editTask, type EditAuthor } from "../agent-edits.ts";
+import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "../epic-context.ts";
 
 const DB = process.env.CARDUME_DB;
 const TASK = process.env.CARDUME_TASK ?? "";
@@ -97,7 +98,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        task_id: { type: "string", description: "Id da tarefa (o local, ou o id do cartão no EPIC.md)." },
+        task_id: { type: "string", description: "Id da tarefa (da nuvem ou local — veja com epic_tasks) OU o título dela. Alvo desconhecido/ambíguo é recusado com a lista das irmãs." },
         objective: { type: "string", description: "Objetivo novo (substitui)." },
         title: { type: "string", description: "Título novo (substitui)." },
         requirements_add: { type: "array", items: { type: "string" }, description: "Requisitos a ACRESCENTAR (curtos e verificáveis)." },
@@ -118,7 +119,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        epic_id: { type: "string", description: "Id do épico (epic.id no TASK.yaml)." },
+        epic_id: { type: "string", description: "Id do épico (epic.id no TASK.yaml) ou o nome dele. Vazio = o épico desta tarefa." },
         description: { type: "string", description: "Descrição nova (substitui)." },
         outcome: { type: "string", description: "Resultado esperado novo (substitui)." },
         done_when_add: { type: "array", items: { type: "string" }, description: "Itens NOVOS do 'pronto quando' (checagem que uma pessoa roda)." },
@@ -126,7 +127,16 @@ const TOOLS = [
         requirements_add: { type: "array", items: { type: "string" }, description: "Requisitos NOVOS do épico." },
         note: { type: "string", description: "POR QUE mudou (1 frase). Obrigatório." },
       },
-      required: ["epic_id", "note"],
+      required: ["note"],
+    },
+  },
+  {
+    name: "epic_tasks",
+    description:
+      "Lista as tarefas do ÉPICO (irmãs) AO VIVO: id (passe esse pro edit_task), título, status, se está neste computador ou só na nuvem, e os requisitos. Use antes de editar uma irmã — ou passe o título direto pro edit_task.",
+    inputSchema: {
+      type: "object",
+      properties: { epic_id: { type: "string", description: "Id ou nome do épico. Vazio = o épico desta tarefa." } },
     },
   },
   {
@@ -275,6 +285,17 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     }
   }
 
+  if (name === "epic_tasks") {
+    const me = store.getTask(TASK);
+    let myEpic: string | undefined;
+    try { myEpic = me ? (JSON.parse(me.spec_json) as TaskSpec).epicId : undefined; } catch { /* spec antiga */ }
+    const cardumeDir = dirname(DB!);
+    const e = resolveEpicTarget(typeof args?.epic_id === "string" ? args.epic_id : undefined, knownEpics(store, cardumeDir), myEpic);
+    if (!e.ok) return { text: e.message, isError: true };
+    const f = await ensureFreshContext(cardumeDir, e.id);
+    return { text: epicTasksText(f.ctx, listEpicTasks(store, f.ctx, e.id), e.id, f.warn) };
+  }
+
   if (name === "edit_task" || name === "edit_epic") {
     const me = store.getTask(TASK);
     let myEpic: string | undefined;
@@ -283,9 +304,21 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     const arr = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x)) : undefined);
     const str = (v: unknown) => (typeof v === "string" ? v : undefined);
     try {
+      const cardumeDir = dirname(DB!);
+      let target = { id: "", cloud: false, warn: undefined as string | undefined };
+      let epicTarget = "";
+      if (name === "edit_task") {
+        const t = await resolveEditTarget({ store, cardumeDir, query: String(args?.task_id ?? ""), epicId: myEpic });
+        if (!t.ok) return { text: t.message, isError: true };
+        target = { id: t.id, cloud: t.cloud, warn: t.warn };
+      } else {
+        const e = resolveEpicTarget(str(args?.epic_id), knownEpics(store, cardumeDir), myEpic);
+        if (!e.ok) return { text: e.message, isError: true };
+        epicTarget = e.id;
+      }
       const r = name === "edit_task"
         ? editTask({
-            store, cardumeDir: dirname(DB!), targetId: String(args?.task_id ?? ""), by, epicId: myEpic,
+            store, cardumeDir, targetId: target.id, by, epicId: myEpic, knownCloud: target.cloud,
             input: {
               objective: str(args?.objective), title: str(args?.title), reqAdd: arr(args?.requirements_add),
               reqRemove: arr(args?.requirements_remove),
@@ -293,13 +326,13 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
             },
           })
         : editEpic({
-            store, cardumeDir: dirname(DB!), epicId: String(args?.epic_id ?? ""), by,
+            store, cardumeDir, epicId: epicTarget, by,
             input: {
               description: str(args?.description), outcome: str(args?.outcome), doneWhenAdd: arr(args?.done_when_add),
               doneWhenRemove: arr(args?.done_when_remove), reqAdd: arr(args?.requirements_add), note: str(args?.note),
             },
           });
-      return { text: r.message, isError: !r.ok };
+      return { text: r.message + (r.ok && target.warn ? ` (aviso: ${target.warn})` : ""), isError: !r.ok };
     } catch (e) {
       return { text: `falha editando: ${(e as Error).message}`, isError: true };
     }

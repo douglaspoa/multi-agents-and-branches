@@ -399,6 +399,8 @@ export function editTask(opts: {
   by: EditAuthor;
   epicId?: string;
   editId?: string;
+  /** o alvo só-na-nuvem foi RESOLVIDO contra as irmãs do épico (epic-context.ts) — sem isso, nada entra na fila */
+  knownCloud?: boolean;
 }): EditResult {
   const { store, cardumeDir, input, by } = opts;
   const targetId = clean(opts.targetId);
@@ -412,13 +414,14 @@ export function editTask(opts: {
   if (!t) {
     // irmã que ainda está no backlog do time (só na nuvem): fila pro app aplicar no cartão
     if (!opts.epicId) return { ok: false, message: `tarefa ${targetId} não encontrada neste projeto` };
+    if (!opts.knownCloud) return { ok: false, message: `tarefa ${targetId} não é uma irmã conhecida deste épico — veja os ids com mcp__cardume__epic_tasks (ou passe o título)` };
     const { id, dup } = appendPending(cardumeDir, { kind: "card", target: targetId, epicId: opts.epicId, by, task: { ...input, note } });
     if (by.taskId && !dup) store.addEvent(by.taskId, by.agent, "note", `tarefa atualizada (cartão ${targetId}, aplicação pelo app): ${note}`, true);
     return {
       ok: true, mode: "pending", id,
       message: dup
         ? `essa mesma edição já estava registrada (${id}) — o app aplica no cartão do time`
-        : `edição registrada (${id}): a tarefa ${targetId} não está neste computador, então o app aplica no cartão do time assim que sincronizar. O agente dela NÃO foi acionado. Remoções viram proposta pro humano.`,
+        : `edição registrada (${id}): a tarefa ${targetId} só existe como cartão do time, então o app aplica nele em segundos (com o app aberto). O agente dela NÃO foi acionado. Remoções viram proposta pro humano.`,
     };
   }
   if (CLOSED_ST.has(t.status)) {

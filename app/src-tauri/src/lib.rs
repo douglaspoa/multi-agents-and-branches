@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
+mod epic_context;
 mod memoria;
 mod mesa;
 #[cfg(target_os = "macos")]
@@ -1436,6 +1437,20 @@ fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String>
 fn agent_edits_pending(state: State<AppState>) -> Result<Vec<serde_json::Value>, String> {
     let repo = active_repo(&state)?;
     Ok(agent_edits::read_pending(&repo.join(".cardume").join("agent-edits")))
+}
+
+/// Contexto vivo do épico pro motor (src/epic-context.ts) — escrita atômica em .cardume/epic-context/.
+#[tauri::command(async)]
+fn write_epic_context(state: State<AppState>, epic_id: String, json: String) -> Result<(), String> {
+    let repo = active_repo(&state)?;
+    epic_context::write_context(&repo.join(".cardume").join("epic-context"), &epic_id, &json)
+}
+
+/// Épicos cujo contexto o motor pediu pra atualizar (lê e apaga o pedido).
+#[tauri::command(async)]
+fn epic_context_requests(state: State<AppState>) -> Result<Vec<String>, String> {
+    let repo = active_repo(&state)?;
+    Ok(epic_context::take_requests(&repo.join(".cardume").join("epic-context")))
 }
 
 /// Anota o desfecho (applied | refused | gone) — a edição sai da fila de vez.
@@ -8679,6 +8694,8 @@ pub fn run() {
             overlap_check,
             agent_edits_pending,
             agent_edits_done,
+            write_epic_context,
+            epic_context_requests,
             task_edit_cli,
             epic_sync_cli,
             task_agent_edit,

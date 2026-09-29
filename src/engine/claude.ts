@@ -721,7 +721,7 @@ export function specEditRule(input: { role: string; spec: { epicId?: string } })
   // só quem constrói/planeja muda spec (o revisor julga a spec, não a reescreve) e só em tarefa de épico
   if (!["builder", "planner"].includes(input.role) || !input.spec.epicId) return "";
   return (
-    " A IDEIA MUDOU? Se o que você descobriu muda o escopo de uma tarefa IRMÃ do épico (ids e requisitos em .cardume/refs/EPIC.md) ou da sua, atualize a spec dela com mcp__cardume__edit_task (objetivo, título, requisitos/entregáveis novos, owns/off) — isso NÃO inicia nem retoma o agente dela; se ela estiver rodando, recebe a mudança no próximo turno. NUNCA use `cardume talk` pra isso (ele dispara a execução)." +
+    " A IDEIA MUDOU? Se o que você descobriu muda o escopo de uma tarefa IRMÃ do épico ou da sua, use mcp__cardume__epic_tasks pra ver as irmãs e os ids (também em .cardume/refs/EPIC.md, regenerado a cada turno) e atualize a spec dela com mcp__cardume__edit_task — pode indicar a irmã pelo id OU pelo título; nunca invente um id (objetivo, título, requisitos/entregáveis novos, owns/off) — isso NÃO inicia nem retoma o agente dela; se ela estiver rodando, recebe a mudança no próximo turno. NUNCA use `cardume talk` pra isso (ele dispara a execução)." +
     ` Se mudou o próprio ÉPICO (descrição, requisitos, "pronto quando"), use mcp__cardume__edit_epic com epic_id ${input.spec.epicId}.` +
     " Acrescentar/reescrever vale na hora; REMOVER requisito ou item do \"pronto quando\" (ou estreitar owns/off) vira PROPOSTA que o humano aprova ou recusa. Sempre com `note` dizendo o porquê — o humano vê o rastro (antes → depois) e pode desfazer. Tarefa mergeada/concluída não muda."
   );

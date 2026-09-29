@@ -12,6 +12,7 @@ import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
 import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
+import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
 // ---------- parse de flags simples (src/util/args.ts) ----------
@@ -707,7 +708,7 @@ function parsePatch(a: Args): { ok: true; v: unknown } | { ok: false; message: s
   try { return { ok: true, v: JSON.parse(a.flags.patch) }; } catch { return { ok: false, message: "--patch não é um JSON válido" }; }
 }
 
-function cmdTaskEdit(repo: string, id: string | undefined, a: Args) {
+async function cmdTaskEdit(repo: string, id: string | undefined, a: Args) {
   const store = openStore(repo);
   const json = !!a.flags.json;
   try {
@@ -740,7 +741,12 @@ function cmdTaskEdit(repo: string, id: string | undefined, a: Args) {
     let authorEpic: string | undefined;
     try { authorEpic = author ? (JSON.parse(author.spec_json) as TaskSpec).epicId : undefined; } catch { /* spec antiga */ }
     const epicId = a.flags["epic-id"] || authorEpic;
-    printEdit(editTask({ store, cardumeDir: new Workspace(repo).dir, targetId: id ?? "", input, by, epicId, editId: a.flags["edit-id"] || undefined }), json);
+    const cardumeDir = new Workspace(repo).dir;
+    // id (nuvem/local) OU título: resolvido contra as irmãs do épico; desconhecido é recusado na hora
+    const t = await resolveEditTarget({ store, cardumeDir, query: id ?? "", epicId });
+    if (!t.ok) return printEdit(t, json);
+    const r = editTask({ store, cardumeDir, targetId: t.id, input, by, epicId, editId: a.flags["edit-id"] || undefined, knownCloud: t.cloud });
+    printEdit(r.ok && t.warn ? { ...r, message: r.message + ` (aviso: ${t.warn})` } : r, json);
   } finally {
     store.close();
   }
@@ -767,7 +773,32 @@ function cmdEpicEdit(repo: string, id: string | undefined, a: Args) {
         note: a.flags.note,
       };
     }
-    printEdit(editEpic({ store, cardumeDir: new Workspace(repo).dir, epicId: id ?? "", input, by: editAuthor(store, a) }), json);
+    const by = editAuthor(store, a);
+    const cardumeDir = new Workspace(repo).dir;
+    const e = resolveEpicTarget(id, knownEpics(store, cardumeDir), authorEpicOf(store, by));
+    if (!e.ok) return printEdit(e, json);
+    printEdit(editEpic({ store, cardumeDir, epicId: e.id, input, by }), json);
+  } finally {
+    store.close();
+  }
+}
+
+function authorEpicOf(store: Store, by: EditAuthor): string | undefined {
+  const t = by.taskId ? store.getTask(by.taskId) : undefined;
+  try { return t ? (JSON.parse(t.spec_json) as TaskSpec).epicId : undefined; } catch { return undefined; }
+}
+
+/** Irmãs do épico com ids, títulos, status e requisitos (contexto que o app grava + tarefas locais). */
+async function cmdEpicTasks(repo: string, id: string | undefined, a: Args) {
+  const store = openStore(repo);
+  try {
+    const cardumeDir = new Workspace(repo).dir;
+    const e = resolveEpicTarget(id, knownEpics(store, cardumeDir), authorEpicOf(store, editAuthor(store, a)));
+    if (!e.ok) { console.error(c.red("✕ " + e.message)); process.exitCode = 1; return; }
+    const f = await ensureFreshContext(cardumeDir, e.id, a.flags["no-wait"] ? 0 : 5000);
+    const items = listEpicTasks(store, f.ctx, e.id);
+    if (a.flags.json) console.log(JSON.stringify({ epicId: e.id, title: f.ctx?.title ?? "", warn: f.warn ?? null, tasks: items }));
+    else console.log(epicTasksText(f.ctx, items, e.id, f.warn));
   } finally {
     store.close();
   }
@@ -856,12 +887,13 @@ async function main() {
       await cmdDemo();
       break;
     case "task":
-      if (a._[1] === "edit") cmdTaskEdit(repo, a._[2], a);
+      if (a._[1] === "edit") await cmdTaskEdit(repo, a._[2], a);
       else { console.error(c.red("✕ use: cardume task edit <id> [--objective …] [--note \"por quê\"]")); process.exitCode = 1; }
       break;
     case "epic":
       if (a._[1] === "edit") cmdEpicEdit(repo, a._[2], a);
       else if (a._[1] === "sync") cmdEpicSync(repo, a._[2], a);
+      else if (a._[1] === "tasks") await cmdEpicTasks(repo, a._[2], a);
       else { console.error(c.red("✕ use: cardume epic edit <epicId> [--description …] [--note \"por quê\"]")); process.exitCode = 1; }
       break;
     default:
@@ -891,6 +923,7 @@ ${c.dim("entregar & integrar")}
       remover requisito/estreitar owns/off vira proposta (--approve/--reject <id> decidem; --undo <id> desfaz)
   ${c.green("cardume epic edit")} ${c.dim('<epicId> [--description …] [--outcome …] [--done-when-add …] [--done-when-remove D3] [--req-add …] --note "por quê"')}
       muda o épico (o app aplica no épico do time, com histórico)
+  ${c.green("cardume epic tasks")} ${c.dim("[<epicId>] [--json]")}   irmãs do épico com ids, títulos, status e requisitos
   ${c.green("cardume export")} ${c.dim("<taskId> [--out <arquivo.md>]")}  relatório Markdown p/ descrição de PR
   ${c.green("cardume review-pr")} ${c.dim("--pr <url|nº>")}      revisa um PR do GitHub (sem branch/worktree)
   ${c.green("cardume merge")} ${c.dim("<taskId>")}               faz merge da branch na base e remove a worktree
