@@ -123,3 +123,132 @@ test('humanErr com {message, raw}: a tela usa o texto traduzido, "ver detalhes" 
   // o catálogo casa pelo texto (Windows "acesso negado" chega como Permission denied)
   assert.equal(humanErr({ message: 'Permission denied — Access is denied. (os error 5)', raw: 'Access is denied. (os error 5)' }).id, 'permission');
 });
+
+// ===== R8: casos reais que antes chegavam crus na tela =====
+test('SQLite: "database is locked" e banco danificado', () => {
+  assert.equal(id('error returned from database: (code: 5) database is locked'), 'db-locked');
+  assert.equal(id('SQLITE_BUSY: database is locked'), 'db-locked');
+  assert.match(humanErr('database is locked', 'Não consegui gerar o daily').msg, /^Não consegui gerar o daily — O banco local está ocupado/);
+  assert.equal(id('database disk image is malformed'), 'db-broken');
+  assert.equal(id('no such table: tasks'), 'db-old');
+  assert.match(humanErr('no such column: epic_id').msg, /atualize o Starfork/);
+});
+test('IO do macOS/Windows: os error N', () => {
+  assert.equal(id('No such file or directory (os error 2)'), 'not-found');
+  assert.equal(id('The system cannot find the path specified. (os error 3)'), 'not-found');
+  assert.equal(id('Access is denied. (os error 5)'), 'permission');
+  assert.equal(id('Operation not permitted (os error 1)'), 'permission');
+  assert.equal(id('The process cannot access the file because it is being used by another process. (os error 32)'), 'file-busy');
+  assert.equal(id('Resource busy (os error 16)'), 'file-busy');
+  assert.equal(id('No space left on device (os error 28)'), 'disk');
+  assert.equal(id('There is not enough space on the disk. (os error 112)'), 'disk');
+  assert.equal(id('Connection refused (os error 61)'), 'network');
+  // ENOENT de binário continua sendo "não instalado", não "arquivo sumiu"
+  assert.equal(id('spawn claude ENOENT'), 'claude-missing');
+  assert.equal(id('spawn gh ENOENT'), 'gh-missing');
+  assert.equal(id('spawn git ENOENT'), 'git-missing');
+  assert.equal(id('xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools)'), 'git-missing');
+});
+test('git: mudanças locais, lock, branch existente, ref inexistente', () => {
+  assert.equal(id('error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\nPlease commit your changes or stash them before you switch branches.'), 'git-dirty');
+  assert.equal(id("fatal: Unable to create '/Users/x/loja/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository"), 'git-lock');
+  assert.equal(id("fatal: a branch named 'feat/login' already exists"), 'branch-exists');
+  assert.equal(id("error: pathspec 'feat/x' did not match any file(s) known to git"), 'git-ref');
+  assert.equal(id("fatal: invalid reference: feat/x"), 'git-ref');
+  assert.equal(id("fatal: couldn't find remote ref feat/x"), 'git-ref');
+  // o "fatal: 'origin' does not appear" continua sendo sem remote
+  assert.equal(id("fatal: 'origin' does not appear to be a git repository"), 'no-remote');
+});
+test('gh: PR já existe, sem commits, sem PR', () => {
+  assert.equal(id('a pull request for branch "feat/x" into branch "main" already exists:\nhttps://github.com/a/b/pull/3'), 'pr-exists');
+  assert.equal(id('pull request create failed: GraphQL: No commits between main and feat/x (createPullRequest)'), 'no-commits');
+  assert.equal(id('no pull requests found for branch "feat/x"'), 'no-pr');
+});
+test('servidor 5xx ≠ sem internet; JSON inválido; duplicado; RLS', () => {
+  assert.equal(id('HTTP 502: Bad Gateway (https://api.github.com/graphql)'), 'server');
+  assert.equal(id('504 Gateway Time-out'), 'server');
+  assert.equal(id('Internal Server Error'), 'server');
+  assert.equal(id('Unexpected token < in JSON at position 0'), 'bad-json');
+  assert.equal(id(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`), 'bad-json');
+  assert.equal(id('expected value at line 1 column 1'), 'bad-json');
+  assert.equal(id('Unexpected end of JSON input'), 'bad-json');
+  assert.equal(id('duplicate key value violates unique constraint "teams_name_key"'), 'duplicate');
+  assert.equal(id('new row violates row-level security policy for table "teams"'), 'cloud-permission');
+  assert.equal(id('{"code":"42501","message":"permission denied for table teams"}'), 'cloud-permission');
+  assert.match(humanErr('duplicate key value violates unique constraint').msg, /nada foi criado/);
+});
+test('rede: DNS/reqwest/timeout em pt-BR', () => {
+  assert.equal(id('getaddrinfo EAI_AGAIN api.supabase.co'), 'network');
+  assert.equal(id('error sending request for url (https://x.supabase.co/rest/v1/tasks): dns error'), 'network');
+  assert.equal(id('tempo esgotado esperando o GitHub'), 'network');
+  // números grandes não viram 5xx por engano
+  assert.equal(id('operation timed out after 30000ms'), 'network');
+});
+test('cada item do catálogo tem mensagem em pt-BR e ação com rótulo', () => {
+  const cat = vm.runInContext('ERR_CATALOG', ctx);
+  assert.ok(cat.length >= 25, 'catálogo: ' + cat.length);
+  for (const c of cat) {
+    assert.ok(c.msg && c.msg.length > 10, c.id);
+    if (c.act) assert.ok(c.label, c.id + ' sem rótulo');
+  }
+});
+
+test('mensagens do Rust com binário ausente (os error 2) = não instalado, não "arquivo sumiu"', () => {
+  assert.equal(id('falha ao rodar claude: No such file or directory (os error 2)'), 'claude-missing');
+  assert.equal(id('gh indisponível: No such file or directory (os error 2)'), 'gh-missing');
+  assert.equal(id('sem resposta do GitHub (gh): program not found'), 'gh-missing');
+  assert.equal(id('git: No such file or directory (os error 2)'), 'git-missing');
+  assert.equal(id('JSON inválido da IA: expected value at line 1 column 1'), 'bad-json');
+  // arquivo comum que sumiu continua "não encontrado"
+  assert.equal(id('não consegui abrir a pasta: No such file or directory (os error 2)'), 'not-found');
+});
+
+test('bug: "gh: Not Found (HTTP 404)" é recurso inexistente, não "gh não instalado"', () => {
+  assert.equal(id('gh: Not Found (HTTP 404)'), 'generic');
+  assert.equal(id('zsh: command not found: gh'), 'gh-missing');
+  assert.equal(id('zsh: command not found: git'), 'git-missing');
+  assert.equal(id('zsh: command not found: claude'), 'claude-missing');
+});
+
+test('R8 revisão: git-lock não engole colisão de nome nem falta de permissão', () => {
+  assert.equal(id("error: cannot lock ref 'refs/heads/feat/login': 'refs/heads/feat' exists; cannot create 'refs/heads/feat/login'"), 'branch-clash');
+  assert.equal(id("fatal: Unable to create '/repo/.git/index.lock': Permission denied"), 'permission');
+  assert.equal(id("fatal: Unable to create '/repo/.git/index.lock': File exists."), 'git-lock');
+});
+test('R8 revisão: binário ausente com texto localizado do Windows; "^git:" só no começo', () => {
+  assert.equal(id('falha ao rodar claude: O sistema não pode encontrar o arquivo especificado. (os error 2)'), 'claude-missing');
+  assert.equal(id('gh indisponível: Das System kann die angegebene Datei nicht finden. (os error 2)'), 'gh-missing');
+  // "git:" no meio de outra linha não é "git não instalado"
+  assert.notEqual(id('passo 1 ok\ngit: No such file or directory (os error 2)'), 'git-missing');
+});
+test('R8 revisão: cópia da tarefa apagada (ENOENT com worktree) = wt-gone com ação, antes de *-missing', () => {
+  const h = humanErr('falha ao rodar claude: No such file or directory (os error 2) — cwd /Users/a/loja/.cardume/worktrees/t-1');
+  assert.equal(h.id, 'wt-gone');
+  assert.ok(h.action && h.action.label);
+  assert.equal(humanErr('a cópia de trabalho desta tarefa não existe mais (já foi limpa)').id, 'wt-gone');
+});
+test('R8 revisão: os error 3 no Unix (kill) e os error 1 sem texto não são "arquivo"/"permissão"', () => {
+  assert.equal(id('No such process (os error 3)'), 'generic');
+  assert.equal(id('The system cannot find the path specified. (os error 3)'), 'not-found');
+  assert.equal(id('erro qualquer (os error 1)'), 'generic');
+  assert.equal(id('Operation not permitted (os error 1)'), 'permission');
+});
+test('R8 revisão: bad-json não casa linha de stack nem "invalid args" do Tauri', () => {
+  assert.notEqual(id('TypeError: x is undefined\n    at JSON.parse (<anonymous>)'), 'bad-json');
+  assert.notEqual(id('invalid args `taskId` for command `pr_status`: invalid type: null, expected a string'), 'bad-json');
+  assert.notEqual(id('invalid args `data` for command `x`: expected value at line 1 column 1'), 'bad-json');
+  assert.equal(id('JSON.parse: unexpected character at line 1 column 1 of the JSON data'), 'bad-json');
+});
+test('R8 revisão: "nothing to commit" ≠ "no commits between"', () => {
+  assert.equal(id('nothing to commit, working tree clean'), 'nothing-to-commit');
+  assert.equal(id('GraphQL: No commits between main and feat/x'), 'no-commits');
+  assert.match(humanErr('nothing to commit').msg, /nada novo pra salvar/);
+  assert.match(humanErr('No commits between').msg, /abrir o PR/);
+});
+test('errShort: frase do catálogo quando conhece, 1ª linha do cru quando não', () => {
+  const errShort = vm.runInContext('errShort', ctx);
+  assert.equal(errShort('database is locked'), humanErr('database is locked').msg);
+  assert.equal(errShort('Error: tarefa não está em execução\n  at x'), 'tarefa não está em execução');
+  assert.equal(errShort(''), 'erro sem detalhe');
+  assert.ok(!/^Algo deu errado/.test(errShort('qualquer coisa')));
+});

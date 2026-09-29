@@ -24,7 +24,7 @@ function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos 
       <div class="pn"><div class="pnm">${esc(p.name)}</div><div class="pp">${esc(p.path)}</div></div>
       <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">${IC.x}</button>
     </div>`).join("") : '<div class="projerr" style="color:var(--muted)">nenhum projeto ainda</div>';
-  m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr">${esc(projErr)}</div>`:""}<div class="psep"></div>`+
+  m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr" title="${escA(projErr)}">${esc(humanErr(projErr,"Não consegui abrir o projeto").msg)}</div>`:""}<div class="psep"></div>`+
     `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`+
     `<div class="projadd projmanage" id="projManage"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Gerenciar projetos</div>`;
   m.querySelectorAll('.prow').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.px')) return; switchProject(r.dataset.path); });
@@ -42,7 +42,7 @@ async function switchProject(path){
 async function pickFolder(){
   let dir;
   try{ dir = await invoke("pick_folder"); }
-  catch(e){ console.error("pick_folder", e); return; }
+  catch(e){ showErr(e, "Não consegui abrir o seletor de pastas"); return; }
   if(!dir) return; // usuário cancelou
   try{
     await invoke("open_project",{ path: dir });
@@ -92,8 +92,10 @@ $id('pubGo').onclick=async()=>{
     bindClick('pubOk', closePub);
   }catch(e){
     clearInterval(tick);
-    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:13px">Não deu</b><div class="dim" style="font-size:12px;margin-top:4px">${esc(String(e))}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="pubBack">tentar de novo</button></div>`);
+    const ph=humanErr(e,'Não consegui publicar a versão');
+    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:13px">Não deu</b><div class="dim" style="font-size:12px;margin-top:4px" title="${escA(errText(e))}">${esc(ph.msg)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
     bindClick('pubBack', ()=>pubSetState('form'));
+    if(ph.action) bindClick('pubFix', ()=>{ closePub(); ph.action.fn(); });
   }
 };
 // busca central do topo → filtra a Central de execuções (redesign p2)

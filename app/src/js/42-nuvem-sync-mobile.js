@@ -245,13 +245,15 @@ async function cloudIntentTick(){
       invoke('web_log',{line:'[intent] '+kind+' '+(ok?'ok':'FALHOU')+' · '+lid+(msg?' · '+String(msg).slice(0,80):'')}).catch(()=>{});
       lastSig=''; refresh().catch(()=>{});
     };
+    // R8: o motivo volta pro celular em pt-BR (antes ia o erro cru do gh/git); o cru fica no log
+    const fail=(e,ctx)=>{ invoke('web_log',{line:'[intent] cru: '+errText(e).slice(0,200)}).catch(()=>{}); return finish(false, humanErr(e,ctx).msg); };
     try{
       if(kind==='openPr'){
         if(!t) return finish(false,'tarefa não está neste Mac');
         let checks=[]; try{ checks=await invoke('repo_checks',{taskId:lid}); }catch(_){ }
         const bad=checks.filter(c=>!c.ok);
         if(bad.length) return finish(false,'checagem falhou: '+bad.map(c=>c.name).join(', ')+' — abra pelo Mac pra ver o detalhe');
-        try{ await invoke('push_task',{taskId:lid}); }catch(e){ return finish(false,'push falhou: '+e); }
+        try{ await invoke('push_task',{taskId:lid}); }catch(e){ return fail(e,'Não consegui enviar o código (push)'); }
         let body; try{ body=await invoke('pr_body_ai',{taskId:lid}); }catch(_){ body=prBodyOf(t); }
         try{
           const url=await invoke('open_pr',{taskId:lid, base:lsGet('prBase:'+lid)||'main', title:t.title, body});
@@ -262,14 +264,14 @@ async function cloudIntentTick(){
           if(/^GH_NO_ACCESS:|could not resolve to a repository/i.test(errText(e))){
             try{ const cu=await invoke('pr_compare_url',{taskId:lid, base:lsGet('prBase:'+lid)||'main'}); if(cu) return finish(false,'o gh logado não enxerga o repositório — crie o PR no navegador: '+cu); }catch(_){ }
           }
-          return finish(false,'criar PR falhou: '+e); }
+          return fail(e,'Não consegui criar o PR'); }
       }
       if(kind==='merge'){
         try{ const msg=await invoke('merge_pr',{taskId:lid, method:'squash'}); return finish(true,msg); }
-        catch(e){ return finish(false,String(e)); }
+        catch(e){ return fail(e,'Não consegui fazer o merge'); }
       }
-      if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return finish(false,String(e)); } }
-      if(kind==='abort'){ try{ await invoke('abort_task',{taskId:lid}); return finish(true,'abortada'); }catch(e){ return finish(false,String(e)); } }
+      if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return fail(e,'Não consegui pausar'); } }
+      if(kind==='abort'){ try{ await invoke('abort_task',{taskId:lid}); return finish(true,'abortada'); }catch(e){ return fail(e,'Não consegui cancelar'); } }
       if(kind==='fixComment'){
         try{
           prCache[lid]=undefined; await loadPr(lid,true);
@@ -280,10 +282,10 @@ async function cloudIntentTick(){
           // prFixOne devolve false quando não chegou ao agente (não achou o comentário, envio falhou, teto de custo aberto)
           if(!await prFixOne(lid, ci)) return finish(false,'não consegui mandar a correção pro agente');
           return finish(true,'agente acordado pra corrigir o comentário');
-        }catch(e){ return finish(false,String(e)); }
+        }catch(e){ return fail(e,'Não consegui mandar a correção'); }
       }
       return finish(false,'intenção desconhecida: '+kind);
-    }catch(e){ return finish(false,String(e&&e.message||e)); }
+    }catch(e){ return fail(e); }
   }
 }
 // publica na nuvem o que a tela Entrega/PR do celular mostra: stat do diff,

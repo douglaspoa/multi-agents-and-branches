@@ -346,7 +346,7 @@ async function renderCloud(){
       const b=$id('sbCreateOrg'); if(b.disabled) return; b.disabled=true; b.textContent='criando…'; // 2 cliques = 2 organizações
       cloudMsg='';
       try{ const j=await sbRpc('create_org_with_team',{ p_org_name:$id('sbOrgName').value.trim()||'Minha org', p_team_name:$id('sbTeamName').value.trim()||'Time 1' }); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ organização criada'; }
-      catch(e){ cloudMsg=cloudErrMsg(e); }
+      catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui criar a organização'); }
       renderCloud();
     };
     $id('sbAccept').onclick=async()=>{
@@ -354,7 +354,7 @@ async function renderCloud(){
       const tok=$id('sbInvTok').value.trim();
       if(!tok){ cloudMsg='Cole o token do convite que o lead te mandou (ou peça um convite pro seu e-mail — aí ele entra sozinho).'; renderCloud(); setTimeout(()=>{ const i=$id('sbInvTok'); if(i) i.focus(); },0); return; }
       try{ const j=await sbRpc('accept_invite',{ p_token:tok }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; }
-      catch(e){ cloudMsg=cloudErrMsg(e); }
+      catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui aceitar o convite'); }
       renderCloud();
     };
     $id('sbLogout').onclick=()=>sbLogout();
@@ -400,7 +400,7 @@ async function renderCloud(){
     ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
     <div style="display:flex;margin-top:22px;align-items:center;gap:8px"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbPassChange" title="define uma senha nova pra sua conta">trocar senha</button><button class="btn sm" id="sbLogout">sair</button></div>
     <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;
-  bindClick('sbTeamAdd', async()=>{ const n=await askText('Novo time','ex.: Data'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg=cloudErrMsg(e); } renderCloud(); });
+  bindClick('sbTeamAdd', async()=>{ const n=await askText('Novo time','ex.: Data'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui criar o time'); } renderCloud(); });
   // ações nos times: usar / promover-rebaixar / remover / adicionar membro
   body.querySelectorAll('[data-mact]').forEach(b=>{ b.onclick=async()=>{
     const act=b.dataset.mact, tid=b.dataset.team, uid=b.dataset.uid; cloudMsg='';
@@ -412,7 +412,7 @@ async function renderCloud(){
       if(act==='rename'){ const cur=(d.teams.find(x=>x.id===tid)||{}).name||''; const n=await askText('Renomear time',cur,cur); if(n===null||!n.trim()||n.trim()===cur){ return; } await sbFetch('/rest/v1/teams?id=eq.'+tid, { method:'PATCH', body: JSON.stringify({ name:n.trim() }) }); cloudMsg='✓ time renomeado'; }
       if(act==='delteam'){ const tm=(d.teamMembers[tid]||[]).length; const nm=(d.teams.find(x=>x.id===tid)||{}).name||'time'; if(!await askYes('Excluir o time "'+nm+'"?'+(tm?'\n\n'+tm+' membro(s) perdem o vínculo. As tarefas do time continuam no histórico.':''))) return; await sbFetch('/rest/v1/teams?id=eq.'+tid, { method:'DELETE' }); if(teamId===tid){ lsSet('sb:team',''); } cloudMsg='✓ time excluído'; }
       cloudData=null; renderCloud(); cloudBtnSync();
-    }catch(e){ cloudMsg=cloudErrMsg(e); cloudData=null; renderCloud(); } // recarrega: o erro mais comum é a lista estar velha
+    }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui alterar o time'); cloudData=null; renderCloud(); } // recarrega: o erro mais comum é a lista estar velha
   }; });
   // remover membro da ORG (admin): sai de todos os times + libera o assento
   body.querySelectorAll('[data-orgrm]').forEach(b=>{ b.onclick=async()=>{
@@ -423,7 +423,7 @@ async function renderCloud(){
       for(const t of d.teams){ await sbFetch('/rest/v1/team_members?team_id=eq.'+t.id+'&user_id=eq.'+uid, { method:'DELETE' }).catch(()=>{}); }
       await sbFetch('/rest/v1/org_members?org_id=eq.'+d.org.id+'&user_id=eq.'+uid, { method:'DELETE' });
       cloudData=null; cloudMsg='✓ '+nm+' removido da organização';
-    }catch(e){ cloudMsg=cloudErrMsg(e); }
+    }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui remover da organização'); }
     renderCloud();
   }; });
   // convites pendentes: copiar mensagem / revogar
@@ -433,7 +433,7 @@ async function renderCloud(){
     if(b.dataset.iact==='copy'){ cloudCopy(invMsg(iv), b); return; }
     if(!await askYes('Revogar o convite de '+iv.email+'?')) return;
     cloudMsg='';
-    try{ await sbFetch('/rest/v1/invites?id=eq.'+iv.id, { method:'DELETE' }); cloudData=null; cloudMsg='✓ convite revogado'; }catch(e){ cloudMsg=cloudErrMsg(e); }
+    try{ await sbFetch('/rest/v1/invites?id=eq.'+iv.id, { method:'DELETE' }); cloudData=null; cloudMsg='✓ convite revogado'; }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui revogar o convite'); }
     renderCloud();
   }; });
   { const inp=$id('sbInvEmail'); if(inp) inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('sbInvite'); if(b) b.click(); } }; }
@@ -457,7 +457,7 @@ async function renderCloud(){
         // redesenha a Conta (com os dados que já temos + o convite novo): a lista "Convites pendentes" ganha a linha
         // com copiar/revogar; a mensagem pronta volta no mesmo lugar logo abaixo do campo
         cloudInvLast={ mail, msg }; renderCloud();
-      }catch(e){ const o=$id('sbInvOut'); if(o) o.innerHTML=`<div class="imhint" role="alert" style="margin-top:10px;border-left:2px solid var(--warn)">${esc(cloudErrMsg(e))}</div>`; }
+      }catch(e){ const o=$id('sbInvOut'); if(o) o.innerHTML=`<div class="imhint" role="alert" style="margin-top:10px;border-left:2px solid var(--warn)">${esc(cloudErrMsg(e,'Não consegui gerar o convite'))}</div>`; }
       finally{ b.disabled=false; }
     }; }
   if(cloudInvLast){ const { mail, msg }=cloudInvLast; cloudInvLast=null; const o=$id('sbInvOut');
@@ -470,13 +470,13 @@ async function renderCloud(){
     cloudOrgView().then(rows=>{
       const el=$id('sbOrgView'); if(!el) return;
       el.innerHTML = rows.length ? `<div class="costlist">`+rows.map(r=>`<div class="costrow"><span class="cnm">${esc(r.name)}</span><span class="dim" style="font-size:11px">${r.n} tarefas · ${r.run} em andamento · ${r.done} entregues</span><span class="cusd">${fmtUsd(r.usd)}</span></div>`).join('')+`</div>` : 'nenhum time ainda';
-    }).catch(e=>{ const el=$id('sbOrgView'); if(el) el.textContent=cloudErrMsg(e); });
+    }).catch(e=>{ const el=$id('sbOrgView'); if(el) el.textContent=cloudErrMsg(e,'Não consegui carregar a organização'); });
   }
   { const b=$id('sbLicSet'); if(b) b.onclick=async()=>{
       const k=await askText('Chave de licença da organização','LOGCOMEX-…', d.org.license_key||''); if(k===null) return;
       cloudMsg='';
       try{ await sbFetch('/rest/v1/orgs?id=eq.'+d.org.id, { method:'PATCH', body: JSON.stringify({ license_key: k.trim()||null }) }); cloudData=null; cloudMsg='✓ licença atualizada'; }
-      catch(e){ cloudMsg=cloudErrMsg(e); }
+      catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui salvar a licença'); }
       renderCloud();
     }; }
   cloudBtnSync();
@@ -532,7 +532,7 @@ function orgDefaultsRenderCloud(isAdmin){
       orgDefCache=null; orgDefAt=0;
       $id('orgTplMsg').textContent='✓ salvo — vale pra org inteira já';
       setTimeout(close, 900);
-    }catch(e){ $id('orgTplMsg').textContent=cloudErrMsg(e); }
+    }catch(e){ $id('orgTplMsg').textContent=cloudErrMsg(e,'Não consegui salvar os padrões da organização'); }
     finally{ b.disabled=false; }
   };
 }

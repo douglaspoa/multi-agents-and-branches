@@ -1,0 +1,50 @@
+[
+ {
+  "titulo": "'Concluídas hoje' conta pela data de criação",
+  "motivo": "Precisa de um campo de data de conclusão na struct Task (contrato de dados)."
+ },
+ {
+  "titulo": "Glifos ✓ ◆ ⌥ ❙❙ ▶ ⎇ ⊘ no STATUS_META e textos de épico/issue",
+  "motivo": "Troca global no STATUS_META (fonte única) mexe em todas as telas; merece uma passada própria do IC.* com prints de todas as vistas."
+ },
+ {
+  "titulo": "Fechar aba com alterações não salvas (Configurações, Agentes) sem perguntar",
+  "motivo": "closeTab é síncrono e compartilhado; um gancho assíncrono 'antes de fechar' muda o motor de abas de todas as ondas."
+ },
+ {
+  "titulo": "Categoria do agente em inglês no editor",
+  "motivo": "O valor é o papel que o motor lê; separar rótulo de valor muda o contrato do catálogo."
+ },
+ {
+  "titulo": "Avatares de agente em emoji",
+  "motivo": "Dado gravado no cardume.config.json; trocar exige migração."
+ },
+ {
+  "titulo": "Páginas extras que falham na paginação das issues",
+  "motivo": "Distinguir 'fim da lista' de 'falha' depende de cada conector; sem painel real pra testar, risco de falso alarme."
+ },
+ {
+  "titulo": "Quadro de issues em 1024 com rolagem horizontal",
+  "motivo": "Redesenho de colunas; fora do tema erros."
+ },
+ {
+  "titulo": "Título 'Central' some no Kanban/Grafo/Time e 'Visão geral' repete o nome da aba",
+  "motivo": "Layout .chead compartilhado e o padrão h1=nome da aba vale pra todas as páginas do Time; decisão de layout, não de erro."
+ },
+ {
+  "titulo": "Grafo sem botão na navegação / Grafo da Memória em canvas / persona da Mesa na rodada 1 / 'Revisão' duplicado / 'Rodar de novo' como primário",
+  "motivo": "Decisões de produto ou nomenclatura registradas no R7; nada de erro envolvido."
+ },
+ {
+  "titulo": "Mensagens do Rust em pt-BR com o cru embutido (ex.: 'falha ao rodar claude: …')",
+  "motivo": "O front já traduz pelo catálogo; reescrever as ~170 map_err do lib.rs é arquivo compartilhado e sem ganho visível."
+ },
+ {
+  "titulo": "Prévia de artefato com erro (enPvCache.err) e erro de leitura de arquivo na aba Código sem print",
+  "motivo": "Corrigido no código (errShort), mas a cena do harness não chega nesses estados sem editar o shim compartilhado."
+ },
+ {
+  "titulo": "Estado vazio sem projeto (0 tarefas) não fotografado",
+  "motivo": "Mesmo motivo do R7: o shim recarrega o snapshot a cada tick."
+ }
+]

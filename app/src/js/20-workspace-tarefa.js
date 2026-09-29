@@ -34,6 +34,9 @@ function fwArtsEnsure(t){
 }
 let fwFilesLoading=false; // task_files ainda não respondeu (≠ "nada ainda")
 let fwFilesErr='';         // task_files falhou (≠ "nada ainda": antes o erro virava a frase "nada ainda" e mentia)
+// R8: a lista de arquivos é da CÓPIA da tarefa — "criar repositório"/"publicar no GitHub" do catálogo não valem aqui
+const FW_FILES_CTX='Não consegui listar os arquivos desta tarefa';
+function fwFilesErrOwnAction(err){ const h=humanErr(err); return !!h.action && !['not-git','no-remote'].includes(h.id); }
 const fwAskSent={};       // fwAskKey(pergunta) → resposta já enviada (trava as opções: 2 cliques = 2 respostas pra mesma pergunta)
 // chave = id + criação: o id da pergunta do TETO é fixo por tarefa (budgetPendId) — só o id faria o PRÓXIMO teto
 // nascer com as opções travadas
@@ -612,7 +615,7 @@ function renderWorkspace(){
     : fwFilesLoading ? '<div style="padding:8px">'+skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' })+'</div>'
     // texto humano fixo (o catálogo genérico lia "not a git repository" e oferecia "criar repositório" — errado aqui);
     // o erro cru fica no tooltip
-    : fwFilesErr ? `<div class="fwfileserr" title="${escA(fwFilesErr.slice(0,400))}">`+errorHtml('Não consegui listar os arquivos desta tarefa', 'fwFilesRetry', null, { human:true })+'</div>'
+    : fwFilesErr ? '<div class="fwfileserr">'+(fwFilesErrOwnAction(fwFilesErr) ? errorHtml(fwFilesErr, 'fwFilesRetry', FW_FILES_CTX) : errorHtml(humanErr(fwFilesErr, FW_FILES_CTX).msg, 'fwFilesRetry', null, { human:true }))+'</div>'
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const cost=taskCost(t.id);
   const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div></div>`;
@@ -630,7 +633,9 @@ function renderWorkspace(){
   tree.dataset.tk=t.id; tree.scrollTop=treeTop;
   tree.querySelectorAll('[data-art]').forEach(b=>{ if(!b.title) b.title=b.dataset.art; b.onclick=(e)=>{ e.stopPropagation(); openArtifact(t.id, b.dataset.art); }; }); // nome inteiro no tooltip ("print-tot…")
   tree.querySelectorAll('[data-fwg]').forEach(b=>b.onclick=()=>{ fwGroupMode=b.dataset.fwg; renderWorkspace(); });
-  bindClick('fwFilesRetry', ()=>{ fwFilesErr=''; fwFilesLoading=true; fwFilesAt=Date.now(); renderWorkspace(); // o tick não dispara outra carga em paralelo const tk=t.id;
+  if(fwFilesErr && fwFilesErrOwnAction(fwFilesErr)){ const fe=tree.querySelector('.fwfileserr'); if(fe) ldWireErr(fe, fwFilesErr, FW_FILES_CTX, null); } // botão do catálogo (ex.: entrar no GitHub)
+  bindClick('fwFilesRetry', ()=>{ fwFilesErr=''; fwFilesLoading=true; fwFilesAt=Date.now(); renderWorkspace(); // o tick não dispara outra carga em paralelo
+    const tk=t.id;
     invoke('task_files',{ taskId:tk }).then(f=>{ if(fwTask===tk){ fwFiles=f||[]; fwFilesSig=''; } }).catch(e=>{ if(fwTask===tk) fwFilesErr=String(e&&e.message||e)||'erro desconhecido'; }).finally(()=>{ if(fwTask===tk){ fwFilesLoading=false; renderWorkspace(); } }); });
   // status por arquivo enquanto a tarefa roda: só "editando" (tocado há <3 min) ganha texto; o resto é um
   // pontinho discreto com o detalhe no tooltip — antes um selo "CONCLUÍDO" em CADA arquivo comia a largura
@@ -676,7 +681,7 @@ function renderWorkspace(){
     : w===undefined ? `${esc(objShort)}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai} explicar este arquivo com IA</button></div>`
     : w===null ? `<span class="dim">lendo o diff deste arquivo e escrevendo a explicação…</span>`
     : (w&&w.md) ? mdToHtml(w.md)
-    : (w&&w.err) ? `<span style="color:var(--warn)">não consegui explicar este arquivo: ${esc(w.err)}</span> <a class="lnk" id="fwWhyRetry">tentar de novo</a>`
+    : (w&&w.err) ? `<span style="color:var(--warn)">não consegui explicar este arquivo: ${esc(errShort(w.err))}</span> <a class="lnk" id="fwWhyRetry">tentar de novo</a>`
     : `<span class="dim">sem alterações neste arquivo nesta branch.</span> ${esc(objShort)}`;
   const whyBand = `<div class="fwwhy${fwWhyOpen?' open':''}"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div class="fwwhyb"><div class="fwwhyh"><span class="fwwhyl">${fwPath&&w!==undefined?'O que foi feito neste arquivo e por quê':'Objetivo da tarefa'}</span><span style="flex:1"></span>${fwPath&&w&&w.md?`<button class="fwwhyre" id="fwWhyRedo" title="gerar de novo">↻</button>`:''}<button class="fwwhytg" id="fwWhyTg">${fwWhyOpen?'▴ menos':'▾ mais'}</button></div><div class="fwwhyt">${whyInner}</div></div></div>`;
   if(keepEditor){ /* editor aberto: fica como está (texto, cursor, rolagem) */ }
@@ -694,14 +699,14 @@ function renderWorkspace(){
     const dvRaw = codeView==='diff' ? fwDiffGet(t, fwPath) : undefined;
     const dvBody = codeView!=='diff' ? ''
       : dvRaw==null ? skeletonHtml('tabela',{ n:8, cols:2, inline:true, label:'carregando as mudanças' })
-      : typeof dvRaw==='object' ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(String(dvRaw.err||'').slice(0,400))}</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
+      : typeof dvRaw==='object' ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="dim" style="font-size:12px;white-space:pre-wrap" title="${escA(String(dvRaw.err||'').slice(0,400))}">${esc(errShort(dvRaw.err))}</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
       : !dvRaw.trim() ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div>sem diferenças neste arquivo em relação à base</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
       : `<div class="fwcode fwdv" id="fwCode">${diffViewHtml(diffHunks(dvRaw), { full:fwContentFor===t.id+'|'+fwPath?lines:null, sel, keyPre:t.id+'|'+fwPath+'|' })}</div>`;
     const body = fwEditing
       ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
       : codeView==='diff' ? dvBody
       : loadingFile ? skeletonHtml('lista',{ n:10, compact:true, inline:true, label:'abrindo o arquivo' })
-      : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(fwReadErr.slice(0,400))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`
+      : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="dim" style="font-size:12px;white-space:pre-wrap" title="${escA(fwReadErr.slice(0,400))}">${esc(errShort(fwReadErr))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`
       : `<div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>`;
     const bar = fwEditing
       ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela</div>`
@@ -810,7 +815,7 @@ function fwRenderDiff(t, main){
   const diff=fwPath?fwDiffGet(t, fwPath):'';
   if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
   else if(diff==null) rows=skeletonHtml('tabela',{ n:8, cols:2, inline:true, label:'carregando o diff' });
-  else if(typeof diff==='object') rows=`<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="mono dim" style="font-size:11px;white-space:pre-wrap">${esc(String(diff.err||'').slice(0,400))}</div><button class="btn sm" id="fwDiffRetry">tentar de novo</button></div>`;
+  else if(typeof diff==='object') rows=`<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="dim" style="font-size:12px;white-space:pre-wrap" title="${escA(String(diff.err||'').slice(0,400))}">${esc(errShort(diff.err))}</div><button class="btn sm" id="fwDiffRetry">tentar de novo</button></div>`;
   else if(!diff.trim()) rows='<div class="empty">sem diferenças neste arquivo em relação à base</div>';
   else rows=diffViewHtml(diffHunks(diff), { full:fwContentFor===t.id+'|'+fwPath?fwContent.split('\n'):null, keyPre:t.id+'|'+fwPath+'|' });
   main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}${fwPathHtml(fwPath)}<span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff fwdv" id="fwRevDiff">${rows}</div>${askHint}`;
