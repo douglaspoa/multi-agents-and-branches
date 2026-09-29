@@ -350,14 +350,16 @@ export class ClaudeEngine implements AgentEngine {
       "bypassPermissions", // auto-aprova ações; o humano entra via ask_human
     ];
     if (input.resume?.sessionId) {
-      // continua a MESMA sessão (modelo + system prompt já ficam na sessão)
+      // continua a MESMA sessão (o system prompt fica na sessão)
       args.push("--resume", input.resume.sessionId);
     } else {
       // turno normal, ou instrução nova sem sessão capturada (fallback: turno fresco)
       if (input.systemContext) args.push("--append-system-prompt", input.systemContext);
-      if (useAlt && alt) args.push("--model", alt.model);
-      else if (this.model) args.push("--model", this.model);
     }
+    // --model SEMPRE, inclusive no --resume: o Claude Code NÃO guarda o modelo na sessão —
+    // retomar sem a flag caía no padrão da assinatura (a escolha do usuário sumia no 2º turno).
+    if (useAlt && alt) args.push("--model", alt.model);
+    else if (this.model) args.push("--model", this.model);
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
     // Limpa marcadores de "sessão Claude Code" herdados (ex.: app aberto a

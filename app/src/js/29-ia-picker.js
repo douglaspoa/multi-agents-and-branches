@@ -70,6 +70,21 @@ function setSelValue(sel, v){ if(!sel) return; v=v||''; if(![...sel.options].som
 function aiDefaults(){ return { eng:lsGet('defaultEngine')||'claude', model:lsGet('defaultModel')||'' }; }
 function aiApplyDefaults(){ const d=aiDefaults(); setSelValue($id('ntEngine'), d.eng); setSelValue($id('ntModel'), d.model); const hm=$id('howModel'); if(hm) setSelValue(hm, d.model); }
 function aiModelName(id){ if(!id) return 'padrão da assinatura'; for(const e of AI_ENGINES){ const m=(e.models||[]).find(x=>x.id===id); if(m) return m.name; } return id; }
+// motor de um papel/tarefa pelo rótulo salvo — MESMA regra do engineKind do motor (src/orchestrator.ts)
+function aiEngineOf(e){ const n=String(e||'').trim().toLowerCase(); return n==='mock'||!n?'mock':n.startsWith('codex')?'codex':(n.startsWith('gateway')||n.startsWith('logcomex'))?'gateway':'claude'; }
+function aiCanTalk(e){ return aiEngineOf(e)!=='mock'; } // qualquer motor real conversa/retoma (não só o Claude)
+// "Claude · Opus 5.5", "Codex · GPT-5", "Logcomex AI · logcomex-v2" — o que roda (ou rodou) nesta tarefa
+function aiRunLabel(engine, model){
+  const k=aiEngineOf(engine);
+  if(k==='mock') return 'Mock (sem IA)';
+  const eng=k==='gateway'?((_aiGw&&_aiGw.label)||'Gateway'):(AI_ENGINES.find(x=>x.id===k)||{}).name||k;
+  if(!model) return eng+(k==='claude'?' · padrão da assinatura':'');
+  const n=(typeof modelFriendly==='function')?modelFriendly(model):aiModelName(model);
+  return eng+' · '+n;
+}
+// modelo pros chats que rodam no CLAUDE (planner, chat do projeto, issues, orquestrador): o padrão do usuário
+// só vale se o motor padrão for o Claude — um id do Codex/gateway no --model do claude derrubava a chamada.
+function aiClaudeModel(eng, model){ const d=aiDefaults(); if(eng===undefined){ eng=d.eng; model=d.model; } return aiEngineOf(eng)==='claude' && model ? model : null; }
 // alvo do seletor: o FORMULÁRIO (selects escondidos) ou as CONFIGURAÇÕES (localStorage)
 const AI_TARGET_FORM={ sel:'.aipick:not(.aipick-cfg)', get:()=>({ eng:($id('ntEngine')||{}).value||'claude', model:($id('ntModel')||{}).value||'' }), set:(e,m)=>{ setSelValue($id('ntEngine'), e); setSelValue($id('ntModel'), m); const hm=$id('howModel'); if(hm) setSelValue(hm, m); } };
 const AI_TARGET_CFG={ sel:'.aipick-cfg', cfg:true, get:aiDefaults, set:(e,m)=>{ lsSet('defaultEngine', e||'claude'); lsSet('defaultModel', m||''); } };
@@ -117,11 +132,14 @@ function openModelMenu(taskId, anchor){
   const pop=document.createElement('div'); pop.id='tmenuPop';
   pop.style.cssText='position:fixed;z-index:9000;min-width:240px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   const cur=t.model||'';
-  const head=document.createElement('div'); head.className='mono'; head.style.cssText='font-size:10px;letter-spacing:.08em;color:var(--muted);padding:6px 10px 4px;text-transform:uppercase'; head.textContent='modelo desta demanda'; pop.appendChild(head);
+  // lista do MOTOR desta tarefa (antes: sempre a do Claude — numa tarefa Codex dava pra pôr "opus" no codex)
+  const ek=aiEngineOf(t.engine), eng=AI_ENGINES.find(x=>x.id===ek)||AI_ENGINES[0];
+  const list=(ek==='gateway'&&_aiGw&&_aiGw.configured)?[{id:'',name:_aiGw.model||'padrão do gateway',tag:'padrão'},..._aiGw.models.filter(m=>m!==_aiGw.model).map(m=>({id:m,name:m,tag:''}))]:(eng.models||[]);
+  const head=document.createElement('div'); head.className='mono'; head.style.cssText='font-size:10px;letter-spacing:.08em;color:var(--muted);padding:6px 10px 4px;text-transform:uppercase'; head.textContent='modelo desta demanda · '+(ek==='gateway'?((_aiGw&&_aiGw.label)||'Gateway'):eng.name); pop.appendChild(head);
   const apply=async(id)=>{ pop.remove(); try{ await invoke('set_task_model',{ taskId, model:id }); lastSig=''; await refresh(); if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===taskId) renderWorkspace(); }catch(e){ showErr(e, 'Falhou'); } };
   const item=(label, id, on)=>{ const b=document.createElement('button'); b.innerHTML=`${on?'<span style="color:var(--accent)">✓</span> ':'<span style="opacity:0">✓</span> '}${esc(label)}`; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=()=>apply(id); pop.appendChild(b); };
-  AI_CLAUDE_MODELS.forEach(m=>item(m.name+(m.tag?'  · '+m.tag:''), m.id, m.id===cur));
-  if(cur && !AI_CLAUDE_MODELS.some(m=>m.id===cur)) item(cur+'  · id atual', cur, true);
+  list.forEach(m=>item(m.name+(m.tag?'  · '+m.tag:''), m.id, m.id===cur));
+  if(cur && !list.some(m=>m.id===cur)) item(cur+'  · id atual', cur, true);
   item('outro id…', '__custom', false);
   pop.querySelector('button:last-child').onclick=async()=>{ pop.remove(); const v=await askText('Id do modelo','ex.: claude-opus-5-5', cur); if(v!=null && v.trim()) apply(v.trim()); };
   const note=document.createElement('div'); note.className='dim'; note.style.cssText='font-size:10.5px;padding:6px 10px 4px;line-height:1.4'; note.textContent='vale a partir do próximo turno do agente'; pop.appendChild(note);

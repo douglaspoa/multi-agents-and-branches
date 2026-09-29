@@ -625,11 +625,11 @@ async function trkNISend(text, silent){
   }
   n.busy=true; n.stop=false; n.prog=''; n.redirect=''; n.notes=[]; trkNIRender();
   const call0=async(prompt)=>{
-    const r=await aiCallResumeSafe((pr,sid)=>invoke('issue_chat',{ prompt:pr, sessionId:sid||'', repo:n.project.path, model:lsGet('defaultModel')||null, context:trkNIContext() }), n.sid, prompt, n.msgs.slice(0,-1));
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('issue_chat',{ prompt:pr, sessionId:sid||'', repo:n.project.path, model:aiClaudeModel(), context:trkNIContext() }), n.sid, prompt, n.msgs.slice(0,-1));
     n.sid=r.sessionId||(r&&r.recovered?'':n.sid);
     let obj=trkParseJson(r.text);
     if(!obj && /"say"|"issues"/.test(r.text||'') && !n.stop){ // veio JSON quebrado: pede UMA vez pra reenviar limpo (mesma sessão, sem pesquisar de novo)
-      const r2=await invoke('issue_chat',{ prompt:'[SISTEMA: sua última resposta NÃO era um JSON válido (provável: bloco ``` dentro de uma string, aspas sem escape ou quebra de linha crua). Reenvie EXATAMENTE o mesmo conteúdo como UM bloco ```json válido — dentro das strings use \\n para quebra de linha, escape as aspas, e NUNCA use cercas ``` (use `crase simples`). Não pesquise de novo.]', sessionId:n.sid||'', repo:n.project.path, model:lsGet('defaultModel')||null, context:trkNIContext() });
+      const r2=await invoke('issue_chat',{ prompt:'[SISTEMA: sua última resposta NÃO era um JSON válido (provável: bloco ``` dentro de uma string, aspas sem escape ou quebra de linha crua). Reenvie EXATAMENTE o mesmo conteúdo como UM bloco ```json válido — dentro das strings use \\n para quebra de linha, escape as aspas, e NUNCA use cercas ``` (use `crase simples`). Não pesquise de novo.]', sessionId:n.sid||'', repo:n.project.path, model:aiClaudeModel(), context:trkNIContext() });
       n.sid=r2.sessionId||n.sid; obj=trkParseJson(r2.text); if(obj) return { obj, text:r2.text };
     }
     // nunca despeja JSON cru no chat: se der pra salvar o "say", mostra só ele
