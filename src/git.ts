@@ -270,6 +270,16 @@ export class GitService {
     await run("git", ["-C", this.repo, "merge", "--no-ff", "-m", message, branch]);
   }
 
+  /** Há arquivos em conflito (merge parado no meio) no repo principal? */
+  async hasUnmerged(): Promise<boolean> {
+    try {
+      const { stdout } = await run("git", ["-C", this.repo, "diff", "--name-only", "--diff-filter=U"]);
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   /** Aborta um merge em andamento (usado quando dá conflito). */
   async abortMerge(): Promise<void> {
     try {

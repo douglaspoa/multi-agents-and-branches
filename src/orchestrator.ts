@@ -55,6 +55,17 @@ export function setupTimeoutMs(): number {
   const n = Number(process.env.CARDUME_SETUP_TIMEOUT_MS);
   return Number.isFinite(n) && n > 0 ? n : 10 * 60_000;
 }
+/** Motivo legível de um merge que falhou SEM conflito (o git explica em inglês, em várias linhas). */
+export function mergeFailReason(text: string): string {
+  const t = String(text || "");
+  if (/local changes .* would be overwritten|commit your changes or stash them/i.test(t)) return "há mudanças não commitadas no repositório principal que o merge sobrescreveria — commite ou guarde (stash) e tente de novo";
+  if (/untracked working tree files would be overwritten/i.test(t)) return "há arquivos não rastreados no repositório principal que o merge sobrescreveria — mova ou apague e tente de novo";
+  if (/not something we can merge|unknown revision/i.test(t)) return "a branch da tarefa não existe mais no repositório";
+  if (/you have not concluded your merge|MERGE_HEAD exists/i.test(t)) return "já existe um merge em andamento no repositório principal — conclua ou aborte (git merge --abort) antes";
+  const line = t.split("\n").map((l) => l.trim()).filter((l) => l && !/^Command failed/i.test(l)).pop() ?? "";
+  return line.replace(/^(error|fatal):\s*/i, "").slice(0, 200) || "o git recusou o merge";
+}
+
 /** URL do PR na saída do gh (sucesso ou "already exists"): a ÚLTIMA .../pull/N citada. */
 export function prUrlFrom(text: string): string {
   const all = String(text || "").match(/https?:\/\/\S+\/pull\/\d+/g);
@@ -1639,10 +1650,20 @@ export class Orchestrator {
     try {
       await this.git.mergeBranch(task.branch, `starfork: merge ${task.title} (${task.branch})`);
     } catch (err) {
-      await this.git.abortMerge();
-      this.store.setStatus(taskId, "conflict");
-      this.store.addEvent(taskId, task.agent, "error", `merge conflitou com ${task.base} — resolva manualmente`, false);
-      throw new Error(`conflito ao mergear em ${task.base}. O merge foi abortado e a branch preservada — resolva o conflito e tente de novo.`);
+      // Só é CONFLITO se o git parou com arquivos em conflito. Antes QUALQUER falha (mudança local não
+      // commitada no repo principal, base não está em check-out, branch sumiu) virava "conflict" — a
+      // tarefa ia pra "em conflito" e o humano/IA tentava resolver um conflito que não existia.
+      const e = err as Error & { stderr?: string; stdout?: string };
+      const text = `${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message ?? ""}`;
+      if (await this.git.hasUnmerged() || /CONFLICT|Automatic merge failed/i.test(text)) {
+        await this.git.abortMerge();
+        this.store.setStatus(taskId, "conflict");
+        this.store.addEvent(taskId, task.agent, "error", `merge conflitou com ${task.base} — resolva manualmente`, false);
+        throw new Error(`conflito ao mergear em ${task.base}. O merge foi abortado e a branch preservada — resolva o conflito e tente de novo.`);
+      }
+      const why = mergeFailReason(text);
+      this.store.addEvent(taskId, task.agent, "error", `não deu pra mergear: ${why}`, false);
+      throw new Error(`não deu pra mergear em ${task.base}: ${why}`);
     }
     try {
       await this.git.worktreeRemove(task.worktree);

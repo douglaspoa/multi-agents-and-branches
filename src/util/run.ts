@@ -18,7 +18,8 @@ export function run(
       { cwd: opts.cwd, env: opts.env, timeout: opts.timeout, maxBuffer: 1024 * 1024 * 64 },
       (err, stdout, stderr) => {
         if (err) {
-          (err as Error & { stderr?: string }).stderr = stderr;
+          (err as Error & { stderr?: string; stdout?: string }).stderr = stderr;
+          (err as Error & { stderr?: string; stdout?: string }).stdout = stdout; // o git merge diz "CONFLICT" no stdout
           reject(err);
         } else {
           resolve({ stdout, stderr });
