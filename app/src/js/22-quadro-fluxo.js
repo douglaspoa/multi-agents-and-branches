@@ -95,10 +95,10 @@ function dayLabel(ts){
 // camelCase); o agregado de outro projeto (normAgg) e a nuvem mandam `created_at` (número ou ISO). Antes o quadro
 // lia só `created_at`: nas tarefas do projeto aberto era undefined → "Hoje/Últimos 7 dias" escondiam TODAS e a
 // ordem "mais recentes primeiro" (Central, Grafo, Concluídas) não ordenava nada. Segundos viram ms.
+// É A fonte única de "quando foi criada" (53-teto-protecao: taskCreatedMs delega pra cá).
 function taskTs(t){
-  const v=t&&(t.createdAt!=null?t.createdAt:t.created_at);
-  const n=typeof v==='number'?v:Date.parse(v||'');
-  return n>0?(n<1e12?n*1000:n):0;
+  const ms=v=>{ const n=typeof v==='number'?v:Date.parse(v||''); return n>0?(n<1e12?n*1000:n):0; };
+  return t ? (ms(t.createdAt)||ms(t.created_at)) : 0;
 }
 function inPeriod(t){
   if(flowPeriod==='all') return true;
@@ -292,10 +292,25 @@ function flowClearFilters(){
   ['flowStatus','flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all'));
   lastSig=''; renderFlow();
 }
+// R7: atalhos que pulam pra Central numa visão exata (contagem da barra de status, "+N na Central" da barra
+// lateral): zeram busca e os OUTROS filtros salvos — senão a lista mostrava menos que o N clicado.
+// o = { status, proj } (proj: caminho do projeto ou 'all')
+function flowJump(o){
+  o=o||{};
+  flowQuery=''; { const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; }
+  flowScope='exec'; lsSet('flowScope','exec');
+  flowStatus=o.status||'all'; flowPeriod='all'; flowAgent='all'; flowType='all'; flowEpic='all';
+  ['flowPeriod','flowAgent','flowType','flowEpic'].forEach(k=>flowSetF(k,'all')); flowSetF('flowStatus', flowStatus);
+  projFilter=o.proj||'all'; lsSet('projFilter', projFilter);
+  if(window.openTab) window.openTab('flow');
+  if(curView()!=='flow') setView('flow'); else { lastSig=''; render(); }
+}
 // R7: o vazio da lista da Central diz POR QUE está vazia e dá a saída (limpar busca, limpar filtros, nova demanda)
 function flowEmptyHtml(){
   const q=flowQuery.trim();
-  const anyF=flowStatus!=='all'||flowType!=='all'||flowPeriod!=='all'||flowAgent!=='all'||flowEpic!=='all'||projFilter!=='all';
+  // em Concluídas os chips de status não filtram (flowVisible ignora flowStatus lá) — não conta como filtro
+  const anyF=(flowScope!=='done'&&flowStatus!=='all')||flowType!=='all'||flowPeriod!=='all'||flowAgent!=='all'||flowEpic!=='all'||projFilter!=='all';
+  if(q && anyF) return emptyHtml({ icon:'search', title:'Nenhuma tarefa com “'+q+'” nestes filtros', help:'A busca e os filtros escolhidos, juntos, escondem todas as tarefas.', action:{ id:'flowClearAll', label:'limpar tudo', primary:false } });
   if(q) return emptyHtml({ icon:'search', title:'Nenhuma tarefa com “'+q+'” no nome', help:'Confira a grafia ou busque por outra palavra do título.', action:{ id:'flowClearSearch', label:'limpar busca', primary:false } });
   if(anyF) return emptyHtml({ icon:'search', title:'Nenhuma tarefa neste filtro', help:'Os filtros escolhidos estão escondendo as tarefas.', action:{ id:'flowClearFilters', label:'limpar filtros', primary:false } });
   if(flowScope==='done') return emptyHtml({ icon:'checkc', title:'Nada concluído ainda', help:'Quando você concluir ou mergear uma entrega, ela aparece aqui com as provas e os documentos.' });
@@ -325,7 +340,7 @@ let flowDragId=null;
 function flowBucket(t){
   if(t.status==='draft') return 'rascunho';
   if((t.flag==='closed'||['merged','done'].includes(t.status))) {
-    const d=new Date(t.createdAt||t.created_at); const today=new Date();
+    const d=new Date(taskTs(t)); const today=new Date();
     return (d.toDateString()===today.toDateString())?'hoje':'anteriores';
   }
   if(pendingOf(t.id).length || ['plan-review','error','conflict','aborted'].includes(t.status)) return 'aguardando';
@@ -496,20 +511,20 @@ function openTaskMenu(taskId, anchor){
   // re-render da troca tira o botão original do DOM.
   if(!t){ const r=anchor&&anchor.getBoundingClientRect?anchor.getBoundingClientRect():null;
     crossRun(taskId, ()=>openTaskMenu(taskId, r?{ getBoundingClientRect:()=>r }:anchor)); return; }
-  $id('tmenuPop')?.remove();
+  menuClose($id('tmenuPop'));
   const pop=document.createElement('div');
   pop.id='tmenuPop';
   pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   const item=(label,fn,danger)=>{ const b=document.createElement('button');
     b.textContent=label; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ pop.remove(); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
+    b.onclick=async()=>{ menuClose(pop); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
     pop.appendChild(b); };
   const ty=taskType(t);
   const artifactOnly=['invest','design'].includes(ty); // investigação/design não têm PR pra mergear
   // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
   if(t.flag!=='closed') item('✓ concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}));
-  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); pop.remove(); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
+  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); menuClose(pop); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
   if(t.flag==='closed') item('reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('◆ marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}));
   if(t.status!=='merged' && !artifactOnly) item('⌥ marcar como mergeada', ()=>invoke('mark_task_status',{taskId,status:'merged'}));
@@ -534,21 +549,23 @@ function openTaskMenu(taskId, anchor){
 // Tab sai. O clique fora fecha e o ouvinte do documento sai junto (antes ficava pendurado até o próximo clique).
 function menuWire(pop, anchor){
   const items=()=>[...pop.querySelectorAll('button')];
-  const back=(anchor && typeof anchor.focus==='function')?anchor:null;
+  // quem recebe o foco de volta: o botão/cartão que abriu (no botão direito o alvo é um <span> dentro do cartão)
+  const back=(anchor && anchor.closest) ? anchor.closest('[tabindex],button') : null;
   let off=null;
-  const close=()=>{ pop.remove(); if(off){ off(); off=null; } };
+  pop.__close=()=>{ pop.remove(); if(off){ off(); off=null; } };
   pop.setAttribute('role','menu');
   items().forEach(b=>{ b.setAttribute('role','menuitem'); b.tabIndex=-1; });
   pop.addEventListener('keydown',e=>{
     const l=items(), i=l.indexOf(document.activeElement);
-    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(); if(back) back.focus(); }
+    if(e.key==='Escape'||e.key==='Tab'){ e.preventDefault(); e.stopPropagation(); pop.__close(); if(back) back.focus(); }
     else if(e.key==='ArrowDown'){ e.preventDefault(); (l[(i+1)%l.length]||l[0]).focus(); }
     else if(e.key==='ArrowUp'){ e.preventDefault(); (l[(i-1+l.length)%l.length]||l[0]).focus(); }
-    else if(e.key==='Tab'){ close(); }
   });
   const first=items()[0]; if(first) first.focus({ preventScroll:true });
-  setTimeout(()=>{ if(!pop.isConnected) return; const onDoc=(e)=>{ if(!pop.contains(e.target)) close(); }; document.addEventListener('click',onDoc); off=()=>document.removeEventListener('click',onDoc); },0);
+  setTimeout(()=>{ if(!pop.isConnected) return; const onDoc=(e)=>{ if(!pop.contains(e.target)) pop.__close(); }; document.addEventListener('click',onDoc); off=()=>document.removeEventListener('click',onDoc); },0);
 }
+// fecha o menu E solta o ouvinte do documento (os itens chamam isto, não pop.remove())
+function menuClose(pop){ if(pop && pop.__close) pop.__close(); else if(pop) pop.remove(); }
 // dropdown de status direto no chip "Review/Rodando/..." do card
 function openStatusMenu(taskId, anchor){
   // tarefa do projeto atual OU de outro projeto (card agregado no board integrado).
@@ -558,7 +575,7 @@ function openStatusMenu(taskId, anchor){
   if(!t){ const a=(allTasksCache||[]).find(x=>x.id===taskId); if(a){ t=a; crossRepo=(a.repo&&a.repo!==state.repo)?a.repo:null; } }
   if(!t) return;
   const ensureProj=async()=>{ if(crossRepo && window.switchProject){ await window.switchProject(crossRepo); crossRepo=null; } };
-  $id('stmenuPop')?.remove();
+  menuClose($id('stmenuPop'));
   const closed = t.flag==='closed';
   const cancelled = t.status==='cancelled';
   // estado "atual" pra marcar o ●: cancelada e encerrada vencem; review/delivered contam como review
@@ -584,14 +601,14 @@ function openStatusMenu(taskId, anchor){
     b.innerHTML=`<span style="color:${o.col}">${o.label}</span>${on?'<span style="margin-left:auto;opacity:.7">●</span>':''}`;
     b.style.cssText='display:flex;align-items:center;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
-    b.onclick=async()=>{ pop.remove(); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };
+    b.onclick=async()=>{ menuClose(pop); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };
     pop.appendChild(b); });
   // encerrada: oferece reabrir explicitamente no rodapé
   if(closed){ const b=document.createElement('button');
     b.textContent='reabrir (volta pra fila)';
     b.style.cssText='display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--border);margin-top:4px;padding:8px 10px;background:none;color:var(--text);font:inherit;font-size:12px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ pop.remove(); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Falhou'); } };
+    b.onclick=async()=>{ menuClose(pop); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Falhou'); } };
     pop.appendChild(b); }
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
@@ -700,6 +717,7 @@ function renderFlow(){
   });
   bindClick('ghostNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearFilters', flowClearFilters);
+  bindClick('flowClearAll', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; flowClearFilters(); });
   bindClick('flowEmptyNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
   wireLinkChips(el);

@@ -246,3 +246,5 @@
 .tabbar .tab .tt{min-width:0}
 .tabbar.crowded .tab{padding:8px 9px;gap:6px}
 .tabbar.crowded .tab:not(.on):not(:hover):not(:focus-visible) .x{display:none}
+.tabbar .tablist{display:contents}
+.tab.dropafter{box-shadow:inset -2px 0 0 var(--accent)}

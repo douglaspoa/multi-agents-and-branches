@@ -5,19 +5,26 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const read = (f) => readFileSync(new URL('../src/js/' + f, import.meta.url), 'utf8');
-// recorta `function nome(...){ ... }` (ou `async function`) contando chaves — o bastante pro código do app
-function fn(src, name) {
-  const re = new RegExp('(?:async\\s+)?function\\s+' + name + '\\s*\\(');
-  const m = re.exec(src); assert.ok(m, 'função não encontrada: ' + name);
-  let i = src.indexOf('{', m.index), depth = 0, q = null;
+// recorta um bloco { … } a partir de `i` contando chaves; ignora chaves dentro de strings, template e comentários
+// (// e /* */) — um apóstrofo num comentário não desalinha mais a contagem
+function block(src, start) {
+  let i = src.indexOf('{', start), depth = 0, q = null;
   for (let j = i; j < src.length; j++) {
     const c = src[j];
     if (q) { if (c === '\\') { j++; continue; } if (c === q) q = null; continue; }
+    if (c === '/' && src[j + 1] === '/') { j = src.indexOf('\n', j); if (j < 0) break; continue; }
+    if (c === '/' && src[j + 1] === '*') { j = src.indexOf('*/', j + 2) + 1; continue; }
     if (c === '"' || c === "'" || c === '`') { q = c; continue; }
     if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(m.index, j + 1);
+    else if (c === '}' && --depth === 0) return src.slice(start, j + 1);
   }
-  throw new Error('chaves desbalanceadas em ' + name);
+  throw new Error('chaves desbalanceadas a partir de ' + start);
+}
+// recorta `function nome(...){ ... }` (ou `async function`)
+function fn(src, name) {
+  const re = new RegExp('(?:async\\s+)?function\\s+' + name + '\\s*\\(');
+  const m = re.exec(src); assert.ok(m, 'função não encontrada: ' + name);
+  return block(src, m.index);
 }
 const quadro = read('22-quadro-fluxo.js');
 const abas = read('15-config-abas-onboarding.js');
@@ -30,6 +37,8 @@ test('taskTs lê createdAt (snapshot local) e created_at (outro projeto/nuvem), 
   assert.equal(taskTs({ created_at: '2026-09-28T10:00:00Z' }), Date.parse('2026-09-28T10:00:00Z'));
   assert.equal(taskTs({ createdAt: 1790637188 }), 1790637188000, 'segundos viram ms');
   assert.equal(taskTs({}), 0);
+  assert.equal(taskTs({ createdAt: 0, created_at: 1790637188921 }), 1790637188921, 'createdAt 0/vazio cai no created_at');
+  assert.equal(taskTs({ createdAt: '', created_at: '2026-09-28T10:00:00Z' }), Date.parse('2026-09-28T10:00:00Z'));
   assert.equal(taskTs(null), 0);
 });
 
@@ -46,7 +55,7 @@ test('inPeriod: "últimos 7 dias" não esconde mais as tarefas do projeto aberto
 });
 
 test('tabMove: reordena abas, a Central fixa fica sempre na frente', () => {
-  const mk = () => new Function('let TABS=[{id:"flow",pin:true},{id:"a"},{id:"b"},{id:"c"}];\n' + fn(abas, 'tabMove') + '\nreturn { tabMove, ids:()=>TABS.map(t=>t.id) };')();
+  const mk = () => new Function('let TABS=[{id:"flow",pin:true},{id:"a"},{id:"b"},{id:"c"}];\n' + fn(abas, 'tabDropAfter') + fn(abas, 'tabMove') + '\nreturn { tabMove, ids:()=>TABS.map(t=>t.id) };')();
   let T = mk(); assert.equal(T.tabMove('a', 'c'), true); assert.deepEqual(T.ids(), ['flow', 'b', 'c', 'a'], 'pra direita: entra depois do alvo');
   T = mk(); assert.equal(T.tabMove('c', 'a'), true); assert.deepEqual(T.ids(), ['flow', 'c', 'a', 'b'], 'pra esquerda: entra no lugar do alvo');
   T = mk(); assert.equal(T.tabMove('b', 'flow'), true); assert.deepEqual(T.ids(), ['flow', 'b', 'a', 'c'], 'soltar na Central = primeira depois dela');
@@ -61,16 +70,75 @@ test('tabStepId: próxima/anterior aba dá a volta', () => {
   S.set('flow'); assert.equal(S.tabStepId(-1), 'b');
 });
 
-test('⌘1…⌘9 passa pela guarda de edição não salva (tabLeaveGuard) antes de trocar de aba', () => {
-  const line = abas.split('\n').find((l) => l.includes("/^[1-9]$/.test(k)"));
-  assert.ok(line && /tabLeaveGuard\(/.test(line), 'o atalho numérico precisa chamar tabLeaveGuard');
+// o ouvinte de atalhos (15): roda o handler de verdade com stubs
+function shortcutEnv(guardOk) {
+  const log = []; let handler = null;
+  const env = {
+    document: { addEventListener: (ev, f) => { if (ev === 'keydown') handler = f; } },
+    TABS: [{ id: 'flow', pin: true }, { id: 'a' }, { id: 'task:1', kind: 'task' }],
+    activeTab: 'a',
+    tabLeaveGuard: async (id) => { log.push(['guard', id]); return guardOk; },
+    activateTab: (id) => log.push(['activate', id]),
+    tabById: () => null, closeTab: () => {}, openTab: () => {}, setRailCollapsed: () => {}, railIsCol: () => false, fwLeaveEditor: async () => true,
+  };
+  const i = abas.indexOf("document.addEventListener('keydown', async e=>{", abas.indexOf('const SHORTCUTS_HELP'));
+  assert.ok(i > 0, 'ouvinte de atalhos não encontrado');
+  const code = block(abas, i) + ');';
+  new Function(...Object.keys(env), fn(abas, 'tabStepId') + '\n' + code)(...Object.values(env));
+  const press = (o) => handler(Object.assign({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, preventDefault() {} }, o));
+  return { press, log };
+}
+
+test('⌘1…⌘9 passa pela guarda de edição não salva: guarda nega → não troca; aceita → troca', async () => {
+  let r = shortcutEnv(false); await r.press({ key: '3' });
+  assert.deepEqual(r.log, [['guard', 'task:1']]);
+  r = shortcutEnv(true); await r.press({ key: '9' });
+  assert.deepEqual(r.log, [['guard', 'task:1'], ['activate', 'task:1']]);
+  r = shortcutEnv(true); await r.press({ key: '2' }); // já é a ativa: nada
+  assert.deepEqual(r.log, []);
+});
+
+test('⌘⇧] / ⌘⇧[ seguem a tecla produzida (e.key), não a posição física', async () => {
+  let r = shortcutEnv(true); await r.press({ key: '}', code: 'Backslash', shiftKey: true });
+  assert.deepEqual(r.log.at(-1), ['activate', 'task:1']);
+  r = shortcutEnv(true); await r.press({ key: '{', code: 'BracketRight', shiftKey: true });
+  assert.deepEqual(r.log.at(-1), ['activate', 'flow']);
+  r = shortcutEnv(true); await r.press({ key: 'Tab', metaKey: false, ctrlKey: true, shiftKey: true });
+  assert.deepEqual(r.log.at(-1), ['activate', 'flow']);
+});
+
+test('tabMove: com UMA aba livre, soltar na Central não passa pra frente da fixa', () => {
+  const T = new Function('let TABS=[{id:"flow",pin:true},{id:"a"}];\n' + fn(abas, 'tabDropAfter') + fn(abas, 'tabMove') + '\nreturn { tabMove, tabDropAfter, ids:()=>TABS.map(t=>t.id) };')();
+  assert.equal(T.tabDropAfter('a', 'flow'), true, 'marcador mostra "depois" sobre a fixa');
+  T.tabMove('a', 'flow'); assert.deepEqual(T.ids(), ['flow', 'a']);
+});
+
+test('flowEmptyHtml: em Concluídas o chip de status salvo não conta como filtro; busca + filtro oferece "limpar tudo"', () => {
+  const mk = (vars) => new Function('emptyHtml', Object.entries(Object.assign({ flowQuery: '', flowStatus: 'all', flowType: 'all', flowPeriod: 'all', flowAgent: 'all', flowEpic: 'all', projFilter: 'all', flowScope: 'exec' }, vars)).map(([k, v]) => 'let ' + k + '=' + JSON.stringify(v) + ';').join('') + fn(quadro, 'flowEmptyHtml') + '\nreturn flowEmptyHtml();')((o) => JSON.stringify(o));
+  assert.match(mk({ flowScope: 'done', flowStatus: 'aguardando' }), /Nada concluído ainda/);
+  assert.match(mk({ flowScope: 'exec', flowStatus: 'aguardando' }), /flowClearFilters/);
+  assert.match(mk({ flowQuery: 'pix', flowType: 'fix' }), /flowClearAll/);
+  assert.match(mk({ flowQuery: 'pix' }), /flowClearSearch/);
+});
+
+test('flowJump (barra de status / "+N na Central"): zera busca e os outros filtros salvos', () => {
+  const ls = {}; const log = [];
+  const J = new Function('$id', 'lsSet', 'flowSetF', 'window', 'curView', 'setView', 'render',
+    'let flowQuery="pix", flowScope="done", flowStatus="rascunho", flowPeriod="week", flowAgent="Orion", flowType="fix", flowEpic="ep1", projFilter="/b", lastSig="x";\n'
+    + fn(quadro, 'flowJump') + '\nreturn { flowJump, st:()=>({flowQuery,flowScope,flowStatus,flowPeriod,flowAgent,flowType,flowEpic,projFilter}) };')(
+    () => null, (k, v) => { ls[k] = v; }, (k, v) => { ls[k] = v; }, { openTab: (k) => log.push(k) }, () => 'kanban', (v) => log.push('view:' + v), () => {});
+  J.flowJump({ status: 'prontas', proj: 'all' });
+  assert.deepEqual(J.st(), { flowQuery: '', flowScope: 'exec', flowStatus: 'prontas', flowPeriod: 'all', flowAgent: 'all', flowType: 'all', flowEpic: 'all', projFilter: 'all' });
+  assert.equal(ls.flowType, 'all'); assert.equal(ls.flowStatus, 'prontas');
+  assert.deepEqual(log, ['flow', 'view:flow']);
 });
 
 // Kanban: soltar numa coluna
 function kanbanEnv({ task, askAnswer = true, invokeFails = false }) {
   const log = [];
   const env = {
-    state: { tasks: task ? [task] : [] },
+    state: { repo: '/a', tasks: task ? [task] : [] },
+    projShort: (p) => String(p).split('/').pop(),
     kanbanCol: (t) => (t.status === 'draft' ? 'rascunho' : t.status === 'review' ? 'prontas' : 'andamento'),
     renderKanban: () => log.push('render'),
     toast: (m, k) => log.push(['toast', k, m]),
@@ -118,4 +186,19 @@ test('kanbanDrop: rascunho em "Em andamento" inicia; cartão de outro projeto av
   r = kanbanEnv({ task: null });
   await r.f('zz', 'concluidas');
   assert.ok(r.log.some((x) => x[0] === 'toast' && /outro projeto/.test(x[2])));
+});
+
+test('kanbanDrop: rascunho de OUTRO projeto em "Em andamento" não inicia (avisa)', async () => {
+  const r = kanbanEnv({ task: { id: 'd2', title: 'W', status: 'draft', repo: '/b' } });
+  await r.f('d2', 'andamento');
+  assert.ok(!r.log.some((x) => x[0] === 'start'));
+  assert.ok(r.log.some((x) => x[0] === 'toast' && /outro projeto/.test(x[2])));
+});
+
+test('kanbanDrop: pausada / plano pra aprovar também pedem confirmação ao concluir', async () => {
+  for (const status of ['paused', 'plan-review', 'error']) {
+    const r = kanbanEnv({ task: { id: 't', title: 'P', status }, askAnswer: false });
+    await r.f('t', 'concluidas');
+    assert.ok(r.log.some((x) => x[0] === 'ask'), status);
+  }
 });

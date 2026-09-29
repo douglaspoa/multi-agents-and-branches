@@ -52,7 +52,8 @@ function renderGraph(){
   // reescrevia o grafo inteiro sempre (piscava e engolia o clique no meio); agora só quando o HTML mudou
   const empty=emptyHtml({ icon:'route', title:'Nenhuma tarefa com branch ainda', help:'Cada demanda iniciada ganha um trilho aqui, com os commits do agente e a ponta na cor do status.', action:{ id:'gtlNew', label:'Nova demanda' } });
   if(!setHtmlGuarded(host, `<div class="gtlwrap">${mainRow}${rows||empty}</div>`)) return;
-  bindClick('gtlNew', ()=>{ if(window.openTab) window.openTab('nova'); });
+  bindClick('gtlNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
+  // .sel = a última tarefa aberta (openTaskById grava `selected`) — ao voltar pro grafo, você acha de onde veio
   host.querySelectorAll('.gdot,.gmdot').forEach(d=>{ d.onclick=(e)=>{ e.stopPropagation(); openCommit(d.dataset.hash); }; });
   host.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); // R5-7
   // R7: clicar no trilho ABRE a tarefa (antes só "selecionava" — sem o painel lateral antigo, o clique não fazia nada visível)
@@ -186,7 +187,7 @@ function renderRail(){
   // MESMA regra de visibilidade do quadro (bloqueadas e encerradas ficam fora — o quadro tem o chip pra revelar)
   const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&t.flag!=='blocked'&&!['merged','done'].includes(t.status));
   const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
-  const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| (b.createdAt||b.created_at)-(a.createdAt||a.created_at)).slice(0,12);
+  const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| taskTs(b)-taskTs(a)).slice(0,12);
   const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
   // rank de tarefa de OUTRO projeto (sem pendingOf): review/entregue e ativas em cima
   const rankOther=(t)=> (t.status==='review'||t.status==='delivered')?3 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : t.status==='plan-review'?1 : 0;
@@ -229,7 +230,7 @@ function renderRail(){
   el.__html=html; el.innerHTML = html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
-    if(r.dataset.more){ projFilter=state.repo; lsSet('projFilter',projFilter); flowScope='exec'; lsSet('flowScope','exec'); if(window.openTab) window.openTab('flow'); if(curView()!=='flow') setView('flow'); lastSig=''; render(); return; }
+    if(r.dataset.more){ flowJump({ status:'all', proj:state.repo }); return; }
     if(r.classList.contains('other')){ // demanda de outro projeto: ABRE a tarefa (não é "selecionar projeto")
       if(r.dataset.id) switchToProjectTask(r.dataset.proj, r.dataset.id);
       else switchProject(r.dataset.proj);

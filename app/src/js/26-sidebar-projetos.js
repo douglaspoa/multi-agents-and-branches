@@ -144,9 +144,7 @@ function renderBus(){
 // clique numa contagem da barra de status → Central (Execução) filtrada naquela etapa
 { const bs=$id('busSummary'); if(bs) bs.addEventListener('click', e=>{
   const b=e.target.closest('[data-busst]'); if(!b) return;
-  flowScope='exec'; lsSet('flowScope','exec'); flowStatus=b.dataset.busst; flowSetF('flowStatus', flowStatus);
-  if(window.openTab) window.openTab('flow');
-  if(curView()!=='flow') setView('flow'); else { lastSig=''; render(); }
+  flowJump({ status:b.dataset.busst, proj:projFilter }); // mesmo escopo de projeto que a barra contou
 }); }
 $id("connectBtn").onclick = ()=>{
   const v = $id("repoInput").value.trim();

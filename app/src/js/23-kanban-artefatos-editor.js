@@ -57,7 +57,7 @@ function renderKanban(){
   el.querySelectorAll('.kcol').forEach(col=>{
     col.addEventListener('dragover',e=>{ if(kDragId){ e.preventDefault(); col.classList.add('over'); } });
     col.addEventListener('dragleave',()=>col.classList.remove('over'));
-    col.addEventListener('drop',e=>{ e.preventDefault(); col.classList.remove('over'); const id=kDragId; kDragId=null; if(id) kanbanDrop(id, col.dataset.col); });
+    col.addEventListener('drop',e=>{ e.preventDefault(); col.classList.remove('over'); const id=kDragId; kDragId=null; if(id) kanbanDrop(id, col.dataset.col).catch(err=>{ renderKanban(); showErr(err, 'Não deu pra mover'); }); });
   });
   el.querySelectorAll('[data-kplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.kplay); });
 }
@@ -68,9 +68,10 @@ async function kanbanDrop(id, col){
   const t=(state.tasks||[]).find(x=>x.id===id);
   if(!t){ renderKanban(); toast('Essa tarefa é de outro projeto — abra ela (clique no cartão) para mudar de etapa.','warn'); return; }
   if(kanbanCol(t)===col) return;
-  if(col==='andamento' && t.status==='draft'){ startTask(id); return; }
+  if(col==='andamento' && t.status==='draft'){ if(t.repo && t.repo!==state.repo){ renderKanban(); toast('Esse rascunho é de outro projeto — abra '+projShort(t.repo)+' para iniciar.','warn'); return; } startTask(id); return; }
   if(col==='concluidas'){
-    const vivo=ACTIVE_ST.has(t.status)||!!t.busy||pendingOf(id).length>0;
+    // qualquer estado não final (rodando, pausada, plano pra aprovar, perguntando, erro/conflito…) pergunta antes
+    const vivo=!['draft','review','delivered','merged','done','cancelled'].includes(t.status)||!!t.busy||pendingOf(id).length>0;
     if(vivo && !await askYes('“'+t.title+'” ainda está em andamento. Concluir tira a tarefa da fila (o trabalho feito fica salvo na branch). Concluir mesmo assim?')){ renderKanban(); return; }
     try{ await invoke('set_task_flag',{ taskId:id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }
     catch(e){ renderKanban(); showErr(e, 'Não deu pra concluir'); }
