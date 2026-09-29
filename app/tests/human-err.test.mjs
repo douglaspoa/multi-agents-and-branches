@@ -123,3 +123,69 @@ test('humanErr com {message, raw}: a tela usa o texto traduzido, "ver detalhes" 
   // o catálogo casa pelo texto (Windows "acesso negado" chega como Permission denied)
   assert.equal(humanErr({ message: 'Permission denied — Access is denied. (os error 5)', raw: 'Access is denied. (os error 5)' }).id, 'permission');
 });
+
+// ===== R8: casos reais que antes chegavam crus na tela =====
+test('SQLite: "database is locked" e banco danificado', () => {
+  assert.equal(id('error returned from database: (code: 5) database is locked'), 'db-locked');
+  assert.equal(id('SQLITE_BUSY: database is locked'), 'db-locked');
+  assert.match(humanErr('database is locked', 'Não consegui gerar o daily').msg, /^Não consegui gerar o daily — O banco local está ocupado/);
+  assert.equal(id('database disk image is malformed'), 'db-broken');
+  assert.equal(id('no such table: tasks'), 'db-broken');
+});
+test('IO do macOS/Windows: os error N', () => {
+  assert.equal(id('No such file or directory (os error 2)'), 'not-found');
+  assert.equal(id('The system cannot find the path specified. (os error 3)'), 'not-found');
+  assert.equal(id('Access is denied. (os error 5)'), 'permission');
+  assert.equal(id('Operation not permitted (os error 1)'), 'permission');
+  assert.equal(id('The process cannot access the file because it is being used by another process. (os error 32)'), 'file-busy');
+  assert.equal(id('Resource busy (os error 16)'), 'file-busy');
+  assert.equal(id('No space left on device (os error 28)'), 'disk');
+  assert.equal(id('There is not enough space on the disk. (os error 112)'), 'disk');
+  assert.equal(id('Connection refused (os error 61)'), 'network');
+  // ENOENT de binário continua sendo "não instalado", não "arquivo sumiu"
+  assert.equal(id('spawn claude ENOENT'), 'claude-missing');
+  assert.equal(id('spawn gh ENOENT'), 'gh-missing');
+  assert.equal(id('spawn git ENOENT'), 'git-missing');
+  assert.equal(id('xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools)'), 'git-missing');
+});
+test('git: mudanças locais, lock, branch existente, ref inexistente', () => {
+  assert.equal(id('error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\nPlease commit your changes or stash them before you switch branches.'), 'git-dirty');
+  assert.equal(id("fatal: Unable to create '/Users/x/loja/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository"), 'git-lock');
+  assert.equal(id("fatal: a branch named 'feat/login' already exists"), 'branch-exists');
+  assert.equal(id("error: pathspec 'feat/x' did not match any file(s) known to git"), 'git-ref');
+  assert.equal(id("fatal: invalid reference: feat/x"), 'git-ref');
+  assert.equal(id("fatal: couldn't find remote ref feat/x"), 'git-ref');
+  // o "fatal: 'origin' does not appear" continua sendo sem remote
+  assert.equal(id("fatal: 'origin' does not appear to be a git repository"), 'no-remote');
+});
+test('gh: PR já existe, sem commits, sem PR', () => {
+  assert.equal(id('a pull request for branch "feat/x" into branch "main" already exists:\nhttps://github.com/a/b/pull/3'), 'pr-exists');
+  assert.equal(id('pull request create failed: GraphQL: No commits between main and feat/x (createPullRequest)'), 'no-commits');
+  assert.equal(id('no pull requests found for branch "feat/x"'), 'no-pr');
+});
+test('servidor 5xx ≠ sem internet; JSON inválido; duplicado; RLS', () => {
+  assert.equal(id('HTTP 502: Bad Gateway (https://api.github.com/graphql)'), 'server');
+  assert.equal(id('504 Gateway Time-out'), 'server');
+  assert.equal(id('Internal Server Error'), 'server');
+  assert.equal(id('Unexpected token < in JSON at position 0'), 'bad-json');
+  assert.equal(id(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`), 'bad-json');
+  assert.equal(id('expected value at line 1 column 1'), 'bad-json');
+  assert.equal(id('Unexpected end of JSON input'), 'bad-json');
+  assert.equal(id('duplicate key value violates unique constraint "teams_name_key"'), 'duplicate');
+  assert.equal(id('new row violates row-level security policy for table "teams"'), 'permission');
+});
+test('rede: DNS/reqwest/timeout em pt-BR', () => {
+  assert.equal(id('getaddrinfo EAI_AGAIN api.supabase.co'), 'network');
+  assert.equal(id('error sending request for url (https://x.supabase.co/rest/v1/tasks): dns error'), 'network');
+  assert.equal(id('tempo esgotado esperando o GitHub'), 'network');
+  // números grandes não viram 5xx por engano
+  assert.equal(id('operation timed out after 30000ms'), 'network');
+});
+test('cada item do catálogo tem mensagem em pt-BR e ação com rótulo', () => {
+  const cat = vm.runInContext('ERR_CATALOG', ctx);
+  assert.ok(cat.length >= 25, 'catálogo: ' + cat.length);
+  for (const c of cat) {
+    assert.ok(c.msg && c.msg.length > 10, c.id);
+    if (c.act) assert.ok(c.label, c.id + ' sem rótulo');
+  }
+});
