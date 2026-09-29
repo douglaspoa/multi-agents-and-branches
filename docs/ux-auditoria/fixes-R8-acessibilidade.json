@@ -1,0 +1,245 @@
+[
+  {
+    "id": "R8A-01",
+    "titulo": "Anel de foco visível de verdade (contraste 3:1)",
+    "antes": "O anel de foco era o verde a 30% de opacidade: 1,9:1 sobre o fundo, quase invisível no escuro.",
+    "depois": "O token --ring passou a 55% (3,6:1 em bg/surface/surface-3), mesma cor da marca.",
+    "motivo": "WCAG 1.4.11: indicador de foco precisa de 3:1; quem navega pelo teclado não achava onde estava.",
+    "arquivos": [
+      "app/src/css/10-base.css"
+    ],
+    "como_ver": "Clique na barra de abas e aperte Tab: o \"+\" ganha o anel verde nítido.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-mesmo-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-02",
+    "titulo": "Um estilo só de foco no app inteiro",
+    "antes": "Cada tela tinha o seu: contorno de 2px, anel de 18%, anel de 30%, contorno azul do sistema em links/selects/checkbox.",
+    "depois": "Todo :focus-visible usa o --ring; links, summary, select, checkbox, rádio e papéis ARIA clicáveis entraram na regra global; inputs de Nova demanda, login e orquestrador usam o mesmo anel; a busca de Skills mostra foco na caixa.",
+    "motivo": "Consistência: o foco é o mesmo sinal em qualquer tela.",
+    "arquivos": [
+      "app/src/css/10-base.css",
+      "app/src/css/40-sidebar-quadro.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/70-orquestrador.css",
+      "app/src/css/80-ajustes-cards.css",
+      "app/src/css/87-nova-demanda.css",
+      "app/src/css/20-abas-e-telas.css"
+    ],
+    "como_ver": "Tab pela Central, cartões de demanda, Skills (busca) e orquestrador: o mesmo anel verde.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-mesmo-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-03",
+    "titulo": "\"+\" da barra de abas alcançável pelo teclado",
+    "antes": "O \"+\" (nova demanda) era um <span> clicável: o Tab pulava ele e o leitor de tela não o anunciava.",
+    "depois": "role=button, tabindex=0, aria-label \"nova demanda\", aria-keyshortcuts e Enter/Espaço abrem a demanda.",
+    "motivo": "O botão mais importante da barra não existia para quem usa teclado.",
+    "arquivos": [
+      "app/src/js/15-config-abas-onboarding.js"
+    ],
+    "como_ver": "Foco na aba Central + Tab → o foco vai para o \"+\"; Enter abre Nova demanda.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/foco-tab-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-04",
+    "titulo": "Janelas com role=dialog e nome",
+    "antes": "Nenhuma janela (detalhes do erro, pedir texto, artefato, provas, resumo, commit, publicar…) dizia ao leitor de tela que era uma janela nem qual.",
+    "depois": "Todas ganham role=dialog + aria-modal + aria-labelledby apontando o título (ou um nome fixo em pt-BR quando não há título). Abas-overlay ganham role=region com o nome da aba.",
+    "motivo": "Leitor de tela anunciava só \"grupo\"; não dava pra saber que abriu uma janela.",
+    "arquivos": [
+      "app/src/js/54-acessibilidade.js",
+      "app/src/index.html"
+    ],
+    "como_ver": "Abra \"ver detalhes\" num erro e inspecione #errOverlay: role=dialog, nome \"detalhes do erro\".",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-tab-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-tab-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-05",
+    "titulo": "Foco preso dentro da janela aberta",
+    "antes": "Com uma janela aberta, 5 Tabs levavam o foco para trás dela (ex.: aba \"Issues\" da lateral) — invisível e clicável por engano.",
+    "depois": "Tab/⇧Tab dão a volta dentro da janela de cima; ao abrir, o foco entra (campo de texto primeiro, senão o 1º botão).",
+    "motivo": "Padrão de diálogo modal (WAI-ARIA APG); evitava ações às cegas atrás da janela.",
+    "arquivos": [
+      "app/src/js/54-acessibilidade.js"
+    ],
+    "como_ver": "Abra detalhes do erro e aperte Tab várias vezes: o foco circula entre copiar/fechar.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-tab-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-tab-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-06",
+    "titulo": "Foco volta para quem abriu a janela",
+    "antes": "Ao fechar uma janela (Esc ou botão), o foco caía no <body>: o próximo Tab recomeçava do topo do app.",
+    "depois": "O foco volta para o elemento que abriu a janela; se ele sumiu, vai para a aba ativa. Vale para janelas criadas na hora (erro, atalhos) e para abas-overlay.",
+    "motivo": "Quem usa teclado perdia o lugar a cada janela fechada.",
+    "arquivos": [
+      "app/src/js/54-acessibilidade.js"
+    ],
+    "como_ver": "Com o foco na aba, abra askText/detalhes do erro e aperte Esc: o foco volta para a aba.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/asktext-esc-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/asktext-esc-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-07",
+    "titulo": "Painel de atalhos do teclado (? ou ⌘/)",
+    "antes": "Os atalhos só existiam num tooltip longo do \"+\", numa linha só, e faltavam vários.",
+    "depois": "Tecla ? (fora de campo de texto) ou ⌘/ abre o painel \"Atalhos do teclado\", agrupado, com teclas em <kbd>; Esc fecha sem fechar a aba de trás.",
+    "motivo": "Atalho que ninguém descobre não existe.",
+    "arquivos": [
+      "app/src/js/54-acessibilidade.js",
+      "app/src/css/88-acessibilidade.css",
+      "app/src/js/15-config-abas-onboarding.js"
+    ],
+    "como_ver": "Na Central, aperte ? (ou ⌘/).",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/atalhos-painel-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/atalhos-painel-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-08",
+    "titulo": "Lista de atalhos completa e de uma fonte só",
+    "antes": "SHORTCUTS_HELP era uma string solta; faltavam ⌘B na tarefa (lista de arquivos), Esc, Enter/⇧Enter no chat, ⌘Enter na nova demanda, ←/→ nas abas e nas provas.",
+    "depois": "SHORTCUTS (grupos de [tecla, o que faz]) é a fonte; SHORTCUTS_HELP e o painel saem dela. Teste garante que todo atalho ⌘ tratado no código está documentado.",
+    "motivo": "Regra da casa: fonte única; o tooltip e o painel não podem divergir.",
+    "arquivos": [
+      "app/src/js/15-config-abas-onboarding.js",
+      "app/tests/acessibilidade.test.mjs"
+    ],
+    "como_ver": "Painel de atalhos; npm test (acessibilidade.test.mjs).",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/atalhos-painel-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/atalhos-painel-1024-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-09",
+    "titulo": "\"Reduzir movimento\" do macOS respeitado no app todo",
+    "antes": "Só 4 telas respeitavam prefers-reduced-motion; pulsos, pisca-pisca, spinner e rolagem suave continuavam (3 animações infinitas na Central).",
+    "depois": "Regra global em 10-base.css zera animações/transições (estado final instantâneo) e as 4 rolagens suaves por JS viram instantâneas com ldReduced().",
+    "motivo": "WCAG 2.3.3 / conforto de quem sente enjoo com movimento.",
+    "arquivos": [
+      "app/src/css/10-base.css",
+      "app/src/js/20-workspace-tarefa.js",
+      "app/src/js/21-pull-request.js",
+      "app/src/js/27-entregas.js"
+    ],
+    "como_ver": "Ajustes do Sistema › Acessibilidade › Tela › Reduzir movimento; medido no harness: 3 → 0 animações infinitas.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/reduzir-movimento-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/reduzir-movimento-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-10",
+    "titulo": "Contraste AA do texto apagado no orquestrador, Issues, IA e Nova demanda",
+    "antes": "10 textos usavam branco a 45% (4,39:1 sobre surface-3 — abaixo do AA em fonte pequena): legenda/terminal/branch do orquestrador, nome no quadro de Issues, descrição da IA, meta dos times, papel do membro, guia da Nova demanda, vazio do chat.",
+    "depois": "Usam o token --text-3 (≥ 4,77:1 em todas as superfícies). Medido com a fórmula WCAG; teste impede alfa < 48% voltar.",
+    "motivo": "WCAG 1.4.3 (4,5:1) sem mudar a identidade.",
+    "arquivos": [
+      "app/src/css/70-orquestrador.css",
+      "app/src/css/82-issues.css",
+      "app/src/css/60-grafo-times-nova-demanda.css",
+      "app/src/css/20-abas-e-telas.css"
+    ],
+    "como_ver": "Orquestrador e quadro de Issues.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/contraste-orq-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/contraste-orq-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-11",
+    "titulo": "Números de linha do diff legíveis",
+    "antes": "Números de linha e cabeçalho de trecho do diff com --muted × opacidade .6/.7 (2,9–3,6:1).",
+    "depois": "--muted puro (5,4–6,4:1); continuam mais apagados que o código.",
+    "motivo": "Contraste AA.",
+    "arquivos": [
+      "app/src/css/50-workspace-planner.css"
+    ],
+    "como_ver": "Tarefa › Código.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/contraste-diff-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/contraste-diff-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-12",
+    "titulo": "Campos sem nome ganharam rótulo",
+    "antes": "Selects de período (Time), time/papel do convite, \"adicionar ao time\", modelo do gateway e a data da Daily não tinham rótulo: o leitor de tela dizia só \"caixa de seleção\".",
+    "depois": "aria-label em pt-BR em cada um (auditoria no harness: 0 campos sem nome nas 18 cenas).",
+    "motivo": "WCAG 4.1.2.",
+    "arquivos": [
+      "app/src/js/43-espaco-times.js",
+      "app/src/js/40-nuvem-conta.js",
+      "app/src/js/41-assinatura-chaves.js",
+      "app/src/js/12-chat-prefs-daily.js"
+    ],
+    "como_ver": "Conta e time, Time, Daily, Configurações › gateway.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/audit/conta.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/boot/conta.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-13",
+    "titulo": "Erro anunciado na hora pelo leitor de tela",
+    "antes": "O toast era role=status para tudo, inclusive erro (anunciado só depois da fala atual, ou perdido).",
+    "depois": "Toast de erro vira role=alert; os outros continuam status.",
+    "motivo": "Erro precisa interromper.",
+    "arquivos": [
+      "app/src/js/00-util.js"
+    ],
+    "como_ver": "Provoque um erro (ex.: publicar sem rede) com o VoiceOver ligado.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-esc-before.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/modal-erro-esc-after.png"
+    },
+    "area": "acessibilidade"
+  },
+  {
+    "id": "R8A-14",
+    "titulo": "Print das provas com texto alternativo",
+    "antes": "O lightbox das provas tinha <img alt=\"\">: leitor de tela não dizia qual print estava na tela.",
+    "depois": "alt = \"prova: <nome do arquivo>\", atualizado a cada ←/→.",
+    "motivo": "WCAG 1.1.1.",
+    "arquivos": [
+      "app/src/js/27-entregas.js"
+    ],
+    "como_ver": "Entrega › clique num print.",
+    "shots": {
+      "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/boot/workspace-entrega.png",
+      "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/acessibilidade/boot/workspace-entrega.png"
+    },
+    "area": "acessibilidade"
+  }
+]

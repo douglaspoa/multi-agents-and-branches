@@ -1,0 +1,26 @@
+[
+  {
+    "titulo": "Prender o foco dentro das abas-overlay",
+    "motivo": "São abas, não janelas: prender o Tab impediria chegar na barra de abas e na lateral. Ficaram com role=region + nome e retorno de foco ao fechar."
+  },
+  {
+    "titulo": "Subir --text-3 de 52% para ~56%",
+    "motivo": "Já passa AA em todas as superfícies (4,77–4,97:1); mudar mexeria na identidade de dezenas de telas sem ganho de conformidade."
+  },
+  {
+    "titulo": "Contraste do texto sobre fundos tingidos (âmbar da barra de perguntas, verde-soft de seleção)",
+    "motivo": "Exige medir combinação a combinação no DOM real; fica para uma rodada com medição automática por elemento."
+  },
+  {
+    "titulo": "#fwChatCol clicável sem tabindex",
+    "motivo": "É o clique-para-focar do compositor; o textarea dentro já é focável, então não há perda pelo teclado."
+  },
+  {
+    "titulo": "Lista de atalhos no menu do app (menubar nativa do Tauri)",
+    "motivo": "Exige mexer em lib.rs/menu nativo; fora do escopo de correção localizada."
+  },
+  {
+    "titulo": "Ponto colorido do épico (.epqdot) e itens de menu (#tmenuPop) fora do --ring",
+    "motivo": "Usam a cor do status/fundo de menu como indicador de propósito (padrão de menu macOS); mantidos como exceção documentada no teste."
+  }
+]
