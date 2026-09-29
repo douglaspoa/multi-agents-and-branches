@@ -76,7 +76,7 @@ function auPassMeter(inputId){
   const l=box.querySelector('[data-strl]'); if(l) l.textContent=p.value?T('auth.pw.s'+st.score):T('auth.pw.s0');
   box.querySelectorAll('[data-r]').forEach(li=>li.classList.toggle('ok', !!st.rules[li.dataset.r]));
 }
-function auErr(e){ return (e&&e.info) ? authErrPt(e) : ((e&&e.message)||String(e)); }
+function auErr(e){ if(e&&e.info) return authErrPt(e); return errShort(e); }
 function auValidEmail(v){ return authValidEmail(v); }
 // Erro de servidor → campo certo (ou caixa geral) + próximos passos + código pequeno quando desconhecido
 function auFail(e, o){

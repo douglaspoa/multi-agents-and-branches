@@ -187,7 +187,9 @@ async function sendArtifactSlack(taskId, name){
     // lê o token direto do cofre (llm.env) — não depende do cache do outro bloco
     let env=''; try{ env=await invoke('read_llm_env'); }catch(_){}
     if(!/(^|\n)\s*SLACK_BOT_TOKEN\s*=\s*\S/.test(env||'')){
-      alert('Configure primeiro o bot do Slack:\n\n1) Conta (botão da nuvem) → Chaves de modelo → + adicionar chave\n2) Nome: SLACK_BOT_TOKEN · Valor: o token do bot (xoxb-…) com os escopos files:write e chat:write\n3) No Slack, convide o bot no canal (/invite @seu-bot)\n\nDepois volte aqui e envie.'); return;
+      // R8: alert() no Tauri não é confiável (igual ao confirm) — o passo a passo vai num toast com o atalho pra Conta
+      toast('Pra enviar ao Slack, guarde antes a chave SLACK_BOT_TOKEN (token xoxb- do bot, com files:write e chat:write) em Conta › Chaves de modelo, e convide o bot no canal (/invite @seu-bot).','warn',
+        { label:'abrir Conta', fn:()=>{ if(window.openTab) window.openTab('conta'); } }); return;
     }
     let ch=lsGet('slackChannel')||'';
     const inp=await askText('Canal do Slack','ID do canal (ex.: C0123ABCD) — no Slack: clique no canal → Ver detalhes → ID no rodapé', ch);

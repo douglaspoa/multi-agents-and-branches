@@ -273,7 +273,7 @@ async function orqPlanNow(){
     o.step='plan'; o.sel=phases[0].key; o.pan={x:20,y:20}; o.zoom=1; o.needFit=true;
     await invoke('orch_save',{ id:o.plan.id, data:o.plan, repo:o.plan.repo||null }).catch(()=>{});
     orqListAt=0;
-  }catch(e){ const r=orqPlanErr(o.planStopping?'ORQ_PLAN_STOPPED':e); o.msg=r.msg; o.msgErr=!r.stopped; }
+  }catch(e){ const r=orqPlanErr(o.planStopping?'ORQ_PLAN_STOPPED':e); o.msg=r.msg; o.msgErr=!r.stopped; if(!r.stopped) console.warn('orq plano', typeof errText==='function'?errText(e):e); }
   orqPlanReqs.delete(req); clearInterval(o.busyTick); o.busyTick=null;
   if(o.planReq===req){ o.busy=false; o.planStopping=false; } if(orq===o) orqRender();
 }
@@ -442,9 +442,11 @@ async function orqChatSend(){
       const last=p.chat[p.chat.length-1]; if(last&&last.who==='you'&&last.text===text) p.chat.pop();
       p.chat.push({who:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
       if(!o.chatDraft) o.chatDraft=text; o.chatAtts=(o.chatAtts||[]).concat(atts);
-    } else { // erro: a pergunta e os anexos também voltam pra caixa (antes: "envie de novo" com a caixa vazia)
+    } else { // erro: a pergunta e os anexos também voltam pra caixa (antes: "envie de novo" com a caixa vazia); texto traduzido (R8b)
       const last=p.chat[p.chat.length-1]; if(last&&last.who==='you'&&last.text===text) p.chat.pop();
-      p.chat.push({who:'sys', text:(typeof humanErr==='function'?humanErr(msg, 'O orquestrador não respondeu').msg:msg)+' Sua mensagem voltou pra caixa — envie de novo quando quiser.'});
+      const h=humanErr(e,'O orquestrador não respondeu');
+      p.chat.push({who:'sys', text:h.msg+' Sua mensagem voltou pra caixa — envie de novo quando quiser.'});
+      if(h.action) showErr(e,'O orquestrador não respondeu');
       if(!o.chatDraft) o.chatDraft=text; o.chatAtts=(o.chatAtts||[]).concat(atts); }
   }
   o.chatBusy=false; o.chatStopping=false;
