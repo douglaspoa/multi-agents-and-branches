@@ -40,11 +40,11 @@ function flowDemandCard(t){
   if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
   const rows=reqRows(t);
   const okN=rows.filter(r=>r.st==='ok').length;
-  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?'!':''}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
+  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?IC.stErr:''}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
   const msg= asking.length ? `<b>${esc(asking[0].agent||t.agent)} perguntou</b> — ${esc((asking[0].prompt||'').slice(0,90))}`
     : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
     : t.status==='draft' ? 'rascunho — clique pra editar'
-    : done ? (prN?`PR #${prN} mergeado`:'concluída')
+    : done ? (prN?`PR #${prN} integrado`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
     : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${nPl(diffFiles(diffOf(t.id)),'arquivo')}`
     // E1: erro conhecido do motor/gh vira frase em pt-BR (antes: "spawn claude ENOENT", "Please run /login"…)
@@ -56,7 +56,7 @@ function flowDemandCard(t){
   const nImg=arts.filter(a=>a.kind==='image').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
   const artOnly=['invest','design'].includes(ty)||entregaNonCode(t); // FT-6: entrega só de documentos também não abre PR
-  const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA mergeia a base e resolve os conflitos na worktree; você revisa e mergeia">${IC.bolt} resolver conflito</button>`
+  const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra">${IC.bolt} resolver conflito</button>`
     : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.play} iniciar</button>`
     : asking.length ? `<button class="btn primary sm" data-dcopen="${escA(t.id)}">responder</button>`
     : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">${IC.ok} ver e salvar</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
@@ -425,7 +425,7 @@ function fwRenderEntrega(t, main){
     ? `${reqKpi}
        <div class="en-kpi"><b>${arts.length}</b><span>${arts.length===1?'arquivo entregue':'arquivos entregues'}</span></div>
        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${cost.usd>0?fmtCost(cost.usd):'duração'}</span></div>`
-    : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
+    : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'integrado':'aberto'} ${icEm(IC.extlink)}</span></button>`:''}
         ${reqKpi}
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
         <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;

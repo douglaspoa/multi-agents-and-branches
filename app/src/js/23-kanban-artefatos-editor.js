@@ -19,9 +19,9 @@ function kCard(t){
     : (t.prUrl && t.status!=='merged' && t.flag!=='closed' && ['review','delivered','running','thinking','queued','paused'].includes(t.status))?'PR aberto · aguardando revisão/merge'
     : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir ajuste'
     : t.status==='error'?'erro — veja o log'
-    : t.status==='aborted'?'abortada — descarte ou refaça'
+    : t.status==='aborted'?'interrompida — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
-    : ACTIVE_ST.has(t.status)?(ev?((GLYPH[ev.type]||'·')+' '+ev.text):(t.agent+' trabalhando')):'';
+    : ACTIVE_ST.has(t.status)?(ev?ev.text:(t.agent+' trabalhando')):'';
   return `<div class="kcard${t.id===selected?' sel':''}${pendingOf(t.id).length?' asking':''}" draggable="true" tabindex="0" data-id="${t.id}">
     <div class="kctop">${t.status==='draft'?((!t.repo||t.repo===state.repo)?`<button class="kplay" data-kplay="${t.id}" title="iniciar">${IC.cright}</button>`:`<button class="kplay" disabled title="rascunho de outro projeto — abra ${escA(projShort(t.repo))} para iniciar">${IC.cright}</button>`):''}<b class="ktitle">${esc(t.title)}</b></div>
     ${typeof epTaskBadge==='function'&&t.epic?`<div class="kepic">${epTaskBadge(t)}</div>`:''}

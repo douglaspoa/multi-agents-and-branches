@@ -179,9 +179,13 @@ Object.assign(IC, {
   flag:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.6 14V2.6m0 .6h7.6l-1.6 2.7 1.6 2.7H3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
   stop:     icEm('<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.4"/></svg>'),
   play:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5.2 3.6v8.8L12.2 8z" stroke-linejoin="round"/></svg>'),
+  unlock:   icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.3"/><path d="M5.4 7V5.1a2.6 2.6 0 0 1 5-1" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  reset:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.4 8a4.6 4.6 0 1 0 1.4-3.3M3.3 2.4V5h2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.4 6.4l3.2 3.2M9.6 6.4 6.4 9.6" stroke-linecap="round"/></svg>'),
   more:     icEm('<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.6" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="12.4" cy="8" r="1.25"/></svg>'),
 });
 // @r8-icones-fim
+// botão ⋯ do cabeçalho da Tarefa (index.html): o ícone vem da fonte, não de uma cópia do SVG no HTML
+{ const mb = document.getElementById('fwMore'); if (mb) mb.innerHTML = IC.more; }
 // R7: o motor escrevia eventos com emoji na frente (balão de fala, interrogação, ampulheta, setas de retomar…).
 // Os novos vêm em texto puro ("Você: …", "perguntou ao humano: …", "Na fila (1º): …"); aqui o histórico
 // ANTIGO é reescrito no mesmo formato ao chegar (snapshot/task_events) — assim toda tela e todo parser

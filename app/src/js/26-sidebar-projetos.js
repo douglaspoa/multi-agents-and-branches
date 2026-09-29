@@ -45,7 +45,7 @@ function stageStepper(t){
     else if(i===curIdx) cls=(t.status==='error'?'err':(ACTIVE_ST.has(t.status)?'cur':'wait'));
     else cls='wait';
     const mark = cls==='done'?IC.check : cls==='err'?'!' : cls==='cur'?'<span class="spin"></span>' : (i+1);
-    const sub = (cls==='cur' && ev) ? `<div class="sact">${esc((GLYPH[ev.type]||'·')+' '+ev.text)}</div>` : '';
+    const sub = (cls==='cur' && ev) ? `<div class="sact">${esc(ev.text)}</div>` : '';
     const view = r.role==='planner'?'<span class="sview">ver plano ›</span>' : r.role==='designer'?'<span class="sview">ver design ›</span>' : '';
     return `<div class="step ${cls}" data-role="${escA(r.role)}" data-name="${escA(r.name)}"><span class="smark">${mark}</span><div class="stx"><span class="srole">${ROLE_PT[r.role]||r.role}${view}</span><span class="sname">${esc(r.name)}</span>${sub}</div></div>`;
   }).join("");

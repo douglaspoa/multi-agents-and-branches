@@ -423,7 +423,7 @@ function renderFlowHead(){
   if(fc.prontas) bits.push(`${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar`);
   if(fc.praberto) bits.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
   put(`<h1>Central</h1><div class="sub">${bits.join(' · ')}</div>
-    <span style="flex:1"></span><span id="coordChip" class="coordchip" title="Como os agentes estão se coordenando neste projeto"></span>`);
+    <span style="flex:1"></span><span id="coordChip" class="coordchip"></span>`);
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -491,11 +491,11 @@ function renderTaskSummary(t){
     <div class="seclbl2">O que já foi feito</div>
     ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?IC.ok:IC.stQueue}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
     ${dels.length?`<div style="margin-top:6px">${li(dels,icEm(IC.doc),'var(--info)')}</div>`:''}
-    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${nPl(diffFiles(d),'arquivo alterado','arquivos alterados')} · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${nPl(c.length,'commit')}${rev?' · review interno ✓':''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
+    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${nPl(diffFiles(d),'arquivo alterado','arquivos alterados')} · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${nPl(c.length,'commit')}${rev?' · revisão interna '+IC.ok:''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
     ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;color:var(--text-2)"><span class="dim" style="flex:none;font-weight:600">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
     ${rev?`<div class="seclbl2" style="margin-top:10px">Como testar</div><div style="font-size:12.5px">${esc(rev.howToTest||'')}</div>`:''}
     <div class="seclbl2" style="margin-top:14px">O que falta pra finalizar</div>
-    ${falta.length?li(falta,'→','var(--warn)'):'<div style="font-size:12.5px;color:var(--good)">nada — pronta pra fechar ✓</div>'}
+    ${falta.length?li(falta,IC.chevR,'var(--warn)'):'<div style="font-size:12.5px;color:var(--good)">nada — pronta pra fechar '+IC.ok+'</div>'}
     <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span>
       ${['review','delivered'].includes(t.status)&&!t.prUrl&&t.flag!=='closed'?(sumArtOnly
         ?`<button class="btn primary sm" id="sumArch" title="investigação/design não abrem PR — o fim é salvar os entregáveis e concluir">${IC.check} concluir</button>`
@@ -505,6 +505,27 @@ function renderTaskSummary(t){
   bindClick('sumPr', ()=>{ $id('sumOverlay').style.display='none'; prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
   // E11b: investigação/design → o "concluir" leva pra Entrega (salvar entregáveis na pasta), igual ao cabeçalho da tarefa
   bindClick('sumArch', ()=>{ $id('sumOverlay').style.display='none'; selected=t.id; render(); openWorkspace(t.id); setTimeout(()=>{ try{ fwMode='entrega'; renderWorkspace(); }catch(_){ } }, 50); });
+}
+// R8: oferecer "integrada (merge feito)"? Só quando dá pra SABER que a tarefa tem código: tem PR, ou o diff dela já
+// está no snapshot e não é entrega só de documentos. Investigação/design nunca; diff ainda desconhecido (outro projeto,
+// snapshot chegando) = escondido. Já integrada = mantém (é o estado atual, o ✓ do menu aponta pra ela).
+function taskOffersMerge(t){
+  if(!t) return false;
+  if(t.status==='merged') return true;
+  if(['invest','design'].includes(taskType(t))) return false;
+  if(t.prUrl) return true;
+  if(!diffOf(t.id)) return false;
+  return !(typeof entregaNonCode==='function' && entregaNonCode(t));
+}
+// R8: opção do menu de status que corresponde ao estado atual (onde vai o ✓) — todo status cai numa opção
+// (antes só review/merged/running batiam; asking, erro, pausada, PR aberto… ficavam sem marca)
+function stMenuCur(t){
+  if(t.status==='cancelled') return 'cancelled';
+  if(t.flag==='closed' || t.status==='done') return 'finished';
+  if(t.status==='merged') return 'merged';
+  if(t.status==='draft') return '';
+  const b=flowBucket(t);
+  return (b==='prontas'||b==='praberto') ? 'review' : 'running';
 }
 // menu ⋯ da home: mudar status/flag sem abrir a tarefa
 function openTaskMenu(taskId, anchor){
@@ -519,27 +540,29 @@ function openTaskMenu(taskId, anchor){
   pop.id='tmenuPop';
   pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   // R8: ícone SVG (IC) + rótulo; antes o glifo ia colado no texto (✓ ◆ ⌥ ❙❙ ▶ ↻ ✕)
-  const item=(label,fn,danger,icon)=>{ const b=document.createElement('button');
-    if(icon){ b.innerHTML='<span class="mnic">'+icon+'</span>'; b.appendChild(document.createTextNode(label)); } else b.textContent=label;
+  // o slot .mnic existe SEMPRE (vazio quando o item não tem ícone) — senão o rótulo sai desalinhado dos outros.
+  // o.stay: o item abre outro menu (trocar modelo) — fecha este e não recarrega o quadro
+  const item=(label,fn,danger,icon,o)=>{ const b=document.createElement('button'); o=o||{};
+    b.innerHTML='<span class="mnic">'+(icon||'')+'</span>'; b.appendChild(document.createTextNode(label)); if(o.title) b.title=o.title;
     b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
-    b.onclick=async()=>{ menuClose(pop); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
+    b.onclick=async(e)=>{ if(o.stay){ e.stopPropagation(); menuClose(pop); fn(); return; }
+      menuClose(pop); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
     pop.appendChild(b); };
   const ty=taskType(t);
-  const artifactOnly=['invest','design'].includes(ty)||(typeof entregaNonCode==='function'&&entregaNonCode(t)); // investigação/design/só documentos não têm PR pra mergear
-  // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
+    // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
   if(t.flag!=='closed') item('concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}), false, IC.stDone);
-  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed'){ const b=document.createElement('button'); b.textContent='trocar modelo · '+modelFriendly(t.model); if(t.model) b.title=t.model; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=(e)=>{ e.stopPropagation(); menuClose(pop); openModelMenu(taskId, anchor); }; pop.appendChild(b); }
+  if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed') item('trocar modelo · '+modelFriendly(t.model), ()=>openModelMenu(taskId, anchor), false, '', { stay:true, title:t.model||'' });
   if(t.flag==='closed') item('reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}), false, stIcon('review'));
-  if(t.status!=='merged' && !artifactOnly) item('marcar como integrada (merge feito)', ()=>invoke('mark_task_status',{taskId,status:'merged'}), false, icEm(IC.merge));
+  if(t.status!=='merged' && taskOffersMerge(t)) item('marcar como integrada (merge feito)', ()=>invoke('mark_task_status',{taskId,status:'merged'}), false, icEm(IC.merge));
   // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
   if(['review','delivered'].includes(t.status)) item('voltar pra em andamento · o agente continua', ()=>taskBackToRunning(taskId), false, IC.retry);
   if(t.flag!=='blocked') item('bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}), false, stIcon('blocked'));
-  else item('desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}), false, stIcon('running'));
+  else item('desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}), false, IC.unlock);
   if(['error','aborted','conflict'].includes(t.status)){
     item('tentar seguir · continua de onde parou', ()=>invoke('talk_task',{taskId, message:'A execução anterior foi interrompida (timeout de inatividade/erro). CONTINUE de onde você parou: confira git status, git diff, .cardume/PLAN.md e os requisitos em .cardume/TASK.yaml, e finalize o que falta — não recomece do zero. Se for rodar algo demorado, vá reportando progresso pra não ser encerrado por inatividade.', asReq:false, agent:null}), false, IC.retry);
-    item('refazer do zero · descarta o parcial', ()=>rerunTask(taskId), false, IC.retry); // E3: com a confirmação do rerunTask
+    item('refazer do zero · descarta o parcial', ()=>rerunTask(taskId), false, IC.reset); // E3: com a confirmação do rerunTask
   }
   // E3 (bug #4): abortar só faz sentido com o agente vivo (antes aparecia até em mergeada e trocava 'merged' por 'aborted');
   // e passa pelo abortTask(), que confirma antes
@@ -559,7 +582,7 @@ function menuWire(pop, anchor){
   let off=null;
   pop.__close=()=>{ pop.remove(); if(off){ off(); off=null; } };
   pop.setAttribute('role','menu');
-  items().forEach(b=>{ b.setAttribute('role','menuitem'); b.tabIndex=-1; });
+  items().forEach(b=>{ if(!b.getAttribute('role')) b.setAttribute('role','menuitem'); b.tabIndex=-1; });
   pop.addEventListener('keydown',e=>{
     const l=items(), i=l.indexOf(document.activeElement);
     if(e.key==='Escape'||e.key==='Tab'){ e.preventDefault(); e.stopPropagation(); pop.__close(); if(back) back.focus(); }
@@ -583,8 +606,8 @@ function openStatusMenu(taskId, anchor){
   menuClose($id('stmenuPop'));
   const closed = t.flag==='closed';
   const cancelled = t.status==='cancelled';
-  // estado "atual" pra marcar o ●: cancelada e encerrada vencem; review/delivered contam como review
-  const cur = cancelled ? 'cancelled' : closed ? 'finished' : (['review','delivered'].includes(t.status)?'review':t.status);
+  // estado "atual" (o ✓): cancelada e encerrada vencem; o resto cai na opção pela etapa (stMenuCur)
+  const cur = stMenuCur(t);
   // cada opção: {key, label, col, act()} — status via mark_task_status, finalizar via flag
   const setSt=(status)=>()=>invoke('mark_task_status',{taskId,status});
   const opts=[
@@ -599,14 +622,14 @@ function openStatusMenu(taskId, anchor){
     // não-abrível (o clique ia pro editor) — footgun. Rascunho é só na criação.
   ];
   // R8: tarefa sem código (investigação/design/só documentos) não tem merge — a opção "Integrada" some (Carla: sem sigla de git por padrão)
-  const noCode=['invest','design'].includes(taskType(t)) || (typeof entregaNonCode==='function' && entregaNonCode(t));
-  if(noCode){ const i=opts.findIndex(o=>o.key==='merged'); if(i>=0) opts.splice(i,1); }
+  if(!taskOffersMerge(t)){ const i=opts.findIndex(o=>o.key==='merged'); if(i>=0) opts.splice(i,1); }
   const pop=document.createElement('div');
   pop.id='stmenuPop';
   pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   opts.forEach(o=>{ const b=document.createElement('button');
     const on=(o.key===cur);
-    b.innerHTML=`<span class="mnic" style="color:${o.col}">${o.ic}</span><span>${o.label}</span>${on?`<span style="margin-left:auto;opacity:.7" aria-label="atual">${IC.ok}</span>`:''}`;
+    b.setAttribute('role','menuitemradio'); b.setAttribute('aria-checked', on?'true':'false');
+    b.innerHTML=`<span class="mnic" style="color:${o.col}">${o.ic}</span><span>${o.label}</span>${on?`<span style="margin-left:auto;opacity:.7">${IC.ok}</span>`:''}`;
     b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
     b.onclick=async()=>{ menuClose(pop); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };

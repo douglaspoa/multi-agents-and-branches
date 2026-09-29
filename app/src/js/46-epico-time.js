@@ -125,7 +125,7 @@ function epicPageRender(){
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
     return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:stIcon(est)}</span><div class="en-rt">
       <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${stTx}${t.assignee?' · '+esc(tmName(t.assignee)):''}</span></div>
-      ${vtx||cov.length?`<div class="ep-verify">${vtx?'✓ prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
+      ${vtx||cov.length?`<div class="ep-verify">${vtx?IC.ok+' prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
   // mas o número só conta entregue de verdade (antes "1/3" numa onda sem nada mergeado contradizia o 0/7)
