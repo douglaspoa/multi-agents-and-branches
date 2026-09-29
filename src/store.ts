@@ -144,6 +144,11 @@ export class Store {
         created_at INTEGER NOT NULL,
         done_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS session_cost (
+        session_id TEXT PRIMARY KEY,
+        total REAL NOT NULL,          -- custo ACUMULADO da sessão do claude no fim do último turno
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS cost (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT NOT NULL,
@@ -164,6 +169,7 @@ export class Store {
       "ALTER TABLE task ADD COLUMN done_roles INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE event ADD COLUMN role TEXT",
       "ALTER TABLE task ADD COLUMN busy_pid INTEGER",
+      "ALTER TABLE task ADD COLUMN busy_since INTEGER",
     ]) {
       try {
         this.db.exec(stmt);
@@ -381,7 +387,38 @@ export class Store {
   // O processo que roda um turno grava seu PID em task.busy_pid; pedidos novos
   // checam a vida do PID (kill 0) — se vivo, entram na fila e rodam ao final.
   setBusyPid(taskId: string, pid: number | null): void {
-    this.db.prepare(`UPDATE task SET busy_pid = ? WHERE id = ?`).run(pid, taskId);
+    this.db.prepare(`UPDATE task SET busy_pid = ?, busy_since = ? WHERE id = ?`).run(pid, pid ? Date.now() : null, taskId);
+  }
+
+  /**
+   * Pega o lock do turno de forma ATÔMICA: livre, do próprio pid ou de um processo morto → grava `pid`
+   * e devolve true; de outro processo vivo → false. Antes era "lê busy_pid, checa, grava" em passos
+   * soltos: dois "iniciar"/"falar" quase juntos (duplo clique, app + CLI) viam o lock livre e subiam DOIS
+   * agentes na mesma worktree. BEGIN IMMEDIATE serializa quem escreve no banco entre processos.
+   */
+  tryLockBusy(taskId: string, pid: number, isAlive: (pid: number, since: number | null) => boolean): boolean {
+    return withBusyRetry(() => {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const row = this.db.prepare(`SELECT busy_pid, busy_since FROM task WHERE id = ?`).get(taskId) as { busy_pid: number | null; busy_since: number | null } | undefined;
+        if (!row) { // tarefa não existe (apagada/id errado): nada a travar
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+        const cur = row.busy_pid ?? null;
+        // `since` = quando o lock foi pego: um PID vivo que NASCEU depois disso é outro processo (PID reciclado)
+        if (cur && cur !== pid && isAlive(cur, row.busy_since ?? null)) {
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+        if (cur !== pid) this.db.prepare(`UPDATE task SET busy_pid = ?, busy_since = ? WHERE id = ?`).run(pid, Date.now(), taskId);
+        this.db.exec("COMMIT");
+        return true;
+      } catch (e) {
+        try { this.db.exec("ROLLBACK"); } catch { /* já encerrada */ }
+        throw e;
+      }
+    });
   }
 
   busyPid(taskId: string): number | null {
@@ -402,8 +439,10 @@ export class Store {
       .get(taskId) as { id: number; kind: string; payload: string } | undefined;
   }
 
-  queueDone(id: number): void {
-    this.db.prepare(`UPDATE work_queue SET status = 'done', done_at = ? WHERE id = ?`).run(Date.now(), id);
+  /** Marca o pedido como tomado — SÓ se ainda estava na fila. false = outro processo já o pegou (não roda 2x). */
+  queueDone(id: number): boolean {
+    const r = this.db.prepare(`UPDATE work_queue SET status = 'done', done_at = ? WHERE id = ? AND status = 'queued'`).run(Date.now(), id);
+    return Number(r.changes) > 0;
   }
 
   /** Descarta (status 'expired') pedidos da fila criados antes de `before` — órfãos de um turno que

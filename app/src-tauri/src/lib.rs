@@ -1385,7 +1385,7 @@ fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String>
 
 // ---------- lista de projetos (switcher multi-projeto) ----------
 fn projects_file() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let home = home_dir_s();
     PathBuf::from(home).join(".cardume").join("projects.json")
 }
 fn read_project_list() -> Vec<String> {
@@ -1633,8 +1633,7 @@ fn create_project(
 
 /// Pasta padrão dos projetos criados pelo "Começar" da tela vazia: ~/Documents/Starfork
 fn starfork_projects_dir() -> PathBuf {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join("Documents").join("Starfork")
+    PathBuf::from(home_dir_s()).join("Documents").join("Starfork")
 }
 
 /// Nome livre dentro de `parent`: `slug`, senão `slug-2`, `slug-3`…
@@ -2648,7 +2647,7 @@ fn config(state: State<AppState>) -> Result<serde_json::Value, String> {
 /// Catálogo global do usuário (~/.cardume/agents.json) — agentes/workflows
 /// disponíveis em TODO projeto. O config do repo tem precedência por id.
 fn merge_global_catalog(mut cfg: serde_json::Value) -> serde_json::Value {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir_s();
     let gpath = PathBuf::from(home).join(".cardume").join("agents.json");
     let global: serde_json::Value = std::fs::read_to_string(&gpath)
         .ok()
@@ -3901,7 +3900,7 @@ fn chrome_bin() -> Option<String> {
 /// Salva um documento (.md) em ~/Documents/Constellation/ e revela no Finder.
 #[tauri::command(async)]
 fn save_doc(name: String, content: String) -> Result<String, String> {
-    let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Documents").join("Constellation");
+    let dir = PathBuf::from(home_dir_s()).join("Documents").join("Constellation");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.'|' ') { c } else { '-' }).collect();
     let p = dir.join(safe.trim());
@@ -3914,7 +3913,7 @@ fn save_doc(name: String, content: String) -> Result<String, String> {
 #[tauri::command(async)]
 fn html_to_pdf(html: String, name: String) -> Result<String, String> {
     let chrome = chrome_bin().ok_or("Google Chrome não encontrado — instale o Chrome pra gerar PDF")?;
-    let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Documents").join("Constellation");
+    let dir = PathBuf::from(home_dir_s()).join("Documents").join("Constellation");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.') { c } else { '-' }).collect();
     let html_path = dir.join(format!("{safe}.html"));
@@ -4404,7 +4403,7 @@ fn slack_send_artifact(state: State<AppState>, task_id: String, name: String, ch
 }
 
 fn llm_env_path() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("llm.env")
+    PathBuf::from(home_dir_s()).join(".constellation").join("llm.env")
 }
 #[tauri::command(async)]
 fn read_llm_env() -> Result<String, String> {
@@ -4528,7 +4527,7 @@ fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result
 
 // ===== Painel de Issues: conexão genérica com um tracker (conector declarativo) =====
 fn constellation_home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation")
+    PathBuf::from(home_dir_s()).join(".constellation")
 }
 
 /// Cache local do painel de issues do time (a nuvem — issue_trackers — é a fonte;
@@ -4754,7 +4753,7 @@ Regras: (1) NUNCA escreva o valor real de uma chave, mesmo que apareça na doc �
 /// <repo>/.claude/skills), marcando quais estão ATIVAS pra este repo.
 #[tauri::command(async)]
 fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir_s();
     let mut items: Vec<(String, String, String)> = Vec::new();
     scan_skills_dir(&PathBuf::from(&home).join(".claude").join("skills"), "pessoal", &mut items);
     if let Ok(repo) = repo_of(&state) {
@@ -4809,7 +4808,7 @@ fn skill_name_ok(n: &str) -> bool {
     !n.is_empty() && n.len() <= 64 && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 fn skills_root() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".claude").join("skills")
+    PathBuf::from(home_dir_s()).join(".claude").join("skills")
 }
 
 /// Cria uma skill nova na biblioteca pessoal (~/.claude/skills/<nome>/SKILL.md).
@@ -4891,7 +4890,7 @@ fn git_skills(url: String, branch: Option<String>, subpath: Option<String>, pick
 
 /// Preferências do app (não-segredos) em ~/.constellation/settings.json.
 fn settings_path() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("settings.json")
+    PathBuf::from(home_dir_s()).join(".constellation").join("settings.json")
 }
 fn setting_get(key: &str) -> Option<String> {
     let content = std::fs::read_to_string(settings_path()).ok()?;
@@ -5067,7 +5066,7 @@ fn apns_jwt() -> Result<String, String> {
     if !g.0.is_empty() && g.1.elapsed().as_secs() < 2400 {
         return Ok(g.0.clone());
     }
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir_s();
     let key = std::env::var("CONSTELLATION_APNS_KEY").unwrap_or(format!("{home}/.constellation/AuthKey_AC5R9Y7ZYS.p8"));
     let kid = std::env::var("CONSTELLATION_APNS_KID").unwrap_or("AC5R9Y7ZYS".into());
     let team = std::env::var("CONSTELLATION_APNS_TEAM").unwrap_or("SUB6889LA9".into());
@@ -5756,7 +5755,7 @@ fn env_check() -> Vec<EnvCheck> {
         None => out.push(EnvCheck { name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install node".into() }),
     }
     // motor
-    let cli = cli_path(&std::env::var("HOME").map(PathBuf::from).unwrap_or_default());
+    let cli = cli_path(&PathBuf::from(home_dir_s()));
     let cli_ok = std::path::Path::new(&cli).is_file();
     out.push(EnvCheck { name: "Motor do Starfork".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
     // git
@@ -6723,7 +6722,7 @@ fn check_stops() -> &'static Mutex<std::collections::HashSet<String>> { CHECK_ST
 fn checks_path_env() -> String {
     let mut dirs: Vec<String> = vec![];
     if let Some(d) = Path::new(&node_bin()).parent() { dirs.push(d.display().to_string()); }
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let home = home_opt().unwrap_or_default();
     for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin"] { dirs.push(d.into()); }
     if !home.is_empty() {
         dirs.push(format!("{home}/.cargo/bin"));
@@ -6938,7 +6937,24 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
 }
 
 // ---------- Entrega sem código: salvar os entregáveis numa pasta do usuário ----------
-fn home_dir_s() -> String { std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into()) }
+/// Pasta do usuário em qualquer SO — a mesma que o motor enxerga (Node os.homedir()): no Windows
+/// USERPROFILE primeiro; no macOS/Linux HOME. Antes, 11 lugares liam só o HOME: no Windows o cofre
+/// (llm.env), settings.json, skills e o catálogo global caíam numa pasta RELATIVA ao diretório atual.
+fn home_dir_s() -> String {
+    home_opt().unwrap_or_else(|| {
+        // nunca em silêncio: sem pasta do usuário, cofre/configurações iriam pra pasta atual
+        eprintln!("[starfork] pasta do usuário não encontrada (HOME/USERPROFILE vazios) — usando a pasta atual");
+        ".".into()
+    })
+}
+fn home_opt() -> Option<String> {
+    home_from(std::env::var("HOME").ok(), std::env::var("USERPROFILE").ok(), cfg!(windows))
+}
+fn home_from(home: Option<String>, profile: Option<String>, windows: bool) -> Option<String> {
+    let home = home.filter(|h| !h.trim().is_empty());
+    let profile = profile.filter(|p| !p.trim().is_empty());
+    if windows { profile.or(home) } else { home.or(profile) }
+}
 /// Pasta padrão das entregas: ~/Documents/Starfork/Entregas
 #[tauri::command(async)]
 fn deliverables_default_dir() -> String {
@@ -7446,19 +7462,33 @@ fn workspace_clean(state: State<AppState>, worktrees: bool, temp: bool, artifact
     Ok(serde_json::json!({ "freed": freed, "removed": removed, "errors": errors }))
 }
 
+/// O merge do PR aconteceu? Sucesso do `gh pr merge`, OU falha com o PR já MERGED no GitHub
+/// (a falha foi só na limpeza da branch local).
+fn pr_merge_landed(gh_ok: bool, state_after: Option<&str>) -> bool {
+    gh_ok || state_after.map(|s| s.trim().eq_ignore_ascii_case("MERGED")).unwrap_or(false)
+}
+
 /// Mergeia o PR (gh) e marca a tarefa como merged localmente.
 #[tauri::command(async)]
 fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
     let (repo, branch) = pr_head(&state, &task_id)?;
     let m = match method.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
-    let out = Command::new(gh_bin())
-        .args(["pr", "merge", &branch, m, "--delete-branch"])
-        .args(gh_repo_args(&repo))
-        .current_dir(&repo)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    let mut c = Command::new(gh_bin());
+    c.args(["pr", "merge", &branch, m, "--delete-branch"]).args(gh_repo_args(&repo)).current_dir(&repo);
+    // teto: sem ele uma rede pendurada deixava o botão "mergeando…" pra sempre
+    let res = output_timeout(c, 120);
+    let gh_ok = matches!(&res, Ok(o) if o.status.success());
+    let mut cleanup_branch = false;
+    if !gh_ok {
+        // o `--delete-branch` tenta apagar a branch LOCAL — presa na worktree da tarefa, o gh falha DEPOIS
+        // de mergear no GitHub; e um teto estourado pode ter chegado ao GitHub também. Confere o estado real.
+        let mut v = Command::new(gh_bin());
+        v.args(["pr", "view", &branch, "--json", "state", "--jq", ".state"]).args(gh_repo_args(&repo)).current_dir(&repo);
+        let state_after = output_timeout(v, 20).ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+        if !pr_merge_landed(false, state_after.as_deref()) {
+            return Err(match res { Ok(o) => String::from_utf8_lossy(&o.stderr).to_string(), Err(e) => e });
+        }
+        cleanup_branch = true; // o gh não terminou a limpeza: fazemos depois de tirar a worktree
     }
     // marca merged localmente + remove a worktree
     // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
@@ -7469,6 +7499,18 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
             preview_kill(&state.procs, &task_id);
             remove_task_worktree(&repo, &conn, &task_id);
             let _ = conn.execute("UPDATE task SET status='merged' WHERE id=?1", params![task_id]);
+        }
+    }
+    if cleanup_branch {
+        // best-effort: branch local (liberada agora que a worktree saiu) e a remota, se ainda existir
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["worktree", "prune"]).output();
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["branch", "-D", &branch]).output();
+        let mut ls = Command::new("git");
+        ls.arg("-C").arg(&repo).args(["ls-remote", "--heads", "origin", &branch]).env("GIT_TERMINAL_PROMPT", "0");
+        if output_timeout(ls, 20).map(|o| !o.stdout.is_empty()).unwrap_or(false) {
+            let mut del = Command::new("git");
+            del.arg("-C").arg(&repo).args(["push", "origin", "--delete", &branch]).env("GIT_TERMINAL_PROMPT", "0");
+            let _ = output_timeout(del, 30);
         }
     }
     Ok("PR mergeado".to_string())
@@ -8842,5 +8884,32 @@ mod pr_status_tests {
         assert!(gh_says_no_pr("none of the git remotes configured for this repository point to a known GitHub host"));
         assert!(!gh_says_no_pr("error connecting to api.github.com"));
         assert!(!gh_says_no_pr("HTTP 502: Bad Gateway"));
+    }
+}
+
+#[cfg(test)]
+mod motor_r7_tests {
+    use super::{home_from, pr_merge_landed};
+
+    #[test]
+    fn pasta_do_usuario_no_windows_usa_userprofile() {
+        // macOS/Linux: HOME; sem HOME, USERPROFILE
+        assert_eq!(home_from(Some("/Users/ana".into()), Some("C:\\Users\\x".into()), false).as_deref(), Some("/Users/ana"));
+        assert_eq!(home_from(None, Some("C:\\Users\\ana".into()), false).as_deref(), Some("C:\\Users\\ana"));
+        // Windows: USERPROFILE primeiro (igual ao os.homedir() do Node — um HOME do Git Bash não desvia o cofre)
+        assert_eq!(home_from(Some("/c/Users/ana".into()), Some("C:\\Users\\ana".into()), true).as_deref(), Some("C:\\Users\\ana"));
+        assert_eq!(home_from(Some("/c/Users/ana".into()), None, true).as_deref(), Some("/c/Users/ana"));
+        // vazio não conta; sem nenhum → None (quem chama registra o aviso)
+        assert_eq!(home_from(Some("".into()), Some("C:\\Users\\ana".into()), false).as_deref(), Some("C:\\Users\\ana"));
+        assert_eq!(home_from(None, None, false), None);
+    }
+
+    #[test]
+    fn merge_do_pr_vale_quando_o_github_ja_mergeou() {
+        assert!(pr_merge_landed(true, None));
+        // gh falhou só ao apagar a branch local (presa na worktree) — o PR está MERGED
+        assert!(pr_merge_landed(false, Some("MERGED\n")));
+        assert!(!pr_merge_landed(false, Some("OPEN")));
+        assert!(!pr_merge_landed(false, None));
     }
 }

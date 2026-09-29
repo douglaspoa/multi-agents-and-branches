@@ -7,7 +7,7 @@ import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
-import { ghBin, run, sleep } from "./util/run.ts";
+import { ghBin, netEnv, netTimeoutMs, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
@@ -31,6 +31,78 @@ export function branchName(spec: TaskSpec): string {
   const type = (spec.branchType || "agent").replace(/[^a-z0-9]/gi, "").toLowerCase() || "agent";
   const code = spec.issueCode ? spec.issueCode.trim().toUpperCase().replace(/\s+/g, "-") + "-" : "";
   return `${type}/${code}${spec.id}`;
+}
+
+/**
+ * Nome do anexo em .cardume/refs/. Mesmo nome de 2 origens (ex.: ARCHITECTURE.md de 2 tarefas
+ * referenciadas) → prefixa a pasta. Aceita "/" e "\": no Windows o split só por "/" devolvia o CAMINHO
+ * INTEIRO como nome ("C:\Users\…\spec.pdf") e a cópia pra refs/ falhava calada — o agente ficava sem a spec.
+ */
+export function refName(src: string, taken: string[]): string {
+  const clean = (x: string) => x.replace(/[:*?"<>|]/g, "").trim(); // "C:" de drive não vira "C:-spec.pdf"
+  const parts = src.split(/[\\/]/).map(clean).filter(Boolean);
+  const base = parts.pop() || "ref";
+  let name = base;
+  // colide → prefixa a pasta; ainda colide (ou sem pasta) → -2, -3… até ficar livre
+  if (taken.includes(name) && parts.length) name = `${parts.pop()}-${base}`;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let n = 2; taken.includes(name); n++) name = `${stem}-${n}${ext}`;
+  return name;
+}
+
+/** O dono do lock ainda está vivo? kill 0 (EPERM = existe, de outro usuário) e, com `since` (quando o lock
+ * foi pego), um processo que NASCEU depois do lock é um PID reciclado — lock obsoleto. PID morto não segura lock. */
+export function pidAlive(pid: number, since: number | null = null): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== "EPERM") return false;
+  }
+  if (since) {
+    const started = processStartMs(pid);
+    if (started !== null && started > since + 2000) return false; // folga: relógio/arredondamento do ps
+  }
+  return true;
+}
+
+/** Início do processo (ms) via `ps -o lstart=` — null quando não dá pra saber (Windows, ps ausente). */
+export function processStartMs(pid: number): number | null {
+  if (process.platform === "win32") return null;
+  try {
+    const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" } }).trim();
+    const t = Date.parse(out);
+    return Number.isFinite(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Teto das chamadas AUXILIARES ao claude (resumo de commit, destiladores) — CARDUME_AUX_TIMEOUT_MS. */
+export function auxTimeoutMs(): number {
+  const n = Number(process.env.CARDUME_AUX_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 180_000;
+}
+/** Teto do .cardume/setup.sh do projeto (CARDUME_SETUP_TIMEOUT_MS, padrão 10 min). */
+export function setupTimeoutMs(): number {
+  const n = Number(process.env.CARDUME_SETUP_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 10 * 60_000;
+}
+/** Motivo legível de um merge que falhou SEM conflito (o git explica em inglês, em várias linhas). */
+export function mergeFailReason(text: string): string {
+  const t = String(text || "");
+  if (/local changes .* would be overwritten|commit your changes or stash them/i.test(t)) return "há mudanças não commitadas no repositório principal que o merge sobrescreveria — commite ou guarde (stash) e tente de novo";
+  if (/untracked working tree files would be overwritten/i.test(t)) return "há arquivos não rastreados no repositório principal que o merge sobrescreveria — mova ou apague e tente de novo";
+  if (/not something we can merge|unknown revision/i.test(t)) return "a branch da tarefa não existe mais no repositório";
+  if (/you have not concluded your merge|MERGE_HEAD exists/i.test(t)) return "já existe um merge em andamento no repositório principal — conclua ou aborte (git merge --abort) antes";
+  const line = t.split("\n").map((l) => l.trim()).filter((l) => l && !/^Command failed/i.test(l)).pop() ?? "";
+  return line.replace(/^(error|fatal):\s*/i, "").slice(0, 200) || "o git recusou o merge";
+}
+
+/** URL do PR na saída do gh (sucesso ou "already exists"): a ÚLTIMA .../pull/N citada. */
+export function prUrlFrom(text: string): string {
+  const all = String(text || "").match(/https?:\/\/\S+\/pull\/\d+/g);
+  return all ? all[all.length - 1] : "";
 }
 
 /**
@@ -135,10 +207,7 @@ export class Orchestrator {
       const names: string[] = [];
       for (const src of refSources) {
         try {
-          // mesmo nome de 2 origens (ex.: ARCHITECTURE.md de 2 tarefas referenciadas) → prefixa a pasta
-          const parts = src.split("/");
-          let name = parts.pop() || "ref";
-          if (names.includes(name)) name = `${parts.pop() || names.length}-${name}`;
+          const name = refName(src, names);
           await cp(src, join(refDir, name), { recursive: true });
           names.push(name);
         } catch { /* ignora arquivo inacessível */ }
@@ -211,9 +280,17 @@ export class Orchestrator {
       try {
         const hook = join(this.ws.dir, "setup.sh");
         await stat(hook);
-        await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
-        seeded.push(".cardume/setup.sh executado");
-      } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
+        try {
+          await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo }, timeout: setupTimeoutMs() });
+          seeded.push(".cardume/setup.sh executado");
+        } catch (err) {
+          // antes: sem teto (um setup.sh que sobe servidor ou espera input travava a CRIAÇÃO da tarefa pra
+          // sempre) e a falha sumia calada — agora o agente lê no AMBIENTE.md que o setup não completou
+          const e = err as Error & { killed?: boolean; stderr?: string };
+          const why = e.killed ? `passou de ${Math.round(setupTimeoutMs() / 1000)}s e foi interrompido` : String(e.stderr || e.message || "").trim().split("\n").pop()?.slice(0, 160);
+          seeded.push(`.cardume/setup.sh NÃO completou (${why}) — confira o ambiente antes de rodar o projeto`);
+        }
+      } catch { /* sem hook — os envs/links acima já valem */ }
     } else {
       seeded.push("faixa leve (deps não linkadas)");
     }
@@ -403,7 +480,8 @@ export class Orchestrator {
   /** Roda o Haiku headless (destiladores). "" em qualquer falha. */
   private async haiku(prompt: string): Promise<string> {
     try {
-      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv() });
+      // teto: sem ele um claude pendurado deixava o processo do motor vivo pra sempre (fire-and-forget)
+      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv(), timeout: auxTimeoutMs() });
       return stdout.trim();
     } catch { return ""; }
   }
@@ -512,17 +590,6 @@ export class Orchestrator {
   // validado com kill(pid, 0) — processo morto não segura fila.
   // ---------------------------------------------------------------------------
 
-  /** true se OUTRO processo vivo está rodando um turno desta tarefa. */
-  private taskBusy(taskId: string): boolean {
-    const pid = this.store.busyPid(taskId);
-    if (!pid || pid === process.pid) return false;
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false; // PID morto — lock obsoleto
-    }
-  }
 
   /** O erro indica sessão que ESTOUROU o limite de tokens/contexto? */
   private static tokenDeath(text: string): boolean {
@@ -684,10 +751,27 @@ export class Orchestrator {
    * Executa `fn` segurando o lock da tarefa; se o agente já está ocupado,
    * ENFILEIRA o pedido (evento visível no chat) em vez de rodar por cima.
    */
+  /** Tenta pegar o lock do turno (atômico entre processos — ver Store.tryLockBusy). */
+  private tryLock(taskId: string): boolean {
+    return this.store.tryLockBusy(taskId, process.pid, pidAlive);
+  }
+
   private async withTaskLock(taskId: string, kind: string, payload: Record<string, unknown>, fn: () => Promise<void>): Promise<void> {
-    if (this.taskBusy(taskId)) {
+    if (!this.tryLock(taskId)) {
       this.store.queueAdd(taskId, kind, payload);
       const pos = this.store.queueCount(taskId);
+      // o turno pode ter ACABADO entre a checagem e o enfileiramento (ele já drenou a fila vazia):
+      // lock livre agora → FICA com ele e roda a fila daqui (inclui este pedido), sem soltar no meio
+      if (this.tryLock(taskId)) {
+        this.expireOrphanQueue(taskId);
+        try {
+          await this.drainLocked(taskId);
+        } finally {
+          this.store.setBusyPid(taskId, null);
+          await this.drainQueue(taskId);
+        }
+        return;
+      }
       this.store.addEvent(
         taskId,
         "Sistema",
@@ -697,7 +781,6 @@ export class Orchestrator {
       );
       return;
     }
-    this.store.setBusyPid(taskId, process.pid);
     this.expireOrphanQueue(taskId);
     try {
       await fn();
@@ -724,22 +807,31 @@ export class Orchestrator {
   /** Roda os pedidos enfileirados, em ordem, até esvaziar (ou outro processo assumir). */
   private async drainQueue(taskId: string): Promise<void> {
     for (;;) {
-      if (this.taskBusy(taskId)) return; // outro processo pegou o lock — ele drena
+      if (!this.store.queueNext(taskId)) return;
+      if (!this.tryLock(taskId)) return; // outro processo pegou o lock — ele drena
+      try {
+        await this.drainLocked(taskId);
+      } finally {
+        this.store.setBusyPid(taskId, null);
+      }
+    }
+  }
+
+  /** Esvazia a fila JÁ segurando o lock (não solta entre um pedido e outro). */
+  private async drainLocked(taskId: string): Promise<void> {
+    for (;;) {
       const item = this.store.queueNext(taskId);
       if (!item) return;
-      this.store.queueDone(item.id);
+      if (!this.store.queueDone(item.id)) continue; // outro processo já tomou este pedido
       let p: Record<string, unknown> = {};
       try { p = JSON.parse(item.payload || "{}"); } catch { /* payload corrompido — segue vazio */ }
       this.store.addEvent(taskId, "Sistema", "note", `▶ executando pedido da fila: ${this.queueLabel(item.kind, p)}`, true);
-      this.store.setBusyPid(taskId, process.pid);
       try {
         if (item.kind === "talk") await this.talkToAgentInner(taskId, String(p.message ?? ""), !!p.asReq, p.agent ? String(p.agent) : undefined);
         else if (item.kind === "deliver") await this.deliverArtifactInner(taskId, (p.kind as "doc" | "tests" | "proof" | "all") ?? "all");
         else if (item.kind === "rework") await this.reworkTaskInner(taskId);
       } catch (err) {
         this.store.addEvent(taskId, "Sistema", "error", `pedido da fila falhou: ${(err as Error).message}`, false);
-      } finally {
-        this.store.setBusyPid(taskId, null);
       }
     }
   }
@@ -748,11 +840,10 @@ export class Orchestrator {
   async runTask(taskId: string): Promise<void> {
     // Duplo "iniciar" (ou iniciar enquanto um turno roda) subia DOIS times na mesma
     // worktree. Outro processo vivo com o lock → recusa, sem mexer no lock dele.
-    if (this.taskBusy(taskId)) {
+    if (!this.tryLock(taskId)) {
       this.store.addEvent(taskId, "Sistema", "note", "essa tarefa já está rodando — pedido de iniciar ignorado", true);
       return;
     }
-    this.store.setBusyPid(taskId, process.pid);
     this.expireOrphanQueue(taskId);
     try {
       await this.runTaskInner(taskId);
@@ -762,7 +853,27 @@ export class Orchestrator {
     }
   }
 
+  /** Qualquer exceção que ESCAPE do pipeline (banco ocupado além do retry, spec corrompido, git) deixava
+   * a tarefa em "rodando"/"pensando" pra sempre — sem processo nenhum, o card girando e o "iniciar"
+   * bloqueado. Agora ela vai pra "erro" com o motivo no chat (dá pra retomar) e o erro segue pra cima. */
   private async runTaskInner(taskId: string): Promise<void> {
+    try {
+      await this.runTaskPipeline(taskId);
+    } catch (err) {
+      const msg = (err as Error)?.message || String(err);
+      try {
+        const t = this.store.getTask(taskId);
+        if (t) {
+          this.store.addEvent(taskId, "Sistema", "error", `a execução parou por um erro inesperado: ${msg.slice(0, 300)}`, false);
+          // só tira do estado "em andamento" — conflito/bloqueado/aguardando/plano/review ficam como estão
+          if (["running", "thinking", "queued"].includes(t.status)) this.store.setStatus(taskId, "error");
+        }
+      } catch { /* banco indisponível: o erro original é o que importa */ }
+      throw err;
+    }
+  }
+
+  private async runTaskPipeline(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -985,13 +1096,21 @@ export class Orchestrator {
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
-      await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch]);
+      await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
       const body =
         `## O quê\n${spec.objective || spec.title}\n\n` +
         ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
         `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._`;
-      const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree });
-      const url = stdout.trim().split("\n").pop() ?? "";
+      let url = "";
+      try {
+        const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree, env: netEnv(), timeout: netTimeoutMs() });
+        url = prUrlFrom(stdout) || (stdout.trim().split("\n").pop() ?? "");
+      } catch (e) {
+        // PR já aberto pra esta branch (retry, ou o humano abriu antes): o gh FALHA mas cita a URL —
+        // antes virava "falha ao abrir o PR" com o PR existindo
+        url = /already exists/i.test(String((e as { stderr?: string }).stderr ?? "")) ? prUrlFrom(String((e as { stderr?: string }).stderr)) : "";
+        if (!url) throw e;
+      }
       this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
       notify("Starfork", "PR aberto ✓", task.title);
     } catch (err) {
@@ -1577,7 +1696,9 @@ export class Orchestrator {
       const prompt =
         `Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n` +
         `Objetivo da tarefa: ${spec.objective}\n${dels}\nDiff:\n${diff}`;
-      const { stdout } = await run(resolveClaude(), ["-p", prompt], { cwd: worktree, env: claudeEnv() });
+      // teto: o resumo roda DENTRO do pipeline (com o lock da tarefa) — um claude pendurado aqui
+      // deixava a tarefa "rodando" pra sempre depois do builder já ter terminado
+      const { stdout } = await run(resolveClaude(), ["-p", prompt], { cwd: worktree, env: claudeEnv(), timeout: auxTimeoutMs() });
       const s = stdout.trim();
       if (s) {
         this.store.addCommitSummary(hash, s);
@@ -1592,13 +1713,31 @@ export class Orchestrator {
   async mergeTask(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    // merge do HUMANO já em andamento no repo principal: recusa ANTES — nunca abortar um merge que não
+    // foi a gente que começou (o abort jogaria fora a resolução dele)
+    if (await this.git.mergeInProgress()) {
+      const why = mergeFailReason("MERGE_HEAD exists");
+      this.store.addEvent(taskId, task.agent, "error", `não deu pra mergear: ${why}`, false);
+      throw new Error(`não deu pra mergear em ${task.base}: ${why}`);
+    }
     try {
       await this.git.mergeBranch(task.branch, `starfork: merge ${task.title} (${task.branch})`);
     } catch (err) {
-      await this.git.abortMerge();
-      this.store.setStatus(taskId, "conflict");
-      this.store.addEvent(taskId, task.agent, "error", `merge conflitou com ${task.base} — resolva manualmente`, false);
-      throw new Error(`conflito ao mergear em ${task.base}. O merge foi abortado e a branch preservada — resolva o conflito e tente de novo.`);
+      // Só é CONFLITO se o git parou com arquivos em conflito. Antes QUALQUER falha (mudança local não
+      // commitada no repo principal, base não está em check-out, branch sumiu) virava "conflict" — a
+      // tarefa ia pra "em conflito" e o humano/IA tentava resolver um conflito que não existia.
+      const e = err as Error & { stderr?: string; stdout?: string };
+      // só a SAÍDA do git: e.message repete a linha de comando (o -m com o título da tarefa, que pode ter "conflict")
+      const text = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+      if (await this.git.hasUnmerged() || /CONFLICT|Automatic merge failed/i.test(text)) {
+        await this.git.abortMerge();
+        this.store.setStatus(taskId, "conflict");
+        this.store.addEvent(taskId, task.agent, "error", `merge conflitou com ${task.base} — resolva manualmente`, false);
+        throw new Error(`conflito ao mergear em ${task.base}. O merge foi abortado e a branch preservada — resolva o conflito e tente de novo.`);
+      }
+      const why = mergeFailReason(text);
+      this.store.addEvent(taskId, task.agent, "error", `não deu pra mergear: ${why}`, false);
+      throw new Error(`não deu pra mergear em ${task.base}: ${why}`);
     }
     try {
       await this.git.worktreeRemove(task.worktree);
