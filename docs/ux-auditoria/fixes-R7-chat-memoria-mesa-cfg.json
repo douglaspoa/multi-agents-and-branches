@@ -150,10 +150,11 @@
   "area": "chat-memoria-mesa-cfg",
   "titulo": "Memória: erros do disco em português",
   "antes": "O Rust devolvia erros em inglês, por exemplo \"Não consegui ler a memória: No such file or directory (os error 2)\", com o texto cru repetido embaixo.",
-  "depois": "Frases em pt-BR para os erros de arquivo (não existe mais, disco só leitura, pasta no lugar da nota, UTF-8 inválido…) na leitura, nota, salvar, mover, apagar, modo e Obsidian.",
+  "depois": "Frases em pt-BR para os erros de arquivo (não existe mais, disco só leitura, pasta no lugar da nota, UTF-8 inválido…) na leitura, nota, salvar, mover, apagar, modo e Obsidian. Os erros do Windows (os error 3, 5, 183, 145) também são traduzidos, e \"ver detalhes\" mantém o texto cru original.",
   "motivo": "Pedido do dono: tratar os erros crus em inglês na aba.",
   "arquivos": [
-   "app/src/js/37-memoria.js"
+   "app/src/js/37-memoria.js",
+   "app/src/js/00-util.js"
   ],
   "como_ver": "Memória com a pasta .cardume/memoria removida ou sem permissão",
   "shots": {
@@ -198,11 +199,13 @@
   "area": "chat-memoria-mesa-cfg",
   "titulo": "Mesa: arquivo de mesa ilegível explicado",
   "antes": "Uma mesa corrompida aparecia com o selo cru \"corrompida\", \"0 personas · US$ 0\". Ao clicar, vinha o erro do serde em inglês (\"expected value at line 1 column 1\").",
-  "depois": "A linha ganha borda de erro, o selo \"arquivo ilegível\" e uma explicação. O clique mostra o que houve e como resolver (apagar ou restaurar pelo git), com o detalhe cru a um clique.",
+  "depois": "A linha ganha borda de erro, o selo \"arquivo ilegível\" e uma explicação. O clique explica o que houve e oferece duas ações: \"abrir pasta\" e \"apagar\" (esta pede confirmação e usa o comando novo mesa_delete).",
   "motivo": "Antes era um erro técnico e sem saída.",
   "arquivos": [
    "app/src/js/38-mesa.js",
-   "app/src/css/85-mesa.css"
+   "app/src/css/85-mesa.css",
+   "app/src-tauri/src/mesa.rs",
+   "app/src-tauri/src/lib.rs"
   ],
   "como_ver": "Mesa com um .cardume/mesas/*.json inválido",
   "shots": {
@@ -296,7 +299,7 @@
   "area": "chat-memoria-mesa-cfg",
   "titulo": "Configurações: salvar não diz \"salvas\" quando falhou",
   "antes": "A retomada e o navegador eram gravados com .catch(()=>{}), e o toast dizia \"Configurações salvas\" mesmo com erro. Uma cotação inválida era ignorada em silêncio.",
-  "depois": "O salvar espera a gravação, mostra \"salvando…\" e, se falhar, explica o que não foi salvo sem fechar a aba. A cotação precisa ser maior que zero.",
+  "depois": "Cada valor é validado com um aviso visível: teto e aviso ≥ 0, cotação > 0, tarefas de 1 a 12 e retomada de 0 a 240. Cada chave do settings.json é gravada separadamente. Se uma falhar, a mensagem diz qual (o resto fica salvo) e a aba não fecha.",
   "motivo": "Era um erro engolido.",
   "arquivos": [
    "app/src/js/15-config-abas-onboarding.js"
@@ -304,7 +307,7 @@
   "como_ver": "Configurações → salvar",
   "shots": {
    "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/chat-memoria-mesa-cfg/b-cfg-1024.png",
-   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/chat-memoria-mesa-cfg/a-cfg-1024.png"
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/chat-memoria-mesa-cfg/a-cfg-validacao.png"
   }
  },
  {

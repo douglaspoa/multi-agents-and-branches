@@ -305,16 +305,23 @@ async function mesaOpenOne(id){
   // a mesa que está rodando fica em memória (é ela que recebe as respostas) — nunca relê por cima dela
   const live=Object.values(MESA.runs).map(r=>r.m).find(m=>m.id===id && m.repo===MESA.repo);
   let m=live;
-  if(!m){ try{ m=await invoke('mesa_read',{ repo:MESA.repo, id }); }catch(e){
-    const raw=String((e&&e.message)||e||'');
-    // o serde devolve "mesa corrompida (id): expected value at line 1 column 1" — em inglês e sem saída
-    if(/corrompida/i.test(raw)) toast(`O arquivo desta mesa (.cardume/mesas/${id}.json) está ilegível — foi editado ou cortado fora do app. Dá pra apagar o arquivo ou restaurar pelo git.`,'warn',{ label:'ver detalhes', fn:()=>errDetails({ msg:'Mesa ilegível', raw }) });
-    else showErr(e,'Não consegui abrir a mesa');
-    return; } }
+  // arquivo ilegível (a lista já sabe: status "corrompida") — o mesa_read só devolveria o erro do serde em inglês
+  if(!m && ((MESA.list||[]).find(x=>x.id===id)||{}).status==='corrompida'){ mesaCorrupt(id); return; }
+  if(!m){ try{ m=await invoke('mesa_read',{ repo:MESA.repo, id }); }catch(e){ showErr(e,'Não consegui abrir a mesa'); return; } }
   if(!m){ toast('Essa mesa não existe mais.','warn'); await mesaLoadList(); mesaRender(); return; }
   if(!live) m.repo=MESA.repo; // o caminho gravado no JSON pode estar velho (pasta movida): vale a pasta de onde foi lida
   MESA.cur=m; MESA.view='mesa'; MESA.target='mesa'; MESA.draft='';
   mesaRender();
+}
+
+function mesaCorrupt(id){
+  const repo=MESA.repo, dir=repo.replace(/[\\/]+$/,'')+'/.cardume/mesas';
+  toast(`O arquivo desta mesa (.cardume/mesas/${id}.json) está ilegível — foi editado ou cortado fora do app. Restaure pelo git ou apague a mesa.`,'warn',
+    { label:'abrir pasta', fn:()=>invoke('open_folder',{ path:dir }).catch(e=>showErr(e,'Não consegui abrir a pasta')) },
+    { label:'apagar', fn:async()=>{
+      if(!await askYes(`Apagar o arquivo .cardume/mesas/${id}.json? Não dá pra desfazer (a não ser pelo git).`,'Apagar mesa')) return;
+      try{ await invoke('mesa_delete',{ repo, id }); toast('Mesa apagada.','ok'); }catch(e){ showErr(e,'Não consegui apagar a mesa'); }
+      if(MESA.repo===repo){ await mesaLoadList(); mesaRender(); } } });
 }
 
 // ---- chamada de UMA persona ----
@@ -484,15 +491,17 @@ async function mesaArgue(){
   const vr=mesaVoteRounds(m), last=vr[vr.length-1], r1=(m.rounds[0].resp||{})[p.id]||{}, lr=(last&&last.resp[p.id])||{};
   const hist={ posicao:r1.texto||'', voto:lr.voto||null, fala:lr.texto||'', cands:m.cands, chat:chat.slice() };
   chat.push({ who:'you', text });
-  MESA.chatBusy=true; chatPinBottom('mesaChat'); mesaRender();
+  MESA.chatBusy=true; MESA.chatMesaId=m.id; MESA.chatStop=false; chatPinBottom('mesaChat'); mesaRender();
   try{ await invoke('mesa_resume',{ id:m.id }); }catch(_){ } // um "parar" anterior não pode recusar a pergunta
   try{
+    // "parar" clicado enquanto o resume corria: o resume apagaria a marca do Rust — a flag local segura
+    if(MESA.chatStop) throw new Error('MESA_STOPPED');
     const ans=await mesaAsk(m, mesaPersonaSys(p), mesaAskPrompt(m.tema, p, hist, text), false);
     chat.push({ who:'bot', text:ans||'(sem resposta)' });
   }catch(e){
     const msg=String(e&&e.message||e);
     chat.push({ who:'sys', text:/MESA_STOPPED/.test(msg)?'Parado.':(p.nome+' não respondeu: '+mesaErrMsg(e)) });
-  }finally{ MESA.chatBusy=false; await mesaSave(m); chatPinBottom('mesaChat'); mesaPaint(m); }
+  }finally{ MESA.chatBusy=false; MESA.chatMesaId=''; MESA.chatStop=false; await mesaSave(m); chatPinBottom('mesaChat'); mesaPaint(m); }
 }
 
 // ---- aprovar/rejeitar e criar demandas ----
@@ -708,7 +717,7 @@ function mesaMesaHtml(m){
   const st=mesaStatusOf(m), running=mesaRunning(m), run=MESA.runs[m.id];
   const acts=(running?`<button class="btn" id="mesaStop"${run&&run.stop?' disabled':''}>${IC.stopsq}${run&&run.stop?'parando…':'Parar'}</button>`:'')+
     (!running && ['pausada','parada','interrompida'].includes(st)?`<button class="btn primary" id="mesaCont">${IC.play}${m.status==='interrompida'?'Tentar de novo':'Continuar'}</button>`:'')+
-    (!running && st==='concluida' && mesaFailed(m).length?`<button class="btn" id="mesaCont" title="refaz só a fala de quem não respondeu (erro ou limite da IA); a apuração inclui o voto novo">${IC.refresh||IC.play}tentar de novo com ${mesaEsc(mesaFailed(m).map(p=>p.nome).join(', '))}</button>`:'')+
+    (!running && st==='concluida' && mesaFailed(m).length && !((m.criadas&&m.criadas.itens)||[]).length?`<button class="btn" id="mesaCont" title="refaz só a fala de quem não respondeu (erro ou limite da IA); a apuração inclui o voto novo">${IC.refresh||IC.play}tentar de novo com ${mesaEsc(mesaFailed(m).map(p=>p.nome).join(', '))}</button>`:'')+
     `<button class="btn" id="mesaBack">${IC.back}mesas</button>`;
   const cap=+m.capBrl>0?` · teto R$ ${fmtNumBR(m.capBrl,true)}`:'';
   const sub=`${mesaStBadge(st)} · ${(m.personas||[]).map(p=>mesaEsc(p.nome)).join(', ')} · gastou ${mesaEsc(fmtCost(+m.costUsd||0))}${cap}`+(m.repo!==state.repo?` · projeto ${mesaEsc(pathBase(m.repo))}`:'');
@@ -764,7 +773,12 @@ function mesaWire(body){
   bindClick('mesaCont', ()=>MESA.cur&&mesaRun(MESA.cur, { retryFailed:true }));
   bindClick('mesaCreate', mesaCreate);
   bindClick('mesaApSug', async()=>{ const m=MESA.cur, D=m&&mesaDecisionOf(m); if(!D) return; D.dec.sugeridas.forEach(r=>{ if(!m.escolhas[r.id]) m.escolhas[r.id]='aprovada'; }); await mesaSave(m); mesaRender(); });
-  bindClick('mesaNote', ev=>{ ev.preventDefault(); const c=MESA.cur&&MESA.cur.criadas; if(!c||!c.nota) return; MEM.sel={ scope:c.nota.scope, slug:c.nota.slug }; MEM.view='lista'; MEM.edit=null; MEM.q=''; MEM.type=''; if(window.openTab) openTab('memoria'); });
+  bindClick('mesaNote', async ev=>{ ev.preventDefault(); const c=MESA.cur&&MESA.cur.criadas; if(!c||!c.nota) return;
+    // a Memória mostra o projeto ABERTO: nota de mesa de outro projeto não estaria lá
+    if(MESA.cur.repo!==state.repo){ toast(`A nota está na memória do projeto ${pathBase(MESA.cur.repo)} — abra ele pra ver.`,'warn', window.switchProject?{ label:'abrir o projeto', fn:()=>window.switchProject(MESA.cur.repo) }:null); return; }
+    if(typeof memCaptureEdit==='function') memCaptureEdit();
+    if(MEM.edit && (String(MEM.edit.title||'').trim()||String(MEM.edit.body||'').trim()) && !await askYes('Você está editando uma nota na Memória. Descartar o que não foi salvo e abrir a nota da decisão?','Descartar edição')) return;
+    MEM.sel={ scope:c.nota.scope, slug:c.nota.slug }; MEM.view='lista'; MEM.edit=null; MEM.q=''; MEM.type=''; if(window.openTab) openTab('memoria'); });
   body.querySelectorAll('[data-mopen]').forEach(b=>b.onclick=()=>mesaOpenOne(b.dataset.mopen));
   body.querySelectorAll('[data-mpick]').forEach(c=>c.onchange=()=>{ if(c.checked) MESA.pick.add(c.dataset.mpick); else MESA.pick.delete(c.dataset.mpick); mesaRender(); });
   body.querySelectorAll('[data-mchoose]').forEach(b=>b.onclick=()=>{ const [id,w]=b.dataset.mchoose.split(':'); if(MESA.cur) mesaChoose(MESA.cur, id, w); });
@@ -776,7 +790,7 @@ function mesaWire(body){
   const tg=$id('mesaTgt'); if(tg) tg.onchange=()=>{ MESA.target=tg.value; mesaRender(); const i=$id('mesaArgIn'); if(i) i.focus(); };
   if($id('mesaArgIn')){
     chatComposer({ input:'mesaArgIn', attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{}, send:'mesaArgSend',
-      stop:{ btn:MESA.chatBusy?'mesaArgStop':'', busy:()=>MESA.chatBusy||mesaRunning(MESA.cur), fn:()=>{ const m=MESA.cur; if(m && MESA.chatBusy) invoke('mesa_stop',{ id:m.id }).catch(()=>{}); } }, onSend:mesaArgue,
+      stop:{ btn:MESA.chatBusy&&MESA.cur&&MESA.chatMesaId===MESA.cur.id?'mesaArgStop':'', busy:()=>MESA.chatBusy||mesaRunning(MESA.cur), fn:()=>{ const id=MESA.chatMesaId; if(id && MESA.chatBusy){ MESA.chatStop=true; invoke('mesa_stop',{ id }).catch(()=>{}); } } }, onSend:mesaArgue,
       hint:'Enter envia · ⇧Enter quebra linha', busyHint:mesaRunning(MESA.cur)?'a mesa está rodando — argumente quando a rodada terminar':(MESA.chatBusy?'esperando a resposta…':'') });
     bindClick('mesaArgSend', mesaArgue);
     { const i=$id('mesaArgIn'); if(i){ i.onpaste=null; i.ondrop=null; i.ondragover=null; i.ondragleave=null; } } // sem anexos aqui: colar/arrastar arquivo não some num array descartado

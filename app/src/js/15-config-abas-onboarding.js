@@ -2,6 +2,18 @@
 // ---------- configurações (⌘,) ----------
 // fecha Configurações: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
 function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab')) closeTabOfKind('cfg'); else if(o) o.style.display='none'; }
+// @puro-inicio cfgValidate — valores do formulário (texto dos inputs) → null (ok) ou { field, msg } do 1º problema
+function cfgValidate(v){
+  const num=x=>String(x==null?'':x).trim()===''?NaN:Number(String(x).replace(',','.'));
+  const n={ cap:num(v.cap), cost:num(v.cost), brl:num(v.brl), slots:num(v.slots), retry:num(v.retry) };
+  if(!(n.cap>=0)) return { field:'cfgCap', msg:'O teto por tarefa precisa ser um número maior ou igual a 0 (0 = sem teto).' };
+  if(!(n.cost>=0)) return { field:'cfgCost', msg:'O aviso de custo precisa ser um número maior ou igual a 0 (0 desliga).' };
+  if(!(n.brl>0)) return { field:'cfgBrl', msg:'A cotação do dólar precisa ser maior que zero.' };
+  if(!(Number.isInteger(n.slots) && n.slots>=1 && n.slots<=12)) return { field:'cfgSlots', msg:'Tarefas ao mesmo tempo: um número inteiro de 1 a 12.' };
+  if(!(Number.isInteger(n.retry) && n.retry>=0 && n.retry<=240)) return { field:'cfgLimitRetry', msg:'Retomar depois do limite: de 0 a 240 minutos (0 desliga).' };
+  return null;
+}
+// @puro-fim cfgValidate
 function openCfg(){
   const body=$id('cfgBody');
   body.innerHTML=`
@@ -60,19 +72,23 @@ function openCfg(){
     body.oninput=mark; body.onchange=mark; }
   $id('cfgSave').onclick=async()=>{
     const btn=$id('cfgSave'); if(btn.disabled) return;
-    const brl=parseFloat($id('cfgBrl').value);
-    if(!(brl>0)){ toast('A cotação do dólar precisa ser maior que zero.','warn'); $id('cfgBrl').focus(); return; } // antes era ignorada em silêncio e o toast dizia "salvas"
-    lsSet('costWarn', String(Math.max(0, parseFloat($id('cfgCost').value)||0)));
-    lsSet('costCap', String(Math.max(0, parseFloat($id('cfgCap').value)||0)));
-    lsSet('usdBrl', String(brl)); lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(parseInt($id('cfgSlots').value,10)||4);
-    // o que vai pro settings.json (Rust) era gravado com .catch(()=>{}) e o toast dizia "salvas" mesmo falhando
-    const lrm=Math.max(0, Math.min(240, parseInt($id('cfgLimitRetry').value,10)||0)), bv=$id('cfgBrowserVisible');
+    const v={ cap:$id('cfgCap').value, cost:$id('cfgCost').value, brl:$id('cfgBrl').value, slots:$id('cfgSlots').value, retry:$id('cfgLimitRetry').value };
+    // valor fora da faixa: avisa e foca o campo (antes era ajustado em silêncio — 0 tarefas virava 4, -3 virava 0)
+    const bad=cfgValidate(v); if(bad){ toast(bad.msg,'warn'); const f=$id(bad.field); if(f) f.focus(); return; }
+    const N=x=>Number(String(x).replace(',','.'));
+    lsSet('costWarn', String(N(v.cost))); lsSet('costCap', String(N(v.cap))); lsSet('usdBrl', String(N(v.brl)));
+    lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(N(v.slots));
+    lastSig=''; // o que já foi gravado vale agora, mesmo se o resto falhar
+    // settings.json (Rust): cada chave no seu try — a falha diz QUAL não gravou (antes: .catch(()=>{}) e "salvas")
+    const bv=$id('cfgBrowserVisible'), fails=[];
     btn.disabled=true; btn.textContent='salvando…';
-    try{
-      await invoke('write_setting',{ key:'limitRetryMin', value:String(lrm) });
-      if(bv) await invoke('write_setting',{ key:'browserVisible', value:bv.checked?'1':'0' });
-    }catch(e){ btn.disabled=false; btn.textContent='salvar'; showErr(e,'Salvei o custo e as tarefas, mas não consegui gravar a retomada e o navegador'); return; }
-    lastSig=''; cfgHide(); toast('Configurações salvas','ok'); };
+    const w=async(key, value, nome)=>{ try{ await invoke('write_setting',{ key, value }); }catch(e){ fails.push({ nome, e }); } };
+    await w('limitRetryMin', String(N(v.retry)), 'retomar depois do limite da IA');
+    if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
+    btn.disabled=false; btn.textContent='salvar';
+    if(fails.length){ const d=$id('cfgDirty'); if(d) d.textContent='não salvou: '+fails.map(f=>f.nome).join(' e ');
+      showErr(fails[0].e,'Não consegui gravar "'+fails.map(f=>f.nome).join('" e "')+'" — o resto foi salvo'); return; }
+    cfgHide(); toast('Configurações salvas','ok'); };
   $id('cfgEnv').onclick=()=>{ cfgHide(); if(window.openTab) openTab('env'); else openEnv(); };
   bindClick('cfgBackend', ()=>{ cfgHide(); cloudCfgOpen=true; if(window.openTab) openTab('conta'); else openCloud(); });
   $id('cfgTour').onclick=()=>{ cfgHide(); openOnboarding(); };

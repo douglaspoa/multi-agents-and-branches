@@ -1,6 +1,25 @@
 // Starfork — 12-chat-prefs-daily
 // ---------- chat do projeto ----------
-let pcBusy=false, pcStopping=false, pcBusyRepo='', pcToTaskBusy=false; // pcBusyRepo: a pergunta em andamento é DESTE projeto (trocar de projeto não mostra "lendo…" no chat do outro)
+let pcBusy=false, pcStopping=false, pcBusyRepo='', pcToTaskBusy=false, pcToTaskRepo=''; // pcBusyRepo/pcToTaskRepo: de QUAL projeto é a chamada em andamento
+// @puro-inicio pcGate — pergunta e "virar tarefa" usam a MESMA sessão da IA do projeto: nunca rodam juntas nele.
+// st={ busy, busyRepo, toTask, toTaskRepo, repo }. Devolve null (pode) ou o aviso em pt-BR.
+function pcGate(act, st){
+  const askHere=!!st.busy && st.busyRepo===st.repo, taskHere=!!st.toTask && st.toTaskRepo===st.repo;
+  if(act==='send'){
+    if(taskHere) return 'Montando a tarefa a partir desta conversa — espere terminar pra perguntar de novo.';
+    if(askHere) return 'Ainda respondendo — espere ou toque em ■ parar.';
+    if(st.busy) return 'Ainda respondendo uma pergunta sobre outro projeto — espere ela terminar.';
+    return null;
+  }
+  if(act==='task'){
+    if(st.toTask) return 'Já estou montando uma tarefa — espere terminar.';
+    if(askHere) return 'Espere a resposta terminar (ou toque em ■ parar) pra virar tarefa.';
+    return null;
+  }
+  return null;
+}
+// @puro-fim pcGate
+function pcGateSt(){ return { busy:pcBusy, busyRepo:pcBusyRepo, toTask:pcToTaskBusy, toTaskRepo:pcToTaskRepo, repo:state.repo||'' }; }
 // o que a IA está fazendo AGORA (evento project-chat-activity do Rust: "lendo X", "procurando Y") + há quanto tempo.
 // Antes era só "lendo o projeto…" por minutos — parecia travado.
 let pcActs=[], pcStartedAt=0, pcTick=null;
@@ -25,7 +44,7 @@ function pcRender(){
   const projOpts=(typeof projList==='function'?projList():[]).map(([path,name])=>`<option value="${escA(path)}"${path===state.repo?' selected':''}>${esc(name)}</option>`).join('');
   const here=pcBusy && pcBusyRepo===(state.repo||''); // "lendo o projeto…" só no chat do projeto que perguntou
   const otherBusy=pcBusy && !here;
-  const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="as-btn pc-proj" id="pcProj" title="sobre qual projeto você quer conversar" aria-label="Projeto da conversa">${projOpts}</select><button class="as-btn" id="pcTask2" title="a conversa vira a especificação de uma tarefa"${pcToTaskBusy||!ms.length?' disabled':''}>${ic('compass')}${pcToTaskBusy?'montando a tarefa…':'virar tarefa'}</button><button class="as-btn" id="pcClear2" title="começa uma conversa nova (a atual some)" style="border-color:transparent;color:var(--text-3)"${ms.length&&!here?'':' disabled'}>nova conversa</button></div></div>`
+  const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="as-btn pc-proj" id="pcProj" title="${escA((pathBase(state.repo)||'')+' — sobre qual projeto você quer conversar')}" aria-label="Projeto da conversa">${projOpts}</select><button class="as-btn" id="pcTask2" title="${here?'espere a resposta terminar':'a conversa vira a especificação de uma tarefa'}"${pcToTaskBusy||here||!ms.length?' disabled':''}>${ic('compass')}${pcToTaskBusy?'montando a tarefa…':'virar tarefa'}</button><button class="as-btn" id="pcClear2" title="começa uma conversa nova (a atual some)" style="border-color:transparent;color:var(--text-3)"${ms.length&&!here?'':' disabled'}>nova conversa</button></div></div>`
     +(otherBusy?`<div class="imhint" style="margin:10px 0 0">Ainda respondendo uma pergunta sobre <b>${esc(pathBase(pcBusyRepo))}</b> — a resposta fica salva na conversa daquele projeto.</div>`:'');
   let bodyHtml;
   if(ms.length){
@@ -42,13 +61,13 @@ function pcRender(){
   th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=$id('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
   attRenderPend('pcPend', pcPend, pcRender);
   chatComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender, onSend:pcSend, send:'pcSend',
-    stop:{ btn:'pcStop', busy:()=>pcBusy, fn:pcStop }, busyHint:'lendo o projeto… · ■ parar interrompe — dá pra ir escrevendo a próxima' });
+    stop:{ btn:'pcStop', busy:()=>pcBusy && pcBusyRepo===(state.repo||''), fn:pcStop }, busyHint:'lendo o projeto… · ■ parar interrompe — dá pra ir escrevendo a próxima' });
   keep(th);
 }
 let pcPend=[]; // anexos importados, ainda não enviados
 async function pcSend(){
   // respondendo: antes o Enter/enviar era engolido em silêncio — agora o botão fica desabilitado e o ■ parar aparece
-  if(pcBusy){ toast('Ainda respondendo — espere ou toque em ■ parar.'); return; }
+  { const why=pcGate('send', pcGateSt()); if(why){ toast(why,'warn'); return; } }
   const inp=$id('pcInput'); let text=inp.value.trim();
   const atts=pcPend.splice(0);
   if(!text && atts.length) text='Anexei estes arquivos — leia e considere no contexto do projeto.';
@@ -75,19 +94,25 @@ async function pcSend(){
   }
   pcBusy=false; pcStopping=false; pcBusyRepo=''; pcRender();
 }
-async function pcStop(){ if(!pcBusy) return; pcStopping=true; pcActs.push('parando…'); pcActsPaint(); try{ await invoke('project_chat_stop'); }catch(_){ } }
+async function pcStop(){ if(!pcBusy || pcBusyRepo!==(state.repo||'')) return; pcStopping=true; pcActs.push('parando…'); pcActsPaint(); try{ await invoke('project_chat_stop'); }catch(_){ } }
 async function pcToTask(){
-  if(pcToTaskBusy) return;
-  if(!pcMsgs().length){ toast('Converse primeiro — a tarefa nasce do papo.','warn'); return; }
   // a mesma sessão da IA ainda está respondendo: duas chamadas nela ao mesmo tempo embaralham a conversa
-  if(pcBusy){ toast('Espere a resposta terminar (ou toque em ■ parar) pra virar tarefa.','warn'); return; }
+  { const why=pcGate('task', pcGateSt()); if(why){ toast(why,'warn'); return; } }
+  if(!pcMsgs().length){ toast('Converse primeiro — a tarefa nasce do papo.','warn'); return; }
   const repo=state.repo||'';
-  pcToTaskBusy=true; pcRender(); // o botão visível (pcTask2) mostra "montando a tarefa…" — antes só o botão escondido mudava
+  pcToTaskBusy=true; pcToTaskRepo=repo; pcRender(); // o botão visível (pcTask2) mostra "montando a tarefa…" — antes só o botão escondido mudava
   try{
-    const r=await invoke('project_chat',{ model:aiClaudeModel(), prompt:'Com base APENAS na nossa conversa até aqui, monte a especificação de UMA tarefa executável. Responda SOMENTE um bloco ```json com {"title":"verbo + objeto (máx 60 chars)","objective":"o que fazer, onde e por quê (3-6 frases)","requirements":["critérios de aceite objetivos"]} — nada fora do bloco.', sessionId: lsGet('pcsid:'+(state.repo||''))||'' });
+    const r=await invoke('project_chat',{ model:aiClaudeModel(), prompt:'Com base APENAS na nossa conversa até aqui, monte a especificação de UMA tarefa executável. Responda SOMENTE um bloco ```json com {"title":"verbo + objeto (máx 60 chars)","objective":"o que fazer, onde e por quê (3-6 frases)","requirements":["critérios de aceite objetivos"]} — nada fora do bloco.', sessionId: lsGet('pcsid:'+repo)||'' });
     const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i) || (r.text||'').match(/\{[\s\S]*"objective"[\s\S]*\}/);
     const spec=JSON.parse(m?(m[1]||m[0]):r.text);
-    if((state.repo||'')!==repo){ toast('Você trocou de projeto enquanto a tarefa era montada — volte pro projeto '+pathBase(repo)+' e tente de novo.','warn'); return; }
+    if(!spec || typeof spec!=='object' || Array.isArray(spec)) throw new SyntaxError('spec não é objeto'); // null/"texto" passavam e quebravam no .title
+    // trocou de projeto no meio: a spec (já paga) vale pro projeto ORIGINAL — volta pra ele e abre o formulário lá
+    if((state.repo||'')!==repo){
+      if(!window.switchProject){ toast('Você trocou de projeto enquanto a tarefa era montada — volte pro projeto '+pathBase(repo)+' e tente de novo.','warn'); return; }
+      toast('A tarefa é do projeto '+pathBase(repo)+' — voltei pra ele pra abrir o formulário.','warn');
+      await switchProject(repo);
+      if((state.repo||'')!==repo){ toast('Não consegui voltar pro projeto '+pathBase(repo)+'.','warn'); return; }
+    }
     $id('pcOverlay').style.display='none';
     await openNewTask();
     setNtMode('build');
@@ -97,7 +122,7 @@ async function pcToTask(){
     renderNtList('ntRequirements',ntReq);
     $id('ntArtProof').checked=true;
   }catch(e){ showErr(e instanceof SyntaxError?'a IA não devolveu a tarefa no formato esperado — tente de novo':e, 'Não consegui montar a tarefa'); }
-  finally{ pcToTaskBusy=false; pcRender(); }
+  finally{ pcToTaskBusy=false; pcToTaskRepo=''; pcRender(); }
 }
 function openPc(){ $id('pcOverlay').style.display='flex'; chatPinBottom('pcThread'); pcRender(); setTimeout(()=>$id('pcInput').focus(),80); }
 $id('pcBtn').onclick=openPc;
@@ -218,7 +243,7 @@ $id('pcClear').onclick=async()=>{
 $id('pcOverlay').addEventListener('click',e=>{ if(e.target.id==='pcOverlay') ovHide('pcOverlay'); });
 
 // ---------- daily do dev ----------
-let dailyData=null, dailyCommits={};
+let dailyData=null, dailyCommits={}, dailyIso='', dailyGen=0, dailyLoading=false; // dailyIso: o dia DE dailyData (o seletor pode já estar em outra data); dailyGen: muda a cada leitura
 function dayBounds(iso){ const [y,m,d]=iso.split('-').map(Number); const a=new Date(y,m-1,d).getTime(); return [a, a+86400e3]; }
 // data local "AAAA-MM-DD" ± n dias (o input type=date usa o dia LOCAL, não o UTC)
 function dailyIsoShift(iso, n){ const [y,m,d]=String(iso).split('-').map(Number); const t=new Date(y,m-1,d+(n||0)); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
@@ -227,19 +252,22 @@ function dailyIsoShift(iso, n){ const [y,m,d]=String(iso).split('-').map(Number)
 function loadDaily(){
   const iso=$id('dailyDate').value; if(!iso) return;
   const [a,b]=dayBounds(iso);
-  return loadInto($id('dailyBody'), 'cards', async()=>{
+  const gen=++dailyGen; dailyData=null; dailyIso=''; dailyLoading=true; dailyBtnsPaint(); // nada de relatório com os dados do dia anterior enquanto este carrega (ou se falhar)
+  const run=loadInto($id('dailyBody'), 'cards', async()=>{
     const data=(await invoke('daily_digest',{ fromMs:a, toMs:b }))||[];
     // commits do dia por tarefa (branch pode já ter ido embora — ok)
     const commits={};
     await Promise.all(data.map(async t=>{ try{ const cs=await invoke('task_commits',{ taskId:t.id }); commits[t.id]=(cs||[]).filter(c=>(c.date||'')===iso); }catch(_){ commits[t.id]=[]; } }));
     return { data, commits };
-  }, r=>{ dailyData=r.data; dailyCommits=r.commits; lastDailyMd=null; renderDaily(); },
+  }, r=>{ if(gen!==dailyGen) return; dailyData=r.data; dailyCommits=r.commits; dailyIso=iso; dailyLoading=false; lastDailyMd=null; renderDaily(); },
   { label:'montando o dia', ctx:'Não consegui montar o dia', isEmpty:()=>false, shape:{ head:true, n:4 } });
+  Promise.resolve(run).finally(()=>{ if(gen===dailyGen){ dailyLoading=false; dailyBtnsPaint(); } });
+  return run;
 }
 function renderDaily(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const body=$id('dailyBody'); if(!body||!dailyData) return;
-  const iso=($id('dailyDate')||{}).value||'';
+  const iso=dailyIso||($id('dailyDate')||{}).value||'';
   const head=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">O que os agentes fizeram — pronto pra colar na reunião.</p></div>
     <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" style="color:var(--text);padding:8px 12px">
       <button class="as-btn" id="dlAI">resumo curto</button><button class="as-btn primary" id="dlDoc">DOC + PDF</button></div></div>`;
@@ -278,24 +306,37 @@ function wireDaily(){
 // dlAI/dlDoc, e os antigos do modal, dailyAI/dailyDoc). Antes só o botão ESCONDIDO mudava: o visível seguia
 // clicável e um segundo clique disparava outra chamada à IA.
 const dailyBusy={ ai:false, doc:false };
+// @puro-inicio dailyBtnState — estado de um botão: escrevendo (busy) › carregando o dia › dia sem atividade › livre
+function dailyBtnState(k, st){
+  const on=k==='ai'?'escrevendo…':'escrevendo o relatório…', off=k==='ai'?'resumo curto':'DOC + PDF';
+  if(st.busy) return { disabled:true, label:on, title:'' };
+  if(st.loading) return { disabled:true, label:off, title:'espere o dia carregar' };
+  if(!st.has) return { disabled:true, label:off, title:'dia sem atividade — troque a data' };
+  return { disabled:false, label:off, title:null }; // null = volta o título original do botão
+}
+// @puro-fim dailyBtnState
 function dailyBtnsPaint(){
-  [['dlAI','dailyAI','ai','escrevendo…','resumo curto'],['dlDoc','dailyDoc','doc','escrevendo o relatório…','DOC + PDF']].forEach(([v,h,k,on,off])=>{
-    const none=!(dailyData&&dailyData.length); // dia sem atividade: nada a resumir (antes o clique não fazia nada, sem aviso)
-    [v,h].forEach(id=>{ const el=$id(id); if(!el) return; el.disabled=!!dailyBusy[k]||none; el.title=none?'dia sem atividade — troque a data':''; if(el.id===v) el.textContent=dailyBusy[k]?on:off; });
+  [['dlAI','dailyAI','ai'],['dlDoc','dailyDoc','doc']].forEach(([v,h,k])=>{
+    const x=dailyBtnState(k, { busy:dailyBusy[k], loading:dailyLoading, has:!!(dailyData&&dailyData.length) });
+    [v,h].forEach(id=>{ const el=$id(id); if(!el) return;
+      if(el.dataset.t0===undefined) el.dataset.t0=el.getAttribute('title')||''; // o título original (o do DOC + PDF explica o relatório) não some
+      el.disabled=x.disabled; el.title=x.title==null?el.dataset.t0:x.title; if(el.id===v) el.textContent=x.label; });
   });
 }
 async function dailyAISummary(){
   if(!dailyData||!dailyData.length||dailyBusy.ai) return;
   dailyBusy.ai=true; dailyBtnsPaint();
+  const gen=dailyGen;
   const facts=dailyData.map(t=>{
     const cs=(dailyCommits[t.id]||[]).map(c=>c.subject).join('; ');
     return `TAREFA: ${t.title} [status atual: ${t.status}]${t.asks?' [tem pergunta pendente pro dev]':''}\ncommits do dia: ${cs||'nenhum'}\nmarcos: ${(t.notes||[]).join(' | ')||'-'}`;
   }).join('\n\n');
   try{
     const md=await invoke('ai_daily',{ text: facts });
+    if(gen!==dailyGen) return; // trocou a data no meio: o resumo é do dia anterior — descarta
     dailyOut(`<div class="prbox" style="margin:6px 0 12px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="dailyCopy">copiar pra daily</button></div></div>`);
     $id('dailyCopy').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
-  }catch(e){ showErr(e, 'Não consegui escrever o resumo'); }
+  }catch(e){ if(gen===dailyGen) showErr(e, 'Não consegui escrever o resumo'); }
   finally{ dailyBusy.ai=false; dailyBtnsPaint(); }
 }
 // ---- RELATÓRIO técnico do dia (DOC .md + PDF) ----
@@ -333,16 +374,17 @@ async function dailyGenDoc(){
   if(!dailyData||!dailyData.length){ dailyOut('<div class="imhint" style="border-left:2px solid var(--warn)">Dia sem atividade — nenhuma tarefa teve eventos nesse dia. Troque a data no topo.</div>'); return; }
   if(dailyBusy.doc) return;
   dailyBusy.doc=true; dailyBtnsPaint();
-  const iso=$id('dailyDate').value;
+  const iso=dailyIso, gen=dailyGen; // a data DOS DADOS (não a do seletor, que pode ter mudado sem carregar)
   dailyOut('<div class="prbox" style="margin:6px 0 14px;display:flex;align-items:center;gap:10px"><span class="pubspin"></span><span class="dim" style="font-size:12.5px">a IA está redigindo o relatório técnico do dia (o quê · por quê · arquitetura · como validar)… pode levar até 1 min</span></div>');
   try{
     const md=await invoke('ai_daily_report',{ text: dailyReportFacts(), date: iso });
+    if(gen!==dailyGen) return; // o dia mudou durante a escrita: não salva/mostra relatório com a data errada
     lastDailyMd=md; lastDailyDate=iso;
     dailyOut(`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">${ic('save')}salvar .md</button><button class="btn primary sm" id="dailyPdf">${ic('doc')}gerar PDF</button><span class="grow" style="flex:1"></span></div><div class="dim" id="dailyDocMsg" style="font-size:11px;margin-top:6px"></div></div>`);
     $id('dailyCopy2').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
     $id('dailySaveMd').onclick=async function(){ this.disabled=true; try{ const p=await invoke('save_doc',{ name:`relatorio-${iso}.md`, content:md }); this.textContent='salvo ✓'; const m=$id('dailyDocMsg'); if(m) m.textContent='DOC salvo em '+p; }catch(e){ const m=$id('dailyDocMsg'); if(m) m.textContent=humanErr(e,'Não consegui salvar o .md').msg; this.disabled=false; } };
     $id('dailyPdf').onclick=dailyGenPdf;
-  }catch(e){ dailyOut('<div class="imhint" style="border-left:2px solid var(--crit)">'+esc(humanErr(e,'Não consegui escrever o relatório').msg)+'</div>'); }
+  }catch(e){ if(gen===dailyGen) dailyOut('<div class="imhint" style="border-left:2px solid var(--crit)">'+esc(humanErr(e,'Não consegui escrever o relatório').msg)+'</div>'); }
   finally{ dailyBusy.doc=false; dailyBtnsPaint(); }
 }
 async function dailyGenPdf(){

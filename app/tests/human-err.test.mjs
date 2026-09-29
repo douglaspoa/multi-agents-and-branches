@@ -115,3 +115,11 @@ test('login do Claude Code expirado (mensagem do Rust em pt-BR e erro OAuth) vir
   assert.ok(a.action);
   assert.equal(humanErr('Failed to authenticate: OAuth session expired').id, 'claude-login');
 });
+
+test('humanErr com {message, raw}: a tela usa o texto traduzido, "ver detalhes" guarda o cru', () => {
+  const h = humanErr({ message: 'o arquivo não existe mais', raw: 'No such file or directory (os error 2)' }, 'Não consegui abrir a nota');
+  assert.equal(h.msg, 'Não consegui abrir a nota: o arquivo não existe mais');
+  assert.equal(h.raw, 'No such file or directory (os error 2)');
+  // o catálogo casa pelo texto (Windows "acesso negado" chega como Permission denied)
+  assert.equal(humanErr({ message: 'Permission denied — Access is denied. (os error 5)', raw: 'Access is denied. (os error 5)' }).id, 'permission');
+});
