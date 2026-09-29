@@ -5726,6 +5726,8 @@ fn repo_slug(repo: &PathBuf) -> Result<String, String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EnvCheck {
+    /// "req" = sem isso a tarefa não roda · "rec" = recomendado (gh: só publicar/PR) · "opt" = opcional (túnel)
+    kind: String,
     name: String,
     ok: bool,
     detail: String,
@@ -5750,24 +5752,24 @@ fn env_check() -> Vec<EnvCheck> {
     match ver(&nb, &["--version"]) {
         Some(v) => {
             let okv = v.trim_start_matches('v').split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 22).unwrap_or(false);
-            out.push(EnvCheck { name: "Node.js (≥22.6)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { "brew install node".into() } });
+            out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { "brew install node".into() } });
         }
-        None => out.push(EnvCheck { name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install node".into() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install node".into() }),
     }
     // motor
     let cli = cli_path(&PathBuf::from(home_dir_s()));
     let cli_ok = std::path::Path::new(&cli).is_file();
-    out.push(EnvCheck { name: "Motor do Starfork".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
+    out.push(EnvCheck { kind: "req".into(), name: "Motor do Starfork".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
     // git
     match ver("git", &["--version"]) {
-        Some(v) => out.push(EnvCheck { name: "Git".into(), ok: true, detail: v, fix: String::new() }),
-        None => out.push(EnvCheck { name: "Git".into(), ok: false, detail: "não encontrado".into(), fix: "xcode-select --install".into() }),
+        Some(v) => out.push(EnvCheck { kind: "req".into(), name: "Git".into(), ok: true, detail: v, fix: String::new() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Git".into(), ok: false, detail: "não encontrado".into(), fix: "xcode-select --install".into() }),
     }
     // claude CLI
     let cb = claude_bin();
     match ver(&cb, &["--version"]) {
-        Some(v) => out.push(EnvCheck { name: "Claude Code".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() }),
-        None => out.push(EnvCheck { name: "Claude Code".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() }),
+        Some(v) => out.push(EnvCheck { kind: "req".into(), name: "Claude Code".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Claude Code".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() }),
     }
     // gh autenticado
     let gb = gh_bin();
@@ -5777,10 +5779,10 @@ fn env_check() -> Vec<EnvCheck> {
         Ok(o) if o.status.success() => {
             let s = String::from_utf8_lossy(&o.stderr).to_string() + &String::from_utf8_lossy(&o.stdout);
             let acct = s.lines().find(|l| l.contains("account")).unwrap_or("autenticado").trim().to_string();
-            out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: true, detail: acct, fix: String::new() });
+            out.push(EnvCheck { kind: "rec".into(), name: "GitHub CLI (gh)".into(), ok: true, detail: acct, fix: String::new() });
         }
-        Ok(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "instalado mas SEM login".into(), fix: "gh auth login".into() }),
-        Err(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install gh && gh auth login".into() }),
+        Ok(_) => out.push(EnvCheck { kind: "rec".into(), name: "GitHub CLI (gh)".into(), ok: false, detail: "instalado mas SEM login".into(), fix: "gh auth login".into() }),
+        Err(_) => out.push(EnvCheck { kind: "rec".into(), name: "GitHub CLI (gh)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install gh && gh auth login".into() }),
     }
     // opcional: túnel do preview pro celular. Sem ele o app funciona 100% —
     // só o botão de abrir o preview no celular fica indisponível.
@@ -5788,6 +5790,7 @@ fn env_check() -> Vec<EnvCheck> {
         .iter()
         .any(|p| std::path::Path::new(p).is_file());
     out.push(EnvCheck {
+        kind: "opt".into(),
         name: "Túnel do preview (opcional)".into(),
         ok: cf,
         detail: if cf { "cloudflared instalado — botão do celular disponível".into() } else { "sem cloudflared — o botão do celular no preview fica desativado (resto funciona normal)".into() },
