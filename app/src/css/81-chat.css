@@ -155,3 +155,28 @@
   background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat}
 .pc-head select.pc-proj:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);border-color:var(--accent)}
 .pc-head select.pc-proj:disabled{opacity:.45;cursor:not-allowed}
+
+/* ---- edição de spec por agente (47-edicoes-agente): rastro na conversa e no épico ---- */
+.ae-ev{border:1px solid var(--border);border-left:3px solid var(--accent-line);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:var(--fs-sm);background:var(--surface-2)}
+.ae-ev.undone{opacity:.6;border-left-color:var(--border)}
+.ae-h{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.ae-ic{display:inline-flex;width:14px;height:14px;color:var(--text-2);align-self:center}
+.ae-ic svg{width:14px;height:14px}
+.ae-tag{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
+.ae-tx{flex:1;min-width:0;overflow-wrap:anywhere}
+.ae-rows{margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.ae-ch{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;overflow-wrap:anywhere}
+.ae-f{font-size:11px;color:var(--muted);min-width:90px}
+.ae-b{text-decoration:line-through;color:var(--muted)}
+.ae-arr{color:var(--muted)}
+.ae-a{color:var(--text);font-weight:500}
+.ae-prop{border-left-color:var(--warn)}
+.ae-det{margin-top:6px}
+.ae-det summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
+.ae-act{gap:6px}
+.ae-note{margin-top:4px;font-size:11.5px;color:var(--muted)}
+.ae-act{margin-top:6px;display:flex;justify-content:flex-end}
+.ae-act:empty{display:none}
+.ae-undone{font-size:11px;color:var(--muted)}
+.ae-badge{display:inline-flex;gap:4px;align-items:center;margin-left:10px;font-size:11px;font-weight:600;color:var(--text);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:999px;padding:1px 8px;vertical-align:middle}
+.ae-badge svg{width:12px;height:12px}

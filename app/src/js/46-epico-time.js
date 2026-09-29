@@ -147,7 +147,7 @@ function epicPageRender(){
     <div class="en-head">
       <div class="en-ht">
         <span class="ndeyebrow">épico do time · <span class="ep-st ep-st-${escA(ep.status||'open')}">${esc(EP_ST_PT[ep.status]||ep.status||'')}</span></span>
-        <h2 class="en-h1">◆ ${esc(ep.name||'Épico')}</h2>
+        <h2 class="en-h1">◆ ${esc(ep.name||'Épico')}</h2>${typeof aeEpicBadge==='function'?aeEpicBadge(sp):''}
         ${sp.outcome?`<p class="en-obj">${esc(sp.outcome)}</p>`:''}
         ${sp.description?`<p class="en-obj dim" style="font-size:12px">${esc(sp.description)}</p>`:''}
         <div class="en-kpis ep-kpis">
@@ -164,6 +164,7 @@ function epicPageRender(){
         <div class="seclbl2">Pronto quando <span class="dim">· D1, D2… = critérios; o épico só fecha com tudo marcado${can?'':' · só quem criou (ou admin) marca'}</span></div>${dwHtml}
         ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
+        ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can, tasks, ep.id):''}
         ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas ondas começam sozinhas</button></div>`:''}
         ${!dw.length&&ep.status!=='done'&&can?`<div style="margin-top:14px"><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
       </section>
@@ -180,6 +181,7 @@ function epicPageRender(){
   main.querySelectorAll('[data-eprev]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=(c.tasks||[]).find(x=>x.id===b.dataset.eprev); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); });
   main.querySelectorAll('[data-epgo]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const t=(c.tasks||[]).find(x=>x.id===b.dataset.epgo); if(!t) return;
     await epCardStart(t, b); await epicPageLoad(ep.id); if(epTab&&epTab.id===ep.id) epicPageRender(); });
+  main.querySelectorAll('[data-epundo]').forEach(b=>b.onclick=()=>{ if(window.aeEpicUndo) aeEpicUndo(ep, b.dataset.epundo); });
   bindClick('epLegacyDone', ()=>epicSetStatus(ep,'done'));
   bindClick('epAutoOn', ()=>epicAutoOn(ep));
   { const h=$id('epicPageName'); if(h) h.textContent=ep.name||'Épico'; const s=$id('epicPageSub'); if(s) s.textContent=''; } // status já está no sobretítulo da página
@@ -232,12 +234,13 @@ async function epicCompileContext(epicId, forTask){
   let ep=(teamEpics||[]).find(e=>e.id===epicId)||null;
   try{ const f=(await sbGet('epics?select=id,name,status,spec,created_by&id=eq.'+epicId))[0]; if(f) ep={ ...(ep||{}), ...f }; }catch(_){ }
   if(!ep||!ep.name) return '';
-  let sibs=null; try{ sibs=await sbGet('tasks?select=id,title,status,assignee,spec,created_at&epic_id=eq.'+epicId+'&order=created_at'); }catch(_){ sibs=null; }
+  let sibs=null; try{ sibs=await sbGet('tasks?select=id,local_id,title,status,assignee,spec,created_at&epic_id=eq.'+epicId+'&order=created_at'); }catch(_){ sibs=null; }
   if(!Array.isArray(sibs)||!sibs.length) sibs=(teamTasks||[]).filter(t=>t.epic_id===epicId);
   const sp=ep.spec||{}; const dw=Array.isArray(sp.doneWhen)?sp.doneWhen:[], reqs=Array.isArray(sp.requirements)?sp.requirements:[], bounds=Array.isArray(sp.boundaries)?sp.boundaries:[];
   const stPt=s=>stLabel(s);
   const byId={}; sibs.forEach(t=>{ byId[t.id]=t; });
-  const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Starfork ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', ''];
+  const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Starfork ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', '',
+    'id do épico: '+ep.id+' — a ideia mudou? atualize com mcp__cardume__edit_epic (épico) / mcp__cardume__edit_task (irmãs, pelo id abaixo; requisito se remove pelo TEXTO e vira proposta). Nenhum agente é acionado.', ''];
   L.push('## Objetivo', epCut(sp.outcome||sp.description||('Épico do time "'+ep.name+'".'),400)); if(sp.outcome&&sp.description) L.push(epCut(sp.description,300)); L.push('');
   if(reqs.length){ L.push('## Requisitos do épico'); reqs.slice(0,12).forEach(r=>L.push('- '+(r.id||'R?')+': '+epCut(r.text,200))); L.push(''); }
   if(dw.length){ L.push('## Pronto quando (o épico só fecha com tudo marcado)'); dw.slice(0,8).forEach((d,i)=>L.push('- '+(d.checkedBy?'[x]':'[ ]')+' '+(d.id||('D'+(i+1)))+': '+epCut(d.text,200))); L.push(''); }
@@ -246,7 +249,8 @@ async function epicCompileContext(epicId, forTask){
     L.push('## Tarefas do épico (as irmãs rodam em paralelo — fique no seu escopo)');
     sibs.slice(0,15).forEach(t=>{ const s=t.spec||{}; const me=!!(forTask&&t.id===forTask.id);
       const dep=(Array.isArray(s.after)?s.after:[]).map(a=>byId[a]?epCut(byId[a].title,40):'').filter(Boolean);
-      L.push('- '+(me?'**ESTA → **':'')+epCut(t.title,80)+' · onda '+(parseInt(s.wave,10)||1)+' · '+stPt(t.status)+(s.verify?' · prova: '+epCut(s.verify,120):'')+(Array.isArray(s.covers)&&s.covers.length?' · cobre '+s.covers.join(','):'')+(dep.length?' · depois de: '+dep.join('; '):'')+(s.owns?' · escopo: '+epCut(s.owns,60):'')); });
+      const sid=(t.local_id&&!String(t.local_id).startsWith('card-'))?t.local_id:t.id; // iniciada: id local (o motor acha aqui); no backlog: id do cartão
+      L.push('- '+(me?'**ESTA → **':'')+epCut(t.title,80)+' · id '+sid+' · onda '+(parseInt(s.wave,10)||1)+' · '+stPt(t.status)+(s.verify?' · prova: '+epCut(s.verify,120):'')+(Array.isArray(s.covers)&&s.covers.length?' · cobre '+s.covers.join(','):'')+(dep.length?' · depois de: '+dep.join('; '):'')+(s.owns?' · escopo: '+epCut(s.owns,60):'')+(Array.isArray(s.requirements)&&s.requirements.length&&!me?' · requisitos: '+s.requirements.slice(0,6).map(r=>epCut(r,70)).join(' | '):'')); });
     L.push('');
   }
   const notes=Array.isArray(sp.notes)?sp.notes:[]; if(notes.length){ L.push('## Decisões e pendências'); notes.slice(0,8).forEach(n=>L.push('- '+epCut((n&&n.kind?n.kind+': ':'')+(n&&n.text||n),200))); L.push(''); }

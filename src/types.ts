@@ -171,6 +171,14 @@ export interface TaskSpec {
   epicDoneWhen?: string[];
   /** Itens do "pronto quando" que o agente revisor marcou via mcp__cardume__check_done_when; o app espelha em epics.spec. */
   epicChecks?: { id: string; evidence: string; at: string }[];
+  /** Rastro das edições de spec feitas por agentes (src/agent-edits.ts) — o app mostra antes/depois e desfaz. */
+  agentEdits?: import("./agent-edits.ts").AgentEditRecord[];
+  /** Ids de edições já aplicadas (idempotência da fila do app) — separado do rastro, que é cortado. */
+  agentEditIds?: string[];
+  /** Remoções propostas por agentes, esperando o humano aprovar/recusar. */
+  agentProposals?: import("./agent-edits.ts").AgentProposal[];
+  /** Maior Dn já visto no "pronto quando" deste épico (id removido não volta). */
+  epicDoneWhenSeq?: number;
   scope: TaskScope;
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)

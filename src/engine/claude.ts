@@ -266,10 +266,11 @@ export class ClaudeEngine implements AgentEngine {
           ? " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, um formulário que só o humano tem os dados) — NÃO tente logar nem inventar credenciais. Navegue até a tela, tire um screenshot, e chame mcp__cardume__ask_human dizendo 'abri o navegador na tela X, faça login/preencha e me avise quando terminar' e AGUARDE. O humano usa a MESMA janela pra logar; quando ele responder, continue de onde parou — a sessão dele já estará ativa no navegador. Peça login UMA vez: o perfil persiste, então em rodadas seguintes você provavelmente já estará logado."
           : " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, dados que só o humano tem) — NÃO tente logar nem inventar credenciais. Como o navegador está em segundo plano, o humano não consegue usar a janela: tire um screenshot e chame mcp__cardume__ask_human pedindo que ele (1) ligue 'mostrar o navegador dos agentes' em Configurações e (2) responda 'ok'. Quando ele responder, FINALIZE o turno dizendo exatamente o que ficou pendente (a URL da tela de login) — na retomada o navegador abre visível e ele faz o login na sua janela. O perfil persiste: peça login UMA vez.")
       : "";
+    const editRule = specEditRule(input); // só no turno fresco (baseline): o resume não repete
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${editRule}${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e
@@ -709,6 +710,21 @@ function mapTool(name: string | undefined, inp: any): AgentEvent {
 
 function fileOf(inp: any): string {
   return String(inp?.file_path ?? inp?.path ?? inp?.filename ?? "");
+}
+
+/**
+ * A ideia muda conforme se programa: o agente pode atualizar a SPEC de outras tarefas (irmãs do épico,
+ * rascunhos) e o próprio épico SEM acionar ninguém — tools mcp__cardume__edit_task / edit_epic
+ * (src/agent-edits.ts). Antes o único caminho era `talk`, que retoma o agente da outra tarefa.
+ */
+export function specEditRule(input: { role: string; spec: { epicId?: string } }): string {
+  // só quem constrói/planeja muda spec (o revisor julga a spec, não a reescreve) e só em tarefa de épico
+  if (!["builder", "planner"].includes(input.role) || !input.spec.epicId) return "";
+  return (
+    " A IDEIA MUDOU? Se o que você descobriu muda o escopo de uma tarefa IRMÃ do épico (ids e requisitos em .cardume/refs/EPIC.md) ou da sua, atualize a spec dela com mcp__cardume__edit_task (objetivo, título, requisitos/entregáveis novos, owns/off) — isso NÃO inicia nem retoma o agente dela; se ela estiver rodando, recebe a mudança no próximo turno. NUNCA use `cardume talk` pra isso (ele dispara a execução)." +
+    ` Se mudou o próprio ÉPICO (descrição, requisitos, "pronto quando"), use mcp__cardume__edit_epic com epic_id ${input.spec.epicId}.` +
+    " Acrescentar/reescrever vale na hora; REMOVER requisito ou item do \"pronto quando\" (ou estreitar owns/off) vira PROPOSTA que o humano aprova ou recusa. Sempre com `note` dizendo o porquê — o humano vê o rastro (antes → depois) e pode desfazer. Tarefa mergeada/concluída não muda."
+  );
 }
 
 /**

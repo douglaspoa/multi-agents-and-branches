@@ -234,6 +234,11 @@ export class Store {
     this.db.prepare(`UPDATE task SET spec_json = ? WHERE id = ?`).run(specJson, taskId);
   }
 
+  /** Título/objetivo ficam também em colunas (a lista do app lê daqui) — acompanham a spec editada. */
+  setTitleObjective(taskId: string, title: string, objective: string): void {
+    this.db.prepare(`UPDATE task SET title = ?, objective = ? WHERE id = ?`).run(title, objective, taskId);
+  }
+
   setDoneRoles(taskId: string, n: number): void {
     this.db.prepare(`UPDATE task SET done_roles = ? WHERE id = ?`).run(n, taskId);
   }
@@ -470,6 +475,12 @@ export class Store {
     return this.db
       .prepare(`SELECT id, text FROM instruction WHERE task_id = ? AND status = 'open' ORDER BY id`)
       .all(taskId) as { id: number; text: string }[];
+  }
+
+  /** Cancela uma instrução que ainda não foi entregue. true = estava aberta e foi cancelada. */
+  cancelInstruction(id: number): boolean {
+    const r = this.db.prepare(`UPDATE instruction SET status = 'cancelled', applied_at = ? WHERE id = ? AND status = 'open'`).run(Date.now(), id);
+    return Number(r.changes) > 0;
   }
 
   markInstructionApplied(id: number): void {

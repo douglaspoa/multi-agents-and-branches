@@ -9,6 +9,8 @@ import { createInterface } from "node:readline";
 import { Store } from "../store.ts";
 import { CoordinationBus } from "../bus.ts";
 import { notify } from "../util/notify.ts";
+import { dirname } from "node:path";
+import { editEpic, editTask, type EditAuthor } from "../agent-edits.ts";
 
 const DB = process.env.CARDUME_DB;
 const TASK = process.env.CARDUME_TASK ?? "";
@@ -86,6 +88,45 @@ const TOOLS = [
         evidence: { type: "string", description: "O que prova o item, em 1 frase concreta (ex.: 'suíte e2e cart-total passou em CI #412')." },
       },
       required: ["id", "evidence"],
+    },
+  },
+  {
+    name: "edit_task",
+    description:
+      "Atualize a SPEC de uma tarefa do projeto quando a ideia mudou conforme você programa — tipicamente uma tarefa IRMÃ do seu épico (ids em .cardume/refs/EPIC.md) ou um rascunho; também serve pra própria tarefa. Muda objetivo/título/requisitos/entregáveis/escopo SEM iniciar, retomar nem conversar com o agente dela (NÃO use talk pra isso). Se ela estiver rodando, a mudança chega ao agente dela no PRÓXIMO turno, sem interromper. Acrescentar/reescrever vale na hora; REMOVER requisito ou estreitar owns/off vira PROPOSTA que o humano aprova. Tarefa mergeada/concluída não muda; o papel revisor não edita. Sempre diga o porquê em `note` — o humano vê o rastro e pode desfazer.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Id da tarefa (o local, ou o id do cartão no EPIC.md)." },
+        objective: { type: "string", description: "Objetivo novo (substitui)." },
+        title: { type: "string", description: "Título novo (substitui)." },
+        requirements_add: { type: "array", items: { type: "string" }, description: "Requisitos a ACRESCENTAR (curtos e verificáveis)." },
+        requirements_remove: { type: "array", items: { type: "string" }, description: "TEXTO exato dos requisitos a remover — vira PROPOSTA que o humano aprova ou recusa (até lá o requisito vale)." },
+        deliverables: { type: "array", items: { type: "string" }, description: "Lista NOVA de entregáveis (substitui a atual)." },
+        deliverables_add: { type: "array", items: { type: "string" }, description: "Entregáveis a ACRESCENTAR." },
+        owns: { type: "array", items: { type: "string" }, description: "Escopo desejado (caminhos/globs): o que entra vale na hora; o que sai vira proposta." },
+        off: { type: "array", items: { type: "string" }, description: "Caminhos proibidos desejados: o que entra vale na hora; o que sai vira proposta." },
+        note: { type: "string", description: "POR QUE mudou (1 frase). Obrigatório." },
+      },
+      required: ["task_id", "note"],
+    },
+  },
+  {
+    name: "edit_epic",
+    description:
+      "Atualize o ÉPICO desta tarefa (id em epic.id no TASK.yaml) quando a ideia mudou: descrição, outcome, requisitos novos e o 'pronto quando' (acrescentar/remover itens). Não aciona nenhum agente. O app aplica no épico do time e guarda no histórico com o seu motivo; a cópia do 'pronto quando' no TASK.yaml das tarefas deste computador ganha os itens novos na hora. Remover item do 'pronto quando' vira PROPOSTA. O papel revisor não edita. Sempre diga o porquê em `note`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        epic_id: { type: "string", description: "Id do épico (epic.id no TASK.yaml)." },
+        description: { type: "string", description: "Descrição nova (substitui)." },
+        outcome: { type: "string", description: "Resultado esperado novo (substitui)." },
+        done_when_add: { type: "array", items: { type: "string" }, description: "Itens NOVOS do 'pronto quando' (checagem que uma pessoa roda)." },
+        done_when_remove: { type: "array", items: { type: "string" }, description: "Ids (ex.: 'D3') do 'pronto quando' a remover — vira PROPOSTA pra quem cuida do épico; item já marcado não sai." },
+        requirements_add: { type: "array", items: { type: "string" }, description: "Requisitos NOVOS do épico." },
+        note: { type: "string", description: "POR QUE mudou (1 frase). Obrigatório." },
+      },
+      required: ["epic_id", "note"],
     },
   },
   {
@@ -231,6 +272,36 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
       return { text: `${id} marcado como provado (${evidence}). O app espelha no épico do time.` };
     } catch (e) {
       return { text: `falha marcando o item: ${(e as Error).message}`, isError: true };
+    }
+  }
+
+  if (name === "edit_task" || name === "edit_epic") {
+    const me = store.getTask(TASK);
+    let myEpic: string | undefined;
+    try { myEpic = me ? (JSON.parse(me.spec_json) as TaskSpec).epicId : undefined; } catch { /* spec antiga */ }
+    const by: EditAuthor = { agent: AGENT, taskId: TASK || undefined, taskTitle: me?.title, role: ROLE || undefined };
+    const arr = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x)) : undefined);
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    try {
+      const r = name === "edit_task"
+        ? editTask({
+            store, cardumeDir: dirname(DB!), targetId: String(args?.task_id ?? ""), by, epicId: myEpic,
+            input: {
+              objective: str(args?.objective), title: str(args?.title), reqAdd: arr(args?.requirements_add),
+              reqRemove: arr(args?.requirements_remove),
+              deliverables: arr(args?.deliverables), delivAdd: arr(args?.deliverables_add), owns: arr(args?.owns), off: arr(args?.off), note: str(args?.note),
+            },
+          })
+        : editEpic({
+            store, cardumeDir: dirname(DB!), epicId: String(args?.epic_id ?? ""), by,
+            input: {
+              description: str(args?.description), outcome: str(args?.outcome), doneWhenAdd: arr(args?.done_when_add),
+              doneWhenRemove: arr(args?.done_when_remove), reqAdd: arr(args?.requirements_add), note: str(args?.note),
+            },
+          });
+      return { text: r.message, isError: !r.ok };
+    } catch (e) {
+      return { text: `falha editando: ${(e as Error).message}`, isError: true };
     }
   }
 

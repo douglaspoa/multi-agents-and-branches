@@ -955,11 +955,13 @@ function fwThreadHtml(t){
     // nota de sistema do motor (fila, limite de uso, sessão retomada, rota de IA): linha de sistema com ícone
     if(e.agent==='Sistema' && e.type==='note'){ const ic=evSysIcon(tx); if(ic){ flush(); out.push(`<div class="csys">${ic} ${esc(tx)}</div>`); continue; } }
     if(tx.startsWith('perguntou ao humano:')) continue; // a pergunta já aparece no card destacado
+    // outro agente (ou este) mudou a SPEC desta tarefa (47-edicoes-agente): card com antes → depois + desfazer
+    if((e.type==='spec-edit'||e.type==='spec-proposal') && typeof aeEventHtml==='function'){ flush(); lastWho=''; out.push(aeEventHtml(t, e)); continue; }
     // chamada de ferramenta crua (ToolSearch, mcp__…): é ruído interno — o valor
     // está no RESULTADO (entregável/issue registrados, abaixo). Esconde a chamada, igual o Claude faz.
     if(e.type==='note' && looksLikeTool(tx)) continue;
     // resultado de tool (entregável/issue/"pronto quando" registrados; os antigos vinham com emoji → e.tool) → linha sutil "concluído"
-    if(e.type==='note' && (e.tool || /^(entregável novo registrado|issue registrada|pronto quando )/.test(tx))){ flush(); lastWho=''; out.push(toolChip(tx.replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
+    if(e.type==='note' && (e.tool || /^(entregável novo registrado|issue registrada|pronto quando |tarefa atualizada|épico atualizado)/.test(tx))){ flush(); lastWho=''; out.push(toolChip(tx.replace(/\s*\(ref\s+\w+\)\s*$/i,''), true)); continue; }
     if(['think','note','done'].includes(e.type) && tx.trim()){
       flush();
       const who=e.agent!==lastWho?`<div class="cwho"><b>${esc(e.agent||'')}</b><span class="cwho-m"> · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</span></div>`:'';
