@@ -365,8 +365,9 @@ async function auOAuth(provider){
 }
 // ---- planos (lê billing_plans; sem seed mostra os preços do design, sem checkout) ----
 const AU_PLAN_DEFAULTS=[
-  { key:'individual', name:'Solo', who:'1 pessoa, 1 projeto', perSeat:false, feats:['1 agente por vez, sem fila','Cópia isolada do projeto por tarefa','Histórico de 30 dias'] },
-  { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Agentes em paralelo, sem limite de fila','Equipes de agentes e personas compartilhadas','Daily automática e custo por pessoa','Preferências do projeto sincronizadas'] },
+  // Solo tem TODAS as funcionalidades (30/09): o plano muda só QUANTAS PESSOAS usam — o app nunca bloqueou nada por plano
+  { key:'individual', name:'Solo', who:'1 pessoa, todas as funcionalidades', perSeat:false, feats:['Agentes em paralelo e épicos em ondas','Painel de Issues e daily automática','Memória do projeto e custo antes de rodar','App de iPhone pra responder o agente'] },
+  { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Tudo do Solo, pra cada pessoa do time','Quadro e backlog compartilhados','Convites, papéis e custo por pessoa','Preferências do projeto sincronizadas'] },
   { key:'enterprise', name:'Organização', who:'vários times e projetos', feats:['Tudo do Time, sem teto de assentos','SSO, auditoria e política por projeto','Chaves de modelo próprias (BYOK)','Suporte dedicado'] },
 ];
 const AU_FALLBACK_PRICE={ individual:{month:4900,year:3900}, team:{month:3900,year:3100} };

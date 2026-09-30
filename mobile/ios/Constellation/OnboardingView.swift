@@ -319,8 +319,9 @@ struct OnboardingView: View {
 
     struct PlanDef { let key: String; let name: String; let who: String; let hot: Bool; let feats: [String] }
     private let planDefs: [PlanDef] = [
-        PlanDef(key: "individual", name: "Solo", who: "1 pessoa, 1 repo", hot: false, feats: ["1 agente por vez, sem fila", "Branch + worktree isolada por tarefa", "Histórico de 30 dias"]),
-        PlanDef(key: "team", name: "Time", who: "squads de 3 a 12", hot: true, feats: ["Agentes em paralelo, sem limite de fila", "Workflows e personas compartilhados", "Daily automática e custo por pessoa", "Preferências do projeto sincronizadas"]),
+        // Solo tem TODAS as funcionalidades (30/09): o plano muda só quantas pessoas usam
+        PlanDef(key: "individual", name: "Solo", who: "1 pessoa, todas as funcionalidades", hot: false, feats: ["Agentes em paralelo e épicos em ondas", "Painel de Issues e daily automática", "Memória do projeto e custo antes de rodar", "App de iPhone pra responder o agente"]),
+        PlanDef(key: "team", name: "Time", who: "squads de 3 a 12", hot: true, feats: ["Tudo do Solo, pra cada pessoa do time", "Quadro e backlog compartilhados", "Convites, papéis e custo por pessoa", "Preferências do projeto sincronizadas"]),
         PlanDef(key: "enterprise", name: "Organização", who: "vários times e repos", hot: false, feats: ["Tudo do Time, sem teto de assentos", "SSO, auditoria e política por repo", "Chaves de modelo próprias (BYOK)", "Suporte dedicado"]),
     ]
     private func planRow(_ key: String, _ iv: String) -> Supa.BillingPlan? { supa.plans.first { $0.plan == key && $0.interval == iv } }
