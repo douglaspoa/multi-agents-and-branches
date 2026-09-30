@@ -130,7 +130,8 @@ $id('pcBtn').onclick=openPc;
 async function prefsKey(){
   const orgId=cloudData&&cloudData.org&&cloudData.org.id; if(!orgId) return null;
   let ids=await repoRemoteIds();
-  if(!ids.remote){ try{ const info=await invoke('repo_docs'); const n=info&&info.repo; if(n) ids={ remote:n, legacy:n }; }catch(_){ } }
+  // sem projeto aberto não pergunta (virava erro 'repo não definido' no painel)
+  if(!ids.remote && state.repo){ try{ const info=await invoke('repo_docs'); const n=info&&info.repo; if(n) ids={ remote:n, legacy:n }; }catch(_){ } }
   // repo = forma nova (grava sempre nela); ids = nova + antiga desta máquina (lê pelas duas)
   return ids.remote?{ orgId, repo:ids.remote, ids }:null;
 }

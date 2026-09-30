@@ -131,41 +131,74 @@ fn cli_path(repo: &PathBuf) -> String {
     repo.join("src").join("cli.ts").display().to_string()
 }
 
-/// Node: CARDUME_NODE → homebrew/local → a versão mais nova do nvm → PATH.
+/// Node: o MAIS NOVO de todos os instalados (CARDUME_NODE manda se existir). Antes era "o primeiro que
+/// existe" com /usr/bin/node antes do nvm: no Linux o node do sistema (v18) ganhava do nvm (v22) e o
+/// preflight travava o app (30/09, Carlos/Ubuntu). E o nvm era ordenado como texto ("v9" > "v22").
 fn node_bin() -> String {
     if let Ok(n) = std::env::var("CARDUME_NODE") {
         if !n.is_empty() && std::path::Path::new(&n).is_file() {
             return n;
         }
     }
-    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"] {
-        if std::path::Path::new(p).is_file() {
-            return p.to_string();
-        }
+    static CACHE: std::sync::OnceLock<Mutex<Option<(String, std::time::Instant)>>> = std::sync::OnceLock::new();
+    let cell = CACHE.get_or_init(|| Mutex::new(None));
+    if let Some((b, at)) = cell.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if at.elapsed() < std::time::Duration::from_secs(30) { return b; }
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        let nvm = std::path::PathBuf::from(home).join(".nvm").join("versions").join("node");
-        if let Ok(rd) = std::fs::read_dir(&nvm) {
-            let mut vers: Vec<_> = rd.flatten().map(|e| e.path()).collect();
-            vers.sort(); // lexicográfico basta pra escolher determinístico; preflight valida >=22.6
-            if let Some(latest) = vers.last() {
-                let n = latest.join("bin").join("node");
-                if n.is_file() {
-                    return n.display().to_string();
-                }
+    let best = node_candidates()
+        .into_iter()
+        .filter_map(|b| node_version(&b).map(|v| (v, b)))
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, b)| b)
+        .unwrap_or_else(|| "node".to_string());
+    *cell.lock().unwrap_or_else(|e| e.into_inner()) = Some((best.clone(), std::time::Instant::now()));
+    best
+}
+/// Como instalar o node certo EM CADA SISTEMA (antes: "brew install node" até no Linux)
+fn node_fix_hint() -> String {
+    if cfg!(target_os = "macos") { "brew install node".into() }
+    else if cfg!(windows) { "winget install OpenJS.NodeJS.LTS".into() }
+    else { "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && nvm install 22".into() }
+}
+/// Todos os lugares onde um node costuma morar (app aberto pelo menu NÃO herda o PATH do shell,
+/// então nvm/fnm/volta/asdf/mise precisam ser procurados à mão).
+fn node_candidates() -> Vec<String> {
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    let mut v: Vec<PathBuf> = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node", "/snap/bin/node"]
+        .iter().map(PathBuf::from).collect();
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from) {
+        // gerenciadores com UMA pasta por versão
+        for (base, tail) in [
+            (".nvm/versions/node", "bin"),
+            (".local/share/fnm/node-versions", "installation/bin"),
+            (".fnm/node-versions", "installation/bin"),
+            (".asdf/installs/nodejs", "bin"),
+            (".local/share/mise/installs/node", "bin"),
+            (".volta/tools/image/node", "bin"),
+        ] {
+            if let Ok(rd) = std::fs::read_dir(home.join(base)) {
+                for e in rd.flatten() { v.push(e.path().join(tail).join(exe)); }
             }
         }
+        v.push(home.join(".volta/bin").join(exe));
+        v.push(home.join(".local/bin").join(exe));
     }
-    // último recurso: resolve pelo PATH (Linux via pacote, ou node no PATH do usuário)
-    if let Ok(o) = Command::new("which").arg("node").output() {
+    if let Ok(o) = Command::new(if cfg!(windows) { "where" } else { "which" }).arg("node").output() {
         if o.status.success() {
-            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if !path.is_empty() && std::path::Path::new(&path).is_file() {
-                return path;
-            }
+            for l in String::from_utf8_lossy(&o.stdout).lines() { v.push(PathBuf::from(l.trim())); }
         }
     }
-    "node".to_string()
+    let mut seen = std::collections::HashSet::new();
+    v.into_iter().filter(|p| p.is_file()).map(|p| p.display().to_string()).filter(|p| seen.insert(p.clone())).collect()
+}
+/// Versão REAL do binário (roda `--version`) como tupla comparável (22,6,0).
+fn node_version(bin: &str) -> Option<(u32, u32, u32)> {
+    let mut c = Command::new(bin);
+    c.arg("--version");
+    let o = output_timeout(c, 5).ok().filter(|o| o.status.success())?;
+    let t = String::from_utf8_lossy(&o.stdout);
+    let mut it = t.trim().trim_start_matches('v').split('.').map(|x| x.parse::<u32>().unwrap_or(0));
+    Some((it.next()?, it.next().unwrap_or(0), it.next().unwrap_or(0)))
 }
 
 /// Acha o `gh` sem depender do PATH (LaunchServices pode lançar com PATH mínimo).
@@ -1968,7 +2001,12 @@ struct GhAccount {
 fn gh_accounts() -> Result<Vec<GhAccount>, String> {
     let mut c = Command::new(gh_bin());
     c.args(["auth", "status"]);
-    let out = output_timeout(c, 10)?;
+    // gh NÃO instalado = nenhuma conta (a tela já oferece instalar) — antes virava erro no painel (30/09)
+    let out = match output_timeout(c, 10) {
+        Ok(o) => o,
+        Err(e) if e.contains("os error 2") || e.to_lowercase().contains("no such file") || e.contains("not found") => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
     let text = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
     let mut list: Vec<GhAccount> = vec![];
     for line in text.lines() {
@@ -5933,9 +5971,9 @@ fn env_check() -> Vec<EnvCheck> {
     match ver(&nb, &["--version"]) {
         Some(v) => {
             let okv = v.trim_start_matches('v').split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 22).unwrap_or(false);
-            out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { "brew install node".into() } });
+            out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { node_fix_hint() } });
         }
-        None => out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install node".into() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: node_fix_hint() }),
     }
     // motor
     let cli = cli_path(&PathBuf::from(home_dir_s()));
