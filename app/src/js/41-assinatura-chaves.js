@@ -17,8 +17,11 @@ async function billingSync(){
     // pra tela de planos (24/09: Arllon, da Logcomex, preso na cobrança).
     let orgs=(cloudData&&cloudData.org)?[cloudData.org]:null;
     if(!orgs){ try{ orgs=await sbGet('orgs?select=plan,paid_until'); }catch(_){ payHide(); return; } }
-    const orgOk=(orgs||[]).some(o=>o && o.plan==='enterprise' && (!o.paid_until || new Date(o.paid_until)>new Date()));
-    if(orgOk){ myBilling={ plan:'enterprise', status:'active', org:true }; payHide(); return; }
+    // paid_until só é gravado pelo ADMIN (liberação manual): validade futura libera em QUALQUER plano da org.
+    // Antes só 'enterprise' contava — o Beto (org 'team', liberada até 01/11 pelo admin) caía na tela de planos (30/09).
+    const now=new Date();
+    const grant=(orgs||[]).find(o=>o && ((o.paid_until && new Date(o.paid_until)>now) || (o.plan==='enterprise' && !o.paid_until)));
+    if(grant){ myBilling={ plan:grant.plan||'enterprise', status:'active', org:true }; payHide(); return; }
     const rows=await sbGet('billing?select=*');
     const mine=rows.find(r=>r.user_id===cloudUserId());
     const team=rows.find(r=>r.plan==='team' && ['trialing','active'].includes(r.status) && r.team_id===cloudTeamId());
@@ -241,7 +244,7 @@ let repoSyncBusy=false;
 async function userRepoSync(){
   if(!SB.sess()||repoSyncBusy) return; repoSyncBusy=true;
   try{
-    const info=await invoke('repo_docs').catch(()=>null);
+    const info=state.repo?await invoke('repo_docs').catch(()=>null):null; // sem projeto aberto: nada a sincronizar (antes: erro 'repo não definido' no painel a cada 10min)
     if(!info||!info.repo) return;
     await sbFetch('/rest/v1/user_repos?on_conflict=user_id,repo',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
       body: JSON.stringify({ user_id:cloudUserId(), repo:info.repo, path:info.path, last_opened:new Date().toISOString() }) });
