@@ -390,8 +390,9 @@ async function ntShareSync(){
 function ntEpicVal(){ const s=$id('ntEpic'); const v=s?s.value:''; return (v&&v!=='__new__')?v:null; }
 $id('newTaskBtn').addEventListener('click', ()=>{ ntShareSync(); });
 
-/* ---- F3: notificações do time (novo PR de um colega / nova tarefa no backlog) ----
-   Poll leve a cada 30s; "já visto" persiste em localStorage pra não re-notificar. */
+/* ---- F3: notificações do time — SÓ o que me envolve (regra única: ctNotifKind, 42 @exec) ----
+   Poll leve a cada 30s; "já visto" persiste em localStorage pra não re-notificar. O "visto" é marcado pra
+   TODO cartão (mesmo os que não notificam): um cartão alheio que depois vira meu não dispara aviso atrasado. */
 function seenSet(k){ try{ return new Set(JSON.parse(lsGet(k)||'[]')); }catch(_){ return new Set(); } }
 function seenAdd(k,id){ const s=seenSet(k); s.add(id); lsSet(k, JSON.stringify([...s].slice(-500))); }
 let teamNotifReady=false;
@@ -401,11 +402,14 @@ async function teamNotifTick(){
   const me=cloudUserId(), prs=seenSet('sb:seenpr'), cards=seenSet('sb:seencard'), revs=seenSet('sb:seenrev');
   for(const t of teamTasks){
     const isRev=((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||'');
-    // review de PR concluído por um colega → avisa o time: não precisa revisar de novo
-    if(isRev && t.pr_url && !revs.has(t.id)){ seenAdd('sb:seenrev', t.id); if(teamNotifReady && (t.assignee||t.created_by)!==me) pushNotif('PR já revisado ✓ — '+tmName(t.assignee||t.created_by), t.title+' · o parecer está no cartão; não precisa rodar outro review', 'view:team'); continue; }
-    if(isRev) continue; // cartão de review não é "PR do time pra revisar"
-    if(t.pr_url && !prs.has(t.id)){ seenAdd('sb:seenpr', t.id); if(teamNotifReady && (t.assignee||t.created_by)!==me) pushNotif('PR do time pra revisar ↗', tmName(t.assignee||t.created_by)+': '+t.title, 'view:team'); }
-    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(teamNotifReady && t.created_by!==me) pushNotif('Nova tarefa no backlog do time', tmName(t.created_by)+': '+t.title, 'view:team'); }
+    const kind=teamNotifReady ? ctNotifKind(t, me, teamTasks) : null; // 1ª carga só semeia o "visto"
+    const who=tmName(t.assignee||t.created_by);
+    if(isRev){
+      if(t.pr_url && !revs.has(t.id)){ seenAdd('sb:seenrev', t.id); if(kind==='review-done') pushNotif('Seu PR foi revisado ✓ — '+who, t.title+' · o parecer está no cartão', 'view:team'); }
+      continue; // cartão de review não é "PR aberto" nem "tarefa nova"
+    }
+    if(t.pr_url && !prs.has(t.id)){ seenAdd('sb:seenpr', t.id); if(kind==='pr') pushNotif('PR aberto na demanda que você criou ↗', who+': '+t.title, 'view:team'); }
+    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(kind==='assigned') pushNotif('Nova tarefa pra você', tmName(t.created_by)+' atribuiu: '+t.title, 'view:team'); }
   }
   teamNotifReady=true;
   if(activeIs('team')) renderTeamBoard();
