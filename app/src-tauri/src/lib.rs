@@ -223,6 +223,21 @@ fn claude_bin() -> String {
             return c;
         }
     }
+    // Windows: instalador nativo põe o claude.exe em %USERPROFILE%\.local\bin (não há HOME);
+    // senão "claude" — o Command do Rust acha o claude.exe pelo PATH.
+    #[cfg(windows)]
+    {
+        if let Some(up) = std::env::var_os("USERPROFILE") {
+            let up = std::path::PathBuf::from(up);
+            for rel in [[".local", "bin"], [".claude", "local"]] {
+                let cand = up.join(rel[0]).join(rel[1]).join("claude.exe");
+                if cand.is_file() {
+                    return cand.display().to_string();
+                }
+            }
+        }
+        return "claude".to_string();
+    }
     // Ao lado do node configurado PRIMEIRO (instalação dev/nvm — é o claude
     // que o dono realmente usa e atualiza); depois os locais padrão pra apps
     // lançados pelo Finder com PATH mínimo (instalador nativo → homebrew).

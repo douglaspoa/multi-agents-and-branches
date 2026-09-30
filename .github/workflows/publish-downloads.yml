@@ -1,0 +1,95 @@
+name: publish-downloads
+
+# Monta os downloads da landing (starfork.com.br) com nomes de arquivo ESTÁVEIS.
+# A landing linka:
+#   https://github.com/douglaspoa/multi-agents-and-branches/releases/latest/download/<arquivo>
+# com estes nomes exatos:
+#   Starfork-portable.zip     macOS   (gerado LOCALMENTE por scripts/package-app.sh — NÃO sai do CI)
+#   Starfork_amd64.deb        Linux
+#   Starfork_amd64.AppImage   Linux
+#   Starfork_x64-setup.exe    Windows (instalador NSIS)
+#
+# Uso: aba Actions → publish-downloads → Run workflow.
+#   publicar=false (padrão): só builda Linux + Windows e sobe os arquivos renomeados
+#                            como artefato "starfork-downloads" (validação, nada público).
+#   publicar=true:           cria/atualiza a release downloads-AAAA-MM-DD, marca como
+#                            latest e sobe os arquivos. Se a release latest anterior tinha o
+#                            Starfork-portable.zip, ele é copiado pra nova (o link não quebra).
+#
+# O zip do Mac se sobe À MÃO, do Mac, depois de rodar scripts/package-app.sh:
+#   gh release upload <tag> dist/Starfork-portable.zip --clobber -R douglaspoa/multi-agents-and-branches
+on:
+  workflow_dispatch:
+    inputs:
+      publicar:
+        description: "Publicar a release pública (latest)? false = só builda e valida"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    uses: ./.github/workflows/build-linux.yml
+
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+
+  downloads:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: starfork-linux
+          path: in/linux
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: starfork-windows
+          path: in/windows
+
+      - name: Renomeia pros nomes estáveis
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          one() { local n; n=$(find "$1" -type f -name "$2" | wc -l); [ "$n" = 1 ] || { echo "esperava 1 arquivo $2 em $1, achei $n"; exit 1; }; find "$1" -type f -name "$2"; }
+          cp "$(one in/linux '*.deb')"        out/Starfork_amd64.deb
+          cp "$(one in/linux '*.AppImage')"   out/Starfork_amd64.AppImage
+          cp "$(one in/windows '*-setup.exe')" out/Starfork_x64-setup.exe
+          ls -la out
+
+      - name: Artefato com os nomes estáveis
+        uses: actions/upload-artifact@v4
+        with:
+          name: starfork-downloads
+          path: out/*
+          if-no-files-found: error
+
+      - name: Publica a release (latest)
+        if: ${{ inputs.publicar }}
+        run: |
+          set -euo pipefail
+          TAG="downloads-$(date -u +%Y-%m-%d)"
+          PREV=$(gh release view -R "$REPO" --json tagName -q .tagName 2>/dev/null || true)
+          # mantém o zip do Mac da release latest anterior (ele não sai do CI)
+          if [ -n "$PREV" ] && [ "$PREV" != "$TAG" ]; then
+            gh release download "$PREV" -R "$REPO" -p Starfork-portable.zip -D out 2>/dev/null \
+              && echo "zip do Mac copiado de $PREV" || echo "sem zip do Mac em $PREV"
+          fi
+          if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" -R "$REPO" --latest
+          else
+            gh release create "$TAG" -R "$REPO" --target "$GITHUB_SHA" --latest \
+              --title "Starfork — downloads $(date -u +%d/%m/%Y)" \
+              --notes "Downloads do Starfork (macOS, Linux e Windows). Build de ${GITHUB_SHA::7}."
+          fi
+          gh release upload "$TAG" -R "$REPO" out/* --clobber
+          gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name'
+          if [ ! -f out/Starfork-portable.zip ]; then
+            echo "::warning::A release $TAG está SEM o zip do Mac — suba à mão: gh release upload $TAG dist/Starfork-portable.zip --clobber -R $REPO"
+          fi

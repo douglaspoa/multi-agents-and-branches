@@ -3,9 +3,11 @@ name: build-linux
 # Gera o Starfork pro Linux (.AppImage + .deb). O Tauri NÃO faz
 # cross-compile a partir do macOS, então o build precisa rodar num Linux de
 # verdade — é o que esta runner ubuntu-22.04 faz. Dispare pela aba Actions
-# (workflow_dispatch) ou empurrando uma tag v*.
+# (workflow_dispatch) ou empurrando uma tag v*. O publish-downloads.yml também
+# chama este workflow (workflow_call) pra montar a release de downloads.
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     tags:
       - "v*"
