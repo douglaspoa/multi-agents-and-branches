@@ -72,6 +72,26 @@ function ctWhoLabel(ct, me, nameOf){
   if(as && as!==by && as!==me) out.push('com '+nameOf(as));
   return out.join(' · ');
 }
+// NOTIFICAÇÃO do time: só o que ME envolve — nunca "PR de um colega" ou "cartão novo" de quem não tem nada comigo
+// (era aviso de tarefa alheia pra todo o time; pra owner/admin no escopo "organização", de TODOS os times).
+// Devolve o tipo do aviso ou null. `all` = cartões carregados (pra achar de quem é o PR revisado).
+//   'assigned'    cartão novo no backlog que OUTRA pessoa atribuiu a mim
+//   'pr'          abriram o PR de uma demanda que EU criei (outra pessoa executou)
+//   'review-done' concluíram o review de um PR MEU, ou de um review que EU pedi
+function ctNotifKind(t, me, all){
+  if(!t || !me) return null;
+  const actor=t.assignee||t.created_by;
+  const isRev=((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||'');
+  if(isRev){
+    if(!t.pr_url || actor===me) return null;
+    if(t.created_by===me) return 'review-done'; // eu pedi, outra pessoa revisou
+    const mine=(all||[]).some(x=>x && x.id!==t.id && x.pr_url===t.pr_url && ctMineFor(x, me));
+    return mine ? 'review-done' : null;
+  }
+  if(t.pr_url) return (t.created_by===me && actor!==me) ? 'pr' : null;
+  if(t.status==='backlog') return (t.assignee===me && t.created_by!==me) ? 'assigned' : null;
+  return null;
+}
 // @exec-fim
 function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(typeof tsSt==='function'?tsSt(ct):ct.status); } // R5-1: status efetivo (PR aberto/pergunta)
 

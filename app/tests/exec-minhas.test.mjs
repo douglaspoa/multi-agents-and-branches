@@ -22,7 +22,7 @@ function fn(src, name) {
 }
 const remote = cut(read('09-remote-id.js'), '// @puro-inicio', '// @puro-fim');
 const exec = cut(read('42-nuvem-sync-mobile.js'), '// @exec-inicio', '// @exec-fim');
-const X = new Function(remote + exec + '\nreturn { ctMineFor, ctProjLocal, ctExecOk, ctWhoLabel, remoteLocal };')();
+const X = new Function(remote + exec + '\nreturn { ctMineFor, ctProjLocal, ctExecOk, ctWhoLabel, remoteLocal, ctNotifKind };')();
 
 const ME = 'u-me', ANA = 'u-ana', BRUNO = 'u-bruno';
 const LOJA = { remote: 'github.com/org/loja', legacy: 'github.com-work/org/loja' };
@@ -112,4 +112,49 @@ test('início automático do épico só pega cartão MEU', () => {
   assert.ok(auto, 'filtro do início automático não encontrado');
   assert.match(auto[1], /ctMineFor\(t, me\)/);
   assert.doesNotMatch(auto[1], /created_by===/);
+});
+
+// ---- notificações do time: só o que me envolve (fix/notif-so-minhas) ----
+test('cartão novo no backlog: só avisa quando OUTRA pessoa atribuiu a mim', () => {
+  const k = (t) => X.ctNotifKind({ status: 'backlog', ...t }, ME, []);
+  assert.equal(k({ created_by: ANA, assignee: ME }), 'assigned');
+  assert.equal(k({ created_by: ANA, assignee: null }), null, 'backlog do time sem dono não é meu');
+  assert.equal(k({ created_by: ANA, assignee: BRUNO }), null, 'tarefa da Ana pro Bruno');
+  assert.equal(k({ created_by: ME, assignee: ME }), null, 'eu mesmo criei: não me aviso');
+  assert.equal(k({ created_by: ME, assignee: null }), null);
+});
+
+test('PR aberto: só avisa na demanda que EU criei e outra pessoa executou', () => {
+  const k = (t) => X.ctNotifKind({ status: 'review', pr_url: 'https://x/pr/1', ...t }, ME, []);
+  assert.equal(k({ created_by: ME, assignee: ANA }), 'pr');
+  assert.equal(k({ created_by: ANA, assignee: null }), null, 'PR de um colega numa tarefa dele');
+  assert.equal(k({ created_by: ANA, assignee: BRUNO }), null);
+  assert.equal(k({ created_by: ME, assignee: null }), null, 'meu próprio PR');
+  assert.equal(k({ created_by: ANA, assignee: ME }), null, 'eu executei: fui eu que abri');
+});
+
+test('review concluído: só avisa se o PR é meu ou se fui eu que pedi o review', () => {
+  const meuPr = { id: 't1', created_by: ME, assignee: null, pr_url: 'https://x/pr/7' };
+  const prDaAna = { id: 't2', created_by: ANA, assignee: null, pr_url: 'https://x/pr/8' };
+  const rev = (o) => ({ id: 'r1', title: 'Review do PR #7', spec: { kind: 'review' }, ...o });
+  assert.equal(X.ctNotifKind(rev({ created_by: BRUNO, pr_url: 'https://x/pr/7' }), ME, [meuPr, prDaAna]), 'review-done', 'o Bruno revisou o MEU PR');
+  assert.equal(X.ctNotifKind(rev({ created_by: BRUNO, pr_url: 'https://x/pr/8' }), ME, [meuPr, prDaAna]), null, 'review do PR da Ana não é comigo');
+  assert.equal(X.ctNotifKind(rev({ created_by: ME, assignee: ANA, pr_url: 'https://x/pr/8' }), ME, [prDaAna]), 'review-done', 'eu pedi o review, a Ana fez');
+  assert.equal(X.ctNotifKind(rev({ created_by: ME, pr_url: 'https://x/pr/7' }), ME, [meuPr]), null, 'eu mesmo revisei');
+  assert.equal(X.ctNotifKind(rev({ created_by: BRUNO, pr_url: '' }), ME, [meuPr]), null, 'review ainda sem parecer');
+  assert.equal(X.ctNotifKind({ id: 'r2', title: 'Review de PR #7', created_by: BRUNO, pr_url: 'https://x/pr/7' }, ME, [meuPr]), 'review-done', 'review reconhecido pelo título');
+});
+
+test('sem sessão ou cartão inválido: nunca notifica', () => {
+  assert.equal(X.ctNotifKind({ status: 'backlog', created_by: ANA, assignee: '' }, '', []), null);
+  assert.equal(X.ctNotifKind(null, ME, []), null);
+  assert.equal(X.ctNotifKind({ status: 'running', created_by: ANA, assignee: ME }, ME, []), null, 'só backlog/PR/review geram aviso');
+});
+
+test('o tick do time usa a regra única e não tem mais aviso "do time" pra todo mundo', () => {
+  const tick = fn(read('43-espaco-times.js'), 'teamNotifTick');
+  assert.match(tick, /ctNotifKind\(t, me, teamTasks\)/);
+  assert.doesNotMatch(tick, /PR do time pra revisar|Nova tarefa no backlog do time/);
+  // todo pushNotif do tick depende do tipo devolvido pela regra
+  for (const line of tick.split('\n').filter((l) => l.includes('pushNotif('))) assert.match(line, /if\(kind===/);
 });
