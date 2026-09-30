@@ -102,6 +102,19 @@ function hasOpenAsk(dbFile: string, taskId: string): boolean {
 
 export function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
+  // Windows: o binário é `claude.exe` (instalador nativo em %USERPROFILE%\.local\bin). O shim do npm
+  // (`claude.cmd`) NÃO serve — o Node recusa spawn de .cmd sem shell (EINVAL) — então só .exe; o
+  // fallback "claude.exe" deixa o CreateProcess procurar no PATH.
+  if (process.platform === "win32") {
+    try {
+      for (const p of [join(dirname(process.execPath), "claude.exe"), join(homedir(), ".local", "bin", "claude.exe"), join(homedir(), ".claude", "local", "claude.exe")]) {
+        if (existsSync(p)) return p;
+      }
+    } catch {
+      /* ignora */
+    }
+    return "claude.exe";
+  }
   // Ao lado do node em uso PRIMEIRO (nvm/dev — o claude que o dono atualiza);
   // depois os locais padrão pra PATH mínimo de app GUI (instalador nativo etc.).
   try {
@@ -142,7 +155,7 @@ export function claudeEnv(): NodeJS.ProcessEnv {
   delete env.ANTHROPIC_AUTH_TOKEN;
   const dirs = [dirname(process.execPath)];
   const bin = resolveClaude();
-  if (bin !== "claude") dirs.push(dirname(bin));
+  if (bin !== "claude" && bin !== "claude.exe") dirs.push(dirname(bin));
   const cur = (env.PATH || "").split(delimiter).filter(Boolean);
   env.PATH = [...dirs.filter((d) => !cur.includes(d)), ...cur].join(delimiter);
   return env;
