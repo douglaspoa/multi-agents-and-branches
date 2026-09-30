@@ -317,7 +317,8 @@ export class ClaudeEngine implements AgentEngine {
         mcpServers: {
           cardume: {
             command: process.execPath,
-            args: ["--disable-warning=ExperimentalWarning", serverPath],
+            // o servidor MCP também usa node:sqlite: herda a flag se o motor precisou dela (node 22.5–22.12/23.0–23.3)
+            args: [...process.execArgv.filter((a) => a === "--experimental-sqlite"), "--disable-warning=ExperimentalWarning", serverPath],
             env: {
               CARDUME_DB: input.dbFile,
               CARDUME_TASK: input.spec.id,
