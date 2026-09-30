@@ -140,19 +140,45 @@ fn node_bin() -> String {
             return n;
         }
     }
-    static CACHE: std::sync::OnceLock<Mutex<Option<(String, std::time::Instant)>>> = std::sync::OnceLock::new();
+    node_pick().0
+}
+/// (node, precisa de --experimental-sqlite?). O motor usa `node:sqlite`: sem flag só existe a partir do
+/// 22.13 / 23.4; no 22.5–22.12 e 23.0–23.3 só com a flag. "O mais novo" não basta — no Mac do Roberto o
+/// mais novo era o 23.2 e o `cardume init` quebrava com ERR_UNKNOWN_BUILTIN_MODULE (30/09). Então TESTA
+/// cada candidato (do mais novo pro mais velho): primeiro um que carrega sem flag; senão um que carrega
+/// com a flag; senão o mais novo (o preflight mostra o problema). Cache de 30s.
+fn node_pick() -> (String, bool) {
+    static CACHE: std::sync::OnceLock<Mutex<Option<((String, bool), std::time::Instant)>>> = std::sync::OnceLock::new();
     let cell = CACHE.get_or_init(|| Mutex::new(None));
     if let Some((b, at)) = cell.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if at.elapsed() < std::time::Duration::from_secs(30) { return b; }
     }
-    let best = node_candidates()
-        .into_iter()
-        .filter_map(|b| node_version(&b).map(|v| (v, b)))
-        .max_by(|a, b| a.0.cmp(&b.0))
-        .map(|(_, b)| b)
-        .unwrap_or_else(|| "node".to_string());
-    *cell.lock().unwrap_or_else(|e| e.into_inner()) = Some((best.clone(), std::time::Instant::now()));
-    best
+    let mut vers: Vec<((u32, u32, u32), String)> = node_candidates().into_iter().filter_map(|b| node_version(&b).map(|v| (v, b))).collect();
+    vers.sort_by(|a, b| b.0.cmp(&a.0));
+    let pick = vers.iter().find(|(_, b)| node_sqlite_ok(b, false)).map(|(_, b)| (b.clone(), false))
+        .or_else(|| vers.iter().find(|(_, b)| node_sqlite_ok(b, true)).map(|(_, b)| (b.clone(), true)))
+        .or_else(|| vers.first().map(|(_, b)| (b.clone(), false)))
+        .unwrap_or_else(|| ("node".to_string(), false));
+    *cell.lock().unwrap_or_else(|e| e.into_inner()) = Some((pick.clone(), std::time::Instant::now()));
+    pick
+}
+/// O node carrega `node:sqlite` (com ou sem a flag)?
+fn node_sqlite_ok(bin: &str, flag: bool) -> bool {
+    let mut c = Command::new(bin);
+    if flag { c.arg("--experimental-sqlite"); }
+    c.args(["--disable-warning=ExperimentalWarning", "-e", "require('node:sqlite')"]);
+    output_timeout(c, 8).map(|o| o.status.success()).unwrap_or(false)
+}
+/// Command do node pronto pro motor: já leva --experimental-sqlite quando o node escolhido precisa.
+fn node_cmd() -> Command {
+    let forced = std::env::var("CARDUME_NODE").ok().filter(|n| !n.is_empty() && std::path::Path::new(n).is_file());
+    let (bin, flag) = match forced {
+        Some(n) => { let f = !node_sqlite_ok(&n, false) && node_sqlite_ok(&n, true); (n, f) }
+        None => node_pick(),
+    };
+    let mut c = Command::new(bin);
+    if flag { c.arg("--experimental-sqlite"); }
+    c
 }
 /// Como instalar o node certo EM CADA SISTEMA (antes: "brew install node" até no Linux)
 fn node_fix_hint() -> String {
@@ -1479,7 +1505,7 @@ fn coordination_metrics(state: State<AppState>) -> Result<String, String> {
 #[tauri::command(async)]
 fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String> {
     let repo = active_repo(&state)?;
-    let out = Command::new(node_bin())
+    let out = node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning".to_string(),
             cli_path(&repo),
@@ -1551,7 +1577,7 @@ fn task_edit_cli(state: State<AppState>, task_id: String, patch: Option<String>,
     for (flag, v) in [("--patch", patch), ("--undo", undo), ("--approve", approve), ("--reject", reject), ("--edit-id", edit_id), ("--by-task", by_task), ("--note", note)] {
         if let Some(v) = v.filter(|s| !s.trim().is_empty()) { args.push(flag.into()); args.push(v); }
     }
-    let out = Command::new(node_bin()).args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
+    let out = node_cmd().args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
     agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
 }
 
@@ -1565,7 +1591,7 @@ fn epic_sync_cli(state: State<AppState>, epic_id: String, done_when: Vec<String>
         "--json".into(), "--repo".into(), repo.display().to_string(), "--by-agent".into(), "Starfork".into(), "--patch".into(), patch,
     ];
     if let Some(n) = note.filter(|s| !s.trim().is_empty()) { args.push("--note".into()); args.push(n); }
-    let out = Command::new(node_bin()).args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
+    let out = node_cmd().args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
     agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
 }
 
@@ -1794,7 +1820,7 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
             repo.display().to_string(),
         ];
         if !is_git { args.push("--no-git".into()); } // por último: o parser do CLI consome o próximo arg como valor
-        let out = Command::new(node_bin())
+        let out = node_cmd()
             .args(&args)
             .current_dir(&repo)
             .output()
@@ -2693,7 +2719,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
     add_instruction(state.clone(), task_id.clone(), text.clone())?;
     let repo = repo_of(&state)?;
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -2738,7 +2764,7 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         let _ = conn.execute(&format!("DELETE FROM {tbl} WHERE task_id=?1"), params![task_id]);
     }
     // 5) re-executa o time
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -2760,7 +2786,7 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -2786,7 +2812,7 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
     if m.is_empty() {
         return Err("mensagem vazia".to_string());
     }
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -3071,7 +3097,7 @@ fn new_task(
     push_opt(&mut args, "--risk", &risk);
     if hitl { args.push("--hitl".to_string()); }
 
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args(&args).current_dir(&repo);
     // saída do CLI vai pra um log — criação nunca mais falha em SILÊNCIO
     let log_dir = repo.join(".cardume").join("logs");
@@ -3390,7 +3416,7 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         return Err("essa tarefa já está rodando".into());
     }
     let repo = repo_of(&state)?;
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -3431,7 +3457,7 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
         repo.display().to_string(),
     ];
     push_opt(&mut args, "--agents", &agents);
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args(&args).current_dir(&repo);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &id, cmd)?;
@@ -5970,10 +5996,11 @@ fn env_check() -> Vec<EnvCheck> {
     let nb = node_bin();
     match ver(&nb, &["--version"]) {
         Some(v) => {
-            let okv = v.trim_start_matches('v').split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 22).unwrap_or(false);
-            out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { node_fix_hint() } });
+            // ok = o motor RODA (carrega node:sqlite, com a flag se preciso) — '>= 22' deixava passar o 23.2, que quebra
+            let okv = node_sqlite_ok(&nb, false) || node_sqlite_ok(&nb, true);
+            out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.13)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { node_fix_hint() } });
         }
-        None => out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: node_fix_hint() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.13)".into(), ok: false, detail: "não encontrado".into(), fix: node_fix_hint() }),
     }
     // motor
     let cli = cli_path(&PathBuf::from(home_dir_s()));
@@ -7800,7 +7827,7 @@ fn rework_from_pr(state: State<AppState>, task_id: String, ignored: Option<Vec<S
     ));
     // enfileira como instrução e dispara o rework
     add_instruction(state, task_id.clone(), text)?;
-    Command::new(node_bin())
+    node_cmd()
         .args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "rework", &task_id, "--repo", &repo.display().to_string()])
         .current_dir(&repo)
         .stdin(Stdio::null())
@@ -7844,7 +7871,7 @@ fn pr_resolve_thread(state: State<AppState>, thread_id: String) -> Result<(), St
 #[tauri::command(async)]
 fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
-    Command::new(node_bin())
+    node_cmd()
         .args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "resolve-conflict", &task_id, "--repo", &repo.display().to_string()])
         .current_dir(&repo)
         .stdin(Stdio::null())
@@ -7858,7 +7885,7 @@ fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), Strin
 #[tauri::command(async)]
 fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let out = Command::new(node_bin())
+    let out = node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning",
             &cli_path(&repo),
@@ -8139,7 +8166,7 @@ async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     preview_kill(&state.procs, &task_id); // o preview que o app subiu não fica órfão
-    Command::new(node_bin())
+    node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning",
             &cli_path(&repo),

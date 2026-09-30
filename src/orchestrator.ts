@@ -330,14 +330,15 @@ export class Orchestrator {
    * state.sqlite cru (arriscado). Injetado no system-prompt de todo agente.
    */
   selfServe(): string {
-    const node = process.execPath;
+    // mesma flag do motor (node sem node:sqlite estável precisa de --experimental-sqlite)
+    const node = `"${process.execPath}"` + (process.execArgv.includes("--experimental-sqlite") ? " --experimental-sqlite" : "");
     const cli = process.argv[1] || "";
     const repo = this.ws.repo;
     return (
       `\n\n## Criar novas demandas / épicos — VOCÊ PODE (não mexa no state.sqlite na mão, não invente CLI)\n` +
       `Se o humano pedir pra criar tarefas, issues, demandas ou um épico, use o comando OFICIAL abaixo (roda de qualquer pasta; o \`--repo\` é o que importa):\n\n` +
       `\`\`\`bash\n` +
-      `"${node}" "${cli}" new --repo "${repo}" \\\n` +
+      `${node} "${cli}" new --repo "${repo}" \\\n` +
       `  --title "título curto" --objective "o que precisa e por quê" \\\n` +
       `  --requirements "critério verificável 1, critério 2" \\\n` +
       `  --owns "caminho/que/mexe, outro/caminho" --engine claude --no-start\n` +
