@@ -46,6 +46,14 @@ Deno.serve(async (req) => {
     // customer da Stripe amarrado ao user_id
     const { data: bill } = await admin.from("billing").select("stripe_customer_id").eq("user_id", user.id).maybeSingle();
     let customer = bill?.stripe_customer_id ?? null;
+    // cliente gravado por OUTRA conta/modo da Stripe (ex.: criado na sandbox antes de trocar pra chave real)
+    // não existe na conta atual → cria de novo em vez de o checkout falhar com "No such customer" (30/09)
+    if (customer) {
+      try {
+        const c = await stripe.customers.retrieve(customer);
+        if ((c as { deleted?: boolean }).deleted) customer = null;
+      } catch (_) { customer = null; }
+    }
     if (!customer) {
       const c = await stripe.customers.create({ email: user.email ?? undefined, metadata: { user_id: user.id } });
       customer = c.id;
