@@ -376,20 +376,30 @@ function auPerSeat(key, interval){ const p=auPlanRow(key, interval); return p ? 
 function auSeatsOf(key){ const p=auPlanRow(key, au.plan.interval); return (key==='team' && p && !p.per_seat) ? (p.seats||1) : (key==='team' ? au.plan.seats : 1); }
 function auPrice(key, interval){ const p=auPlanRow(key, interval); return p?p.amount_cents:(AU_FALLBACK_PRICE[key]||{})[interval]||0; }
 function auTotal(){ const per=auPrice(au.plan.key, au.plan.interval); return auPerSeat(au.plan.key, au.plan.interval) ? per*auSeatsOf(au.plan.key) : per; }
+// TESTE GRÁTIS em destaque (fonte única): dias do plano (billing_plans.trial_days; sem a linha, o padrão da
+// migration 0010) e a data da 1ª cobrança — o cartão é cadastrado agora, mas nada é cobrado antes dela.
+const AU_TRIAL_DEFAULT=7;
+function auTrialDays(key, iv){ const d=(auPlanRow(key, iv)||{}).trial_days; return d>0 ? d : AU_TRIAL_DEFAULT; }
+function auTrialFirstCharge(days){ return new Date(Date.now()+days*864e5).toLocaleDateString('pt-BR',{ day:'2-digit', month:'2-digit' }); }
+function auTrialBanner(days){
+  return `<div class="au-trial" role="note"><span class="au-trial-n">${days}</span><div class="au-trial-t"><b>dias grátis em qualquer plano</b><span>Cadastre o cartão e use tudo por ${days} dias. Nada é cobrado hoje: a primeira cobrança só vem em <b>${auTrialFirstCharge(days)}</b>. Cancelou antes, não paga nada.</span></div></div>`;
+}
 function auRenderPlans(R, topbar){
   const iv=au.plan.interval, hasPlans=!!(billingPlans&&billingPlans.length);
   const cards=AU_PLAN_DEFAULTS.map(p=>{
     const on=au.plan.key===p.key; const price=p.key==='enterprise'?null:auPrice(p.key,iv); const ps=auPerSeat(p.key,iv); const row=auPlanRow(p.key,iv);
     return `<button class="au-plan${on?' on':''}${p.hot?' hot':''}" data-plan="${p.key}"><div class="au-plh"><span class="au-pldot"></span><b>${esc(p.name)}</b>${p.hot?'<span class="au-badge">mais usado</span>':''}<span class="au-plwho">${esc(p.who)}</span></div>
+      ${price==null?'':`<span class="au-trialchip">${auTrialDays(p.key,iv)} dias grátis</span>`}
       <div class="au-plprice">${price==null?'<b>sob consulta</b><span>fale com vendas</span>':`<b>${fmtBRL(price).replace(',00','')}</b><span>${p.key==='team'&&!ps?`por time (até ${(row&&row.seats)||6} assentos)`:`por ${p.perSeat?'assento':'pessoa'}`}/${iv==='year'?(ps||p.key!=='team'?'mês, no anual':'ano'):'mês'}</span>`}</div>
       <ul class="au-plf">${p.feats.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></button>`; }).join('');
   const total=auTotal(); const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key); const isEnt=au.plan.key==='enterprise';
-  const trial=(auPlanRow(au.plan.key,iv)||{}).trial_days||14;
-  R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>-20%</i></button></div></div>${auMsg()}
+  const trial=auTrialDays(au.plan.key,iv);
+  R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>2 meses grátis</i></button></div></div>${auMsg()}
+    ${hasPlans?auTrialBanner(trial):''}
     <div class="au-plans">${cards}</div>
     <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Starfork? <a id="auInvCheck">procurar convite pro meu e-mail</a> · <a id="auInvite">colar o token de um convite</a></span></div>
     <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por projeto e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
-      `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>Continuar para o pagamento</button><span class="au-hint">${hasPlans?`${trial} dias grátis · cancele quando quiser`:'o pagamento ainda não está disponível — fale com o suporte do Starfork'}</span></div>`}</div></div>`;
+      `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>${hasPlans?`Começar ${trial} dias grátis`:'Continuar para o pagamento'}</button><span class="au-hint">${hasPlans?`sem cobrança hoje · 1ª cobrança em ${auTrialFirstCharge(trial)} · cancele quando quiser`:'o pagamento ainda não está disponível — fale com o suporte do Starfork'}</span></div>`}</div></div>`;
   R.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>{ au.plan.key=b.dataset.plan; auRender(); });
   R.querySelectorAll('[data-iv]').forEach(b=>b.onclick=()=>{ au.plan.interval=b.dataset.iv; auRender(); });
   bindClick('auSeatM', ()=>{ au.plan.seats=Math.max(1,au.plan.seats-1); auRender(); });
@@ -417,13 +427,14 @@ function auRenderPlans(R, topbar){
 }
 function auRenderPay(R, topbar){
   const p=auPlanRow(au.plan.key, au.plan.interval); const iv=au.plan.interval; const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key);
-  const per=auPrice(au.plan.key,iv), total=auTotal(); const trial=(p&&p.trial_days)||14;
+  const per=auPrice(au.plan.key,iv), total=auTotal(); const trial=auTrialDays(au.plan.key,iv);
   const first=new Date(Date.now()+trial*864e5).toLocaleDateString('pt-BR');
   const name=(AU_PLAN_DEFAULTS.find(x=>x.key===au.plan.key)||{}).name||au.plan.key;
   R.innerHTML=topbar+`<div class="au-pay"><div class="au-payl"><button class="au-link" id="auToPlans">← planos</button><h2 class="au-h2">Pagamento</h2>${auMsg()}
+      ${auTrialBanner(trial)}
       <p class="au-p">O pagamento acontece numa página segura da <b>Stripe</b>, no seu navegador — o cartão nunca passa pelo app.</p>
       <div class="au-methods" aria-label="formas de pagamento aceitas na Stripe"><span>Cartão</span><span>Pix</span><span>Boleto/NF</span><em>você escolhe lá</em></div>
-      ${au.waiting?`<div class="au-wait">${brandLoaderHtml('esperando a confirmação da Stripe…', { inline:true, now:true })}<div class="au-hint">Concluiu o pagamento? O app reconhece sozinho em instantes. <a id="auRecheck">verificar agora</a></div></div>`:`<button class="au-btn primary big" id="auGo"${au.busy?' disabled':''}>${au.busy?'abrindo a Stripe…':`Começar teste de ${trial} dias`}</button><div class="au-hint" style="margin-top:10px">Sem cobrança agora. Avisamos 3 dias antes de renovar.</div>`}
+      ${au.waiting?`<div class="au-wait">${brandLoaderHtml('esperando a confirmação da Stripe…', { inline:true, now:true })}<div class="au-hint">Concluiu o pagamento? O app reconhece sozinho em instantes. <a id="auRecheck">verificar agora</a></div></div>`:`<button class="au-btn primary big" id="auGo"${au.busy?' disabled':''}>${au.busy?'abrindo a Stripe…':`Começar ${trial} dias grátis`}</button><div class="au-hint" style="margin-top:10px">Sem cobrança agora: o cartão fica cadastrado e a primeira cobrança só vem em ${first}. Avisamos 3 dias antes.</div>`}
     </div>
     <aside class="au-payr"><div class="au-lbl" style="margin:0 0 10px">resumo</div><div class="au-sumt"><i></i>${esc(name)} · ${iv==='year'?'anual':'mensal'}</div>
       ${perSeat?`<div class="au-sumr"><span>Assento</span><b>${fmtBRL(per).replace(',00','')}/mês</b></div>`:''}<div class="au-sumr"><span>Assentos</span><b>${seats}</b></div><div class="au-sumr"><span>Após o teste</span><b>${fmtBRL(total).replace(',00','')}/${iv==='year'?(perSeat||au.plan.key!=='team'?'mês (anual)':'ano'):'mês'}</b></div>

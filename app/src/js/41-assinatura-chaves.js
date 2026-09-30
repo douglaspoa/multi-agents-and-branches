@@ -38,8 +38,9 @@ function payShow(){
       <div style="display:flex;align-items:center"><b style="font-size:14px">${titulo}</b><span style="flex:1"></span>${plan==='team'?'<span class="mono" style="font-size:9px;letter-spacing:.08em;color:var(--accent)">PRO TIME</span>':''}</div>
       <div><span style="font-size:23px;font-weight:700">${fmtBRL(p.amount_cents)}</span><span class="dim" style="font-size:12px"> ${per}</span></div>
       <div class="dim" style="font-size:11.5px;flex:1">${desc}</div>
-      <div class="mono" style="font-size:10px;color:var(--accent)">✓ ${p.trial_days} dias grátis</div>
-      <button class="btn primary" data-pay="${plan}" style="justify-content:center">Começar o teste</button>
+      <span class="au-trialchip" style="align-self:flex-start">${p.trial_days>0?p.trial_days:7} dias grátis</span>
+      <div class="dim" style="font-size:11px">Cadastre o cartão e nada é cobrado hoje. Cancelou antes do fim do teste, não paga nada.</div>
+      <button class="btn primary" data-pay="${plan}" style="justify-content:center">Começar ${p.trial_days>0?p.trial_days:7} dias grátis</button>
     </div>`;
   };
   $id('payCards').innerHTML=
@@ -57,6 +58,7 @@ async function payCheckout(plan,btn){
   const iv=payYear?'year':'month';
   const p=billingPlans.find(x=>x.plan===plan&&x.interval===iv); if(!p) return;
   if(plan==='team'&&!cloudTeamId()){ toast('Pra assinar o plano Equipes, entre ou crie um time primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
+  const btnTx=btn?btn.textContent:''; // volta o rótulo que o botão tinha ("Começar N dias grátis")
   if(btn){ btn.disabled=true; btn.textContent='abrindo…'; }
   try{
     const r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST',
@@ -70,7 +72,7 @@ async function payCheckout(plan,btn){
     payPollT=setInterval(billingSync, 5000);
     setTimeout(()=>{ if(payPollT){ clearInterval(payPollT); payPollT=null; } }, 10*60*1000);
   }catch(e){ showErr(e, 'Não consegui abrir o checkout'); }
-  finally{ if(btn){ btn.disabled=false; btn.textContent='Começar o teste'; } }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=btnTx; } }
 }
 async function payPortal(btn){
   if(btn){ btn.disabled=true; }
