@@ -322,6 +322,59 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
     return { ok: true, applied: done };
   },
 
+  // Landing (starfork.com.br): leads e funil — tabelas site_leads (0027) e site_events (0028).
+  async "site.leads"(sql, b) {
+    const kind = str(b, "kind");
+    const open = b["open"] === true;
+    return await sql`
+      select id, created_at, kind, name, email, company, team_size, concern, message, utm, handled_at
+      from site_leads
+      where (${kind} = '' or kind = ${kind}) and (${!open} or handled_at is null)
+      order by created_at desc limit 500`;
+  },
+
+  async "site.lead.handle"(sql, b) {
+    const id = str(b, "id");
+    if (!uuid(id)) throw new Error("id inválido");
+    const done = b["done"] !== false;
+    await sql`update site_leads set handled_at = ${done ? sql`now()` : null} where id = ${id}`;
+    return { ok: true };
+  },
+
+  async "site.funnel"(sql, b) {
+    const days = Math.min(365, Math.max(1, num(b, "days", 30)));
+    const since = sql`now() - make_interval(days => ${days})`;
+    // pessoas (anon_id distintos) por etapa
+    const steps = await sql`
+      select name, count(distinct anon_id)::int as people, count(*)::int as events
+      from site_events where at > ${since} group by name`;
+    // por origem: quem chegou (page_view) e quem criou conta (signup_done), pela utm da 1ª visita
+    const bySource = await sql`
+      select coalesce(nullif(utm->>'source', ''), case when utm->>'ref' is not null then 'referência' else 'direto' end) as source,
+             count(distinct anon_id) filter (where name = 'page_view')::int as visits,
+             count(distinct anon_id) filter (where name = 'cta_click')::int as cta,
+             count(distinct anon_id) filter (where name = 'signup_done')::int as signups,
+             count(distinct anon_id) filter (where name = 'download_click')::int as downloads,
+             count(distinct anon_id) filter (where name = 'lead_submit')::int as leads
+      from site_events where at > ${since} group by 1 order by visits desc limit 30`;
+    const ctaBy = await sql`
+      select props->>'local' as local, count(*)::int as clicks
+      from site_events where name = 'cta_click' and at > ${since} group by 1 order by 2 desc`;
+    // o que vira dinheiro: contas criadas pelo site × assinatura (trial/ativa) na tabela billing
+    const [acc] = await sql`
+      select count(*)::int as accounts,
+             count(*) filter (where bl.status = 'trialing')::int as trialing,
+             count(*) filter (where bl.status = 'active')::int as active
+      from auth.users u left join billing bl on bl.user_id = u.id
+      where u.raw_user_meta_data->>'origem' = 'site' and u.created_at > ${since}`;
+    const daily = await sql`
+      select d::date as day,
+             (select count(distinct anon_id) from site_events e where e.name = 'page_view' and e.at::date = d::date)::int as visits,
+             (select count(distinct anon_id) from site_events e where e.name = 'signup_done' and e.at::date = d::date)::int as signups
+      from generate_series((now() - make_interval(days => ${days}))::date, now()::date, '1 day') d order by 1`;
+    return { days, steps, bySource, ctaBy, accounts: acc, daily };
+  },
+
   async "billing.list"(sql) {
     const rows = await sql`
       select bl.user_id, p.email, p.name, bl.plan, bl."interval", bl.status, bl.seats, bl.trial_end, bl.current_period_end,

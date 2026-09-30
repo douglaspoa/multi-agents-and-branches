@@ -110,8 +110,17 @@ async function auAfterSession(){
   try{ await cloudLoad(); }catch(_){ }
   try{ cloudBtnSync(); }catch(_){ }
   try{ await billingSync(); }catch(_){ }
-  if(typeof billingOn!=='undefined' && billingOn && !billingActive()){ auShow('plans'); return; }
+  if(typeof billingOn!=='undefined' && billingOn && !billingActive()){ auPlanFromSite(); auShow('plans'); return; }
   auShow('ready');
+}
+// conta criada pelo site (starfork.com.br/comecar): o plano e o ciclo escolhidos lá vêm no user_metadata —
+// a tela de planos já abre neles (a pessoa só confirma e vai pro teste grátis).
+function auPlanFromSite(){
+  try{
+    const m=(SB.sess()&&SB.sess().user&&SB.sess().user.user_metadata)||{};
+    if(m.plano_desejado==='individual'||m.plano_desejado==='team') au.plan.key=m.plano_desejado;
+    if(m.ciclo_desejado==='ano') au.plan.interval='year'; else if(m.ciclo_desejado==='mes') au.plan.interval='month';
+  }catch(_){ }
 }
 function auOAuthBtns(dis, compact){
   return ['github','google'].map(p=>{ const n=p==='github'?'GitHub':'Google';
