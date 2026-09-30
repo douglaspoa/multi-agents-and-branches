@@ -25,9 +25,6 @@ on:
         description: "Publicar a release pública (latest)? false = só builda e valida"
         type: boolean
         default: false
-  push:
-    branches:
-      - ci/windows-e-downloads # TEMPORÁRIO: validar (publicar vazio = false) antes do merge
 
 permissions:
   contents: write
