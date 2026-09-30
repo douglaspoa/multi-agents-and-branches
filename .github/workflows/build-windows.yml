@@ -10,6 +10,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - ci/windows-e-downloads # TEMPORÁRIO: validar antes do merge (workflow_dispatch só vale no main)
 
 jobs:
   windows:
