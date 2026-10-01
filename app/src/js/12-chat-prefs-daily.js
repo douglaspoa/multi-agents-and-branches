@@ -77,7 +77,7 @@ async function pcSend(){
   try{
     const hist=pcMsgs(key).slice(0,-1).filter(m=>m.role!=='sys'); // aviso/erro NUNCA volta pro modelo como se fosse fala
     const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ prompt:pr, sessionId:sid||'', model:aiClaudeModel() }), lsGet(sidKey)||'', text+attPromptBlock(atts), hist);
-    if(r.sessionId) lsSet(sidKey, r.sessionId);
+    aiKeepSid(r, s=>lsSet(sidKey, s));
     const ms2=pcMsgs(key);
     if(r.recovered) ms2.push({role:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     ms2.push({role:'assistant',text:r.text||'(sem resposta)'}); pcSave(ms2,key);
@@ -102,7 +102,10 @@ async function pcToTask(){
   const repo=state.repo||'';
   pcToTaskBusy=true; pcToTaskRepo=repo; pcRender(); // o botão visível (pcTask2) mostra "montando a tarefa…" — antes só o botão escondido mudava
   try{
-    const r=await invoke('project_chat',{ model:aiClaudeModel(), prompt:'Com base APENAS na nossa conversa até aqui, monte a especificação de UMA tarefa executável. Responda SOMENTE um bloco ```json com {"title":"verbo + objeto (máx 60 chars)","objective":"o que fazer, onde e por quê (3-6 frases)","requirements":["critérios de aceite objetivos"]} — nada fora do bloco.', sessionId: lsGet('pcsid:'+repo)||'' });
+    // pela mesma porta das rodadas (aiCallResumeSafe): gateway e sessão perdida/de outra IA levam o histórico
+    const hist=pcMsgs().filter(m=>m.role!=='sys');
+    const r=await aiCallResumeSafe((pr,sid)=>invoke('project_chat',{ model:aiClaudeModel(), prompt:pr, sessionId:sid||'' }), lsGet('pcsid:'+repo)||'', 'Com base APENAS na nossa conversa até aqui, monte a especificação de UMA tarefa executável. Responda SOMENTE um bloco ```json com {"title":"verbo + objeto (máx 60 chars)","objective":"o que fazer, onde e por quê (3-6 frases)","requirements":["critérios de aceite objetivos"]} — nada fora do bloco.', hist);
+    aiKeepSid(r, s=>lsSet('pcsid:'+repo, s));
     const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i) || (r.text||'').match(/\{[\s\S]*"objective"[\s\S]*\}/);
     const spec=JSON.parse(m?(m[1]||m[0]):r.text);
     if(!spec || typeof spec!=='object' || Array.isArray(spec)) throw new SyntaxError('spec não é objeto'); // null/"texto" passavam e quebravam no .title

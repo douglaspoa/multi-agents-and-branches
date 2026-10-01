@@ -108,6 +108,7 @@ function suaIaCardHtml(s, opts, shortest, ob){
     <div class="suaia-head"><span class="aiic" style="color:${e.color}">${e.icon||''}</span><b class="suaia-name">${esc(name)}</b>${s.id==='deepseek'?'<span class="suaia-tag">beta</span>':''}
       <span class="suaia-st ${s.ready?'ok':'bad'}" title="${escA(s.reason||'')}">${s.ready?'● ':'○ '}${esc(suaIaStateText(s))}</span>${isDef?'<span class="suaia-tag def">padrão</span>':''}${picked?'<span class="suaia-tag def">✓ escolhida</span>':''}</div>
     <div class="suaia-why">${esc(s.reason||'')}${note}</div>
+    ${SUAIA_SECRET_NOTE[s.id]?`<div class="suaia-secret dim" data-suaia-secret="${s.id}">⚠ ${esc(SUAIA_SECRET_NOTE[s.id])}</div>`:''}
     ${s.ready?'':suaIaFixesHtml(s.fixes)}${gwCfg}${suaIaKeyHtml(s, hk)}
     <div class="suaia-row">
       <select class="in suaia-model" data-samodel="${s.id}" aria-label="modelo do ${escA(name)}">${models.map(m=>`<option value="${escA(m.id)}"${m.id===model?' selected':''}>${esc(m.name)}</option>`).join('')}</select>
@@ -120,6 +121,14 @@ function suaIaCardHtml(s, opts, shortest, ob){
     ${msg?`<div class="suaia-out ${msg.ok?'ok':'bad'}" role="status" title="${escA(msg.raw||'')}">${esc(msg.text)}</div>`:''}
   </div>`;
 }
+// Fora do Claude o "modo protegido" (deny de .env/chaves do claude) não existe: o sandbox só-leitura do Codex e o do
+// dsh não têm lista de caminhos proibidos pra LEITURA — o chat só pede no prompt pra não ler. Aviso visível no cartão.
+// O gateway não lê arquivo nenhum (sem ferramentas), mas recebe o que você escrever na conversa.
+const SUAIA_SECRET_NOTE={
+  codex:'Fora do Claude, a IA dos chats consegue ler arquivos como .env do projeto (o Codex só-leitura não bloqueia caminhos) — o app pede pra ela não ler, mas não impede.',
+  deepseek:'Fora do Claude, a IA dos chats consegue ler arquivos como .env do projeto (o DeepSeek só-leitura não bloqueia caminhos) — o app pede pra ela não ler, mas não impede.',
+  gateway:'Fora do Claude, os chats não leem arquivos do projeto pelo gateway — mas tudo o que você escrever na conversa vai pro gateway.',
+};
 // HTML do painel inteiro (sem efeitos) — opts.ctx: 'cfg' | 'onboarding'; opts.hk: chave única do container
 function suaIaHtml(list, opts){
   opts=opts||{};

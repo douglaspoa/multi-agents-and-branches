@@ -788,7 +788,21 @@ fn output_stoppable(cmd: Command, secs: u64, slot: &'static std::sync::atomic::A
 static KEYED_PIDS: std::sync::Mutex<Option<std::collections::HashMap<String, i32>>> = std::sync::Mutex::new(None);
 fn keyed_set(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { g.get_or_insert_with(Default::default).insert(key.to_string(), pid); } }
 fn keyed_clear(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { if let Some(m) = g.as_mut() { if m.get(key) == Some(&pid) { m.remove(key); } } } }
+/// Quando cada "parar" foi pedido (por chave de pedido ou slot de tela) — os chats fora do Claude consultam antes
+/// de abrir um processo novo (ex.: a 2ª tentativa do Codex depois de o modelo ser recusado).
+static STOP_AT: std::sync::Mutex<Option<std::collections::HashMap<String, std::time::Instant>>> = std::sync::Mutex::new(None);
+fn stop_mark(id: &str) {
+    let mut g = STOP_AT.lock().unwrap_or_else(|e| e.into_inner());
+    let m = g.get_or_insert_with(Default::default);
+    m.retain(|_, t| t.elapsed() < std::time::Duration::from_secs(3600)); // não cresce pra sempre
+    m.insert(id.to_string(), std::time::Instant::now());
+}
+fn stop_requested_since(id: &str, since: std::time::Instant) -> bool {
+    STOP_AT.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(id).copied()).is_some_and(|t| t >= since)
+}
+fn slot_stop_id(slot: &std::sync::atomic::AtomicI32) -> String { format!("slot:{:p}", slot as *const _) }
 fn stop_keyed(key: &str) -> bool {
+    stop_mark(key);
     let pid = KEYED_PIDS.lock().ok().and_then(|mut g| g.as_mut().and_then(|m| m.remove(key)));
     match pid { Some(p) if p > 0 => { signal_group(p, procsig::KILL); true } _ => false }
 }
@@ -819,6 +833,7 @@ fn output_stoppable_with(mut cmd: Command, secs: u64, stopped: &str, on_start: &
     Ok(out)
 }
 fn stop_slot(slot: &std::sync::atomic::AtomicI32) -> bool {
+    stop_mark(&slot_stop_id(slot));
     let pid = slot.swap(0, std::sync::atomic::Ordering::SeqCst);
     if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
@@ -3915,9 +3930,11 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let sys = "Você é o ORQUESTRADOR do Starfork. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
     // memória do projeto (índice + notas relevantes ao briefing): o orquestrador não começa do zero
     let sys = memoria::with_memory(sys, &repo, &briefing);
+    // chave por pedido (req_id do front): duas abas "Dividir" montando plano ao mesmo tempo, o parar de uma não derruba a
+    // outra; sem req_id, uma chave ÚNICA (antes todas caíam em "orq-plan:" e se derrubavam)
+    let key = orq_plan_key(req_id);
     let eng = ai_once::chat_engine()?;
     if eng != ai_once::AiEngine::Claude {
-        let key = format!("orq-plan:{}", req_id.unwrap_or_default());
         return chat_other(eng, &sys, &briefing, &None, &repo, ORQ_PLAN_SECS, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}).map(|c| c.text);
     }
     let claude = claude_bin();
@@ -3938,11 +3955,16 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // parável (orq_plan_stop → ORQ_PLAN_STOPPED): antes eram até 5 min de "montando o plano" sem saída
-    // chave por pedido (req_id do front): duas abas "Dividir" montando plano ao mesmo tempo, o parar de uma não derruba a outra
-    let key = format!("orq-plan:{}", req_id.unwrap_or_default());
     let out = output_stoppable_keyed(cmd, ORQ_PLAN_SECS, &key, "ORQ_PLAN_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(v["result"].as_str().unwrap_or("").to_string())
+}
+fn orq_plan_key(req_id: Option<String>) -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    match req_id.map(|r| r.trim().to_string()).filter(|r| !r.is_empty()) {
+        Some(r) => format!("orq-plan:{r}"),
+        None => format!("orq-plan:~anon-{}-{}", now_ms(), SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst)),
+    }
 }
 /// Prazo do ai_orchestrate — o front mostra o mesmo número (ORQ_PLAN_SECS em 34-orquestrador.js).
 const ORQ_PLAN_SECS: u64 = 300;
@@ -4232,15 +4254,19 @@ enum ChatStop<'a> {
 #[allow(clippy::too_many_arguments)]
 fn chat_other(eng: ai_once::AiEngine, sys: &str, prompt: &str, session_id: &Option<String>, cwd: &Path, secs: u64, stop: ChatStop, marker: &str, activity: &dyn Fn(String)) -> Result<AiChat, String> {
     use std::sync::atomic::Ordering;
+    let started = std::time::Instant::now();
+    let stop_id = match &stop { ChatStop::Slot(s) => slot_stop_id(s), ChatStop::Key(k) => k.to_string() };
     let on_start = |pid: i32| match &stop { ChatStop::Slot(s) => s.store(pid, Ordering::SeqCst), ChatStop::Key(k) => keyed_set(k, pid) };
     let on_end = |pid: i32| match &stop { ChatStop::Slot(s) => { let _ = s.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst); } ChatStop::Key(k) => keyed_clear(k, pid) };
     // parado = o *_stop tirou o MEU pid do slot/chave
     let stopped = |pid: i32| match &stop {
         ChatStop::Slot(s) => s.load(Ordering::SeqCst) != pid,
-        ChatStop::Key(k) => KEYED_PIDS.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(*k).copied())) != Some(pid),
+        ChatStop::Key(k) => KEYED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(*k).copied()) != Some(pid),
     };
+    // "parar" pedido DEPOIS que esta rodada começou (mesmo sem processo vivo no momento — ex.: entre duas tentativas)
+    let cancelled = || stop_requested_since(&stop_id, started);
     let t = ai_once::ChatTurn { sys, prompt, session_id: session_id.as_deref(), cwd, secs };
-    let h = ai_once::ChatHooks { activity, on_start: &on_start, on_end: &on_end, stopped: &stopped, stop_marker: marker };
+    let h = ai_once::ChatHooks { activity, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: marker };
     ai_once::chat_turn(eng, &t, &h).map(|o| AiChat { text: o.text, session_id: o.session_id })
 }
 /// Emite a linha de atividade da tela (planner-activity / project-chat-activity) — mesmo formato do stream do Claude.
@@ -4249,6 +4275,63 @@ fn emit_activity(app: &tauri::AppHandle, event: &str) -> impl Fn(String) {
     let (app, event) = (app.clone(), event.to_string());
     move |line: String| { let _ = app.emit(&event, serde_json::json!({ "line": line })); }
 }
+#[cfg(all(test, unix))]
+mod chat_other_tests {
+    use super::*;
+    use crate::ai_once::tests::{fake_codex_chat, tmpdir, EnvGuard};
+    use std::sync::atomic::Ordering;
+
+    /// IA padrão Codex (falso, travando 30 s) num HOME temporário.
+    fn setup(tag: &str) -> (std::sync::MutexGuard<'static, ()>, PathBuf, PathBuf, EnvGuard) {
+        let lock = crate::ai_once::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tmpdir(&format!("{tag}-home"));
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
+        let d = tmpdir(tag);
+        let bin = fake_codex_chat(&d, "sleep");
+        let g = EnvGuard::set(&[("HOME", home.display().to_string().as_str()), ("CARDUME_CODEX", bin.as_str()), ("CARDUME_CLAUDE", "/nao/existe/claude")]);
+        crate::ai_once::clear_avail_cache();
+        (lock, home, d, g)
+    }
+    fn wait_until(f: impl Fn() -> bool) { for _ in 0..200 { if f() { return; } std::thread::sleep(std::time::Duration::from_millis(25)); } panic!("não aconteceu a tempo"); }
+
+    #[test]
+    fn chat_other_parar_pelo_slot_devolve_o_marcador_da_tela() {
+        let (_l, home, d, _g) = setup("chatother-slot");
+        let t0 = std::time::Instant::now();
+        let r = std::thread::scope(|sc| {
+            let h = sc.spawn(|| chat_other(ai_once::AiEngine::Codex, "PLANNER", "oi", &None, &d, 60, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &|_| {}));
+            wait_until(|| PLANNER_PID.load(Ordering::SeqCst) > 0);
+            assert!(ai_chat_stop(), "o parar do planner acha o processo");
+            h.join().unwrap()
+        });
+        assert_eq!(r.err().as_deref(), Some("PLANNER_STOPPED"));
+        assert!(t0.elapsed() < std::time::Duration::from_secs(10));
+        assert_eq!(PLANNER_PID.load(Ordering::SeqCst), 0);
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn chat_other_parar_pela_chave_e_chave_unica_sem_req_id() {
+        let (_l, home, d, _g) = setup("chatother-key");
+        let key = orq_plan_key(Some("teste-chave".into()));
+        assert_eq!(key, "orq-plan:teste-chave");
+        assert_ne!(orq_plan_key(None), orq_plan_key(None), "sem req_id cada pedido tem a sua chave");
+        let r = std::thread::scope(|sc| {
+            let h = sc.spawn(|| chat_other(ai_once::AiEngine::Codex, "ORQ", "plano", &None, &d, 60, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}));
+            wait_until(|| KEYED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|m| m.contains_key(&key)));
+            assert!(orq_plan_stop("teste-chave".into()).unwrap());
+            h.join().unwrap()
+        });
+        assert_eq!(r.err().as_deref(), Some("ORQ_PLAN_STOPPED"));
+        // "parar" já pedido antes da rodada nascer não vale pra rodada NOVA (só pras que já tinham começado)
+        assert!(!stop_requested_since(&key, std::time::Instant::now()));
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
 /// Motor do chat; no Claude, a sessão é validada (id de outro motor → "sessão não encontrada", o front reenvia o histórico).
 fn chat_pick(session_id: &Option<String>) -> Result<ai_once::AiEngine, String> {
     let eng = ai_once::chat_engine()?;
@@ -4259,8 +4342,7 @@ fn chat_pick(session_id: &Option<String>) -> Result<ai_once::AiEngine, String> {
 /// PARA a resposta em andamento do planner ("montar conversando"): mata o grupo do claude.
 #[tauri::command(async)]
 fn ai_chat_stop() -> bool {
-    let pid = PLANNER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
+    stop_slot(&PLANNER_PID) // mesmo efeito de antes + registra o pedido (chats fora do Claude não abrem processo novo)
 }
 
 /// Planner conversando. Roda o claude em stream-json e, a cada tool_use, emite `planner-activity`
@@ -4970,8 +5052,7 @@ static ISSUE_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI
 /// PARA a pesquisa em andamento da aba "Nova issue" (mata o grupo do claude).
 #[tauri::command(async)]
 fn issue_chat_stop() -> bool {
-    let pid = ISSUE_CHAT_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
+    stop_slot(&ISSUE_CHAT_PID) // mesmo efeito de antes + registra o pedido (chats fora do Claude não abrem processo novo)
 }
 
 const ISSUE_CHAT_PROMPT: &str = r#"Você monta ISSUES pro painel do time conversando com o dev, em português, no projeto aberto nesta pasta. O dev manda UMA ideia ou uma LISTA (várias linhas = várias issues). Seu trabalho é FECHAR AS ARESTAS de cada uma antes de criar: PESQUISE o código de verdade (Read/Grep/Glob/LS, git log/show/grep) — onde isso mora, o que já existe, o que está faltando, qual a causa provável — com PARCIMÔNIA (poucas leituras direcionadas por issue, nunca varredura do repo). Você NÃO edita nada.

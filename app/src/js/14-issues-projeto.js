@@ -691,6 +691,26 @@ function trkNIContext(){
     epicSupport:trkParentSupport(),
     existing:trkIssues.filter(i=>(trkStatus(i.status)||{}).kind!=='done').slice(0,60).map(i=>i.code+' '+i.title) });
 }
+// @trk-ni-call-inicio
+// UMA rodada do chat "Nova issue" (sessão/histórico pela porta única aiCallResumeSafe — gateway e sessão perdida/de
+// outra IA levam o histórico), com o reenvio do JSON quebrado e, se ele falhar, a resposta já recebida (só o "say").
+async function trkNICall(n, prompt){
+  const r=await aiCallResumeSafe((pr,sid)=>invoke('issue_chat',{ prompt:pr, sessionId:sid||'', repo:n.project.path, model:aiClaudeModel(), context:trkNIContext() }), n.sid, prompt, n.msgs.slice(0,-1));
+  aiKeepSid(r, s=>{ n.sid=s; });
+  let obj=trkParseJson(r.text);
+  if(!obj && /"say"|"issues"/.test(r.text||'') && !n.stop){ // veio JSON quebrado: pede UMA vez pra reenviar limpo (mesma sessão, sem pesquisar de novo)
+    // pela mesma porta (gateway/sessão perdida levam o histórico — com a resposta quebrada, que é o que ela deve reenviar);
+    // se o reenvio falhar, fica a resposta que já chegou (só o "say", abaixo)
+    try{
+      const r2=await aiCallResumeSafe((pr,sid)=>invoke('issue_chat',{ prompt:pr, sessionId:sid||'', repo:n.project.path, model:aiClaudeModel(), context:trkNIContext() }), n.sid, '[SISTEMA: sua última resposta NÃO era um JSON válido (provável: bloco ``` dentro de uma string, aspas sem escape ou quebra de linha crua). Reenvie EXATAMENTE o mesmo conteúdo como UM bloco ```json válido — dentro das strings use \\n para quebra de linha, escape as aspas, e NUNCA use cercas ``` (use `crase simples`). Não pesquise de novo.]', [...n.msgs, { who:'bot', text:r.text||'' }]);
+      aiKeepSid(r2, s=>{ n.sid=s; }); obj=trkParseJson(r2.text); if(obj) return { obj, text:r2.text };
+    }catch(e){ if(n.stop || /ISSUE_CHAT_STOPPED/.test(String(e&&e.message||e))) throw e; console.error('issue_chat: reenvio do JSON falhou', String(e&&e.message||e).slice(0,160)); }
+  }
+  // nunca despeja JSON cru no chat: se der pra salvar o "say", mostra só ele
+  let text=r.text||''; if(!obj){ const m=text.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)"/); if(m){ try{ text=JSON.parse('"'+m[1]+'"'); }catch(_){ text=m[1]; } text+='\n\n_(a resposta veio num formato que não consegui ler por inteiro — os cartões podem não ter atualizado; peça "reenvie" se faltar algo)_'; } }
+  return { obj, text };
+}
+// @trk-ni-call-fim
 async function trkNISend(text, silent){
   const n=trkNI; if(n.running) return; text=String(text||'').trim();
   const atts=(n.busy||silent)?[]:n.pend.splice(0);
@@ -711,18 +731,7 @@ async function trkNISend(text, silent){
     text=only?n.pendingText:((n.pendingText?n.pendingText+'\n':'')+text); n.pendingText='';
   }
   n.busy=true; n.stop=false; n.prog=''; n.redirect=''; n.notes=[]; trkNIRender();
-  const call0=async(prompt)=>{
-    const r=await aiCallResumeSafe((pr,sid)=>invoke('issue_chat',{ prompt:pr, sessionId:sid||'', repo:n.project.path, model:aiClaudeModel(), context:trkNIContext() }), n.sid, prompt, n.msgs.slice(0,-1));
-    n.sid=r.sessionId||(r&&r.recovered?'':n.sid);
-    let obj=trkParseJson(r.text);
-    if(!obj && /"say"|"issues"/.test(r.text||'') && !n.stop){ // veio JSON quebrado: pede UMA vez pra reenviar limpo (mesma sessão, sem pesquisar de novo)
-      const r2=await invoke('issue_chat',{ prompt:'[SISTEMA: sua última resposta NÃO era um JSON válido (provável: bloco ``` dentro de uma string, aspas sem escape ou quebra de linha crua). Reenvie EXATAMENTE o mesmo conteúdo como UM bloco ```json válido — dentro das strings use \\n para quebra de linha, escape as aspas, e NUNCA use cercas ``` (use `crase simples`). Não pesquise de novo.]', sessionId:n.sid||'', repo:n.project.path, model:aiClaudeModel(), context:trkNIContext() });
-      n.sid=r2.sessionId||n.sid; obj=trkParseJson(r2.text); if(obj) return { obj, text:r2.text };
-    }
-    // nunca despeja JSON cru no chat: se der pra salvar o "say", mostra só ele
-    let text=r.text||''; if(!obj){ const m=text.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)"/); if(m){ try{ text=JSON.parse('"'+m[1]+'"'); }catch(_){ text=m[1]; } text+='\n\n_(a resposta veio num formato que não consegui ler por inteiro — os cartões podem não ter atualizado; peça "reenvie" se faltar algo)_'; } }
-    return { obj, text };
-  };
+  const call0=(prompt)=>trkNICall(n, prompt);
   // interrompido com info nova → refaz a MESMA chamada com a info na frente (o turno morto não entrou na sessão)
   const call=async(prompt)=>{ for(;;){
     const pre=n.notes.length?'[INFO NOVA DO DEV, chegou no meio da pesquisa — vale daqui pra frente e pode MUDAR O RUMO (se mudar algo já montado, avise no say):\n- '+n.notes.join('\n- ')+']\n\n':'';

@@ -12,8 +12,13 @@
 //!             (DSH_PERMISSION_MODE=read-only), prompt no STDIN, só a DEEPSEEK_API_KEY no env (nunca no argv);
 //!             resposta = texto do evento `final`. Modelo: `aiModel`, senão deepseek-flash (rápido) / deepseek-v4-pro (capaz).
 //!
-//! Motor escolhido indisponível → o primeiro disponível na ordem claude, codex, gateway, deepseek; nenhum → erro
-//! humano dizendo o que instalar/configurar. Os chats de várias rodadas usam a MESMA escolha via `chat_turn` (abaixo).
+//! Motor escolhido indisponível → o primeiro disponível na ordem claude, codex, gateway (o DeepSeek NUNCA é fallback:
+//! só roda quando é a IA escolhida); nenhum → erro humano dizendo o que instalar/configurar.
+//!
+//! CHATS DE VÁRIAS RODADAS (planner, chat do projeto, issues, orquestrador, mesa): a mesma escolha via `chat_engine`.
+//! Com Claude, cada tela (lib.rs/mesa.rs) segue no caminho PRÓPRIO de sempre (mesmos argumentos do claude); os outros
+//! motores rodam por `chat_turn` (seção "chats de várias rodadas" abaixo): Codex/dsh só-leitura com sessão, gateway
+//! sem sessão (o front reenvia o histórico).
 //! Golden compartilhado com o motor TS (src/ai-once.ts): tests/fixtures/ai-once-golden/.
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -840,11 +845,12 @@ pub(crate) const SESSION_LOST_MSG: &str = "session not found — a conversa ante
 /// Sessão do gateway: não existe do lado dele — o front manda o histórico a cada rodada.
 pub(crate) const GATEWAY_SID: &str = "gateway:historico";
 
-/// O texto CRU de um motor diz que a sessão a retomar não existe (Codex: "no rollout found"; dsh: `session "x" does not
-/// exist` / gravada noutra pasta; Claude: "No conversation found").
+/// O texto CRU de um motor diz que a sessão a retomar não existe — SÓ as mensagens específicas de cada CLI (Codex:
+/// "no rollout found for thread id"; dsh: `session "x" does not exist` / gravada noutra pasta; Claude: "No conversation
+/// found with session ID"). Nada genérico ("MCP session config not found" não é sessão perdida). Espelho: AI_SESSION_LOST_RE (10-core.js).
 pub(crate) fn session_lost_raw(raw: &str) -> bool {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r#"(?i)no rollout found|thread/resume failed|session "[^"]*" (does not exist|was recorded in|recorded no working directory)|no conversation found|session (id )?.{0,60}not found|could not find session"#).unwrap()).is_match(raw)
+    RE.get_or_init(|| regex::Regex::new(r#"(?i)no rollout found for thread|thread/resume failed|session "[^"\n]{0,200}" (does not exist|was recorded in|recorded no working directory)|no conversation found with session"#).unwrap()).is_match(raw)
 }
 
 fn sid_tag(e: AiEngine) -> &'static str {
@@ -890,7 +896,16 @@ pub(crate) struct ChatHooks<'a> {
     pub on_start: &'a dyn Fn(i32),
     pub on_end: &'a dyn Fn(i32),
     pub stopped: &'a dyn Fn(i32) -> bool,
+    /// o usuário pediu "parar" desde que esta rodada começou (mesmo sem processo vivo — ex.: entre a recusa do modelo
+    /// e a 2ª tentativa do Codex): nenhum processo novo nasce, e um que nasça nesse instante morre na hora
+    pub cancelled: &'a dyn Fn() -> bool,
     pub stop_marker: &'a str,
+}
+impl AiEngine {
+    /// id do seletor do app (claude | codex | deepseek | gateway)
+    pub(crate) fn id(self) -> &'static str {
+        match self { AiEngine::Claude => "claude", AiEngine::Codex => "codex", AiEngine::Deepseek => "deepseek", AiEngine::Gateway => "gateway" }
+    }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ChatOut {
@@ -901,10 +916,33 @@ pub(crate) struct ChatOut {
     pub out_tok: u64,
 }
 
-/// Prompt único pro codex/dsh (não há --append-system-prompt): as instruções da tela vão INTEIRAS a cada rodada
-/// (o plano/cérebro mudam entre rodadas), com a regra de só-leitura.
+const CHAT_RO_RULE: &str = "Você está em modo SÓ-LEITURA: pode ler o projeto nesta pasta, mas NÃO edita arquivos nem roda comandos que alterem estado, e não lê arquivos de segredo (.env, chaves).";
+/// Prompt único pro codex/dsh (não há --append-system-prompt), numa sessão NOVA ou quando as instruções da tela
+/// mudaram (plano/cérebro mudam entre rodadas): instruções inteiras + regra de só-leitura + mensagem.
 pub(crate) fn chat_prompt(sys: &str, prompt: &str) -> String {
-    format!("<instrucoes>\n{}\n</instrucoes>\n\nSiga as instruções acima à risca, inclusive o FORMATO da resposta. Você está em modo SÓ-LEITURA: pode ler o projeto nesta pasta, mas NÃO edita arquivos nem roda comandos que alterem estado, e não lê arquivos de segredo (.env, chaves).\n\nMENSAGEM:\n{}", sys.trim(), prompt)
+    format!("<instrucoes>\n{}\n</instrucoes>\n\nSiga as instruções acima à risca, inclusive o FORMATO da resposta. {CHAT_RO_RULE}\n\nMENSAGEM:\n{}", sys.trim(), prompt)
+}
+/// Rodada retomada com as MESMAS instruções que a sessão já tem: só a mensagem (e a regra de só-leitura).
+pub(crate) fn chat_prompt_short(prompt: &str) -> String {
+    format!("(Siga as instruções do início desta conversa, inclusive o FORMATO da resposta. {CHAT_RO_RULE})\n\nMENSAGEM:\n{prompt}")
+}
+/// Hash das instruções já mandadas em cada sessão ("codex:<id>"/"dsh:<id>") — só em memória: app reaberto = manda
+/// as instruções de novo uma vez (inofensivo).
+static SYS_SENT: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+fn sys_hash(sys: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    sys.trim().hash(&mut h);
+    h.finish()
+}
+/// O que vai no STDIN: instruções inteiras só em sessão nova ou se mudaram desde a última rodada DESSA sessão.
+fn chat_input(tagged_sid: Option<&str>, sys: &str, prompt: &str) -> String {
+    let same = tagged_sid.is_some_and(|s| SYS_SENT.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(s).copied()) == Some(sys_hash(sys)));
+    if same { chat_prompt_short(prompt) } else { chat_prompt(sys, prompt) }
+}
+fn sys_remember(tagged_sid: &str, sys: &str) {
+    if tagged_sid.is_empty() { return; }
+    SYS_SENT.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(tagged_sid.to_string(), sys_hash(sys));
 }
 
 /// Evento de uma linha JSONL dos motores, já no formato da tela.
@@ -945,9 +983,6 @@ pub(crate) fn codex_events(line: &str, seen: &mut std::collections::HashSet<Stri
     let item = &v["item"];
     let it = item["type"].as_str().unwrap_or("");
     if !matches!(it, "command_execution" | "web_search" | "mcp_tool_call") { return vec![]; }
-    let id = item["id"].as_str().unwrap_or("").to_string();
-    if id.is_empty() && t != "item.started" { return vec![]; }
-    if !id.is_empty() && !seen.insert(id) { return vec![]; }
     let line = match it {
         "command_execution" => {
             let c = &item["command"];
@@ -958,6 +993,9 @@ pub(crate) fn codex_events(line: &str, seen: &mut std::collections::HashSet<Stri
         "web_search" => crate::tool_line("websearch", &serde_json::json!({ "query": item["query"].as_str().unwrap_or("") })),
         _ => crate::tool_line(item["tool"].as_str().unwrap_or("tool"), &item["arguments"]),
     };
+    // UMA linha por item: pelo id; item sem id (started e/ou completed) → pela própria linha
+    let id = item["id"].as_str().filter(|s| !s.is_empty()).map(String::from).unwrap_or_else(|| format!("sem-id:{line}"));
+    if !seen.insert(id) { return vec![]; }
     vec![ChatEv::Activity(line)]
 }
 
@@ -979,47 +1017,74 @@ enum ProcErr {
     Spawn(std::io::Error),
     Stopped,
     Timeout,
+    /// morreu por sinal SEM o usuário ter parado (crash, OOM, kill de fora)
+    Crash,
 }
 struct ProcOut {
     status: std::process::ExitStatus,
     stdout: String,
     stderr: String,
 }
+/// Depois que o processo sai (ou é morto), quanto ainda esperamos o stdout/stderr fecharem: um neto fora do grupo
+/// segurando o pipe não pode prender a tela.
+const PIPE_GRACE: Duration = Duration::from_secs(2);
 /// Roda o processo num grupo próprio (o "parar" derruba a árvore), `input` no STDIN, lendo o stdout linha a linha
-/// (`on_line`) com teto de `secs`.
+/// (`on_line`) com teto de `secs`. Leitura LIMITADA: os pipes são lidos em threads soltas e a espera acaba no prazo
+/// (+PIPE_GRACE depois da saída). Parado = SÓ quando a tela parou (`stopped`/`cancelled`); morte por sinal sem isso =
+/// Crash; o prazo só vira Timeout se o processo ainda NÃO tinha saído quando o prazo venceu.
 fn run_proc(mut cmd: Command, input: Option<&str>, secs: u64, h: &ChatHooks, on_line: &mut dyn FnMut(&str)) -> Result<ProcOut, ProcErr> {
     use std::io::{BufRead, Read, Write};
+    use std::sync::mpsc::{channel, RecvTimeoutError};
+    if (h.cancelled)() { return Err(ProcErr::Stopped); }
     detach_new_group(&mut cmd);
     cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(ProcErr::Spawn)?;
     let pid = child.id() as i32;
     (h.on_start)(pid);
-    let stdin = child.stdin.take();
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let timed = AtomicBool::new(false);
-    let (tx, rx) = std::sync::mpsc::channel::<()>();
-    let (status, out, err) = std::thread::scope(|sc| {
-        if let (Some(mut w), Some(inp)) = (stdin, input) { sc.spawn(move || { let _ = w.write_all(inp.as_bytes()); }); }
-        let errh = sc.spawn(move || { let mut s = String::new(); if let Some(mut e) = stderr { let _ = e.read_to_string(&mut s); } s });
-        let timed = &timed;
-        sc.spawn(move || {
-            if rx.recv_timeout(Duration::from_secs(secs.max(1))).is_err() { timed.store(true, Ordering::SeqCst); signal_group(pid, procsig::KILL); }
-        });
-        let mut all = String::new();
-        if let Some(o) = stdout {
-            for line in std::io::BufReader::new(o).lines().map_while(Result::ok) { on_line(&line); all.push_str(&line); all.push('\n'); }
+    if (h.cancelled)() { signal_group(pid, procsig::KILL); } // o "parar" chegou entre a checagem e o registro do pid
+    if let (Some(mut w), Some(inp)) = (child.stdin.take(), input) {
+        let data = inp.as_bytes().to_vec();
+        std::thread::spawn(move || { let _ = w.write_all(&data); });
+    }
+    let (ltx, lrx) = channel::<String>();
+    if let Some(o) = child.stdout.take() {
+        std::thread::spawn(move || { for l in std::io::BufReader::new(o).lines().map_while(Result::ok) { if ltx.send(l).is_err() { break; } } });
+    } else { drop(ltx); }
+    let (etx, erx) = channel::<String>();
+    if let Some(mut e) = child.stderr.take() {
+        std::thread::spawn(move || { let mut s = String::new(); let _ = e.read_to_string(&mut s); let _ = etx.send(s); });
+    }
+    let deadline = Instant::now() + Duration::from_secs(secs.max(1));
+    let (mut all, mut status, mut exited_at, mut timed, mut eof) = (String::new(), None, None::<Instant>, false, false);
+    loop {
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(s)) => { status = Some(s); exited_at = Some(Instant::now()); }
+                Ok(None) => {}
+                Err(e) => { (h.on_end)(pid); return Err(ProcErr::Spawn(e)); }
+            }
         }
-        let st = child.wait();
-        let _ = tx.send(());
-        (st, all, errh.join().unwrap_or_default())
-    });
-    let was_stopped = (h.stopped)(pid);
+        if status.is_none() && !timed && Instant::now() >= deadline { timed = true; signal_group(pid, procsig::KILL); }
+        if eof {
+            if status.is_some() { break; }
+            std::thread::sleep(Duration::from_millis(50));
+            continue;
+        }
+        match lrx.recv_timeout(Duration::from_millis(100)) {
+            Ok(l) => { on_line(&l); all.push_str(&l); all.push('\n'); }
+            Err(RecvTimeoutError::Disconnected) => eof = true,
+            Err(RecvTimeoutError::Timeout) => { if exited_at.is_some_and(|t| t.elapsed() > PIPE_GRACE) { break; } }
+        }
+    }
+    let status = status.expect("loop só sai com o processo encerrado");
+    let err = erx.recv_timeout(PIPE_GRACE).unwrap_or_default();
+    let was_stopped = (h.stopped)(pid) || (h.cancelled)();
     (h.on_end)(pid);
-    let status = match status { Ok(s) => s, Err(e) => return Err(ProcErr::Spawn(e)) };
-    if timed.load(Ordering::SeqCst) { return Err(ProcErr::Timeout); }
-    if status.code().is_none() || (was_stopped && !status.success()) { return Err(ProcErr::Stopped); }
-    Ok(ProcOut { status, stdout: out, stderr: err })
+    if status.success() { return Ok(ProcOut { status, stdout: all, stderr: err }); } // terminou bem: nem prazo nem parar contam
+    if was_stopped { return Err(ProcErr::Stopped); }
+    if timed { return Err(ProcErr::Timeout); }
+    if status.code().is_none() { return Err(ProcErr::Crash); }
+    Ok(ProcOut { status, stdout: all, stderr: err })
 }
 
 /// Argumentos do Codex no chat: SÓ-LEITURA, sem aprovação, prompt pelo STDIN; retomando, `exec resume <id>` (que não
@@ -1030,6 +1095,9 @@ pub(crate) fn codex_chat_args(resume: Option<&str>, model: Option<&str>) -> Vec<
     a
 }
 
+pub(crate) const CODEX_CRASH_MSG: &str = "O Codex foi encerrado no meio da resposta (o processo caiu) — tente de novo.";
+pub(crate) const DSH_CRASH_MSG: &str = "O DeepSeek Harness foi encerrado no meio da resposta (o processo caiu) — tente de novo.";
+
 fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&str>, model: Option<&str>, deadline: Instant, h: &ChatHooks) -> Result<ChatOut, CodexFail> {
     let fail = |raw: &str, friendly: String| CodexFail { raw: raw.to_string(), friendly };
     let left = deadline.saturating_duration_since(Instant::now()).as_secs();
@@ -1038,7 +1106,7 @@ fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&s
     cmd.args(codex_chat_args(resume, model));
     let mut seen = std::collections::HashSet::new();
     let (mut sid, mut tin, mut tout) = (resume.map(String::from).unwrap_or_default(), 0u64, 0u64);
-    let input = chat_prompt(t.sys, t.prompt);
+    let input = chat_input(resume.map(|r| format!("codex:{r}")).as_deref(), t.sys, t.prompt);
     let r = run_proc(cmd, Some(&input), left, h, &mut |line| {
         for ev in codex_events(line, &mut seen) {
             match ev { ChatEv::Session(s) => sid = s, ChatEv::Activity(a) => (h.activity)(a), ChatEv::Usage(i, o) => { tin += i; tout += o; } }
@@ -1048,11 +1116,16 @@ fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&s
         Ok(o) => o,
         Err(ProcErr::Stopped) => return Err(fail("", h.stop_marker.to_string())),
         Err(ProcErr::Timeout) => return Err(fail("timeout", CODEX_TIMEOUT_MSG.into())),
+        Err(ProcErr::Crash) => return Err(fail("crash", CODEX_CRASH_MSG.into())),
         Err(ProcErr::Spawn(e)) if e.kind() == std::io::ErrorKind::NotFound => return Err(fail(&e.to_string(), CODEX_MISSING_MSG.into())),
         Err(ProcErr::Spawn(e)) => return Err(fail(&e.to_string(), format!("Não consegui rodar o Codex: {e}"))),
     };
     match codex_outcome(&out.stdout) {
-        (Some(text), _) => Ok(ChatOut { text, session_id: if sid.is_empty() { String::new() } else { format!("codex:{sid}") }, in_tok: tin, out_tok: tout }),
+        (Some(text), _) => {
+            let session_id = if sid.is_empty() { String::new() } else { format!("codex:{sid}") };
+            sys_remember(&session_id, t.sys);
+            Ok(ChatOut { text, session_id, in_tok: tin, out_tok: tout })
+        }
         (None, raw) => {
             let raw = raw.unwrap_or_else(|| out.stderr.trim().chars().take(400).collect());
             if resume.is_some() && (session_lost_raw(&raw) || session_lost_raw(&out.stderr)) { return Err(fail(&raw, SESSION_LOST_MSG.into())); }
@@ -1062,25 +1135,27 @@ fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&s
     }
 }
 
-/// Rodada no Codex com o retry de modelo recusado (a 2ª tentativa sem -m, no tempo que sobrou).
+/// Rodada no Codex com o retry de modelo recusado (a 2ª tentativa sem -m, no tempo que sobrou — e só se o usuário
+/// não parou no meio). Prazo = o da tela (`t.secs`).
 pub(crate) fn codex_chat(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&str>, user_model: Option<&str>, h: &ChatHooks) -> Result<ChatOut, String> {
-    let deadline = Instant::now() + Duration::from_secs(deadline_for(AiEngine::Codex, t.secs, None));
+    let deadline = Instant::now() + Duration::from_secs(t.secs.max(1));
     let (model, _) = codex_plan(Tier::Capaz, user_model);
     match codex_turn_once(bin, key, t, resume, model.as_deref(), deadline, h) {
         Err(f) if model.is_some() && codex_model_refused(&f.raw) => {
             codex_remember_refused(model.as_deref().unwrap_or(""));
+            if (h.cancelled)() { return Err(h.stop_marker.to_string()); }
             codex_turn_once(bin, key, t, resume, None, deadline, h).map_err(|f| f.friendly)
         }
         r => r.map_err(|f| f.friendly),
     }
 }
 
-/// Rodada no DeepSeek Harness (SÓ-LEITURA), retomando com `--session-id`.
+/// Rodada no DeepSeek Harness (SÓ-LEITURA), retomando com `--session-id`. Prazo = o da tela (`t.secs`).
 pub(crate) fn dsh_chat(bin: &str, key: &str, t: &ChatTurn, resume: Option<&str>, user_model: Option<&str>, h: &ChatHooks) -> Result<ChatOut, String> {
     let (cmd, files) = dsh_command(bin, key, Tier::Capaz, user_model, Some(t.cwd), resume)?;
     let (mut sid, mut tin, mut tout) = (resume.map(String::from).unwrap_or_default(), 0u64, 0u64);
-    let input = chat_prompt(t.sys, t.prompt);
-    let r = run_proc(cmd, Some(&input), deadline_for(AiEngine::Deepseek, t.secs, None), h, &mut |line| {
+    let input = chat_input(resume.map(|r| format!("dsh:{r}")).as_deref(), t.sys, t.prompt);
+    let r = run_proc(cmd, Some(&input), t.secs, h, &mut |line| {
         for ev in dsh_events(line) {
             match ev { ChatEv::Session(s) => sid = s, ChatEv::Activity(a) => (h.activity)(a), ChatEv::Usage(i, o) => { tin += i; tout += o; } }
         }
@@ -1090,11 +1165,16 @@ pub(crate) fn dsh_chat(bin: &str, key: &str, t: &ChatTurn, resume: Option<&str>,
         Ok(o) => o,
         Err(ProcErr::Stopped) => return Err(h.stop_marker.to_string()),
         Err(ProcErr::Timeout) => return Err(DSH_TIMEOUT_MSG.into()),
+        Err(ProcErr::Crash) => return Err(DSH_CRASH_MSG.into()),
         Err(ProcErr::Spawn(e)) if e.kind() == std::io::ErrorKind::NotFound => return Err(DSH_MISSING_MSG.into()),
         Err(ProcErr::Spawn(e)) => return Err(format!("Não consegui rodar o DeepSeek Harness: {e}")),
     };
     match dsh_outcome(&out.stdout) {
-        (Some(text), _) => Ok(ChatOut { text, session_id: if sid.is_empty() { String::new() } else { format!("dsh:{sid}") }, in_tok: tin, out_tok: tout }),
+        (Some(text), _) => {
+            let session_id = if sid.is_empty() { String::new() } else { format!("dsh:{sid}") };
+            sys_remember(&session_id, t.sys);
+            Ok(ChatOut { text, session_id, in_tok: tin, out_tok: tout })
+        }
         (None, raw) => {
             let stderr = out.stderr.replace("dsh: ", "");
             if resume.is_some() && (raw.as_deref().is_some_and(session_lost_raw) || session_lost_raw(&stderr)) { return Err(SESSION_LOST_MSG.into()); }
@@ -1110,19 +1190,28 @@ pub(crate) fn dsh_chat(bin: &str, key: &str, t: &ChatTurn, resume: Option<&str>,
 }
 
 /// Corpo do chat no gateway: instruções da tela como `system`, a mensagem (com o histórico, que o front põe) como `user`.
-pub(crate) fn gateway_chat_payload(model: &str, sys: &str, prompt: &str) -> String {
-    serde_json::json!({
-        "model": model, "max_tokens": 16000, "stream": false,
+/// `max_tokens` só quando `with_max` (gateway com teto menor recusa o 16000 → a 2ª tentativa vai sem).
+pub(crate) fn gateway_chat_payload(model: &str, sys: &str, prompt: &str, with_max: bool) -> String {
+    let mut v = serde_json::json!({
+        "model": model, "stream": false,
         "messages": [{ "role": "system", "content": sys }, { "role": "user", "content": prompt }]
-    }).to_string()
+    });
+    if with_max { v["max_tokens"] = serde_json::json!(16000); }
+    v.to_string()
+}
+/// O gateway recusou o `max_tokens` (teto de saída menor que 16000)? Olha a resposta CRUA de erro.
+pub(crate) fn gateway_max_tokens_refused(body: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body.trim()) else { return false };
+    if v["choices"].is_array() { return false; }
+    let l = v.to_string().to_lowercase();
+    l.contains("max_tokens") || l.contains("max output") || l.contains("max_completion_tokens") || l.contains("maximum output") || l.contains("max_output_tokens")
 }
 
-/// Rodada no gateway (sem ferramentas, sem sessão). O curl também é parável.
-pub(crate) fn gateway_chat(g: &Gateway, t: &ChatTurn, h: &ChatHooks) -> Result<ChatOut, String> {
-    let secs = deadline_for(AiEngine::Gateway, t.secs, None);
+fn gateway_once(g: &Gateway, t: &ChatTurn, with_max: bool, h: &ChatHooks) -> Result<ProcOut, String> {
+    let secs = t.secs.max(1);
     let mut files = TmpFiles(vec![]);
     let hdr = tmp_private(&mut files, "h", &format!("Authorization: Bearer {}\nContent-Type: application/json\n", g.key))?;
-    let body = tmp_private(&mut files, "b", &gateway_chat_payload(&g.model, t.sys, t.prompt))?;
+    let body = tmp_private(&mut files, "b", &gateway_chat_payload(&g.model, t.sys, t.prompt, with_max))?;
     let mut c = Command::new("curl");
     c.args(gateway_curl_args(&format!("{}/chat/completions", g.base), &hdr, &body, secs));
     let r = run_proc(c, None, secs + 5, h, &mut |_| {});
@@ -1130,11 +1219,22 @@ pub(crate) fn gateway_chat(g: &Gateway, t: &ChatTurn, h: &ChatHooks) -> Result<C
     let out = match r {
         Ok(o) => o,
         Err(ProcErr::Stopped) => return Err(h.stop_marker.to_string()),
-        Err(ProcErr::Timeout) => return Err(format!("Não consegui falar com o gateway ({}) — tempo esgotado; cheque a URL e a internet/VPN.", g.base)),
+        Err(ProcErr::Timeout) | Err(ProcErr::Crash) => return Err(format!("Não consegui falar com o gateway ({}) — tempo esgotado; cheque a URL e a internet/VPN.", g.base)),
         Err(ProcErr::Spawn(e)) => return Err(format!("Não consegui falar com o gateway ({}): {e}", g.base)),
     };
     if !out.status.success() && out.stdout.trim().is_empty() {
         return Err(format!("Não consegui falar com o gateway ({}) — cheque a URL e a internet/VPN (curl código {}).", g.base, out.status.code().unwrap_or(-1)));
+    }
+    Ok(out)
+}
+
+/// Rodada no gateway (sem ferramentas, sem sessão). O curl também é parável. Recusa do `max_tokens` → UMA nova
+/// tentativa sem ele.
+pub(crate) fn gateway_chat(g: &Gateway, t: &ChatTurn, h: &ChatHooks) -> Result<ChatOut, String> {
+    let mut out = gateway_once(g, t, true, h)?;
+    if parse_gateway(&out.stdout).is_err() && gateway_max_tokens_refused(&out.stdout) {
+        if (h.cancelled)() { return Err(h.stop_marker.to_string()); }
+        out = gateway_once(g, t, false, h)?;
     }
     let text = parse_gateway(&out.stdout)?;
     let u = serde_json::from_str::<serde_json::Value>(out.stdout.trim()).map(|v| v["usage"].clone()).unwrap_or_default();
@@ -1336,7 +1436,7 @@ pub(crate) fn ai_test_run(engine: &str, model: Option<&str>) -> Result<AiTestOut
 pub(crate) static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(all(test, unix))]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::{Read, Write};
 
@@ -1382,7 +1482,7 @@ mod tests {
     fn req<'a>(prompt: &'a str, tier: Tier, cwd: Option<&'a Path>) -> AiOnce<'a> {
         AiOnce { prompt, tier, claude_model: None, claude_extra: &[], cwd, secs: 20 }
     }
-    fn tmpdir(tag: &str) -> PathBuf {
+    pub(crate) fn tmpdir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("starfork-aitest-{tag}-{}-{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::SeqCst)));
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -1567,9 +1667,9 @@ echo '{{"type":"item.completed","item":{{"id":"i","type":"agent_message","text":
     }
 
     /// Restaura as variáveis ao sair (inclusive em pânico).
-    struct EnvGuard(Vec<(String, Option<std::ffi::OsString>)>);
+    pub(crate) struct EnvGuard(Vec<(String, Option<std::ffi::OsString>)>);
     impl EnvGuard {
-        fn set(vars: &[(&str, &str)]) -> EnvGuard {
+        pub(crate) fn set(vars: &[(&str, &str)]) -> EnvGuard {
             let g = EnvGuard(vars.iter().map(|(k, _)| (k.to_string(), std::env::var_os(k))).collect());
             for (k, v) in vars { std::env::set_var(k, v); }
             clear_avail_cache();
@@ -1817,7 +1917,7 @@ echo '{{"type":"final","text":" resposta do deepseek "}}'
 
     // ---------- chats de várias rodadas ----------
 
-    fn script(dir: &Path, name: &str, body: &str) -> String {
+    pub(crate) fn script(dir: &Path, name: &str, body: &str) -> String {
         let p = dir.join(name);
         std::fs::write(&p, format!("#!/bin/sh\n{body}")).unwrap();
         use std::os::unix::fs::PermissionsExt;
@@ -1826,8 +1926,11 @@ echo '{{"type":"final","text":" resposta do deepseek "}}'
     }
     /// Resposta do planner no formato da tela (bloco ```json).
     const PLANNER_JSON: &str = "```json\\n{\\\"say\\\":\\\"Qual o objetivo?\\\",\\\"chips\\\":[],\\\"patch\\\":{\\\"title\\\":\\\"Filtro\\\"},\\\"asking\\\":\\\"objective\\\",\\\"done\\\":false}\\n```";
-    /// codex FALSO de chat: grava argv/stdin/cwd; `exec resume perdida` → erro real de sessão sumida; `sleep` → trava 30 s.
-    fn fake_codex_chat(dir: &Path, sleep: bool) -> String {
+    /// codex FALSO de chat: grava argv/stdin/cwd; `exec resume perdida` → erro real de sessão sumida. `mode`:
+    /// "" normal · "sleep" trava 30 s · "refuse" recusa o modelo quando há -m · "crash" morre por sinal (kill -9)
+    /// · "orphan" deixa um neto em OUTRA sessão segurando o stdout e trava.
+    pub(crate) fn fake_codex_chat(dir: &Path, mode: &str) -> String {
+        let refused = r#"{"type":"turn.failed","error":{"message":"The x model is not supported when using Codex with a ChatGPT account."}}"#;
         let d = dir.display();
         std::fs::write(dir.join("out.jsonl"), format!(concat!(
             "{{\"type\":\"thread.started\",\"thread_id\":\"__TID__\"}}\n",
@@ -1846,7 +1949,10 @@ if [ "$2" = "resume" ]; then
   if [ "$3" = "perdida" ]; then echo 'Error: thread/resume: thread/resume failed: no rollout found for thread id perdida (code -32600)' >&2; exit 1; fi
   TID="$3"
 fi
-if [ "{sleep}" = "true" ]; then sleep 30; fi
+if [ "{mode}" = "sleep" ]; then sleep 30; fi
+if [ "{mode}" = "crash" ]; then kill -9 $$; fi
+if [ "{mode}" = "orphan" ]; then perl -e 'use POSIX; POSIX::setsid(); sleep 30' & sleep 30; fi
+if [ "{mode}" = "refuse" ]; then for a in "$@"; do if [ "$a" = "-m" ]; then echo '{refused}'; exit 1; fi; done; fi
 sed "s/__TID__/$TID/" "{d}/out.jsonl"
 "#))
     }
@@ -1858,7 +1964,8 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
             let on_start = |p: i32| $slot.store(p, Ordering::SeqCst);
             let on_end = |p: i32| { let _ = $slot.compare_exchange(p, 0, Ordering::SeqCst, Ordering::SeqCst); };
             let stopped = |p: i32| $slot.load(Ordering::SeqCst) != p;
-            let $h = ChatHooks { activity: &act, on_start: &on_start, on_end: &on_end, stopped: &stopped, stop_marker: "TEST_STOPPED" };
+            let cancelled = || false;
+            let $h = ChatHooks { activity: &act, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: "TEST_STOPPED" };
         };
     }
     fn lines(p: PathBuf) -> Vec<String> { std::fs::read_to_string(p).unwrap().lines().map(String::from).collect() }
@@ -1877,11 +1984,15 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         assert_eq!(sid_resume(AiEngine::Gateway, Some(GATEWAY_SID)), Err(SESSION_LOST_MSG.into()), "gateway não guarda sessão");
         assert_eq!(sid_resume(AiEngine::Gateway, Some("")), Ok(None));
         // a MESMA regex do front (aiCallResumeSafe) casa o erro padrão; os textos crus dos motores são reconhecidos
-        assert!(regex::Regex::new(r"(?i)session.*not found").unwrap().is_match(SESSION_LOST_MSG));
+        // (o trecho do AI_SESSION_LOST_RE do 10-core.js que casa o erro padrão)
+        assert!(regex::Regex::new(r"(?i)\bsession not found — a conversa anterior").unwrap().is_match(SESSION_LOST_MSG));
         assert!(session_lost_raw("Error: thread/resume: thread/resume failed: no rollout found for thread id x (code -32600)"));
         assert!(session_lost_raw(r#"session "s1" does not exist"#) && session_lost_raw(r#"session "s1" was recorded in /outra/pasta"#));
         assert!(session_lost_raw("No conversation found with session ID: x"));
         assert!(!session_lost_raw("429 rate limit"));
+        // nada genérico: outras "sessões" não são a conversa perdida
+        assert!(!session_lost_raw("MCP session config not found") && !session_lost_raw("session token not found in keychain"));
+        assert!(!session_lost_raw("session \"a\nb\" does not exist"), "não atravessa linhas");
         // codex retomando: `exec resume <id>` com o sandbox por -c (resume não aceita --sandbox), prompt no stdin
         assert_eq!(codex_chat_args(Some("th1"), None), vec!["exec", "resume", "th1", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", "-c", "approval_policy=\"never\"", "-"]);
         assert_eq!(codex_chat_args(None, Some("gpt-5")), vec!["exec", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", "-c", "approval_policy=\"never\"", "-m", "gpt-5", "-"]);
@@ -1902,6 +2013,12 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         assert!(codex_events(r#"{"type":"item.completed","item":{"id":"m","type":"agent_message","text":"oi"}}"#, &mut seen).is_empty());
         assert_eq!(codex_events(r#"{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3}}"#, &mut seen), vec![ChatEv::Usage(10, 3)]);
         assert!(codex_events("lixo", &mut seen).is_empty());
+        // item SEM id: a linha sai uma vez (started e completed do mesmo comando não duplicam; só-completed também sai)
+        let noid_st = r#"{"type":"item.started","item":{"type":"command_execution","command":"cat README.md"}}"#;
+        let noid_done = r#"{"type":"item.completed","item":{"type":"command_execution","command":"cat README.md","exit_code":0}}"#;
+        assert_eq!(codex_events(noid_st, &mut seen), vec![ChatEv::Activity("rodando cat README.md".into())]);
+        assert!(codex_events(noid_done, &mut seen).is_empty());
+        assert_eq!(codex_events(r#"{"type":"item.completed","item":{"type":"command_execution","command":"ls src"}}"#, &mut seen), vec![ChatEv::Activity("rodando ls src".into())]);
         // dsh: tool_call vira a MESMA frase do Claude (Read → "lendo …", grep → "procurando …")
         assert_eq!(dsh_events(r#"{"type":"session","sessionId":"s1"}"#), vec![ChatEv::Session("s1".into())]);
         assert_eq!(dsh_events(r#"{"type":"tool_call","callId":"c","tool":"read","input":{"path":"src/app/main.ts"}}"#), vec![ChatEv::Activity("lendo src/app/main.ts".into())]);
@@ -1915,7 +2032,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
     #[test]
     fn chat_codex_falso_so_leitura_atividade_sessao_e_json_do_planner() {
         let d = tmpdir("chat-codex");
-        let bin = fake_codex_chat(&d, false);
+        let bin = fake_codex_chat(&d, "");
         let repo = tmpdir("chat-repo");
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
@@ -1943,6 +2060,13 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         let out2 = codex_chat(&bin, None, &t2, resume.as_deref(), None, &h).unwrap();
         assert_eq!(&lines(d.join("argv.txt"))[..3], &["exec", "resume", "th-novo"]);
         assert_eq!(out2.session_id, "codex:th-novo");
+        // retomada com as MESMAS instruções: só a mensagem (+ só-leitura) — nada de reenviar o bloco inteiro
+        let stdin2 = std::fs::read_to_string(d.join("stdin.txt")).unwrap();
+        assert!(!stdin2.contains("VOCÊ É O PLANNER") && stdin2.contains("quero um \"filtro\" por data") && stdin2.contains("SÓ-LEITURA"), "{stdin2}");
+        // instruções mudaram (plano/cérebro novos) → o bloco vai de novo
+        let t3 = ChatTurn { sys: "VOCÊ É O PLANNER · plano v2", ..t2 };
+        codex_chat(&bin, None, &t3, resume.as_deref(), None, &h).unwrap();
+        assert!(std::fs::read_to_string(d.join("stdin.txt")).unwrap().contains("plano v2"));
         // sessão sumida → erro PADRÃO (o front refaz com o histórico)
         let e = codex_chat(&bin, None, &t2, Some("perdida"), None, &h).unwrap_err();
         assert_eq!(e, SESSION_LOST_MSG);
@@ -1954,7 +2078,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
     #[test]
     fn chat_parar_mata_o_processo() {
         let d = tmpdir("chat-stop");
-        let bin = fake_codex_chat(&d, true);
+        let bin = fake_codex_chat(&d, "sleep");
         let slot = std::sync::atomic::AtomicI32::new(0);
         let t0 = Instant::now();
         let r = std::thread::scope(|sc| {
@@ -1975,6 +2099,82 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         assert_eq!(r.unwrap_err(), "TEST_STOPPED");
         assert!(t0.elapsed() < Duration::from_secs(10), "parou na hora, não esperou o sleep 30");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn chat_prazo_codex_mata_e_da_erro_humano_mesmo_com_neto_segurando_o_pipe() {
+        for mode in ["sleep", "orphan"] {
+            let d = tmpdir("chat-timeout");
+            let bin = fake_codex_chat(&d, mode);
+            let slot = std::sync::atomic::AtomicI32::new(0);
+            hooks!(acts, slot, h);
+            let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 1 };
+            let t0 = Instant::now();
+            assert_eq!(codex_chat(&bin, None, &t, None, None, &h).unwrap_err(), CODEX_TIMEOUT_MSG, "{mode}");
+            assert!(t0.elapsed() < Duration::from_secs(8), "{mode}: leitura limitada depois do prazo ({:?})", t0.elapsed());
+            assert!(acts.lock().unwrap().is_empty());
+            let _ = std::fs::remove_dir_all(&d);
+        }
+    }
+
+    #[test]
+    fn chat_crash_nao_e_parar() {
+        let d = tmpdir("chat-crash");
+        let bin = fake_codex_chat(&d, "crash");
+        let slot = std::sync::atomic::AtomicI32::new(0);
+        hooks!(acts, slot, h);
+        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 20 };
+        let e = codex_chat(&bin, None, &t, None, None, &h).unwrap_err();
+        assert_eq!(e, CODEX_CRASH_MSG, "morte por sinal sem 'parar' = erro, não TEST_STOPPED");
+        assert!(acts.lock().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn chat_codex_modelo_recusado_tenta_sem_m_e_parar_no_meio_vale() {
+        let d = tmpdir("chat-refuse");
+        let bin = fake_codex_chat(&d, "refuse");
+        let slot = std::sync::atomic::AtomicI32::new(0);
+        hooks!(acts, slot, h);
+        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 20 };
+        let out = codex_chat(&bin, None, &t, None, Some("modelo-recusado-chat-1"), &h).unwrap();
+        assert_eq!(out.session_id, "codex:th-novo");
+        assert_eq!(lines(d.join("calls.log")).len(), 2, "1ª com -m (recusada), 2ª sem");
+        assert!(!lines(d.join("argv.txt")).contains(&"-m".to_string()));
+        assert!(!acts.lock().unwrap().is_empty());
+        // "parar" pedido entre a recusa e a 2ª tentativa → não abre o 2º processo
+        let d2 = tmpdir("chat-refuse-stop");
+        let bin2 = fake_codex_chat(&d2, "refuse");
+        let ends = std::sync::atomic::AtomicUsize::new(0);
+        let (nop_act, on_start) = (|_: String| {}, |_: i32| {});
+        let on_end = |_: i32| { ends.fetch_add(1, Ordering::SeqCst); };
+        let never = |_: i32| false;
+        let cancelled = || ends.load(Ordering::SeqCst) >= 1; // o usuário parou logo depois do 1º processo
+        let h2 = ChatHooks { activity: &nop_act, on_start: &on_start, on_end: &on_end, stopped: &never, cancelled: &cancelled, stop_marker: "TEST_STOPPED" };
+        assert_eq!(codex_chat(&bin2, None, &t, None, Some("modelo-recusado-chat-2"), &h2).unwrap_err(), "TEST_STOPPED");
+        assert_eq!(lines(d2.join("calls.log")).len(), 1, "a 2ª tentativa não nasceu");
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&d2);
+    }
+
+    #[test]
+    fn chat_prazo_dsh_erro_humano() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _gw = GW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tmpdir("chat-dshto");
+        let (home_s, dsh_home) = (home.display().to_string(), home.join("dsh-home").display().to_string());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_DSH_HOME", dsh_home.as_str())]);
+        let d = tmpdir("chat-dshto-bin");
+        let bin = script(&d, "dsh", "cat > /dev/null\nsleep 30\n");
+        let slot = std::sync::atomic::AtomicI32::new(0);
+        hooks!(acts, slot, h);
+        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 1 };
+        let t0 = Instant::now();
+        assert_eq!(dsh_chat(&bin, "k", &t, None, None, &h).unwrap_err(), DSH_TIMEOUT_MSG);
+        assert!(t0.elapsed() < Duration::from_secs(8));
+        assert!(acts.lock().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -2077,6 +2277,64 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         assert!(e.contains("Não consegui falar com o gateway"), "{e}");
     }
 
+    /// Servidor HTTP que responde `resps` (status, corpo) em sequência e entrega os corpos recebidos.
+    fn serve_seq(resps: Vec<(u16, &'static str)>) -> (u16, std::thread::JoinHandle<Vec<String>>) {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let h = std::thread::spawn(move || {
+            let mut got = vec![];
+            for (status, body) in resps {
+                let (mut s, _) = l.accept().unwrap();
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    let n = s.read(&mut chunk).unwrap();
+                    if n == 0 { break; }
+                    buf.extend_from_slice(&chunk[..n]);
+                    let txt = String::from_utf8_lossy(&buf).to_string();
+                    if let Some(i) = txt.find("\r\n\r\n") {
+                        let len = txt.lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+                        if buf.len() >= i + 4 + len { break; }
+                    }
+                }
+                let _ = s.write_all(format!("HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+                let txt = String::from_utf8_lossy(&buf).to_string();
+                got.push(txt[txt.find("\r\n\r\n").map(|i| i + 4).unwrap_or(0)..].to_string());
+            }
+            got
+        });
+        (port, h)
+    }
+
+    #[test]
+    fn chat_gateway_teto_de_tokens_menor_tenta_sem_max_tokens_e_erro_json_vira_mensagem() {
+        let _l = GW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = std::sync::atomic::AtomicI32::new(0);
+        hooks!(acts, slot, h);
+        let dir = std::env::temp_dir();
+        let t = ChatTurn { sys: "S", prompt: "P", session_id: None, cwd: &dir, secs: 10 };
+        // 400 recusando o max_tokens → 2ª chamada SEM max_tokens → resposta
+        let (port, srv) = serve_seq(vec![
+            (400, r#"{"error":{"message":"max_tokens is too large: 16000. This model supports at most 4096 completion tokens","type":"invalid_request_error"}}"#),
+            (200, r#"{"choices":[{"message":{"content":"ok sem teto"},"finish_reason":"stop"}]}"#),
+        ]);
+        let g = Gateway { base: format!("http://127.0.0.1:{port}/v1"), key: "k".into(), model: "m".into() };
+        assert_eq!(gateway_chat(&g, &t, &h).unwrap().text, "ok sem teto");
+        let bodies = srv.join().unwrap();
+        let b0: serde_json::Value = serde_json::from_str(&bodies[0]).unwrap();
+        let b1: serde_json::Value = serde_json::from_str(&bodies[1]).unwrap();
+        assert_eq!(b0["max_tokens"], 16000);
+        assert!(b1.get("max_tokens").is_none() && b1["messages"][1]["content"] == "P");
+        // erro JSON não-200 sem relação com tokens → UMA chamada e a mensagem do gateway (nunca JSON cru)
+        let (port, srv) = serve_seq(vec![(403, r#"{"error":{"message":"modelo m não liberado pra esta chave"}}"#)]);
+        let g = Gateway { base: format!("http://127.0.0.1:{port}/v1"), key: "k".into(), model: "m".into() };
+        let e = gateway_chat(&g, &t, &h).unwrap_err();
+        assert!(e.starts_with("O gateway recusou: modelo m não liberado") && !e.contains("{\""), "{e}");
+        assert_eq!(srv.join().unwrap().len(), 1);
+        assert!(gateway_max_tokens_refused(r#"{"error":{"message":"max_output_tokens exceeds limit"}}"#));
+        assert!(!gateway_max_tokens_refused(r#"{"choices":[{"message":{"content":"fale de max_tokens"}}]}"#));
+    }
+
     /// IA padrão Codex numa máquina "sem Claude": os chats vão pro Codex e NENHUM processo claude é iniciado.
     #[test]
     fn chat_ia_padrao_codex_nao_inicia_claude() {
@@ -2085,10 +2343,11 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         std::fs::create_dir_all(home.join(".constellation")).unwrap();
         std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
         let d = tmpdir("chat-pick-bin");
-        let codex = fake_codex_chat(&d, false);
+        let codex = fake_codex_chat(&d, "");
         let claude = script(&d, "claude", &format!("echo call >> \"{}/claude.log\"\n", d.display()));
         let (home_s, codex_s, claude_s) = (home.display().to_string(), codex.clone(), claude.clone());
         let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_CODEX", codex_s.as_str()), ("CARDUME_CLAUDE", claude_s.as_str()), ("DEEPSEEK_API_KEY", "")]);
+        clear_avail_cache(); // disponibilidade cacheada de outro teste nunca vale aqui
         assert_eq!(chat_engine(), Ok(AiEngine::Codex), "segue a IA padrão mesmo com o claude instalado");
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
@@ -2101,7 +2360,7 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"claude"}"#).unwrap();
         clear_avail_cache();
         assert_eq!(chat_engine(), Ok(AiEngine::Claude));
-        std::env::set_var("CARDUME_CLAUDE", "/nao/existe/claude");
+        let _sem_claude = EnvGuard::set(&[("CARDUME_CLAUDE", "/nao/existe/claude")]); // restaurado no fim, mesmo em pânico
         clear_avail_cache();
         assert_eq!(chat_engine(), Ok(AiEngine::Codex));
         // DeepSeek nunca é fallback automático: escolhido mas sem dsh pronto → codex
@@ -2191,7 +2450,8 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         let act = |l: String| { eprintln!("  · {l}"); acts.lock().unwrap().push(l); };
         let nop = |_: i32| {};
         let no = |_: i32| false;
-        let h = ChatHooks { activity: &act, on_start: &nop, on_end: &nop, stopped: &no, stop_marker: "X" };
+        let never = || false;
+        let h = ChatHooks { activity: &act, on_start: &nop, on_end: &nop, stopped: &no, cancelled: &never, stop_marker: "X" };
         let sys = "Você é o PLANNER. Responda SEMPRE E SOMENTE com um bloco ```json {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false}. Leia o código antes (só-leitura).";
         let t0 = Instant::now();
         let out = chat_turn(AiEngine::Codex, &ChatTurn { sys, prompt: "Quero um teste para a função tool_line em src/lib.rs. Leia-a e pergunte o objetivo.", session_id: None, cwd: &repo, secs: 300 }, &h);

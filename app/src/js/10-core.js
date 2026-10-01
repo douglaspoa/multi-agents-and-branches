@@ -84,21 +84,31 @@ window.ic=ic; // pro bloco 1 (script separado) também usar
 // a sessão some ou é de outro motor (a IA padrão mudou no meio). O GATEWAY não guarda sessão (sid "gateway:…"): toda
 // rodada já vai com o histórico, sem tentar retomar e sem o aviso de "sessão perdida".
 // @resume-inicio
-const AI_SESSION_LOST_RE=/No conversation found|sessão da conversa expirou|session.*not found|no rollout found|session "[^"]*" does not exist/i;
-function aiHistoryPrompt(prompt, history, lost){
+// SÓ as mensagens específicas: Claude ("No conversation found with session ID"/a amigável do Rust), o erro padrão
+// do Rust (SESSION_LOST_MSG), Codex ("no rollout found for thread id") e dsh (`session "x" does not exist`/outra pasta).
+// Nada de "session … not found" genérico ("MCP session config not found" não é sessão de conversa perdida).
+const AI_SESSION_LOST_RE=/No conversation found with session|sessão da conversa expirou no Claude|\bsession not found — a conversa anterior|no rollout found for thread|thread\/resume failed|session "[^"\n]{0,200}" (?:does not exist|was recorded in|recorded no working directory)/i;
+// A IA padrão agora é o gateway (sem sessão)? — mesma chave que o seletor espelha em settings.json.
+function aiEngineIsGateway(){ try{ return typeof aiDefaults==='function' && /^(gateway|logcomex)/i.test(String(aiDefaults().eng||'')); }catch(_){ return false; } }
+// `extra` (opcional): estado que o histórico resumido não carrega (ex.: o RASCUNHO do planner com os campos já
+// fechados — o gateway não tem sessão e as falas truncadas não bastam). Vai dentro do mesmo bloco CONTEXTO.
+function aiHistoryPrompt(prompt, history, lost, extra){
   const hist=(history||[]).filter(m=>m&&(m.text||'')).slice(-14).map(m=>{ const who=(m.who||m.role||''); const tag=who==='you'||who==='user'?'USUÁRIO':who==='bot'||who==='assistant'?'VOCÊ':'SISTEMA'; return tag+': '+String(m.text).replace(/\n*\[ANEXOS\][\s\S]*?\[\/ANEXOS\]/g,'').slice(0,1500); }).join('\n\n');
-  if(!hist) return prompt;
+  const ex=String(extra||'').trim();
+  if(!hist && !ex) return prompt;
   return (lost?'[CONTEXTO — a sessão anterior desta conversa foi perdida; abaixo o histórico resumido pra você CONTINUAR de onde parou, sem recomeçar nem repetir o que já foi dito.]\n'
-    :'[CONTEXTO — histórico desta conversa até aqui; CONTINUE de onde parou, sem recomeçar nem repetir o que já foi dito.]\n')+hist+'\n[/CONTEXTO]\n\n'+prompt;
+    :'[CONTEXTO — histórico desta conversa até aqui; CONTINUE de onde parou, sem recomeçar nem repetir o que já foi dito.]\n')+hist+(ex?(hist?'\n\n':'')+ex:'')+'\n[/CONTEXTO]\n\n'+prompt;
 }
-async function aiCallResumeSafe(fn, sid, prompt, history){
-  if(sid && /^gateway:/.test(String(sid))) return await fn(aiHistoryPrompt(prompt, history, false), null);
+async function aiCallResumeSafe(fn, sid, prompt, history, extra){
+  // sem sessão pra retomar (gateway, sid apagado, sid vazio devolvido) e já houve conversa → o histórico vai junto
+  const talked=(history||[]).some(m=>m&&(m.text||'')&&/^(you|user)$/.test(m.who||m.role||''));
+  if((sid && /^gateway:/.test(String(sid))) || (talked && (!sid || aiEngineIsGateway()))) return await fn(aiHistoryPrompt(prompt, history, false, extra), null);
   try{ return await fn(prompt, sid||null); }
   catch(e){
     const msg=String(e&&e.message||e);
     if(!sid || !AI_SESSION_LOST_RE.test(msg)) throw e;
     console.error('sessão perdida — recomeçando com histórico:', msg.slice(0,120));
-    const r=await fn(aiHistoryPrompt(prompt, history, true), null);
+    const r=await fn(aiHistoryPrompt(prompt, history, true, extra), null);
     return Object.assign({}, r||{}, { recovered:true });
   }
 }

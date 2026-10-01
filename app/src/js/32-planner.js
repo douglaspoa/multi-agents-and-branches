@@ -597,6 +597,21 @@ function plTakeBack(text, atts){
   else if(i){ i.value=text+'\n\n'+i.value; i.dispatchEvent(new Event('input')); } // re-cresce a caixa
   return true;
 }
+// @pl-draft-inicio
+// RASCUNHO atual (campos que a IA já fechou via `patch` + épico proposto): vai junto quando a rodada leva o histórico
+// (gateway sem sessão, sessão perdida/de outra IA) — as falas truncadas não carregam o que já ficou decidido.
+function plDraftBlock(){
+  const f=plFields||{}, d={};
+  for(const k of ['title','objective','deliverables','requirements','owns','off','autonomy','artifacts']){
+    const v=f[k]; if(v==null) continue;
+    if(Array.isArray(v)? v.length : (typeof v==='object'? Object.keys(v).length : String(v).trim())) d[k]=v;
+  }
+  if(typeof plAsking==='string' && plAsking) d.asking=plAsking;
+  if(plPlan && Array.isArray(plPlan.tasks)) d.plan={ epic:plPlan.epic||'', tasks:plPlan.tasks.map(t=>t.title||'').filter(Boolean) };
+  if(!Object.keys(d).length) return '';
+  return 'RASCUNHO ATUAL (o que já ficou fechado nesta conversa — continue daqui, sem perguntar de novo):\n'+JSON.stringify(d);
+}
+// @pl-draft-fim
 async function plSend(text){
   if(plBusy) return; text=(text||'').trim();
   const atts=plPend.splice(0);
@@ -616,7 +631,7 @@ async function plSend(text){
     // tipo escolhido no chip "Tipo ▾" (opcional): vai junto na 1ª mensagem depois de escolher/trocar
     const kt=plKindTag(plFields.kind, plFields.kindSent); kindNext=kt.next; // kindSent só muda quando a IA RESPONDE
     const prompt = kt.tag + (plNoEpic ? ('[SISTEMA: o usuário RECUSOU dividir em épico — trate como TAREFA ÚNICA e NÃO proponha épico/plan de novo]\n\n'+text) : text) + attPromptBlock(atts) + (window.trfPromptBlock ? await trfPromptBlock(text) : '');
-    r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'', model:aiClaudeModel() }), plSid, prompt, plMsgs.slice(0,-1));
+    r=await aiCallResumeSafe((pr,sid)=>invoke('ai_chat',{ prompt:pr, sessionId:sid||'', model:aiClaudeModel() }), plSid, prompt, plMsgs.slice(0,-1), plDraftBlock());
   }catch(e){ err=e; }
   if(!err && !r) err=new Error('a IA não respondeu'); // resposta vazia não pode travar o planner (plBusy preso = "mando e não vai")
   plInflight.delete(gen);
@@ -638,7 +653,7 @@ async function plSend(text){
       plMsgs.push({who:'sys', text:msg}); renderPlanner(); plAutoSave(true); return; }
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     plFields.kindSent=kindNext;
-    plSid=r.sessionId||(r&&r.recovered?'':plSid);
+    aiKeepSid(r, s=>{ plSid=s; });
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
     plBusy=false;
     if(obj){

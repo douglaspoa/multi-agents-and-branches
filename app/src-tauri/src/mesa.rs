@@ -204,7 +204,8 @@ pub fn mesa_ask(
 }
 
 /// A persona num motor que NÃO é o Claude (Codex/DeepSeek/gateway, ai_once::chat_turn): sem sessão, só-leitura,
-/// parável pela mesa como o claude. Custo US$ 0 (como nas tarefas), com os tokens quando o motor informa.
+/// parável pela mesa como o claude. Custo US$ 0 (como nas tarefas), com os tokens e o motor — o teto da mesa vira
+/// teto por tokens na tela.
 pub(crate) fn ask_other(eng: ai_once::AiEngine, id: &str, sys: &str, prompt: &str, repo: &Path) -> Result<serde_json::Value, String> {
     if is_stopped(id) { return Err(STOPPED.to_string()); }
     let killed: Killed = Arc::new(AtomicBool::new(false));
@@ -214,10 +215,12 @@ pub(crate) fn ask_other(eng: ai_once::AiEngine, id: &str, sys: &str, prompt: &st
     };
     let on_end = |pid: i32| pid_del(id, pid);
     let stopped = |_pid: i32| killed.load(Ordering::SeqCst);
+    let cancelled = || is_stopped(id);
     let t = ai_once::ChatTurn { sys, prompt, session_id: None, cwd: repo, secs: ASK_SECS };
-    let h = ai_once::ChatHooks { activity: &|_| {}, on_start: &on_start, on_end: &on_end, stopped: &stopped, stop_marker: STOPPED };
+    let h = ai_once::ChatHooks { activity: &|_| {}, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: STOPPED };
     let out = ai_once::chat_turn(eng, &t, &h)?;
-    Ok(serde_json::json!({ "text": out.text, "costUsd": 0.0, "inTok": out.in_tok, "outTok": out.out_tok }))
+    // US$ 0 (o motor não informa preço) + tokens: a tela aplica o TETO POR TOKENS (38-mesa.js, MESA_TOK_USD_PER_M)
+    Ok(serde_json::json!({ "text": out.text, "costUsd": 0.0, "inTok": out.in_tok, "outTok": out.out_tok, "engine": eng.id() }))
 }
 
 /// Para TODAS as personas desta mesa — as que estão rodando e as que ainda iam começar.
@@ -426,5 +429,36 @@ mod tests {
         mesa_resume(id.into()).unwrap();
         let out = run_stoppable(std::process::Command::new("cat"), 10, id, Some("oi pelo stdin".into())).unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), "oi pelo stdin");
+    }
+    /// Persona fora do Claude (Codex falso): o "parar" da mesa derruba; rodada normal devolve US$ 0 + tokens + motor.
+    #[cfg(unix)]
+    #[test]
+    fn persona_fora_do_claude_para_e_informa_tokens() {
+        use crate::ai_once::tests::{fake_codex_chat, tmpdir};
+        let d = tmpdir("mesa-other");
+        let ok_bin = fake_codex_chat(&d, "");
+        let _l = crate::ai_once::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tmpdir("mesa-other-home");
+        let _g = crate::ai_once::tests::EnvGuard::set(&[("HOME", home.display().to_string().as_str()), ("CARDUME_CODEX", ok_bin.as_str())]);
+        let v = ask_other(ai_once::AiEngine::Codex, "t-other-ok", "persona", "opine", &d).unwrap();
+        assert_eq!((v["costUsd"].as_f64(), v["inTok"].as_u64(), v["outTok"].as_u64(), v["engine"].as_str()), (Some(0.0), Some(120), Some(30), Some("codex")));
+        // travando: stop_id derruba e devolve MESA_STOPPED
+        let d2 = tmpdir("mesa-other-sleep");
+        let sleep_bin = fake_codex_chat(&d2, "sleep");
+        std::env::set_var("CARDUME_CODEX", &sleep_bin);
+        let id = "t-other-stop";
+        let t0 = std::time::Instant::now();
+        let r = std::thread::scope(|sc| {
+            let h = sc.spawn(|| ask_other(ai_once::AiEngine::Codex, id, "persona", "opine", &d2));
+            while t0.elapsed().as_secs() < 5 && !pids().lock().unwrap().contains_key(id) { std::thread::sleep(std::time::Duration::from_millis(20)); }
+            assert!(stop_id(id), "tinha persona rodando");
+            h.join().unwrap()
+        });
+        assert_eq!(r.unwrap_err(), STOPPED);
+        assert!(t0.elapsed().as_secs() < 10);
+        // parada antes de começar: nem abre processo
+        assert_eq!(ask_other(ai_once::AiEngine::Codex, id, "p", "q", &d2).unwrap_err(), STOPPED);
+        mesa_resume(id.into()).unwrap();
+        for p in [&d, &d2, &home] { let _ = std::fs::remove_dir_all(p); }
     }
 }

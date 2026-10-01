@@ -419,7 +419,7 @@ async function orqChatSend(){
     if(!p.repo) p.repo=state.repo||'';
     const r=await aiCallResumeSafe((pr,sid)=>invoke('ai_orchestrate_chat',{ prompt:pr, sessionId:sid, model:aiClaudeModel(p.engine||'claude', p.model||''), plan:planJson, repo:p.repo||null }), p.chatSid||null, text+attPromptBlock(atts), p.chat.slice(0,-1).filter(m=>m.who!=='sys'));
     if(r&&r.recovered) p.chat.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
-    if(r&&r.sessionId) p.chatSid=r.sessionId;
+    aiKeepSid(r, s=>{ p.chatSid=s; });
     let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
     const say=obj&&typeof obj.say==='string'?obj.say:(r.text||'(sem resposta)');
     p.chat.push({who:'bot', text:say});
