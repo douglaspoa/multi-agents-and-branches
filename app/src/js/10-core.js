@@ -402,6 +402,8 @@ function detectNotifs(snap){
       if(prev!==undefined && prev!==t.status){
         // status mudou → commits/PR podem ter mudado (fim de turno commita)
         commitsStale[t.id]=true; prCache[t.id]=undefined;
+        // fim de turno (saiu de running/thinking pra QUALQUER estado: review, parada, teto, erro…) → o medidor do plano relê
+        if((prev==='running'||prev==='thinking') && t.status!=='running' && t.status!=='thinking' && typeof planMeterTurnEnd==='function') planMeterTurnEnd();
         // parada pelo humano (■ parar) ou pelo teto de custo NÃO é "pronta" — era notificação falsa
         if(t.status==='review'){ if(!(typeof budgetQuiet!=='undefined' && budgetQuiet.delete(t.id))) pushNotif('Pronta para review ✓', t.title, t.id); }
         else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title, t.id);

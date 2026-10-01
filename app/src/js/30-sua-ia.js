@@ -203,6 +203,7 @@ async function suaIaUseDefault(id, model){
   aiSaveDefaults(id, model||'');
   suaIaUi.model[id]=model||'';
   if(typeof aiApplyDefaults==='function') aiApplyDefaults();
+  if(typeof pmRender==='function') pmRender(); // a linha do medidor minimizado é a IA padrão
   suaIaRefresh();
   return true;
 }
@@ -250,7 +251,7 @@ function suaIaWire(host){
     if(b.closest('[data-sagw]')) return;
     const a=b.dataset.sa, id=b.dataset.id;
     if(a==='copy'){ if(typeof envCopy==='function') envCopy(b); return; }
-    if(a==='recheck'){ const p=suaIaLoad(true); suaIaRender(host); await p; return; }
+    if(a==='recheck'){ if(typeof secretsAvailRefresh==='function') secretsAvailRefresh(); /* + medidor do plano */ const p=suaIaLoad(true); suaIaRender(host); await p; return; }
     if(a==='test'){ await suaIaTest(id); return; }
     if(a==='obpick'){ suaIaUi.obPick=id; suaIaRefresh(); return; }
     if(a==='default'){ try{ if(await suaIaUseDefault(id)) toast('IA padrão: '+(typeof aiRunLabel==='function'?aiRunLabel(id, suaIaModel(id)):id),'ok'); }catch(e){ showErr(e,'Não consegui salvar a IA padrão'); } return; }
