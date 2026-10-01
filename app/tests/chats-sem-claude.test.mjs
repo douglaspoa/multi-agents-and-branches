@@ -240,7 +240,7 @@ test('Sua IA: aviso visível de que, fora do Claude, a IA dos chats consegue ler
   for (const id of ['codex', 'deepseek']) assert.match(N[id], /fora do Claude, a IA dos chats consegue ler arquivos como \.env do projeto/i);
   assert.match(N.gateway, /não leem arquivos do projeto/);
   assert.equal(N.claude, undefined, 'no Claude vale o modo protegido (deny de .env)');
-  assert.match(src, /SUAIA_SECRET_NOTE\[s\.id\]\?`<div class="suaia-secret/, 'o cartão mostra o aviso');
+  assert.match(src, /SUAIA_SECRET_NOTE\[s\.id\]\?`<details class="suaia-secret[^`]*<summary>privacidade nos chats<\/summary>/, 'o cartão mostra o aviso (recolhido em "privacidade nos chats")');
   assert.match(rs('ai_once.rs'), /const CHAT_RO_RULE: &str = "[^"]*não lê arquivos de segredo \(\.env, chaves\)/, 'a regra do prompt continua');
 });
 

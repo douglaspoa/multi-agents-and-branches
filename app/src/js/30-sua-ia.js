@@ -92,7 +92,9 @@ function suaIaKeyHtml(s, hk){
   const what=s.id==='codex'?'chave da OpenAI':s.id==='deepseek'?'chave da DeepSeek':'chave';
   const busy=suaIaUi.busy[s.id]==='key'?' disabled':'';
   if(s.keySaved && !suaIaUi.editKey[s.id]) return `<div class="suaia-key"><span class="suaia-ok">${esc(what)} salva ✓</span><span style="flex:1"></span><button type="button" class="btn sm" data-sa="keyedit" data-id="${s.id}"${busy}>trocar</button><button type="button" class="btn sm" data-sa="keydel" data-id="${s.id}"${busy}>remover</button></div>`;
-  const lead=s.id==='codex'&&!s.ready?'ou cole a chave da OpenAI:':s.id==='codex'?'chave da OpenAI (opcional):':'cole a chave da DeepSeek:';
+  // Codex pronto pelo login do ChatGPT (sem chave salva): a chave é só alternativa — não mostra o campo, só um link
+  if(s.id==='codex' && s.ready && !s.keySaved && !suaIaUi.editKey[s.id]) return `<div class="suaia-key"><button type="button" class="linkbtn dim" data-sa="keyedit" data-id="${s.id}"${busy}>usar uma chave da OpenAI em vez do login do ChatGPT</button></div>`;
+  const lead=s.id==='codex'&&!s.ready?'sem plano do ChatGPT? cole uma chave da OpenAI (opcional):':s.id==='codex'?'chave da OpenAI (opcional — o login do ChatGPT já basta):':'cole a chave da DeepSeek:';
   const fid=`suaIaKey-${hk}-${s.id}`; // único por container (o tour e as Configurações podem estar abertos juntos)
   return `<div class="suaia-key"><label class="dim suaia-lbl" for="${fid}">${esc(lead)}</label><input class="in mono" type="password" id="${fid}" data-sakey="${s.id}" autocomplete="off" spellcheck="false" placeholder="${s.id==='deepseek'?'chave de platform.deepseek.com':'sk-…'}"${busy}><button type="button" class="btn sm" data-sa="keysave" data-id="${s.id}"${busy}>${suaIaUi.busy[s.id]==='key'?'salvando…':'salvar'}</button>${s.keySaved?`<button type="button" class="btn sm" data-sa="keycancel" data-id="${s.id}">cancelar</button>`:''}</div>`;
 }
@@ -132,7 +134,7 @@ function suaIaCardHtml(s, opts, shortest, ob){
     <div class="suaia-head"><span class="aiic" style="color:${e.color}">${e.icon||''}</span><b class="suaia-name">${esc(name)}</b>${s.id==='deepseek'?'<span class="suaia-tag">beta</span>':''}
       <span class="suaia-st ${s.ready?'ok':'bad'}" title="${escA(s.reason||'')}">${s.ready?'● ':'○ '}${esc(suaIaStateText(s))}</span>${isDef?'<span class="suaia-tag def">padrão</span>':''}${picked?'<span class="suaia-tag def">✓ escolhida</span>':''}</div>
     <div class="suaia-why">${esc(s.reason||'')}${note}</div>
-    ${SUAIA_SECRET_NOTE[s.id]?`<div class="suaia-secret dim" data-suaia-secret="${s.id}">⚠ ${esc(SUAIA_SECRET_NOTE[s.id])}</div>`:''}
+    ${SUAIA_SECRET_NOTE[s.id]?`<details class="suaia-secret dim" data-suaia-secret="${s.id}"><summary>privacidade nos chats</summary>${esc(SUAIA_SECRET_NOTE[s.id])}</details>`:''}
     ${s.ready?'':suaIaFixesHtml(s.fixes)}${gwCfg}${suaIaKeyHtml(s, hk)}${s.id==='claude'&&s.installed?suaIaSlHtml(s, hk):''}
     <div class="suaia-row">
       <select class="in suaia-model" data-samodel="${s.id}" aria-label="modelo do ${escA(name)}">${models.map(m=>`<option value="${escA(m.id)}"${m.id===model?' selected':''}>${esc(m.name)}</option>`).join('')}</select>

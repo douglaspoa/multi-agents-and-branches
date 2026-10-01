@@ -1341,7 +1341,7 @@ pub(crate) fn engines_status_from(pref: &str, p: &Probe) -> Vec<EngineStatus> {
     x.key_saved = p.openai_key;
     match &p.codex_bin {
         Some(b) if p.codex_login || p.openai_key => { x.installed = true; x.ready = true; x.state = "ready"; x.reason = if p.codex_login { "pronto".into() } else { "pronto — com a chave OpenAI da sua conta".into() }; x.detail = b.clone(); }
-        Some(b) => { x.installed = true; x.state = "login"; x.reason = "instalado, mas sem login — rode `codex login` ou cole a chave OpenAI".into(); x.fixes = vec!["codex login".into()]; x.detail = b.clone(); }
+        Some(b) => { x.installed = true; x.state = "login"; x.reason = "instalado, mas sem login — rode `codex login` e entre com a sua conta do ChatGPT (ou, sem plano, cole uma chave da OpenAI)".into(); x.fixes = vec!["codex login".into()]; x.detail = b.clone(); }
         None => { x.reason = "não instalado neste computador".into(); x.fixes = vec!["npm install -g @openai/codex && codex login".into()]; }
     }
     out.push(x);
