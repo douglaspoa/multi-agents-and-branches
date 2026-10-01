@@ -11,10 +11,13 @@ import { join } from "node:path";
 import {
   aiOnce, claudeArgs, codexArgs, codexModelRefused, codexOutcome, codexPlan, CODEX_MISSING_MSG, gatewayPayload,
   NO_ENGINE_MSG, parseCodexJsonl, parseGateway, pickEngine, readAiPrefs, userModelFor,
+  binExists, clearAvailCache, dshOutcome, dshPlan, parseDshJsonl,
 } from "./ai-once.ts";
+import { DSH_KEY_MSG, DSH_MISSING_MSG, dshNodeOk, resolveDsh } from "./engine/dsh.ts";
 import { tempHome } from "./testing/temp-home.ts";
 
 const POSIX = { skip: process.platform === "win32" ? "POSIX-only (scripts falsos com shebang)" : false };
+const POSIX_NODE = { skip: process.platform === "win32" ? "POSIX-only (scripts falsos com shebang)" : !dshNodeOk() ? `node ${process.versions.node} < 22.19 (o dsh não roda)` : false };
 const golden = (f: string) => JSON.parse(readFileSync(new URL("../tests/fixtures/ai-once-golden/" + f, import.meta.url), "utf8"));
 
 async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
@@ -220,4 +223,140 @@ test("nenhum motor: erro dizendo o que instalar/configurar", async () => {
       (e: Error) => e.message === NO_ENGINE_MSG,
     );
   } finally { H.cleanup(); }
+});
+
+// ---------- DeepSeek Harness (beta) ----------
+
+test("golden: JSONL do dsh — texto do final, erro cru, mensagem humana (mesmos casos do Rust)", () => {
+  for (const c of golden("dsh.json")) {
+    const o = dshOutcome(c.jsonl);
+    assert.equal(o.text, c.text ?? undefined, c.name);
+    if (c.rawError) assert.ok((o.raw ?? "").includes(c.rawError), `${c.name}: ${o.raw}`);
+    if (c.friendly) {
+      const e = parseDshJsonl(c.jsonl).error ?? "";
+      assert.ok(e.includes(c.friendly) && !e.includes('{"'), `${c.name}: ${e}`);
+    }
+  }
+  assert.equal(dshPlan("rapido"), "deepseek-flash");
+  assert.equal(dshPlan("capaz"), "deepseek-v4-pro");
+  assert.equal(dshPlan("rapido", "deepseek-v4-pro"), "deepseek-v4-pro");
+  assert.equal(dshPlan("capaz", "sonnet"), "deepseek-v4-pro", "alias do Claude nunca vai pro deepseek-official");
+  assert.equal(userModelFor("deepseek", "deepseek", "deepseek-flash"), "deepseek-flash");
+  assert.equal(userModelFor("codex", "deepseek", "gpt-5"), undefined, "fallback: aiModel é de outro motor");
+  assert.ok(NO_ENGINE_MSG.includes("@deepseek-ai/dsh"));
+});
+
+/** dsh falso: grava argv, env e stdin; responde o JSONL real do headless. */
+function fakeDshAux(dir: string, final = "Título do DeepSeek"): string {
+  const f = join(dir, "dsh");
+  const jsonl = [{ type: "session", sessionId: "s1" }, { type: "status", phase: "turn_end", reason: { kind: "completed" } }, { type: "final", text: final }].map((o) => JSON.stringify(o)).join("\n");
+  writeFileSync(f, `#!/bin/sh
+printf '%s\\n' "$@" > "${dir}/dsh-args.txt"
+echo "DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY" > "${dir}/dsh-env.txt"
+echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> "${dir}/dsh-env.txt"
+echo "DSH_PERMISSION_MODE=$DSH_PERMISSION_MODE" >> "${dir}/dsh-env.txt"
+cat > "${dir}/dsh-stdin.txt"
+cat <<'JSONL'
+${jsonl}
+JSONL
+`);
+  chmodSync(f, 0o755);
+  return f;
+}
+
+test("padrão DeepSeek: dsh headless SÓ-LEITURA, prompt no stdin, só a DEEPSEEK_API_KEY; claude/codex nunca chamados", POSIX_NODE, async () => {
+  const H = tempHome({ aiEngine: "deepseek" }, "DEEPSEEK_API_KEY=sk-ds\nOPENAI_API_KEY=sk-openai\n");
+  const bin = join(H.home, "bin"); mkdirSync(bin);
+  try {
+    const dsh = fakeDshAux(bin);
+    const claude = fakeClaude(bin);
+    const codex = fakeCodex(bin, OK_JSONL);
+    const prompt = 'gere um título "com aspas"\ne quebra';
+    const out = await withEnv({ HOME: H.home, CARDUME_CLAUDE: claude, CARDUME_DSH_HOME: join(H.home, "dshhome") }, () =>
+      aiOnce(prompt, { tier: "rapido", claudeModel: "claude-haiku-4-5-20251001", timeout: 10_000 }, { avail: { claude: true, codex: true, deepseek: true }, dshBin: dsh, codexBin: codex }));
+    assert.equal(out, "Título do DeepSeek");
+    const args = readFileSync(join(bin, "dsh-args.txt"), "utf8").trim().split("\n");
+    assert.deepEqual(args.slice(-3), ["--profile", "headless", "--json"]);
+    assert.equal(args.filter((a) => a === "--patch").length, 2);
+    assert.ok(!args.join(" ").includes("título") && !args.join(" ").includes("sk-ds"), "prompt e chave fora do argv");
+    assert.equal(readFileSync(join(bin, "dsh-stdin.txt"), "utf8"), prompt);
+    assert.equal(readFileSync(join(bin, "dsh-env.txt"), "utf8"), "DEEPSEEK_API_KEY=sk-ds\nOPENAI_API_KEY=\nDSH_PERMISSION_MODE=read-only\n");
+    assert.ok(!existsSync(join(bin, "claude-args.txt")) && !existsSync(join(bin, "codex-args.txt")), "nem claude nem codex");
+    // o patch fixo fica (sem chave); o por chamada (com o modelo) é apagado
+    const fixed = join(H.home, ".constellation", "dsh", "starfork.patch.yml");
+    assert.equal(args[1], fixed);
+    assert.ok(!readFileSync(fixed, "utf8").includes("sk-ds"));
+    assert.ok(!existsSync(args[3]), "patch por chamada apagado");
+  } finally { H.cleanup(); }
+});
+
+test("deepseek: sem dsh / sem chave → mensagens humanas (ordem binário → node → chave)", POSIX_NODE, async () => {
+  const H = tempHome({ aiEngine: "deepseek" }, "OPENAI_API_KEY=x\n");
+  const bin = join(H.home, "bin"); mkdirSync(bin);
+  try {
+    await assert.rejects(withEnv({ HOME: H.home, DEEPSEEK_API_KEY: undefined }, () => aiOnce("x", { tier: "rapido", timeout: 5_000 }, { avail: { deepseek: true }, dshBin: "/nao/existe/dsh" })),
+      (e: Error) => e.message === DSH_MISSING_MSG);
+    const dsh = fakeDshAux(bin);
+    await assert.rejects(withEnv({ HOME: H.home, DEEPSEEK_API_KEY: undefined }, () => aiOnce("x", { tier: "rapido", timeout: 5_000 }, { avail: { deepseek: true }, dshBin: dsh })),
+      (e: Error) => e.message === DSH_KEY_MSG);
+    assert.ok(!existsSync(join(bin, "dsh-args.txt")), "sem chave o dsh nem é iniciado");
+  } finally { H.cleanup(); }
+});
+
+test("disponibilidade REAL: aiEngine=deepseek mas sem chave → cai no claude (nunca o contrário)", POSIX, async () => {
+  const H = tempHome({ aiEngine: "deepseek" }, "OPENAI_API_KEY=x\n");
+  const bin = join(H.home, "bin"); mkdirSync(bin);
+  try {
+    const dsh = fakeDshAux(bin);
+    const claude = fakeClaude(bin);
+    clearAvailCache();
+    const out = await withEnv({ HOME: H.home, CARDUME_DSH: dsh, CARDUME_CLAUDE: claude, DEEPSEEK_API_KEY: undefined }, () =>
+      aiOnce("oi", { tier: "rapido", timeout: 10_000 }));
+    assert.equal(out, "resposta do claude");
+    assert.ok(!existsSync(join(bin, "dsh-args.txt")), "dsh sem chave não roda");
+  } finally { clearAvailCache(); H.cleanup(); }
+});
+
+test("DeepSeek NUNCA é fallback automático: IA padrão Claude ausente e só o DeepSeek pronto → erro, não DeepSeek", async () => {
+  const H = tempHome({ aiEngine: "claude" }, "DEEPSEEK_API_KEY=k\n");
+  try {
+    await assert.rejects(withEnv({ HOME: H.home }, () => aiOnce("x", { tier: "rapido", timeout: 5_000 }, { avail: { claude: false, codex: false, gateway: false, deepseek: true }, dshBin: "/nao/existe/dsh" })),
+      (e: Error) => e.message === NO_ENGINE_MSG);
+  } finally { H.cleanup(); }
+});
+
+const REAL_DSH = { skip: process.platform === "win32" ? "POSIX-only" : !binExists(resolveDsh()) ? "dsh não instalado" : !dshNodeOk() ? "node < 22.19" : false, timeout: 120_000 };
+test("dsh REAL (servidor OpenAI-compatível falso): título via auxiliar, sem claude nem codex", REAL_DSH, async () => {
+  let n = 0;
+  const srv = createServer((req, res) => {
+    req.on("data", () => {});
+    req.on("end", () => {
+      n++;
+      const base = { id: "c", object: "chat.completion.chunk", created: 1, model: "fake-model" };
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", content: "Filtro por data na lista" }, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 4, total_tokens: 9 } })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+  const port = (srv.address() as AddressInfo).port;
+  const H = tempHome({ aiEngine: "deepseek" }, "DEEPSEEK_API_KEY=sk-fake\n");
+  const bin = join(H.home, "bin"); mkdirSync(bin);
+  try {
+    const prov = join(H.home, "prov.yml");
+    writeFileSync(prov, [
+      "- id: llm-pi-ai", "  config:", "    providers:", "      fake:", "        apiKeyEnv: DEEPSEEK_API_KEY", "        api: openai-completions",
+      `        baseURL: http://127.0.0.1:${port}/v1`, "        compat:", "          supportsDeveloperRole: false", "          maxTokensField: max_tokens",
+      "        models:", "          - id: fake-model", "- id: agent-default-model", "  config:", "    provider: fake", "    model: fake-model", "",
+    ].join("\n"));
+    const claude = fakeClaude(bin);
+    const codex = fakeCodex(bin, OK_JSONL);
+    clearAvailCache(); // disponibilidade REAL do deepseek (binário + node + chave do HOME temporário), sem cache de outro teste
+    const out = await withEnv({ HOME: H.home, CARDUME_CLAUDE: claude, CARDUME_CODEX: codex, CARDUME_DSH_HOME: join(H.home, "dshhome"), CARDUME_DSH_PATCH: prov }, () =>
+      aiOnce("gere um título curto para: filtro por data", { tier: "rapido", timeout: 60_000 }, { codexBin: codex }));
+    assert.equal(out, "Filtro por data na lista");
+    assert.equal(n, 1, "uma chamada só ao modelo (título por IA do dsh desligado)");
+    assert.ok(!existsSync(join(bin, "claude-args.txt")) && !existsSync(join(bin, "calls.log")), "nenhum claude nem codex iniciado");
+  } finally { srv.close(); clearAvailCache(); H.cleanup(); }
 });

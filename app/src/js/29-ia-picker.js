@@ -22,6 +22,11 @@ const AI_ENGINES=[
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1.2"/><rect x="2.5" y="9" width="11" height="4" rx="1.2"/><path d="M5 5h.01M5 11h.01" stroke-width="2" stroke-linecap="round"/></svg>',
     desc:'O endpoint da SUA empresa (vLLM, LiteLLM, Azure, Ollama…). URL, chave e modelos ficam na sua conta: Configurações → Gateway próprio.',
     models:[] },
+  // BETA: DeepSeek Harness (dsh, MIT) — open source, pra quem não tem plano da Anthropic nem da OpenAI (ex.: alunos)
+  { id:'deepseek', name:'DeepSeek beta', vendor:'open source · beta', color:'#4d6bfe', custom:true, beta:true,
+    icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 9.2c1.6 2.9 5 4.1 8 2.7 2-.9 3.3-2.9 3.5-5-1 .9-2.2 1.2-3.4.9"/><path d="M2.2 9.2C2 6.4 4 4 6.8 3.6c1.6-.2 3.1.4 4.1 1.5"/><circle cx="10.6" cy="6.3" r=".6" fill="currentColor"/></svg>',
+    desc:'BETA — DeepSeek Harness (open source, dsh) com a DEEPSEEK_API_KEY da sua conta (Conta → Chaves de modelo). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
+    models:[ {id:'',name:'Padrão (capaz)',tag:'auto · v4-pro'}, {id:'deepseek-v4-pro',name:'DeepSeek V4 Pro',tag:'mais capaz'}, {id:'deepseek-flash',name:'DeepSeek Flash',tag:'mais veloz'} ] },
   { id:'mock', name:'Mock', vendor:'sem IA', color:'#8b959b',
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4" stroke-dasharray="2.6 2.2"/></svg>',
     desc:'Simula a execução sem chamar modelo — só pra testar o fluxo.', models:[] },
@@ -98,7 +103,7 @@ function aiSaveDefaults(eng, model){ lsSet('defaultEngine', eng||'claude'); lsSe
 function aiApplyDefaults(){ const d=aiDefaults(); setSelValue($id('ntEngine'), d.eng); setSelValue($id('ntModel'), d.model); const hm=$id('howModel'); if(hm) setSelValue(hm, d.model); }
 function aiModelName(id){ if(!id) return 'padrão da assinatura'; for(const e of AI_ENGINES){ const m=(e.models||[]).find(x=>x.id===id); if(m) return m.name; } return id; }
 // motor de um papel/tarefa pelo rótulo salvo — MESMA regra do engineKind do motor (src/orchestrator.ts)
-function aiEngineOf(e){ const n=String(e||'').trim().toLowerCase(); return n==='mock'||!n?'mock':n.startsWith('codex')?'codex':(n.startsWith('gateway')||n.startsWith('logcomex'))?'gateway':'claude'; }
+function aiEngineOf(e){ const n=String(e||'').trim().toLowerCase(); return n==='mock'||!n?'mock':n.startsWith('codex')?'codex':(n.startsWith('deepseek')||/^dsh\b/.test(n))?'deepseek':(n.startsWith('gateway')||n.startsWith('logcomex'))?'gateway':'claude'; }
 function aiCanTalk(e){ return aiEngineOf(e)!=='mock'; } // qualquer motor real conversa/retoma (não só o Claude)
 // "Claude · Opus 5.5", "Codex · GPT-5", "Logcomex AI · logcomex-v2" — o que roda (ou rodou) nesta tarefa
 function aiRunLabel(engine, model){
@@ -139,7 +144,7 @@ function aiPickRender(target){
     `<div class="aidesc">${esc(e.desc)}${e.id==='gateway'&&!gw.configured?` <a data-aicfg>configurar agora</a>`:''}</div>`+
     (models.length||e.custom?`<div class="aimodels">${models.map(m=>{ const r=rec.engine===e.id&&rec.model===m.id; return `<button type="button" class="aimodel${m.id===model?' on':''}${r?' rec':''}" data-aimodel="${escA(m.id)}"><b>${esc(m.name)}</b>${m.tag?`<span>${esc(m.tag)}</span>`:''}${r?'<i>recomendado</i>':''}</button>`; }).join('')}`+
       (e.custom?`<button type="button" class="aimodel${(!known&&model)?' on':''}" data-aicustom><b>${(!known&&model)?esc(model):'outro id…'}</b><span>${(!known&&model)?'id digitado':'digite o id exato'}</span></button>`:'')+`</div>`:'')+
-    (_aiCustomOpen?`<div class="aicustom"><input class="in mono" id="aiCustomId" placeholder="${e.id==='claude'?'ex.: claude-opus-5-5':e.id==='codex'?'ex.: gpt-5-codex':'id do modelo no gateway'}" value="${escA((!known&&model)?model:'')}"><button type="button" class="btn sm" data-aicustomok>usar</button></div>`:'')+
+    (_aiCustomOpen?`<div class="aicustom"><input class="in mono" id="aiCustomId" placeholder="${e.id==='claude'?'ex.: claude-opus-5-5':e.id==='codex'?'ex.: gpt-5-codex':e.id==='deepseek'?'ex.: deepseek-v4-pro':'id do modelo no gateway'}" value="${escA((!known&&model)?model:'')}"><button type="button" class="btn sm" data-aicustomok>usar</button></div>`:'')+
     (target.cfg?`<div class="airec">✓ padrão pra toda demanda nova — pelo formulário ou pelo chat. A recomendação por demanda continua sendo só uma sugestão.</div>`:`<div class="airec">${isRecSel?'✓ ':IC.starforkEm+' '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`);
   hosts.forEach(h=>{
     h.innerHTML=html;

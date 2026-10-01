@@ -131,14 +131,18 @@ async function secretsSync(){
     await invoke('write_llm_env',{ content: rows.map(r=>r.name+'='+r.value).join('\n')+(rows.length?'\n':'') });
   }catch(_){ }
 }
+// chave nova/removida (ex.: DEEPSEEK_API_KEY) vale JÁ no seletor/Ambiente: zera o cache de 30s da disponibilidade
+function secretsAvailRefresh(){ try{ return Promise.resolve(invoke('ai_avail_refresh')).catch(()=>{}); }catch(_){ return Promise.resolve(); } }
 async function secretSet(name, value){
   await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
     body: JSON.stringify({ user_id:cloudUserId(), name, value }) });
   await secretsSync();
+  await secretsAvailRefresh();
 }
 async function secretDel(name){
   await sbFetch('/rest/v1/user_secrets?user_id=eq.'+cloudUserId()+'&name=eq.'+encodeURIComponent(name), { method:'DELETE' });
   await secretsSync();
+  await secretsAvailRefresh();
 }
 // seção na Conta: listar (mascarado), adicionar, remover
 function secretsRenderCloud(){
@@ -147,7 +151,7 @@ function secretsRenderCloud(){
   const rows=secretsCache||[];
   el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Chaves de modelo <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· seguem a sua conta (ex.: LGCX_API_KEY do LLM da Logcomex)</span></div>
     <div id="sbSecrets">${rows.length?rows.map(r=>`<div style="display:flex;align-items:center;gap:9px;font-size:12px;margin-top:6px"><span class="mono">${esc(r.name)}</span><span class="dim mono" style="font-size:10.5px">••••${esc(String(r.value).slice(-4))}</span><span style="flex:1"></span><button class="btn sm" data-sedit="${escA(r.name)}" style="padding:2px 8px;font-size:10.5px">editar</button><button class="btn sm" data-sdel="${escA(r.name)}" style="padding:2px 8px;font-size:10.5px">✕</button></div>`).join(''):'<div class="dim" style="font-size:11.5px;margin-top:4px">nenhuma chave ainda</div>'}</div>
-    <button class="btn sm" id="sbSecretAdd" style="margin-top:8px">+ adicionar chave</button>`;
+    <button class="btn sm" id="sbSecretAdd" style="margin-top:8px">+ adicionar chave</button>${rows.some(r=>r.name==='DEEPSEEK_API_KEY')?'':` <button class="btn sm" id="sbSecretDs" style="margin-top:8px" title="Motor DeepSeek Harness (beta, open source) — pra quem não tem plano da Anthropic nem da OpenAI">+ DEEPSEEK_API_KEY <span class="dim">· DeepSeek beta</span></button>`}`;
   body.appendChild(el);
   el.querySelectorAll('[data-sedit]').forEach(b=>b.onclick=async()=>{
     const v=await askText('Novo valor de '+b.dataset.sedit,'cole a chave'); if(v===null||!v.trim()) return;
@@ -157,6 +161,10 @@ function secretsRenderCloud(){
     if(!await askYes('Remover '+b.dataset.sdel+' da sua conta (e desta máquina)?')) return;
     await secretDel(b.dataset.sdel); renderCloud();
   });
+  { const b=el.querySelector('#sbSecretDs'); if(b) b.onclick=async()=>{
+      const v=await askText('Chave da DeepSeek (DEEPSEEK_API_KEY)','cole a chave de platform.deepseek.com'); if(v===null||!v.trim()) return;
+      await secretSet('DEEPSEEK_API_KEY', v.trim()); renderCloud();
+    }; }
   { const b=el.querySelector('#sbSecretAdd'); if(b) b.onclick=async()=>{
       const n=await askText('Nome da variável','MINHA_API_KEY'); if(n===null) return;
       const name=String(n).trim().toUpperCase().replace(/[^A-Z0-9_]/g,'_');

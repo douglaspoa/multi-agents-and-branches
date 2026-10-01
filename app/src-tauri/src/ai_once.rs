@@ -8,8 +8,11 @@
 //!             do llm.env no env; resposta = texto do ÚLTIMO item `agent_message`;
 //! - gateway → HTTP `chat/completions` OpenAI-compatível (curl; cabeçalhos e corpo em arquivos 0600, a chave
 //!             nunca vai no argv), modelo `aiModel` (se for do gateway) ou `ALT_AI_MODEL`.
+//! - deepseek (BETA) → `dsh --patch <fixo> --patch <modelo> --profile headless --json` SÓ-LEITURA
+//!             (DSH_PERMISSION_MODE=read-only), prompt no STDIN, só a DEEPSEEK_API_KEY no env (nunca no argv);
+//!             resposta = texto do evento `final`. Modelo: `aiModel`, senão deepseek-flash (rápido) / deepseek-v4-pro (capaz).
 //!
-//! Motor escolhido indisponível → o primeiro disponível na ordem claude, codex, gateway; nenhum → erro
+//! Motor escolhido indisponível → o primeiro disponível na ordem claude, codex, gateway, deepseek; nenhum → erro
 //! humano dizendo o que instalar/configurar. Os chats de várias rodadas NÃO passam por aqui.
 //! Golden compartilhado com o motor TS (src/ai-once.ts): tests/fixtures/ai-once-golden/.
 use super::*;
@@ -21,6 +24,7 @@ pub(crate) enum AiEngine {
     Claude,
     Codex,
     Gateway,
+    Deepseek,
 }
 impl AiEngine {
     pub(crate) fn label(self) -> &'static str {
@@ -28,17 +32,27 @@ impl AiEngine {
             AiEngine::Claude => "Claude Code",
             AiEngine::Codex => "Codex",
             AiEngine::Gateway => "Gateway",
+            AiEngine::Deepseek => "DeepSeek (beta)",
         }
     }
     pub(crate) fn parse(s: &str) -> Option<AiEngine> {
         let n = s.trim().to_ascii_lowercase();
         if n.starts_with("codex") { Some(AiEngine::Codex) }
+        else if is_dsh_label(&n) { Some(AiEngine::Deepseek) }
         else if n.starts_with("gateway") || n.starts_with("logcomex") { Some(AiEngine::Gateway) }
         else if n.starts_with("claude") { Some(AiEngine::Claude) }
         else { None }
     }
 }
+/// Fallback automático: SEM o DeepSeek (beta, terceiro) — ele só roda quando é a IA escolhida (aiEngine=deepseek).
 const ORDER: [AiEngine; 3] = [AiEngine::Claude, AiEngine::Codex, AiEngine::Gateway];
+
+/// Mesmo rótulo do TS (isDshLabel): "deepseek…" ou "dsh" como palavra ("dsh-flash", "dsh:x"; "dshx" não).
+pub(crate) fn is_dsh_label(s: &str) -> bool {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let n = s.trim().to_lowercase();
+    n.starts_with("deepseek") || RE.get_or_init(|| regex::Regex::new(r"^dsh\b").unwrap()).is_match(&n)
+}
 
 /// Nível da chamada: `Rapido` (antes Haiku) e `Capaz` (antes Sonnet / padrão da assinatura).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -53,14 +67,20 @@ pub(crate) struct Avail {
     pub claude: bool,
     pub codex: bool,
     pub gateway: bool,
+    pub deepseek: bool,
 }
 impl Avail {
     fn has(&self, e: AiEngine) -> bool {
-        match e { AiEngine::Claude => self.claude, AiEngine::Codex => self.codex, AiEngine::Gateway => self.gateway }
+        match e { AiEngine::Claude => self.claude, AiEngine::Codex => self.codex, AiEngine::Gateway => self.gateway, AiEngine::Deepseek => self.deepseek }
     }
 }
 
-pub(crate) const NO_ENGINE_MSG: &str = "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), ou configure um gateway em Configurações → Gateway próprio.";
+pub(crate) const NO_ENGINE_MSG: &str = "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Conta → Chaves de modelo).";
+pub(crate) const DSH_MISSING_MSG: &str = "O DeepSeek Harness (dsh) não está instalado neste computador — instale com npm i -g @deepseek-ai/dsh (veja Mais › Ambiente).";
+pub(crate) const DSH_KEY_MSG: &str = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Conta → Chaves de modelo.";
+pub(crate) const DSH_TIMEOUT_MSG: &str = "O DeepSeek não respondeu a tempo — tente de novo.";
+pub(crate) const DSH_FAST_MODEL: &str = "deepseek-flash";
+pub(crate) const DSH_CAPABLE_MODEL: &str = "deepseek-v4-pro";
 pub(crate) const CODEX_TIMEOUT_MSG: &str = "O Codex não respondeu a tempo — tente de novo.";
 pub(crate) const CODEX_MISSING_MSG: &str = "O Codex não está instalado neste computador — npm install -g @openai/codex (veja Mais › Ambiente).";
 pub(crate) const GATEWAY_CUT_MSG: &str = "a resposta do gateway foi cortada (limite de tokens) — peça algo menor ou aumente o limite no gateway.";
@@ -108,11 +128,17 @@ pub(crate) fn bin_exists(bin: &str) -> bool {
 /// Acha o `codex` como acha o node/claude (app aberto pelo menu NÃO herda o PATH do shell):
 /// CARDUME_CODEX (se existir) → ao lado do node configurado/escolhido → pastas dos gerenciadores de node
 /// (nvm/fnm/volta/asdf/mise instalam o codex junto) → homebrew → /usr/local/bin → PATH.
-pub(crate) fn codex_bin() -> String {
-    if let Ok(c) = std::env::var("CARDUME_CODEX") {
+pub(crate) fn codex_bin() -> String { node_tool_bin("CARDUME_CODEX", "codex") }
+
+/// Mesma busca pra qualquer CLI instalada com `npm i -g` (codex, dsh): <ENV> (se existir) → ao lado do node
+/// configurado/escolhido → pastas dos gerenciadores de node → homebrew → /usr/local/bin → nome solto (PATH).
+pub(crate) fn node_tool_bin(env_var: &str, name: &str) -> String {
+    if let Ok(c) = std::env::var(env_var) {
         if !c.is_empty() && Path::new(&c).is_file() { return c; }
     }
-    let names: &[&str] = if cfg!(windows) { &["codex.exe", "codex.cmd"] } else { &["codex"] };
+    let exe = format!("{name}.exe");
+    let cmd = format!("{name}.cmd");
+    let names: Vec<&str> = if cfg!(windows) { vec![exe.as_str(), cmd.as_str()] } else { vec![name] };
     let beside = |node: &str| -> Option<String> {
         let dir = Path::new(node).parent()?;
         names.iter().map(|n| dir.join(n)).find(|c| c.is_file()).map(|c| c.display().to_string())
@@ -127,10 +153,10 @@ pub(crate) fn codex_bin() -> String {
     for n in cands.iter().rev() {
         if let Some(c) = beside(n) { return c; }
     }
-    for p in ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"] {
-        if Path::new(p).is_file() { return p.to_string(); }
+    for p in [format!("/opt/homebrew/bin/{name}"), format!("/usr/local/bin/{name}")] {
+        if Path::new(&p).is_file() { return p; }
     }
-    "codex".to_string()
+    name.to_string()
 }
 
 /// Configuração do gateway OpenAI-compatível (mesmas chaves/padrões do route_ai_ping e do altProxy.ts).
@@ -156,6 +182,7 @@ fn engine_avail_uncached(e: AiEngine) -> bool {
         AiEngine::Claude => bin_exists(&claude_bin()),
         AiEngine::Codex => bin_exists(&codex_bin()),
         AiEngine::Gateway => gateway_cfg().is_some(),
+        AiEngine::Deepseek => dsh_status().is_ok(),
     }
 }
 static AVAIL_CACHE: Mutex<Option<HashMap<AiEngine, (bool, Instant)>>> = Mutex::new(None);
@@ -168,11 +195,11 @@ pub(crate) fn engine_avail(e: AiEngine) -> bool {
     AVAIL_CACHE.lock().unwrap_or_else(|x| x.into_inner()).get_or_insert_with(HashMap::new).insert(e, (v, Instant::now()));
     v
 }
-#[cfg(test)]
+/// Zera o cache de disponibilidade (testes, e o app ao salvar/remover uma chave em Conta → Chaves de modelo).
 pub(crate) fn clear_avail_cache() { *AVAIL_CACHE.lock().unwrap_or_else(|x| x.into_inner()) = None; }
 
 pub(crate) fn availability() -> Avail {
-    Avail { claude: engine_avail(AiEngine::Claude), codex: engine_avail(AiEngine::Codex), gateway: engine_avail(AiEngine::Gateway) }
+    Avail { claude: engine_avail(AiEngine::Claude), codex: engine_avail(AiEngine::Codex), gateway: engine_avail(AiEngine::Gateway), deepseek: engine_avail(AiEngine::Deepseek) }
 }
 
 /// Motor que as chamadas auxiliares vão usar agora (preferência + disponibilidade + fallback) — o
@@ -467,6 +494,234 @@ pub(crate) fn gateway_call(g: &Gateway, prompt: &str, secs: u64) -> Result<Strin
     parse_gateway(&String::from_utf8_lossy(&out.stdout))
 }
 
+// ---------- DeepSeek Harness (beta) ----------
+
+/// Acha o `dsh` como acha o codex (CARDUME_DSH só se existir, pasta do node escolhido, homebrew, /usr/local, PATH).
+pub(crate) fn dsh_bin() -> String { node_tool_bin("CARDUME_DSH", "dsh") }
+
+/// O dsh pede Node ^22.19 ou ≥24 (o 23 não serve).
+pub(crate) fn dsh_node_ok_v(v: (u32, u32, u32)) -> bool { v.0 >= 24 || (v.0 == 22 && v.1 >= 19) }
+
+/// Chave da DeepSeek: a da conta (llm.env) ou a do ambiente.
+pub(crate) fn dsh_key() -> Option<String> {
+    llm_env_get("DEEPSEEK_API_KEY").map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
+        .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))
+}
+
+/// Pronto pra uso? Err = o que falta, já em mensagem humana (binário → node → chave).
+pub(crate) fn dsh_status() -> Result<(), String> {
+    if !bin_exists(&dsh_bin()) { return Err(DSH_MISSING_MSG.into()); }
+    match node_version(&node_bin()) {
+        Some(v) if dsh_node_ok_v(v) => {}
+        Some(v) => return Err(format!("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é {}.{}.{}) — atualize o Node (veja Mais › Ambiente).", v.0, v.1, v.2)),
+        None => return Err("O DeepSeek Harness precisa do Node 22.19+ ou 24+ e não achei o Node (veja Mais › Ambiente).".into()),
+    }
+    if dsh_key().is_none() { return Err(DSH_KEY_MSG.into()); }
+    Ok(())
+}
+
+/// aiModel do usuário vale nos dois níveis — vazio ou alias/id do CLAUDE (opus/sonnet/haiku/claude…) não vale;
+/// sem ele: capaz → deepseek-v4-pro, rápido → deepseek-flash. Mesma regra do TS (dshModelFor).
+pub(crate) fn dsh_plan(tier: Tier, user_model: Option<&str>) -> String {
+    let m = user_model.map(str::trim).unwrap_or("");
+    let l = m.to_lowercase();
+    if m.is_empty() || ["opus", "sonnet", "haiku", "claude"].iter().any(|p| l.starts_with(p)) {
+        return (if tier == Tier::Capaz { DSH_CAPABLE_MODEL } else { DSH_FAST_MODEL }).to_string();
+    }
+    m.to_string()
+}
+
+/// Versão mínima testada (os ids de plugin dos patches vêm dela — developer preview muda nomes).
+pub(crate) const DSH_MIN_VERSION: &str = "0.2.0-rc.2";
+/// semver com pré-release: mesma regra do TS (dshVersionCmp). Ilegível = Equal (não bloqueia).
+pub(crate) fn dsh_version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering::*;
+    fn parse(v: &str) -> Option<([u64; 3], Vec<String>)> {
+        let c = regex::Regex::new(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?").ok()?.captures(v.trim().trim_start_matches('v'))?;
+        let n = [c[1].parse().ok()?, c[2].parse().ok()?, c[3].parse().ok()?];
+        Some((n, c.get(4).map(|m| m.as_str().split('.').map(String::from).collect()).unwrap_or_default()))
+    }
+    let (Some(x), Some(y)) = (parse(a), parse(b)) else { return Equal };
+    if x.0 != y.0 { return x.0.cmp(&y.0); }
+    match (x.1.is_empty(), y.1.is_empty()) {
+        (true, true) => return Equal,
+        (true, false) => return Greater,
+        (false, true) => return Less,
+        _ => {}
+    }
+    for i in 0..x.1.len().max(y.1.len()) {
+        let (Some(p), Some(q)) = (x.1.get(i), y.1.get(i)) else { return if x.1.len() < y.1.len() { Less } else { Greater } };
+        let (pn, qn) = (p.parse::<u64>().ok(), q.parse::<u64>().ok());
+        let o = match (pn, qn) { (Some(a), Some(b)) => a.cmp(&b), (Some(_), None) => Less, (None, Some(_)) => Greater, _ => p.cmp(q) };
+        if o != Equal { return o; }
+    }
+    Equal
+}
+pub(crate) fn dsh_version_ok(v: &str) -> bool { dsh_version_cmp(v, DSH_MIN_VERSION) != std::cmp::Ordering::Less }
+
+/// Patch FIXO do Starfork (mesmo texto do motor TS): upload de log de sessão pra DeepSeek e OTel desligados,
+/// título por IA desligado (chamada extra ao modelo). Vai por --patch — nunca editamos o ~/.dsh do usuário.
+pub(crate) fn dsh_base_patch() -> &'static str {
+    "# Starfork — gerado automaticamente a cada execução (não edite: o app reescreve).\n# Envio de logs de sessão pra DeepSeek DESLIGADO por padrão.\n- id: session-log-deepseek\n  config:\n    enabled: false\n- id: session-telemetry-otel\n  disabled: true\n# título da sessão por IA = uma chamada extra ao modelo a cada turno (tokens à toa)\n- id: session-title-llm\n  disabled: true\n"
+}
+/// Patch por chamada: só o modelo (JSON = YAML válido, sem `!!js`).
+pub(crate) fn dsh_model_patch(model: &str) -> String {
+    // ordem de chaves FIXA (provider, model) — idêntico ao runPatchYaml do TS (golden dsh-patch.json)
+    format!("# Starfork — gerado (não edite).\n- id: agent-default-model\n  config: {{\"provider\":\"deepseek-official\",\"model\":{}}}\n", serde_json::Value::String(model.to_string()))
+}
+/// Grava o patch fixo SÓ se o conteúdo mudou, via temporário + rename ATÔMICO, 0600: um dsh em paralelo nunca lê
+/// o arquivo vazio (e roda com upload de log/OTel ligados). Mesmo comportamento do writeBasePatch (TS).
+pub(crate) fn dsh_write_base_patch() -> Result<PathBuf, String> {
+    let dir = PathBuf::from(home_dir_s()).join(".constellation").join("dsh");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("não consegui preparar o DeepSeek: {e}"))?;
+    let p = dir.join("starfork.patch.yml");
+    let set600 = |_p: &Path| {
+        #[cfg(unix)]
+        { use std::os::unix::fs::PermissionsExt; let _ = std::fs::set_permissions(_p, std::fs::Permissions::from_mode(0o600)); }
+    };
+    if std::fs::read_to_string(&p).ok().as_deref() == Some(dsh_base_patch()) { set600(&p); return Ok(p); }
+    let tmp = dir.join(format!("starfork.patch.yml.{}.{}.tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::SeqCst)));
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    { use std::os::unix::fs::OpenOptionsExt; o.mode(0o600); }
+    let res = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        o.open(&tmp)?.write_all(dsh_base_patch().as_bytes())?;
+        std::fs::rename(&tmp, &p)
+    })();
+    let _ = std::fs::remove_file(&tmp);
+    res.map_err(|e| format!("não consegui preparar o DeepSeek: {e}"))?;
+    set600(&p);
+    Ok(p)
+}
+/// Variável que NÃO vai pro dsh (mesma regra do TS dshEnvDrop): *_API_KEY/*_TOKEN/*_SECRET herdadas (menos a
+/// DEEPSEEK_API_KEY) e marcadores do Claude Code.
+pub(crate) fn dsh_env_drop(k: &str) -> bool {
+    if k == "DEEPSEEK_API_KEY" { return false; }
+    let u = k.to_uppercase();
+    u.ends_with("_API_KEY") || u.ends_with("_TOKEN") || u.ends_with("_SECRET") || k.starts_with("CLAUDECODE") || k == "CLAUDE_CODE_ENTRYPOINT" || k == "CLAUDE_CODE_SSE_PORT"
+}
+/// argv do dsh — sem chave e sem prompt (vai no STDIN).
+pub(crate) fn dsh_args(patches: &[String]) -> Vec<String> {
+    let mut a = vec![];
+    for p in patches { a.push("--patch".to_string()); a.push(p.clone()); }
+    a.extend(["--profile", "headless", "--json"].iter().map(|s| s.to_string()));
+    a
+}
+/// DSH_HOME do Starfork (CARDUME_DSH_HOME só pra testes): nunca o ~/.dsh do usuário.
+pub(crate) fn dsh_home() -> PathBuf {
+    std::env::var("CARDUME_DSH_HOME").ok().filter(|s| !s.trim().is_empty()).map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(home_dir_s()).join(".constellation").join("dsh").join("home"))
+}
+
+/// JSONL do `dsh --json` → (texto do `final` se o turno CONCLUIU, erro CRU). Golden compartilhado com o TS.
+pub(crate) fn dsh_outcome(stdout: &str) -> (Option<String>, Option<String>) {
+    let (mut fin, mut err): (Option<String>, Option<String>) = (None, None);
+    for line in stdout.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else { continue };
+        match v["type"].as_str().unwrap_or("") {
+            "final" => fin = Some(v["text"].as_str().unwrap_or("").to_string()),
+            "error" => { let m = unwrap_json_msg(v["message"].as_str().unwrap_or("")); err = Some(if m.is_empty() { err.unwrap_or_else(|| "erro".into()) } else { m }); }
+            "status" if v["phase"].as_str() == Some("turn_end") => {
+                let kind = v["reason"]["kind"].as_str().unwrap_or("");
+                if !kind.is_empty() && kind != "completed" {
+                    let e = &v["reason"]["error"];
+                    let parts: Vec<String> = [e["code"].as_str().map(String::from), e["message"].as_str().map(unwrap_json_msg)].into_iter().flatten().filter(|s| !s.is_empty()).collect();
+                    err = Some(if parts.is_empty() { format!("turno {kind}") } else { parts.join(": ") });
+                }
+            }
+            _ => {}
+        }
+    }
+    match (fin, err) {
+        (_, Some(e)) => (None, Some(e)),
+        (Some(t), None) if !t.trim().is_empty() => (Some(t.trim().to_string()), None),
+        _ => (None, None),
+    }
+}
+#[cfg(test)]
+pub(crate) fn parse_dsh_jsonl(stdout: &str) -> Result<String, String> {
+    match dsh_outcome(stdout) {
+        (Some(s), _) => Ok(s),
+        (None, Some(raw)) => Err(dsh_friendly_error(&raw)),
+        (None, None) => Err("O DeepSeek terminou sem resposta — tente de novo.".into()),
+    }
+}
+/// As MESMAS regex do TS (DSH_ERR_KEY/QUOTA/NET em src/engine/dsh.ts) — números com \b ("4010" não é 401).
+pub(crate) fn dsh_friendly_error(msg: &str) -> String {
+    static RES: std::sync::OnceLock<[regex::Regex; 3]> = std::sync::OnceLock::new();
+    let [key, quota, net] = RES.get_or_init(|| [
+        regex::Regex::new(r"(?i)missing_credential|\b401\b|unauthorized|api[ _-]?key|authentication").unwrap(),
+        regex::Regex::new(r"(?i)\b429\b|\b402\b|rate[ _-]?limit|quota|insufficient[ _-]?balance").unwrap(),
+        regex::Regex::new(r"(?i)network|timed out|econn|fetch failed|\bconnection\b").unwrap(),
+    ]);
+    let short: String = msg.chars().take(300).collect();
+    if key.is_match(msg) {
+        return format!("{} e confira se ela é válida.\n\n({short})", DSH_KEY_MSG.trim_end_matches('.'));
+    }
+    if quota.is_match(msg) {
+        return format!("O DeepSeek está sem saldo/limite no momento — confira a conta na DeepSeek e tente de novo.\n\n({short})");
+    }
+    if net.is_match(msg) {
+        return format!("O DeepSeek não conseguiu falar com a API — cheque a internet/VPN e tente de novo.\n\n({short})");
+    }
+    format!("O DeepSeek falhou: {short}")
+}
+
+/// PATH do dsh: pasta do node ESCOLHIDO pelo app na frente (o dsh do npm é `#!/usr/bin/env node`), depois a do dsh.
+fn dsh_path_env(bin: &str) -> Option<std::ffi::OsString> {
+    let mut dirs: Vec<PathBuf> = vec![];
+    for b in [node_bin(), bin.to_string()] {
+        if let Some(d) = Path::new(&b).parent().filter(|d| !d.as_os_str().is_empty()) {
+            if !dirs.iter().any(|x| x == d) { dirs.push(d.to_path_buf()); }
+        }
+    }
+    let cur = std::env::var_os("PATH").unwrap_or_default();
+    dirs.extend(std::env::split_paths(&cur).filter(|d| !dirs.contains(d)).collect::<Vec<_>>());
+    std::env::join_paths(dirs).ok()
+}
+/// `dsh --version` com o PATH certo (app aberto pelo Finder tem PATH mínimo) — só o Ambiente usa.
+pub(crate) fn dsh_version(bin: &str) -> Option<String> {
+    let mut c = Command::new(bin);
+    c.arg("--version");
+    if let Some(p) = dsh_path_env(bin) { c.env("PATH", p); }
+    output_timeout(c, 8).ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string())
+}
+
+/// Uma chamada auxiliar no dsh: SÓ-LEITURA, prompt no STDIN, a chave só no env.
+pub(crate) fn dsh_run(bin: &str, key: &str, req: &AiOnce, user_model: Option<&str>) -> Result<String, String> {
+    if !bin_exists(bin) { return Err(DSH_MISSING_MSG.into()); }
+    let base = dsh_write_base_patch()?;
+    let mut files = TmpFiles(vec![]);
+    let model_patch = tmp_private(&mut files, "dsh.patch.yml", &dsh_model_patch(&dsh_plan(req.tier, user_model)))?;
+    let mut patches = vec![base.display().to_string(), model_patch.display().to_string()];
+    if let Ok(x) = std::env::var("CARDUME_DSH_PATCH") { if !x.trim().is_empty() && Path::new(&x).is_file() { patches.push(x); } }
+    let mut cmd = Command::new(bin);
+    cmd.args(dsh_args(&patches));
+    cmd.current_dir(req.cwd.map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir));
+    // segredos herdados pelo app (OPENAI/ANTHROPIC/LGCX…) não chegam no dsh — só a DEEPSEEK_API_KEY
+    for (k, _) in std::env::vars_os() { if let Some(k) = k.to_str() { if dsh_env_drop(k) { cmd.env_remove(k); } } }
+    cmd.env("DEEPSEEK_API_KEY", key).env("DSH_PERMISSION_MODE", "read-only")
+        .env("DSH_TELEMETRY_MODE", "DISABLED").env("DSH_TELEMETRY_DISABLED", "1").env("DSH_HOME", dsh_home());
+    if let Some(p) = dsh_path_env(bin) { cmd.env("PATH", p); }
+    let (out, timed) = match output_stdin(cmd, req.prompt, req.secs.max(120)) {
+        Ok(x) => x,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(DSH_MISSING_MSG.into()),
+        Err(e) => return Err(format!("Não consegui rodar o DeepSeek Harness: {e}")),
+    };
+    drop(files);
+    if timed { return Err(DSH_TIMEOUT_MSG.into()); }
+    match dsh_outcome(&String::from_utf8_lossy(&out.stdout)) {
+        (Some(s), _) => Ok(s),
+        (None, Some(raw)) => Err(dsh_friendly_error(&raw)),
+        (None, None) => {
+            let err: String = String::from_utf8_lossy(&out.stderr).replace("dsh: ", "").trim().chars().take(400).collect();
+            Err(if err.is_empty() { "O DeepSeek terminou sem resposta — tente de novo.".into() } else { dsh_friendly_error(&err) })
+        }
+    }
+}
+
 // ---------- o ponto único ----------
 
 fn run_claude(req: &AiOnce) -> Result<String, String> {
@@ -495,6 +750,10 @@ pub(crate) fn ai_once(req: AiOnce) -> Result<String, String> {
             let key = llm_env_get("OPENAI_API_KEY").filter(|k| !k.trim().is_empty());
             codex_run(&codex_bin(), key.as_deref(), &req, user_model.as_deref())
         }
+        AiEngine::Deepseek => {
+            let key = dsh_key().ok_or_else(|| DSH_KEY_MSG.to_string())?;
+            dsh_run(&dsh_bin(), &key, &req, user_model.as_deref())
+        }
         AiEngine::Gateway => {
             let mut g = gateway_cfg().ok_or("Configure o gateway (URL, chave e modelo) em Configurações → Gateway próprio.")?;
             if let Some(m) = user_model { g.model = m; }
@@ -514,6 +773,41 @@ mod tests {
     const PICK: &str = include_str!("../../../tests/fixtures/ai-once-golden/pick.json");
     const CODEX: &str = include_str!("../../../tests/fixtures/ai-once-golden/codex.json");
     const GATEWAY: &str = include_str!("../../../tests/fixtures/ai-once-golden/gateway.json");
+    const DSH: &str = include_str!("../../../tests/fixtures/ai-once-golden/dsh.json");
+    const DSH_PATCH: &str = include_str!("../../../tests/fixtures/ai-once-golden/dsh-patch.json");
+
+    #[test]
+    fn ai_once_golden_dsh_jsonl() {
+        let cases: serde_json::Value = serde_json::from_str(DSH).unwrap();
+        for c in cases.as_array().unwrap() {
+            let name = c["name"].as_str().unwrap();
+            let (text, raw) = dsh_outcome(c["jsonl"].as_str().unwrap());
+            assert_eq!(text.as_deref(), c["text"].as_str(), "{name}");
+            if let Some(r) = c["rawError"].as_str() { assert!(raw.as_deref().unwrap_or("").contains(r), "{name}: {raw:?}"); }
+            if let Some(f) = c["friendly"].as_str() {
+                let e = parse_dsh_jsonl(c["jsonl"].as_str().unwrap()).unwrap_err();
+                assert!(e.contains(f) && !e.contains("{\""), "{name}: {e}");
+            }
+        }
+        assert_eq!(dsh_plan(Tier::Rapido, None), "deepseek-flash");
+        assert_eq!(dsh_plan(Tier::Capaz, None), "deepseek-v4-pro");
+        assert_eq!(dsh_plan(Tier::Rapido, Some("deepseek-v4-pro")), "deepseek-v4-pro");
+        assert_eq!(AiEngine::parse("deepseek"), Some(AiEngine::Deepseek));
+        assert_eq!(AiEngine::parse("dsh"), Some(AiEngine::Deepseek));
+        assert_eq!(user_model_for("deepseek", AiEngine::Deepseek, Some("deepseek-flash")), Some("deepseek-flash".into()));
+        assert!(dsh_node_ok_v((22, 19, 0)) && dsh_node_ok_v((24, 0, 0)) && !dsh_node_ok_v((22, 18, 9)) && !dsh_node_ok_v((23, 9, 0)));
+        // patches IDÊNTICOS aos do TS (mesma ordem de chaves) — golden compartilhado
+        let g: serde_json::Value = serde_json::from_str(DSH_PATCH).unwrap();
+        assert_eq!(dsh_base_patch(), g["base"].as_str().unwrap());
+        assert_eq!(dsh_model_patch(g["model"].as_str().unwrap()), g["modelPatch"].as_str().unwrap());
+        assert_eq!(dsh_plan(Tier::Capaz, Some("sonnet")), "deepseek-v4-pro", "alias do Claude nunca vai pro deepseek-official");
+        assert_eq!(dsh_plan(Tier::Rapido, Some("claude-opus-5-5")), "deepseek-flash");
+        assert!(dsh_version_ok("0.2.0-rc.2") && dsh_version_ok("0.2.0") && dsh_version_ok("0.2.0-rc.10") && dsh_version_ok("1.0.0") && dsh_version_ok("lixo"));
+        assert!(!dsh_version_ok("0.2.0-rc.1") && !dsh_version_ok("0.1.9") && !dsh_version_ok("0.2.0-beta.5"));
+        assert!(is_dsh_label("dsh-flash") && is_dsh_label("dsh:x") && is_dsh_label("DeepSeek · v4") && !is_dsh_label("dshx"));
+        assert!(dsh_env_drop("OPENAI_API_KEY") && dsh_env_drop("GH_TOKEN") && dsh_env_drop("AWS_SECRET") && dsh_env_drop("CLAUDECODE") && !dsh_env_drop("DEEPSEEK_API_KEY") && !dsh_env_drop("PATH"));
+        assert_eq!(dsh_args(&["/a".into()]), vec!["--patch", "/a", "--profile", "headless", "--json"]);
+    }
 
     fn req<'a>(prompt: &'a str, tier: Tier, cwd: Option<&'a Path>) -> AiOnce<'a> {
         AiOnce { prompt, tier, claude_model: None, claude_extra: &[], cwd, secs: 20 }
@@ -549,11 +843,11 @@ echo '{{"type":"item.completed","item":{{"id":"i","type":"agent_message","text":
         let cases: serde_json::Value = serde_json::from_str(PICK).unwrap();
         for c in cases.as_array().unwrap() {
             let a = &c["avail"];
-            let av = Avail { claude: a["claude"].as_bool().unwrap(), codex: a["codex"].as_bool().unwrap(), gateway: a["gateway"].as_bool().unwrap() };
-            let got = pick_engine(c["pref"].as_str().unwrap(), &av).map(|e| match e { AiEngine::Claude => "claude", AiEngine::Codex => "codex", AiEngine::Gateway => "gateway" });
+            let av = Avail { claude: a["claude"].as_bool().unwrap(), codex: a["codex"].as_bool().unwrap(), gateway: a["gateway"].as_bool().unwrap(), deepseek: a["deepseek"].as_bool().unwrap_or(false) };
+            let got = pick_engine(c["pref"].as_str().unwrap(), &av).map(|e| match e { AiEngine::Claude => "claude", AiEngine::Codex => "codex", AiEngine::Gateway => "gateway", AiEngine::Deepseek => "deepseek" });
             assert_eq!(got, c["expect"].as_str(), "{c}");
         }
-        assert!(NO_ENGINE_MSG.contains("Claude Code") && NO_ENGINE_MSG.contains("Codex") && NO_ENGINE_MSG.contains("gateway"));
+        assert!(NO_ENGINE_MSG.contains("Claude Code") && NO_ENGINE_MSG.contains("Codex") && NO_ENGINE_MSG.contains("gateway") && NO_ENGINE_MSG.contains("@deepseek-ai/dsh"));
     }
 
     #[test]
@@ -607,6 +901,7 @@ echo '{{"type":"item.completed","item":{{"id":"i","type":"agent_message","text":
 
     #[test]
     fn ai_once_codex_falso_so_leitura_stdin_e_so_a_chave_permitida() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner()); // o teste do dsh mexe no env (LGCX herdada)
         let d = tmpdir("codex");
         let bin = fake_codex(&d, false);
         let cwd = tmpdir("cwd");
@@ -716,6 +1011,110 @@ echo '{{"type":"item.completed","item":{{"id":"i","type":"agent_message","text":
             for (k, v) in &self.0 { match v { Some(v) => std::env::set_var(k, v), None => std::env::remove_var(k) } }
             clear_avail_cache();
         }
+    }
+
+    /// dsh FALSO: grava argv, env e stdin; responde o JSONL real do headless (dsh 0.2.0-rc.2).
+    fn fake_dsh(dir: &Path) -> String {
+        let d = dir.display();
+        let script = format!(r#"#!/bin/sh
+printf '%s\n' "$@" > "{d}/argv.txt"
+echo "DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY" > "{d}/env.txt"
+echo "DSH_PERMISSION_MODE=$DSH_PERMISSION_MODE" >> "{d}/env.txt"
+echo "DSH_HOME=$DSH_HOME" >> "{d}/env.txt"
+echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> "{d}/env.txt"
+echo "LGCX_API_KEY=$LGCX_API_KEY" >> "{d}/env.txt"
+echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> "{d}/env.txt"
+cat > "{d}/stdin.txt"
+echo '{{"type":"session","sessionId":"s1"}}'
+echo '{{"type":"status","phase":"turn_end","turn":1,"reason":{{"kind":"completed"}}}}'
+echo '{{"type":"final","text":" resposta do deepseek "}}'
+"#);
+        let p = dir.join("dsh");
+        std::fs::write(&p, script).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p.display().to_string()
+    }
+
+    #[test]
+    fn ai_once_dsh_falso_so_leitura_stdin_chave_so_no_env() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _gw = GW_LOCK.lock().unwrap_or_else(|e| e.into_inner()); // dsh_run cria temporários starfork-ai-* (o teste do gateway os conta)
+        let home = tmpdir("dshhome");
+        let home_s = home.display().to_string();
+        let dsh_home = home.join("dsh-home").display().to_string();
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_DSH_HOME", dsh_home.as_str()), ("OPENAI_API_KEY", "herdada-openai"), ("LGCX_API_KEY", "herdada-lgcx"), ("ANTHROPIC_API_KEY", "herdada-anthropic")]);
+        let d = tmpdir("dsh");
+        let bin = fake_dsh(&d);
+        let prompt = "um prompt \"com aspas\" e\nquebra";
+        let out = dsh_run(&bin, "sk-ds-teste", &req(prompt, Tier::Capaz, None), None).unwrap();
+        assert_eq!(out, "resposta do deepseek");
+        let argv: Vec<String> = std::fs::read_to_string(d.join("argv.txt")).unwrap().lines().map(String::from).collect();
+        assert_eq!(&argv[argv.len() - 3..], &["--profile", "headless", "--json"]);
+        assert_eq!(argv[1], home.join(".constellation/dsh/starfork.patch.yml").display().to_string());
+        assert!(!argv.iter().any(|a| a.contains("sk-ds") || a.contains("um prompt")), "chave e prompt fora do argv");
+        assert!(!Path::new(&argv[3]).exists(), "patch por chamada (modelo) apagado");
+        assert_eq!(std::fs::read_to_string(d.join("stdin.txt")).unwrap(), prompt);
+        let env = std::fs::read_to_string(d.join("env.txt")).unwrap();
+        assert!(env.contains("DEEPSEEK_API_KEY=sk-ds-teste") && env.contains("DSH_PERMISSION_MODE=read-only") && env.contains(&format!("DSH_HOME={dsh_home}")), "{env}");
+        assert!(env.contains("OPENAI_API_KEY=\n") && env.contains("LGCX_API_KEY=\n") && env.contains("ANTHROPIC_API_KEY=\n"), "segredos herdados não chegam no dsh: {env}");
+        // patch fixo 0600 e não reescrito quando igual
+        let fixed = home.join(".constellation/dsh/starfork.patch.yml");
+        { use std::os::unix::fs::{MetadataExt, PermissionsExt}; let m = std::fs::metadata(&fixed).unwrap(); assert_eq!(m.permissions().mode() & 0o777, 0o600);
+          let ino = m.ino(); dsh_write_base_patch().unwrap(); assert_eq!(std::fs::metadata(&fixed).unwrap().ino(), ino, "igual → não reescreve");
+          std::fs::write(&fixed, "").unwrap(); dsh_write_base_patch().unwrap(); assert_eq!(std::fs::read_to_string(&fixed).unwrap(), dsh_base_patch());
+          assert_eq!(std::fs::metadata(&fixed).unwrap().permissions().mode() & 0o777, 0o600); }
+        assert_eq!(std::fs::read_to_string(home.join(".constellation/dsh/starfork.patch.yml")).unwrap(), dsh_base_patch());
+        let e = dsh_run("/nao/existe/dsh", "k", &req("x", Tier::Rapido, None), None).unwrap_err();
+        assert_eq!(e, DSH_MISSING_MSG);
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// dsh REAL apontado pra um servidor OpenAI-compatível FALSO local (sem custo). Pula se o dsh não estiver instalado.
+    #[test]
+    fn ai_once_dsh_real_servidor_falso() {
+        let bin = node_tool_bin("CARDUME_DSH", "dsh");
+        if !bin_exists(&bin) || !node_version(&node_bin()).is_some_and(dsh_node_ok_v) { eprintln!("dsh não instalado — pulando"); return; }
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _gw = GW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let srv = std::thread::spawn(move || {
+            let mut n = 0;
+            l.set_nonblocking(false).unwrap();
+            while let Ok((mut s, _)) = l.accept() {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    let k = s.read(&mut chunk).unwrap_or(0);
+                    if k == 0 { break; }
+                    buf.extend_from_slice(&chunk[..k]);
+                    let txt = String::from_utf8_lossy(&buf).to_string();
+                    if let Some(i) = txt.find("\r\n\r\n") {
+                        let len = txt.lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+                        if buf.len() >= i + 4 + len { break; }
+                    }
+                }
+                n += 1;
+                let c1 = r#"{"id":"c","object":"chat.completion.chunk","created":1,"model":"fake-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Filtro por data"},"finish_reason":null}]}"#;
+                let c2 = r#"{"id":"c","object":"chat.completion.chunk","created":1,"model":"fake-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}"#;
+                let body = format!("data: {c1}\n\ndata: {c2}\n\ndata: [DONE]\n\n");
+                let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+                if n >= 1 { break; }
+            }
+            n
+        });
+        let home = tmpdir("dshreal");
+        let prov = home.join("prov.yml");
+        std::fs::write(&prov, format!("- id: llm-pi-ai\n  config:\n    providers:\n      fake:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        api: openai-completions\n        baseURL: http://127.0.0.1:{port}/v1\n        compat:\n          supportsDeveloperRole: false\n          maxTokensField: max_tokens\n        models:\n          - id: fake-model\n- id: agent-default-model\n  config:\n    provider: fake\n    model: fake-model\n")).unwrap();
+        let (home_s, dsh_home, prov_s) = (home.display().to_string(), home.join("dsh-home").display().to_string(), prov.display().to_string());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_DSH_HOME", dsh_home.as_str()), ("CARDUME_DSH_PATCH", prov_s.as_str())]);
+        let out = dsh_run(&bin, "sk-fake", &req("gere um título curto: filtro por data", Tier::Rapido, None), None);
+        assert_eq!(out.as_deref(), Ok("Filtro por data"));
+        assert_eq!(srv.join().unwrap(), 1, "uma chamada só ao modelo");
+        assert!(!home.join(".dsh").exists(), "nunca o ~/.dsh");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// Ponta a ponta REAL (precisa do codex com login): IA padrão Codex, SEM claude, HOME temporário.

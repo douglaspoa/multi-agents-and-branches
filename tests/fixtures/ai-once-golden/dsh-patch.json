@@ -1,0 +1,5 @@
+{
+ "base": "# Starfork — gerado automaticamente a cada execução (não edite: o app reescreve).\n# Envio de logs de sessão pra DeepSeek DESLIGADO por padrão.\n- id: session-log-deepseek\n  config:\n    enabled: false\n- id: session-telemetry-otel\n  disabled: true\n# título da sessão por IA = uma chamada extra ao modelo a cada turno (tokens à toa)\n- id: session-title-llm\n  disabled: true\n",
+ "model": "m\"x/deepseek-flash",
+ "modelPatch": "# Starfork — gerado (não edite).\n- id: agent-default-model\n  config: {\"provider\":\"deepseek-official\",\"model\":\"m\\\"x/deepseek-flash\"}\n"
+}

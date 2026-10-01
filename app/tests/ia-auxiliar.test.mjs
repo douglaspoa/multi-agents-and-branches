@@ -163,3 +163,31 @@ test('tour de boas-vindas: correção com várias opções vira uma linha por op
   assert.match(html, /como resolver:<\/span><span[^>]*>configure um gateway/);
   assert.doesNotMatch(cfg, /data-envfix="\$\{escA\(c\.fix\)\}"/, 'o tour não copia mais o fix inteiro como um comando só');
 });
+
+test('DeepSeek (beta): erros humanos próprios, Ambiente explica, chave não manda logar no Claude', () => {
+  const P = pickerCtx({});
+  const id = (m) => P.ctx.humanErr(new Error(m)).id;
+  assert.equal(id('Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Conta → Chaves de modelo.'), 'dsh-key');
+  assert.equal(id('Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Conta → Chaves de modelo e confira se ela é válida.\n\n(401 Unauthorized: invalid api key)'), 'dsh-key');
+  assert.equal(id('O DeepSeek Harness (dsh) não está instalado neste computador — instale com npm i -g @deepseek-ai/dsh (veja Mais › Ambiente).'), 'dsh-missing');
+  assert.equal(id('O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o deste computador é 22.12.0)'), 'dsh-node');
+  assert.equal(id('O DeepSeek não respondeu a tempo — tente de novo.'), 'dsh-timeout');
+  assert.equal(id('O DeepSeek está sem saldo/limite no momento — confira a conta.\n\n(429)'), 'dsh-quota');
+  assert.equal(id('Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Conta → Chaves de modelo).'), 'ai-none');
+  assert.match(ENV.envWhat({ name: 'DeepSeek Harness (opcional · beta)' }), /BETA/);
+  assert.equal(ENV.envKind({ name: 'DeepSeek Harness (opcional · beta)' }), 'opt');
+  assert.match(ENV.envWhat({ name: 'Motor de IA (pelo menos um)' }), /DeepSeek Harness \(beta\)/);
+  // a correção do "nenhum motor" (Rust env_ai_item): instalar o dsh é comando; a chave é instrução
+  assert.deepEqual(ENV.envFixLines('npm i -g @deepseek-ai/dsh\nconfigure a DEEPSEEK_API_KEY em Conta → Chaves de modelo (DeepSeek, beta)').map((x) => x.cmd), [true, false]);
+});
+
+test('salvar/remover chave em Conta → Chaves de modelo zera o cache de disponibilidade (DeepSeek aparece na hora)', async () => {
+  const src = read('41-assinatura-chaves.js');
+  const calls = [];
+  const ctx = { invoke: async (c) => { calls.push(c); }, sbFetch: async () => ({}), cloudUserId: () => 'u', secretsSync: async () => {} };
+  vm.createContext(ctx);
+  vm.runInContext(cut(src, '// chave nova/removida', '// seção na Conta: listar') + '\nglobalThis.__s=secretSet; globalThis.__d=secretDel;', ctx);
+  await ctx.__s('DEEPSEEK_API_KEY', 'k');
+  await ctx.__d('DEEPSEEK_API_KEY');
+  assert.deepEqual(calls, ['ai_avail_refresh', 'ai_avail_refresh']);
+});

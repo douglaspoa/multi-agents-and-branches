@@ -44,7 +44,7 @@ function gitRepo(name: string): string {
 }
 
 before(() => {
-  for (const k of ["CARDUME_CLAUDE", "CARDUME_CODEX", "HOME", "CARDUME_LIMIT_RETRY_MIN"]) saved[k] = process.env[k];
+  for (const k of ["CARDUME_CLAUDE", "CARDUME_CODEX", "CARDUME_DSH", "CARDUME_DSH_HOME", "DEEPSEEK_API_KEY", "HOME", "CARDUME_LIMIT_RETRY_MIN"]) saved[k] = process.env[k];
   const home = join(root, "home");
   mkdirSync(home, { recursive: true }); // sem ~/.constellation/llm.env → Route AI desligado (não mascara o modelo)
   process.env.HOME = home;
@@ -52,6 +52,14 @@ before(() => {
     JSON.stringify({ type: "system", subtype: "init", session_id: "sess-1", model: "x", permissionMode: "bypassPermissions" }),
     JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok", session_id: "sess-1", total_cost_usd: 0 }),
   ]);
+  // dsh falso (DeepSeek beta): a chave vai pelo env do processo (sem llm.env → Route AI segue desligado)
+  process.env.CARDUME_DSH = fakeBin("dsh", [
+    JSON.stringify({ type: "session", sessionId: "session-ds-1" }),
+    JSON.stringify({ type: "status", phase: "turn_end", turn: 1, reason: { kind: "completed" } }),
+    JSON.stringify({ type: "final", text: "ok" }),
+  ]);
+  process.env.CARDUME_DSH_HOME = join(root, "dshhome");
+  process.env.DEEPSEEK_API_KEY = "sk-ds-teste";
   process.env.CARDUME_CODEX = fakeBin("codex", [
     JSON.stringify({ type: "thread.started", thread_id: "th-1" }),
     JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }),
@@ -59,7 +67,9 @@ before(() => {
 });
 after(() => {
   for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-  rmSync(root, { recursive: true, force: true });
+  // processos de fundo (retro/aux fire-and-forget) ainda podem escrever no repo temporário: tenta de novo
+  // faxina melhor-esforço: pasta no tmp do sistema; falhar aqui não diz nada sobre o motor
+  try { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* o SO limpa o tmp */ }
 });
 
 test("ClaudeEngine: --model vai no turno novo E no --resume (antes o resume caía no padrão da assinatura)", async () => {
@@ -161,4 +171,54 @@ test("engineKind: rótulos variados resolvem pro motor certo (mesma regra do eng
   assert.equal(engineKind("logcomex"), "logcomex");
   assert.equal(engineKind("mock"), "mock");
   assert.equal(engineKind(""), "mock");
+});
+
+// DshEngine checa o node (^22.19 ou ≥24) antes de rodar o dsh falso
+const DSH_NODE = { skip: process.platform === "win32" ? "POSIX-only" : !/^(2[4-9]|[3-9]\d)\.|^22\.(19|[2-9]\d)\./.test(process.versions.node) ? `node ${process.versions.node} < 22.19` : false };
+const dshPatchModel = (wt: string) => (readFileSync(join(wt, ".cardume", "dsh.patch.yml"), "utf8").match(/"model":"([^"]+)"/) ?? [])[1];
+
+test("CLI new com --engine deepseek: roda o DSH com o modelo no patch da worktree, nunca claude/codex; alias do Claude vira o capaz", DSH_NODE, async () => {
+  const repo = gitRepo("clidsh");
+  const cli = join(import.meta.dirname, "cli.ts");
+  reset();
+  const run = (id: string, model: string) => execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "new", "--repo", repo, "--id", id, "--title", id, "--engine", "deepseek", "--model", model, "--approve", "auto", "--no-overlap-check", "--light"], { env: process.env, stdio: "ignore", timeout: 60000 });
+  run("d1", "deepseek-flash");
+  const cs = calls();
+  assert.ok(cs.some((c) => c.bin === "dsh"), "o dsh deveria ter rodado: " + JSON.stringify(cs.map((c) => c.bin)));
+  assert.equal(cs.filter((c) => (c.bin === "claude" && c.argv.includes("--output-format")) || c.bin === "codex").length, 0, "nenhum agente no claude/codex");
+  const { Store } = await import("./store.ts");
+  const st = new Store(join(repo, ".cardume", "state.sqlite"));
+  try {
+    const wt = (n: string) => st.getTask(n)!.worktree;
+    assert.equal(dshPatchModel(wt("d1")), "deepseek-flash");
+    run("d2", "sonnet");
+    assert.equal(dshPatchModel(wt("d2")), "deepseek-v4-pro", "alias do Claude (#ntModel) não vai pro deepseek-official");
+  } finally { st.close(); }
+});
+
+test("conversa numa tarefa DeepSeek continua no dsh com --session-id e o modelo dela (nunca claude/codex)", DSH_NODE, async () => {
+  const { Orchestrator } = await import("./orchestrator.ts");
+  const repo = gitRepo("talkdsh");
+  const orch = new Orchestrator(repo);
+  try {
+    const spec = {
+      id: "t3", title: "t3", objective: "x", deliverables: [], requirements: [],
+      scope: { owns: [], offLimits: [] },
+      autonomy: { clarifications: "assume", commit: "at-end", runTests: false, approval: "auto" },
+      engine: "deepseek", model: "deepseek-flash", agent: "Íris", light: true, base: "main",
+      roles: [{ role: "builder", name: "Íris", engine: "deepseek", model: "deepseek-flash" }],
+    } as unknown as TaskSpec;
+    await orch.createTask(spec);
+    orch.store.setSession("t3", "session-ds-0"); // já teve um turno → a conversa RETOMA a sessão
+    reset();
+    await orch.talkToAgent("t3", "ajusta o texto do botão");
+    const cs = calls();
+    assert.equal(cs.filter((c) => (c.bin === "claude" && c.argv.includes("--output-format")) || c.bin === "codex").length, 0, JSON.stringify(cs.map((c) => c.bin)));
+    const dsh = cs.filter((c) => c.bin === "dsh");
+    assert.equal(dsh.length, 1);
+    assert.equal(flag(dsh[0], "--session-id"), "session-ds-0");
+    assert.equal(dshPatchModel(orch.store.getTask("t3")!.worktree), "deepseek-flash");
+  } finally {
+    orch.close();
+  }
 });

@@ -18,6 +18,7 @@ import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
 import { aiOnce, type AiTier } from "./ai-once.ts";
+import { DshEngine, isDshLabel } from "./engine/dsh.ts";
 import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
@@ -116,10 +117,11 @@ export function prUrlFrom(text: string): string {
  * o mock só entra quando pedido de fato — uma tarefa real cair no MockEngine por um nome fora
  * da lista "concluía" com código de mentira.
  */
-export function engineKind(name: string | undefined): "mock" | "codex" | "gateway" | "logcomex" | "claude" {
+export function engineKind(name: string | undefined): "mock" | "codex" | "gateway" | "logcomex" | "deepseek" | "claude" {
   const n = String(name ?? "").trim().toLowerCase();
   return n === "mock" ? "mock"
     : n.startsWith("codex") ? "codex"
+    : isDshLabel(n) ? "deepseek"
     : n.startsWith("gateway") ? "gateway"
     : n.startsWith("logcomex") ? "logcomex"
     : n.startsWith("claude") ? "claude"
@@ -149,6 +151,8 @@ export class Orchestrator {
     name = kind;
     if (name === "claude") return new ClaudeEngine({ model, approval });
     if (name === "codex") return new CodexEngine({ model });
+    // DeepSeek Harness (beta): open source, só a DEEPSEEK_API_KEY da conta
+    if (name === "deepseek") return new DshEngine({ model });
     if (name === "gateway" || name === "logcomex") {
       // gateway OpenAI-compatível da EMPRESA (URL/chave/modelos vêm do cofre da conta — Configurações → Gateway).
       // "logcomex" é o nome antigo: sem config, cai nos padrões da Logcomex pra não quebrar tarefas existentes.

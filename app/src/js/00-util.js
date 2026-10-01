@@ -186,7 +186,21 @@ const ERR_CATALOG=[
   // IA auxiliar plural (Claude, Codex ou gateway — app/src-tauri/src/ai_once.rs): ANTES do claude-login, que casaria
   // no "invalid api key" entre parênteses e mandaria quem usa Codex/gateway fazer login no Claude
   { id:'ai-none', re:/nenhuma ia dispon[ií]vel/i,
-    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, ou configure um gateway da sua empresa.', act:'env', label:'ver como resolver (Mais › Ambiente)' },
+    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta).', act:'env', label:'ver como resolver (Mais › Ambiente)' },
+  // DeepSeek Harness (beta) — mensagens do motor/auxiliar (src/engine/dsh.ts, ai_once.rs). A da CHAVE antes de tudo
+  // que casaria "api key"/"401" (claude-login) — quem usa DeepSeek não precisa de login no Claude
+  { id:'dsh-key', re:/falta a chave da deepseek|DEEPSEEK_API_KEY/i,
+    msg:'Falta a chave da DeepSeek (ou ela foi recusada) — adicione/confira a DEEPSEEK_API_KEY em Conta → Chaves de modelo.', act:'conta', label:'abrir Conta' },
+  { id:'dsh-missing', re:/deepseek harness \(dsh\) n[aã]o est[aá] instalado|spawn dsh ENOENT|n[aã]o consegui rodar o deepseek harness/i,
+    msg:'O DeepSeek Harness (beta) não está instalado — npm i -g @deepseek-ai/dsh.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+  { id:'dsh-node', re:/deepseek harness precisa do node/i,
+    msg:'O DeepSeek Harness precisa do Node 22.19+ ou 24+ — atualize o Node.', act:'env', label:'abrir Ambiente' },
+  { id:'dsh-timeout', re:/o deepseek n[aã]o respondeu a tempo/i,
+    msg:'O DeepSeek não respondeu a tempo — tente de novo.' },
+  { id:'dsh-quota', re:/o deepseek est[aá] sem saldo/i,
+    msg:'O DeepSeek está sem saldo/limite no momento — confira a conta na DeepSeek e tente de novo.' },
+  { id:'dsh-network', re:/o deepseek n[aã]o conseguiu falar com a api/i,
+    msg:'O DeepSeek não conseguiu falar com a API — cheque a internet/VPN e tente de novo.' },
   { id:'codex-missing', re:/o codex n[aã]o est[aá] instalado|n[aã]o consegui rodar o codex|spawn codex ENOENT/i,
     msg:'O Codex não está instalado neste computador.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
   { id:'codex-timeout', re:/o codex n[aã]o respondeu a tempo/i,

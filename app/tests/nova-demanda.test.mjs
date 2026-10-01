@@ -67,6 +67,7 @@ test('rótulos humanos de IA e de escopo', () => {
   assert.equal(N.plHumanModel('claude', 'claude-haiku-4-5-20251001'), 'rápida');
   assert.equal(N.plHumanModel('claude', 'claude-fable-5-1'), 'caprichada');
   assert.equal(N.plHumanModel('codex', 'gpt-5'), 'Codex');
+  assert.equal(N.plHumanModel('deepseek', 'deepseek-flash'), 'DeepSeek (beta)');
   assert.equal(N.plHumanModel('claude', ''), 'padrão do plano');
   assert.equal(N.plScopeLabel(['src/a/**', 'README.md']), '1 pasta e 1 arquivo');
   assert.equal(N.plScopeLabel([]), 'a IA decide');
