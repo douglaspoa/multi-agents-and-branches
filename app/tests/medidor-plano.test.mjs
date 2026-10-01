@@ -1,6 +1,8 @@
-// Medidor do plano no menu lateral (spec-medidor-plano): render dos estados (Claude/Codex/DeepSeek), cores,
-// "configure sua IA", erro com "tentar de novo", minimizar persiste, IA padrão, acessibilidade, atualização leve
-// e o gancho de fim de turno do 10-core (detectNotifs). Carrega 00-util + (11 puro + 29) + 28 num vm.
+// Medidor do plano no menu lateral (spec-medidor-plano + spec-medidor-v2-statusline): barras por janela com o número
+// à direita, cores, ordem (IA padrão primeiro, depois por maior uso), detalhes recolhidos por IA, % real do Claude pela
+// barra de status (e a dica de ativar quando não há), minimizado = barra fina da IA padrão (persiste), acessibilidade
+// (progressbar com valor), "configure sua IA", erro com "tentar de novo", atualização leve e o gancho de fim de turno
+// do 10-core (detectNotifs). Carrega 00-util + (11 puro + 29) + 28 num vm.
 // Entrada = o MESMO golden que o Rust serializa (tests/fixtures/plan-usage-golden/payload.json).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -51,66 +53,99 @@ function load(store = {}, opts = {}) {
   vm.runInContext(read('00-util.js') + '\n' + env + '\n' + read('29-ia-picker.js') + '\n' + read('28-medidor-plano.js'), ctx);
   return { ctx, el, calls, timers, run: (c) => vm.runInContext(c, ctx) };
 }
-const click = (P, pm) => P.el.listeners.click({ target: { closest: () => ({ dataset: { pm } }) } });
+const click = (P, pm, pmId) => P.el.listeners.click({ target: { closest: () => ({ dataset: { pm, pmId } }) } });
 
 // horário local de um epoch (o widget mostra no fuso da máquina)
 const hm = (ms) => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-const NOW = GOLDEN.claude.resetsAt - 4 * 3600 * 1000;
-const R = GOLDEN.claude.resetsAt;
+const NOW = GOLDEN.claude.updatedAt + 2 * 60 * 1000; // a barra gravou há 2 min
+const R5 = GOLDEN.claude.fiveHour.resetsAt;
 const U = (over) => ({ ...golden(), ...over });
-const row = (P, u, id) => P.ctx.pmRows(u, NOW).find((r) => r.id === id);
+const C = (over) => U({ claude: { ...GOLDEN.claude, ...over } });
+// Claude SEM a barra de status (só o rate_limit_event, como antes)
+const NO_SL = { fiveHour: null, sevenDay: null, updatedAt: null, statusline: false, state: 'ok', window: 'five_hour', pct: null, resetsAt: R5 };
+const rows = (P, u, def = 'claude') => P.ctx.pmRows(u, NOW, def);
+const row = (P, u, id, def) => rows(P, u, def).find((r) => r.id === id);
+const bars = (r) => r.bars.map((b) => `${b.label} ${Math.round(b.pct)}`).join(' · ');
 
-test('golden do Rust: as três linhas como na matriz da spec', () => {
+test('golden do Rust: Claude com a % real (5h 43, semana 61) + "atualizado há 2 min"; Codex com barras; DeepSeek com saldo', () => {
   const P = load();
-  const rows = P.ctx.pmRows(golden(), NOW);
-  assert.equal(rows.map((r) => r.id).join(','), 'claude,codex,deepseek');
-  assert.equal('Codex · ' + rows[1].text, 'Codex · 5h 9 % · semana 1 % · plus');
-  assert.equal(rows[0].text, 'ok · reinicia ' + hm(R) + ' · Starfork usou 120k tok em 5h neste projeto');
-  assert.equal('DeepSeek · ' + rows[2].text, 'DeepSeek · saldo US$ 4,20');
+  const rs = rows(P, golden());
+  assert.equal(rs.map((r) => r.id).join(','), 'claude,codex,deepseek');
+  const [c, x, d] = rs;
+  assert.equal(bars(c), '5h 43 · semana 61');
+  assert.equal(c.sub, 'atualizado há 2 min');
+  assert.equal(c.hint, '', 'com a barra ativa: sem dica');
+  assert.equal(c.level, 'ok');
+  assert.equal(c.short, 'semana 61 %', 'minimizado: a maior janela');
+  assert.equal(bars(x), '5h 9 · semana 1');
+  assert.equal(d.bars.length, 0, 'DeepSeek: saldo, sem barra');
+  assert.equal(d.text, 'saldo US$ 4,20');
+  const html = P.ctx.pmHtml(golden(), false, 'claude', NOW);
+  assert.match(html, /role="progressbar" aria-label="Claude 5h" aria-valuemin="0" aria-valuemax="100" aria-valuenow="43" aria-valuetext="43 % — normal"/);
+  assert.match(html, /aria-label="Claude semana"[^>]*aria-valuenow="61"/);
+  assert.match(html, /<span class="pm-wn pm-ok">43 %<\/span>/, 'número à direita da barra');
+  assert.match(html, /style="width:43%"/);
 });
 
-test('Codex: rótulo da janela pelos minutos; reinícios visíveis no detalhe; sem rate_limits → sem dados ainda', () => {
+test('cores: verde < 70, amarelo 70–90, vermelho > 90 ou bloqueado', () => {
   const P = load();
-  const r = row(P, golden(), 'codex');
-  assert.match(r.detail, new RegExp('5h reinicia ' + hm(GOLDEN.codex.primary.resetsAt)));
-  assert.match(r.detail, /semana reinicia \d\d\/\d\d \d\d:\d\d/, 'outro dia: com a data');
+  const lv = (p) => row(P, C({ fiveHour: { pct: p, resetsAt: R5, reset: false }, sevenDay: null }), 'claude').bars[0].level;
+  assert.deepEqual([69, 70, 90, 91, 100].map(lv), ['ok', 'warn', 'warn', 'crit', 'crit']);
+  const cx = (a, b) => row(P, U({ codex: { hasData: true, primary: { usedPercent: a, windowMinutes: 300 }, secondary: { usedPercent: b, windowMinutes: 10080 } } }), 'codex');
+  assert.equal(cx(75, 10).level, 'warn', 'a IA fica com a pior janela');
+  assert.equal(cx(20, 95).level, 'crit');
+  assert.equal(bars(cx(40, 5)), '5h 40 · semana 5');
   const odd = row(P, U({ codex: { hasData: true, primary: { usedPercent: 40, windowMinutes: 120 }, secondary: { usedPercent: 5, windowMinutes: 4320 } } }), 'codex');
-  assert.equal(odd.text, '2h 40 % · 3d 5 %');
+  assert.equal(bars(odd), '2h 40 · 3d 5');
   assert.equal(row(P, U({ codex: { hasData: false } }), 'codex').text, 'sem dados ainda');
-  // cores: amarelo 70–90, vermelho > 90 (pelo maior das janelas)
-  assert.equal(row(P, U({ codex: { hasData: true, primary: { usedPercent: 75, windowMinutes: 300 }, secondary: { usedPercent: 10, windowMinutes: 10080 } } }), 'codex').level, 'warn');
-  assert.equal(row(P, U({ codex: { hasData: true, primary: { usedPercent: 20, windowMinutes: 300 }, secondary: { usedPercent: 95, windowMinutes: 10080 } } }), 'codex').level, 'crit');
 });
 
-test('Claude: nunca % inventada; uso "neste projeto"; sem evento → só o uso; erro do uso; claude sem resumo → sem dados', () => {
+test('ordem: IA padrão primeiro, depois as outras por maior uso (sem % no fim)', () => {
   const P = load();
-  const r = row(P, golden(), 'claude');
-  assert.ok(!/%/.test(r.text));
-  assert.match(r.detail, /% exata do Claude só aparece perto do limite/, 'aviso visível no expandido');
-  assert.match(r.detail, /Neste projeto, últimas 5 h: 118k tok de entrada, 2k de saída, 3 turno\(s\), 10 min/);
-  const n = row(P, U({ claude: { ...GOLDEN.claude, state: 'none', window: null, resetsAt: null } }), 'claude');
-  assert.equal(n.text, 'Starfork usou 120k tok em 5h neste projeto');
-  const e = row(P, U({ claude: { ...GOLDEN.claude, starforkError: 'database is locked' } }), 'claude');
-  assert.match(e.text, /uso do Starfork indisponível/);
+  assert.equal(rows(P, golden(), 'codex').map((r) => r.id).join(','), 'codex,claude,deepseek');
+  assert.equal(rows(P, golden(), 'deepseek').map((r) => r.id).join(','), 'deepseek,claude,codex');
+  const hot = U({ codex: { hasData: true, primary: { usedPercent: 80, windowMinutes: 300 } } });
+  assert.equal(rows(P, hot, 'deepseek').map((r) => r.id).join(','), 'deepseek,codex,claude', 'Codex 80 % passa o Claude 61 %');
+  assert.equal(rows(P, U({ claude: { ...GOLDEN.claude, ...NO_SL } }), 'deepseek').map((r) => r.id).join(','), 'deepseek,codex,claude', 'Claude sem % vai pro fim');
+});
+
+test('Claude sem a barra de status: comportamento antigo + dica "ative a % do Claude em Sua IA" (clicável); nunca % inventada', () => {
+  const P = load();
+  const r = row(P, C(NO_SL), 'claude');
+  assert.equal(r.bars.length, 0);
+  assert.equal(r.text, 'ok · reinicia ' + hm(R5));
+  assert.equal(r.hint, 'Ative a % do Claude em Sua IA.');
+  assert.ok(!/%\s*$/.test(r.text) && !/\d+ %/.test(r.text));
+  const html = P.ctx.pmHtml(C(NO_SL), false, 'claude', NOW);
+  assert.match(html, /<button class="pm-hint" data-pm="cfg" data-pm-id="claude">Ative a % do Claude em Sua IA.<\/button>/);
+  // instalada mas ainda sem resposta do Claude Code
+  assert.equal(row(P, C({ ...NO_SL, statusline: true }), 'claude').hint, 'A % aparece depois da próxima resposta do Claude Code.');
+  assert.ok(row(P, C(NO_SL), 'claude').details.some((d) => /só aparece perto do limite/.test(d)));
+  // sem evento: só o uso do Starfork; erro do uso
+  assert.equal(row(P, C({ ...NO_SL, state: 'none', window: null, resetsAt: null }), 'claude').text, 'Starfork usou 120k tok em 5h');
+  assert.match(row(P, C({ ...NO_SL, state: 'none', starforkError: 'database is locked' }), 'claude').text, /uso do Starfork indisponível/);
   const z = row(P, U({ claude: null }), 'claude');
   assert.equal(z.text, 'sem dados ainda', 'configurado mas sem resumo: a linha continua');
+  assert.equal(z.hint, 'Ative a % do Claude em Sua IA.');
 });
 
-test('Claude perto do limite: 92 % vermelho; warn com % baixa nunca fica verde; bloqueado sempre vermelho', () => {
+test('Claude perto do limite / bloqueado: estado do evento prevalece; warn nunca verde; % só do evento sem a barra', () => {
   const P = load();
-  const c = (o) => row(P, U({ claude: { ...GOLDEN.claude, ...o } }), 'claude');
-  const w = c({ state: 'warn', pct: 92 });
-  assert.equal('Claude · ' + w.text, 'Claude · 92 % (5h)');
-  assert.equal(w.level, 'crit');
-  assert.equal(c({ state: 'warn', pct: 50 }).level, 'warn', 'allowed_warning com utilization < 0,7');
-  assert.equal(c({ state: 'warn', pct: 75, window: 'seven_day' }).level, 'warn');
-  assert.equal(c({ state: 'ok', pct: 40 }).level, 'ok');
-  const b = c({ state: 'blocked', pct: 10 });
-  assert.equal(b.text, 'limite atingido · volta ' + hm(R));
+  const b = row(P, C({ state: 'blocked', window: 'five_hour', pct: 98, resetsAt: R5, fiveHour: { pct: 98, resetsAt: R5, reset: false } }), 'claude');
+  assert.equal(b.text, 'limite atingido · volta ' + hm(R5));
   assert.equal(b.level, 'crit');
+  assert.equal(b.bars.find((x) => x.key === 'five_hour').level, 'crit');
+  assert.equal(b.short, 'limite atingido');
+  const w = row(P, C({ ...NO_SL, state: 'warn', pct: 92 }), 'claude');
+  assert.equal(bars(w), '5h 92', 'sem a barra: a % que o Claude Code mandou perto do limite');
+  assert.equal(w.level, 'crit');
+  assert.equal(row(P, C({ ...NO_SL, state: 'warn', pct: 50 }), 'claude').level, 'warn', 'allowed_warning com utilization < 0,7');
+  const nw = row(P, C({ ...NO_SL, state: 'warn', pct: null, window: 'seven_day' }), 'claude');
+  assert.equal(nw.text, 'perto do limite (semana) · reinicia ' + hm(R5));
+  assert.equal(nw.level, 'warn');
 });
 
-test('DeepSeek: saldo com moeda; erro de rede → saldo indisponível', () => {
+test('DeepSeek: saldo com moeda; erro de rede → saldo indisponível; sem saldo vermelho', () => {
   const P = load();
   assert.equal(row(P, U({ deepseek: { ok: false, available: false, balances: [] } }), 'deepseek').text, 'saldo indisponível');
   assert.equal(row(P, U({ deepseek: { ok: true, available: false, balances: [{ currency: 'USD', total: '0.00' }] } }), 'deepseek').level, 'crit');
@@ -126,29 +161,49 @@ test('só IA configurada aparece; nada configurado → "configure sua IA"; nunca
   assert.ok(!/OPENAI_API_KEY|DEEPSEEK_API_KEY/.test(html + empty));
 });
 
-test('acessibilidade: aria-controls aponta pras linhas; detalhes em texto; bolinha com equivalente em texto', () => {
+test('detalhes recolhidos por IA: expandir mostra reinício, tokens do Starfork e saldo; aria-expanded/aria-controls', async () => {
+  const P = load();
+  await P.run('pmLoad()');
+  const h0 = P.el.innerHTML;
+  assert.match(h0, /data-pm="det" data-pm-id="claude" aria-expanded="false" aria-controls="pmDet-claude"/);
+  assert.match(h0, /<div class="pm-det" id="pmDet-claude" hidden>/);
+  click(P, 'det', 'claude');
+  const h1 = P.el.innerHTML;
+  assert.match(h1, /data-pm="det" data-pm-id="claude" aria-expanded="true"/);
+  assert.match(h1, /<div class="pm-det" id="pmDet-claude">/);
+  const det = h1.slice(h1.indexOf('id="pmDet-claude"'), h1.indexOf('</div></div>', h1.indexOf('id="pmDet-claude"')));
+  assert.match(det, new RegExp('5h reinicia ' + hm(R5)));
+  assert.match(det, /semana reinicia \d\d\/\d\d \d\d:\d\d/, 'outro dia: com a data');
+  assert.match(det, /Starfork neste projeto, últimas 5 h: 118k tok de entrada, 2k de saída, 3 turno\(s\), 10 min/);
+  assert.match(h1, /<div class="pm-det" id="pmDet-codex" hidden>/, 'só a IA clicada abre');
+  assert.match(h1, /id="pmDet-deepseek" hidden><div>Saldo da conta DeepSeek/);
+  click(P, 'det', 'claude');
+  assert.match(P.el.innerHTML, /<div class="pm-det" id="pmDet-claude" hidden>/);
+});
+
+test('acessibilidade: aria-controls aponta pras IAs; bolinha/estado com texto; minimizado esconde a lista', () => {
   const P = load();
   const html = P.ctx.pmHtml(golden(), false, 'claude', NOW);
   assert.match(html, /data-pm="toggle" aria-expanded="true" aria-controls="pmRows"/);
   assert.match(html, /<div class="pm-rows" id="pmRows">/);
-  assert.match(html, /class="pm-det">[^<]*reinicia/, 'reinícios visíveis, não só no title');
-  assert.match(html, /class="pm-det">[^<]*Saldo da conta DeepSeek/);
-  assert.match(html, /class="pm-dot pm-ok" role="img" aria-label="normal"/);
+  assert.ok((html.match(/role="progressbar"/g) || []).length === 4, '2 barras do Claude + 2 do Codex');
   const min = P.ctx.pmHtml(golden(), true, 'claude', NOW);
   assert.match(min, /aria-expanded="false" aria-controls="pmRows"/);
   assert.match(min, /id="pmRows" hidden/);
+  assert.match(P.ctx.pmHtml(U({ configured: [] }), false, 'claude', NOW, 'x'), /class="pm-dot pm-idle" role="img" aria-label="sem dados"/);
 });
 
-test('minimizado = uma linha (a IA padrão) e persiste após reiniciar; clique numa IA → Sua IA', async () => {
-  const store = { defaultEngine: 'codex' };
+test('minimizado = barra fina da IA padrão (maior janela) + rótulo curto, e persiste após reiniciar; nome da IA → Sua IA', async () => {
+  const store = { defaultEngine: 'claude' };
   const P = load(store);
   await P.run('pmLoad()');
-  assert.equal((P.el.innerHTML.match(/class="pm-row pm-/g) || []).length, 3, 'expandido: uma linha por IA');
+  assert.equal((P.el.innerHTML.match(/class="pm-ia pm-/g) || []).length, 3, 'expandido: uma por IA');
   click(P, 'toggle');
   assert.equal(store.planMeterMin, '1');
   assert.ok(P.el.classList.contains('min'));
   assert.match(P.el.innerHTML, /id="pmRows" hidden/);
-  assert.match(P.el.innerHTML, /Codex · 5h 9 %/, 'minimizado: a IA padrão + %');
+  assert.match(P.el.innerHTML, /<span class="pm-title">Claude<\/span><span class="pm-sum pm-ok">semana 61 %<\/span>/);
+  assert.match(P.el.innerHTML, /<span class="pm-bar pm-minbar pm-ok" role="progressbar" aria-label="Claude semana"[^>]*aria-valuenow="61"/);
   const Q = load(store); // "reinicia o app": mesmo localStorage
   await Q.run('pmLoad()');
   assert.ok(Q.el.classList.contains('min'), 'continua minimizado');
@@ -158,11 +213,16 @@ test('minimizado = uma linha (a IA padrão) e persiste após reiniciar; clique n
   assert.deepEqual(Q.calls.at(-1), ['suaIaOpenCfg']);
 });
 
-test('IA padrão DeepSeek: "deepseek" ou "dsh…" no localStorage → a linha do DeepSeek no minimizado', async () => {
+test('IA padrão Codex / DeepSeek ("deepseek" ou "dsh…"): a barra fina é dela; DeepSeek sem barra mostra o saldo', async () => {
+  const P = load({ defaultEngine: 'codex', planMeterMin: '1' });
+  await P.run('pmLoad()');
+  assert.match(P.el.innerHTML, /<span class="pm-title">Codex<\/span><span class="pm-sum pm-ok">5h 9 %<\/span>/);
+  assert.match(P.el.innerHTML, /pm-minbar[^>]*aria-label="Codex 5h"/);
   for (const eng of ['deepseek', 'dsh-flash']) {
-    const P = load({ defaultEngine: eng, planMeterMin: '1' });
-    await P.run('pmLoad()');
-    assert.match(P.el.innerHTML, /DeepSeek · US\$ 4,20/, eng);
+    const D = load({ defaultEngine: eng, planMeterMin: '1' });
+    await D.run('pmLoad()');
+    assert.match(D.el.innerHTML, /<span class="pm-title">DeepSeek<\/span><span class="pm-sum pm-ok">US\$ 4,20<\/span>/, eng);
+    assert.ok(!/pm-minbar/.test(D.el.innerHTML), 'sem % → sem barra');
   }
 });
 

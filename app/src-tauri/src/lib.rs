@@ -6204,6 +6204,27 @@ fn ai_avail_refresh() { ai_once::clear_avail_cache(); plan_usage::clear_caches()
 #[tauri::command(async)]
 fn ai_engines_status() -> Vec<ai_once::EngineStatus> { ai_once::engines_status() }
 
+/// Barra de status do Claude Code (% real do plano no medidor): liga/desliga pelo interruptor do cartão do Claude
+/// em "Sua IA". Fonte única = CLI `cardume claude-statusline install|uninstall` (src/claude-statusline.ts); o node
+/// escolhido pelo app vai no comando da barra (`--node`). Só roda com a ação explícita da pessoa.
+fn claude_statusline_cli(state: &State<AppState>, sub: &str, node: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = active_repo(state).unwrap_or_default();
+    let mut args = vec!["--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "claude-statusline".into(), sub.into(), "--json".into()];
+    if let Some(n) = node { args.push("--node".into()); args.push(n); }
+    let mut c = node_cmd();
+    c.args(&args).env_remove("CARDUME_ROLE");
+    let out = output_timeout(c, 30)?;
+    plan_usage::parse_statusline_cli(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+#[tauri::command(async)]
+fn claude_statusline_set(state: State<AppState>, on: bool) -> Result<serde_json::Value, String> {
+    claude_statusline_cli(&state, if on { "install" } else { "uninstall" }, on.then(node_bin))
+}
+#[tauri::command(async)]
+fn claude_statusline_status(state: State<AppState>) -> Result<serde_json::Value, String> {
+    claude_statusline_cli(&state, "status", None)
+}
+
 /// Painel "Sua IA" → "testar": chamada mínima FORÇANDO o motor, prazo curto; erro humano do próprio motor.
 #[tauri::command(async)]
 fn ai_test(engine: String, model: Option<String>) -> Result<ai_once::AiTestOut, String> { ai_once::ai_test_run(&engine, model.as_deref()) }
@@ -9049,6 +9070,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_repo,
             plan_usage::plan_usage,
+            claude_statusline_set,
+            claude_statusline_status,
             memoria::memory_list,
             memoria::memory_read,
             memoria::memory_write,

@@ -295,3 +295,34 @@ test('testar: modelo recusado/descartado é sinalizado', async () => {
   const r = await P.ctx.suaIaTest('codex');
   assert.match(r.text, /com o modelo padrão em 0,9s — atenção: “gpt-x” não foi aceito/);
 });
+
+// spec-medidor-v2-statusline: interruptor da % real do Claude (barra de status do Claude Code) no cartão do Claude
+test('Claude: interruptor da % do plano no medidor — só com o Claude instalado; liga/desliga pelo CLI e relê', async () => {
+  const claudeOk = { ...ST.claude, installed: true, ready: true, state: 'ready', reason: 'pronto', fixes: [], statuslineInstalled: false };
+  let installed = false, fail = false;
+  const P = load({}, { invoke: (cmd, a) => {
+    if (cmd === 'claude_statusline_set') { if (fail) throw new Error('/x/.claude/settings.json não é um JSON válido — não mexi em nada.'); installed = a.on; return { ok: true, message: a.on ? 'barra do Starfork instalada' : 'barra do Starfork removida', installed: a.on }; }
+    if (cmd === 'ai_engines_status') return [{ ...claudeOk, statuslineInstalled: installed }, ST.codexOk, ST.dsKey, ST.gwNo];
+    return null;
+  } });
+  setList(P, [ST.claude, ST.codexOk, ST.dsKey, ST.gwNo]);
+  assert.ok(!/data-sasl/.test(P.ctx.suaIaHtml(P.run('suaIaList'), { hk: 'h' })), 'Claude não instalado: sem interruptor');
+  setList(P, [claudeOk, ST.codexOk, ST.dsKey, ST.gwNo]);
+  const card = () => cut(P.ctx.suaIaHtml(P.run('suaIaList'), { hk: 'h' }), 'data-suaia="claude"', 'data-suaia="codex"');
+  assert.match(card(), /<input type="checkbox" role="switch" id="suaIaSl-h" data-sasl="1" aria-describedby="suaIaSl-h-d"><label for="suaIaSl-h">Mostrar a % do plano do Claude no medidor<\/label>/);
+  assert.match(card(), /Se você já tem uma barra de status, ela continua aparecendo; desligar desfaz/);
+  let r = await P.ctx.suaIaSetStatusline(true);
+  assert.deepEqual(P.calls.find((c) => c[0] === 'claude_statusline_set'), ['claude_statusline_set', { on: true }]);
+  assert.equal(r.ok, true);
+  assert.equal(r.text, '✓ barra do Starfork instalada');
+  assert.ok(P.calls.some((c) => c[0] === 'ai_engines_status'), 'relê o estado');
+  assert.match(card(), /data-sasl="1" checked/);
+  r = await P.ctx.suaIaSetStatusline(false);
+  assert.deepEqual(P.calls.filter((c) => c[0] === 'claude_statusline_set').at(-1), ['claude_statusline_set', { on: false }]);
+  assert.ok(!/data-sasl="1" checked/.test(card()));
+  fail = true;
+  r = await P.ctx.suaIaSetStatusline(true);
+  assert.equal(r.ok, false);
+  assert.match(r.text, /^✕ Não consegui ativar a % do Claude: .*não é um JSON válido/);
+  assert.ok(!/data-sasl="1" checked/.test(card()), 'falhou: continua desligado');
+});

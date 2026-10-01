@@ -1307,13 +1307,15 @@ pub(crate) struct EngineStatus {
     pub is_default: bool,
     /// é o motor que as chamadas auxiliares usam agora (padrão ou fallback)
     pub in_use: bool,
+    /// só Claude: a barra de status do Starfork (% real do plano no medidor) está instalada no Claude Code
+    pub statusline_installed: bool,
 }
 
 pub(crate) fn engines_status_from(pref: &str, p: &Probe) -> Vec<EngineStatus> {
     let want = AiEngine::parse(pref).unwrap_or(AiEngine::Claude);
     let mk = |e: AiEngine, id: &'static str, label: String| EngineStatus {
         id, label, installed: false, ready: false, state: "install", reason: String::new(), fixes: vec![], key_name: None,
-        key_saved: false, models: vec![], detail: String::new(), is_default: want == e, in_use: false,
+        key_saved: false, models: vec![], detail: String::new(), is_default: want == e, in_use: false, statusline_installed: false,
     };
     let mut out = vec![];
     // Claude Code
@@ -1387,7 +1389,9 @@ pub(crate) fn engines_status() -> Vec<EngineStatus> {
         dsh: dsh_check(),
         deepseek_key: dsh_key().is_some(),
     };
-    engines_status_from(&pref_engine(), &p)
+    let mut out = engines_status_from(&pref_engine(), &p);
+    if let Some(c) = out.iter_mut().find(|s| s.id == "claude") { c.statusline_installed = crate::plan_usage::statusline_installed(); }
+    out
 }
 
 /// Resultado do "testar": a resposta curta, quanto demorou e com QUAL modelo respondeu.

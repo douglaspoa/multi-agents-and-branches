@@ -261,17 +261,40 @@
 .planmeter .pm-chev{flex:none;width:12px;height:12px;transition:transform .15s}
 .planmeter.min .pm-chev{transform:rotate(180deg)}
 .planmeter .pm-empty .pm-title{color:var(--text-2);font-weight:500}
-.planmeter .pm-rows{display:flex;flex-direction:column;gap:1px;padding:2px 0 4px}
-.planmeter .pm-row{padding:4px 6px;align-items:flex-start}
-.planmeter .pm-row .pm-dot{margin-top:4px}
-.planmeter .pm-row:hover{background:var(--surface-2)}
+.planmeter .pm-sum.pm-warn{color:var(--warn)}
+.planmeter .pm-sum.pm-crit{color:var(--crit)}
+/* v2: barras finas por janela, número à direita */
+.planmeter .pm-rows{display:flex;flex-direction:column;gap:6px;padding:2px 0 4px}
 .planmeter .pm-rows[hidden]{display:none}
-.planmeter .pm-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;line-height:1.4;overflow-wrap:anywhere}
-.planmeter .pm-name{font-weight:600;color:var(--text)}
-.planmeter .pm-txt{font-family:var(--code);font-size:10.5px;color:var(--text-2)}
-.planmeter .pm-det{font-size:10.5px;color:var(--muted)}
-.planmeter .pm-row.pm-warn .pm-txt{color:var(--warn)}
-.planmeter .pm-row.pm-crit .pm-txt{color:var(--crit)}
+.planmeter .pm-ia{display:flex;flex-direction:column;gap:3px;padding:3px 6px;border-radius:var(--r-xs)}
+.planmeter .pm-ia-head{display:flex;align-items:center;gap:6px;min-width:0}
+.planmeter .pm-ia-head .pm-name{width:auto;flex:none;font-weight:600;color:var(--text)}
+.planmeter .pm-ia-head .pm-name:hover{text-decoration:underline;text-underline-offset:3px}
+.planmeter .pm-txt{flex:1;min-width:0;font-family:var(--code);font-size:10.5px;line-height:1.35;color:var(--text-2);overflow-wrap:anywhere}
+.planmeter .pm-ia.pm-warn .pm-txt{color:var(--warn)}
+.planmeter .pm-ia.pm-crit .pm-txt{color:var(--crit)}
+.planmeter .pm-more{width:auto;flex:none;padding:1px;color:var(--muted)}
+.planmeter .pm-more:hover{color:var(--text-2);background:var(--surface-2)}
+.planmeter .pm-more .pm-chev{transform:rotate(180deg)}
+.planmeter .pm-more[aria-expanded="true"] .pm-chev{transform:none}
+.planmeter .pm-win{display:flex;align-items:center;gap:7px}
+.planmeter .pm-wl{flex:none;width:44px;font-size:10.5px;color:var(--muted)}
+.planmeter .pm-wn{flex:none;min-width:34px;text-align:right;font-family:var(--code);font-size:10.5px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.planmeter .pm-wn.pm-warn{color:var(--warn)}
+.planmeter .pm-wn.pm-crit{color:var(--crit)}
+.planmeter .pm-bar{position:relative;display:block;flex:1;min-width:0;height:4px;border-radius:99px;background:color-mix(in srgb,var(--muted) 24%,transparent);overflow:hidden}
+.planmeter .pm-fill{position:absolute;inset:0 auto 0 0;border-radius:99px;background:var(--good);transition:width .3s}
+.planmeter .pm-bar.pm-warn .pm-fill{background:var(--warn)}
+.planmeter .pm-bar.pm-crit .pm-fill{background:var(--crit)}
+.planmeter .pm-bar.pm-idle .pm-fill{background:var(--muted)}
+.planmeter .pm-minbar{margin:0 6px 4px;height:3px;flex:none}
+.planmeter .pm-sub{font-size:10px;color:var(--muted)}
+.planmeter .pm-hint{font-size:10.5px;color:var(--muted)}
+.planmeter button.pm-hint{width:auto;text-decoration:underline;text-underline-offset:3px}
+.planmeter button.pm-hint:hover{color:var(--text-2)}
+.planmeter .pm-det{display:flex;flex-direction:column;gap:1px;font-size:10.5px;line-height:1.4;color:var(--muted);overflow-wrap:anywhere;padding-top:1px}
+.planmeter .pm-det[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){ .planmeter .pm-fill,.planmeter .pm-chev{transition:none} }
 .planmeter .pm-dot{flex:none;width:7px;height:7px;border-radius:99px;background:var(--muted)}
 .planmeter .pm-dot.pm-ok{background:var(--good)}
 .planmeter .pm-dot.pm-warn{background:var(--warn)}

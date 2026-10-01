@@ -3,11 +3,15 @@
   "configured": ["claude", "codex", "deepseek"],
   "claude": {
     "state": "ok",
-    "window": "five_hour",
-    "pct": null,
-    "resetsAt": 1790884800000,
+    "window": "seven_day",
+    "pct": 61.0,
+    "resetsAt": 1791400000000,
     "starfork": { "turns": 3, "inTok": 118000, "outTok": 2000, "ms": 600000 },
-    "starforkError": null
+    "starforkError": null,
+    "fiveHour": { "pct": 43.0, "resetsAt": 1790884800000, "reset": false },
+    "sevenDay": { "pct": 61.0, "resetsAt": 1791400000000, "reset": false },
+    "updatedAt": 1790869880000,
+    "statusline": true
   },
   "codex": {
     "hasData": true,
