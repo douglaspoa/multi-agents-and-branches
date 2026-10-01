@@ -47,6 +47,9 @@ function bindClick(id, fn, ev){ const el=$id(id); if(el) el[ev||'onclick']=fn; r
 // localStorage tolerante (webview em modo privado / sem permissão não derruba o app)
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+// Chats (planner, projeto, issues, orquestrador): o que a tela guarda depois de uma rodada é o sid DEVOLVIDO —
+// vazio LIMPA o guardado (a próxima rodada leva o histórico; aiCallResumeSafe em 10-core.js).
+function aiKeepSid(r, set){ set(String((r&&r.sessionId)||'')); }
 // caminhos de ARQUIVO nos dois formatos (/Users/x/proj e C:\Users\x\proj) — Windows mostrava o caminho inteiro.
 // Só pra caminho do sistema de arquivos: URL e nome de branch continuam com split('/').
 function pathBase(p){ return String(p||'').split(/[\\/]+/).filter(Boolean).slice(-1)[0]||''; }
@@ -187,7 +190,7 @@ const ERR_CATALOG=[
   // IA auxiliar plural (Claude, Codex ou gateway — app/src-tauri/src/ai_once.rs): ANTES do claude-login, que casaria
   // no "invalid api key" entre parênteses e mandaria quem usa Codex/gateway fazer login no Claude
   { id:'ai-none', re:/nenhuma ia dispon[ií]vel/i,
-    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta).', act:'env', label:'ver como resolver (Mais › Ambiente)' },
+    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta).', act:'suaia', label:'escolher a IA (Sua IA)' },
   // DeepSeek Harness (beta) — mensagens do motor/auxiliar (src/engine/dsh.ts, ai_once.rs). A da CHAVE antes de tudo
   // que casaria "api key"/"401" (claude-login) — quem usa DeepSeek não precisa de login no Claude
   { id:'dsh-key', re:/falta a chave da deepseek|DEEPSEEK_API_KEY/i,
@@ -210,6 +213,14 @@ const ERR_CATALOG=[
     msg:'O Codex está sem cota/limite no momento — espere um pouco e tente de novo.' },
   { id:'codex-network', re:/o codex n[aã]o conseguiu falar com a openai/i,
     msg:'O Codex não conseguiu falar com a OpenAI — cheque a internet/VPN e tente de novo.' },
+  // chats fora do Claude (ai_once::chat_turn): a sessão sumiu e não deu pra seguir com o histórico (o normal é o
+  // aiCallResumeSafe resolver sozinho — isto só aparece se nem o histórico existir)
+  { id:'ai-session-lost', re:/\bsession not found — a conversa anterior/i,
+    msg:'A conversa anterior não pode ser retomada nesta IA — envie de novo (o app continua com o histórico) ou toque em "+ novo".' },
+  { id:'codex-empty', re:/o codex terminou sem resposta/i,
+    msg:'O Codex terminou sem resposta — tente de novo.' },
+  { id:'dsh-empty', re:/o deepseek terminou sem resposta/i,
+    msg:'O DeepSeek terminou sem resposta — tente de novo.' },
   { id:'gateway-unreachable', re:/n[aã]o consegui falar com o gateway/i,
     msg:'Não consegui falar com o gateway da sua empresa — cheque a URL em Configurações → Gateway próprio e a internet/VPN.', act:'env', label:'abrir Ambiente' },
   { id:'gateway-truncated', re:/resposta do gateway foi cortada/i,

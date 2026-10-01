@@ -210,6 +210,13 @@ function mesaCost(nPersonas, nRounds, model, est){
   return [per[0]*calls, per[1]*calls];
 }
 function mesaCapHit(usd, capBrl, rate){ return +capBrl>0 && (+usd||0)*(+rate>0?+rate:5.5) >= +capBrl; }
+// TETO POR TOKENS fora do Claude: Codex/DeepSeek/gateway devolvem US$ 0 (como nas tarefas) mas informam tokens. Pra o
+// teto da mesa continuar valendo, cada token vira um gasto ESTIMADO com uma taxa FIXA e CONSERVADORA (US$ por milhão de
+// tokens, entrada+saída juntas, puxada pro preço de saída — melhor parar cedo do que estourar):
+const MESA_TOK_USD_PER_M={ codex:10, deepseek:2, gateway:10 };
+function mesaTokUsd(engine, tokens){ const r=MESA_TOK_USD_PER_M[String(engine||'')]||10; return (+tokens||0)*r/1e6; }
+// o que conta pro teto: o custo real (Claude) + a estimativa por tokens (outros motores)
+function mesaSpentUsd(m){ return (+m.costUsd||0)+(+m.tokUsd||0); }
 // variação de pontos entre duas apurações (tabela "antes → depois")
 function mesaDiff(prev, cur){
   const a={}; (prev&&prev.rows||[]).forEach(r=>{ a[r.id]=r.total; });
@@ -328,6 +335,8 @@ function mesaCorrupt(id){
 async function mesaAsk(m, sys, prompt, json){
   const r=await invoke('mesa_ask',{ repo:m.repo, id:m.id, personaSys:sys, prompt, model:m.model||MESA_MODEL, json:!!json });
   m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0); // erro do claude também cobra — entra no gasto
+  { const tok=(+(r&&r.inTok)||0)+(+(r&&r.outTok)||0); // fora do Claude: US$ 0 + tokens → teto por tokens
+    if(!(+(r&&r.costUsd)>0) && tok>0){ m.tokens=(+m.tokens||0)+tok; m.tokUsd=(+m.tokUsd||0)+mesaTokUsd(r.engine, tok); } }
   if(r && r.error) throw new Error(r.error);
   return String((r&&r.text)||'');
 }
@@ -337,7 +346,7 @@ function mesaErrMsg(e){ try{ const h=humanErr(e); return h.msg; }catch(_){ retur
 const MESA_POOL=3; // personas ao mesmo tempo (várias chamadas ao claude em paralelo pesam na máquina e na cota)
 function mesaCapAsk(m, what){
   const base=m.capBase||mesaCapBase();
-  return askYes(`A mesa "${m.tema}" chegou no teto de R$ ${fmtNumBR(m.capBrl,true)} (já gastou ${fmtCost(m.costUsd)}).\n\nContinuar com mais R$ ${fmtNumBR(base,true)} pra ${what}?`, 'Teto da mesa')
+  return askYes(`A mesa "${m.tema}" chegou no teto de R$ ${fmtNumBR(m.capBrl,true)} (já gastou ${fmtCost(mesaSpentUsd(m))}${+m.tokUsd>0?' — teto por tokens: estimativa pelos tokens da IA':''}).\n\nContinuar com mais R$ ${fmtNumBR(base,true)} pra ${what}?`, 'Teto da mesa')
     .then(go=>{ if(go) m.capBrl=(+m.capBrl||0)+base; return go; });
 }
 // opts.retryFailed: Continuar / tentar de novo — quem falhou entra de novo (só na 1ª passada, senão repetiria pra sempre)
@@ -359,7 +368,7 @@ async function mesaRun(m, opts){
       if(step.kind==='interrupted'){ m.status='interrompida'; m.aviso=`Rodada ${step.round.n}: nenhuma persona deu uma resposta válida — veja o erro de cada uma e tente de novo.`; break; }
       const r=step.round;
       // o teto é conferido antes de CADA persona começar (mesaRunRound) — aqui é o aviso de início de rodada
-      if(mesaCapHit(m.costUsd, m.capBrl, usdBrlRate())){ mesaPaint(m); if(!await mesaCapAsk(m, `rodar "${r.titulo}"`)){ m.status='pausada'; break; } }
+      if(mesaCapHit(mesaSpentUsd(m), m.capBrl, usdBrlRate())){ mesaPaint(m); if(!await mesaCapAsk(m, `rodar "${r.titulo}"`)){ m.status='pausada'; break; } }
       const capped=await mesaRunRound(m, r, run, wf);
       if(capped && !run.stop){ mesaPaint(m); if(!await mesaCapAsk(m, `terminar "${r.titulo}"`)){ m.status='pausada'; break; } }
     }
@@ -419,7 +428,7 @@ async function mesaRunRound(m, r, run, withFailed){
   const queue=todo.slice(); let capped=false;
   const worker=async()=>{
     while(queue.length && !run.stop && !capped){
-      if(mesaCapHit(m.costUsd, m.capBrl, usdBrlRate())){ capped=true; break; }
+      if(mesaCapHit(mesaSpentUsd(m), m.capBrl, usdBrlRate())){ capped=true; break; }
       await one(queue.shift());
     }
   };
@@ -485,7 +494,7 @@ async function mesaArgue(){
   }
   const p=(m.personas||[]).find(x=>x.id===MESA.target); if(!p) return;
   if(MESA.chatBusy) return;
-  if(mesaCapHit(m.costUsd, m.capBrl, usdBrlRate()) && !await askYes(`A mesa já passou do teto de R$ ${fmtNumBR(m.capBrl,true)} (gastou ${fmtCost(m.costUsd)}). Perguntar pra ${p.nome} mesmo assim?`,'Teto da mesa')) return;
+  if(mesaCapHit(mesaSpentUsd(m), m.capBrl, usdBrlRate()) && !await askYes(`A mesa já passou do teto de R$ ${fmtNumBR(m.capBrl,true)} (gastou ${fmtCost(m.costUsd)}). Perguntar pra ${p.nome} mesmo assim?`,'Teto da mesa')) return;
   MESA.draft=''; if(inp) inp.value='';
   const chat=(m.chats[p.id]=m.chats[p.id]||[]);
   const vr=mesaVoteRounds(m), last=vr[vr.length-1], r1=(m.rounds[0].resp||{})[p.id]||{}, lr=(last&&last.resp[p.id])||{};
@@ -719,7 +728,7 @@ function mesaMesaHtml(m){
     (!running && ['pausada','parada','interrompida'].includes(st)?`<button class="btn primary" id="mesaCont">${IC.play}${m.status==='interrompida'?'Tentar de novo':'Continuar'}</button>`:'')+
     (!running && st==='concluida' && mesaFailed(m).length && !((m.criadas&&m.criadas.itens)||[]).length?`<button class="btn" id="mesaCont" title="refaz só a fala de quem não respondeu (erro ou limite da IA); a apuração inclui o voto novo">${IC.refresh||IC.play}tentar de novo com ${mesaEsc(mesaFailed(m).map(p=>p.nome).join(', '))}</button>`:'')+
     `<button class="btn" id="mesaBack">${IC.back}mesas</button>`;
-  const cap=+m.capBrl>0?` · teto R$ ${fmtNumBR(m.capBrl,true)}`:'';
+  const cap=(+m.capBrl>0?` · teto R$ ${fmtNumBR(m.capBrl,true)}`:'')+(+m.tokens>0?` · teto por tokens (${fmtNumBR(Math.round(+m.tokens/1000))} mil tokens ≈ ${mesaEsc(fmtCost(+m.tokUsd||0))})`:'');
   const sub=`${mesaStBadge(st)} · ${(m.personas||[]).map(p=>mesaEsc(p.nome)).join(', ')} · gastou ${mesaEsc(fmtCost(+m.costUsd||0))}${cap}`+(m.repo!==state.repo?` · projeto ${mesaEsc(pathBase(m.repo))}`:'');
   const D=mesaDecisionOf(m);
   let dec='';

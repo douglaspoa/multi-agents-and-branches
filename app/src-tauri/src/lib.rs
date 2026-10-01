@@ -789,7 +789,21 @@ fn output_stoppable(cmd: Command, secs: u64, slot: &'static std::sync::atomic::A
 static KEYED_PIDS: std::sync::Mutex<Option<std::collections::HashMap<String, i32>>> = std::sync::Mutex::new(None);
 fn keyed_set(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { g.get_or_insert_with(Default::default).insert(key.to_string(), pid); } }
 fn keyed_clear(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { if let Some(m) = g.as_mut() { if m.get(key) == Some(&pid) { m.remove(key); } } } }
+/// Quando cada "parar" foi pedido (por chave de pedido ou slot de tela) — os chats fora do Claude consultam antes
+/// de abrir um processo novo (ex.: a 2ª tentativa do Codex depois de o modelo ser recusado).
+static STOP_AT: std::sync::Mutex<Option<std::collections::HashMap<String, std::time::Instant>>> = std::sync::Mutex::new(None);
+fn stop_mark(id: &str) {
+    let mut g = STOP_AT.lock().unwrap_or_else(|e| e.into_inner());
+    let m = g.get_or_insert_with(Default::default);
+    m.retain(|_, t| t.elapsed() < std::time::Duration::from_secs(3600)); // não cresce pra sempre
+    m.insert(id.to_string(), std::time::Instant::now());
+}
+fn stop_requested_since(id: &str, since: std::time::Instant) -> bool {
+    STOP_AT.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(id).copied()).is_some_and(|t| t >= since)
+}
+fn slot_stop_id(slot: &std::sync::atomic::AtomicI32) -> String { format!("slot:{:p}", slot as *const _) }
 fn stop_keyed(key: &str) -> bool {
+    stop_mark(key);
     let pid = KEYED_PIDS.lock().ok().and_then(|mut g| g.as_mut().and_then(|m| m.remove(key)));
     match pid { Some(p) if p > 0 => { signal_group(p, procsig::KILL); true } _ => false }
 }
@@ -820,6 +834,7 @@ fn output_stoppable_with(mut cmd: Command, secs: u64, stopped: &str, on_start: &
     Ok(out)
 }
 fn stop_slot(slot: &std::sync::atomic::AtomicI32) -> bool {
+    stop_mark(&slot_stop_id(slot));
     let pid = slot.swap(0, std::sync::atomic::Ordering::SeqCst);
     if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
@@ -3916,6 +3931,13 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let sys = "Você é o ORQUESTRADOR do Starfork. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
     // memória do projeto (índice + notas relevantes ao briefing): o orquestrador não começa do zero
     let sys = memoria::with_memory(sys, &repo, &briefing);
+    // chave por pedido (req_id do front): duas abas "Dividir" montando plano ao mesmo tempo, o parar de uma não derruba a
+    // outra; sem req_id, uma chave ÚNICA (antes todas caíam em "orq-plan:" e se derrubavam)
+    let key = orq_plan_key(req_id);
+    let eng = ai_once::chat_engine()?;
+    if eng != ai_once::AiEngine::Claude {
+        return chat_other(eng, &sys, &briefing, &None, &repo, ORQ_PLAN_SECS, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}).map(|c| c.text);
+    }
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -3934,11 +3956,16 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // parável (orq_plan_stop → ORQ_PLAN_STOPPED): antes eram até 5 min de "montando o plano" sem saída
-    // chave por pedido (req_id do front): duas abas "Dividir" montando plano ao mesmo tempo, o parar de uma não derruba a outra
-    let key = format!("orq-plan:{}", req_id.unwrap_or_default());
     let out = output_stoppable_keyed(cmd, ORQ_PLAN_SECS, &key, "ORQ_PLAN_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(v["result"].as_str().unwrap_or("").to_string())
+}
+fn orq_plan_key(req_id: Option<String>) -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    match req_id.map(|r| r.trim().to_string()).filter(|r| !r.is_empty()) {
+        Some(r) => format!("orq-plan:{r}"),
+        None => format!("orq-plan:~anon-{}-{}", now_ms(), SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst)),
+    }
 }
 /// Prazo do ai_orchestrate — o front mostra o mesmo número (ORQ_PLAN_SECS em 34-orquestrador.js).
 const ORQ_PLAN_SECS: u64 = 300;
@@ -4206,7 +4233,7 @@ fn tool_line(name: &str, input: &serde_json::Value) -> String {
     let s = |k: &str| input.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let short = |t: String, max: usize| -> String { let t = t.replace('\n', " "); if t.chars().count() > max { format!("{}…", t.chars().take(max).collect::<String>()) } else { t } };
     let rel = |p: String| -> String { p.rsplit('/').take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("/") };
-    if n == "read" { format!("lendo {}", rel(s("file_path"))) }
+    if n == "read" || n == "read_file" { let p = s("file_path"); format!("lendo {}", rel(if p.is_empty() { s("path") } else { p })) } // dsh: `path`
     else if n == "grep" { let pat = short(s("pattern"), 60); let path = s("path"); if path.is_empty() { format!("procurando \"{pat}\"") } else { format!("procurando \"{pat}\" em {}", rel(path)) } }
     else if n == "glob" { format!("listando {}", short(s("pattern"), 60)) }
     else if n == "ls" { format!("listando {}", rel(s("path"))) }
@@ -4218,11 +4245,105 @@ fn tool_line(name: &str, input: &serde_json::Value) -> String {
 
 static PLANNER_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
+/// Onde o pid de um chat fica pro botão "parar": um slot por tela ou uma chave por pedido.
+enum ChatStop<'a> {
+    Slot(&'static std::sync::atomic::AtomicI32),
+    Key(&'a str),
+}
+/// Uma rodada de chat num motor que NÃO é o Claude (Codex/DeepSeek/gateway, via ai_once::chat_turn): mesmas
+/// instruções (`sys`), só-leitura no `cwd`, linhas de atividade em `activity`, parável como o Claude da tela.
+#[allow(clippy::too_many_arguments)]
+fn chat_other(eng: ai_once::AiEngine, sys: &str, prompt: &str, session_id: &Option<String>, cwd: &Path, secs: u64, stop: ChatStop, marker: &str, activity: &dyn Fn(String)) -> Result<AiChat, String> {
+    use std::sync::atomic::Ordering;
+    let started = std::time::Instant::now();
+    let stop_id = match &stop { ChatStop::Slot(s) => slot_stop_id(s), ChatStop::Key(k) => k.to_string() };
+    let on_start = |pid: i32| match &stop { ChatStop::Slot(s) => s.store(pid, Ordering::SeqCst), ChatStop::Key(k) => keyed_set(k, pid) };
+    let on_end = |pid: i32| match &stop { ChatStop::Slot(s) => { let _ = s.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst); } ChatStop::Key(k) => keyed_clear(k, pid) };
+    // parado = o *_stop tirou o MEU pid do slot/chave
+    let stopped = |pid: i32| match &stop {
+        ChatStop::Slot(s) => s.load(Ordering::SeqCst) != pid,
+        ChatStop::Key(k) => KEYED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(*k).copied()) != Some(pid),
+    };
+    // "parar" pedido DEPOIS que esta rodada começou (mesmo sem processo vivo no momento — ex.: entre duas tentativas)
+    let cancelled = || stop_requested_since(&stop_id, started);
+    let t = ai_once::ChatTurn { sys, prompt, session_id: session_id.as_deref(), cwd, secs };
+    let h = ai_once::ChatHooks { activity, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: marker };
+    ai_once::chat_turn(eng, &t, &h).map(|o| AiChat { text: o.text, session_id: o.session_id })
+}
+/// Emite a linha de atividade da tela (planner-activity / project-chat-activity) — mesmo formato do stream do Claude.
+fn emit_activity(app: &tauri::AppHandle, event: &str) -> impl Fn(String) {
+    use tauri::Emitter;
+    let (app, event) = (app.clone(), event.to_string());
+    move |line: String| { let _ = app.emit(&event, serde_json::json!({ "line": line })); }
+}
+#[cfg(all(test, unix))]
+mod chat_other_tests {
+    use super::*;
+    use crate::ai_once::tests::{fake_codex_chat, tmpdir, EnvGuard};
+    use std::sync::atomic::Ordering;
+
+    /// IA padrão Codex (falso, travando 30 s) num HOME temporário.
+    fn setup(tag: &str) -> (std::sync::MutexGuard<'static, ()>, PathBuf, PathBuf, EnvGuard) {
+        let lock = crate::ai_once::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tmpdir(&format!("{tag}-home"));
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
+        let d = tmpdir(tag);
+        let bin = fake_codex_chat(&d, "sleep");
+        let g = EnvGuard::set(&[("HOME", home.display().to_string().as_str()), ("CARDUME_CODEX", bin.as_str()), ("CARDUME_CLAUDE", "/nao/existe/claude")]);
+        crate::ai_once::clear_avail_cache();
+        (lock, home, d, g)
+    }
+    fn wait_until(f: impl Fn() -> bool) { for _ in 0..200 { if f() { return; } std::thread::sleep(std::time::Duration::from_millis(25)); } panic!("não aconteceu a tempo"); }
+
+    #[test]
+    fn chat_other_parar_pelo_slot_devolve_o_marcador_da_tela() {
+        let (_l, home, d, _g) = setup("chatother-slot");
+        let t0 = std::time::Instant::now();
+        let r = std::thread::scope(|sc| {
+            let h = sc.spawn(|| chat_other(ai_once::AiEngine::Codex, "PLANNER", "oi", &None, &d, 60, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &|_| {}));
+            wait_until(|| PLANNER_PID.load(Ordering::SeqCst) > 0);
+            assert!(ai_chat_stop(), "o parar do planner acha o processo");
+            h.join().unwrap()
+        });
+        assert_eq!(r.err().as_deref(), Some("PLANNER_STOPPED"));
+        assert!(t0.elapsed() < std::time::Duration::from_secs(10));
+        assert_eq!(PLANNER_PID.load(Ordering::SeqCst), 0);
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn chat_other_parar_pela_chave_e_chave_unica_sem_req_id() {
+        let (_l, home, d, _g) = setup("chatother-key");
+        let key = orq_plan_key(Some("teste-chave".into()));
+        assert_eq!(key, "orq-plan:teste-chave");
+        assert_ne!(orq_plan_key(None), orq_plan_key(None), "sem req_id cada pedido tem a sua chave");
+        let r = std::thread::scope(|sc| {
+            let h = sc.spawn(|| chat_other(ai_once::AiEngine::Codex, "ORQ", "plano", &None, &d, 60, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}));
+            wait_until(|| KEYED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|m| m.contains_key(&key)));
+            assert!(orq_plan_stop("teste-chave".into()).unwrap());
+            h.join().unwrap()
+        });
+        assert_eq!(r.err().as_deref(), Some("ORQ_PLAN_STOPPED"));
+        // "parar" já pedido antes da rodada nascer não vale pra rodada NOVA (só pras que já tinham começado)
+        assert!(!stop_requested_since(&key, std::time::Instant::now()));
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+/// Motor do chat; no Claude, a sessão é validada (id de outro motor → "sessão não encontrada", o front reenvia o histórico).
+fn chat_pick(session_id: &Option<String>) -> Result<ai_once::AiEngine, String> {
+    let eng = ai_once::chat_engine()?;
+    if eng == ai_once::AiEngine::Claude { ai_once::sid_resume(eng, session_id.as_deref())?; }
+    Ok(eng)
+}
+
 /// PARA a resposta em andamento do planner ("montar conversando"): mata o grupo do claude.
 #[tauri::command(async)]
 fn ai_chat_stop() -> bool {
-    let pid = PLANNER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
+    stop_slot(&PLANNER_PID) // mesmo efeito de antes + registra o pedido (chats fora do Claude não abrem processo novo)
 }
 
 /// Planner conversando. Roda o claude em stream-json e, a cada tool_use, emite `planner-activity`
@@ -4232,6 +4353,10 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     let repo = repo_of(&state)?;
     let sys = "Você é o PLANNER do Starfork: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o planner não começa do zero
+    let eng = chat_pick(&session_id)?;
+    if eng != ai_once::AiEngine::Claude {
+        return chat_other(eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &emit_activity(&app, "planner-activity"));
+    }
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -4367,6 +4492,10 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
         plan
     );
     let sys = memoria::with_memory(&sys, &repo, &prompt); // cérebro do projeto
+    let eng = chat_pick(&session_id)?;
+    if eng != ai_once::AiEngine::Claude {
+        return chat_other(eng, &sys, &prompt, &session_id, &repo, 300, ChatStop::Slot(&ORQ_CHAT_PID), "ORQ_CHAT_STOPPED", &|_| {});
+    }
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -4883,6 +5012,10 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
     let repo = repo_or(&state, repo)?;
     let sys = format!("{}\n\nCONTEXTO DO PAINEL (JSON):\n{}", ISSUE_CHAT_PROMPT, context);
     let sys = memoria::with_memory(&sys, &repo, &prompt); // cérebro do projeto
+    let eng = chat_pick(&session_id)?;
+    if eng != ai_once::AiEngine::Claude {
+        return chat_other(eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&ISSUE_CHAT_PID), "ISSUE_CHAT_STOPPED", &|_| {});
+    }
     let mut args: Vec<String> = vec![
         "-p".to_string(), prompt,
         "--output-format".to_string(), "json".to_string(),
@@ -4922,8 +5055,7 @@ static ISSUE_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI
 /// PARA a pesquisa em andamento da aba "Nova issue" (mata o grupo do claude).
 #[tauri::command(async)]
 fn issue_chat_stop() -> bool {
-    let pid = ISSUE_CHAT_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
+    stop_slot(&ISSUE_CHAT_PID) // mesmo efeito de antes + registra o pedido (chats fora do Claude não abrem processo novo)
 }
 
 const ISSUE_CHAT_PROMPT: &str = r#"Você monta ISSUES pro painel do time conversando com o dev, em português, no projeto aberto nesta pasta. O dev manda UMA ideia ou uma LISTA (várias linhas = várias issues). Seu trabalho é FECHAR AS ARESTAS de cada uma antes de criar: PESQUISE o código de verdade (Read/Grep/Glob/LS, git log/show/grep) — onde isso mora, o que já existe, o que está faltando, qual a causa provável — com PARCIMÔNIA (poucas leituras direcionadas por issue, nunca varredura do repo). Você NÃO edita nada.
@@ -5540,6 +5672,10 @@ fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, s
     let repo = repo_of(&state)?;
     let sys = "Você é o copiloto do PROJETO aberto no Starfork, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o chat não começa do zero
+    let eng = chat_pick(&session_id)?;
+    if eng != ai_once::AiEngine::Claude {
+        return chat_other(eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PROJECT_CHAT_PID), "PROJECT_CHAT_STOPPED", &emit_activity(&app, "project-chat-activity"));
+    }
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
