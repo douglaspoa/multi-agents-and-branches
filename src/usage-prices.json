@@ -1,0 +1,6 @@
+{
+  "_doc": "Tabela ÚNICA de preço ESTIMADO (US$ por milhão de tokens, entrada+saída somadas) dos motores que não informam custo (Codex, DeepSeek, gateway) — e do Claude quando ele não informar. Lida pelo motor TS (src/usage-ledger.ts), pelo Rust (usage_ledger.rs, include_str!) e espelhada pela mesa (MESA_TOK_USD_PER_M em app/src/js/38-mesa.js, conferida por teste). `models` sobrepõe o motor para um modelo específico.",
+  "perMillion": { "claude": 15, "codex": 10, "deepseek": 2, "gateway": 10 },
+  "models": {},
+  "fallback": 10
+}

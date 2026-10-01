@@ -495,10 +495,11 @@ export class Orchestrator {
 
   /** Roda a IA auxiliar (destiladores, retro) na IA padrão do usuário (src/ai-once.ts). Padrão: nível
    * rápido (Haiku no Claude). `claudeModel` só vale no Claude; Codex/gateway usam o nível. "" em qualquer falha. */
-  private async aux(prompt: string, tier: AiTier = "rapido", claudeModel = "claude-haiku-4-5-20251001", timeout = auxTimeoutMs()): Promise<string> {
+  private async aux(prompt: string, tier: AiTier = "rapido", claudeModel = "claude-haiku-4-5-20251001", timeout = auxTimeoutMs(), taskId?: string): Promise<string> {
     try {
       // teto: sem ele uma IA pendurada deixava o processo do motor vivo pra sempre (fire-and-forget)
-      return await aiOnce(prompt, { tier, claudeModel, timeout });
+      // livro de uso: retro e aprendizados do chat contam como "retro"
+      return await aiOnce(prompt, { tier, claudeModel, timeout, usage: { source: "retro", project: this.ws.repo, taskId } });
     } catch { return ""; }
   }
 
@@ -534,7 +535,7 @@ export class Orchestrator {
         `responda SÓ um JSON {"title":"título curto e geral","type":"regra|decisão|gotcha|contexto|glossário|pessoa","tags":["tema"],"body":"1-3 frases em português, imperativas e gerais (sem citar a tarefa), com [[slug]] pras notas existentes relacionadas e/ou [[tema]] pro assunto (ex.: [[ferramentas]])"}. ` +
         `Se já existe nota sobre o MESMO assunto, use exatamente o título dela. NUNCA inclua segredos, chaves, senhas ou valores de .env. ` +
         `Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
-      const out = await this.aux(prompt);
+      const out = await this.aux(prompt, undefined, undefined, undefined, taskId);
       if (!out || /^skip\b/i.test(out.split("\n").pop()?.trim() ?? "")) return;
       const who = this.humanName();
       const note = this.noteFromJson(extractJson(out), `destilador · correção de ${who}${taskTitle ? ` no chat da tarefa "${taskTitle.slice(0, 60)}"` : ""}`);
@@ -592,7 +593,7 @@ export class Orchestrator {
         brainCatalog: this.brainCatalog(),
         learnedSkills: learned,
         alreadySuggested: readPending(this.ws.dir).filter((p) => p.taskId === taskId).map((p) => p.nota ? `nota: ${p.nota.title}` : `skill: ${p.skill?.nome ?? ""}`),
-      }), "capaz", model, Math.max(auxTimeoutMs(), 180_000)); // retroModel vale só no Claude (Codex/gateway: nível capaz); ~10k chars: teto próprio
+      }), "capaz", model, Math.max(auxTimeoutMs(), 180_000), taskId); // retroModel vale só no Claude (Codex/gateway: nível capaz); ~10k chars: teto próprio
       if (!out) return;
       const { notas, skills } = parseRetro(out);
       const learnedNames = new Set(learned.map((s) => s.name));
@@ -1022,7 +1023,7 @@ export class Orchestrator {
             if (ev.type === "done" && ev.ok === false) deathText = ev.text;
             this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role);
             if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-              this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
+              this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, r.engine, r.model);
             }
             if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
           }
@@ -1265,7 +1266,7 @@ export class Orchestrator {
           if (ev.type === "claim") continue; // sem repo pra reivindicar num review de PR
           this.store.addEvent(spec.id, r.name, ev.type, ev.text, ev.ok, r.role);
           if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-            this.store.addCost(spec.id, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
+            this.store.addCost(spec.id, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, r.engine, r.model);
           }
         }
       } catch (err) {
@@ -1335,7 +1336,7 @@ export class Orchestrator {
           }
           this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
           if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-            this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
+            this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model);
           }
           if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
         }
@@ -1479,7 +1480,7 @@ export class Orchestrator {
         if (ev.type === "error") failed = true;
         this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model);
         }
       }
     } catch (err) {
@@ -1580,7 +1581,7 @@ export class Orchestrator {
         if (ev.type === "done" && ev.ok === false) deathText = ev.text;
         this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model);
         }
       }
       // sessão não existe mais (histórico do Claude apagado/outra máquina) →
@@ -1791,7 +1792,7 @@ export class Orchestrator {
         `Objetivo da tarefa: ${spec.objective}\n${dels}\nDiff:\n${diff}`;
       // teto: o resumo roda DENTRO do pipeline (com o lock da tarefa) — um claude pendurado aqui
       // deixava a tarefa "rodando" pra sempre depois do builder já ter terminado
-      const s = (await aiOnce(prompt, { tier: "capaz", cwd: worktree, timeout: auxTimeoutMs() })).trim();
+      const s = (await aiOnce(prompt, { tier: "capaz", cwd: worktree, timeout: auxTimeoutMs(), usage: { source: "commit-pr", project: this.ws.repo, taskId } })).trim();
       if (s) {
         this.store.addCommitSummary(hash, s);
         this.store.addEvent(taskId, spec.agent, "note", "resumo técnico do commit gerado", true);

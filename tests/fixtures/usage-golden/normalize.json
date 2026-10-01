@@ -1,0 +1,14 @@
+{
+  "_doc": "Golden TS≡Rust do livro-razão de uso: cada caso é gravado EM ORDEM num banco vazio (o total da sessão do Claude carrega entre os casos) e a linha gravada tem que ter estes source/usd/usd_estimated. usd com tolerância 1e-9.",
+  "cases": [
+    { "in": { "source": "titulo-branch", "engine": "claude", "model": "claude-haiku-4-5-20251001", "in_tok": 1000, "out_tok": 200, "usd": 0.0123, "claude_session": "", "claude_total": 0 }, "out": { "source": "titulo-branch", "engine": "claude", "usd": 0.0123, "usd_estimated": 0 } },
+    { "in": { "source": "personas", "engine": "codex", "model": "gpt-5-codex", "in_tok": 3000, "out_tok": 1000, "usd": 0 }, "out": { "source": "personas", "engine": "codex", "usd": 0.04, "usd_estimated": 1 } },
+    { "in": { "source": "nova-tarefa", "engine": "deepseek", "model": "deepseek-flash", "in_tok": 1000000, "out_tok": 0, "usd": 0 }, "out": { "source": "nova-tarefa", "engine": "deepseek", "usd": 2, "usd_estimated": 1 } },
+    { "in": { "source": "chat-projeto", "engine": "gateway", "model": "logcomex-v2", "in_tok": 500, "out_tok": 500, "usd": 0 }, "out": { "source": "chat-projeto", "engine": "gateway", "usd": 0.01, "usd_estimated": 1 } },
+    { "in": { "source": "retro", "engine": "claude", "model": "", "in_tok": 1000, "out_tok": 0, "usd": 0 }, "out": { "source": "retro", "engine": "claude", "usd": 0.015, "usd_estimated": 1 } },
+    { "in": { "source": "nova-tarefa", "engine": "claude", "model": "", "in_tok": 10, "out_tok": 10, "usd": 0, "claude_session": "s1", "claude_total": 0.1 }, "out": { "source": "nova-tarefa", "engine": "claude", "usd": 0.1, "usd_estimated": 0 } },
+    { "in": { "source": "nova-tarefa", "engine": "claude", "model": "", "in_tok": 10, "out_tok": 10, "usd": 0, "claude_session": "s1", "claude_total": 0.25 }, "out": { "source": "nova-tarefa", "engine": "claude", "usd": 0.15, "usd_estimated": 0 } },
+    { "in": { "source": "nova-tarefa", "engine": "claude", "model": "", "in_tok": 10, "out_tok": 10, "usd": 0, "claude_session": "s1", "claude_total": 0.05 }, "out": { "source": "nova-tarefa", "engine": "claude", "usd": 0.05, "usd_estimated": 0 } },
+    { "in": { "source": "qualquer-coisa", "engine": "Codex (gpt-5)", "model": "", "in_tok": 0, "out_tok": 0, "usd": 0 }, "out": { "source": "outros", "engine": "codex", "usd": 0, "usd_estimated": 0 } }
+  ]
+}

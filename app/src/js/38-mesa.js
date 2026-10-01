@@ -213,6 +213,7 @@ function mesaCapHit(usd, capBrl, rate){ return +capBrl>0 && (+usd||0)*(+rate>0?+
 // TETO POR TOKENS fora do Claude: Codex/DeepSeek/gateway devolvem US$ 0 (como nas tarefas) mas informam tokens. Pra o
 // teto da mesa continuar valendo, cada token vira um gasto ESTIMADO com uma taxa FIXA e CONSERVADORA (US$ por milhão de
 // tokens, entrada+saída juntas, puxada pro preço de saída — melhor parar cedo do que estourar):
+// espelho da tabela ÚNICA de preço estimado (src/usage-prices.json — a mesma do livro de uso; app/tests/uso.test.mjs confere)
 const MESA_TOK_USD_PER_M={ codex:10, deepseek:2, gateway:10 };
 function mesaTokUsd(engine, tokens){ const r=MESA_TOK_USD_PER_M[String(engine||'')]||10; return (+tokens||0)*r/1e6; }
 // o que conta pro teto: o custo real (Claude) + a estimativa por tokens (outros motores)

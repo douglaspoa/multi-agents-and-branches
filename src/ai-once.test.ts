@@ -173,7 +173,7 @@ test("motor escolhido ausente → usa o claude (argumentos de antes)", POSIX, as
     const out = await withEnv({ HOME: H.home, CARDUME_CLAUDE: claude }, () =>
       aiOnce("oi", { tier: "rapido", claudeModel: "claude-haiku-4-5-20251001", timeout: 10_000 }, { avail: { claude: true, codex: false } }));
     assert.equal(out, "resposta do claude");
-    assert.deepEqual(readFileSync(join(bin, "claude-args.txt"), "utf8").trim().split("\n"), ["-p", "oi", "--model", "claude-haiku-4-5-20251001"]);
+    assert.deepEqual(readFileSync(join(bin, "claude-args.txt"), "utf8").trim().split("\n"), ["-p", "oi", "--model", "claude-haiku-4-5-20251001", "--output-format", "json"], "args de antes + o JSON do custo (livro de uso)");
   } finally { H.cleanup(); }
 });
 

@@ -420,6 +420,8 @@ pub(crate) fn codex_exec(bin: &str, prompt: &str, cwd: Option<&Path>, model: Opt
     };
     if timed { return Err(fail("timeout", CODEX_TIMEOUT_MSG.into())); }
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let (ti, to) = jsonl_tokens(&stdout, false);
+    used_add(ti, to, 0.0);
     match codex_outcome(&stdout) {
         (Some(s), _) => Ok(s),
         (None, Some(raw)) => Err(fail(&raw, codex_friendly_error(&raw))),
@@ -529,7 +531,25 @@ pub(crate) fn gateway_call(g: &Gateway, prompt: &str, secs: u64) -> Result<Strin
     if !out.status.success() && out.stdout.is_empty() {
         return Err(format!("Não consegui falar com o gateway ({}) — cheque a URL e a internet/VPN (curl código {}).", g.base, out.status.code().unwrap_or(-1)));
     }
-    parse_gateway(&String::from_utf8_lossy(&out.stdout))
+    let body = String::from_utf8_lossy(&out.stdout);
+    let (ti, to) = gateway_tokens(&body);
+    used_add(ti, to, 0.0);
+    parse_gateway(&body)
+}
+/// Tokens do `usage` do chat/completions (prompt_tokens/completion_tokens).
+pub(crate) fn gateway_tokens(body: &str) -> (i64, i64) {
+    let u = serde_json::from_str::<serde_json::Value>(body.trim()).map(|v| v["usage"].clone()).unwrap_or_default();
+    (u["prompt_tokens"].as_i64().unwrap_or(0), u["completion_tokens"].as_i64().unwrap_or(0))
+}
+/// Soma dos tokens de um JSONL do Codex (`turn.completed`) ou do dsh (`step_end`) — as MESMAS leituras dos chats.
+pub(crate) fn jsonl_tokens(stdout: &str, dsh: bool) -> (i64, i64) {
+    let mut seen = std::collections::HashSet::new();
+    let (mut i, mut o) = (0i64, 0i64);
+    for line in stdout.lines() {
+        let evs = if dsh { dsh_events(line) } else { codex_events(line, &mut seen) };
+        for ev in evs { if let ChatEv::Usage(a, b) = ev { i += a as i64; o += b as i64; } }
+    }
+    (i, o)
 }
 
 // ---------- DeepSeek Harness (beta) ----------
@@ -778,6 +798,8 @@ pub(crate) fn dsh_run_secs(bin: &str, key: &str, req: &AiOnce, user_model: Optio
     };
     drop(files);
     if timed { return Err(DSH_TIMEOUT_MSG.into()); }
+    let (ti, to) = jsonl_tokens(&String::from_utf8_lossy(&out.stdout), true);
+    used_add(ti, to, 0.0);
     match dsh_outcome(&String::from_utf8_lossy(&out.stdout)) {
         (Some(s), _) => Ok(s),
         (None, Some(raw)) => Err(dsh_friendly_error(&raw)),
@@ -788,29 +810,75 @@ pub(crate) fn dsh_run_secs(bin: &str, key: &str, req: &AiOnce, user_model: Optio
     }
 }
 
+// ---------- uso (livro-razão, usage_ledger.rs) ----------
+// Cada execução de motor SOMA aqui os tokens/custo que viu (inclusive a 2ª tentativa do Codex — ela também cobra);
+// quem gravou a linha (ai_once_as) zera antes e lê depois, na MESMA thread (as chamadas de uma vez são síncronas).
+thread_local! {
+    static USED: std::cell::Cell<(i64, i64, f64)> = const { std::cell::Cell::new((0, 0, 0.0)) };
+}
+pub(crate) fn used_reset() { USED.with(|u| u.set((0, 0, 0.0))); }
+pub(crate) fn used_add(i: i64, o: i64, usd: f64) { USED.with(|u| { let (a, b, c) = u.get(); u.set((a + i, b + o, c + usd)); }); }
+pub(crate) fn used_take() -> (i64, i64, f64) { USED.with(|u| u.replace((0, 0, 0.0))) }
+
+/// Texto de `claude -p --output-format json` → o MESMO texto que o `-p` puro devolvia (o campo `result`), e o custo/
+/// tokens no acumulador. Saída que não é o JSON (claude antigo, falso de teste) passa como veio.
+pub(crate) fn claude_once_text(stdout: &str) -> Result<String, String> {
+    let t = stdout.trim();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(t) else { return Ok(t.to_string()) };
+    if !v.is_object() || (v.get("result").is_none() && v.get("is_error").is_none()) { return Ok(t.to_string()); }
+    let (i, o, usd, _) = usage_ledger::claude_numbers(&v);
+    used_add(i, o, usd);
+    let r = v["result"].as_str().unwrap_or("").trim().to_string();
+    if v["is_error"].as_bool().unwrap_or(false) {
+        return Err(if r.is_empty() { "O Claude Code devolveu um erro sem mensagem.".into() } else { claude_friendly_error(&r) });
+    }
+    Ok(r)
+}
+
 // ---------- o ponto único ----------
 
 fn run_claude(req: &AiOnce) -> Result<String, String> {
     let mut cmd = claude_cmd(&claude_bin());
     cmd.args(claude_args(req.prompt, req.claude_model, req.claude_extra));
+    // custo informado pelo próprio Claude (livro de uso); o texto devolvido continua o `result`, igual ao -p puro
+    if !req.claude_extra.iter().any(|a| a == "--output-format") { cmd.args(["--output-format", "json"]); }
     if let Some(d) = req.cwd { cmd.current_dir(d); }
     let out = output_timeout(cmd, req.secs).map_err(|e| format!("Não consegui rodar o Claude Code: {e}"))?;
     if !out.status.success() {
+        // erro dentro do JSON (login expirado, limite…): exit 1 com stderr vazio
+        if out.stderr.iter().all(|b| b.is_ascii_whitespace()) {
+            if let Err(e) = claude_once_text(&String::from_utf8_lossy(&out.stdout)) { return Err(e); }
+        }
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let err = if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().chars().take(300).collect() } else { err };
         return Err(if err.is_empty() {
             format!("O Claude Code saiu com código {} sem mensagem.", out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()))
         } else { claude_friendly_error(&err) });
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    claude_once_text(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// Roda a chamada auxiliar no motor resolvido.
-pub(crate) fn ai_once(req: AiOnce) -> Result<String, String> {
+/// Roda a chamada auxiliar no motor resolvido (sem origem: conta como "outros").
+#[cfg(test)]
+pub(crate) fn ai_once(req: AiOnce) -> Result<String, String> { ai_once_as("outros", None, req) }
+
+/// Roda a chamada auxiliar no motor resolvido e grava UMA linha no livro de uso (`source` = origem fixa da aba Uso,
+/// `project` = repo quando a tela tem um). O resultado devolvido é exatamente o de antes — o livro é melhor-esforço.
+pub(crate) fn ai_once_as(source: &str, project: Option<&Path>, req: AiOnce) -> Result<String, String> {
     let pref = pref_engine();
     let eng = pick_with(&pref, engine_avail).ok_or_else(|| NO_ENGINE_MSG.to_string())?;
     let user_model = user_model_for(&pref, eng, setting_get("aiModel").as_deref());
-    run_on(eng, &req, user_model.as_deref(), None).map(|x| x.0)
+    used_reset();
+    let t0 = Instant::now();
+    let r = run_on(eng, &req, user_model.as_deref(), None);
+    let (i, o, usd) = used_take();
+    let model = match &r { Ok((_, m)) => m.clone(), Err(_) => user_model.clone().or_else(|| req.claude_model.map(String::from)) };
+    usage_ledger::record(usage_ledger::Entry {
+        project: project.map(|p| p.display().to_string()), model, in_tok: i, out_tok: o, usd,
+        ms: t0.elapsed().as_millis() as i64, ok: r.is_ok(),
+        ..usage_ledger::Entry::new(source, eng.id())
+    });
+    r.map(|x| x.0)
 }
 
 /// Prazo (s) de uma chamada: `exact` (o "testar" do painel, curto) vale como veio; sem ele, os pisos de sempre —
@@ -1263,6 +1331,27 @@ pub(crate) fn gateway_chat(g: &Gateway, t: &ChatTurn, h: &ChatHooks) -> Result<C
     Ok(ChatOut { text, session_id: GATEWAY_SID.into(), in_tok: u["prompt_tokens"].as_u64().unwrap_or(0), out_tok: u["completion_tokens"].as_u64().unwrap_or(0) })
 }
 
+/// Modelo que os chats usam neste motor (só pro livro de uso — estimativa por modelo).
+pub(crate) fn chat_model(eng: AiEngine) -> Option<String> {
+    let um = user_model_for(&pref_engine(), eng, setting_get("aiModel").as_deref());
+    match eng {
+        AiEngine::Claude => None,
+        AiEngine::Codex => codex_plan(Tier::Capaz, um.as_deref()).0,
+        AiEngine::Deepseek => Some(dsh_plan(Tier::Capaz, um.as_deref())),
+        AiEngine::Gateway => um.or_else(|| gateway_cfg().map(|g| g.model)),
+    }
+}
+
+/// Grava a rodada de um chat fora do Claude no livro de uso (tokens + custo estimado).
+pub(crate) fn record_chat(source: &str, eng: AiEngine, cwd: &Path, r: &Result<ChatOut, String>, started: Instant) {
+    let (i, o) = r.as_ref().map(|c| (c.in_tok as i64, c.out_tok as i64)).unwrap_or((0, 0));
+    usage_ledger::record(usage_ledger::Entry {
+        project: Some(cwd.display().to_string()), model: chat_model(eng), in_tok: i, out_tok: o,
+        ms: started.elapsed().as_millis() as i64, ok: r.is_ok(),
+        ..usage_ledger::Entry::new(source, eng.id())
+    });
+}
+
 /// Uma rodada de chat num motor que NÃO é o Claude (o Claude segue no caminho de cada tela).
 pub(crate) fn chat_turn(eng: AiEngine, t: &ChatTurn, h: &ChatHooks) -> Result<ChatOut, String> {
     let resume = sid_resume(eng, t.session_id)?;
@@ -1462,7 +1551,14 @@ pub(crate) fn ai_test_run(engine: &str, model: Option<&str>) -> Result<AiTestOut
     let req = AiOnce { prompt: AI_TEST_PROMPT, tier: Tier::Rapido, claude_model: if eng == AiEngine::Claude { m.as_deref() } else { None }, claude_extra: &[], cwd: None, secs: AI_TEST_SECS };
     let t0 = Instant::now();
     let user_model = if eng == AiEngine::Claude { None } else { m.as_deref() };
-    let (text, used) = run_on(eng, &req, user_model, Some(AI_TEST_SECS))?;
+    used_reset();
+    let r = run_on(eng, &req, user_model, Some(AI_TEST_SECS));
+    let (ti, to, usd) = used_take();
+    usage_ledger::record(usage_ledger::Entry {
+        model: r.as_ref().ok().and_then(|x| x.1.clone()), in_tok: ti, out_tok: to, usd, ms: t0.elapsed().as_millis() as i64, ok: r.is_ok(),
+        ..usage_ledger::Entry::new("outros", eng.id())
+    });
+    let (text, used) = r?;
     let used = used.unwrap_or_default();
     let fallback = !requested.is_empty() && used != requested;
     Ok(AiTestOut { engine: eng.label().to_string(), text: text.chars().take(200).collect(), ms: t0.elapsed().as_millis() as u64, model: used, requested, fallback })
@@ -2569,5 +2665,83 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         assert!(!cru, "com o PATH do Finder o codex do npm não roda sozinho");
         assert!(codex_logged_in(&bin), "a checagem põe a pasta do codex no PATH e vê o login");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // ---------- livro de uso (aba Uso) ----------
+
+    #[test]
+    fn claude_json_devolve_o_mesmo_texto_e_soma_o_custo() {
+        used_reset();
+        let t = claude_once_text(r#"{"type":"result","is_error":false,"result":"  Título curto \n","session_id":"s","total_cost_usd":0.003,"usage":{"input_tokens":5,"cache_read_input_tokens":5,"output_tokens":2}}"#).unwrap();
+        assert_eq!(t, "Título curto");
+        assert_eq!(used_take(), (10, 2, 0.003));
+        // saída que não é o JSON (claude antigo / falso) passa igual
+        assert_eq!(claude_once_text("  texto puro \n").unwrap(), "texto puro");
+        assert_eq!(claude_once_text("[1,2]").unwrap(), "[1,2]");
+        // erro dentro do JSON vira mensagem humana (e o custo conta)
+        let e = claude_once_text(r#"{"is_error":true,"result":"Failed to authenticate. API Error: 401","total_cost_usd":0.001}"#).unwrap_err();
+        assert!(e.starts_with("Login do Claude Code expirou"), "{e}");
+        assert_eq!(used_take().2, 0.001);
+    }
+
+    #[test]
+    fn ai_once_as_grava_no_livro_claude_informado_e_codex_estimado() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let d = tmpdir("livro");
+        let home = d.join("home");
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        let db = d.join("usage.sqlite");
+        let claude = script(&d, "claude", &format!(r#"printf '%s\n' "$@" > "{}/claude-argv.txt"
+echo '{{"type":"result","is_error":false,"result":"filtro-por-data","session_id":"s1","total_cost_usd":0.0042,"usage":{{"input_tokens":300,"output_tokens":12}}}}'
+"#, d.display()));
+        let cdir = tmpdir("livro-codex");
+        let codex = fake_codex_chat(&cdir, "");
+        let (home_s, db_s) = (home.display().to_string(), db.display().to_string());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_CLAUDE", claude.as_str()), ("CARDUME_CODEX", codex.as_str()), ("CARDUME_USAGE_DB", db_s.as_str()), ("DEEPSEEK_API_KEY", "")]);
+        // Claude: o texto é o MESMO que o -p puro devolvia; o custo vem do JSON
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"claude"}"#).unwrap();
+        clear_avail_cache();
+        let proj = d.join("proj");
+        let out = ai_once_as("titulo-branch", Some(&proj), AiOnce { prompt: "p", tier: Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 20 }).unwrap();
+        assert_eq!(out, "filtro-por-data");
+        let argv = std::fs::read_to_string(d.join("claude-argv.txt")).unwrap();
+        assert_eq!(argv.lines().collect::<Vec<_>>(), vec!["-p", "p", "--model", "claude-haiku-4-5-20251001", "--output-format", "json"]);
+        // Codex: tokens do turn.completed + US$ estimado
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
+        clear_avail_cache();
+        let out = ai_once_as("personas", None, AiOnce { prompt: "p", tier: Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 20 });
+        assert!(out.is_ok(), "{out:?}");
+        clear_avail_cache();
+        let rows = usage_ledger::ledger_rows(&db, 0, None, None).unwrap();
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert_eq!((rows[0].source.as_str(), rows[0].engine.as_str(), rows[0].in_tok, rows[0].out_tok, rows[0].estimated), ("titulo-branch", "claude", 300, 12, false));
+        assert!((rows[0].usd - 0.0042).abs() < 1e-9);
+        assert_eq!(rows[0].project.as_deref(), Some(proj.display().to_string().as_str()));
+        assert_eq!(rows[0].model.as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert_eq!((rows[1].source.as_str(), rows[1].engine.as_str(), rows[1].in_tok, rows[1].out_tok, rows[1].estimated), ("personas", "codex", 120, 30, true));
+        assert!((rows[1].usd - usage_ledger::estimate_usd("codex", "gpt-5-codex", 120, 30)).abs() < 1e-12);
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&cdir);
+    }
+
+    #[test]
+    fn ai_once_as_livro_quebrado_devolve_o_mesmo_resultado() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let d = tmpdir("livro-ruim");
+        let home = d.join("home");
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
+        std::fs::write(d.join("arquivo"), "x").unwrap();
+        let bad = d.join("arquivo").join("usage.sqlite"); // impossível de criar
+        let cdir = tmpdir("livro-ruim-codex");
+        let codex = fake_codex_chat(&cdir, "");
+        let (home_s, bad_s) = (home.display().to_string(), bad.display().to_string());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_CLAUDE", "/nao/existe/claude"), ("CARDUME_CODEX", codex.as_str()), ("CARDUME_USAGE_DB", bad_s.as_str()), ("DEEPSEEK_API_KEY", "")]);
+        clear_avail_cache();
+        let out = ai_once_as("titulo-branch", None, AiOnce { prompt: "p", tier: Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 20 }).unwrap();
+        assert!(out.contains("Qual o objetivo?"), "{out}");
+        clear_avail_cache();
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&cdir);
     }
 }

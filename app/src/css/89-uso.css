@@ -1,0 +1,59 @@
+/* Aba "Uso" (55-uso.js): quanto cada parte do Starfork gasta — totais, barras por origem/IA/projeto, tarefas e detalhe */
+#usoBody{display:flex;flex-direction:column;gap:14px}
+.uso-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.uso-seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r-sm);overflow:hidden;background:var(--surface-2)}
+.uso-seg button{appearance:none;border:0;background:transparent;color:var(--text-2);font:500 12px var(--ui);padding:6px 12px;cursor:pointer}
+.uso-seg button+button{border-left:1px solid var(--border)}
+.uso-seg button.on{background:var(--accent-soft);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+.uso-seg button:focus-visible,.uso-task:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)}
+.uso-proj select{background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--r-sm);color:var(--text);font:500 12px var(--ui);padding:5px 8px;max-width:260px}
+.uso-tot{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.uso-big,.uso-kpi{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;display:flex;flex-direction:column;gap:4px;min-width:120px}
+.uso-big{flex:1 1 260px}
+.uso-big b{font-size:20px;font-weight:700;letter-spacing:.01em}
+.uso-kpi b{font-size:14px;font-weight:600}
+.uso-big .dim,.uso-kpi .dim{font-size:11px}
+.uso-big .uso-tag{align-self:flex-start}
+.uso-note{font-size:11px;margin:0}
+.uso-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px}
+@media (max-width:760px){ .uso-grid{grid-template-columns:1fr} }
+.uso-card{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;min-width:0}
+.uso-card h3{font-size:12px;font-weight:600;color:var(--text-2);margin:0 0 10px;text-transform:none}
+.uso-card h3+.uso-bars,.uso-card .uso-bars+h3{margin-top:0}
+.uso-card .uso-bars+h3{margin-top:14px}
+.uso-bars{display:flex;flex-direction:column;gap:9px}
+.uso-bl{display:flex;justify-content:space-between;gap:10px;font-size:12px}
+.uso-name{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uso-val{color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.uso-track{height:6px;border-radius:99px;background:var(--surface-3);overflow:hidden;margin-top:4px}
+.uso-fill{height:100%;border-radius:99px;background:var(--accent-2)}
+.uso-fill.uso-f-estimado{background:var(--info)}
+.uso-fill.uso-f-misto{background:linear-gradient(90deg,var(--accent-2),var(--info))}
+.uso-sub{font-size:10.5px;margin-top:3px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.uso-small .uso-bl{font-size:11.5px}
+.uso-tag{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;border:1px solid var(--border-strong);color:var(--text-2);white-space:nowrap}
+.uso-tag.uso-informado{border-color:var(--accent-line);color:var(--text)}
+.uso-tag.uso-estimado,.uso-tag.uso-misto{border-color:color-mix(in srgb,var(--info) 45%,transparent);color:var(--text)}
+.uso-none{font-size:12px;padding:6px 0}
+.uso-tasks{display:flex;flex-direction:column;gap:6px}
+.uso-task{appearance:none;text-align:left;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'t v' 'p m' 'g g';column-gap:12px;row-gap:2px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 11px;color:var(--text);font:inherit}
+.uso-task:hover{border-color:var(--border-strong)}
+.uso-tt{grid-area:t;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uso-tv{grid-area:v;font-size:12.5px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.uso-tp,.uso-tm{font-size:10.5px}
+.uso-tp{grid-area:p}
+.uso-tm{grid-area:m;text-align:right}
+.uso-task .uso-tag{grid-area:g;justify-self:start;margin-top:3px}
+.uso-det{display:flex;flex-direction:column;gap:12px}
+.uso-dethead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.uso-dethead b{font-size:14px}
+.uso-tab{width:100%;border-collapse:collapse;font-size:11.5px}
+.uso-tab th{text-align:left;font-weight:600;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--border)}
+.uso-tab td{padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.uso-tab .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.uso-tab tr.uso-fail td{color:var(--muted)}
+.uso-card{overflow-x:auto}
+.uso-empty p,.uso-err p{max-width:520px}
+/* medidor do plano: link pra aba */
+.planmeter button.pm-uso{appearance:none;border:0;background:transparent;color:var(--muted);font:500 10.5px var(--ui);padding:4px 0 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px;width:auto}
+.planmeter button.pm-uso:hover{color:var(--text-2)}

@@ -234,16 +234,17 @@ const VIEW_META={
   epic:{title:'Épico',icon:'<path d="M8 2.6l5.2 5.4L8 13.4 2.8 8z" stroke-linejoin="round"/><path d="M5.6 8l1.7 1.7 3.1-3.4"/>'},
   memoria:{title:'Memória',icon:'<path d="M6 2.8a2 2 0 0 0-2 2 2 2 0 0 0-1.3 3.4A2 2 0 0 0 4.2 12 2 2 0 0 0 8 12.6V3.6A2 2 0 0 0 6 2.8zM10 2.8a2 2 0 0 1 2 2 2 2 0 0 1 1.3 3.4 2 2 0 0 1-1.5 3.8A2 2 0 0 1 8 12.6" stroke-linejoin="round"/>'},
   mesa:{title:'Mesa',icon:'<rect x="2.5" y="7.4" width="11" height="2.6" rx=".8"/><circle cx="4.6" cy="4.4" r="1.3"/><circle cx="8" cy="3.8" r="1.3"/><circle cx="11.4" cy="4.4" r="1.3"/><path d="M4.4 10v3.2M11.6 10v3.2"/>'},
+  uso:{title:'Uso',icon:'<path d="M2.5 13.5h11"/><rect x="3.5" y="8" width="2.2" height="4" rx=".5"/><rect x="6.9" y="5" width="2.2" height="7" rx=".5"/><rect x="10.3" y="2.5" width="2.2" height="9.5" rx=".5"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', cttask:'ctPageOverlay', epic:'epicOverlay' };
+const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', cttask:'ctPageOverlay', epic:'epicOverlay', uso:'usoOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
 // e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
 const MULTI_KINDS=new Set(['nova','planner','form','orq']);
 // views únicas que guardam trabalho em andamento na própria tela: voltar pela ABA só mostra (não reabre —
 // reabrir zerava a seleção de Issues e as edições não salvas de Agentes/Configurações); o menu/openTab recarrega
-const KEEP_ON_SWITCH=new Set(['memoria','mesa','issues','issuesbulk','agents','cfg','skills','projetos','prefs','conta','env','daily']);
+const KEEP_ON_SWITCH=new Set(['memoria','mesa','issues','issuesbulk','agents','cfg','skills','projetos','prefs','conta','env','daily','uso']);
 let tabSeq=0;
 function tabStateApi(kind){ return window['TAB_STATE_'+kind]||null; }
 function saveTabState(tab){ if(!tab||!MULTI_KINDS.has(tab.kind)) return; const api=tabStateApi(tab.kind); if(!api||!api.get) return; try{ tab.state=api.get(); if(tab.state&&tab.state._title) tab.title=String(tab.state._title).slice(0,28); }catch(e){ console.error('saveTabState',e); } }
@@ -255,7 +256,7 @@ function viewOpen(kind, tab){
             projetos:()=>openProjetos(), nova:()=>openNovaStart(),
             planner:()=>{ if(fresh||!window.plShow) openPlanner(); else window.plShow(); },
             form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
-            skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), memoria:()=>window.openMemoria&&window.openMemoria(), mesa:()=>window.openMesa&&window.openMesa(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+            skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), memoria:()=>window.openMemoria&&window.openMemoria(), mesa:()=>window.openMesa&&window.openMesa(), uso:()=>window.openUso&&window.openUso(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             task:()=>{ if(tabTaskId==null) return; const path=(tab&&tab.path)||null;
               // aba de tarefa de OUTRO projeto (você trocou de projeto depois de abrir): volta pro projeto dela antes
