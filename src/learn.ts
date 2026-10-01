@@ -48,7 +48,8 @@ export function settingsFile(): string {
   return join(homedir(), ".constellation", "settings.json");
 }
 
-/** Modo e modelo da retro. Valor desconhecido → padrão (sugerir · Sonnet 5). */
+/** Modo e modelo da retro. Valor desconhecido → padrão (sugerir · Sonnet 5). O modelo é id do CLAUDE e só vale
+ * quando a IA padrão é o Claude — com Codex/gateway a retro usa o nível "capaz" (src/ai-once.ts). */
 export function readLearnSettings(file = settingsFile()): { mode: LearnMode; model: string } {
   let raw: Record<string, unknown> = {};
   try { raw = JSON.parse(readFileSync(file, "utf8")) ?? {}; } catch { /* sem arquivo: padrão */ }

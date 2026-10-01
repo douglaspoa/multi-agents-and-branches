@@ -338,7 +338,7 @@ function plWireModelCard(th, rerender){
   const card=th.querySelector('.plmodel'); if(!card) return;
   const rr=rerender||renderPlanner;
   const saveOn=()=>{ const c=card.querySelector('[data-plm="save"]'); return !!(c&&c.checked); };
-  const choose=(eng,model)=>{ aiPickApply(eng, model); const saved=saveOn(); if(saved){ lsSet('defaultEngine',eng||'claude'); lsSet('defaultModel',model||''); } m.choice={eng,model,saved}; m.open=false; plFields.engine=eng||'claude'; plFields.model=model||''; plFields.engineLabel=`${(AI_ENGINES.find(x=>x.id===eng)||{}).name||eng} · ${aiModelName(model)}`; rr(); plAutoSave(); };
+  const choose=(eng,model)=>{ aiPickApply(eng, model); const saved=saveOn(); if(saved){ aiSaveDefaults(eng, model); } m.choice={eng,model,saved}; m.open=false; plFields.engine=eng||'claude'; plFields.model=model||''; plFields.engineLabel=`${(AI_ENGINES.find(x=>x.id===eng)||{}).name||eng} · ${aiModelName(model)}`; rr(); plAutoSave(); };
   card.querySelectorAll('[data-plm="default"]').forEach(b=>b.onclick=()=>{ const d=aiDefaults(); choose(d.eng,d.model); });
   card.querySelectorAll('[data-plm="pick"]').forEach(b=>b.onclick=()=>choose(b.dataset.eng,b.dataset.model));
   card.querySelectorAll('[data-plm="more"]').forEach(b=>b.onclick=()=>{ m.open=true; rr(); });

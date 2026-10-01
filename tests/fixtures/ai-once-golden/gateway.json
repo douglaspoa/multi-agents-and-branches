@@ -1,0 +1,37 @@
+[
+ {
+  "name": "string",
+  "body": "{\"choices\":[{\"message\":{\"content\":\" ok \"},\"finish_reason\":\"stop\"}]}",
+  "text": "ok"
+ },
+ {
+  "name": "content em partes",
+  "body": "{\"choices\":[{\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"parte 1 \"},{\"type\":\"text\",\"text\":\"parte 2\"}]},\"finish_reason\":\"stop\"}]}",
+  "text": "parte 1 parte 2"
+ },
+ {
+  "name": "cortada por limite",
+  "body": "{\"choices\":[{\"message\":{\"content\":\"metade do rel\"},\"finish_reason\":\"length\"}]}",
+  "error": "a resposta do gateway foi cortada (limite de tokens)"
+ },
+ {
+  "name": "vazia",
+  "body": "{\"choices\":[{\"message\":{\"content\":\"  \"}}]}",
+  "error": "O gateway devolveu uma resposta vazia"
+ },
+ {
+  "name": "chave inválida",
+  "body": "{\"error\":{\"message\":\"Invalid API key\"}}",
+  "error": "O gateway recusou a chave"
+ },
+ {
+  "name": "detail",
+  "body": "{\"detail\":\"model not found\"}",
+  "error": "model not found"
+ },
+ {
+  "name": "html",
+  "body": "<html>502</html>",
+  "error": "inesperad"
+ }
+]

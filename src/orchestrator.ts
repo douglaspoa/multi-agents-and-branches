@@ -16,7 +16,8 @@ import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLearnSettings, readPending, rejectReason, retroPrompt, type PendingItem } from "./learn.ts";
 import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
-import { ClaudeEngine, claudeEnv, claudeErrText, resolveClaude } from "./engine/claude.ts";
+import { ClaudeEngine } from "./engine/claude.ts";
+import { aiOnce, type AiTier } from "./ai-once.ts";
 import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
@@ -488,12 +489,12 @@ export class Orchestrator {
     } catch { return ""; }
   }
 
-  /** Roda um modelo headless (destiladores, retro). Padrão: Haiku. "" em qualquer falha. */
-  private async aux(prompt: string, model = "claude-haiku-4-5-20251001", timeout = auxTimeoutMs()): Promise<string> {
+  /** Roda a IA auxiliar (destiladores, retro) na IA padrão do usuário (src/ai-once.ts). Padrão: nível
+   * rápido (Haiku no Claude). `claudeModel` só vale no Claude; Codex/gateway usam o nível. "" em qualquer falha. */
+  private async aux(prompt: string, tier: AiTier = "rapido", claudeModel = "claude-haiku-4-5-20251001", timeout = auxTimeoutMs()): Promise<string> {
     try {
-      // teto: sem ele um claude pendurado deixava o processo do motor vivo pra sempre (fire-and-forget)
-      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", model], { env: claudeEnv(), timeout });
-      return stdout.trim();
+      // teto: sem ele uma IA pendurada deixava o processo do motor vivo pra sempre (fire-and-forget)
+      return await aiOnce(prompt, { tier, claudeModel, timeout });
     } catch { return ""; }
   }
 
@@ -587,7 +588,7 @@ export class Orchestrator {
         brainCatalog: this.brainCatalog(),
         learnedSkills: learned,
         alreadySuggested: readPending(this.ws.dir).filter((p) => p.taskId === taskId).map((p) => p.nota ? `nota: ${p.nota.title}` : `skill: ${p.skill?.nome ?? ""}`),
-      }), model, Math.max(auxTimeoutMs(), 180_000)); // Sonnet com ~10k chars: teto próprio, maior que o dos destiladores
+      }), "capaz", model, Math.max(auxTimeoutMs(), 180_000)); // retroModel vale só no Claude (Codex/gateway: nível capaz); ~10k chars: teto próprio
       if (!out) return;
       const { notas, skills } = parseRetro(out);
       const learnedNames = new Set(learned.map((s) => s.name));
@@ -1776,7 +1777,7 @@ export class Orchestrator {
     }
   }
 
-  /** Gera (via Claude) e guarda o resumo técnico de um commit — o quê + porquê. */
+  /** Gera (na IA padrão — src/ai-once.ts) e guarda o resumo técnico de um commit — o quê + porquê. */
   private async summarizeCommit(taskId: string, hash: string, worktree: string, spec: TaskSpec): Promise<void> {
     try {
       const diff = (await run("git", ["-C", worktree, "show", "--no-color", "--format=", "-p", hash])).stdout.slice(0, 8000);
@@ -1786,14 +1787,13 @@ export class Orchestrator {
         `Objetivo da tarefa: ${spec.objective}\n${dels}\nDiff:\n${diff}`;
       // teto: o resumo roda DENTRO do pipeline (com o lock da tarefa) — um claude pendurado aqui
       // deixava a tarefa "rodando" pra sempre depois do builder já ter terminado
-      const { stdout } = await run(resolveClaude(), ["-p", prompt], { cwd: worktree, env: claudeEnv(), timeout: auxTimeoutMs() });
-      const s = stdout.trim();
+      const s = (await aiOnce(prompt, { tier: "capaz", cwd: worktree, timeout: auxTimeoutMs() })).trim();
       if (s) {
         this.store.addCommitSummary(hash, s);
         this.store.addEvent(taskId, spec.agent, "note", "resumo técnico do commit gerado", true);
       }
     } catch (err) {
-      this.store.addEvent(taskId, spec.agent, "note", `resumo IA do commit falhou: ${claudeErrText(err)}`, false);
+      this.store.addEvent(taskId, spec.agent, "note", `resumo IA do commit falhou: ${(err as Error).message}`, false);
     }
   }
 

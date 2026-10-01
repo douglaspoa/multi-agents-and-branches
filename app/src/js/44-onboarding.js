@@ -340,7 +340,7 @@ function auRenderReady(R, topbar){
     const where='neste computador';
     R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos ${where}.`:`Sua conta está ativa ${where}.`}</p>
       <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:var(--accent)">1</span><span>${hasRepo?`Projeto aberto: <b>${esc(pathBase(state.repo))}</b>`:'Escolher o projeto — uma pasta sua ou um novo do zero'}</span>${hasRepo?'<span class="au-tdone">✓ aberto</span>':'<button class="au-link" id="auRepo">abrir pasta</button>'}</div>
-        <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Conferir o que o computador precisa (Git, Claude Code…)</span>${envCell}</div>
+        <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Conferir o que o computador precisa (Git e uma IA: Claude Code, Codex ou gateway)</span>${envCell}</div>
         <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:' (opcional)'}</span><button class="au-link" id="auTeam">convidar</button></div></div>
       <button class="au-btn primary big" id="auGo">${hasRepo?'Ir para a Central':'Começar — dizer o que eu quero fazer'}</button></div>`;
     bindClick('auGo', ()=>{ auHide(); try{ if(window.openTab) window.openTab('flow'); }catch(_){ }

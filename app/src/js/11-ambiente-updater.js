@@ -12,13 +12,19 @@ function envKind(c){ const k=c&&c.kind; if(k==='req'||k==='rec'||k==='opt') retu
 const ENV_KIND_TAG={ req:'', rec:'recomendado', opt:'opcional' };
 // pra que serve cada peça, em linguagem de gente (quem não programa não sabe o que é "gh")
 function envWhat(c){ const n=String((c&&c.name)||'');
+  // "Motor de IA" ANTES do /motor/ (que é o Motor do Starfork): basta UMA IA — o Claude não é mais obrigatório
+  if(/motor de ia/i.test(n)) return 'A IA que faz o trabalho. Basta uma: Claude Code, Codex ou o gateway da sua empresa.';
   if(/node/i.test(n)) return 'Roda o motor que coordena os agentes.';
   if(/motor/i.test(n)) return 'Vem dentro do app — é quem liga os agentes às tarefas.';
   if(/^git\b/i.test(n)) return 'Guarda o histórico e dá a cada tarefa a sua cópia isolada do projeto.';
-  if(/claude/i.test(n)) return 'A IA que faz o trabalho. Precisa estar instalada e com login feito.';
+  if(/claude/i.test(n)) return 'IA da Anthropic (assinatura Claude). Uma das opções de motor — precisa de login feito.';
+  if(/codex/i.test(n)) return 'IA da OpenAI (Codex CLI). Outra opção de motor — com login ou chave OpenAI.';
+  if(/gateway/i.test(n)) return 'O endpoint de IA da sua empresa (OpenAI-compatível). Também serve de motor.';
   if(/github cli|\bgh\b/i.test(n)) return 'Só pra publicar no GitHub e abrir PRs. Dá pra começar sem.';
   if(/t[úu]nel|preview/i.test(n)) return 'Abre a prévia do app no celular. O resto funciona sem.';
   return ''; }
+// correção com VÁRIAS opções (uma por linha): comandos ganham "copiar"; "configure…"/"reinstale…" são instrução
+function envFixLines(fix){ return String(fix||'').split('\n').map(s=>s.trim()).filter(Boolean).map(t=>({ text:t, cmd:!/^(configure|reinstale)/i.test(t) })); }
 function envSummary(list){
   const a=Array.isArray(list)?list:[]; const bad=a.filter(c=>!c.ok);
   return { tot:a.length, okN:a.length-bad.length, reqBad:bad.filter(c=>envKind(c)==='req').length, optBad:bad.filter(c=>envKind(c)!=='req').length };
@@ -55,7 +61,7 @@ function renderEnv(){
       <div style="font:600 14.5px var(--display);display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}${ENV_KIND_TAG[k]?`<span class="envtag">${ENV_KIND_TAG[k]}</span>`:''}</div>
       ${what?`<div style="margin-top:4px;font-size:12.5px;color:var(--text-2)">${esc(what)}</div>`:''}
       <div style="margin-top:6px;font:400 11.5px/1.5 var(--code);color:var(--text-3);word-break:break-all">${esc(c.detail||'')}</div>
-      ${c.fix?`<div class="envfix"><span class="dim" style="font-size:11.5px">${/reinstale/i.test(c.fix)?'como resolver:':'rode no Terminal:'}</span><code class="as-mono">${esc(c.fix)}</code>${/reinstale/i.test(c.fix)?'':`<button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(c.fix)}">copiar</button>`}</div>`:''}
+      ${envFixLines(c.fix).map((f,i,all)=>`<div class="envfix"><span class="dim" style="font-size:11.5px">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span><code class="as-mono">${esc(f.text)}</code>${f.cmd?`<button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(f.text)}">copiar</button>`:''}</div>`).join('')}
     </div></div>`; }).join('');
   el.innerHTML=`<div class="appscreen">
     <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>

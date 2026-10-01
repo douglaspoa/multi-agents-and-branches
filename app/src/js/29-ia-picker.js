@@ -68,6 +68,33 @@ function aiRecommend(s){
 function setSelValue(sel, v){ if(!sel) return; v=v||''; if(![...sel.options].some(o=>o.value===v)) sel.add(new Option(v, v)); sel.value=v; }
 // ---- padrão do USUÁRIO (Configurações → IA padrão): vale pra toda demanda nova, do formulário ou do chat ----
 function aiDefaults(){ return { eng:lsGet('defaultEngine')||'claude', model:lsGet('defaultModel')||'' }; }
+// ESPELHA a IA padrão em ~/.constellation/settings.json (aiEngine/aiModel): é dali que o Rust e o motor TS
+// tiram a IA das chamadas auxiliares (spec com IA, título, previsão, relatórios, retro…) — sem isso,
+// quem escolheu Codex/gateway continuava precisando do Claude Code. Mock não é IA: auxiliar segue no claude.
+let _aiSynced='', _aiSyncQ=Promise.resolve(), _aiSyncRetry=false;
+function aiSyncSettings(eng, model){
+  if(eng===undefined){ const d=aiDefaults(); eng=d.eng; model=d.model; }
+  let e=aiEngineOf(eng); if(e==='mock') e='claude';
+  const m=String(model||''), sig=e+'|'+m;
+  if(typeof invoke!=='function') return Promise.resolve(false);
+  // FILA única: cada sync espera o anterior (duas em paralelo intercalavam aiEngine/aiModel de escolhas diferentes);
+  // em série dentro dela também — o write_setting lê-altera-grava o arquivo inteiro
+  const job=_aiSyncQ.then(()=>{
+    if(sig===_aiSynced) return false;
+    return invoke('write_setting',{ key:'aiEngine', value:e }).then(()=>invoke('write_setting',{ key:'aiModel', value:m }))
+      .then(()=>{ _aiSynced=sig; return true; })
+      .catch(()=>{ aiSyncRetryOnFocus(); return false; });
+  });
+  _aiSyncQ=job.catch(()=>false);
+  return job;
+}
+// falhou (ex.: boot com o backend ainda subindo) → tenta UMA vez de novo quando a janela ganhar foco
+function aiSyncRetryOnFocus(){
+  if(_aiSyncRetry || typeof window==='undefined' || !window.addEventListener) return;
+  _aiSyncRetry=true;
+  window.addEventListener('focus', function h(){ window.removeEventListener && window.removeEventListener('focus', h); aiSyncSettings(); }, { once:true }); // uma vez só (o flag não volta)
+}
+function aiSaveDefaults(eng, model){ lsSet('defaultEngine', eng||'claude'); lsSet('defaultModel', model||''); aiSyncSettings(eng||'claude', model||''); }
 function aiApplyDefaults(){ const d=aiDefaults(); setSelValue($id('ntEngine'), d.eng); setSelValue($id('ntModel'), d.model); const hm=$id('howModel'); if(hm) setSelValue(hm, d.model); }
 function aiModelName(id){ if(!id) return 'padrão da assinatura'; for(const e of AI_ENGINES){ const m=(e.models||[]).find(x=>x.id===id); if(m) return m.name; } return id; }
 // motor de um papel/tarefa pelo rótulo salvo — MESMA regra do engineKind do motor (src/orchestrator.ts)
@@ -87,7 +114,7 @@ function aiRunLabel(engine, model){
 function aiClaudeModel(eng, model){ const d=aiDefaults(); if(eng===undefined){ eng=d.eng; model=d.model; } return aiEngineOf(eng)==='claude' && model ? model : null; }
 // alvo do seletor: o FORMULÁRIO (selects escondidos) ou as CONFIGURAÇÕES (localStorage)
 const AI_TARGET_FORM={ sel:'.aipick:not(.aipick-cfg)', get:()=>({ eng:($id('ntEngine')||{}).value||'claude', model:($id('ntModel')||{}).value||'' }), set:(e,m)=>{ setSelValue($id('ntEngine'), e); setSelValue($id('ntModel'), m); const hm=$id('howModel'); if(hm) setSelValue(hm, m); } };
-const AI_TARGET_CFG={ sel:'.aipick-cfg', cfg:true, get:aiDefaults, set:(e,m)=>{ lsSet('defaultEngine', e||'claude'); lsSet('defaultModel', m||''); } };
+const AI_TARGET_CFG={ sel:'.aipick-cfg', cfg:true, get:aiDefaults, set:(e,m)=>aiSaveDefaults(e, m) };
 function aiPickApply(eng, model, target){
   target=target||AI_TARGET_FORM; target.set(eng, model);
   aiPickRender(target);
@@ -149,6 +176,8 @@ function openModelMenu(taskId, anchor){
 }
 // aplica o padrão do usuário nos selects do formulário na carga (o chat/planner lê dali)
 aiApplyDefaults();
+// boot: settings.json passa a refletir o padrão atual (localStorage) — Rust/motor leem dali
+aiSyncSettings();
 // a recomendação acompanha o que você digita (design/investigação são página única)
 let _aiPickT=null;
 ['ntDzTitle','ntDzObj','ntInvTitle','ntInvObj'].forEach(id=>{ const e=$id(id); if(e) e.addEventListener('input',()=>{ clearTimeout(_aiPickT); _aiPickT=setTimeout(aiPickRender,400); }); });
