@@ -353,3 +353,13 @@ test('10-core detectNotifs: fim de turno em QUALQUER saída de running/thinking 
     assert.equal(D.ctx.n, yes ? 1 : 0, `${from} → ${to}`);
   }
 });
+
+test('janela volta ao foco: relê se a última leitura tem mais de 30 s (macOS pode marcar a janela de fundo como escondida)', async () => {
+  const P = load({}, { usage: U({ configured: [] }) });
+  await P.run('pmLoad()');
+  const n0 = P.calls.length;
+  P.run('pmOnFocus()'); // acabou de ler: não relê
+  assert.equal(P.calls.length, n0);
+  await P.run('pmAt=Date.now()-31000; pmOnFocus()');
+  assert.equal(P.calls.length, n0 + 1, 'foco depois de 30 s relê');
+});

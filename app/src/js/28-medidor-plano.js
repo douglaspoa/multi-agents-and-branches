@@ -240,6 +240,10 @@ function pmTick(){
   if(Date.now()-pmAt < PM_EVERY-5000) return;
   return pmLoad();
 }
+// a janela voltou pro primeiro plano (no macOS uma janela atrás de outras pode contar como "escondida"
+// e o ciclo de 2 min não roda): relê se a última leitura tem mais de 30 s
+const PM_FOCUS_MIN=30000;
+function pmOnFocus(){ if(Date.now()-pmAt >= PM_FOCUS_MIN) return pmLoad(); }
 // fim de turno de tarefa: debounce no FIM (várias terminando juntas = uma leitura, depois da última)
 function planMeterTurnEnd(){
   clearTimeout(_pmTurnT);
@@ -255,7 +259,7 @@ function pmWire(){
   el.__pmWired=true;
   el.addEventListener('click', ev=>{
     const b=ev.target.closest && ev.target.closest('[data-pm]'); if(!b) return;
-    if(b.dataset.pm==='toggle') pmToggle();
+    if(b.dataset.pm==='toggle'){ pmToggle(); if(Date.now()-pmAt >= 5000) pmLoad(); } // clicar no cabeçalho também relê
     else if(b.dataset.pm==='det'){
       const id=b.dataset.pmId; if(pmOpen.has(id)) pmOpen.delete(id); else pmOpen.add(id);
       pmRender();
@@ -270,5 +274,6 @@ if(typeof document!=='undefined' && document.getElementById && document.getEleme
   pmWire(); pmRender();
   setTimeout(pmLoad, 1500);
   setInterval(pmTick, PM_EVERY);
-  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) pmTick(); });
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) pmOnFocus(); });
+  if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('focus', pmOnFocus);
 }
