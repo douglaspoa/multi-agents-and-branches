@@ -117,6 +117,7 @@ async function estRun(d, key){
   estPaint();
 }
 
+function estMoney(u){ return (typeof fmtCost==='function')?fmtCost(u||0):'$'+(u||0).toFixed(2); } // moeda do app (R$/US$)
 function estFmtMin(m){ m=Math.max(0,m||0); return m<10?(Math.round(m*10)/10).toString().replace('.',','):String(Math.round(m)); }
 function estFmtTok(n){ n=Math.round(n||0); if(n>=1e6) return (n/1e6).toFixed(n>=1e7?0:1).replace('.',',')+'M'; return (typeof fmtTok==='function')?fmtTok(n):String(n); }
 function estPlannerInner(){
@@ -127,7 +128,7 @@ function estPlannerInner(){
   const rows=e.items.map(x=>`<div class="plestr"><span class="plestsz">${x.size}</span><span class="plesttx" title="${escA(x.why||'')}">${esc(x.text)}</span><span>~${estFmtTok(x.tok)} tok</span><span>${estFmtMin(x.min)} min</span></div>`).join('');
   const roles=e.roles.map(r=>`<div class="plestr"><span class="plestsz">${Math.round(r.share*100)}%</span><span class="plesttx">${esc(r.role)}</span><span>~${estFmtTok(r.tok)} tok</span><span>${estFmtMin(r.min)} min</span></div>`).join('');
   return `<details class="plestd"${estOpen?' open':''}><summary class="mono"><span class="plesth">PREVISÃO${estBusy?' <span class="dim">· recalculando…</span>':''}</span>
-      <span class="plestv">⏱ ${estFmtMin(t.minLo)}–${estFmtMin(t.minHi)} min · ~${estFmtTok(t.tok)} tok · ~${(typeof fmtUsd==='function'?fmtUsd(t.usd):'$'+(t.usd||0).toFixed(2))}</span></summary>
+      <span class="plestv">⏱ ${estFmtMin(t.minLo)}–${estFmtMin(t.minHi)} min · ~${estFmtTok(t.tok)} tok · ~${estMoney(t.usd)}</span></summary>
     <div class="plestb mono"><div class="plestsec">POR REQUISITO</div>${rows}<div class="plestsec">POR ETAPA</div>${roles}</div></details>
     <div class="plestn dim">${esc(note)}</div>`;
 }
@@ -160,7 +161,7 @@ function estChipInner(t, e){
   const byRole={}; cs.forEach(c=>{ const k=c.role||'builder'; const o=byRole[k]||(byRole[k]={ tok:0, usd:0, ms:0 }); o.tok+=(c.inTok||0)+(c.outTok||0); o.usd+=c.usd||0; o.ms+=c.ms||0; });
   const names=[...new Set([...(e.roles||[]).map(r=>r.role), ...Object.keys(byRole)])];
   const tip=['previsto × real'].concat(names.map(n=>{ const p=(e.roles||[]).find(r=>r.role===n)||{ tok:0, usd:0, min:0 }; const r=byRole[n]||{ tok:0, usd:0, ms:0 };
-    return `${n}: ${estFmtTok(p.tok)} tok ${(typeof fmtUsd==='function'?fmtUsd(p.usd):'$'+(p.usd||0).toFixed(2))} ${estFmtMin(p.min)} min × ${estFmtTok(r.tok)} tok ${(typeof fmtUsd==='function'?fmtUsd(r.usd):'$'+(r.usd||0).toFixed(2))} ${estFmtMin(r.ms/60000)} min`; })).join('\n');
+    return `${n}: ${estFmtTok(p.tok)} tok ${estMoney(p.usd)} ${estFmtMin(p.min)} min × ${estFmtTok(r.tok)} tok ${estMoney(r.usd)} ${estFmtMin(r.ms/60000)} min`; })).join('\n');
   return `<span class="mono dim" style="font-size:11px" title="${escA(tip)}">prev ${estFmtMin(e.total.minLo)}–${estFmtMin(e.total.minHi)} min · ~${estFmtTok(e.total.tok||0)} tok · ${real}</span>`;
 }
 function estChipHtml(t){

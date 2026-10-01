@@ -163,10 +163,14 @@ final class Supa: ObservableObject {
             plans = ps
             if ps.isEmpty { gate = .open; return }         // cobrança não ativada
             struct Org: Decodable { let plan: String?; let paidUntil: String?; enum CodingKeys: String, CodingKey { case plan; case paidUntil = "paid_until" } }
-            if let od = try? await rest("orgs?select=plan,paid_until"), let orgs = try? JSONDecoder().decode([Org].self, from: od),
-               let o = orgs.first, o.plan == "enterprise" {
-                let ok = o.paidUntil.flatMap { iso in ISO8601DateFormatter().date(from: iso) ?? ISO8601DateFormatter().date(from: String(iso.prefix(19)) + "Z") }.map { $0 > Date() } ?? true
-                if ok { var b = BillingRow(userId: nil, teamId: nil, plan: "enterprise", status: "active", seats: nil, trialEnd: nil); b.org = true; billing = b; gate = .open; return }
+            // paid_until só é gravado pelo ADMIN: validade futura libera em QUALQUER plano (igual ao desktop, 30/09)
+            if let od = try? await rest("orgs?select=plan,paid_until"), let orgs = try? JSONDecoder().decode([Org].self, from: od) {
+                let parse: (String) -> Date? = { iso in ISO8601DateFormatter().date(from: iso) ?? ISO8601DateFormatter().date(from: String(iso.prefix(19)) + "Z") }
+                let grant = orgs.first { o in
+                    if let pu = o.paidUntil, let d = parse(pu) { return d > Date() }
+                    return o.plan == "enterprise" && o.paidUntil == nil
+                }
+                if let o = grant { var b = BillingRow(userId: nil, teamId: nil, plan: o.plan ?? "enterprise", status: "active", seats: nil, trialEnd: nil); b.org = true; billing = b; gate = .open; return }
             }
             let bd = try await rest("billing?select=*")
             let rows = (try? JSONDecoder().decode([BillingRow].self, from: bd)) ?? []

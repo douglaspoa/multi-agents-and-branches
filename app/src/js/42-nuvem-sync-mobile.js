@@ -1,4 +1,4 @@
-// Constellation — 42-nuvem-sync-mobile
+// Starfork — 42-nuvem-sync-mobile
 /* ============================================================================
    F2 — TAREFAS COMPARTILHADAS: o "cartão" da tarefa vive no time (Supabase);
    o trabalho (worktree, stream do agente) vive na máquina de quem assumiu.
@@ -7,17 +7,101 @@
    - sync: status/etapa/custo/branch/PR/provas do cartão, a cada 6s
    ========================================================================= */
 function setView(v){ const b=document.querySelector('#viewSeg button[data-v="'+v+'"]'); if(b) b.click(); }
-function tmap(){ try{ return JSON.parse(lsGet('sb:tmap')||'{}'); }catch(_){ return {}; } }
-function tmapSet(localId, cloudId){ const m=tmap(); m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
+// tmap/feedPos: JSON do localStorage parseado UMA vez por mudança (antes: JSON.parse a cada chamada,
+// inclusive dentro de .find por tarefa). Quem altera sempre grava de volta (tmapSet/feedPosSet).
+function lsJsonMemo(key){
+  let raw=null, obj={};
+  return ()=>{ const r=lsGet(key)||'{}'; if(r!==raw){ raw=r; try{ obj=JSON.parse(r)||{}; }catch(_){ obj={}; } } return obj; };
+}
+const tmap=lsJsonMemo('sb:tmap');
+function tmapSet(localId, cloudId){ const m={ ...tmap() }; m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
+// ---- ticks da nuvem: UM laço por tick, sem sobreposição ----
+// setInterval empilhava voltas quando a rede demorava (volta de 30s num intervalo de 7s = 4–5 voltas
+// concorrentes → posts e pushes duplicados). Aqui a próxima volta só é agendada quando a atual termina;
+// com a janela escondida o ritmo cai (×3, mín. 15s) — o celular continua atendido, só mais devagar.
+// `ms` pode ser função (ritmo adaptativo). Volta presa > 2 min libera a trava (rede morta não congela o laço).
+const TICKS={};
+function tickLoop(name, fn, ms, firstMs){
+  const L=TICKS[name]={ busy:false, timer:0 };
+  const per=()=>{ const v=typeof ms==='function'?ms():ms; return document.hidden?Math.max(v*3,15000):v; };
+  L.run=async()=>{
+    if(L.busy) return; L.busy=true; clearTimeout(L.timer);
+    try{ await Promise.race([ Promise.resolve().then(fn), new Promise(r=>setTimeout(r,120000)) ]); }
+    catch(e){ tickErr(name,e); }
+    finally{ L.busy=false; clearTimeout(L.timer); L.timer=setTimeout(L.run, per()); }
+  };
+  L.timer=setTimeout(L.run, firstMs==null?per():firstMs);
+}
+// janela voltou a aparecer: adianta as voltas (não espera o ritmo lento de fundo)
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) return;
+  let i=0; for(const k in TICKS){ const L=TICKS[k]; if(!L.busy){ clearTimeout(L.timer); L.timer=setTimeout(L.run, 300+(i++)*250); } }
+});
+// tarefas do PROJETO ABERTO com cartão, das mais novas pras mais antigas (state.tasks vem por created_at).
+// live=true: só as que ainda recebem ação do celular (fora merged/done/aborted/rascunho/finalizada).
+// Antes os ticks usavam o tmap inteiro (toda tarefa de todo projeto, pra sempre) e `ids.slice(0,40)`
+// pegava as 40 MAIS ANTIGAS — intenção do celular em tarefa nova era ignorada.
+const CLOUD_ENDED=new Set(['merged','done','aborted','draft']);
+function cloudTaskIds(m, n, live){
+  const out=[]; const ts=state.tasks||[];
+  for(let i=ts.length-1; i>=0 && out.length<n; i--){ const t=ts[i];
+    if(m[t.id] && (!live || (t.flag!=='closed' && !CLOUD_ENDED.has(t.status)))) out.push(t.id); }
+  return out;
+}
+const pgIn=ids=>'('+ids.map(x=>'"'+x+'"').join(',')+')';
 function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
-const CT_ST_PT={ backlog:'backlog', queued:'na fila', running:'rodando', thinking:'pensando', 'plan-review':'plano em revisão', review:'pronta pra review', delivered:'entregue', done:'concluída', merged:'mergeada', error:'erro', conflict:'conflito', aborted:'abortada', cancelled:'cancelada' };
-function ctStColor(st){ return st==='backlog'?'var(--muted)':(st==='review'||st==='delivered'||st==='done')?'var(--good)':(st==='merged')?'var(--accent)':(st==='error'||st==='conflict')?'var(--bad, #e5534b)':'var(--warn)'; }
+// nome PT do status = o MESMO de toda a app (00-util: STATUS_META/stLabel). Mantido como objeto porque
+// outras telas leem CT_ST_PT[st] direto; agora é só um espelho do STATUS_META.
+const CT_ST_PT=Object.fromEntries(Object.keys(STATUS_META).map(k=>[k, stLabel(k)]));
+// backlog + autoStart + pré-requisitos = NA ESPERA (começa sozinha — 46-epico-time: epicAutoStartTick).
+// "Aguardando você" é reservado pro que depende do HUMANO; tarefa esperando outra tarefa é "na espera".
+function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
+// @exec-inicio — de QUEM é um cartão da nuvem (regra única da Execução × Time; testado em exec-minhas.test.mjs)
+// meu = atribuído a mim; sem responsável, é de quem criou. Cartão de outra pessoa (ou atribuído a outra) é do TIME:
+// mora na aba Time até eu assumir (claim_task grava assignee = eu → vira meu).
+function ctMineFor(ct, me){ if(!ct || !me) return false; return ct.assignee ? ct.assignee===me : ct.created_by===me; }
+// o projeto do cartão existe nesta máquina? (sem projeto/sem remote = não dá pra saber → não esconde)
+function ctProjLocal(pj, localList){ return !pj || !pj.repo_remote || remoteLocal(pj.repo_remote, localList); }
+// entra na MINHA Execução (fila dos épicos, contagens, início automático): meu E de um projeto que tenho aqui
+function ctExecOk(ct, me, pj, localList){ return ctMineFor(ct, me) && ctProjLocal(pj, localList); }
+// "criada por Fulano · com Beltrano" — só o que envolve OUTRA pessoa; eu não apareço (o que é todo meu não ganha nada)
+function ctWhoLabel(ct, me, nameOf){
+  if(!ct) return '';
+  const by=ct.created_by||'', as=ct.assignee||'', out=[];
+  if(by && by!==me) out.push('criada por '+nameOf(by));
+  if(as && as!==by && as!==me) out.push('com '+nameOf(as));
+  return out.join(' · ');
+}
+// NOTIFICAÇÃO do time: só o que ME envolve — nunca "PR de um colega" ou "cartão novo" de quem não tem nada comigo
+// (era aviso de tarefa alheia pra todo o time; pra owner/admin no escopo "organização", de TODOS os times).
+// Devolve o tipo do aviso ou null. `all` = cartões carregados (pra achar de quem é o PR revisado).
+//   'assigned'    cartão novo no backlog que OUTRA pessoa atribuiu a mim
+//   'pr'          abriram o PR de uma demanda que EU criei (outra pessoa executou)
+//   'review-done' concluíram o review de um PR MEU, ou de um review que EU pedi
+function ctNotifKind(t, me, all){
+  if(!t || !me) return null;
+  const actor=t.assignee||t.created_by;
+  const isRev=((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||'');
+  if(isRev){
+    if(!t.pr_url || actor===me) return null;
+    if(t.created_by===me) return 'review-done'; // eu pedi, outra pessoa revisou
+    const mine=(all||[]).some(x=>x && x.id!==t.id && x.pr_url===t.pr_url && ctMineFor(x, me));
+    return mine ? 'review-done' : null;
+  }
+  if(t.pr_url) return (t.created_by===me && actor!==me) ? 'pr' : null;
+  if(t.status==='backlog') return (t.assignee===me && t.created_by!==me) ? 'assigned' : null;
+  return null;
+}
+// @exec-fim
+function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(typeof tsSt==='function'?tsSt(ct):ct.status); } // R5-1: status efetivo (PR aberto/pergunta)
 
 async function cloudEnsureProject(){
-  const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão do topo');
-  const remote=await invoke('repo_remote');
-  const rows=await sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId+'&repo_remote=eq.'+encodeURIComponent(remote));
-  if(rows.length) return rows[0];
+  const teamId=cloudTeamId(); if(!teamId) throw new Error('escolha um time no botão Conta (rodapé da barra lateral)');
+  const ids=await repoRemoteIds(); const remote=ids.remote;
+  if(!remote) throw new Error('não consegui ler o remote deste projeto');
+  // forma nova OU a antiga desta máquina (alias de ssh): o projeto que já existe no time continua valendo
+  const rows=await sbGet('projects?select=id,name,repo_remote&team_id=eq.'+teamId+'&'+remoteInQ('repo_remote', ids));
+  const hit=remotePick(rows, ids, 'repo_remote'); if(hit) return hit;
   const name=String(remote).split('/').pop();
   const ins=await sbPost('projects',{ team_id:teamId, name, repo_remote:remote });
   return ins[0];
@@ -36,7 +120,7 @@ async function issueConfigPull(){
 }
 // compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
 async function cloudShareTask(payload){
-  if(!SB.sess()) throw new Error('entre na sua conta (botão no topo)');
+  if(!SB.sess()) throw new Error('entre na sua conta (botão Conta, no rodapé da barra lateral)');
   const proj=await cloudEnsureProject();
   const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
@@ -59,7 +143,7 @@ async function cloudPublishSelf(localId, payload){
 async function cloudBackfill(btn){
   const list=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft');
   if(!list.length) return;
-  if(!confirm('Publicar/vincular '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas), com status, flag e datas reais. Cartão que já existe só é vinculado — nada é sobrescrito.')) return;
+  if(!await askYes('Publicar/vincular '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas), com status, flag e datas reais. Cartão que já existe só é vinculado — nada é sobrescrito.')) return;
   if(btn){ btn.disabled=true; }
   let n=0;
   try{
@@ -122,7 +206,7 @@ async function cloudFeedRepair(){
   }
 }
 
-// ---- túnel AUTOMÁTICO: agente anunciou '🌐 preview:' numa tarefa ativa →
+// ---- túnel AUTOMÁTICO: agente anunciou 'PREVIEW: <url>' (antigo: globo + 'preview:') numa tarefa ativa →
 // cria o túnel sozinho e publica no cartão (nada manual; celular já abre).
 const autoTunneled={};       // último pedido atendido por tarefa
 const tunnelUp={};           // túneis vivos DESTA sessão: lid → url pública
@@ -130,18 +214,19 @@ let tunnelSweepDone=false;
 async function cloudAutoTunnelTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
-  // boot: túneis morreram com o app anterior — limpa previewUrl órfão dos cartões
+  // boot: túneis morreram com o app anterior — limpa previewUrl órfão dos cartões (as 40 mapeadas mais recentes)
   if(!tunnelSweepDone){
     tunnelSweepDone=true;
     try{
-      const stale=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3EpreviewUrl=not.is.null&limit=10');
+      const stale=await sbGet('tasks?select=id,spec&id=in.'+pgIn(ids.slice(-40))+'&spec-%3E%3EpreviewUrl=not.is.null&limit=10');
       for(const r of stale){ await sbFetch('/rest/v1/tasks?id=eq.'+r.id,{method:'PATCH',body:JSON.stringify({spec:{...(r.spec||{}),previewUrl:null}})}).catch(()=>{}); }
     }catch(_){ }
   }
   // ABERTURA E FECHO SÃO DECISÃO DO HUMANO: só atende pedidos explícitos
   // (tunnelWanted/tunnelClose vindos do celular; no Mac o chip chama direto).
+  const live=cloudTaskIds(m, 40, true); if(!live.length) return;
   try{
-    const rows=await sbGet('tasks?select=id,spec&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&or=(spec-%3E%3EtunnelWanted.not.is.null,spec-%3E%3EtunnelClose.not.is.null)&limit=10');
+    const rows=await sbGet('tasks?select=id,spec&id=in.'+pgIn(live.map(l=>m[l]))+'&or=(spec-%3E%3EtunnelWanted.not.is.null,spec-%3E%3EtunnelClose.not.is.null)&limit=10');
     for(const r of rows){
       const lid=Object.keys(m).find(k=>m[k]===r.id); if(!lid) continue;
       const sp=r.spec||{};
@@ -157,7 +242,7 @@ async function cloudAutoTunnelTick(){
           // anúncio saiu da janela local de eventos → busca no feed da nuvem
           try{
             const notes=await sbGet('task_feed?select=text&task_id=eq.'+r.id+'&kind=eq.note&order=id.desc&limit=60');
-            for(const n of notes){ const mm=(n.text||'').match(/🌐 preview:\s*(https?:\/\/[^\s'"”)]+)/); if(mm){ pv=mm[1]; break; } }
+            for(const n of notes){ const mm=(n.text||'').match(PREVIEW_RE); if(mm){ pv=mm[1]; break; } }
           }catch(_){ }
         }
         if(!pv){ invoke('web_log',{line:'[tunnel] pedido sem preview anunciado: '+lid}).catch(()=>{}); continue; }
@@ -170,7 +255,7 @@ async function cloudAutoTunnelTick(){
     }
   }catch(_){ }
 }
-setInterval(()=>{ cloudAutoTunnelTick().catch(()=>{}); }, 9000);
+tickLoop('cloudAutoTunnelTick', cloudAutoTunnelTick, 9000);
 
 // ---- sync: empurra o estado LOCAL das tarefas mapeadas pro cartão ----
 const cloudSyncSigs={}, prProbed=new Set();
@@ -181,9 +266,9 @@ const intentBusy={};
 const prPubAt={};
 async function cloudIntentTick(){
   if(!SB.sess() || !cloudTeamId()) return;
-  const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
+  const m=tmap(); const live=cloudTaskIds(m, 40, true); if(!live.length) return;
   let rows=[];
-  try{ rows=await sbGet('tasks?select=id,spec,pr_url&id=in.('+ids.slice(0,40).map(x=>'"'+x+'"').join(',')+')&spec-%3E%3Eintent=not.is.null&limit=6'); }catch(_){ return; }
+  try{ rows=await sbGet('tasks?select=id,spec,pr_url&id=in.'+pgIn(live.map(l=>m[l]))+'&spec-%3E%3Eintent=not.is.null&limit=6'); }catch(_){ return; }
   for(const r of rows){
     const lid=Object.keys(m).find(k=>m[k]===r.id); if(!lid || intentBusy[lid]) continue;
     const sp=r.spec||{}; const it=sp.intent||{}; const kind=it.kind;
@@ -197,26 +282,33 @@ async function cloudIntentTick(){
       invoke('web_log',{line:'[intent] '+kind+' '+(ok?'ok':'FALHOU')+' · '+lid+(msg?' · '+String(msg).slice(0,80):'')}).catch(()=>{});
       lastSig=''; refresh().catch(()=>{});
     };
+    // R8: o motivo volta pro celular em pt-BR (antes ia o erro cru do gh/git); o cru fica no log
+    const fail=(e,ctx)=>{ invoke('web_log',{line:'[intent] cru: '+errText(e).slice(0,200)}).catch(()=>{}); return finish(false, humanErr(e,ctx).msg); };
     try{
       if(kind==='openPr'){
         if(!t) return finish(false,'tarefa não está neste Mac');
         let checks=[]; try{ checks=await invoke('repo_checks',{taskId:lid}); }catch(_){ }
         const bad=checks.filter(c=>!c.ok);
         if(bad.length) return finish(false,'checagem falhou: '+bad.map(c=>c.name).join(', ')+' — abra pelo Mac pra ver o detalhe');
-        try{ await invoke('push_task',{taskId:lid}); }catch(e){ return finish(false,'push falhou: '+e); }
+        try{ await invoke('push_task',{taskId:lid}); }catch(e){ return fail(e,'Não consegui enviar o código (push)'); }
         let body; try{ body=await invoke('pr_body_ai',{taskId:lid}); }catch(_){ body=prBodyOf(t); }
         try{
           const url=await invoke('open_pr',{taskId:lid, base:lsGet('prBase:'+lid)||'main', title:t.title, body});
           prCache[lid]=undefined;
           return finish(true,'PR aberto',{pr_url:url});
-        }catch(e){ return finish(false,'criar PR falhou: '+e); }
+        }catch(e){
+          // gh sem acesso ao repo: a branch já subiu — devolve o link pra criar o PR no navegador
+          if(/^GH_NO_ACCESS:|could not resolve to a repository/i.test(errText(e))){
+            try{ const cu=await invoke('pr_compare_url',{taskId:lid, base:lsGet('prBase:'+lid)||'main'}); if(cu) return finish(false,'o gh logado não enxerga o repositório — crie o PR no navegador: '+cu); }catch(_){ }
+          }
+          return fail(e,'Não consegui criar o PR'); }
       }
       if(kind==='merge'){
-        try{ const msg=await invoke('merge_pr',{taskId:lid, method:'merge'}); return finish(true,msg); }
-        catch(e){ return finish(false,String(e)); }
+        try{ const msg=await invoke('merge_pr',{taskId:lid, method:'squash'}); return finish(true,msg); }
+        catch(e){ return fail(e,'Não consegui fazer o merge'); }
       }
-      if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return finish(false,String(e)); } }
-      if(kind==='abort'){ try{ await invoke('abort_task',{taskId:lid}); return finish(true,'abortada'); }catch(e){ return finish(false,String(e)); } }
+      if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return fail(e,'Não consegui pausar'); } }
+      if(kind==='abort'){ try{ await invoke('abort_task',{taskId:lid}); return finish(true,'abortada'); }catch(e){ return fail(e,'Não consegui cancelar'); } }
       if(kind==='fixComment'){
         try{
           prCache[lid]=undefined; await loadPr(lid,true);
@@ -224,12 +316,13 @@ async function cloudIntentTick(){
           const cmts=((info&&info.comments)||[]).filter(c=>!c.inReplyTo);
           const ci=cmts.findIndex(c=>String(c.id)===String(it.commentId));
           if(ci<0) return finish(false,'comentário não encontrado');
-          await prFixOne(lid, ci);
+          // prFixOne devolve false quando não chegou ao agente (não achou o comentário, envio falhou, teto de custo aberto)
+          if(!await prFixOne(lid, ci)) return finish(false,'não consegui mandar a correção pro agente');
           return finish(true,'agente acordado pra corrigir o comentário');
-        }catch(e){ return finish(false,String(e)); }
+        }catch(e){ return fail(e,'Não consegui mandar a correção'); }
       }
       return finish(false,'intenção desconhecida: '+kind);
-    }catch(e){ return finish(false,String(e&&e.message||e)); }
+    }catch(e){ return fail(e); }
   }
 }
 // publica na nuvem o que a tela Entrega/PR do celular mostra: stat do diff,
@@ -245,12 +338,16 @@ async function cloudPrStatTick(){
     prPubAt[t.id]=now;
     try{
       const d=diffOf(t.id)||{}; const c=commitsCache[t.id];
-      const stat={ files:(d.files||[]).length, add:d.additions||0, del:d.deletions||0, commits:Array.isArray(c)?c.length:null };
+      const stat={ files:diffFiles(d), add:d.additions||0, del:d.deletions||0, commits:Array.isArray(c)?c.length:null };
       let prInfo=null;
       if(t.prUrl){
         try{ await loadPr(t.id); const i=prCache[t.id];
           if(i&&i.exists) prInfo={ number:i.number, state:i.state, decision:i.decision, body:(i.body||'').slice(0,3000),
-            comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,answered:x.answered,isBot:x.isBot,body:(x.body||'').slice(0,400)})) };
+            comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,
+              // o app do celular só lê "answered": manda o MESMO "resolvido" do desktop (respondido, resolvido no
+              // GitHub, desatualizado ou ignorado aqui) — antes o celular mostrava em aberto o que o desktop já escondia
+              answered:(typeof prCmtDone==='function'&&typeof prIgnSet==='function')?prCmtDone(x, prIgnSet(t.id)):!!(x.answered||x.resolved||x.outdated),
+              resolved:!!x.resolved,outdated:!!x.outdated,isBot:x.isBot,body:(x.body||'').slice(0,400)})) };
           // merge feito FORA do app (GitHub) → marca merged aqui também
           if(i&&i.exists&&i.state==='MERGED'&&!['merged','done'].includes(t.status)){
             invoke('mark_task_status',{ taskId:t.id, status:'merged' }).then(()=>{ lastSig=''; refresh(); }).catch(()=>{});
@@ -264,15 +361,19 @@ async function cloudPrStatTick(){
     }catch(_){ }
   }
 }
-setInterval(()=>{ cloudIntentTick().catch(()=>{}); }, 6000);
-setInterval(()=>{ cloudPrStatTick().catch(()=>{}); }, 30000);
+tickLoop('cloudIntentTick', cloudIntentTick, 6000);
+tickLoop('cloudPrStatTick', cloudPrStatTick, 30000);
 async function cloudSyncTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   await cloudAutoPublish().catch(()=>{});
   const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
   // descobre o PR de UMA tarefa por tick (gh) — persiste no spec e o sync leva pro cartão
   const probe=ids.find(lid=>{ const t=(state.tasks||[]).find(x=>x.id===lid); return t && !t.prUrl && ['review','merged','error'].includes(t.status) && !prProbed.has(lid); });
-  if(probe){ prProbed.add(probe); invoke('pr_status',{ taskId: probe }).catch(()=>{}); }
+  if(probe){ prProbed.add(probe); invokeQuiet('pr_status',{ taskId: probe }).catch(()=>{}); } // sondagem em 2º plano: falha não é erro
+  // boot da sessão: os cartões ainda sem assinatura vêm num GET só (antes: 1 GET por tarefa)
+  const bootCards={};
+  { const need=cloudTaskIds(m, 400, false).filter(l=>cloudSyncSigs[l]===undefined && !(teamTasks||[]).some(c=>c.id===m[l])).map(l=>m[l]);
+    for(let i=0; i<need.length; i+=50){ try{ (await sbGet('tasks?select=id,status,flag,pr_url&id=in.'+pgIn(need.slice(i,i+50)))).forEach(c=>bootCards[c.id]=c); }catch(_){ } } }
   for(const lid of ids){
     const t=(state.tasks||[]).find(x=>x.id===lid); if(!t) continue;
     // itens do "pronto quando" que o agente revisor marcou (tool check_done_when) → espelho no épico do time
@@ -288,7 +389,7 @@ async function cloudSyncTick(){
       // compara com o cartão real ANTES de cachear a assinatura (sem o quadro
       // carregado, busca só este cartão; senão tarefa rápida ficava presa).
       cloudSyncSigs[lid]=sig;
-      let card=(teamTasks||[]).find(c=>c.id===m[lid]);
+      let card=(teamTasks||[]).find(c=>c.id===m[lid]) || bootCards[m[lid]];
       if(!card){ try{ card=(await sbGet('tasks?select=status,flag,pr_url&id=eq.'+m[lid]))[0]; }catch(_){ } }
       if(!card) continue;
       const same=card.status===t.status && (card.flag||null)===(t.flag||null) && (card.pr_url||null)===(t.prUrl||null);
@@ -311,9 +412,9 @@ async function cloudSyncTick(){
     catch(e){ console.error('sync '+lid+':', e.message); }
   }
 }
-setInterval(()=>{ cloudSyncTick().catch(()=>{}); }, 6000);
-setInterval(()=>{ railProjTick().catch(()=>{}); }, 15000);
-setTimeout(()=>{ railProjTick().catch(()=>{}); }, 2500);
+tickLoop('cloudSyncTick', cloudSyncTick, 6000);
+setInterval(()=>{ railProjTick().catch(e=>tickErr('railProjTick',e)); }, 15000);
+setTimeout(()=>{ railProjTick().catch(e=>tickErr('railProjTick',e)); }, 2500);
 
 // ---- PONTE DE PERGUNTAS (mobile): pergunta aberta sobe, resposta desce ----
 // O agente pergunta (ask_human) → o Mac publica no cartão; o dev responde do
@@ -331,7 +432,7 @@ async function apnsNotify(title, body, extra){
     for(const tk of (apnsTokens||[])){
       invoke('apns_push',{ token:tk, title, body, category:(extra&&extra.category)||null, taskId:(extra&&extra.taskId)||null, questionId:(extra&&extra.questionId)||null })
         .then(()=>invoke('web_log',{line:'[apns] ✓ '+title.slice(0,40)}))
-        .catch(e=>invoke('web_log',{line:'[apns] ✖ '+String(e).slice(0,120)}));
+        .catch(e=>invoke('web_log',{line:'[apns] ✕ '+String(e).slice(0,120)}));
     }
   }catch(_){ }
 }
@@ -349,49 +450,61 @@ async function pushReadyTick(){
   }
 }
 const bootAt=Date.now();
-setInterval(()=>{ pushReadyTick().catch(()=>{}); }, 6000);
+setInterval(()=>{ pushReadyTick().catch(e=>tickErr('pushReadyTick',e)); }, 6000);
+const qNotified=new Set(); // push de pergunta: UMA vez por pergunta, mesmo que o upsert se repita
 async function cloudQuestionsTick(){
   if(!SB.sess() || !cloudTeamId()) return;
-  const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
-  for(const lid of ids){
-    const cid=m[lid];
-    const pend=(state.pending||[]).filter(p=>p.taskId===lid);
-    // 1) publica perguntas abertas (upsert por task+pending_id)
-    for(const p of pend){
-      const key=cid+'|'+p.id;
-      if(qPushed.has(key)) continue;
-      try{
-        const qrows=await sbFetch('/rest/v1/questions?on_conflict=task_id,local_pending_id', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ task_id:cid, local_pending_id:p.id, agent:p.agent||'', prompt:(p.prompt||'').slice(0,2000), options:Array.isArray(p.options)?p.options:[], status:'open' }) });
-        qPushed.add(key);
-        // push REAL: responder direto da notificação, com o app fechado
-        const qid=(Array.isArray(qrows)&&qrows[0]&&qrows[0].id)?String(qrows[0].id):'';
-        apnsNotify('Precisa de você — '+(p.agent||'agente'), String(p.prompt||'').slice(0,160), { taskId:cid, questionId:qid, category:'QUESTION' });
-      }catch(err){
-        // erro visível: sem isso a ponte falha em silêncio e ninguém fica sabendo
-        if(!qPushed.has('err|'+key)){ qPushed.add('err|'+key); sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'error', text:'⚠ pergunta não subiu pro celular: '+String(err.message||err).slice(0,180) }).catch(()=>{}); }
-      }
-    }
+  const m=tmap(); const pendAll=state.pending||[];
+  // 1) publica perguntas abertas (upsert por task+pending_id)
+  for(const p of pendAll){
+    const cid=m[p.taskId]; if(!cid) continue;
+    const key=cid+'|'+p.id;
+    if(qPushed.has(key)) continue;
     try{
-      // 2) respostas vindas do celular → entrega ao agente e fecha
-      const answered=await sbGet('questions?select=id,local_pending_id,answer&task_id=eq.'+cid+'&status=eq.answered');
-      for(const q of answered){
-        if(pend.some(p=>p.id===q.local_pending_id)){
-          try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; }
+      const qrows=await sbFetch('/rest/v1/questions?on_conflict=task_id,local_pending_id', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ task_id:cid, local_pending_id:p.id, agent:p.agent||'', prompt:(p.prompt||'').slice(0,2000), options:Array.isArray(p.options)?p.options:[], status:'open' }) });
+      qPushed.add(key);
+      // push REAL: responder direto da notificação, com o app fechado
+      const qid=(Array.isArray(qrows)&&qrows[0]&&qrows[0].id)?String(qrows[0].id):'';
+      if(!qNotified.has(key)){ qNotified.add(key); apnsNotify('Precisa de você — '+(p.agent||'agente'), String(p.prompt||'').slice(0,160), { taskId:cid, questionId:qid, category:'QUESTION' }); }
+    }catch(err){
+      // erro visível: sem isso a ponte falha em silêncio e ninguém fica sabendo
+      if(!qPushed.has('err|'+key)){ qPushed.add('err|'+key); sbPost('task_feed',{ task_id:cid, agent:'Sistema', kind:'error', text:'Atenção: pergunta não subiu pro celular: '+String(err.message||err).slice(0,180) }).catch(()=>{}); }
+    }
+  }
+  // 2+3) UMA consulta (antes: 2 GETs × cada tarefa do tmap a cada 7s, crescendo pra sempre): perguntas
+  // abertas/respondidas das tarefas VIVAS do projeto aberto + as que têm pergunta pendente aqui
+  const lids=[...new Set(cloudTaskIds(m, 80, true).concat(pendAll.map(p=>p.taskId).filter(l=>m[l])))];
+  if(!lids.length) return;
+  const lidOf={}; lids.forEach(l=>{ lidOf[m[l]]=l; });
+  let rows=[];
+  try{ rows=await sbGet('questions?select=id,task_id,local_pending_id,answer,status&task_id=in.'+pgIn(lids.map(l=>m[l]))+'&status=in.(open,answered)&order=id&limit=200'); }catch(_){ return; }
+  for(const q of rows){
+    const lid=lidOf[q.task_id]; if(!lid) continue;
+    const isPend=pendAll.some(p=>p.taskId===lid && p.id===q.local_pending_id);
+    try{
+      if(q.status==='answered'){
+        // resposta vinda do celular → entrega ao agente e fecha
+        if(isPend){
+          // id negativo = pergunta do TETO de custo (sintética, 53-teto-protecao) — não existe no banco
+          // budgetAnswer agora LANÇA no erro: sem isto o PATCH abaixo era pulado e a resposta era reaplicada a cada 7s
+          // (podendo repetir um "parar" pela metade). Falhou → avisa no feed e fecha mesmo assim (a pergunta do teto
+          // continua aberta no desktop, onde dá pra responder de novo).
+          if(+q.local_pending_id<0 && typeof budgetAnswer==='function'){
+            try{ await budgetAnswer(+q.local_pending_id, q.answer||''); }
+            catch(err){ sbPost('task_feed',{ task_id:q.task_id, agent:'Sistema', kind:'error', text:'A resposta do teto de custo vinda do celular não foi aplicada: '+String(err&&err.message||err).slice(0,180)+' — responda de novo no computador.' }).catch(()=>{}); }
+          }
+          else { try{ await invoke('resolve_pending',{ id:q.local_pending_id, answer:q.answer||'' }); }catch(_){ continue; } }
         }
         await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
         lastSig='';
-      }
-      // 3) pergunta respondida NO DESKTOP (sumiu do pending local) → fecha na nuvem
-      const open=await sbGet('questions?select=id,local_pending_id&task_id=eq.'+cid+'&status=eq.open');
-      for(const q of open){
-        if(!pend.some(p=>p.id===q.local_pending_id)){
-          await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
-        }
+      } else if(!isPend){
+        // pergunta respondida NO DESKTOP (sumiu do pending local) → fecha na nuvem
+        await sbFetch('/rest/v1/questions?id=eq.'+q.id, { method:'PATCH', body: JSON.stringify({ status:'closed' }) }).catch(()=>{});
       }
     }catch(_){ }
   }
 }
-setInterval(()=>{ cloudQuestionsTick().catch(()=>{}); }, 7000);
+tickLoop('cloudQuestionsTick', cloudQuestionsTick, 7000);
 
 // ---- MOBILE AO VIVO: o celular escreve intenções, ESTE Mac executa ----
 // 1) tarefa pedida do celular (status='requested', minha) → cria e RODA aqui
@@ -401,11 +514,11 @@ async function cloudRemoteStartTick(){
   const me=cloudUserId();
   const rows=await sbGet('tasks?select=*,projects(repo_remote)&status=eq.requested&assignee=eq.'+me+'&limit=3').catch(()=>[]);
   if(!rows.length) return;
-  let remote=''; try{ remote=await invoke('repo_remote'); }catch(_){ }
+  const here=await repoRemoteIds();
   for(const ct of rows){
     if((remoteStartFails[ct.id]||0)>=3) continue;
     const rr=(ct.projects||{}).repo_remote;
-    if(rr && rr!==remote) continue; // é de outro projeto — outro Mac atende
+    if(rr && !remoteSame(rr, here)) continue; // é de outro projeto — outro Mac atende
     try{
       const sp=ct.spec||{};
       const payload={ workflow:null, agents:null, engine:sp.engine||'claude', model:sp.model||null, approval:'auto', owns:null, off:null,
@@ -427,23 +540,29 @@ async function cloudRemoteStartTick(){
     }catch(e){ remoteStartFails[ct.id]=(remoteStartFails[ct.id]||0)+1; console.error('remoteStart', e.message); }
   }
 }
-setInterval(()=>{ cloudRemoteStartTick().catch(()=>{}); }, 6000);
+tickLoop('cloudRemoteStartTick', cloudRemoteStartTick, 6000);
 
 // 2) feed condensado ao vivo: eventos novos das MINHAS tarefas mapeadas → task_feed
-function feedPos(){ try{ return JSON.parse(lsGet('sb:feedpos')||'{}'); }catch(_){ return {}; } }
-function feedPosSet(lid, id){ const m=feedPos(); m[lid]=id; lsSet('sb:feedpos', JSON.stringify(m)); }
+const feedPos=lsJsonMemo('sb:feedpos');
+function feedPosSet(lid, id){ const m={ ...feedPos() }; m[lid]=id; lsSet('sb:feedpos', JSON.stringify(m)); }
 const FEED_KINDS=new Set(['think','note','bash','error','done','edit','write']);
 async function cloudFeedTick(){
   if(!SB.sess() || !cloudTeamId()) return;
   await cloudFeedRepair();
   const m=tmap(); const pos=feedPos();
-  for(const lid of Object.keys(m)){
-    const evs=(state.events||[]).filter(e=>(e.taskId||e.task_id)===lid && e.id>(pos[lid]||0) && FEED_KINDS.has(e.type||e.kind)).slice(0,8);
-    if(!evs.length) continue;
+  // eventos novos agrupados por tarefa numa passada só (antes: filtro dos 1200 eventos × cada tarefa do tmap)
+  const byLid={};
+  for(const e of (state.events||[])){
+    const lid=e.taskId||e.task_id;
+    if(!m[lid] || !(e.id>(pos[lid]||0)) || !FEED_KINDS.has(e.type||e.kind)) continue;
+    const a=byLid[lid]||(byLid[lid]=[]); if(a.length<8) a.push(e);
+  }
+  for(const lid in byLid){
+    const evs=byLid[lid];
     try{
-      for(const e of evs){
-        await sbPost('task_feed',{ task_id:m[lid], agent:e.agent||'', kind:(e.type||e.kind), text:String(e.text||'').slice(0,300) });
-      }
+      // 1 POST em lote por tarefa (antes: 1 por evento, em série) e o cursor avança logo depois:
+      // a volta seguinte nunca reposta o mesmo evento (o laço não sobrepõe — tickLoop)
+      await sbPost('task_feed', evs.map(e=>({ task_id:m[lid], agent:e.agent||'', kind:(e.type||e.kind), text:String(e.text||'').slice(0,300) })));
       feedPosSet(lid, evs[evs.length-1].id);
       invoke('web_log',{line:'[feed] +'+evs.length+' → '+lid}).catch(()=>{});
     }catch(err){
@@ -454,14 +573,15 @@ async function cloudFeedTick(){
     }
   }
 }
-setInterval(()=>{ cloudFeedTick().catch(()=>{}); }, 4000);
+tickLoop('cloudFeedTick', cloudFeedTick, 4000);
 
 // 3) chat do celular → entrega ao agente (fila do motor cuida do turno ocupado)
 const msgDelivering=new Set();
 async function cloudMsgTick(){
   if(!SB.sess() || !cloudTeamId()) return;
-  const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
-  const rows=await sbGet('task_messages?select=id,task_id,body,author&delivered_at=is.null&task_id=in.('+ids.map(x=>'"'+x+'"').join(',')+')&order=id&limit=5').catch(()=>[]);
+  // tarefas do projeto aberto (mais novas primeiro, até 60) — antes a URL levava TODOS os ids do tmap
+  const m=tmap(); const lids=cloudTaskIds(m, 60, false); if(!lids.length) return;
+  const rows=await sbGet('task_messages?select=id,task_id,body,author&delivered_at=is.null&task_id=in.'+pgIn(lids.map(l=>m[l]))+'&order=id&limit=5').catch(()=>[]);
   for(const msg of rows){
     if(msgDelivering.has(msg.id)) continue; msgDelivering.add(msg.id);
     const lid=Object.keys(m).find(k=>m[k]===msg.task_id); if(!lid) continue;
@@ -472,25 +592,25 @@ async function cloudMsgTick(){
       if(img){
         const local=await invoke('fetch_task_ref',{ taskId: lid, url:SB.url(), anon:SB.key(), token:SB.sess().access_token, path: img[1] });
         const cap=(img[2]||'').trim();
-        const m2=`📎 O humano anexou uma IMAGEM do celular em ${local} — ABRA e analise (tool Read) antes de responder.${cap?`\nLegenda: ${cap}`:''}`;
+        const m2=`[anexo] O humano anexou uma IMAGEM do celular em ${local} — ABRA e analise (tool Read) antes de responder.${cap?`\nLegenda: ${cap}`:''}`;
         await invoke('talk_task',{ taskId: lid, message: m2, asReq:false, agent:null });
-        sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 📎 imagem anexada'+(cap?': '+cap.slice(0,200):'') }).catch(()=>{});
+        sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: imagem anexada'+(cap?': '+cap.slice(0,200):'') }).catch(()=>{});
         continue;
       }
       // "[req] ..." vindo do celular = adicionar como REQUISITO da tarefa (checklist)
       const asReq=/^\[req\]\s*/i.test(String(msg.body||''));
       const body=String(msg.body||'').replace(/^\[req\]\s*/i,'');
       await invoke('talk_task',{ taskId: lid, message: body, asReq, agent:null });
-      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'💬 '+body.slice(0,280) }).catch(()=>{});
+      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: '+body.slice(0,280) }).catch(()=>{});
     }catch(e){ console.error('msg', e.message); }
   }
 }
-setInterval(()=>{ cloudMsgTick().catch(()=>{}); }, 5000);
+tickLoop('cloudMsgTick', cloudMsgTick, 5000);
 
 // ---- backlog do time (aba Time) ----
-let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
+let teamTasks=null, teamProj={}, teamProfiles={}, teamFetchedAt=0, teamRepoRemote='', teamRepoIds=null, teamFetching=false, teamPaintSig='', teamEpics=[], teamActivity=[];
 let tmView=lsGet('tmView')||'overview';
-// escopo da aba Time: 'team' (o time escolhido no topo) ou 'org' (TODOS os times — só owner/admin,
+// escopo da aba Time: 'team' (o time escolhido em Conta, no rodapé da barra lateral) ou 'org' (TODOS os times — só owner/admin,
 // que já enxergam tudo pela RLS; é a visão de super usuário da empresa)
 let tmScope=lsGet('tmScope')||'team';
 function tsIsOrgAdmin(){ return !!(cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin')); }
@@ -526,8 +646,26 @@ async function teamFetchRun(){
     ids.forEach(tid=>((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[tid])||[]).forEach(m=>uids.add(m.user_id)));
     if(tsOrgScope()) ((cloudData&&cloudData.orgMembers)||[]).forEach(m=>uids.add(m.user_id)); // membro da org sem time também aparece
     if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
-    try{ teamRepoRemote=await invoke('repo_remote'); }catch(_){ teamRepoRemote=''; }
+    { const ids=await repoRemoteIds(); teamRepoRemote=ids.remote; teamRepoIds=ids; }
+    await localRemoteIdsList().catch(()=>[]); // cartão de projeto que não existe nesta máquina ganha o aviso (tsCardHtml)
     teamTasks=tasks; teamFetchedAt=Date.now();
   } finally { teamFetching=false; }
 }
-function tmName(uid){ const p=teamProfiles[uid]; return p?(p.name||p.email):((uid||'').slice(0,8)); }
+// nome de quem criou/assumiu: os perfis só vinham no fetch da aba Time — a Central (fila dos épicos etc.)
+// mostrava o ID. Perfil que falta é buscado sob demanda, em lote, e a tela é redesenhada quando chega.
+const tmPending=new Set(), tmTried=new Set(); let tmTimer=null;
+function tmFetchMissing(){
+  tmTimer=null; const ids=[...tmPending].filter(u=>!teamProfiles[u]); tmPending.clear();
+  if(!ids.length || !(typeof SB!=='undefined' && SB.sess())) return;
+  ids.forEach(u=>tmTried.add(u));
+  sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+ids.map(u=>'"'+u+'"').join(',')+')').then(rows=>{
+    let got=0; (rows||[]).forEach(p=>{ teamProfiles[p.user_id]=p; got++; });
+    if(got){ try{ lastSig=''; if(typeof renderFlow==='function') renderFlow(); if(typeof render==='function') render(); }catch(_){ } }
+  }).catch(e=>tickErr('tmFetchMissing', e));
+}
+function tmName(uid){
+  const p=teamProfiles[uid]; if(p) return p.name||p.email;
+  if(!uid) return '—';
+  if(!tmTried.has(uid)){ tmPending.add(uid); if(!tmTimer) tmTimer=setTimeout(tmFetchMissing, 250); }
+  return 'alguém do time';
+}

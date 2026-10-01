@@ -1,5 +1,5 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { globsOverlap } from "./glob.ts";
@@ -7,11 +7,15 @@ import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
-import { ghBin, run, sleep } from "./util/run.ts";
+import { ghBin, netEnv, netTimeoutMs, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
+import { prepEpicTurn } from "./epic-context.ts";
+import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
+import { execFileSync } from "node:child_process";
+import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
-import { ClaudeEngine } from "./engine/claude.ts";
+import { ClaudeEngine, claudeEnv, claudeErrText, resolveClaude } from "./engine/claude.ts";
 import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
@@ -30,6 +34,95 @@ export function branchName(spec: TaskSpec): string {
   return `${type}/${code}${spec.id}`;
 }
 
+/**
+ * Nome do anexo em .cardume/refs/. Mesmo nome de 2 origens (ex.: ARCHITECTURE.md de 2 tarefas
+ * referenciadas) → prefixa a pasta. Aceita "/" e "\": no Windows o split só por "/" devolvia o CAMINHO
+ * INTEIRO como nome ("C:\Users\…\spec.pdf") e a cópia pra refs/ falhava calada — o agente ficava sem a spec.
+ */
+export function refName(src: string, taken: string[]): string {
+  const clean = (x: string) => x.replace(/[:*?"<>|]/g, "").trim(); // "C:" de drive não vira "C:-spec.pdf"
+  const parts = src.split(/[\\/]/).map(clean).filter(Boolean);
+  const base = parts.pop() || "ref";
+  let name = base;
+  // colide → prefixa a pasta; ainda colide (ou sem pasta) → -2, -3… até ficar livre
+  if (taken.includes(name) && parts.length) name = `${parts.pop()}-${base}`;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let n = 2; taken.includes(name); n++) name = `${stem}-${n}${ext}`;
+  return name;
+}
+
+/** O dono do lock ainda está vivo? kill 0 (EPERM = existe, de outro usuário) e, com `since` (quando o lock
+ * foi pego), um processo que NASCEU depois do lock é um PID reciclado — lock obsoleto. PID morto não segura lock. */
+export function pidAlive(pid: number, since: number | null = null): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== "EPERM") return false;
+  }
+  if (since) {
+    const started = processStartMs(pid);
+    if (started !== null && started > since + 2000) return false; // folga: relógio/arredondamento do ps
+  }
+  return true;
+}
+
+/** Início do processo (ms) via `ps -o lstart=` — null quando não dá pra saber (Windows, ps ausente). */
+export function processStartMs(pid: number): number | null {
+  if (process.platform === "win32") return null;
+  try {
+    const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" } }).trim();
+    const t = Date.parse(out);
+    return Number.isFinite(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Teto das chamadas AUXILIARES ao claude (resumo de commit, destiladores) — CARDUME_AUX_TIMEOUT_MS. */
+export function auxTimeoutMs(): number {
+  const n = Number(process.env.CARDUME_AUX_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 180_000;
+}
+/** Teto do .cardume/setup.sh do projeto (CARDUME_SETUP_TIMEOUT_MS, padrão 10 min). */
+export function setupTimeoutMs(): number {
+  const n = Number(process.env.CARDUME_SETUP_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 10 * 60_000;
+}
+/** Motivo legível de um merge que falhou SEM conflito (o git explica em inglês, em várias linhas). */
+export function mergeFailReason(text: string): string {
+  const t = String(text || "");
+  if (/local changes .* would be overwritten|commit your changes or stash them/i.test(t)) return "há mudanças não commitadas no repositório principal que o merge sobrescreveria — commite ou guarde (stash) e tente de novo";
+  if (/untracked working tree files would be overwritten/i.test(t)) return "há arquivos não rastreados no repositório principal que o merge sobrescreveria — mova ou apague e tente de novo";
+  if (/not something we can merge|unknown revision/i.test(t)) return "a branch da tarefa não existe mais no repositório";
+  if (/you have not concluded your merge|MERGE_HEAD exists/i.test(t)) return "já existe um merge em andamento no repositório principal — conclua ou aborte (git merge --abort) antes";
+  const line = t.split("\n").map((l) => l.trim()).filter((l) => l && !/^Command failed/i.test(l)).pop() ?? "";
+  return line.replace(/^(error|fatal):\s*/i, "").slice(0, 200) || "o git recusou o merge";
+}
+
+/** URL do PR na saída do gh (sucesso ou "already exists"): a ÚLTIMA .../pull/N citada. */
+export function prUrlFrom(text: string): string {
+  const all = String(text || "").match(/https?:\/\/\S+\/pull\/\d+/g);
+  return all ? all[all.length - 1] : "";
+}
+
+/**
+ * Motor de um papel a partir do rótulo salvo. Tolera variações ("Claude · Opus 4.8", "CLAUDE"):
+ * o mock só entra quando pedido de fato — uma tarefa real cair no MockEngine por um nome fora
+ * da lista "concluía" com código de mentira.
+ */
+export function engineKind(name: string | undefined): "mock" | "codex" | "gateway" | "logcomex" | "claude" {
+  const n = String(name ?? "").trim().toLowerCase();
+  return n === "mock" ? "mock"
+    : n.startsWith("codex") ? "codex"
+    : n.startsWith("gateway") ? "gateway"
+    : n.startsWith("logcomex") ? "logcomex"
+    : n.startsWith("claude") ? "claude"
+    : (n === "" ? "mock" : "claude");
+}
+/** Papel capaz de conversar/retomar sessão (qualquer motor real — Claude, Codex, gateway). */
+const canTalk = (engine: string | undefined) => engineKind(engine) !== "mock";
+
 export class Orchestrator {
   ws: Workspace;
   git: GitService;
@@ -45,14 +138,8 @@ export class Orchestrator {
   }
 
   private engineFor(name: string, model: string | undefined, approval: TaskSpec["autonomy"]["approval"]): AgentEngine {
-    // tolera rótulos/variações ("Claude · Opus 4.8", "CLAUDE"): o mock só entra quando pedido de fato —
-    // uma tarefa real cair no MockEngine por um nome fora da lista "concluía" com código de mentira.
     const n = String(name ?? "").trim().toLowerCase();
-    const kind = n === "mock" ? "mock"
-      : n.startsWith("codex") ? "codex"
-      : (n.startsWith("gateway") || n.startsWith("logcomex")) ? (n.startsWith("gateway") ? "gateway" : "logcomex")
-      : n.startsWith("claude") ? "claude"
-      : (n === "" ? "mock" : "claude");
+    const kind = engineKind(name);
     if (kind !== n) console.warn(`[engine] "${name}" interpretado como ${kind}`);
     name = kind;
     if (name === "claude") return new ClaudeEngine({ model, approval });
@@ -89,7 +176,7 @@ export class Orchestrator {
     // — a não ser que uma base explícita seja passada em spec.base.
     const base = spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase();
 
-    // A pasta do Constellation nunca deve entrar no repo do usuário.
+    // A pasta do Starfork nunca deve entrar no repo do usuário.
     await this.git.ensureExcluded([".cardume/", ".constellation/"]);
     // base ATUALIZADA: fetch + origin/<base> quando existir (main fresca sempre)
     const baseRef = await this.git.freshBaseRef(base);
@@ -121,7 +208,7 @@ export class Orchestrator {
       const names: string[] = [];
       for (const src of refSources) {
         try {
-          const name = src.split("/").pop() || "ref";
+          const name = refName(src, names);
           await cp(src, join(refDir, name), { recursive: true });
           names.push(name);
         } catch { /* ignora arquivo inacessível */ }
@@ -174,6 +261,13 @@ export class Orchestrator {
         seeded.push(`.cardume/${doc}`);
       } catch { /* ainda não existe no projeto */ }
     }
+    // CÉREBRO do projeto (notas .md): cópia de leitura na worktree + manifesto (hash de cada
+    // nota semeada) — o agente faz grep e pode criar/atualizar notas; harvestBrain leva de volta
+    // SÓ o que ele mudou desde a semeadura.
+    try {
+      const n = Object.keys(seedWorktree(this.brain(), worktree)).length;
+      if (n) seeded.push(`.cardume/memoria/ (cérebro do projeto, ${n} nota(s))`);
+    } catch { /* memória nunca derruba a criação da tarefa */ }
     // FAIXA LEVE: mudança pequena não vale o custo de linkar deps + rodar setup.sh
     // (o VoC aponta: "não vale a pena pra uma correção que a IA faz em 10min").
     if (!light) {
@@ -187,9 +281,17 @@ export class Orchestrator {
       try {
         const hook = join(this.ws.dir, "setup.sh");
         await stat(hook);
-        await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo } });
-        seeded.push(".cardume/setup.sh executado");
-      } catch { /* sem hook, ou hook falhou — os envs/links acima já valem */ }
+        try {
+          await run("bash", [hook], { cwd: worktree, env: { ...process.env, CARDUME_MAIN_REPO: this.ws.repo }, timeout: setupTimeoutMs() });
+          seeded.push(".cardume/setup.sh executado");
+        } catch (err) {
+          // antes: sem teto (um setup.sh que sobe servidor ou espera input travava a CRIAÇÃO da tarefa pra
+          // sempre) e a falha sumia calada — agora o agente lê no AMBIENTE.md que o setup não completou
+          const e = err as Error & { killed?: boolean; stderr?: string };
+          const why = e.killed ? `passou de ${Math.round(setupTimeoutMs() / 1000)}s e foi interrompido` : String(e.stderr || e.message || "").trim().split("\n").pop()?.slice(0, 160);
+          seeded.push(`.cardume/setup.sh NÃO completou (${why}) — confira o ambiente antes de rodar o projeto`);
+        }
+      } catch { /* sem hook — os envs/links acima já valem */ }
     } else {
       seeded.push("faixa leve (deps não linkadas)");
     }
@@ -197,21 +299,23 @@ export class Orchestrator {
   }
 
   // ---------------------------------------------------------------------------
-  // MEMÓRIA DO PROJETO: decisões e correções do humano que valem pra SEMPRE
-  // (.cardume/MEMORY.md na raiz do repo). Entra no contexto de TODO turno de
-  // TODO agente — e cresce sozinha: cada mensagem de chat do humano passa por
-  // um destilador (Haiku) que extrai regras duradouras e as anexa (com dedup).
+  // MEMÓRIA DO PROJETO = CÉREBRO (src/memory.ts): notas .md ligadas por [[links]]
+  // em .cardume/memoria/ (local) e .cardume/memoria/time/ (espelho do time).
+  // Entra no contexto de TODO turno como índice + notas relevantes à tarefa (com
+  // teto) e cresce sozinha: correções do humano no chat e aprendizados do fim da
+  // tarefa viram notas (com dedup, links e rastro de quem gravou).
   // ---------------------------------------------------------------------------
-  private memoryFile(): string {
-    return join(this.ws.dir, "MEMORY.md");
+  brain(): Brain {
+    return new Brain(this.ws.dir);
   }
 
-  projectMemory(): string {
+  projectMemory(spec?: TaskSpec, extra = ""): string {
     let out = "";
     try {
-      const txt = readFileSync(this.memoryFile(), "utf8").trim();
-      if (txt) out += `## MEMÓRIA DO PROJETO — decisões do humano que você DEVE obedecer (aprendidas em tarefas anteriores)\n${txt.slice(0, 6000)}\n\n`;
-    } catch { /* sem memória ainda */ }
+      const q = spec ? [spec.title, spec.objective, ...(spec.requirements ?? []), ...(spec.scope?.owns ?? []), extra].join(" ") : extra;
+      const ctx = this.brain().context(q);
+      if (ctx) out += ctx.trimEnd() + "\n\n";
+    } catch { /* memória nunca derruba o turno */ }
     try {
       const rb = readFileSync(join(this.ws.dir, "RUNBOOK.md"), "utf8").trim();
       if (rb) out += `## RUNBOOK — como SUBIR O AMBIENTE deste projeto (validado em tarefas anteriores; siga ANTES de redescobrir qualquer coisa)\n${rb.slice(0, 4000)}\n\n`;
@@ -226,14 +330,15 @@ export class Orchestrator {
    * state.sqlite cru (arriscado). Injetado no system-prompt de todo agente.
    */
   selfServe(): string {
-    const node = process.execPath;
+    // mesma flag do motor (node sem node:sqlite estável precisa de --experimental-sqlite)
+    const node = `"${process.execPath}"` + (process.execArgv.includes("--experimental-sqlite") ? " --experimental-sqlite" : "");
     const cli = process.argv[1] || "";
     const repo = this.ws.repo;
     return (
       `\n\n## Criar novas demandas / épicos — VOCÊ PODE (não mexa no state.sqlite na mão, não invente CLI)\n` +
       `Se o humano pedir pra criar tarefas, issues, demandas ou um épico, use o comando OFICIAL abaixo (roda de qualquer pasta; o \`--repo\` é o que importa):\n\n` +
       `\`\`\`bash\n` +
-      `"${node}" "${cli}" new --repo "${repo}" \\\n` +
+      `${node} "${cli}" new --repo "${repo}" \\\n` +
       `  --title "título curto" --objective "o que precisa e por quê" \\\n` +
       `  --requirements "critério verificável 1, critério 2" \\\n` +
       `  --owns "caminho/que/mexe, outro/caminho" --engine claude --no-start\n` +
@@ -279,6 +384,11 @@ export class Orchestrator {
    * marcar um item provado. O contexto compilado do épico (goal, irmãs, decisões) é do épico 2 — aqui é só o
    * mínimo pra o revisor saber julgar e o builder não inventar escopo.
    */
+  /** Início de todo turno de tarefa de épico: EPIC.md + "pronto quando" frescos do contexto que o app grava. */
+  private prepEpic(spec: TaskSpec, cwd: string): void {
+    try { prepEpicTurn({ store: this.store, cardumeDir: this.ws.dir, spec, cwd }); } catch { /* best-effort: o turno segue */ }
+  }
+
   epicContext(spec: TaskSpec): string {
     if (!spec.epicId) return "";
     const dw = (spec.epicDoneWhen ?? []).filter(Boolean);
@@ -290,7 +400,7 @@ export class Orchestrator {
     if (spec.covers?.length) out += `Requisitos do épico que ela cobre: ${spec.covers.join(", ")}\n`;
     if (spec.boundaries?.length) out += `NÃO muda: ${spec.boundaries.join("; ")}\n`;
     if (dw.length) {
-      out += `"Pronto quando" do épico (o épico só fecha com tudo marcado):\n` + dw.map((d) => `- ${checked.has(String(d).split(":")[0].trim().toUpperCase()) ? "☑" : "☐"} ${d}`).join("\n") + "\n";
+      out += `"Pronto quando" do épico (o épico só fecha com tudo marcado):\n` + dw.map((d) => `- ${checked.has(String(d).split(":")[0].trim().toUpperCase()) ? "[x]" : "[ ]"} ${d}`).join("\n") + "\n";
       out += `PAPEL REVISOR: ao terminar a revisão, se a sua evidência PROVA um desses itens (teste rodado, tela vista, comando executado), chame mcp__cardume__check_done_when({ id: "D<n>", evidence }) — um chamado por item, só com prova real. Builder e outros papéis NÃO chamam essa tool.\n`;
     }
     return out;
@@ -352,36 +462,131 @@ export class Orchestrator {
     } catch { /* histórico é best-effort */ }
   }
 
-  /** Destila uma mensagem do humano em regra duradoura e anexa à memória. */
-  private async learnFromMessage(message: string): Promise<void> {
+  /** Nome de quem fala com os agentes nesta máquina (rastro das notas). */
+  private humanName(): string {
+    if (this._human) return this._human;
+    let n = (process.env.CARDUME_USER_NAME || "").trim();
+    if (!n) {
+      try {
+        n = execFileSync("git", ["-C", this.ws.repo, "config", "user.name"], { encoding: "utf8", timeout: 3000 }).trim();
+      } catch { /* sem git config */ }
+    }
+    if (!n) { try { n = userInfo().username; } catch { /* sem usuário */ } }
+    this._human = n || "você";
+    return this._human;
+  }
+  private _human = "";
+
+  /** Títulos das notas existentes (pra o destilador ligar e não duplicar). */
+  private brainCatalog(): string {
+    try {
+      return this.brain().list(true).slice(0, 80).map((n: Note) => `- ${n.slug}: ${n.title} (${n.type})`).join("\n");
+    } catch { return ""; }
+  }
+
+  /** Roda o Haiku headless (destiladores). "" em qualquer falha. */
+  private async haiku(prompt: string): Promise<string> {
+    try {
+      // teto: sem ele um claude pendurado deixava o processo do motor vivo pra sempre (fire-and-forget)
+      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv(), timeout: auxTimeoutMs() });
+      return stdout.trim();
+    } catch { return ""; }
+  }
+
+  private noteFromJson(o: any, by: string): NoteInput | null {
+    if (!o || typeof o !== "object") return null;
+    const title = String(o.title ?? "").trim();
+    const body = String(o.body ?? "").trim();
+    if (title.length < 4 || body.length < 8 || title.length > 140 || body.length > 2000) return null;
+    return {
+      title,
+      type: String(o.type ?? "contexto"),
+      tags: Array.isArray(o.tags) ? o.tags.map(String).slice(0, 6) : [],
+      body,
+      by,
+      origem: "agente",
+    };
+  }
+
+  /**
+   * Destila uma mensagem do humano no chat em NOTA duradoura (regra/decisão…) do
+   * cérebro: cria ou atualiza (dedup) com [[links]] pras notas que já existem.
+   * Fire-and-forget: nunca quebra o turno.
+   */
+  private async learnFromMessage(message: string, taskTitle = "", taskId?: string): Promise<void> {
     const msg = message.trim();
     if (msg.length < 12) return;
     try {
+      const catalog = this.brainCatalog();
       const prompt =
         `Mensagem de um dev pro agente de IA durante uma tarefa:\n"""${msg.slice(0, 800)}"""\n\n` +
-        `Se ela contém uma REGRA/PREFERÊNCIA DURADOURA de trabalho (vale pra tarefas futuras — ex.: como testar, onde ficam credenciais, convenção de git/PR, decisão de produto), responda SÓ a regra em UMA linha imperativa e geral, EM PORTUGUÊS (sem mencionar a tarefa específica). Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
-      const claude = process.env.CARDUME_CLAUDE || "claude";
-      const { stdout } = await run(claude, ["-p", prompt, "--model", "claude-haiku-4-5-20251001"]);
-      const rule = stdout.trim().split("\n").pop()?.trim() ?? "";
-      if (!rule || /^skip\b/i.test(rule) || rule.length < 10 || rule.length > 300) return;
-      // dedup ingênuo: não anexa se já existe linha muito parecida
-      let cur = "";
-      try { cur = readFileSync(this.memoryFile(), "utf8"); } catch { /* primeira regra */ }
-      const norm = (s: string) => s.toLowerCase().replace(/[^a-zà-ú0-9]+/g, " ").trim();
-      const nrule = norm(rule);
-      const words = new Set(nrule.split(" "));
-      for (const line of cur.split("\n")) {
-        const nl = norm(line.replace(/^[-*]\s*/, ""));
-        if (!nl) continue;
-        const lw = nl.split(" ");
-        const overlap = lw.filter((w) => words.has(w)).length;
-        if (overlap >= Math.min(words.size, lw.length) * 0.75) return; // já sabemos disso
-      }
-      const stamp = new Date().toISOString().slice(0, 10);
-      appendFileSync(this.memoryFile(), `${cur && !cur.endsWith("\n") ? "\n" : ""}- ${rule} _(aprendido ${stamp})_\n`);
+        `Notas que já existem no cérebro do projeto (slug: título):\n${catalog || "(nenhuma)"}\n\n` +
+        `Se a mensagem contém uma REGRA/PREFERÊNCIA/DECISÃO DURADOURA de trabalho (vale pra tarefas futuras — ex.: como testar, ferramenta a usar, convenção de git/PR, decisão de produto), ` +
+        `responda SÓ um JSON {"title":"título curto e geral","type":"regra|decisão|gotcha|contexto|glossário|pessoa","tags":["tema"],"body":"1-3 frases em português, imperativas e gerais (sem citar a tarefa), com [[slug]] pras notas existentes relacionadas e/ou [[tema]] pro assunto (ex.: [[ferramentas]])"}. ` +
+        `Se já existe nota sobre o MESMO assunto, use exatamente o título dela. NUNCA inclua segredos, chaves, senhas ou valores de .env. ` +
+        `Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
+      const out = await this.haiku(prompt);
+      if (!out || /^skip\b/i.test(out.split("\n").pop()?.trim() ?? "")) return;
+      const who = this.humanName();
+      const note = this.noteFromJson(extractJson(out), `destilador · correção de ${who}${taskTitle ? ` no chat da tarefa "${taskTitle.slice(0, 60)}"` : ""}`);
+      if (note && this.brain().write(note)?.action === "secret") this.noteSecretDropped(taskId, "uma correção do chat");
     } catch {
       /* aprender é melhor-esforço — nunca quebra o turno */
     }
+  }
+
+  /**
+   * FIM DA TAREFA: destila decisões e gotchas do que aconteceu (resumo + notas do
+   * agente) em 0-3 notas do cérebro. Melhor-esforço, fire-and-forget.
+   */
+  private async distillTask(taskId: string): Promise<void> {
+    try {
+      const t = this.store.getTask(taskId);
+      if (!t) return;
+      const spec = JSON.parse(t.spec_json) as TaskSpec;
+      const evs = this.store
+        .eventsForTask(taskId)
+        .filter((e) => e.type === "done" || e.type === "note")
+        .slice(-25)
+        .map((e) => `- ${e.agent}: ${String(e.text).replace(/\s+/g, " ").slice(0, 300)}`)
+        .join("\n");
+      if (!evs) return;
+      const prompt =
+        `Tarefa concluída por agentes de IA num projeto de software.\nTítulo: ${spec.title}\nObjetivo: ${String(spec.objective ?? "").slice(0, 600)}\n` +
+        `O que aconteceu (eventos):\n${evs.slice(0, 5000)}\n\n` +
+        `Notas que já existem no cérebro do projeto (slug: título):\n${this.brainCatalog() || "(nenhuma)"}\n\n` +
+        `Extraia de 0 a 3 APRENDIZADOS DURADOUROS que valem pra tarefas FUTURAS deste projeto: decisões de arquitetura/produto tomadas, gotchas (armadilhas descobertas, com a causa), regras de trabalho. ` +
+        `Nada pontual da tarefa, nada óbvio, NUNCA segredos/chaves/valores de .env. Responda SÓ um JSON array: ` +
+        `[{"title":"título curto","type":"decisão|gotcha|regra|contexto|glossário","tags":["tema"],"body":"1-4 frases em português com [[slug]] pras notas relacionadas"}] — ou [] se não houver nada que valha.`;
+      const out = await this.haiku(prompt);
+      const arr = extractJson(out);
+      if (!Array.isArray(arr)) return;
+      const brain = this.brain();
+      for (const o of arr.slice(0, 3)) {
+        const note = this.noteFromJson(o, `agente · fim da tarefa "${String(spec.title).slice(0, 60)}" (${taskId})`);
+        if (note && brain.write(note)?.action === "secret") this.noteSecretDropped(taskId, "um aprendizado do fim da tarefa");
+      }
+    } catch { /* melhor-esforço */ }
+  }
+
+  /** Nota descartada por parecer segredo: avisa no chat da tarefa (nunca some calada). */
+  private noteSecretDropped(taskId: string | undefined, what: string): void {
+    const msg = `memória: descartei ${what} — parecia conter segredo (chave/senha/.env); nada foi gravado no cérebro`;
+    console.warn(`[memória] ${msg}`);
+    if (taskId) { try { this.store.addEvent(taskId, "Sistema", "note", msg, false); } catch { /* sem store */ } }
+  }
+
+  /**
+   * O agente pode CRIAR/ATUALIZAR notas em .cardume/memoria/ na worktree — aqui volta pro
+   * cérebro do repo principal SÓ o que mudou desde a semeadura (manifesto), com rastro da
+   * tarefa. Nunca apaga nem ressuscita nota apagada; se o humano editou depois, ele vence.
+   */
+  private harvestBrain(worktree: string, taskId: string, taskTitle: string): void {
+    try {
+      const r = harvestWorktree(this.ws.dir, worktree, readManifest(worktree), `agente · tarefa "${taskTitle.slice(0, 60)}" (${taskId})`);
+      writeManifest(worktree, r.manifest);
+      for (const k of r.secrets) this.noteSecretDropped(taskId, `a nota ${k}.md`);
+    } catch { /* colher memória é melhor-esforço */ }
   }
 
   // ---------------------------------------------------------------------------
@@ -392,17 +597,6 @@ export class Orchestrator {
   // validado com kill(pid, 0) — processo morto não segura fila.
   // ---------------------------------------------------------------------------
 
-  /** true se OUTRO processo vivo está rodando um turno desta tarefa. */
-  private taskBusy(taskId: string): boolean {
-    const pid = this.store.busyPid(taskId);
-    if (!pid || pid === process.pid) return false;
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false; // PID morto — lock obsoleto
-    }
-  }
 
   /** O erro indica sessão que ESTOUROU o limite de tokens/contexto? */
   private static tokenDeath(text: string): boolean {
@@ -421,6 +615,10 @@ export class Orchestrator {
    * o trabalho parcial está na worktree — continuar faz sentido, igual à inatividade. */
   private static networkDeath(text: string): boolean {
     return /socket connection was closed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|other side closed|Connection error/i.test(text || "");
+  }
+  /** `--resume <id>` sem a sessão no disco (Claude guarda por pasta; histórico apagado/outra máquina). */
+  private static sessionMissing(text: string): boolean {
+    return /no conversation found|session (id )?.{0,60}not found|could not find session/i.test(text || "");
   }
   private static retriableDeath(text: string): boolean {
     return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text) || Orchestrator.networkDeath(text);
@@ -560,69 +758,145 @@ export class Orchestrator {
    * Executa `fn` segurando o lock da tarefa; se o agente já está ocupado,
    * ENFILEIRA o pedido (evento visível no chat) em vez de rodar por cima.
    */
+  /** Tenta pegar o lock do turno (atômico entre processos — ver Store.tryLockBusy). */
+  private tryLock(taskId: string): boolean {
+    return this.store.tryLockBusy(taskId, process.pid, pidAlive);
+  }
+
+  /** Fim do turno: solta o lock e fecha pergunta que ficou aberta (o processo que esperava a resposta acabou). */
+  private releaseTurn(taskId: string): void {
+    try {
+      if (this.store.closeOpenQuestions(taskId) > 0) {
+        this.store.addEvent(taskId, "Sistema", "note", "A pergunta ficou sem resposta e o turno terminou — se ainda quiser responder, mande na conversa: o agente retoma de onde parou.", true);
+      }
+    } catch { /* banco antigo: segue */ }
+    this.store.setBusyPid(taskId, null);
+  }
+
   private async withTaskLock(taskId: string, kind: string, payload: Record<string, unknown>, fn: () => Promise<void>): Promise<void> {
-    if (this.taskBusy(taskId)) {
+    if (!this.tryLock(taskId)) {
       this.store.queueAdd(taskId, kind, payload);
       const pos = this.store.queueCount(taskId);
+      // o turno pode ter ACABADO entre a checagem e o enfileiramento (ele já drenou a fila vazia):
+      // lock livre agora → FICA com ele e roda a fila daqui (inclui este pedido), sem soltar no meio
+      if (this.tryLock(taskId)) {
+        this.expireOrphanQueue(taskId);
+        try {
+          await this.drainLocked(taskId);
+        } finally {
+          this.releaseTurn(taskId);
+          await this.drainQueue(taskId);
+        }
+        return;
+      }
       this.store.addEvent(
         taskId,
         "Sistema",
         "note",
-        `⏳ pedido NA FILA (${pos}º): ${this.queueLabel(kind, payload)} — o agente está no meio de um turno; executo automaticamente assim que ele terminar.`,
+        `Na fila (${pos}º): ${this.queueLabel(kind, payload)} — o agente está no meio de um turno; executo automaticamente assim que ele terminar.`,
         true,
       );
       return;
     }
-    this.store.setBusyPid(taskId, process.pid);
+    this.expireOrphanQueue(taskId);
     try {
       await fn();
     } finally {
-      this.store.setBusyPid(taskId, null);
+      this.releaseTurn(taskId);
       await this.drainQueue(taskId);
     }
+  }
+
+  /** Pedidos "na fila" são drenados pelo processo que segurava o turno — se ele foi MORTO (■ parar,
+   * SIGKILL, app fechado), eles ficavam 'queued' pra sempre: no logcomex-ai-v2 havia 3 mensagens
+   * presas desde 01/09 ("esta demorando demais"…) numa tarefa já em 'review'. Aqui, ao pegar o
+   * lock: órfãos RECENTES seguem e rodam depois deste turno (drainQueue); os ANTIGOS (> 30 min)
+   * são descartados com aviso visível — rodar hoje um "tá demorando" de dias atrás é pior. */
+  private expireOrphanQueue(taskId: string, maxAgeMs = 30 * 60_000): void {
+    try {
+      const n = this.store.queueExpire(taskId, Date.now() - maxAgeMs);
+      if (n > 0) {
+        this.store.addEvent(taskId, "Sistema", "note", `Fila limpa: ${n === 1 ? "1 pedido antigo descartado" : `${n} pedidos antigos descartados`} — o turno que ia executá-los foi encerrado antes. Se ainda precisar, mande de novo.`, true);
+      }
+    } catch { /* banco antigo sem work_queue: nada a limpar */ }
   }
 
   /** Roda os pedidos enfileirados, em ordem, até esvaziar (ou outro processo assumir). */
   private async drainQueue(taskId: string): Promise<void> {
     for (;;) {
-      if (this.taskBusy(taskId)) return; // outro processo pegou o lock — ele drena
+      if (!this.store.queueNext(taskId)) return;
+      if (!this.tryLock(taskId)) return; // outro processo pegou o lock — ele drena
+      try {
+        await this.drainLocked(taskId);
+      } finally {
+        this.releaseTurn(taskId);
+      }
+    }
+  }
+
+  /** Esvazia a fila JÁ segurando o lock (não solta entre um pedido e outro). */
+  private async drainLocked(taskId: string): Promise<void> {
+    for (;;) {
       const item = this.store.queueNext(taskId);
       if (!item) return;
-      this.store.queueDone(item.id);
+      if (!this.store.queueDone(item.id)) continue; // outro processo já tomou este pedido
       let p: Record<string, unknown> = {};
       try { p = JSON.parse(item.payload || "{}"); } catch { /* payload corrompido — segue vazio */ }
       this.store.addEvent(taskId, "Sistema", "note", `▶ executando pedido da fila: ${this.queueLabel(item.kind, p)}`, true);
-      this.store.setBusyPid(taskId, process.pid);
       try {
         if (item.kind === "talk") await this.talkToAgentInner(taskId, String(p.message ?? ""), !!p.asReq, p.agent ? String(p.agent) : undefined);
         else if (item.kind === "deliver") await this.deliverArtifactInner(taskId, (p.kind as "doc" | "tests" | "proof" | "all") ?? "all");
         else if (item.kind === "rework") await this.reworkTaskInner(taskId);
       } catch (err) {
         this.store.addEvent(taskId, "Sistema", "error", `pedido da fila falhou: ${(err as Error).message}`, false);
-      } finally {
-        this.store.setBusyPid(taskId, null);
       }
     }
   }
 
   /** Roda a equipe da tarefa: cada papel em sequência, na mesma worktree. */
   async runTask(taskId: string): Promise<void> {
-    this.store.setBusyPid(taskId, process.pid);
+    // Duplo "iniciar" (ou iniciar enquanto um turno roda) subia DOIS times na mesma
+    // worktree. Outro processo vivo com o lock → recusa, sem mexer no lock dele.
+    if (!this.tryLock(taskId)) {
+      this.store.addEvent(taskId, "Sistema", "note", "essa tarefa já está rodando — pedido de iniciar ignorado", true);
+      return;
+    }
+    this.expireOrphanQueue(taskId);
     try {
       await this.runTaskInner(taskId);
     } finally {
-      this.store.setBusyPid(taskId, null);
+      this.releaseTurn(taskId);
       await this.drainQueue(taskId);
     }
   }
 
+  /** Qualquer exceção que ESCAPE do pipeline (banco ocupado além do retry, spec corrompido, git) deixava
+   * a tarefa em "rodando"/"pensando" pra sempre — sem processo nenhum, o card girando e o "iniciar"
+   * bloqueado. Agora ela vai pra "erro" com o motivo no chat (dá pra retomar) e o erro segue pra cima. */
   private async runTaskInner(taskId: string): Promise<void> {
+    try {
+      await this.runTaskPipeline(taskId);
+    } catch (err) {
+      const msg = (err as Error)?.message || String(err);
+      try {
+        const t = this.store.getTask(taskId);
+        if (t) {
+          this.store.addEvent(taskId, "Sistema", "error", `a execução parou por um erro inesperado: ${msg.slice(0, 300)}`, false);
+          // só tira do estado "em andamento" — conflito/bloqueado/aguardando/plano/review ficam como estão
+          if (["running", "thinking", "queued"].includes(t.status)) this.store.setStatus(taskId, "error");
+        }
+      } catch { /* banco indisponível: o erro original é o que importa */ }
+      throw err;
+    }
+  }
+
+  private async runTaskPipeline(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     await this.waitForScopeClear(taskId, spec); // sequential-lock: espera o escopo liberar antes de editar
-    const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine }];
+    const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
     const startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
 
     for (let i = startIdx; i < roles.length; i++) {
@@ -631,7 +905,8 @@ export class Orchestrator {
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+      this.prepEpic(spec, task.worktree);
+      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
 
@@ -687,7 +962,7 @@ export class Orchestrator {
           } else {
             this.store.addEvent(taskId, r.name, "error", msg, false, r.role);
             this.store.setStatus(taskId, "error");
-            notify("Cardume", "Tarefa falhou — veja o log", task.title);
+            notify("Starfork", "Tarefa falhou — veja o log", task.title);
             return;
           }
         }
@@ -698,7 +973,7 @@ export class Orchestrator {
           if (altCfg && altCfg.fallback) {
             usingAlt = true;
             deathKind = "limit";
-            this.store.addEvent(taskId, "Sistema", "note", `🔀 Claude bateu o limite de uso — roteando esta tarefa para a ${altCfg.label} (${altCfg.model}) automaticamente e retomando agora.`, true);
+            this.store.addEvent(taskId, "Sistema", "note", `Claude bateu o limite de uso — roteando esta tarefa para a ${altCfg.label} (${altCfg.model}) automaticamente e retomando agora.`, true);
             this.store.setStatus(taskId, this.statusFor(r.role));
             sessionId = ""; attemptNo++;
             continue;
@@ -710,10 +985,10 @@ export class Orchestrator {
           deathKind = "limit";
           const at = new Date(Date.now() + LIMIT_MIN * 60000);
           const hhmm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-          this.store.addEvent(taskId, "Sistema", "note", `⏳ limite de uso da IA atingido — vou RETOMAR automaticamente em ${LIMIT_MIN}min (~${hhmm}). Tentativa ${limitWait}/${MAX_LIMIT_WAITS}.`, true);
+          this.store.addEvent(taskId, "Sistema", "note", `Limite de uso da IA atingido — vou RETOMAR automaticamente em ${LIMIT_MIN}min (~${hhmm}). Tentativa ${limitWait}/${MAX_LIMIT_WAITS}.`, true);
           this.store.setStatus(taskId, "queued");
           await new Promise((res) => setTimeout(res, LIMIT_MIN * 60000));
-          this.store.addEvent(taskId, "Sistema", "note", "▶️ intervalo cumprido — retomando de onde parou…", true);
+          this.store.addEvent(taskId, "Sistema", "note", "▶ intervalo cumprido — retomando de onde parou…", true);
           this.store.setStatus(taskId, this.statusFor(r.role));
           sessionId = ""; attemptNo++;
           continue;
@@ -723,7 +998,7 @@ export class Orchestrator {
           hardTry++;
           deathKind = Orchestrator.tokenDeath(deathText) ? "token" : "idle";
           const why = deathKind === "token" ? "estourou o limite de tokens" : (Orchestrator.networkDeath(deathText) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
-          this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${hardTry + 1}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
+          this.store.addEvent(taskId, "Sistema", "note", `A sessão ${why} — retomando AUTOMATICAMENTE (tentativa ${hardTry + 1}/${MAX_TRIES}), continuando do que já está na worktree.`, true);
           this.store.setStatus(taskId, this.statusFor(r.role));
           sessionId = ""; attemptNo++;
           continue;
@@ -748,7 +1023,7 @@ export class Orchestrator {
           false,
           r.role,
         );
-        notify("Constellation", `${r.name} não concluiu — veja o log`, task.title);
+        notify("Starfork", `${r.name} não concluiu — veja o log`, task.title);
         return;
       }
 
@@ -760,7 +1035,7 @@ export class Orchestrator {
       // quando foi o próprio agente que fez o commit.
       if (r.role !== "reviewer") {
         try {
-          await this.git.commitAll(task.worktree, `cardume(${r.role}): ${task.title}`);
+          await this.git.commitAll(task.worktree, `starfork(${r.role}): ${task.title}`);
           const d = await this.git.diffStat(task.worktree, task.base);
           this.store.setDiff(taskId, d.files, d.add, d.del);
           // Tarefas via Claude já geram o resumo do commit no fluxo (fica em cache).
@@ -797,7 +1072,7 @@ export class Orchestrator {
       if (r.role === "planner" && spec.autonomy.planApproval === "review" && i < roles.length - 1) {
         this.store.setStatus(taskId, "plan-review");
         this.store.addEvent(taskId, r.name, "note", "plano pronto — aguardando sua aprovação para continuar", true);
-        notify("Constellation", "Plano pronto para sua aprovação", task.title);
+        notify("Starfork", "Plano pronto para sua aprovação", task.title);
         return;
       }
     }
@@ -806,10 +1081,12 @@ export class Orchestrator {
 
     this.store.releaseClaims(taskId); // terminou de editar → libera os caminhos
     this.store.setStatus(taskId, "review");
-    const usesClaude = spec.roles.some((x) => x.engine === "claude") || spec.engine === "claude";
-    if (usesClaude) notify("Cardume", "Pronta para review ✓", task.title);
+    const usesAi = spec.roles.some((x) => canTalk(x.engine)) || canTalk(spec.engine);
+    if (usesAi) notify("Starfork", "Pronta para review ✓", task.title);
     this.appendHistory(taskId);      // memória de issues: entra no índice pesquisável
     this.harvestRunbook(task.worktree); // aprendizado de ambiente volta pro repo
+    this.harvestBrain(task.worktree, taskId, task.title); // notas que o agente escreveu → cérebro
+    void this.distillTask(taskId);   // decisões/gotchas da tarefa viram notas (fire-and-forget)
     await this.maybeOpenPr(taskId, task, spec);
   }
 
@@ -824,7 +1101,7 @@ export class Orchestrator {
     const mode = spec.autoPr ?? "ask";
     if (mode === "no") return;
     if (mode === "ask") {
-      notify("Constellation", "Pronta — quer abrir o PR? (aba PR da tarefa)", task.title);
+      notify("Starfork", "Pronta — quer abrir o PR? (aba PR da tarefa)", task.title);
       return;
     }
     // mode === "auto": GATE MECÂNICO antes de abrir (evidência existe + testes passam)
@@ -832,20 +1109,28 @@ export class Orchestrator {
     if (!gate.ok) {
       const why = gate.reasons.slice(0, 3).join(" · ");
       this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
-      notify("Constellation", "PR não aberto — verificação falhou", task.title);
+      notify("Starfork", "PR não aberto — verificação falhou", task.title);
       return;
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
-      await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch]);
+      await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
       const body =
         `## O quê\n${spec.objective || spec.title}\n\n` +
         ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
-        `_Aberto automaticamente pelo Constellation (sem pendências nos requisitos)._`;
-      const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree });
-      const url = stdout.trim().split("\n").pop() ?? "";
+        `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._`;
+      let url = "";
+      try {
+        const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree, env: netEnv(), timeout: netTimeoutMs() });
+        url = prUrlFrom(stdout) || (stdout.trim().split("\n").pop() ?? "");
+      } catch (e) {
+        // PR já aberto pra esta branch (retry, ou o humano abriu antes): o gh FALHA mas cita a URL —
+        // antes virava "falha ao abrir o PR" com o PR existindo
+        url = /already exists/i.test(String((e as { stderr?: string }).stderr ?? "")) ? prUrlFrom(String((e as { stderr?: string }).stderr)) : "";
+        if (!url) throw e;
+      }
       this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
-      notify("Constellation", "PR aberto ✓", task.title);
+      notify("Starfork", "PR aberto ✓", task.title);
     } catch (err) {
       this.store.addEvent(taskId, spec.agent, "note", `falha ao abrir o PR automaticamente: ${(err as Error).message?.slice(0, 140)}`, false);
     }
@@ -894,14 +1179,14 @@ export class Orchestrator {
     const lines = diff.split("\n").length;
     this.store.addEvent(spec.id, spec.agent, "status", `review do ${branch} — ${lines} linhas de diff`, true);
 
-    const roles = spec.roles.length ? spec.roles : [{ role: "reviewer" as Role, name: spec.agent, engine: spec.engine }];
+    const roles = spec.roles.length ? spec.roles : [{ role: "reviewer" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
     for (let i = 0; i < roles.length; i++) {
       const r = roles[i];
       this.store.setStage(spec.id, r.role);
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -928,7 +1213,7 @@ export class Orchestrator {
       this.store.addEvent(spec.id, spec.agent, "note", `falha no review factual: ${(err as Error).message}`, false, "reviewer");
     }
     this.store.setStatus(spec.id, "review");
-    notify("Constellation", "Review do PR pronto ✓", spec.title);
+    notify("Starfork", "Review do PR pronto ✓", spec.title);
   }
 
   /**
@@ -944,13 +1229,14 @@ export class Orchestrator {
     ctx: string,
     sessionId: string
   ): Promise<string> {
-    if (role.engine !== "claude") return sessionId; // mock não continua sessão
+    if (!canTalk(role.engine)) return sessionId; // mock não continua sessão
     let guard = 0;
     while (guard++ < 20) {
       const open = this.store.openInstructions(taskId);
       if (!open.length) break;
       this.store.addEvent(taskId, role.name, "note", `aplicando ${open.length} instrução(ões) enviada(s) por você`, true, role.role);
       this.store.setStatus(taskId, "running");
+      this.prepEpic(spec, worktree);
       const engine = this.engineFor(role.engine, role.model, spec.autonomy.approval);
       const instruction =
         `O humano enviou instruções adicionais no meio da execução — talvez tenha lembrado de algo. ` +
@@ -1087,9 +1373,9 @@ export class Orchestrator {
     const roles = spec.roles || [];
     const pref = kind === "doc" ? ["docs", "builder"] : ["builder", "tester"];
     const role =
-      roles.find((r) => pref.includes(r.role) && r.engine === "claude") ||
-      roles.find((r) => r.engine === "claude") ||
-      ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
+      roles.find((r) => pref.includes(r.role) && canTalk(r.engine)) ||
+      roles.find((r) => canTalk(r.engine)) ||
+      ({ role: "builder", name: spec.agent, engine: canTalk(spec.engine) ? spec.engine : "claude", model: spec.model } as (typeof roles)[number]);
 
     const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
     const TESTS = "TESTES REAIS na branch desta worktree — PROIBIDO testar num script isolado ou num front mockado que nao reflete o ambiente real. Faca: 1) suba o ambiente LOCAL de verdade nesta branch (as envs reais existem — procure `.env`, `code-refuge-relay/supabase`, docker-compose); 2) escreva e RODE os testes na suite real do projeto (unittest/pytest/vitest — a que o repo usa), exercitando a funcionalidade contra o ambiente que subiu; 3) salve a comprovacao em `.cardume/artifacts/tests.md` com os comandos e a SAIDA real (quantos passaram/falharam). Se algo nao subir/rodar, escreva EXATAMENTE o que travou (comando, erro literal) e PERGUNTE ao humano (mcp__cardume__ask_human) — nao improvise mock.";
@@ -1107,7 +1393,8 @@ export class Orchestrator {
       : kind === "proof" ? "prova (prints/evidência)"
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    this.prepEpic(spec, task.worktree);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -1133,7 +1420,7 @@ export class Orchestrator {
       this.store.addEvent(taskId, role.name, "note", `não consegui gerar ${label} — veja o erro acima e tente de novo`, false, role.role);
     } else {
       this.store.addEvent(taskId, role.name, "note", `${label} pronto — veja em Artefatos`, true, role.role);
-      notify("Constellation", `${label} pronto ✓`, task.title);
+      notify("Starfork", `${label} pronto ✓`, task.title);
     }
   }
 
@@ -1172,13 +1459,11 @@ export class Orchestrator {
   }
 
   private async talkToAgentInner(taskId: string, message: string, asReq = false, agentName?: string): Promise<void> {
+    // a conversa SEMPRE pode ser retomada: worktree removida (merge, "liberar
+    // espaço", cancelada…) é RECRIADA no mesmo caminho antes do turno.
+    const recreated = await this.ensureTaskWorktree(taskId);
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
-    // mergeada NÃO impede conversar se a worktree ainda existe (o merge nem sempre
-    // remove) — só barra quando a worktree sumiu de verdade.
-    if (task.status === "merged" && !existsSync(task.worktree)) {
-      throw new Error("tarefa mergeada e a worktree já foi removida — abra uma correção linkada pra continuar.");
-    }
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     // pedido novo vira REQUISITO da tarefa (checklist cresce e cobra evidência)
     if (asReq && message.trim()) {
@@ -1189,19 +1474,23 @@ export class Orchestrator {
     }
     const roles = spec.roles || [];
     // interlocutor: o agente escolhido no chat (/) ou o padrão (1º claude)
-    const deflt = roles.find((r) => r.engine === "claude");
-    const picked = agentName ? roles.find((r) => r.name === agentName && r.engine === "claude") : undefined;
+    // motor/modelo SÃO os da tarefa: antes só papéis "claude" conversavam e uma tarefa Codex/gateway
+    // caía num builder Claude genérico (o "segue no Claude sempre").
+    const deflt = roles.find((r) => canTalk(r.engine));
+    const picked = agentName ? roles.find((r) => r.name === agentName && canTalk(r.engine)) : undefined;
     const role =
       picked || deflt ||
-      ({ role: "builder", name: spec.agent, engine: "claude", model: spec.model } as (typeof roles)[number]);
+      ({ role: "builder", name: spec.agent, engine: canTalk(spec.engine) ? spec.engine : "claude", model: spec.model } as (typeof roles)[number]);
     // sessão pertence ao último agente que falou — trocar de agente = turno
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory() + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
-    const prev = task.status;
+    this.prepEpic(spec, task.worktree);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec, message) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    // recriada → ao fim do turno volta pra "pronta pra revisar" (não pro limbo mergeada-sem-worktree)
+    const prev: AgentStatus = recreated && ["merged", "done", "aborted", "cancelled", "error"].includes(task.status) ? "review" : task.status;
     const sid = switching ? "" : (task.session_id || "");
-    this.store.addEvent(taskId, "Você", "note", `💬 ${message}`, true);
+    this.store.addEvent(taskId, "Você", "note", `Você: ${message}`, true);
     this.store.setStatus(taskId, "thinking");
     let failed = false;
     try {
@@ -1210,7 +1499,7 @@ export class Orchestrator {
       const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext() };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
-        : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${chatRule}` };
+        : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${this.historyDigest(taskId)}${chatRule}` };
       let deathText = "";
       for await (const ev of engine.run(input)) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
@@ -1222,21 +1511,35 @@ export class Orchestrator {
           this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0);
         }
       }
+      // sessão não existe mais (histórico do Claude apagado/outra máquina) →
+      // sessão NOVA semeada com o histórico da conversa (historyDigest)
+      if (sid && deathText && Orchestrator.sessionMissing(deathText)) {
+        this.store.setSession(taskId, "");
+        this.store.addEvent(taskId, "Sistema", "note", "A sessão anterior do agente não foi encontrada — continuando numa sessão nova com o resumo da conversa.", true);
+        this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+        return this.talkToAgentInner(taskId, message, false, agentName);
+      }
       // sessão do chat estourou os tokens → recomeça SOZINHO com sessão nova
       // (sid vazio na re-entrada → caminho fresco; sem risco de loop)
       if (sid && deathText && Orchestrator.retriableDeath(deathText)) {
         const why = Orchestrator.tokenDeath(deathText) ? "estourou o limite de tokens" : (Orchestrator.networkDeath(deathText) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
         this.store.setSession(taskId, "");
-        this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).`, true);
+        this.store.addEvent(taskId, "Sistema", "note", `A sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova (o agente relê o estado da worktree).`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
         return this.talkToAgentInner(taskId, message, false, agentName);
       }
     } catch (err) {
       const msg = (err as Error).message;
+      if (sid && Orchestrator.sessionMissing(msg)) {
+        this.store.setSession(taskId, "");
+        this.store.addEvent(taskId, "Sistema", "note", "A sessão anterior do agente não foi encontrada — continuando numa sessão nova com o resumo da conversa.", true);
+        this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
+        return this.talkToAgentInner(taskId, message, false, agentName);
+      }
       if (sid && Orchestrator.retriableDeath(msg)) {
         const why = Orchestrator.tokenDeath(msg) ? "estourou o limite de tokens" : (Orchestrator.networkDeath(msg) ? "caiu a conexão com a API" : "foi encerrada por inatividade");
         this.store.setSession(taskId, "");
-        this.store.addEvent(taskId, "Sistema", "note", `🔄 a sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova.`, true);
+        this.store.addEvent(taskId, "Sistema", "note", `A sessão do chat ${why} — recomeçando AUTOMATICAMENTE com uma sessão nova.`, true);
         this.store.setStatus(taskId, prev === "thinking" ? "review" : prev);
         return this.talkToAgentInner(taskId, message, false, agentName);
       }
@@ -1264,9 +1567,87 @@ export class Orchestrator {
     }
     this.store.setStatus(taskId, next);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
-    else notify("Constellation", `${role.name} respondeu`, task.title);
+    else notify("Starfork", `${role.name} respondeu`, task.title);
+    // notas que o agente escreveu neste turno → cérebro do projeto
+    this.harvestBrain(task.worktree, taskId, task.title);
     // aprende com a mensagem do humano (fire-and-forget — não atrasa o turno)
-    if (!asReq) void this.learnFromMessage(message);
+    if (!asReq) void this.learnFromMessage(message, task.title, taskId);
+  }
+
+  /**
+   * Garante que a worktree da tarefa EXISTE — se foi removida (merge, "liberar
+   * espaço", cancelada/abortada limpa), RECRIA no MESMO caminho (a sessão do
+   * Claude é guardada por pasta → `--resume` continua valendo), re-semeia o
+   * ambiente e o TASK.yaml. Mergeada → branch NOVA da base (<branch>-cont) e o
+   * PR antigo vai pro histórico (spec.prHistory) — o próximo push abre PR novo.
+   * Retorna true se recriou.
+   */
+  async ensureTaskWorktree(taskId: string): Promise<boolean> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const wt = task.worktree;
+    if (spec.kind === "review") {
+      // review de PR: pasta simples (sem git) — só garante que existe
+      if (existsSync(wt)) return false;
+      await mkdir(join(wt, ".cardume"), { recursive: true });
+      await writeFile(join(wt, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      this.store.addEvent(taskId, "Sistema", "note", "Recriei a pasta de trabalho desta revisão — a conversa continua.", true);
+      return true;
+    }
+    if (existsSync(join(wt, ".git"))) return false;
+    if (existsSync(wt)) {
+      // sobra sem git (ex.: só .cardume/ ficou) — só apaga dentro de .cardume/worktrees
+      const root = this.ws.worktrees + "/";
+      if (!wt.startsWith(root)) throw new Error(`a pasta de trabalho da tarefa (${wt}) existe mas não é uma cópia git — remova-a e tente de novo.`);
+      await rm(wt, { recursive: true, force: true });
+    }
+    const merged = task.status === "merged";
+    const base = task.base || (spec.base && spec.base.trim()) || (await this.git.defaultBase());
+    await this.git.ensureExcluded([".cardume/", ".constellation/"]);
+    let r: { branch: string; from: string; reused: boolean };
+    try {
+      r = await this.git.recreateWorktree(wt, { branch: task.branch, base, merged });
+    } catch (err) {
+      throw new Error(`não consegui recriar a cópia de trabalho desta tarefa: ${(err as Error).message}`);
+    }
+    await mkdir(join(wt, ".cardume"), { recursive: true });
+    try { await this.seedWorktreeEnv(wt, spec.light === true); } catch { /* best-effort */ }
+    if (merged && spec.prUrl) {
+      spec.prHistory = [...(spec.prHistory ?? []).filter((u) => u !== spec.prUrl), spec.prUrl];
+      delete spec.prUrl;
+      this.store.updateSpec(taskId, JSON.stringify(spec));
+    }
+    await writeFile(join(wt, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+    if (r.branch !== task.branch) this.store.setBranch(taskId, r.branch);
+    const from = r.reused ? `branch ${r.branch}` : r.from;
+    this.store.addEvent(taskId, "Sistema", "note", `Recriei a cópia de trabalho desta tarefa a partir de ${from} — a conversa continua.`, true);
+    if (merged) {
+      this.store.addEvent(taskId, "Sistema", "note", `A tarefa já tinha sido mergeada: os novos ajustes vão na branch ${r.branch} (vira um PR novo quando você fizer commit & push; o PR anterior fica no histórico).`, true);
+    } else if (!r.reused) {
+      this.store.addEvent(taskId, "Sistema", "note", `A branch ${task.branch} não existia mais (nem local nem no origin) — a cópia nasceu de ${r.from}; o que não tinha sido enviado se perdeu.`, false);
+    }
+    return true;
+  }
+
+  /** Resumo curto da conversa (últimas mensagens) pra semear uma sessão NOVA do agente. */
+  private historyDigest(taskId: string): string {
+    try {
+      const evs = this.store.eventsForTask(taskId).filter((e) => (e.type === "think" || e.type === "done" || (e.type === "note" && e.agent === "Você")) && e.text && e.text.trim());
+      if (!evs.length) return "";
+      const lines: string[] = [];
+      let size = 0;
+      for (let i = evs.length - 1; i >= 0 && lines.length < 24; i--) {
+        const who = evs[i].agent === "Você" ? "" : `${evs[i].agent}: `;
+        const l = (who + evs[i].text.replace(/\s+/g, " ").trim()).slice(0, 400);
+        if (size + l.length > 5000) break;
+        lines.unshift(`- ${l}`);
+        size += l.length;
+      }
+      return `\n\n[HISTÓRICO DA CONVERSA — sessão anterior não disponível; use como contexto, confira o estado real com git log/git status]\n${lines.join("\n")}`;
+    } catch {
+      return "";
+    }
   }
 
   /**
@@ -1305,7 +1686,7 @@ export class Orchestrator {
     this.store.setDoneRoles(taskId, 0);
     this.store.setStatus(taskId, "running");
     await this.runTaskInner(taskId); // Inner: o lock/fila já é do chamador
-    notify("Constellation", "Ajuste aplicado (time inteiro) — pronto para review", task.title);
+    notify("Starfork", "Ajuste aplicado (time inteiro) — pronto para review", task.title);
   }
 
   /** Detecta um código de issue (FND-853, ABC-12…) nos eventos e renomeia a branch. */
@@ -1336,15 +1717,16 @@ export class Orchestrator {
       const prompt =
         `Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n` +
         `Objetivo da tarefa: ${spec.objective}\n${dels}\nDiff:\n${diff}`;
-      const claude = process.env.CARDUME_CLAUDE || "claude";
-      const { stdout } = await run(claude, ["-p", prompt], { cwd: worktree });
+      // teto: o resumo roda DENTRO do pipeline (com o lock da tarefa) — um claude pendurado aqui
+      // deixava a tarefa "rodando" pra sempre depois do builder já ter terminado
+      const { stdout } = await run(resolveClaude(), ["-p", prompt], { cwd: worktree, env: claudeEnv(), timeout: auxTimeoutMs() });
       const s = stdout.trim();
       if (s) {
         this.store.addCommitSummary(hash, s);
         this.store.addEvent(taskId, spec.agent, "note", "resumo técnico do commit gerado", true);
       }
     } catch (err) {
-      this.store.addEvent(taskId, spec.agent, "note", `resumo IA do commit falhou: ${(err as Error).message}`, false);
+      this.store.addEvent(taskId, spec.agent, "note", `resumo IA do commit falhou: ${claudeErrText(err)}`, false);
     }
   }
 
@@ -1352,13 +1734,31 @@ export class Orchestrator {
   async mergeTask(taskId: string): Promise<void> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    // merge do HUMANO já em andamento no repo principal: recusa ANTES — nunca abortar um merge que não
+    // foi a gente que começou (o abort jogaria fora a resolução dele)
+    if (await this.git.mergeInProgress()) {
+      const why = mergeFailReason("MERGE_HEAD exists");
+      this.store.addEvent(taskId, task.agent, "error", `não deu pra mergear: ${why}`, false);
+      throw new Error(`não deu pra mergear em ${task.base}: ${why}`);
+    }
     try {
-      await this.git.mergeBranch(task.branch, `cardume: merge ${task.title} (${task.branch})`);
+      await this.git.mergeBranch(task.branch, `starfork: merge ${task.title} (${task.branch})`);
     } catch (err) {
-      await this.git.abortMerge();
-      this.store.setStatus(taskId, "conflict");
-      this.store.addEvent(taskId, task.agent, "error", `merge conflitou com ${task.base} — resolva manualmente`, false);
-      throw new Error(`conflito ao mergear em ${task.base}. O merge foi abortado e a branch preservada — resolva o conflito e tente de novo.`);
+      // Só é CONFLITO se o git parou com arquivos em conflito. Antes QUALQUER falha (mudança local não
+      // commitada no repo principal, base não está em check-out, branch sumiu) virava "conflict" — a
+      // tarefa ia pra "em conflito" e o humano/IA tentava resolver um conflito que não existia.
+      const e = err as Error & { stderr?: string; stdout?: string };
+      // só a SAÍDA do git: e.message repete a linha de comando (o -m com o título da tarefa, que pode ter "conflict")
+      const text = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+      if (await this.git.hasUnmerged() || /CONFLICT|Automatic merge failed/i.test(text)) {
+        await this.git.abortMerge();
+        this.store.setStatus(taskId, "conflict");
+        this.store.addEvent(taskId, task.agent, "error", `merge conflitou com ${task.base} — resolva manualmente`, false);
+        throw new Error(`conflito ao mergear em ${task.base}. O merge foi abortado e a branch preservada — resolva o conflito e tente de novo.`);
+      }
+      const why = mergeFailReason(text);
+      this.store.addEvent(taskId, task.agent, "error", `não deu pra mergear: ${why}`, false);
+      throw new Error(`não deu pra mergear em ${task.base}: ${why}`);
     }
     try {
       await this.git.worktreeRemove(task.worktree);

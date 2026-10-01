@@ -10,29 +10,12 @@ import { run } from "./util/run.ts";
 import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
+import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
+import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
+import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
-// ---------- parse de flags simples ----------
-interface Args {
-  _: string[];
-  flags: Record<string, string>;
-  multi: Record<string, string[]>;
-}
-function parseArgs(argv: string[]): Args {
-  const a: Args = { _: [], flags: {}, multi: {} };
-  for (let i = 0; i < argv.length; i++) {
-    const t = argv[i];
-    if (t.startsWith("--")) {
-      const key = t.slice(2);
-      const val = argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[++i] : "true";
-      a.flags[key] = val;
-      (a.multi[key] ??= []).push(val);
-    } else {
-      a._.push(t);
-    }
-  }
-  return a;
-}
+// ---------- parse de flags simples (src/util/args.ts) ----------
 const list = (s?: string) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
 
 // ---------- render ----------
@@ -57,7 +40,7 @@ function renderList(store: Store): string {
 
 function renderOverlaps(overlaps: ScopeOverlap[], selfId: string): string {
   const lines = [
-    c.yellow("⚠ sobreposição de escopo") +
+    c.yellow("! sobreposição de escopo") +
       c.dim(` — "${selfId}" toca área de tarefa(s) ativa(s):`),
   ];
   for (const o of overlaps) {
@@ -81,7 +64,7 @@ async function cmdInit(repo: string, noGit = false) {
   const git = new GitService(repo);
   if (!(await git.isRepo())) {
     if (!noGit) {
-      console.error(c.red(`✖ ${repo} não é um repositório git.`) + c.dim(" (use --no-git pra abrir a pasta mesmo assim)"));
+      console.error(c.red(`✕ ${repo} não é um repositório git.`) + c.dim(" (use --no-git pra abrir a pasta mesmo assim)"));
       process.exit(1);
     }
     console.log(c.yellow("!") + ` ${repo} não é um repositório git — workspace criado sem branches (crie o repositório quando quiser)`);
@@ -89,14 +72,14 @@ async function cmdInit(repo: string, noGit = false) {
   const ws = new Workspace(repo);
   ws.ensure();
   new Store(ws.dbFile).close();
-  console.log(c.green("✔") + ` workspace Cardume pronto em ${c.dim(ws.dir)}`);
-  if (ensureConfig(repo)) console.log(c.green("✔") + ` catálogo criado em ${c.dim("cardume.config.json")} (agentes + workflows)`);
+  console.log(c.green("✓") + ` workspace Starfork pronto em ${c.dim(ws.dir)}`);
+  if (ensureConfig(repo)) console.log(c.green("✓") + ` catálogo criado em ${c.dim("cardume.config.json")} (agentes + workflows)`);
   console.log(c.dim("  dica: adicione .cardume/ ao seu .gitignore"));
 }
 
 function cmdAgents(repo: string) {
   const cfg = loadConfig(repo);
-  console.log("\n" + c.bold(c.green("🐙 Agentes")) + c.dim("  (cardume.config.json)\n"));
+  console.log("\n" + c.bold(c.green("✦ Agentes")) + c.dim("  (cardume.config.json)\n"));
   for (const a of cfg.agents) {
     console.log(`  ${c.bold(a.name.padEnd(8))} ${c.cyan(a.role.padEnd(9))} ${c.dim(a.engine)}  ${c.dim("#" + a.id)}`);
     if (a.persona) console.log(`      ${c.dim("↳ " + a.persona)}`);
@@ -107,7 +90,7 @@ function cmdAgents(repo: string) {
 function cmdWorkflows(repo: string) {
   const cfg = loadConfig(repo);
   const byId = Object.fromEntries(cfg.agents.map((a) => [a.id, a]));
-  console.log("\n" + c.bold(c.green("🐙 Workflows")) + c.dim("  (cardume.config.json)\n"));
+  console.log("\n" + c.bold(c.green("✦ Workflows")) + c.dim("  (cardume.config.json)\n"));
   for (const w of cfg.workflows) {
     const chain = w.steps.map((s) => `${byId[s]?.name ?? s}${c.dim("(" + (byId[s]?.role ?? "?") + ")")}`).join(c.dim(" → "));
     console.log(`  ${c.bold(w.name.padEnd(22))} ${c.dim("#" + w.id)}`);
@@ -156,7 +139,7 @@ function buildRolesInner(a: Args, repo: string): AgentRole[] {
 async function cmdNew(repo: string, a: Args) {
   const title = a.flags.title;
   if (!title) {
-    console.error(c.red("✖ use --title \"...\""));
+    console.error(c.red("✕ use --title \"...\""));
     process.exit(1);
   }
   // id pode vir do app (pra ele já rastrear o processo); senão, do título.
@@ -228,7 +211,7 @@ async function cmdNew(repo: string, a: Args) {
   await orch.createTask(spec, refSources);
   if (a.flags["no-start"]) {
     orch.store.setStatus(id, "draft");
-    console.log(c.green("✔") + ` rascunho ${c.bold(id)} criado — inicie quando quiser (${c.green("cardume start " + id)})`);
+    console.log(c.green("✓") + ` rascunho ${c.bold(id)} criado — inicie quando quiser (${c.green("cardume start " + id)})`);
     orch.close();
     return;
   }
@@ -243,7 +226,7 @@ async function cmdNew(repo: string, a: Args) {
 function openStore(repo: string): Store {
   const ws = new Workspace(repo);
   if (!existsSync(ws.dbFile)) {
-    console.error(c.red(`✖ nenhum workspace Cardume em ${repo}. Rode: cardume init`));
+    console.error(c.red(`✕ nenhum workspace Starfork em ${repo}. Rode: cardume init`));
     process.exit(1);
   }
   return new Store(ws.dbFile);
@@ -257,7 +240,7 @@ function cmdMetrics(repo: string, json = false) {
     store.close();
     return;
   }
-  console.log("\n" + c.bold(c.green("🐙 Coordenação")) + c.dim(`  ${repo}\n`));
+  console.log("\n" + c.bold(c.green("✦ Coordenação")) + c.dim(`  ${repo}\n`));
   console.log(`  ${c.bold("tarefas")}            ${m.totalTasks}`);
   const st = Object.entries(m.byStatus)
     .map(([k, v]) => `${statusColor(k)(k)}:${v}`)
@@ -286,7 +269,7 @@ function cmdOverlap(repo: string, a: Args) {
       store.close();
       return;
     }
-    console.error(c.red('✖ use --owns "src/auth/**,src/api/*.ts" (padrões de escopo a checar)'));
+    console.error(c.red('✕ use --owns "src/auth/**,src/api/*.ts" (padrões de escopo a checar)'));
     process.exit(1);
   }
   const probe = {
@@ -301,7 +284,7 @@ function cmdOverlap(repo: string, a: Args) {
   }
   console.log("");
   if (overlaps.length === 0) {
-    console.log(c.green("✔") + ` sem sobreposição com tarefas ativas para: ${c.cyan(owns.join(", "))}\n`);
+    console.log(c.green("✓") + ` sem sobreposição com tarefas ativas para: ${c.cyan(owns.join(", "))}\n`);
   } else {
     console.log(renderOverlaps(overlaps, probe.id));
   }
@@ -310,7 +293,7 @@ function cmdOverlap(repo: string, a: Args) {
 
 function cmdListCmd(repo: string) {
   const store = openStore(repo);
-  console.log("\n" + c.bold(c.green("🐙 Cardume")) + c.dim(`  ${repo}\n`));
+  console.log("\n" + c.bold(c.green("✦ Starfork")) + c.dim(`  ${repo}\n`));
   console.log(renderList(store));
   store.close();
 }
@@ -319,7 +302,7 @@ function cmdLogs(repo: string, taskId: string) {
   const store = openStore(repo);
   const t = store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     process.exit(1);
   }
   console.log("\n" + c.bold(t.agent) + c.dim(`  ${t.branch}\n`));
@@ -336,7 +319,7 @@ function cmdReview(repo: string, taskId: string) {
   const store = openStore(repo);
   const t = store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     process.exit(1);
   }
   const r = store.getReview(taskId);
@@ -345,7 +328,7 @@ function cmdReview(repo: string, taskId: string) {
     store.close();
     return;
   }
-  console.log("\n" + c.bold(c.green("🐙 Review humano")) + c.dim(`  ${t.title}  ·  ${t.branch}`));
+  console.log("\n" + c.bold(c.green("✦ Review humano")) + c.dim(`  ${t.title}  ·  ${t.branch}`));
   console.log(c.dim(`  revisado por ${r.byAgent}\n`));
   console.log("  " + c.bold("Resumo"));
   console.log("  " + r.summary + "\n");
@@ -441,7 +424,7 @@ function cmdExport(repo: string, taskId: string, a: Args) {
   const store = openStore(repo);
   const t = store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     store.close();
     process.exit(1);
   }
@@ -449,7 +432,7 @@ function cmdExport(repo: string, taskId: string, a: Args) {
   const out = a.flags.out;
   if (out && out !== "true") {
     writeFileSync(out, md);
-    console.log(c.green("✔") + ` relatório gravado em ${c.dim(out)}`);
+    console.log(c.green("✓") + ` relatório gravado em ${c.dim(out)}`);
   } else {
     console.log(md);
   }
@@ -459,14 +442,14 @@ function cmdExport(repo: string, taskId: string, a: Args) {
 async function cmdRm(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   await orch.removeTask(taskId);
-  console.log(c.green("✔") + ` tarefa ${taskId} removida (worktree + branch + registros)`);
+  console.log(c.green("✓") + ` tarefa ${taskId} removida (worktree + branch + registros)`);
   orch.close();
 }
 
 async function cmdReviewPr(repo: string, a: Args) {
   const pr = a.flags.pr;
   if (!pr) {
-    console.error(c.red("✖ use --pr <url|número>"));
+    console.error(c.red("✕ use --pr <url|número>"));
     process.exit(1);
   }
   const engine = a.flags.engine ?? "claude"; // review sem Claude não faz sentido
@@ -493,7 +476,7 @@ async function cmdReviewPr(repo: string, a: Args) {
   const orch = new Orchestrator(repo);
   console.log(c.dim(`→ revisando ${pr} · revisor: ${roles.map((r) => r.name).join(", ")}`));
   await orch.reviewPr(spec, pr);
-  console.log(c.green("✔") + " review do PR pronto");
+  console.log(c.green("✓") + " review do PR pronto");
   orch.close();
 }
 
@@ -501,24 +484,24 @@ async function cmdDeliver(repo: string, taskId: string, kind?: string) {
   const k = kind === "tests" || kind === "proof" || kind === "all" ? kind : "doc";
   const orch = new Orchestrator(repo);
   if (!orch.store.getTask(taskId)) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
   console.log(c.dim(`→ gerando entregável (${k}) …`));
   await orch.deliverArtifact(taskId, k as "doc" | "tests" | "proof" | "all");
-  console.log(c.green("✔") + " entregável pronto — veja em Artefatos");
+  console.log(c.green("✓") + " entregável pronto — veja em Artefatos");
   orch.close();
 }
 
 async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false, agent?: string) {
   if (!msg || !msg.trim()) {
-    console.error(c.red('✖ use --msg "sua mensagem"'));
+    console.error(c.red('✕ use --msg "sua mensagem"'));
     process.exit(1);
   }
   const orch = new Orchestrator(repo);
   if (!orch.store.getTask(taskId)) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
@@ -529,11 +512,11 @@ async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false
     // grava o erro no FEED da task pra ele NÃO sumir (o app spawna com stderr→null)
     const em = (e as Error)?.message || String(e);
     try { orch.store.addEvent(taskId, "Sistema", "error", "não consegui falar com o agente: " + em, false); } catch { /* ignore */ }
-    console.error(c.red("✖ " + em));
+    console.error(c.red("✕ " + em));
     orch.close();
     process.exit(1);
   }
-  console.log(c.green("✔") + " o agente respondeu");
+  console.log(c.green("✓") + " o agente respondeu");
   orch.close();
 }
 
@@ -541,7 +524,7 @@ async function cmdStart(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   const t = orch.store.getTask(taskId);
   if (!t) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
@@ -554,16 +537,16 @@ async function cmdStart(repo: string, taskId: string) {
 async function cmdResolveConflict(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   if (!orch.store.getTask(taskId)) {
-    console.error(c.red(`✖ tarefa ${taskId} não encontrada`));
+    console.error(c.red(`✕ tarefa ${taskId} não encontrada`));
     orch.close();
     process.exit(1);
   }
   try {
     console.log(c.dim(`→ pedindo pro agente resolver o conflito de merge …`));
     await orch.resolveConflict(taskId);
-    console.log(c.green("✔") + ` conflito endereçado em ${taskId} — confira o diff e mergeie`);
+    console.log(c.green("✓") + ` conflito endereçado em ${taskId} — confira o diff e mergeie`);
   } catch (err) {
-    console.error(c.red("✖ resolução falhou: " + (err as Error).message));
+    console.error(c.red("✕ resolução falhou: " + (err as Error).message));
     orch.close();
     process.exit(1);
   }
@@ -574,9 +557,9 @@ async function cmdRework(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   try {
     await orch.reworkTask(taskId);
-    console.log(c.green("✔") + ` ajuste aplicado em ${taskId} — pronto para review`);
+    console.log(c.green("✓") + ` ajuste aplicado em ${taskId} — pronto para review`);
   } catch (err) {
-    console.error(c.red("✖ rework falhou: " + (err as Error).message));
+    console.error(c.red("✕ rework falhou: " + (err as Error).message));
     orch.close();
     process.exit(1);
   }
@@ -587,9 +570,9 @@ async function cmdMerge(repo: string, taskId: string) {
   const orch = new Orchestrator(repo);
   try {
     await orch.mergeTask(taskId);
-    console.log(c.green("✔") + ` ${taskId} mergeado na base (worktree e branch removidas)`);
+    console.log(c.green("✓") + ` ${taskId} mergeado na base (worktree e branch removidas)`);
   } catch (err) {
-    console.error(c.red("✖ merge falhou: " + (err as Error).message));
+    console.error(c.red("✕ merge falhou: " + (err as Error).message));
     console.error(c.dim("  (conflito? resolva manualmente na base e tente de novo)"));
     orch.close();
     process.exit(1);
@@ -601,12 +584,12 @@ async function cmdWatch(repo: string) {
   const store = openStore(repo);
   const tick = () => {
     process.stdout.write("\x1b[2J\x1b[H");
-    process.stdout.write("\n " + c.bold(c.green("🐙 Cardume")) + c.dim(`  watch · ${repo}`) + "\n\n");
+    process.stdout.write("\n " + c.bold(c.green("✦ Starfork")) + c.dim(`  watch · ${repo}`) + "\n\n");
     process.stdout.write(renderList(store));
     process.stdout.write("\n " + c.dim("barramento:") + "\n");
     for (const cl of store.allClaims().filter((x) => x.yielded_to)) {
       process.stdout.write(
-        `   ${c.yellow("⚠")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}\n`
+        `   ${c.yellow("!")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}\n`
       );
     }
     process.stdout.write("\n " + c.dim("ctrl+c para sair") + "\n");
@@ -629,8 +612,8 @@ async function cmdDemo() {
   await rm(demoDir, { recursive: true, force: true });
   await run("git", ["init", "-q", "-b", "main", repo]);
   // config local para permitir commits
-  await run("git", ["-C", repo, "config", "user.email", "demo@cardume.dev"]);
-  await run("git", ["-C", repo, "config", "user.name", "Cardume Demo"]);
+  await run("git", ["-C", repo, "config", "user.email", "demo@starfork.local"]);
+  await run("git", ["-C", repo, "config", "user.name", "Starfork Demo"]);
   // arquivos-semente
   await run("bash", ["-lc", `mkdir -p "${repo}/src/components" && \
     echo "export const version = '2.4.0';" > "${repo}/src/index.ts" && \
@@ -684,12 +667,12 @@ async function cmdDemo() {
   console.log(c.dim("→ rodando as equipes em paralelo (planner → builder → reviewer) …\n"));
   await Promise.all([orch.runTask("login-2fa"), orch.runTask("api-ratelimit")]);
 
-  console.log(c.bold(c.green("\n🐙 Cardume · resultado\n")));
+  console.log(c.bold(c.green("\n✦ Starfork · resultado\n")));
   console.log(renderList(orch.store));
 
   console.log(" " + c.dim("barramento (colisões resolvidas):"));
   for (const cl of orch.store.allClaims().filter((x) => x.yielded_to)) {
-    console.log(`   ${c.yellow("⚠")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}`);
+    console.log(`   ${c.yellow("!")} ${cl.agent} cedeu ${c.dim(cl.path)} → ${c.bold(cl.yielded_to!)}`);
   }
 
   console.log("\n " + c.dim("worktrees reais criadas:"));
@@ -699,6 +682,140 @@ async function cmdDemo() {
   console.log("\n " + c.dim("review humano gerado — veja um deles:"));
   console.log(" " + c.green(`node src/cli.ts review login-2fa --repo ${repo}`) + "\n");
   orch.close();
+}
+
+// ---------- edição de spec SEM rodar agente (tarefa irmã/rascunho, épico) ----------
+function editAuthor(store: Store, a: Args): EditAuthor {
+  const taskId = a.flags["by-task"] || process.env.CARDUME_TASK || undefined;
+  const t = taskId ? store.getTask(taskId) : undefined;
+  return {
+    agent: a.flags["by-agent"] || process.env.CARDUME_AGENT || "Você",
+    taskId: t?.id ?? taskId,
+    taskTitle: t?.title,
+    role: a.flags["by-role"] ?? process.env.CARDUME_ROLE ?? undefined,
+  };
+}
+
+function printEdit(r: EditResult, json: boolean): void {
+  if (json) console.log(JSON.stringify(r));
+  else if (r.ok) console.log(c.green("✓") + " " + r.message);
+  else console.error(c.red("✕ " + r.message));
+  if (!r.ok) process.exitCode = 1;
+}
+
+/** --patch '<json>' (o app manda a edição inteira; o formato é validado) ou flags soltas. */
+function parsePatch(a: Args): { ok: true; v: unknown } | { ok: false; message: string } {
+  try { return { ok: true, v: JSON.parse(a.flags.patch) }; } catch { return { ok: false, message: "--patch não é um JSON válido" }; }
+}
+
+async function cmdTaskEdit(repo: string, id: string | undefined, a: Args) {
+  const store = openStore(repo);
+  const json = !!a.flags.json;
+  try {
+    const by = editAuthor(store, a);
+    if (a.flags.undo) return printEdit(undoTaskEdit({ store, targetId: id ?? "", editId: a.flags.undo, by }), json);
+    if (a.flags.approve || a.flags.reject) {
+      return printEdit(decideProposal({ store, targetId: id ?? "", proposalId: a.flags.approve || a.flags.reject, approve: !!a.flags.approve, by, msg: a.flags.note }), json);
+    }
+    let input: TaskEditInput;
+    if (a.flags.patch !== undefined) {
+      const p = parsePatch(a);
+      if (!p.ok) return printEdit(p, json);
+      const bad = checkTaskShape(p.v);
+      if (bad) return printEdit({ ok: false, message: bad }, json);
+      input = p.v as TaskEditInput;
+    } else {
+      input = {
+        title: a.flags.title,
+        objective: a.flags.objective,
+        reqAdd: a.multi["req-add"],
+        reqRemove: a.multi["req-remove"],
+        deliverables: a.multi.deliverable,
+        delivAdd: a.multi["deliv-add"],
+        owns: a.flags.owns !== undefined ? list(a.flags.owns) : undefined,
+        off: a.flags.off !== undefined ? list(a.flags.off) : undefined,
+        note: a.flags.note,
+      };
+    }
+    const author = by.taskId ? store.getTask(by.taskId) : undefined;
+    let authorEpic: string | undefined;
+    try { authorEpic = author ? (JSON.parse(author.spec_json) as TaskSpec).epicId : undefined; } catch { /* spec antiga */ }
+    const epicId = a.flags["epic-id"] || authorEpic;
+    const cardumeDir = new Workspace(repo).dir;
+    // id (nuvem/local) OU título: resolvido contra as irmãs do épico; desconhecido é recusado na hora
+    const t = await resolveEditTarget({ store, cardumeDir, query: id ?? "", epicId });
+    if (!t.ok) return printEdit(t, json);
+    const r = editTask({ store, cardumeDir, targetId: t.id, input, by, epicId, editId: a.flags["edit-id"] || undefined, knownCloud: t.cloud });
+    printEdit(r.ok && t.warn ? { ...r, message: r.message + ` (aviso: ${t.warn})` } : r, json);
+  } finally {
+    store.close();
+  }
+}
+
+function cmdEpicEdit(repo: string, id: string | undefined, a: Args) {
+  const store = openStore(repo);
+  const json = !!a.flags.json;
+  try {
+    let input: EpicEditInput;
+    if (a.flags.patch !== undefined) {
+      const p = parsePatch(a);
+      if (!p.ok) return printEdit(p, json);
+      const bad = checkEpicShape(p.v);
+      if (bad) return printEdit({ ok: false, message: bad }, json);
+      input = p.v as EpicEditInput;
+    } else {
+      input = {
+        description: a.flags.description,
+        outcome: a.flags.outcome,
+        doneWhenAdd: a.multi["done-when-add"],
+        doneWhenRemove: (a.multi["done-when-remove"] ?? []).flatMap((x) => x.split(",")).map((x) => x.trim()).filter(Boolean),
+        reqAdd: a.multi["req-add"],
+        note: a.flags.note,
+      };
+    }
+    const by = editAuthor(store, a);
+    const cardumeDir = new Workspace(repo).dir;
+    const e = resolveEpicTarget(id, knownEpics(store, cardumeDir), authorEpicOf(store, by));
+    if (!e.ok) return printEdit(e, json);
+    printEdit(editEpic({ store, cardumeDir, epicId: e.id, input, by }), json);
+  } finally {
+    store.close();
+  }
+}
+
+function authorEpicOf(store: Store, by: EditAuthor): string | undefined {
+  const t = by.taskId ? store.getTask(by.taskId) : undefined;
+  try { return t ? (JSON.parse(t.spec_json) as TaskSpec).epicId : undefined; } catch { return undefined; }
+}
+
+/** Irmãs do épico com ids, títulos, status e requisitos (contexto que o app grava + tarefas locais). */
+async function cmdEpicTasks(repo: string, id: string | undefined, a: Args) {
+  const store = openStore(repo);
+  try {
+    const cardumeDir = new Workspace(repo).dir;
+    const e = resolveEpicTarget(id, knownEpics(store, cardumeDir), authorEpicOf(store, editAuthor(store, a)));
+    if (!e.ok) { console.error(c.red("✕ " + e.message)); process.exitCode = 1; return; }
+    const f = await ensureFreshContext(cardumeDir, e.id, a.flags["no-wait"] ? 0 : 5000);
+    const items = listEpicTasks(store, f.ctx, e.id);
+    if (a.flags.json) console.log(JSON.stringify({ epicId: e.id, title: f.ctx?.title ?? "", warn: f.warn ?? null, tasks: items }));
+    else console.log(epicTasksText(f.ctx, items, e.id, f.warn));
+  } finally {
+    store.close();
+  }
+}
+
+/** O app manda a lista oficial do "pronto quando" (--patch '{"doneWhen":[...],"seq":N}') → cópias locais. */
+function cmdEpicSync(repo: string, id: string | undefined, a: Args) {
+  const store = openStore(repo);
+  const json = !!a.flags.json;
+  try {
+    const p = parsePatch(a);
+    if (!p.ok) return printEdit(p, json);
+    const v = (p.v ?? {}) as { doneWhen?: unknown; seq?: unknown };
+    printEdit(syncEpicDoneWhen({ store, epicId: id ?? "", doneWhen: v.doneWhen, seq: Number(v.seq) || 0, by: editAuthor(store, a), note: a.flags.note }), json);
+  } finally {
+    store.close();
+  }
 }
 
 // ---------- dispatch ----------
@@ -769,9 +886,19 @@ async function main() {
     case "demo":
       await cmdDemo();
       break;
+    case "task":
+      if (a._[1] === "edit") await cmdTaskEdit(repo, a._[2], a);
+      else { console.error(c.red("✕ use: cardume task edit <id> [--objective …] [--note \"por quê\"]")); process.exitCode = 1; }
+      break;
+    case "epic":
+      if (a._[1] === "edit") cmdEpicEdit(repo, a._[2], a);
+      else if (a._[1] === "sync") cmdEpicSync(repo, a._[2], a);
+      else if (a._[1] === "tasks") await cmdEpicTasks(repo, a._[2], a);
+      else { console.error(c.red("✕ use: cardume epic edit <epicId> [--description …] [--note \"por quê\"]")); process.exitCode = 1; }
+      break;
     default:
       console.log(`
-${c.bold(c.green("🐙 Cardume"))} ${c.dim("— orquestra múltiplos agentes em branches paralelas")}
+${c.bold(c.green("✦ Starfork"))} ${c.dim("— orquestra múltiplos agentes em branches paralelas")}
 
 ${c.dim("criar & rodar")}
   ${c.green("cardume demo")}                        loop completo, 2 agentes em paralelo (mock)
@@ -791,6 +918,12 @@ ${c.dim("acompanhar")}
 ${c.dim("entregar & integrar")}
   ${c.green("cardume deliver")} ${c.dim("<taskId> --kind doc|tests|proof|all")}  gera artefato sob demanda
   ${c.green("cardume talk")} ${c.dim('<taskId> --msg "..." [--as-req] [--agent <nome>]')}  conversa com o agente (retoma a sessão)
+  ${c.green("cardume task edit")} ${c.dim('<taskId> [--objective …] [--title …] [--req-add …] [--req-remove "<texto>"] [--owns …] [--off …] [--deliverable …] [--deliv-add …] --note "por quê"')}
+      muda a spec de uma tarefa (irmã/rascunho) SEM acionar o agente dela; rodando → chega no próximo turno;
+      remover requisito/estreitar owns/off vira proposta (--approve/--reject <id> decidem; --undo <id> desfaz)
+  ${c.green("cardume epic edit")} ${c.dim('<epicId> [--description …] [--outcome …] [--done-when-add …] [--done-when-remove D3] [--req-add …] --note "por quê"')}
+      muda o épico (o app aplica no épico do time, com histórico)
+  ${c.green("cardume epic tasks")} ${c.dim("[<epicId>] [--json]")}   irmãs do épico com ids, títulos, status e requisitos
   ${c.green("cardume export")} ${c.dim("<taskId> [--out <arquivo.md>]")}  relatório Markdown p/ descrição de PR
   ${c.green("cardume review-pr")} ${c.dim("--pr <url|nº>")}      revisa um PR do GitHub (sem branch/worktree)
   ${c.green("cardume merge")} ${c.dim("<taskId>")}               faz merge da branch na base e remove a worktree
@@ -805,6 +938,6 @@ ${c.dim("  (todos aceitam --repo <p>)")}
 }
 
 main().catch((err) => {
-  console.error(c.red("✖ " + (err?.stack ?? err?.message ?? String(err))));
+  console.error(c.red("✕ " + (err?.stack ?? err?.message ?? String(err))));
   process.exit(1);
 });

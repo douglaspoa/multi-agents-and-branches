@@ -1,0 +1,121 @@
+/* Starfork — 83-responsivo (R7). Carregado por ÚLTIMO: regras GERAIS de redimensionamento.
+   Problema do dono (app instalado, 1280/1440): no card da Central o título quebrava UMA palavra por
+   linha porque o selo do épico e o status dividiam a mesma linha flex sem ninguém ceder; o status
+   saía pra fora do card. Princípio aqui: o TÍTULO tem prioridade (largura mínima legível), os selos
+   secundários (épico, protegido, branch) encolhem com … antes, e nada é mais largo que a coluna. */
+
+/* ---- selo do épico ("◆ nome · onda N"): em qualquer linha flex ele ENCOLHE com … (antes flex:none) ---- */
+.tsepc.epbadge{flex:0 1 auto;min-width:3.4em;max-width:min(260px,100%);display:inline-flex;align-items:baseline;gap:0}
+/* o nome do épico é quem ganha "…"; a onda fica sempre visível */
+.tsepc.epbadge .epn{margin-left:.4em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsepc.epbadge .epw{flex:none;white-space:pre}
+
+/* ---- card da GRADE (flowTaskCard): título → linha própria pro épico → status sempre dentro ---- */
+.fcard{min-width:0;max-width:100%}
+.fcard .fhead{flex-wrap:wrap;row-gap:3px;min-width:0}
+.fcard .fhead>b{flex:1 1 180px;min-width:0;overflow-wrap:anywhere;line-height:1.3}
+.fcard .fhead .fstatus{flex:none;white-space:nowrap;margin-left:auto}
+.fcard .fhead .linkbadge,.fcard .fhead .flagbadge{flex:none}
+/* o selo do épico desce pra linha de baixo (alinhado com o título, depois do ponto de status) */
+.fcard.has-ep .fhead::after{content:"";order:9;flex-basis:100%;height:0}
+.fcard .fhead .epbadge{order:10;margin-left:18px;max-width:min(420px,calc(100% - 18px))}
+.fcard .fmeta,.fcard .fpipe{flex-wrap:wrap;min-width:0}
+.fcard .fpipe{row-gap:6px}
+
+/* ---- card da LISTA (flowDemandCard): o título não vira "P.." — o épico cede primeiro ---- */
+.dcard{min-width:0}
+.dc-top .dc-title{flex:0 1 auto;min-width:min(140px,32%)}
+.dc-top .epbadge{flex:0 4 auto;max-width:240px}
+.dc-top .dc-type{flex:none;white-space:nowrap}
+.dc-top .dc-orq{flex:0 2 auto;min-width:3em;overflow:hidden;text-overflow:ellipsis}
+/* requisitos: cada chip encolhe com … em vez de ser cortado na borda do card */
+.dcard .dc-req{flex:0 1 auto;min-width:5em;max-width:min(340px,100%)}
+@media (max-width:1180px){ .dc-top .prj{display:none} }
+
+/* ---- kanban: card nunca mais largo que a coluna ---- */
+.kcard{min-width:0;max-width:100%}
+.kcard .ktitle{overflow-wrap:anywhere}
+.kcolbody{overflow-x:hidden}
+
+/* ---- cabeçalho da tarefa: título legível; épico/protegido/branch cedem com … ---- */
+#fwTaskName{min-width:min(120px,14vw)}
+#fwTaskEpic{display:inline-flex;align-items:center;min-width:min(13em,16vw);flex:0 2 auto;overflow:hidden}
+#fwTaskEpic:empty,#fwTaskProt:empty{display:none}
+#fwTaskEpic .epbadge{max-width:100%}
+#fwTaskProt{flex:none;display:inline-flex}
+.protbadge svg{width:11px;height:11px}
+.fwhead #fwAnswer svg{width:14px;height:14px}
+/* estreito: o selo "protegido" vira só o escudo (o tooltip explica); "livre" (sem ícone) mantém o texto */
+@media (max-width:1360px){ .protbadge:not(.off) .pbt{display:none} .protbadge:not(.off){padding:2px 5px;margin-left:4px} }
+@media (max-width:1180px){ .fwhead{gap:7px;padding-left:12px;padding-right:12px} }
+@media (max-width:1100px){ .fwhead .fwmodes{margin-left:2px} .fwhead .fwmodes button{padding-left:6px;padding-right:6px} }
+
+/* ---- workspace em janela estreita: colunas laterais mais finas; página do PR empilha ---- */
+@media (max-width:1180px){
+  .fwcols{grid-template-columns:210px 1fr 300px}
+  .fwcols.m-revisao{grid-template-columns:210px 1fr 300px}
+  .fwcols.m-conversa{grid-template-columns:240px 1fr}
+  .fwcols.m-pr,.fwcols.notree,.fwcols.m-revisao.notree,.fwcols.m-pr.notree{grid-template-columns:1fr 300px}
+  .prpage{grid-template-columns:minmax(0,1fr)}
+  .prpage .prleft{border-right:0;border-bottom:1px solid var(--border);overflow:visible}
+  .prpage .prright{overflow:visible}
+}
+
+/* ---- issues: as 5 colunas cabem em 1280 (antes minmax(200px) cortava "Concluída") ---- */
+.trk-col{min-width:170px}
+
+/* ---- Time: linha "ao vivo" não esmaga o resumo ---- */
+.tslive .what{min-width:6em}
+
+/* ---- filtros da Central: em janela estreita busca + selects descem JUNTOS numa linha própria
+   (antes "Todos os tipos" ficava órfão numa terceira linha, desalinhado) ---- */
+@media (max-width:1180px){
+  .ffrow>span[style*="flex:1"]{flex-basis:100%;height:0}
+  .ffrow .ffsearchwrap{flex:1 1 180px;min-width:0}
+  .ffrow .ffsearchwrap .ffsearch{width:100%}
+  .ffrow .ffsel{flex:0 1 150px;min-width:0}
+}
+/* cabeçalho da tarefa estreito: a onda do épico sai (fica no tooltip), o nome ganha o espaço */
+@media (max-width:1180px){ #fwTaskEpic .epw{display:none} }
+.tsepc.epbadge .epn{min-width:1.2em}
+.dcard .dc-req .dc-rt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* issues: no cabeçalho do grupo do épico o título ganha … e a contagem fica sempre visível */
+.trk-epgh .trk-ept{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
+.trk-epgh em{flex:none}
+/* composer do chat numa coluna estreita: os botões de enviar descem juntos em vez de sair da coluna */
+.cc.cc .cc-row{flex-wrap:wrap;row-gap:6px}
+.cc.cc .cc-row #fwSendBtns{margin-left:auto;display:inline-flex;gap:6px}
+/* Entrega: cabeçalho da seção (Verificação etc.) quebra em linhas em vez de espremer a descrição */
+.en-sec .seclbl2{flex-wrap:wrap;row-gap:6px}
+.en-sec .seclbl2 .dim{flex:1 1 220px;min-width:0}
+.en-sec .seclbl2 .btn,.en-sec .seclbl2 .vf-pill{white-space:nowrap;flex:none}
+.en-sec{min-width:0}
+
+/* cabeçalho da tarefa: o nome do épico nunca vira só "C…" — mínimo de ~9 letras; o título cede primeiro */
+#fwTaskEpic .epn{min-width:9ch}
+@media (max-width:1180px){ #fwTaskEpic{min-width:min(7em,9vw);flex-shrink:6} #fwTaskEpic .epn{min-width:4ch} }
+
+/* Configurações: o "salvar" fica SEMPRE à vista (barra fixa no rodapé da tela) — antes era preciso rolar até o fim */
+.cfgsavebar{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:10px;margin:20px calc(-1 * var(--page-pad, 34px)) 0;padding:12px var(--page-pad, 34px);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-top:1px solid var(--border)}
+.cfgsavebar .dim{font-size:11.5px}
+#cfgOverlay #cfgBody{padding-bottom:0} /* a área rolável tinha 44px de padding embaixo: a barra fixa parava 44px antes do fim da janela */
+/* R8: faixa do preview (subir de novo / pedir pro agente) quebra linha no estreito */
+@media (max-width:1100px){ .en-live{flex-wrap:wrap} .en-live>span[style*="flex:1"]{display:none} }
+
+/* ---- R7 onda 5: layout geral em 1024/1280 ----
+   barra lateral: 250px em janela larga, 220px até 1100px (a coluna principal ganha 30px onde mais falta).
+   O JS só põe --rail-w inline quando RECOLHE (0px); aberta, vale este valor. */
+:root{--rail-w:250px}
+@media (max-width:1100px){ :root{--rail-w:220px} .sbnew .sbitem{font-size:12.5px} }
+/* rodapé "Agora": o relógio não quebra em 2 linhas ("sincronizado ·" / "23:15:03"); o resumo cede com … */
+.bus{min-width:0}
+.bus #clock{white-space:nowrap;flex:none}
+.bus #busSummary{min-width:0}
+@media (max-width:1180px){ .bus{gap:9px;padding-left:10px;padding-right:10px} }
+/* telas de conta: em janela baixa (≤720px) a coluna da marca tira os destaques pra caber sem sobrepor o rodapé */
+@media (max-height:720px){ .au-lin .au-bul{display:none} .au-lin .au-h1{margin-top:28px} }
+/* Ambiente: cards em 1 coluna quando não cabem 2 (a grade pedia 400px mínimos e estourava a 1024) */
+@media (max-width:1180px){ #envBody .as-grid{grid-template-columns:minmax(0,1fr)!important} }
+/* filtros da Central ≤1180: o espaçador tem style="flex:1" INLINE, que vencia o flex-basis:100% acima —
+   ele ficava com ~40px na frente da busca (busca desalinhada dos chips). Agora ocupa a linha dele, com altura 0. */
+@media (max-width:1180px){ .ffrow>span[style*="flex:1"]{flex:0 0 100%!important;height:0;margin:0} }

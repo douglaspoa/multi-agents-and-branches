@@ -1,0 +1,38 @@
+[
+ {
+  "title": "Memória",
+  "type": "contexto",
+  "body": "# Memória",
+  "date": ""
+ },
+ {
+  "title": "Sempre rodar os testes com pnpm",
+  "type": "regra",
+  "body": "Sempre rodar os testes com pnpm",
+  "date": "2026-09-01"
+ },
+ {
+  "title": "Nunca commitar na main",
+  "type": "regra",
+  "body": "Nunca commitar na main",
+  "date": "2026-09-02"
+ },
+ {
+  "title": "Usar a data errada (aprendido ontem)",
+  "type": "regra",
+  "body": "Usar a data errada _(aprendido ontem)_",
+  "date": ""
+ },
+ {
+  "title": "- ab",
+  "type": "contexto",
+  "body": "- ab\nTexto solto sobre o projeto\nque continua aqui.",
+  "date": ""
+ },
+ {
+  "title": "Uma regra bem comprida que passa de setenta caracteres pra testar o…",
+  "type": "regra",
+  "body": "Uma regra bem comprida que passa de setenta caracteres pra testar o corte do título no espaço certo.",
+  "date": ""
+ }
+]

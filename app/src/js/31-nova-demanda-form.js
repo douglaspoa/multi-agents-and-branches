@@ -1,4 +1,4 @@
-// Constellation — 31-nova-demanda-form
+// Starfork — 31-nova-demanda-form
 // ---- spec-first: campos obrigatórios por tipo + gate do Iniciar execução ----
 const NT_REQUIRED={
   build:[['ntTitle','título'],['ntObj','objetivo']],
@@ -8,6 +8,8 @@ const NT_REQUIRED={
   review:[['ntPr','link/nº do PR']],
 };
 let ntPolicy={ minRequirements:1, proofRequired:true, testsRequired:true, docRequired:false, costWarn:25 };
+// PURA: o que falta pra começar, em linguagem de gente (antes: "2 campos obrigatórios faltando: …" / "spec pronta ✓")
+function ntMissingText(labels){ labels=(labels||[]).filter(Boolean); return labels.length?'falta: '+labels.join(', '):'pronto pra começar'; }
 function ntGate(){
   const req=NT_REQUIRED[ntMode]||[];
   const missing=req.filter(([id])=>{ const e=$id(id); return !e || !e.value.trim(); });
@@ -22,7 +24,7 @@ function ntGate(){
   if(btn) btn.disabled=missing.length>0;
   if(ms){
     ms.className=missing.length?'':'ok';
-    ms.textContent=missing.length?`${missing.length} campo${missing.length>1?'s':''} obrigatório${missing.length>1?'s':''} faltando: ${missing.map(([,l])=>l).join(', ')}`:'spec pronta ✓';
+    ms.textContent=ntMissingText(missing.map(([,l])=>l));
   }
   if($id('ntRight').classList.contains('mdview')) ntMdRender();
 }
@@ -79,9 +81,9 @@ async function ntAiComplete(){
     if(wizModeOn() && wizN===1){
       wizN=2; wizRender();
       const m=$id('wizMiss');
-      if(m){ m.textContent='✦ preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
+      if(m){ m.innerHTML=IC.starforkEm+' preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
     }
-  }catch(e){ alert('Não consegui completar:\n'+e); }
+  }catch(e){ showErr(e, 'Não consegui completar'); }
   finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }
 }
 bindClick('ntAiFill', ntAiComplete);
@@ -89,22 +91,22 @@ bindClick('ntAiFill', ntAiComplete);
 // cada campo aparece UMA vez: spec → requisitos → quem executa → avançado → confira
 const WIZ_STEPS={
   build:[
-    { n:1, show:[1,3], t:'O que você precisa?', h:'título + objetivo com contexto e anexos — ou "montar conversando" lá em cima, e a IA monta tudo com você', guide:true,
+    { n:1, show:[1,3], t:'O que você precisa?', h:'um título e o objetivo, com o contexto e os anexos que tiver — prefere que a IA pergunte? troque pra "Conversar" lá em cima', guide:true,
       ok:()=>!!($id('ntTitle').value.trim() && $id('ntObj').value.trim()), miss:'preencha título e objetivo' },
-    { n:2, show:[2], t:'Requisitos de entrega', h:()=>`critérios VERIFICÁVEIS — o agente é cobrado a provar cada um; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+    { n:2, show:[2], t:'Como saber que ficou pronto?', h:()=>`frases que alguém consegue conferir ("o botão aparece no celular") — o agente precisa provar cada uma; mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} neste projeto`, guide:true,
       ok:()=>ntReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os requisitos mínimos' },
-    { n:3, how:true, opt:true, t:'Quem executa?', h:'o fluxo recomendado já vem marcado — modelo e limites no "Avançado" logo abaixo', ok:()=>true },
-    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'escopo, branch, PR, time & épico — os padrões servem; pode pular', ok:()=>true },
-    { n:5, rev:true, t:'Confira a spec', h:'é exatamente isto que o agente recebe — provas e testes já vêm exigidos pela política', ok:()=>true },
+    { n:3, how:true, opt:true, t:'Quem executa?', h:'o time recomendado já vem marcado — a IA e o limite de gasto ficam logo abaixo', ok:()=>true },
+    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'onde pode mexer, como entrega e compartilhar com o time — os padrões servem; pode pular', ok:()=>true },
+    { n:5, rev:true, t:'Confira o pedido', h:'é exatamente isto que o agente recebe — provas e testes já vêm exigidos neste projeto', ok:()=>true },
   ],
   fix:[
     { n:1, show:[1,3], t:'O que corrigir?', h:'onde acontece, sintoma, como reproduzir — o print do bug vale mais que mil palavras', guide:true,
       ok:()=>!!$id('ntFixTitle').value.trim(), miss:'diga o que corrigir' },
-    { n:2, show:[2], t:'Critérios de aceite', h:()=>`como saberemos que está corrigido — mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} pela política do repo`, guide:true,
+    { n:2, show:[2], t:'Como saber que foi corrigido?', h:()=>`frases que alguém consegue conferir ("o pagamento conclui no iPhone") — mínimo ${Math.max(1,+ntPolicy.minRequirements||1)} neste projeto`, guide:true,
       ok:()=>ntFixReq.filter(x=>x&&x.trim()).length>=Math.max(1,+ntPolicy.minRequirements||1), miss:'adicione os critérios mínimos' },
-    { n:3, how:true, opt:true, t:'Quem corrige?', h:'o builder padrão resolve a maioria — modelo e limites no "Avançado" logo abaixo', ok:()=>true },
-    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'comprovações, time & épico — pode pular', ok:()=>true },
-    { n:5, rev:true, t:'Confira a spec', h:'é exatamente isto que o agente recebe', ok:()=>true },
+    { n:3, how:true, opt:true, t:'Quem corrige?', h:'um agente só resolve a maioria — a IA e o limite de gasto ficam logo abaixo', ok:()=>true },
+    { n:4, show:[4], share:true, opt:true, t:'Ajustes avançados', h:'provas da entrega e compartilhar com o time — pode pular', ok:()=>true },
+    { n:5, rev:true, t:'Confira o pedido', h:'é exatamente isto que o agente recebe', ok:()=>true },
   ],
 };
 let wizN=1;
@@ -168,9 +170,25 @@ function wizRender(){
   bindClick('wizSkip', ()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); });
   { const b=$id('wizNext'); if(b) b.onclick=()=>{
       if(last){ wizLaunch(); return; }
-      if(!st.ok()){ const m=$id('wizMiss'); if(m){ m.textContent='⚠ '+(st.miss||'complete esta etapa'); setTimeout(()=>{ if(m) m.textContent=''; },2600); } return; }
+      if(!st.ok()){ const m=$id('wizMiss'); if(m){ m.innerHTML=IC.warn+' '+esc(st.miss||'complete esta etapa'); clearTimeout(m.__t); m.__t=setTimeout(()=>{ if(m) m.textContent=''; },4000); }
+        // R8: leva o cursor pro 1º campo que falta (antes só um aviso que sumia em 2,6 s, sem dizer onde)
+        { const f=wizMissField(st);
+          if(f){ try{ f.focus(); f.classList.add('missnow'); f.addEventListener('input',()=>f.classList.remove('missnow'),{once:true}); f.scrollIntoView({block:'nearest'}); }catch(_){} } }
+        return; }
       wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender();
     }; }
+}
+// o 1º campo que falta NA ETAPA ATUAL: só as seções que ela mostra (st.show), só campos visíveis;
+// obrigatório vazio, senão o 1º requisito vazio, senão o "+ item" da lista de requisitos
+function wizMissField(st){
+  const cont=$id(ntMode==='fix'?'ntFixFields':'ntBuildFields'); if(!cont||!st) return null;
+  const secs=[...cont.querySelectorAll('.wstep')].filter(e=>(st.show||[]).includes(+e.dataset.w));
+  const req=new Set((NT_REQUIRED[ntMode]||[]).map(([id])=>id));
+  const vis=e=>e && e.offsetParent!==null && !e.disabled;
+  for(const sec of secs){ const f=[...sec.querySelectorAll('input,textarea')].find(e=>vis(e) && req.has(e.id) && !e.value.trim()); if(f) return f; }
+  for(const sec of secs){ const f=[...sec.querySelectorAll('#ntRequirements input, #ntFixReqs input')].find(e=>vis(e) && !e.value.trim()); if(f) return f; }
+  for(const sec of secs){ const b=sec.querySelector('#ntReqAdd, #ntFixReqAdd'); if(vis(b)) return b; }
+  return null;
 }
 // Time & épico: aparece numa etapa só do wizard (fora dele, quem manda é ntShareSync)
 function wizShareApply(st){
@@ -182,7 +200,7 @@ function wizShareApply(st){
   } else r.style.display=cloudOk?'block':'none';
 }
 // ---- modal de progresso da criação (estilo abertura de PR) ----
-const GO_STEPS=[['spec','spec montada'],['req','requisitos verificáveis'],['issue','criando a issue e a branch'],['agent','despachando o agente']];
+const GO_STEPS=[['spec','pedido montado'],['req','como saber que ficou pronto'],['issue','preparando uma cópia isolada do projeto'],['agent','chamando o agente']];
 let goState={};
 function goRender(nReq){
   const el=$id('goSteps'); if(!el) return;
@@ -193,7 +211,7 @@ function goRender(nReq){
     return `<div style="display:flex;gap:9px;align-items:center;font-size:12.5px;color:${col}"><span class="mono" style="width:14px">${ic}</span>${k==='req'?`${l} (${nReq})`:l}${s==='run'?'…':''}</div>`;
   }).join('');
 }
-function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; cosmosStart($id('goOverlay')); }
+function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; ldPaint($id('goSky'), brandLoaderHtml('colocando no ar', { now:true })); }
 function goHide(){ $id('goOverlay').style.display='none'; }
 // última etapa do wizard: aplica as escolhas do "Quem executa?" e cria mostrando progresso
 async function wizLaunch(){
@@ -203,7 +221,7 @@ async function wizLaunch(){
   if(pick&&src) src.value=pick.value;
   { const hm=$id('howModel'), nm=$id('ntModel'); if(hm&&nm&&hm.value) nm.value=hm.value; }
   ntModels=[...document.querySelectorAll('[data-agmodel]')].filter(s=>s.value).map(s=>`${s.dataset.agmodel}=${s.value}`).join(',');
-  { const hc=$id('howCost'); if(hc&&hc.value) lsSet('costWarn', String(Math.max(0, parseFloat(hc.value)||0))); }
+  { const hb=$id('howBudget'); if(hb) ntBudgetPending=Math.max(0, parseFloat(hb.value)||0); } // teto DESTA tarefa
   { const hs=$id('howSlots'); if(hs&&hs.value) setSlotMax(parseInt(hs.value,10)||slotMax); }
   const nReq=(ntMode==='fix'?ntFixReq:ntReq).filter(x=>x&&x.trim()).length;
   goShow(nReq);
@@ -247,10 +265,10 @@ function howPopulate(){
     (team2.length?`<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px"><span class="mono" style="font-size:10px;letter-spacing:.08em;color:var(--muted)">FLUXOS DO TIME</span><span style="flex:1"></span><button class="btn sm" id="howManage" style="padding:2px 8px;font-size:10.5px">gerenciar</button></div>`+team2.map(optHtml).join(''):'');
   bindClick('howManage', ()=>{ closeHow(); openAgents(); });
   box.querySelectorAll('.howopt').forEach(l=>l.onclick=()=>{ box.querySelectorAll('.howopt').forEach(x=>x.classList.remove('on')); l.classList.add('on'); l.querySelector('input').checked=true; howAgentsRender(); });
-  $id('howModel').value=($id('ntModel')||{}).value||'';
+  setSelValue($id('howModel'), ($id('ntModel')||{}).value||''); // id completo (ex.: claude-opus-5-5) não some
   $id('howModel').onchange=howEstimateUpdate;
   howAgentsRender();
-  $id('howCost').value=parseFloat(lsGet('costWarn')||'25');
+  { const hb=$id('howBudgetHost'); if(hb){ ntBudgetPending=null; hb.innerHTML=budgetFieldHtml('howBudget'); budgetFieldWire('howBudget'); } }
   $id('howSlots').value=slotMax;
 }
 function closeHow(){ $id('ntRight').classList.remove('howview'); $id('ntOverlay').classList.remove('howmode'); }
@@ -269,8 +287,8 @@ function howEstimateUpdate(){
   const w=wfs.find(x=>x.id===wid);
   const n=w?((w.steps||[]).length||1):1;
   const model=(($id('howModel')||{}).value)||'';
-  const per=({opus:[0.40,1.60], sonnet:[0.12,0.50], haiku:[0.03,0.12]})[model]||[0.15,0.65];
-  el.innerHTML=`Estimativa grosseira: <b style="color:var(--text-2)">~${fmtUsd(per[0]*n)}–${fmtUsd(per[1]*n)}</b> · ${n} agente(s)${model?` · ${esc(model)}`:''} <span class="dim">(varia com o tamanho da tarefa)</span>`;
+  const [lo,hi]=roughEstimate(n, model);
+  el.innerHTML=`Estimativa grosseira: <b style="color:var(--text-2)">${esc(fmtCostRange(lo,hi))}</b> · ${n} agente(s)${model?` · ${esc(model)}`:''} <span class="dim">(varia com o tamanho da tarefa)</span>`;
 }
 function howAgentsRender(){
   howEstimateUpdate();
@@ -291,7 +309,7 @@ $id('howGo').onclick=()=>{
   if(pick && src) src.value=pick.value;
   const nm=$id('ntModel'); if(nm) nm.value=$id('howModel').value;
   ntModels=[...document.querySelectorAll('[data-agmodel]')].filter(s=>s.value).map(s=>`${s.dataset.agmodel}=${s.value}`).join(',');
-  lsSet('costWarn', String(Math.max(0, parseFloat($id('howCost').value)||0)));
+  { const hb=$id('howBudget'); if(hb) ntBudgetPending=Math.max(0, parseFloat(hb.value)||0); } // teto DESTA tarefa
   setSlotMax(parseInt($id('howSlots').value,10)||slotMax);
   closeHow();
   submitNewTask(true);
@@ -299,7 +317,7 @@ $id('howGo').onclick=()=>{
 
 // ---- cadeia de política/guia: padrão do PRODUTO < organização < repo ----
 const ORG_DEFAULT_POLICY={ minRequirements:1, proofRequired:true, testsRequired:true, docRequired:false, costWarn:25 };
-const DEFAULT_SPEC_TEMPLATE=`# Guia de demanda — template padrão do Constellation
+const DEFAULT_SPEC_TEMPLATE=`# Guia de demanda — template padrão do Starfork
 
 Sua organização pode sobrescrever este guia (Conta → Padrões da organização);
 um repo pode refinar com .cardume/SPEC.md. A IA e o wizard seguem este texto.
@@ -345,12 +363,18 @@ async function openNewTask(){
   }
   setNtMode(ntMode);
   { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; }
+  // o que veio do "Conversar" (seletor de modo): texto → título + objetivo; entregas/requisitos que a conversa já montou
+  // entram nas listas. Nada que já está preenchido é apagado.
+  { const c=window.ndTakeCarryAll?window.ndTakeCarryAll():{}; if(c.text){
+      const F={ build:['ntTitle','ntObj'], fix:['ntFixTitle','ntFixObj'], design:['ntDzTitle','ntDzObj'], invest:['ntInvTitle','ntInvObj'] }[ntMode];
+      const sp=ndSplitCarry(c.text, c.title);
+      if(F){ const t=$id(F[0]), o=$id(F[1]); if(t && !t.value.trim()) t.value=sp.title; if(o && !o.value.trim()) o.value=sp.objective; }
+      else if(ntMode==='review'){ const pr=$id('ntPr'); const u=c.text.match(/https?:\/\/\S+/); if(pr && u && !pr.value.trim()) pr.value=u[0]; }
+      if(ntMode==='build'){ if(!ntDel.filter(Boolean).length && (c.deliverables||[]).length) ntDel=c.deliverables.slice(); if(!ntReq.filter(Boolean).length && (c.requirements||[]).length) ntReq=c.requirements.slice(); renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); }
+      else if(ntMode==='fix' && !ntFixReq.filter(Boolean).length && (c.requirements||[]).length){ ntFixReq=c.requirements.slice(); renderNtList("ntFixReqs", ntFixReq); } } }
   renderNtList("ntDeliverables", ntDel); renderNtList("ntRequirements", ntReq); renderNtList("ntFixReqs", ntFixReq); renderDzRefs(); renderFixRefs();
   ntFillProjects();
   $id("ntOverlay").style.display = "flex";
-  // o assistente lateral MORREU (bugado demais) — quem completa a spec agora é
-  // o botão "✨ completar com IA", em cima do que você já digitou
-  { const a=$id('aiAssist'); if(a) a.style.display='none'; }
   // POLÍTICA do repo: provas/testes obrigatórios ficam LIGADOS e travados — a
   // entrega tem que sair completa, sem depender da disciplina de cada dev
   try{ ntPolicy={ ...ntPolicy, ...(await policyChain()) }; }catch(_){ }
@@ -416,14 +440,14 @@ async function openFromDesign(t){
     renderNtRefs();
     $id('ntArtProof').checked=true;
     $id('ntArtTests').checked=true;
-  }catch(e){ alert('Não consegui montar a entrega:\n'+(e&&e.message||e)); console.error('openFromDesign:', e); }
+  }catch(e){ showErr(e, 'Não consegui montar a entrega'); console.error('openFromDesign:', e); }
 }
 
 // ---------- desdobrar tarefa em ÉPICO (a IA propõe as sub-tarefas) ----------
 let bdTask=null, bdItems=null, bdRun=0; // bdRun: só a resposta da IA da ÚLTIMA abertura vale // bdItems: null = IA lendo · [] = sem proposta · 'plan' = card do épico (plPlan) na tela
 // Desdobrar = o MESMO card do planner (envelope + tarefas com verify/after/risk), hospedado no overlay do desdobrar.
 async function openBreakdown(t){
-  if(!SB.sess() || !cloudTeamId()){ alert('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro (botão no topo).'); return; }
+  if(!SB.sess() || !cloudTeamId()){ toast('Desdobrar em épico usa o backlog do TIME — entre na sua conta e escolha um time primeiro.','warn',{ label:'abrir Conta', fn:ERR_ACTIONS.conta }); return; }
   bdTask=t; bdItems=null; const run=++bdRun;
   $id('bdOverlay').style.display='flex';
   renderBd();
@@ -492,7 +516,7 @@ async function openLinkedFix(t){
 function renderNtLink(){
   const el=$id('ntLinkChip'); if(!el) return;
   const t=(state.tasks||[]).find(x=>x.id===ntLinkedTo);
-  el.innerHTML = ntLinkedTo ? `<span class="linkchip">${IC.clip} linkada a: <b>${esc(t?t.title:ntLinkedTo)}</b><button class="fwselx" id="ntLinkX">✕</button></span>` : '';
+  el.innerHTML = ntLinkedTo ? `<span class="linkchip">${IC.clip} linkada a: <b>${esc(t?t.title:ntLinkedTo)}</b><button class="fwselx" id="ntLinkX">${IC.x}</button></span>` : '';
   const x=$id('ntLinkX'); if(x) x.onclick=()=>{ ntLinkedTo=null; renderNtLink(); };
 }
 function setNtMode(m){
@@ -505,17 +529,23 @@ function setNtMode(m){
   $id("ntDesignFields").style.display = m==='design'?'':'none';
   $id("ntInvFields").style.display = m==='invest'?'':'none';
   $id("ntDraft").style.display = m==='build'?'':'none';
-  $id("ntAI").style.display = m==='build'?'':'none'; // planner conversacional: monta a issue conversando (Entrega)
+  { const ai=$id("ntAI"); if(ai){ ai.style.display=''; ai.disabled=false; ai.title='a IA pergunta só o essencial e monta a demanda — o tipo e o texto vão junto'; } } // R8: repaginada B — Conversar vale pra todo tipo (o chip "Tipo" do planner leva o tipo)
   $id("ntImport").style.display = m==='build'?'':'none';
   { const tn=$id('ntTypeName'); if(tn) tn.textContent=(ntDocsPreset&&m==='build')?'Documentação':((window.ND_NAME_OF_MODE||{})[m]||m); }
-  $id("ntHint").textContent = m==='review'?'revisa um PR por link — sem criar branch':m==='fix'?'um builder só, sem plano nem docs — branch fix/…':m==='design'?'mockup + decisões ANTES da issue — não mexe no código do produto':m==='invest'?'causa raiz com evidências — investiga, NÃO corrige':'cada tarefa vira uma branch + worktree isolada';
+  $id("ntHint").textContent = m==='review'?'cole o link do PR (pedido de mudança) — a IA revisa e escreve um parecer, sem mexer no código':m==='fix'?'um agente só, direto na correção — você revisa antes de entrar no projeto':m==='design'?'mockup e decisões antes de programar — não mexe no produto':m==='invest'?'acha a causa com evidências — investiga, não corrige':'roda numa cópia isolada do projeto — nada muda no principal até você aprovar';
   const create=$id("ntCreate");
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';
   ntGate();
   if(typeof aiPickRender==='function') aiPickRender();
 }
-{ const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{ if(window.openTab) window.openTab('nova'); }; }
+// "trocar" o tipo: um popover aqui mesmo (repaginada B — não existe mais a tela de tipos; com nd:legacy volta pra ela)
+{ const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{
+  if((window.ndLegacy&&window.ndLegacy()) || !window.ndPopover){ if(window.openTab) window.openTab('nova'); return; }
+  const cur=(ntDocsPreset&&ntMode==='build')?'docs':ntMode;
+  ndPopover(sw, `<div class="ndpop-h">Tipo de demanda</div>${ND_TYPES.map(t=>`<button type="button" class="ndpop-opt${t.k===cur?' on':''}" data-ntswap="${t.k}"><b>${esc(t.name)}</b><span>${esc(t.desc)}</span></button>`).join('')}`,
+    p=>p.querySelectorAll('[data-ntswap]').forEach(b=>b.onclick=()=>{ const k=b.dataset.ntswap; ntDocsPreset=(k==='docs'); setNtMode((window.ND_TO_MODE||{})[k]||'build'); { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; } ndPopClose(); }));
+}; }
 // o toggle Formulário|Markdown mora na linha do eyebrow (à direita); a barra "SPEC" solta some
 { const seg=document.querySelector('#ntRight .ntviewbar .seg2'), pr=document.querySelector('#wizHead .nf-progrow'), vb=document.querySelector('#ntRight .ntviewbar');
   if(seg&&pr){ seg.style.marginLeft='auto'; pr.appendChild(seg); } if(vb) vb.style.display='none'; }
@@ -526,57 +556,12 @@ window.ntShow=ntShow;
 window.TAB_STATE_form={
   get:()=>{ const fields={}; document.querySelectorAll('#ntOverlay input[id],#ntOverlay select[id],#ntOverlay textarea[id]').forEach(e=>{ fields[e.id]=(e.type==='checkbox'||e.type==='radio')?{c:e.checked}:{v:e.value}; });
     const ti=($id('ntTitle')||{}).value||($id('ntFixTitle')||{}).value||($id('ntDzTitle')||{}).value||($id('ntInvTitle')||{}).value||'';
-    return { _title:ti, fields, ntMode, ntModels, ntDocsPreset, ntLinkedTo, ntDel:ntDel.slice(), ntReq:ntReq.slice(), ntRefs:ntRefs.slice(), ntFixReq:ntFixReq.slice(), ntDzRefs:ntDzRefs.slice(), ntFixRefs:ntFixRefs.slice(), ntInvRefs:ntInvRefs.slice(), aiSid, ntEditingDraft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; },
+    return { _title:ti, fields, ntMode, ntModels, ntDocsPreset, ntLinkedTo, ntDel:ntDel.slice(), ntReq:ntReq.slice(), ntRefs:ntRefs.slice(), ntFixReq:ntFixReq.slice(), ntDzRefs:ntDzRefs.slice(), ntFixRefs:ntFixRefs.slice(), ntInvRefs:ntInvRefs.slice(), ntEditingDraft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; },
   set:(st)=>{ Object.entries(st.fields||{}).forEach(([id,f])=>{ const e=$id(id); if(!e) return; if('c' in f) e.checked=!!f.c; else e.value=f.v; });
-    ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; aiSid=st.aiSid||''; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
+    ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
     renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
 };
-function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); aiSid=""; $id("aiChat").innerHTML=""; $id("aiAssist").style.display="none"; }
-// ---------- assistente IA de spec ----------
-let aiSid="", aiBusy=false;
-function aiAppend(role, text){
-  const c=$id('aiChat'); const div=document.createElement('div');
-  div.className='aimsg '+role; div.innerHTML = role==='assistant'?mdToHtml(text):esc(text);
-  c.appendChild(div); c.scrollTop=c.scrollHeight; return div;
-}
-function extractSpec(text){
-  const m=text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
-  let raw = m?m[1]:null;
-  if(!raw){ const j=text.match(/\{[\s\S]*"objective"[\s\S]*\}/); raw=j?j[0]:null; }
-  if(!raw) return null;
-  try{ const o=JSON.parse(raw); return (o && (o.title||o.objective))?o:null; }catch(e){ return null; }
-}
-async function sendAiMsg(){
-  if(aiBusy) return;
-  const inp=$id('aiInput'); const text=inp.value.trim(); if(!text) return;
-  aiAppend('user', text); inp.value=''; aiBusy=true;
-  const send=$id('aiSend'); send.disabled=true;
-  const thinking=aiAppend('assistant','…'); thinking.classList.add('think');
-  try{
-    const r=await invoke('ai_chat',{ prompt:text, sessionId:aiSid });
-    aiSid=r.sessionId||aiSid; thinking.remove();
-    const spec=extractSpec(r.text||'');
-    if(spec){
-      aiAppend('assistant','Montei a spec com base no que você me contou:');
-      const div=aiAppend('assistant','');
-      div.innerHTML=`<div class="aispec"><b>${esc(spec.title||'(sem título)')}</b><div class="dim" style="margin:3px 0 8px">${esc(spec.objective||'')}</div>${(spec.deliverables||[]).length?`<div class="dim" style="font-size:11px">Entregáveis: ${esc((spec.deliverables||[]).join(' · '))}</div>`:''}<button class="btn primary sm" id="aiFill" style="margin-top:9px">preencher formulário</button></div>`;
-      $id('aiFill').onclick=()=>fillFromSpec(spec);
-    } else {
-      aiAppend('assistant', r.text||'(sem resposta)');
-    }
-  }catch(e){ thinking.remove(); const m=String(e&&e.message||e); aiAppend('assistant', /PLANNER_STOPPED/.test(m)?'Parado.':'⚠ '+m); }
-  finally{ aiBusy=false; send.disabled=false; const i=$id('aiInput'); if(i) i.focus(); }
-}
-function fillFromSpec(spec){
-  $id('ntTitle').value=spec.title||'';
-  $id('ntObj').value=spec.objective||'';
-  // entregáveis eram redundantes com requisitos — tudo vira REQUISITO (cobrado com prova)
-  ntDel=[];
-  const reqSet=new Set([...(spec.requirements||[]), ...(spec.deliverables||[])].map(x=>String(x).trim()).filter(Boolean));
-  ntReq=[...reqSet];
-  renderNtList('ntRequirements',ntReq);
-  $id('ntOwns').value=(spec.owns||[]).join(', ');
-  $id('ntOff').value=(spec.off||[]).join(', ');
-  $id('aiAssist').style.display='none';
-  $id('ntTitle').focus();
-}
+function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); }
+// objetivo / detalhes / contexto / sintoma: colar (⌘V) um print ou arrastar um arquivo pro texto vira ANEXO da
+// demanda (mesma lista do botão "anexar") — igual ao composer dos chats; texto colado continua texto
+[['ntObj',()=>ntRefs,renderNtRefs],['ntFixObj',()=>ntFixRefs,renderFixRefs],['ntDzObj',()=>ntDzRefs,renderDzRefs],['ntInvObj',()=>ntInvRefs,renderInvRefs]].forEach(([id,arr,render])=>attWireRefField(id,arr,render));

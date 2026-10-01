@@ -125,7 +125,7 @@ struct SettingsView: View {
                     }
 
                     OutlineButton(label: "Sair da conta", height: 48, full: true, color: T.bad, stroke: T.bad.opacity(0.4), fill: T.bad.opacity(0.08)) { supa.signOut() }
-                    Text("Constellation Mobile 0.3 — companion do orquestrador de agentes")
+                    Text("Starfork Mobile 0.3 — companion do orquestrador de agentes")
                         .font(.system(size: 11.5)).foregroundStyle(T.dim2)
                 }
                 .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 40)

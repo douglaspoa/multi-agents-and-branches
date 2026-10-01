@@ -1,0 +1,12 @@
+[
+  {
+    "id": "F3-grade",
+    "titulo": "Selo do épico no cartão da vista em GRADE (flowTaskCard)",
+    "motivo": "flowTaskCard mora em app/src/js/21-pull-request.js, que está com outro pacote (workspace). O selo foi feito na lista (flowDemandCard) e no flowTaskRow; na grade basta chamar `epTaskBadge(t)` no título e acrescentar `has-ep` + `style=\"--epc:${epColor(t.epic.epicId)}\"` no cartão — os helpers já são globais."
+  },
+  {
+    "id": "M1-resto",
+    "titulo": "Nomes de status fora dos arquivos deste pacote",
+    "motivo": "12-chat-prefs-daily.js (daily) e 45-entrega-time.js usam CT_ST_PT/ctStLabel — que agora já são espelho de stLabel, então herdam os nomes novos sem edição. Qualquer outro rótulo de status escrito à mão em arquivos de outros pacotes (20/21/30/32/34/10/15/26/33/44) não foi tocado."
+  }
+]

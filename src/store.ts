@@ -10,8 +10,27 @@ import type {
   TaskSpec,
 } from "./types.ts";
 
+/** "database is locked"/SQLITE_BUSY — outro processo segurou a trava além do busy_timeout. */
+export function isBusyError(e: unknown): boolean {
+  const m = String((e as Error)?.message ?? e ?? "");
+  return /database is locked|SQLITE_BUSY|database table is locked/i.test(m);
+}
+
+/** Roda `fn` de novo (até `tries` vezes, com espera crescente) quando o banco está ocupado. Síncrono
+ * (node:sqlite é síncrono): a espera usa Atomics.wait, sem girar a CPU. */
+export function withBusyRetry<T>(fn: () => T, tries = 4, baseMs = 150): T {
+  for (let i = 1; ; i++) {
+    try {
+      return fn();
+    } catch (e) {
+      if (i >= tries || !isBusyError(e)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, baseMs * i);
+    }
+  }
+}
+
 /**
- * Persistência do Cardume — um arquivo SQLite por repo (<repo>/.cardume/state.sqlite).
+ * Persistência do Starfork — um arquivo SQLite por repo (<repo>/.cardume/state.sqlite).
  * É o "DB que o app lê": os agentes gravam eventos aqui (via hooks/MCP no produto
  * final; direto pelo orquestrador na Fase 0) e a UI só observa este arquivo.
  */
@@ -19,12 +38,23 @@ export class Store {
   db: DatabaseSync;
 
   constructor(file: string) {
-    this.db = new DatabaseSync(file);
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    // Tarefas paralelas rodam em processos separados escrevendo no mesmo DB:
-    // espera o lock (até 8s) em vez de falhar com "database is locked".
-    this.db.exec("PRAGMA busy_timeout = 8000;");
-    this.migrate();
+    // Tarefas paralelas rodam em processos separados escrevendo no mesmo DB: espera o lock (até 8s)
+    // em vez de falhar com "database is locked". O busy_timeout vem ANTES de qualquer outra coisa —
+    // antes o `journal_mode = WAL` rodava com timeout 0 e falhava na hora quando outro processo
+    // fechava o banco (checkpoint com trava exclusiva): "database is locked at new Store" (cmdMetrics,
+    // 28/09). Mesmo assim, uma abertura ocupada ganha mais tentativas curtas (withBusyRetry).
+    this.db = withBusyRetry(() => {
+      const db = new DatabaseSync(file);
+      try {
+        db.exec("PRAGMA busy_timeout = 8000;");
+        db.exec("PRAGMA journal_mode = WAL;");
+        return db;
+      } catch (e) {
+        try { db.close(); } catch { /* já fechado */ }
+        throw e;
+      }
+    });
+    withBusyRetry(() => this.migrate());
   }
 
   private migrate(): void {
@@ -114,6 +144,11 @@ export class Store {
         created_at INTEGER NOT NULL,
         done_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS session_cost (
+        session_id TEXT PRIMARY KEY,
+        total REAL NOT NULL,          -- custo ACUMULADO da sessão do claude no fim do último turno
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS cost (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT NOT NULL,
@@ -134,12 +169,28 @@ export class Store {
       "ALTER TABLE task ADD COLUMN done_roles INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE event ADD COLUMN role TEXT",
       "ALTER TABLE task ADD COLUMN busy_pid INTEGER",
+      "ALTER TABLE task ADD COLUMN busy_since INTEGER",
       "ALTER TABLE cost ADD COLUMN ms INTEGER NOT NULL DEFAULT 0",
     ]) {
       try {
         this.db.exec(stmt);
       } catch {
         /* coluna já existe */
+      }
+    }
+    // índices dos filtros quentes (o schema só tinha PK): eventos/custo/claims/fila POR TAREFA —
+    // task_events do app, daily digest, pr_body_ai, list_done_tasks (MAX(ts) correlato), custo por tarefa.
+    // Antes: varredura da tabela inteira (21 mil eventos num projeto real) a cada consulta.
+    for (const stmt of [
+      "CREATE INDEX IF NOT EXISTS ev_task ON event(task_id, id)",
+      "CREATE INDEX IF NOT EXISTS cost_task ON cost(task_id)",
+      "CREATE INDEX IF NOT EXISTS claim_task ON claim(task_id)",
+      "CREATE INDEX IF NOT EXISTS wq_task ON work_queue(task_id, status)",
+    ]) {
+      try {
+        this.db.exec(stmt);
+      } catch {
+        /* banco ocupado/só-leitura: tenta de novo na próxima abertura */
       }
     }
   }
@@ -182,6 +233,11 @@ export class Store {
 
   updateSpec(taskId: string, specJson: string): void {
     this.db.prepare(`UPDATE task SET spec_json = ? WHERE id = ?`).run(specJson, taskId);
+  }
+
+  /** Título/objetivo ficam também em colunas (a lista do app lê daqui) — acompanham a spec editada. */
+  setTitleObjective(taskId: string, title: string, objective: string): void {
+    this.db.prepare(`UPDATE task SET title = ?, objective = ? WHERE id = ?`).run(title, objective, taskId);
   }
 
   setDoneRoles(taskId: string, n: number): void {
@@ -327,6 +383,15 @@ export class Store {
       .run(answer, Date.now(), id);
   }
 
+  /** Fecha as PERGUNTAS ainda abertas da tarefa (fim do turno): sem processo esperando, a resposta caía no vazio —
+   * a pergunta seguia na tela e o que o humano mandava ficava "aguardando o agente" pra sempre. Devolve quantas. */
+  closeOpenQuestions(taskId: string, answer = "(sem resposta — o turno terminou)"): number {
+    const r = this.db
+      .prepare(`UPDATE pending SET status = 'answered', answer = ?, resolved_at = ? WHERE task_id = ? AND status = 'open' AND kind = 'question'`)
+      .run(answer, Date.now(), taskId);
+    return Number(r.changes || 0);
+  }
+
   // ---------- sessão do agente (para --resume) ----------
   setSession(taskId: string, sessionId: string): void {
     this.db.prepare(`UPDATE task SET session_id = ? WHERE id = ?`).run(sessionId, taskId);
@@ -337,7 +402,38 @@ export class Store {
   // O processo que roda um turno grava seu PID em task.busy_pid; pedidos novos
   // checam a vida do PID (kill 0) — se vivo, entram na fila e rodam ao final.
   setBusyPid(taskId: string, pid: number | null): void {
-    this.db.prepare(`UPDATE task SET busy_pid = ? WHERE id = ?`).run(pid, taskId);
+    this.db.prepare(`UPDATE task SET busy_pid = ?, busy_since = ? WHERE id = ?`).run(pid, pid ? Date.now() : null, taskId);
+  }
+
+  /**
+   * Pega o lock do turno de forma ATÔMICA: livre, do próprio pid ou de um processo morto → grava `pid`
+   * e devolve true; de outro processo vivo → false. Antes era "lê busy_pid, checa, grava" em passos
+   * soltos: dois "iniciar"/"falar" quase juntos (duplo clique, app + CLI) viam o lock livre e subiam DOIS
+   * agentes na mesma worktree. BEGIN IMMEDIATE serializa quem escreve no banco entre processos.
+   */
+  tryLockBusy(taskId: string, pid: number, isAlive: (pid: number, since: number | null) => boolean): boolean {
+    return withBusyRetry(() => {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const row = this.db.prepare(`SELECT busy_pid, busy_since FROM task WHERE id = ?`).get(taskId) as { busy_pid: number | null; busy_since: number | null } | undefined;
+        if (!row) { // tarefa não existe (apagada/id errado): nada a travar
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+        const cur = row.busy_pid ?? null;
+        // `since` = quando o lock foi pego: um PID vivo que NASCEU depois disso é outro processo (PID reciclado)
+        if (cur && cur !== pid && isAlive(cur, row.busy_since ?? null)) {
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+        if (cur !== pid) this.db.prepare(`UPDATE task SET busy_pid = ?, busy_since = ? WHERE id = ?`).run(pid, Date.now(), taskId);
+        this.db.exec("COMMIT");
+        return true;
+      } catch (e) {
+        try { this.db.exec("ROLLBACK"); } catch { /* já encerrada */ }
+        throw e;
+      }
+    });
   }
 
   busyPid(taskId: string): number | null {
@@ -358,8 +454,19 @@ export class Store {
       .get(taskId) as { id: number; kind: string; payload: string } | undefined;
   }
 
-  queueDone(id: number): void {
-    this.db.prepare(`UPDATE work_queue SET status = 'done', done_at = ? WHERE id = ?`).run(Date.now(), id);
+  /** Marca o pedido como tomado — SÓ se ainda estava na fila. false = outro processo já o pegou (não roda 2x). */
+  queueDone(id: number): boolean {
+    const r = this.db.prepare(`UPDATE work_queue SET status = 'done', done_at = ? WHERE id = ? AND status = 'queued'`).run(Date.now(), id);
+    return Number(r.changes) > 0;
+  }
+
+  /** Descarta (status 'expired') pedidos da fila criados antes de `before` — órfãos de um turno que
+   * morreu (parar/SIGKILL) sem drenar. Devolve quantos. */
+  queueExpire(taskId: string, before: number): number {
+    const res = this.db
+      .prepare(`UPDATE work_queue SET status = 'expired', done_at = ? WHERE task_id = ? AND status = 'queued' AND created_at < ?`)
+      .run(Date.now(), taskId, before);
+    return Number(res.changes);
   }
 
   queueCount(taskId: string): number {
@@ -378,6 +485,12 @@ export class Store {
     return this.db
       .prepare(`SELECT id, text FROM instruction WHERE task_id = ? AND status = 'open' ORDER BY id`)
       .all(taskId) as { id: number; text: string }[];
+  }
+
+  /** Cancela uma instrução que ainda não foi entregue. true = estava aberta e foi cancelada. */
+  cancelInstruction(id: number): boolean {
+    const r = this.db.prepare(`UPDATE instruction SET status = 'cancelled', applied_at = ? WHERE id = ? AND status = 'open'`).run(Date.now(), id);
+    return Number(r.changes) > 0;
   }
 
   markInstructionApplied(id: number): void {

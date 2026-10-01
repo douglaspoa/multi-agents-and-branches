@@ -1,0 +1,26 @@
+[
+ {
+  "id": "R9-1",
+  "area": "Chat da tarefa · retomar",
+  "titulo": "Conversa com a tarefa SEMPRE pode ser retomada, mesmo depois do merge ou da limpeza",
+  "antes": "Depois do merge (ou de 'liberar espaço'), mandar mensagem pra tarefa dava erro no chat: 'não consegui falar com o agente: tarefa mergeada e a worktree já foi removida — abra uma correção linkada pra continuar.' A única saída era abrir outra tarefa.",
+  "depois": "Ao mandar mensagem, se a cópia de trabalho sumiu ela é RECRIADA no MESMO caminho (a sessão do Claude é guardada por pasta, então o --resume continua a mesma conversa). Não mergeada: reaproveita a branch (local ou origin/<branch>). Mergeada: nasce uma branch nova da base atualizada, <branch>-cont (-cont2…), o PR antigo vai pra spec.prHistory e o prUrl é limpo — o próximo commit & push abre um PR NOVO. Ambiente re-semeado (.env, node_modules, RUNBOOK…) e TASK.yaml reescrito. Nota no chat: 'Recriei a cópia de trabalho desta tarefa a partir de origin/main — a conversa continua.' Ao fim do turno a tarefa fica 'pronta pra revisar' (não volta pro limbo mergeada-sem-worktree). Se a sessão não existir mais ('No conversation found'), segue numa sessão nova semeada com o resumo da conversa. A 'correção linkada' continua disponível, mas não é mais obrigatória.",
+  "motivo": "Pedido do dono: 'ela tem SEMPRE que poder ser retomada'. Reusar o nome da branch mergeada não serve: o gh pr view <branch> acharia o PR MERGED e o app marcaria a tarefa como mergeada de novo, apagando a worktree no meio do trabalho.",
+  "arquivos": ["src/git.ts (refExists, recreateWorktree)", "src/orchestrator.ts (ensureTaskWorktree, historyDigest, sessionMissing, talkToAgentInner)", "src/types.ts (prHistory)", "src/worktree-recreate.test.ts", "package.json (npm test)"],
+  "como_ver": "Numa tarefa mergeada (worktree removida), abra o chat e mande uma mensagem: aparece a nota 'Recriei a cópia de trabalho…', o agente responde na mesma conversa, a branch vira <branch>-cont e o botão 'abrir PR' volta. Teste automatizado: npm test (repo git temporário com squash-merge + branch apagada).",
+  "estado_mock": "Tarefa com status 'merged', worktree em .cardume/worktrees/<id> inexistente, branch apagada local e no origin, spec.prUrl do PR mergeado.",
+  "shots": []
+ },
+ {
+  "id": "R9-2",
+  "area": "Chat da tarefa · resumo de commit",
+  "titulo": "'resumo IA do commit falhou: spawn claude ENOENT' corrigido",
+  "antes": "O resumo técnico do commit (e o destilador de memória) chamavam o binário 'claude' pelo nome, sem o resolvedor usado pelo motor — com o PATH mínimo do app aberto pelo Finder dava 'spawn claude ENOENT' cru no chat.",
+  "depois": "Todos os spawns do claude no motor TS usam resolveClaude() (o mesmo do motor: CARDUME_CLAUDE → ao lado do node → ~/.local/bin, ~/.claude/local, homebrew) e claudeEnv() (PATH com a pasta do node/claude, sem API key e sem marcadores de sessão aninhada). No Rust todos já passavam por claude_bin()/claude_cmd(). Se ainda assim faltar o claude, o chat mostra 'O Claude Code não está instalado neste computador (veja Mais › Ambiente).', que casa com o catálogo claude-missing do app.",
+  "motivo": "Erro técnico em inglês no chat e resumo de commit que nunca funcionava no app instalado.",
+  "arquivos": ["src/engine/claude.ts (resolveClaude exportado, claudeEnv, claudeErrText)", "src/orchestrator.ts (summarizeCommit, learnFromMessage)"],
+  "como_ver": "No app instalado (aberto pelo Finder), faça um commit numa tarefa: aparece 'resumo técnico do commit gerado' em vez do ENOENT.",
+  "estado_mock": "App aberto com PATH mínimo (/usr/bin:/bin), claude instalado em ~/.local/bin ou ao lado do node do nvm.",
+  "shots": []
+ }
+]

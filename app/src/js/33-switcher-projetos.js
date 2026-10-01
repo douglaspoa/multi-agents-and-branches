@@ -1,4 +1,4 @@
-// Constellation — 33-switcher-projetos
+// Starfork — 33-switcher-projetos
 // ---------- switcher de projetos ----------
 let projects = [];
 let projErr = "";
@@ -10,26 +10,25 @@ async function loadProjects(){
 }
 function renderProjName(){
   const active = projects.find(p=>p.active);
-  const nm = active ? active.name : (state.repo ? state.repo.split("/").filter(Boolean).slice(-1)[0] : "sem projeto");
+  const nm = active ? active.name : (state.repo ? pathBase(state.repo) : "sem projeto");
   const el=$id("projName"); if(el) el.textContent = nm;
   const dot=$id("projDot"); if(dot) dot.classList.toggle("live", connected && (state.tasks||[]).length>0);
 }
 function projMenuOpen(){ const m=$id("projMenu"); return m && m.style.display!=="none"; }
-function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) alert(projErr); return; } renderProjMenu(); m.style.display="block"; }
+function openProjMenu(){ const m=$id("projMenu"); if(!m){ if(projErr) showErr(projErr, 'Não consegui abrir o projeto'); return; } renderProjMenu(); m.style.display="block"; }
 function closeProjMenu(){ const m=$id("projMenu"); if(m) m.style.display="none"; }
-function toggleProjMenu(){ projMenuOpen()?closeProjMenu():openProjMenu(); }
 function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos é uma aba); fica só se algum HTML antigo tiver #projMenu
   const m=$id("projMenu"); if(!m) return;
   const rows = projects.length ? projects.map(p=>`<div class="prow${p.active?' on':''}" data-path="${escA(p.path)}">
       <span class="pd"></span>
       <div class="pn"><div class="pnm">${esc(p.name)}</div><div class="pp">${esc(p.path)}</div></div>
-      <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">✕</button>
+      <button class="px" data-rm="${escA(p.path)}" title="Remover da lista">${IC.x}</button>
     </div>`).join("") : '<div class="projerr" style="color:var(--muted)">nenhum projeto ainda</div>';
-  m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr">${esc(projErr)}</div>`:""}<div class="psep"></div>`+
+  m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr" title="${escA(projErr)}">${esc(humanErr(projErr,"Não consegui abrir o projeto").msg)}</div>`:""}<div class="psep"></div>`+
     `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`+
     `<div class="projadd projmanage" id="projManage"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Gerenciar projetos</div>`;
   m.querySelectorAll('.prow').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.px')) return; switchProject(r.dataset.path); });
-  m.querySelectorAll('.px').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); try{ await invoke("remove_project",{path:b.dataset.rm}); }catch(_){}; await loadProjects(); });
+  m.querySelectorAll('.px').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const wasActive=b.dataset.rm===state.repo; try{ await invoke("remove_project",{path:b.dataset.rm}); }catch(_){}; if(wasActive){ selected=null; lastSig=""; clearProjectCaches(); await refresh(); } await loadProjects(); });
   $id("projAdd").onclick = pickFolder;
   bindClick("projManage", ()=>{ closeProjMenu(); if(window.openTab) window.openTab('projetos'); });
 }
@@ -43,7 +42,7 @@ async function switchProject(path){
 async function pickFolder(){
   let dir;
   try{ dir = await invoke("pick_folder"); }
-  catch(e){ console.error("pick_folder", e); return; }
+  catch(e){ showErr(e, "Não consegui abrir o seletor de pastas"); return; }
   if(!dir) return; // usuário cancelou
   try{
     await invoke("open_project",{ path: dir });
@@ -72,7 +71,7 @@ function pubSetState(s){ // 'form' | 'prog' | done html
 function closePub(){ $id('pubOverlay').style.display='none'; }
 { const b=$id('pubRelBtn');
   if(b) b.onclick=()=>{
-    if(!SB.sess()){ alert('Entre na sua conta primeiro (botão do topo).'); return; }
+    if(!SB.sess()){ toast('Entre na sua conta primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     pubSetState('form');
     $id('pubOverlay').style.display='flex';
     $id('pubNotes').focus();
@@ -93,8 +92,10 @@ $id('pubGo').onclick=async()=>{
     bindClick('pubOk', closePub);
   }catch(e){
     clearInterval(tick);
-    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:13px">Não deu</b><div class="dim" style="font-size:12px;margin-top:4px">${esc(String(e))}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="pubBack">tentar de novo</button></div>`);
+    const ph=humanErr(e,'Não consegui publicar a versão');
+    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:13px">Não deu</b><div class="dim" style="font-size:12px;margin-top:4px" title="${escA(errText(e))}">${esc(ph.msg)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
     bindClick('pubBack', ()=>pubSetState('form'));
+    if(ph.action) bindClick('pubFix', ()=>{ closePub(); ph.action.fn(); });
   }
 };
 // busca central do topo → filtra a Central de execuções (redesign p2)
@@ -111,17 +112,16 @@ $id("ntCreate").onclick = ()=>{
 $id('ntOverlay').addEventListener('input', ntGate);
 $id("ntDraft").onclick = ()=>submitNewTask(false);
 document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.onclick=()=>setNtMode(b.dataset.mode));
-$id("ntAI").onclick = openPlanner;
-$id("aiSend").onclick = sendAiMsg;
-$id("aiInput").addEventListener("keydown", e=>{ if(e.key==="Enter") sendAiMsg(); });
+$id("ntAI").onclick = ()=>{ { const k=(ntDocsPreset&&ntMode==='build')?'docs':ntMode; if(k!=='build' && typeof ndCarryKind!=='undefined') ndCarryKind=k; } { const o=$id(({ build:"ntObj", fix:"ntFixObj", design:"ntDzObj", invest:"ntInvObj", review:"ntPr" })[ntMode]||"ntObj"); if(o && o.value.trim() && typeof ndCarryText!=="undefined") ndCarryText=o.value.trim(); } if(window.openTab) window.openTab("planner",{replace:true}); else openPlanner(); }; // mesma aba vira o planner (BUG-8: o planner não fecha mais o formulário)
 $id("emAbrir").onclick = pickFolder;
+bindClick("emNovo", ()=>openNewProject());
 $id("ntImport").onclick = importTaskMd;
 $id("ntRefAdd").onclick = pickRefs;
 $id("ntDzRefAdd").onclick = ()=>pickRefsInto(ntDzRefs, renderDzRefs);
 $id("ntFixRefAdd").onclick = ()=>pickRefsInto(ntFixRefs, renderFixRefs);
 $id("ntInvRefAdd").onclick = ()=>pickRefsInto(ntInvRefs, renderInvRefs);
 $id("ntReqAdd").onclick = ()=>{ ntReq.push(""); renderNtList("ntRequirements",ntReq); };
-// ✨ título por IA a partir da descrição (data-aititle="inputDoTitulo:inputDaDescricao")
+// título por IA a partir da descrição (data-aititle="inputDoTitulo:inputDaDescricao")
 document.querySelectorAll('[data-aititle]').forEach(b=>{
   b.onclick=async(e)=>{
     e.preventDefault();
@@ -130,7 +130,7 @@ document.querySelectorAll('[data-aititle]').forEach(b=>{
     if(!text.trim()){ const s=$id(src); if(s){ s.focus(); s.placeholder='escreva a descrição primeiro — o título sai dela'; } return; }
     const orig=b.innerHTML; b.disabled=true; b.textContent='gerando…';
     try{ const t=await invoke('ai_title',{ text }); const d=$id(dst); if(d){ d.value=t; d.focus(); } }
-    catch(err){ alert('Não deu pra gerar o título:\n'+err); }
+    catch(err){ showErr(err, 'Não deu pra gerar o título'); }
     finally{ b.disabled=false; b.innerHTML=orig; }
   };
 });
@@ -140,7 +140,16 @@ $id("artOverlay").addEventListener("click", e=>{ if(e.target.id==="artOverlay") 
 $id("cmClose").onclick = closeCommit;
 $id("cmOverlay").addEventListener("click", e=>{ if(e.target.id==="cmOverlay") closeCommit(); });
 document.addEventListener("keydown", e=>{
-  if(e.key==="Escape"){ closeNewTask(); closeAgents(); closeCommit(); closeArtifact(); return; }
+  if(e.key==="Escape"){
+    // um modal por vez (o de cima primeiro)
+    if($id('artOverlay').style.display!=='none'){ closeArtifact(); return; }
+    if($id('cmOverlay').style.display!=='none'){ closeCommit(); return; }
+    // antes fechava SEMPRE o formulário e os Agentes: com outra aba ativa, matava o formulário de fundo
+    // (rascunho perdido) e deixava a aba Agentes em branco. Agora só o que é MODAL (não aba) fecha aqui.
+    const nt=$id('ntOverlay'), ag=$id('agOverlay');
+    if(nt && nt.style.display!=='none' && !nt.classList.contains('astab') && !escBusy(e)){ closeNewTask(); return; }
+    if(ag && ag.style.display!=='none' && !ag.classList.contains('astab') && !escBusy(e)){ cancelAgents(); return; } // pergunta se há mudança não salva
+    return; }
   if((e.metaKey||e.ctrlKey) && !e.shiftKey){
     const k=e.key.toLowerCase();
     if(k==="n"){ e.preventDefault(); if(connected){ if(window.openTab) window.openTab('nova'); else openNewTask(); } }
@@ -151,16 +160,70 @@ document.addEventListener("keydown", e=>{
 /* ---------- editor Agentes & Equipes ---------- */
 let cfgEdit = { agents:[], workflows:[] };
 function escA(s){ return esc(s).replace(/"/g,"&quot;"); }
+// @puro-agentes-inicio (testado em app/tests/agentes.test.mjs — sem DOM nem estado global)
 function agSlug(s){ return (String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,24))||"item"; }
+// cabeçalho do .md de subagente (bloco entre ---): aceita CRLF (arquivo salvo no Windows), BOM, cabeçalho vazio
+// (---\n---) e valor em bloco do YAML (description: > / |, com as linhas indentadas seguintes) — antes o regex só
+// casava com \n e o arquivo inteiro virava persona, com o nome do arquivo no lugar do nome do agente
+function agFrontmatter(content){
+  const txt=String(content||'').replace(/^﻿/,'').replace(/\r\n?/g,'\n');
+  const m=txt.match(/^---[ \t]*\n(?:([\s\S]*?)\n)?---[ \t]*(?:\n|$)([\s\S]*)$/);
+  if(!m) return { fm:{}, body:txt.trim() };
+  const fm={}, lines=(m[1]||'').split('\n');
+  for(let n=0;n<lines.length;n++){
+    const line=lines[n]; if(/^\s/.test(line)||!line.trim()) continue; // continuação solta (já tratada abaixo)
+    const i=line.indexOf(':'); if(i<=0) continue;
+    const k=line.slice(0,i).trim().toLowerCase(); let v=line.slice(i+1).trim();
+    const block=v.match(/^([>|])[+-]?$/), more=[];
+    while(n+1<lines.length && (/^\s+\S/.test(lines[n+1]) || (!lines[n+1].trim() && block))){ n++; more.push(lines[n].trim()); }
+    while(more.length && !more[more.length-1]) more.pop();
+    if(block) v=block[1]==='|' ? more.join('\n') : more.join(' ').replace(/\s+/g,' ').trim(); // | mantém as quebras; > junta
+    else if(more.length) v=(v+' '+more.join(' ')).trim(); // valor simples quebrado em várias linhas
+    fm[k]=v.replace(/^["']|["']$/g,'');
+  }
+  return { fm, body:m[2].trim() };
+}
+// .md de subagente → agente (sem id; quem chama dá o id único). Sem nome no cabeçalho: nome do arquivo sem .md
+function agFromMd(filename, content){
+  const { fm, body }=agFrontmatter(content);
+  const name=fm.name || String(filename||'agente').replace(/\.md$/i,'') || 'agente';
+  const persona=((fm.description ? fm.description.trim()+(body?' ':'') : '')+body).trim();
+  return { name, role: fm.role || fm.category || 'builder', engine: (fm.engine==='mock'?'mock':'claude'), model: fm.model||undefined, color: fm.color || '#1e9e4a', avatar: fm.avatar || '', persona };
+}
+// id de equipe ÚNICO sem NUNCA renomear um id existente: 1º reserva todos os ids que já existem, depois dá id
+// só às equipes sem id (duas "Nova equipe" viravam nova-equipe e a 2ª sobrescrevia a 1ª). Devolve se mudou algo.
+function wfEnsureIds(workflows){
+  const used=new Set((workflows||[]).map(w=>w&&w.id).filter(Boolean)); let changed=false;
+  (workflows||[]).forEach(w=>{ if(!w||w.id) return;
+    const base=agSlug(w.name||'equipe'); let id=base, n=2; while(used.has(id)){ id=base+'-'+n; n++; } w.id=id; used.add(id); changed=true; });
+  return changed;
+}
+// agente removido sai de TODAS as equipes (antes a etapa ficava órfã, mostrando o id cru); devolve quantas equipes mudaram
+function wfDropAgent(workflows, agentId){
+  let n=0; (workflows||[]).forEach(w=>{ const before=(w.steps||[]).length; w.steps=(w.steps||[]).filter(s=>s!==agentId); if(w.steps.length!==before) n++; });
+  return n;
+}
+// @puro-agentes-fim
+let agBase=''; // catálogo como veio do disco: cancelar com mudança não salva pergunta antes de descartar
+function agDirty(){ return !!agBase && JSON.stringify(cfgEdit)!==agBase; }
 function uniqueId(base){ let id=base, n=2; while(cfgEdit.agents.some(a=>a.id===id)){ id=base+"-"+n; n++; } return id; }
 async function openAgents(){
-  let cfg; try{ cfg = await invoke("config"); }catch(e){ cfg={agents:[],workflows:[]}; }
-  cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
-  agOpen = -1;
-  renderAg(); renderWf();
-  $id("agOverlay").style.display="flex";
+  ovShow('agOverlay'); // a aba abre NA HORA (antes só aparecia depois do await) — com os agentes e equipes em esqueleto
+  // enquanto o catálogo não chega (ou se a leitura falhar), nada de salvar/adicionar/importar em cima de um cfgEdit
+  // velho (de outro projeto) ou vazio — isso apagava o catálogo
+  cfgEdit = { agents:[], workflows:[] }; agBase=''; agOpen = -1; agLock(true);
+  { const w=$id('wfList'); if(w) ldPaint(w, skeletonHtml('lista', { n:2 })); }
+  await loadInto($id('agList'), 'cards', ()=>invoke("config").catch(e=>{ const w=$id('wfList'); if(w) ldPaint(w, ''); throw e; }), (cfg)=>{
+    cfg=cfg||{};
+    cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
+    agBase = JSON.stringify(cfgEdit);
+    agOpen = -1;
+    renderAg(); renderWf(); agLock(false);
+  }, { label:'lendo os agentes do projeto', ctx:'Não consegui ler os agentes', shape:{ n:6 } });
 }
-function closeAgents(){ const o=$id("agOverlay"); if(o) o.style.display="none"; }
+function agLock(on){ ['agSave','agAdd','wfAdd','agImport'].forEach(id=>{ const b=$id(id); if(b) b.disabled=!!on; }); }
+function closeAgents(){ ovHide("agOverlay"); } // aba: fecha a aba (não deixa em branco)
+async function cancelAgents(){ if(agDirty() && !await askYes('Descartar as mudanças nos agentes e equipes?\n\nNada foi salvo ainda.')) return; agBase=''; closeAgents(); }
 const ROLES=["planner","builder","reviewer","designer","tester","docs","security"];
 const PALETTE=["#1e9e4a","#e6b53c","#0a72e0","#a05cff","#e5484d","#12a3a3","#e07b39","#ec4899"];
 const GLYPHS=["🦊","🦉","🐙","🐢","🦋","🐝","🦁","🐬","🧠","⚡","🛠️","🔍","🎨","🧪","📝","🛡️"];
@@ -178,7 +241,7 @@ function agEditor(i){
     </div>
     <div class="two">
       <div><label>Categoria</label><input class="in" list="catList" data-i="${i}" data-k="role" value="${escA(a.role||'')}" placeholder="ex.: designer, backend…"></div>
-      <div><label>Motor</label><select class="sel" data-i="${i}" data-k="engine" style="width:100%"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option><option value="mock"${a.engine==='mock'?' selected':''}>Mock</option></select></div>
+      <div><label>Motor</label><select class="sel" data-i="${i}" data-k="engine" style="width:100%"><option value="claude"${a.engine!=='mock'?' selected':''}>Claude</option>${(typeof devInstall!=='undefined'&&devInstall)||a.engine==='mock'?`<option value="mock"${a.engine==='mock'?' selected':''}>Mock (teste, sem IA)</option>`:''}</select></div>
     </div>
     <label style="display:block;margin-top:10px">Persona (instrução)</label>
     <textarea class="agpersona" data-i="${i}" data-k="persona" placeholder="o que este agente faz e como pensa">${esc(a.persona||'')}</textarea>
@@ -187,11 +250,14 @@ function agEditor(i){
     <datalist id="catList">${allCats().map(c=>`<option value="${escA(c)}"></option>`).join("")}</datalist>
   </div>`;
 }
+// papel do agente em PT (o id técnico em inglês fica no tooltip)
+const AG_ROLE_PT={ planner:'Planejador', builder:'Construtor', reviewer:'Revisor', docs:'Documentador', tester:'Testador', investigator:'Investigador', designer:'Designer', coder:'Construtor' };
+function roleLabel(r){ const k=String(r||'').toLowerCase(); return AG_ROLE_PT[k]||r||''; }
 function renderAg(){
   const el=$id("agList");
   const tiles = cfgEdit.agents.map((a,i)=>`<button class="agtile${i===agOpen?' sel':''}" data-open="${i}" data-agtile="${i}" draggable="true" title="arraste pra dentro de uma equipe →">
     <span class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</span>
-    <span class="tn">${esc(a.name||'—')}</span><span class="tc">${esc(a.role||'')}</span>
+    <span class="tn">${esc(a.name||'—')}</span><span class="tc" title="${escA(a.role||'')}">${esc(roleLabel(a.role))}</span>
   </button>`).join("");
   const add = `<button class="agtile new" data-add><span class="plus">+</span><span class="tc">novo agente</span></button>`;
   el.innerHTML = `<div class="aggrid">${tiles}${add}</div>${agOpen>=0&&cfgEdit.agents[agOpen]?agEditor(agOpen):''}`;
@@ -206,7 +272,10 @@ function renderAg(){
     const h=()=>{ cfgEdit.agents[+inp.dataset.i][inp.dataset.k]=inp.value; if(inp.dataset.k==='color') renderAg(); };
     inp.addEventListener("input",h); inp.addEventListener("change",h);
   });
-  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ cfgEdit.agents.splice(+b.dataset.del,1); agOpen=-1; renderAg(); renderWf(); });
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{ const i=+b.dataset.del, a=cfgEdit.agents[i]; if(!a) return;
+    const inTeams=cfgEdit.workflows.filter(w=>(w.steps||[]).includes(a.id)).map(w=>w.name||'equipe');
+    if(inTeams.length && !await askYes('Remover '+(a.name||'este agente')+'?\n\nEle sai também de '+(inTeams.length===1?'da equipe "'+inTeams[0]+'"':inTeams.length+' equipes ('+inTeams.join(', ')+')')+'.')) return;
+    cfgEdit.agents.splice(i,1); if(a.id) wfDropAgent(cfgEdit.workflows, a.id); agOpen=-1; renderAg(); renderWf(); });
   el.querySelectorAll("[data-color]").forEach(s=>s.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+s.dataset.color].color=s.dataset.c; renderAg(); });
   el.querySelectorAll("[data-glyph]").forEach(b=>b.onclick=(e)=>{ e.preventDefault(); cfgEdit.agents[+b.dataset.glyph].avatar=b.dataset.g; renderAg(); });
 }
@@ -227,8 +296,8 @@ function renderWf(){
   const el=$id("wfList");
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
   el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow" data-drop="${i}">
-    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome do workflow"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:10px">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
-    <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span><b>${esc(byId[sid]?byId[sid].name:sid)}</b><button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente do grid pra cá →</span>'}</div>
+    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome da equipe (ex.: planejar → construir → revisar)"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:10px">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
+    <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span>${byId[sid]?`<b>${esc(byId[sid].name)}</b>`:`<b class="stepgone" title="${escA('o agente '+sid+' não existe mais no catálogo — tire esta etapa')}">agente removido</b>`}<button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente pra cá, ou escolha ao lado →</span>'}${cfgEdit.agents.length?`<select class="sel wfaddsel" data-wadd="${i}" aria-label="adicionar etapa nesta equipe"><option value="">+ etapa…</option>${cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name||a.id||'agente')}</option>`).join('')}</select>`:''}</div>
   </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
   el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
@@ -236,18 +305,20 @@ function renderWf(){
   el.querySelectorAll("[data-wshare]").forEach(b=>b.onclick=async()=>{
     const w=cfgEdit.workflows[+b.dataset.wshare]; if(!w) return;
     const orgId=cloudData&&cloudData.org&&cloudData.org.id;
-    if(!SB.sess()||!orgId){ alert('Entre na sua conta e numa organização primeiro (botão do topo).'); return; }
+    if(!SB.sess()||!orgId){ toast('Entre na sua conta e numa organização primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     b.disabled=true; const o=b.textContent; b.textContent='publicando…';
     try{
-      if(!w.id) w.id=agSlug(w.name);
+      wfEnsureIds(cfgEdit.workflows); // id único (duas equipes com o mesmo nome não se sobrescrevem no catálogo do time)
       const byId2=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
       for(const sid of (w.steps||[])){ const a=byId2[sid]; if(!a) continue; if(!a.id) a.id=uniqueId(agSlug(a.name));
         await sbFetch('/rest/v1/org_agents?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:a.id, name:a.name, role:a.role||'builder', engine:a.engine||'claude', model:a.model||null, color:a.color||null, persona:a.persona||'' }) }); }
       await sbFetch('/rest/v1/org_workflows?on_conflict=org_id,id',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ org_id:orgId, id:w.id, name:w.name, steps:w.steps||[] }) });
       b.textContent='✓ no catálogo do time';
       setTimeout(()=>{ b.disabled=false; b.textContent=o; }, 3000);
-    }catch(e){ alert('Falhou: '+(e.message||e)); b.disabled=false; b.textContent=o; }
+    }catch(e){ showErr(e, 'Falhou'); b.disabled=false; b.textContent=o; }
   });
+  // adicionar etapa sem arrastar (teclado, trackpad difícil): o select no fim da equipe
+  el.querySelectorAll("[data-wadd]").forEach(sel=>sel.onchange=()=>{ const wi=+sel.dataset.wadd; let id=sel.value; if(!id&&sel.selectedIndex>0){ const a=cfgEdit.agents[sel.selectedIndex-1]; if(a){ a.id=uniqueId(agSlug(a.name||'agente')); id=a.id; } } if(id) wfInsert(wi, id, null); });
   el.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows[+b.dataset.wi].steps.splice(+b.dataset.rm,1); renderWf(); });
   // chips arrastáveis (reordenar etapas, inclusive entre equipes)
   el.querySelectorAll(".stepchip").forEach(chip=>{
@@ -265,47 +336,63 @@ function renderWf(){
   });
 }
 function parseAgentMd(filename, content){
-  let fm={}, body=content;
-  const m = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
-  if(m){
-    m[1].split("\n").forEach(line=>{ const i=line.indexOf(":"); if(i>0){ const k=line.slice(0,i).trim().toLowerCase(); const v=line.slice(i+1).trim().replace(/^["']|["']$/g,""); fm[k]=v; } });
-    body = m[2].trim();
-  }
-  const name = fm.name || filename;
-  const persona = (fm.description ? fm.description.trim()+(body?" ":"") : "") + body;
-  return { id: uniqueId(agSlug(name)), name, role: fm.role || fm.category || "builder", engine: (fm.engine==="mock"?"mock":"claude"), model: fm.model||undefined, color: fm.color || "#1e9e4a", avatar: fm.avatar || "", persona: persona.trim() };
+  const a=agFromMd(filename, content); return Object.assign({ id: uniqueId(agSlug(a.name)) }, a);
 }
 async function importAgents(){
   let files;
-  try{ files = await invoke("import_agent_files"); }catch(e){ alert("Falha ao importar:\n"+e); return; }
+  try{ files = await invoke("import_agent_files"); }catch(e){ showErr(e, 'Falha ao importar'); return; }
   if(!files || !files.length) return;
   for(const f of files) cfgEdit.agents.push(parseAgentMd(f.filename, f.content));
   renderAg(); renderWf();
 }
 async function saveConfig(){
   cfgEdit.agents.forEach(a=>{ if(!a.id) a.id=uniqueId(agSlug(a.name)); });
-  cfgEdit.workflows.forEach(w=>{ if(!w.id) w.id=agSlug(w.name); if(!w.steps) w.steps=[]; });
+  wfEnsureIds(cfgEdit.workflows); cfgEdit.workflows.forEach(w=>{ if(!w.steps) w.steps=[]; });
   const btn=$id("agSave"); btn.disabled=true; btn.textContent="salvando…";
-  try{ await invoke("save_config",{config:cfgEdit}); closeAgents(); }
-  catch(e){ alert("Falha ao salvar catálogo:\n"+e); }
+  try{ await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); agBase=''; lastSig=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
+  catch(e){ showErr(e, 'Falha ao salvar catálogo'); }
   finally{ btn.disabled=false; btn.textContent="salvar catálogo"; }
 }
 $id("agentsBtn").onclick = openAgents;
-$id("agClose").onclick = closeAgents;
-$id("agCancel").onclick = closeAgents;
+$id("agClose").onclick = cancelAgents;
+$id("agCancel").onclick = cancelAgents;
 $id("agSave").onclick = saveConfig;
 $id("agAdd").onclick = addAgent;
 $id("agImport").onclick = importAgents;
-$id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Novo workflow", steps:[] }); renderWf(); };
-$id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") closeAgents(); });
+$id("wfAdd").onclick = ()=>{ cfgEdit.workflows.push({ id:"", name:"Nova equipe", steps:[] }); renderWf(); };
+$id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") cancelAgents(); });
 
-// rede de segurança global: um erro solto (ex.: invoke que rejeitou sem catch,
-// rede caída) não deve deixar a UI num estado quebrado — só loga.
-window.addEventListener("error", e=>{ console.error("erro global:", e.error||e.message); });
-window.addEventListener("unhandledrejection", e=>{ console.error("promise sem catch:", e.reason); e.preventDefault(); });
+// rede de segurança global: o registro de erro solto/promise sem catch fica no 52-erros (app_errors) e no
+// 10-core (web_log) — aqui só evita o aviso padrão do WebView pra rejeição sem catch (o console.error
+// que havia aqui duplicava o mesmo erro nos dois registros).
+window.addEventListener("unhandledrejection", e=>{ e.preventDefault(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
 initNotifs();
-refresh().then(loadProjects).catch(e=>console.error("boot:", e));
+refresh().then(loadProjects).then(restoreMainView).catch(e=>console.error("boot:", e));
 // poll blindado: uma volta que falhe não derruba o ciclo
-setInterval(()=>{ refresh().catch(e=>console.error("refresh:", e)); }, 1000);
+// um refresh por vez (o tick de 1s empilhava vários em paralelo), mas a trava NUNCA fica presa: se um refresh
+// não voltar em 6s (IPC perdido, SQLite ocupado), o próximo tick segue — antes a tela parava de atualizar pra sempre
+// Carimbo antes do snapshot: `snapshot_stamp` (Rust, só stat do state.sqlite/-wal) é quase grátis; o snapshot
+// inteiro (~0,5 MB de JSON serializado, cruzando IPC e parseado aqui) só vem quando o banco mudou, quando
+// alguém pediu redesenho (lastSig mexido fora daqui), logo após um clique (render segurado pelo uiHold) ou
+// a cada 3s (pid vivo, cache multi-projeto — o que não mora no banco). Janela escondida: 1 volta a cada 4s
+// e snapshot completo no máx. a cada 12s. Sem o comando (build antigo / harness) = sempre snapshot.
+let refreshBusyAt=0, stampBusyAt=0, pollAt=0, snapStamp=null, snapFullAt=0, snapSigMark=null;
+setInterval(async()=>{
+  const now=Date.now();
+  if(refreshBusyAt && now-refreshBusyAt<6000) return;
+  if(stampBusyAt && now-stampBusyAt<6000) return;
+  const hidden=document.hidden;
+  if(hidden && now-pollAt<4000) return;
+  pollAt=now;
+  let stamp=null;
+  stampBusyAt=now; try{ stamp=await invoke("snapshot_stamp"); }catch(_){ stamp=null; } finally{ stampBusyAt=0; }
+  if(stamp && stamp===snapStamp && lastSig===snapSigMark && Date.now()-snapFullAt<(hidden?12000:3000) && Date.now()-uiHoldUntil>1500){
+    if(typeof loadAllTasks==='function') loadAllTasks(); // cache multi-projeto segue no ritmo dele (throttle de 4s próprio)
+    return;
+  }
+  const my=refreshBusyAt=Date.now(); const before=state;
+  refresh().then(()=>{ if(state!==before){ snapStamp=stamp; snapFullAt=Date.now(); snapSigMark=lastSig; } })
+    .catch(e=>console.error("refresh:", e)).finally(()=>{ if(refreshBusyAt===my) refreshBusyAt=0; });
+}, 1000);

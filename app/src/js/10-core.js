@@ -1,5 +1,53 @@
-// Constellation — 10-core
-const _invokeRaw = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+// Starfork — 10-core
+// DIAGNÓSTICO de travamento: comandos em voo, comando > 3s e thread da página bloqueada > 1,5s vão pro
+// /tmp/constellation-web.log com o que estava rodando — a causa fica registrada em vez de suposta
+const __inflight=new Map(); let __invSeq=0;
+const __diagLog=(line)=>{ try{ window.__TAURI__.core.invoke('web_log',{ line }); }catch(_){ } };
+const __inflightTx=()=>[...__inflight.values()].map(x=>x.cmd+'('+Math.round((Date.now()-x.t0)/100)/10+'s)').join(', ')||'nenhum';
+const _invokeRaw = (cmd, args) => {
+  if(cmd==='web_log') return window.__TAURI__.core.invoke(cmd, args);
+  const id=++__invSeq, t0=Date.now(); __inflight.set(id,{cmd,t0});
+  const done=()=>{ __inflight.delete(id); const ms=Date.now()-t0; if(ms>3000) __diagLog('[lento] '+cmd+' '+ms+'ms · em voo: '+__inflightTx()); };
+  return window.__TAURI__.core.invoke(cmd, args).then(r=>{ done(); return r; }, e=>{ done(); throw e; });
+};
+{ let last=Date.now(), skip=false;
+  // janela voltou (oculta/suspensa): o 1º tick mede o tempo parado, não bloqueio — zera a base e pula esse tick
+  document.addEventListener('visibilitychange', ()=>{ last=Date.now(); skip=true; });
+  setInterval(()=>{ const now=Date.now(), lag=now-last-500; last=now;
+    if(lag>1500) __diagLog('[lag] página bloqueada '+lag+'ms · em voo: '+__inflightTx()+' · aba: '+((typeof activeTab!=='undefined'&&activeTab)||'?'));
+    // sem PerformanceObserver('longtask') (WKWebView do macOS não tem): o atraso do próprio timer vira a estimativa;
+    // > 5 s é o Mac dormindo/timer congelado, não tarefa longa
+    if(skip){ skip=false; return; }
+    if(lag<=1500 && !__perfLtNative && !document.hidden && lag>=50 && lag<=5000) perfLongtask(lag, true); }, 500); }
+// MEDIÇÃO (regra da Júlia: medir antes e depois de mexer no carregamento). Vai pro mesmo log, com throttle de
+// 1 linha por segundo: [aba] <kind> 1º paint Nms (abrir → 1º quadro pintado), [aba] <kind> dados Nms (tabBusy,
+// 06-carregamento) e [longtask] Nms (tarefas longas do mesmo segundo viram UMA linha). ?debug=1 também joga no console.
+const __perfQ=[]; let __perfT=0, __perfLt=null, __perfLtNative=false;
+const __perfDbg=/[?&]debug=1\b/.test(location.search||'');
+const __perfTab=()=>((typeof activeTab!=='undefined'&&activeTab)||'?');
+function __perfPump(){
+  if(__perfT) return;
+  const next=()=>{
+    let line=__perfQ.shift();
+    if(!line && __perfLt){ const l=__perfLt; __perfLt=null; line='[longtask] '+l.max+'ms'+(l.est?' (estimado)':'')+(l.n>1?' · +'+(l.n-1)+' no mesmo segundo, '+l.sum+'ms no total':'')+' · aba: '+l.tab; }
+    if(!line){ __perfT=0; return; }
+    if(__perfDbg) console.info(line);
+    __diagLog(line); __perfT=setTimeout(next, 1000);
+  };
+  next();
+}
+function perfLog(line){ __perfQ.push(String(line)); if(__perfQ.length>30) __perfQ.shift(); __perfPump(); }
+function perfLongtask(ms, est){ ms=Math.round(ms); const l=__perfLt||(__perfLt={ n:0, sum:0, max:0, est:!!est, tab:__perfTab() }); l.n++; l.sum+=ms; if(ms>l.max){ l.max=ms; l.tab=__perfTab(); } __perfPump(); }
+try{ if(window.PerformanceObserver && (PerformanceObserver.supportedEntryTypes||[]).includes('longtask')){
+  new PerformanceObserver(list=>{ for(const e of list.getEntries()) perfLongtask(e.duration); }).observe({ type:'longtask', buffered:true }); __perfLtNative=true; } }catch(_){ }
+// abrir uma aba: mark no início e mede até o 1º quadro pintado depois dele (rAF + tarefa seguinte)
+function perfTabOpen(kind){
+  const t0=performance.now(), k='aba:'+kind; try{ performance.mark(k+':abrir'); }catch(_){ }
+  requestAnimationFrame(()=>setTimeout(()=>{ const ms=Math.round(performance.now()-t0);
+    try{ performance.mark(k+':paint'); performance.measure(k, k+':abrir', k+':paint'); }catch(_){ }
+    try{ performance.clearMarks(k+':abrir'); performance.clearMarks(k+':paint'); performance.clearMeasures(k); }catch(_){ } // não acumula a cada aba aberta
+    perfLog('[aba] '+kind+' 1º paint '+ms+'ms'); }, 0));
+}
 // Envelope de rastreabilidade: TODA falha de comando de backend (login, PR,
 // planner, qualquer um) é registrada (52-erros → Supabase) SEM parar de propagar
 // o erro pra quem chamou. web_log fica de fora (é o log local — evita ruído/recursão).
@@ -80,12 +128,109 @@ const IC = {
   hand:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M5.2 8.2V4.6a1 1 0 0 1 2 0v3m0-.4V3.6a1 1 0 0 1 2 0V7.2m0-.2V4.7a1 1 0 0 1 2 0v4.5c0 2.1-1.6 3.9-4 3.9-1.6 0-2.6-.7-3.3-1.7L3 9.6a1 1 0 0 1 1.4-1.4z" stroke-linejoin="round"/></svg>',
   clip:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
+// ícones em 1em (herdam o font-size do botão/selo): fechar/remover e check de status —
+// substituem os glifos soltos ✕ × ✖ ✓ ✔ ☑, que cada fonte desenha de um jeito
+const icEm = s => s.replace('<svg ', '<svg width="1em" height="1em" style="vertical-align:-.125em;flex:none" aria-hidden="true" ');
+IC.x = icEm(IC.xs); IC.ok = icEm(IC.check);
+// @starfork-inicio
+// A marca Starfork: a estrela de 4 pontas que se bifurca — o tronco desce da estrela e um ramo (branch) sai dele. FONTE ÚNICA do símbolo —
+// o logo da sidebar, o ícone da aba Nova demanda, o avatar da IA no planner e o loader da marca (06-carregamento,
+// em traço) reusam este SVG; não desenhe o símbolo de novo em outro lugar. Legível a 16 px. pathLength=1 nos
+// traços é pro loader desenhar com stroke-dashoffset (sem efeito no estático). starforkG = só o <g> (a aba já põe o <svg>).
+IC.starforkG = '<g class="sf-g" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'
+  + '<path class="sf-star" pathLength="1" fill="currentColor" stroke-width=".5" d="M6.2 1 7.4 4 10.4 5.2 7.4 6.4 6.2 9.4 5 6.4 2 5.2 5 4Z"/>'
+  + '<path class="sf-b1" pathLength="1" d="M6.2 8.3v5.4"/><path class="sf-b2" pathLength="1" d="M6.2 11.9c0-2.6 2.2-3.5 5.2-4.3"/>'
+  + '<circle class="sf-n1" cx="6.2" cy="13.8" r="1.35" fill="currentColor" stroke="none"/><circle class="sf-n2" cx="12.4" cy="7.3" r="1.5" fill="currentColor" stroke="none"/></g>';
+IC.starfork = '<svg class="sf-mark" viewBox="0 0 16 16" aria-hidden="true">' + IC.starforkG + '</svg>';
+// @starfork-fim
+IC.starforkEm = icEm(IC.starfork); // em 1em, no meio do texto/botão (substitui o glifo de estrela que era usado como marca)
+// logo da sidebar: o index.html traz uma cópia estática (fallback sem JS, conferida pelo identidade.test); aqui ela é trocada pela fonte
+{ const lg = document.querySelector('.brand .logo'); if (lg) lg.innerHTML = IC.starfork; }
+// R7: ícones que substituem os emoji que eram usados como ícone (mão, escudo, ampulheta, aviso, cadeado, seta de push…) — em 1em, pra ir no meio do texto
+Object.assign(IC, {
+  shield: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.9l4.7 1.8v3.6c0 3-2 5.3-4.7 6.7-2.7-1.4-4.7-3.7-4.7-6.7V3.7z" stroke-linejoin="round"/></svg>'),
+  clock: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.7"/><path d="M8 4.9v3.3l2.2 1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  warn: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.3l6.1 10.9H1.9z" stroke-linejoin="round"/><path d="M8 6.5v3.1" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".45" fill="currentColor" stroke="none"/></svg>'),
+  lock: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.3"/><path d="M5.4 7V5.1a2.6 2.6 0 0 1 5.2 0V7" stroke-linecap="round"/></svg>'),
+  push: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 13V3.6M4.3 7.2L8 3.5l3.7 3.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  retry: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12.6 8a4.6 4.6 0 1 1-1.4-3.3M12.7 2.4V5H10.1" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  route: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h3.2l4.6 7h3.2M2.5 11.5h3.2l1.3-2M9.7 6.5l.6-2h3.2M11.6 2.8l1.9 1.7-1.9 1.7M11.6 9.8l1.9 1.7-1.9 1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  handEm: icEm(IC.hand), boltEm: icEm(IC.bolt), globeEm: icEm(IC.globe), phoneEm: icEm(IC.phone), chat: icEm(IC.q), clipEm: icEm(IC.clip), aiEm: icEm(IC.ai),
+});
+// @r8-icones-inicio
+// R8 (F12, tela por tela): os glifos de texto que faziam papel de ícone de STATUS (· ● ? ❚❚ ◆ ⌥ ✓ ! ⊘ ×), de épico (◆),
+// de plano do orquestrador (◉), de seção recolhível (▾ ▸) e de alerta (⚑ ⚠) viram SVG de linha 16 px, em 1em.
+// STATUS_META.ic (00-util) guarda o NOME da chave daqui; stIcon/stBadge resolvem na hora de desenhar.
+Object.assign(IC, {
+  stQueue:  icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.6" stroke-dasharray="2.2 1.6"/></svg>'),
+  stRun:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4"/><circle cx="8" cy="8" r="2.6" fill="currentColor" stroke="none"/></svg>'),
+  stAsk:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M6.3 6.4c.1-.95.8-1.5 1.75-1.5 1 0 1.7.6 1.7 1.45 0 1.2-1.6 1.2-1.7 2.5" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".75" fill="currentColor" stroke="none"/></svg>'),
+  stPause:  icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M6.6 5.8v4.4M9.4 5.8v4.4" stroke-linecap="round"/></svg>'),
+  stReview: icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.4 13.6 8 8 13.6 2.4 8z" stroke-linejoin="round"/><path d="M5.9 8.1l1.5 1.5 2.8-3" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stPr:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4.4" cy="3.9" r="1.5"/><circle cx="4.4" cy="12.1" r="1.5"/><circle cx="11.6" cy="12.1" r="1.5"/><path d="M4.4 5.4v5.2M11.6 10.6V6.8c0-1-.7-1.7-1.7-1.7H7.4m1.4-1.5L7.3 5.1l1.5 1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stDone:   icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M5.5 8.2l1.7 1.7 3.3-3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stErr:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M8 4.9v3.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".8" fill="currentColor" stroke="none"/></svg>'),
+  stBlock:  icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M4 12 12 4" stroke-linecap="round"/></svg>'),
+  stX:      icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.8"/><path d="M6 6l4 4M10 6l-4 4" stroke-linecap="round"/></svg>'),
+  epic:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2 13.8 8 8 13.8 2.2 8z" stroke-linejoin="round"/><path d="M8 5.4 10.6 8 8 10.6 5.4 8z" fill="currentColor" stroke="none"/></svg>'),
+  orq:      icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="3.6" cy="8" r="1.6"/><circle cx="12.4" cy="3.8" r="1.6"/><circle cx="12.4" cy="12.2" r="1.6"/><path d="M5.1 7.3l5.8-2.8M5.1 8.7l5.8 2.8" stroke-linecap="round"/></svg>'),
+  chevD:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4.5 6.3 8 9.8l3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  chevR:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6.3 4.5 9.8 8l-3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  flag:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.6 14V2.6m0 .6h7.6l-1.6 2.7 1.6 2.7H3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  stop:     icEm('<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.4"/></svg>'),
+  play:     icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5.2 3.6v8.8L12.2 8z" stroke-linejoin="round"/></svg>'),
+  unlock:   icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.4" y="7" width="9.2" height="6.6" rx="1.3"/><path d="M5.4 7V5.1a2.6 2.6 0 0 1 5-1" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+  reset:    icEm('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.4 8a4.6 4.6 0 1 0 1.4-3.3M3.3 2.4V5h2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.4 6.4l3.2 3.2M9.6 6.4 6.4 9.6" stroke-linecap="round"/></svg>'),
+  more:     icEm('<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.6" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="12.4" cy="8" r="1.25"/></svg>'),
+});
+// @r8-icones-fim
+// botão ⋯ do cabeçalho da Tarefa (index.html): o ícone vem da fonte, não de uma cópia do SVG no HTML
+{ const mb = document.getElementById('fwMore'); if (mb) mb.innerHTML = IC.more; }
+// R7: o motor escrevia eventos com emoji na frente (balão de fala, interrogação, ampulheta, setas de retomar…).
+// Os novos vêm em texto puro ("Você: …", "perguntou ao humano: …", "Na fila (1º): …"); aqui o histórico
+// ANTIGO é reescrito no mesmo formato ao chegar (snapshot/task_events) — assim toda tela e todo parser
+// só precisam conhecer o formato novo. Só prefixos que o PRÓPRIO app/motor escrevia; texto do agente fica intacto.
+const EV_LEGACY = [
+  [/^💬\s*(?:📎\s*)?/u, (e)=>e.agent==='Você'?'Você: ':null],
+  [/^❓\s*(?:perguntou ao humano:?\s*)?/u, ()=>'perguntou ao humano: '],
+  [/^⏳\s*pedido NA FILA\s*/u, ()=>'Na fila '],
+  [/^⏳\s*limite de uso/u, ()=>'Limite de uso'],
+  [/^⏳\s*/u, ()=>''],
+  [/^▶️\s*/u, ()=>'▶ '],
+  [/^(?:🔀|🔄)\s*/u, ()=>''],
+  [/^(?:📦|🛠️?|🔗|☑️?)\s*/u, (e)=>{ e.tool=true; return ''; }],
+  [/^📱\s*/u, ()=>''],
+  [/^⚠️?\s*/u, (e)=>e.agent==='Sistema'?'':null],
+];
+function evNorm(e){
+  if(!e || typeof e.text!=='string' || e._n) return e;
+  const tx=e.text; e._n=1;
+  const c=tx.charCodeAt(0); if(c<0x2190) return e; // começa com letra/ASCII: nada a fazer (caminho quente)
+  for(const [re, fn] of EV_LEGACY){ const m=tx.match(re); if(!m) continue; const r=fn(e); if(r===null) continue; e.text=r+tx.slice(m[0].length); break; }
+  return e;
+}
+function evNormAll(arr){ if(Array.isArray(arr)) for(const e of arr) evNorm(e); return arr; }
+// URL de preview que o agente anuncia numa linha "PREVIEW: http://…" (antes: globo emoji + "preview:")
+const PREVIEW_RE=/(?:🌐\s*)?\bpreview:\s*(https?:\/\/[^\s'"”)]+)/i;
+// mensagem digitada pelo humano no chat da tarefa (formato novo "Você: …"; o antigo com o balão de fala é normalizado acima)
+function evIsUserMsg(e){ return !!e && e.agent==='Você' && /^Você:\s/.test(String(e.text||'')); }
+function evUserText(tx){ return String(tx||'').replace(/^Você:\s*/,''); }
+// nota de sistema do motor → ícone (antes o emoji do prefixo fazia esse papel)
+function evSysIcon(tx){ const s=String(tx||'');
+  if(/^Na fila \(/.test(s)) return IC.clock;
+  if(/^Fila limpa:/.test(s)) return IC.clock;
+  if(/^Limite de uso/i.test(s)) return IC.clock;
+  if(/^▶ intervalo cumprido/.test(s)) return IC.retry;
+  if(/^A sessão( do chat)? /i.test(s)) return IC.retry;
+  if(/roteando esta tarefa|^Route AI:/i.test(s)) return IC.route;
+  return ''; }
 // helper: ícone + rótulo num botão (substitui os emojis por SVG da biblioteca)
-async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ alert('Não consegui abrir:\n'+url); } }
+async function openExternal(url){ try{ await invoke('open_url',{ url }); }catch(e){ showErr(e, 'Não consegui abrir o link'); } }
 async function copyLink(url, btn){ try{ await navigator.clipboard.writeText(url); if(btn){ const o=btn.textContent; btn.textContent='copiado!'; setTimeout(()=>btn.textContent=o,1200);} }catch(e){ openExternal(url); } }
 
-const STATUS_COLOR = { draft:"var(--muted)", "plan-review":"var(--warn)", running:"var(--good)", done:"var(--good)", thinking:"var(--info)", review:"var(--warn)", conflict:"var(--crit)", error:"var(--crit)", queued:"var(--muted)", paused:"var(--info)", aborted:"var(--muted)", cancelled:"var(--crit)" };
-const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"⚠", error:"✖", done:"✔" };
+// cores de status vêm do dicionário único (STATUS_META em 00-util.js)
+const STATUS_COLOR = Object.fromEntries(Object.entries(STATUS_META).map(([k,v])=>[k,v.c]));
+const GLYPH = { status:"◆", think:"…", read:"‹", edit:"±", write:"+", bash:"$", note:"»", claim:"⊞", collision:"!", error:"✕", done:"✓" };
 const GCOLOR = { collision:"var(--crit)", error:"var(--crit)", claim:"var(--info)", done:"var(--good)", edit:"var(--good)", write:"var(--good)" };
 
 let state = { repo:null, tasks:[], events:[], claims:[], diffs:[] };
@@ -102,13 +247,22 @@ async function connect(repo){
     await refresh();
   }catch(e){
     connected = false;
-    $id("connTxt").textContent = String(e);
+    { const h=humanErr(e,"Não consegui abrir o projeto"); $id("connTxt").textContent = h.msg; $id("connTxt").title = h.raw||""; }
     $id("conn").classList.remove("live");
   }
 }
 
+// ---- ferramentas de dev/admin (publicar release, trocar o backend): só pra instalação de desenvolvimento
+// ou owner/admin da organização — pro usuário comum são botões que só confundem ----
+let devInstall=false;
+function isOrgAdmin(){ try{ return typeof cloudData!=='undefined' && !!cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin'); }catch(_){ return false; } }
+function canSeeDevTools(){ return devInstall || isOrgAdmin(); }
+function devUiSync(){ const b=$id('pubRelBtn'); if(b) b.style.display=canSeeDevTools()?'':'none'; }
+setTimeout(()=>{ invokeQuiet('is_dev_install').then(v=>{ devInstall=!!v; devUiSync(); }).catch(()=>{}); }, 0);
 // ---- pasta aberta SEM git: o app abre, mas branch/PR/worktree só depois de criar o repositório ----
 function repoHasGit(){ return !state || !state.repo || state.git!==false; }
+// E4: repositório com remote (GitHub)? Projeto criado só local não tem — o PR vira "publicar no GitHub"
+function repoHasRemote(){ return !state || !state.repo || state.git===false || state.remote!==false; }
 function gitUiSync(){
   const off=!repoHasGit();
   document.body.classList.toggle('nogit', off);
@@ -119,10 +273,10 @@ function gitUiSync(){
 // Devolve true quando pode seguir.
 async function gitGate(){
   if(repoHasGit()) return true;
-  const name=(state.repo||'').split('/').filter(Boolean).slice(-1)[0]||'esta pasta';
-  if(!confirm(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Constellation precisa de um repositório. Criar agora?\n\n(git init na branch main + .cardume/ no .gitignore + 1º commit com o conteúdo atual)`)) return false;
+  const name=pathBase(state.repo)||'esta pasta';
+  if(!await askYes(`"${name}" não tem repositório git.\n\nCada demanda roda numa branch própria, então o Starfork precisa de um repositório. Criar agora?\n\n(cria o repositório na branch main, deixa a pasta de trabalho do Starfork fora do versionamento e faz o 1º commit com o conteúdo atual)`)) return false;
   try{ await invoke('git_init_repo'); lastSig=''; await refresh(); if(typeof loadProjects==='function') loadProjects(); return repoHasGit(); }
-  catch(e){ alert('Não consegui criar o repositório:\n'+(e&&e.message||e)); return false; }
+  catch(e){ showErr(e, 'Não consegui criar o repositório'); return false; }
 }
 // etiqueta na barra lateral: "sem git · criar repositório"
 function gitRailTag(){
@@ -144,17 +298,52 @@ let lastSig = "";
 // ---------- notificações nativas (via plugin do Tauri → atribuídas ao app) ----------
 let notifReady=false, notifOn=false, prevStatus={}, prevPr={}, prevPending=new Set();
 function notifApi(){ return (window.__TAURI__ && (window.__TAURI__.notification)) || null; }
+// macOS: o Rust usa UNUserNotificationCenter e responde a permissão (notif_status). 'unsupported' = Linux/
+// Windows ou binário fora do .app → vale a checagem do plugin, como antes.
+let notifState='';
+const NOTIF_OFF_MSG='Notificações do Starfork bloqueadas — abra Ajustes do Sistema › Notificações › Starfork e ative.';
+async function notifOpenSettings(){ try{ await invoke('notif_open_settings'); }catch(e){ showErr(e, 'Não consegui abrir os Ajustes do Sistema'); } }
+async function notifRefresh(){
+  let st='unsupported';
+  try{ st=String(await invokeQuiet('notif_status')||'unsupported'); }catch(_){ st='unsupported'; }
+  notifState=st;
+  return st;
+}
 async function initNotifs(){
+  const st=await notifRefresh();
+  if(st!=='unsupported'){
+    // notDetermined: o pedido de permissão está na tela (feito no boot pelo Rust) — deixa ligado
+    notifOn = st!=='denied';
+    if(st==='denied'){
+      // aviso UMA vez por bloqueio (volta a avisar se o usuário liberar e bloquear de novo)
+      if(!lsGet('notifDeniedWarned')){ lsSet('notifDeniedWarned','1'); toast(NOTIF_OFF_MSG, 'warn', { label:'abrir Ajustes', fn:notifOpenSettings }); }
+    } else lsSet('notifDeniedWarned','');
+    return;
+  }
   const n=notifApi(); if(!n){ return; }
   try{ let ok = await n.isPermissionGranted(); if(!ok){ const p=await n.requestPermission(); ok = p==='granted'; } notifOn=!!ok; }
   catch(_){ notifOn=false; }
+}
+// bloco "Notificações" das Configurações: estado atual + atalho pros Ajustes do Sistema
+async function notifCfgMount(){
+  const h=$id('notifHost'); if(!h) return;
+  h.innerHTML='<span class="dim">lendo…</span>';
+  const st=await notifRefresh();
+  if(st!=='unsupported') notifOn = st!=='denied';
+  const line={ authorized:'Notificações: ativadas', provisional:'Notificações: ativadas (entregues em silêncio na Central)',
+    notDetermined:'Notificações: aguardando sua resposta no pedido de permissão do macOS', denied:NOTIF_OFF_MSG,
+    unsupported:'Notificações: '+(notifOn?'ativadas':'desativadas')+' (pelo sistema)' }[st] || ('Notificações: '+st);
+  h.innerHTML='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span'+(st==='denied'?' style="color:var(--warn)"':'')+'>'+esc(line)+'</span>'
+    +(st!=='unsupported'?'<button class="btn sm" id="notifOpen" type="button">'+IC.extlink+' abrir Ajustes do Sistema</button>':'')+'</div>';
+  bindClick('notifOpen', notifOpenSettings);
 }
 let lastNotif=null; // {id, ts} — última notificação disparada (pro roteamento do clique)
 function pushNotif(title, body, taskId){
   if(!notifOn) return;
   if(taskId && !document.hasFocus()) lastNotif={ id:taskId, ts:Date.now() };
-  // caminho nativo: atribuição correta (Constellation) — clicar abre o APP
-  invoke('notify_native', { title, body: String(body||'').slice(0,180), taskId: taskId||null })
+  // caminho nativo: atribuição correta (Starfork) — clicar abre o APP
+  // falha (sem permissão, fora do .app) → plugin; invokeQuiet: não é erro pra mostrar, é só o caminho B
+  invokeQuiet('notify_native', { title, body: String(body||'').slice(0,180), taskId: taskId||null })
     .catch(()=>{ const n=notifApi(); if(n) try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} });
 }
 function notifRoute(id){
@@ -170,12 +359,16 @@ function notifRoute(id){
 // após uma notificação (banner clicado ativa o app em segundos).
 try{ window.__TAURI__.event.listen('notif-open', (ev)=>{ lastNotif=null; notifRoute(ev.payload||''); }); }catch(_){ }
 window.addEventListener('focus', ()=>{
+  // liberou nos Ajustes e voltou pro app: religa sem reiniciar (e o bloco das Configurações acompanha)
+  if(notifState==='denied' || notifState==='notDetermined') notifRefresh().then(st=>{ if(st!=='unsupported') notifOn = st!=='denied'; if($id('notifHost')) notifCfgMount(); }).catch(()=>{});
   if(lastNotif && Date.now()-lastNotif.ts<180000){ const id=lastNotif.id; lastNotif=null; notifRoute(id); }
 });
-// ⌘K — busca global (redesign): vai pra Central de execuções e foca a busca
+// ⌘K — busca global (redesign): vai pra Central de execuções e foca a busca.
+// Com outra aba na frente (Skills, Conta…) a busca ficava escondida atrás dela: ativa a aba Central antes.
 window.addEventListener('keydown', e=>{
   if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){
     e.preventDefault();
+    if(window.openTab && typeof activeTab!=='undefined' && activeTab!=='flow') window.openTab('flow');
     const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
     setTimeout(()=>{ const s=$id('ffSearch'); if(s){ s.focus(); s.select(); } }, 60);
   }
@@ -187,8 +380,9 @@ function detectNotifs(snap){
       const prev=prevStatus[t.id];
       if(prev!==undefined && prev!==t.status){
         // status mudou → commits/PR podem ter mudado (fim de turno commita)
-        commitsCache[t.id]=undefined; prCache[t.id]=undefined;
-        if(t.status==='review') pushNotif('Pronta para review ✓', t.title, t.id);
+        commitsStale[t.id]=true; prCache[t.id]=undefined;
+        // parada pelo humano (■ parar) ou pelo teto de custo NÃO é "pronta" — era notificação falsa
+        if(t.status==='review'){ if(!(typeof budgetQuiet!=='undefined' && budgetQuiet.delete(t.id))) pushNotif('Pronta para review ✓', t.title, t.id); }
         else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title, t.id);
         else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title, t.id);
         else if(t.status==='merged') pushNotif('Mergeada na base ✓', t.title, t.id);
@@ -202,31 +396,41 @@ function detectNotifs(snap){
   prevStatus={}; tasks.forEach(t=>{ prevStatus[t.id]=t.status; prevPr[t.id]=t.prUrl||null; });
   prevPending=new Set(pend.map(p=>p.id));
   notifReady=true;
-  // guarda-custos: avisa UMA vez quando a tarefa cruza o limite (padrão $25)
+  // guarda-custos: AVISO (só notifica) UMA vez quando a tarefa cruza o limite (padrão $25).
+  // O TETO que pausa e pergunta é outro mecanismo (budgetWatch, 53-teto-protecao) — o antigo
+  // "teto rígido" chamava stop_task e jogava a tarefa em "pronta pra revisar" (bug #13).
   try{
     const lim=parseFloat(lsGet('costWarn')||'25');
-    const hardCap=lsGet('costHardCap')==='1';
     if(lim>0){ for(const t of tasks){ if(ACTIVE_ST.has(t.status)||t.status==='thinking'){ const c=taskCost(t.id); if(c.usd>=lim && !costWarned.has(t.id)){ costWarned.add(t.id);
-      if(hardCap){ pushNotif('⛔ Teto de custo — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — PAUSADA automaticamente (teto rígido)'); try{ stopTask(t.id); }catch(_){ } }
-      else { pushNotif('⚠ Custo alto — '+fmtUsd(c.usd), t.title+' passou de '+fmtUsd(lim)+' — avalie pausar/encerrar'); }
+      pushNotif('Custo alto — '+fmtCost(c.usd), t.title+' passou de '+fmtCost(lim)+' — avalie pausar/encerrar');
     } } } }
   }catch(_){ }
   // eventos novos numa tarefa → a lista de commits pode estar defasada
   const top={};
   for(const e of (snap.events||[])){ const k=e.taskId||e.task_id; if(k && e.id>(top[k]||0)) top[k]=e.id; }
-  for(const k in top){ if(prevEvTop[k]!==undefined && prevEvTop[k]!==top[k]) commitsCache[k]=undefined; prevEvTop[k]=top[k]; }
+  for(const k in top){ if(prevEvTop[k]!==undefined && prevEvTop[k]!==top[k]) commitsStale[k]=true; prevEvTop[k]=top[k]; }
 }
 const prevEvTop={};
 const costWarned=new Set();
 async function refresh(){
   let snap;
-  try{ snap = await invoke("snapshot"); }
-  catch(e){ return; }
+  try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
+  catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); }
+    if(typeof ldBootFail==='function') ldBootFail(e, ()=>refresh()); // boot sem snapshot: erro com "tentar de novo", não esqueleto eterno
+    return; }
+  // pergunta do teto de custo = pendência sintética; entra ANTES do detectNotifs (vira "Precisa de você")
+  if(typeof budgetInject==='function') try{ budgetInject(snap); }catch(e){ tickErr('budgetInject', e); }
+  evNormAll(snap&&snap.events); // R7: histórico antigo com emoji no prefixo → formato novo
   detectNotifs(snap);
-  const prevGraph = state.graph;
+  const prevGraph = state.graph, prevCfg = state.config, prevRepo = state.repo;
   state = snap;
+  // R5-5: o snapshot não traz o catálogo (config) — antes cada refresh o apagava e as cores dos agentes caíam no hash
+  if(prevCfg && !state.config && prevRepo===snap.repo) state.config = prevCfg;
   connected = !!snap.repo;
+  if(typeof budgetWatch==='function') try{ budgetWatch(); }catch(e){ tickErr('budgetWatch', e); }
+  if(typeof protectLoad==='function' && !protectLoaded) protectLoad();
   gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
+  if(typeof noProjSync==='function') noProjSync(); // sem projeto: apaga Skills/Issues/Agentes/Chat/Daily (36-comecar)
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
   if(typeof trkSyncTasks==='function') trkSyncTasks(); // painel de issues: status da issue acompanha a tarefa
   // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
@@ -234,7 +438,7 @@ async function refresh(){
   else state.graph = prevGraph || [];
   const conn = $id("conn");
   conn.classList.toggle("live", connected && state.tasks.length>0);
-  $id("connTxt").textContent = snap.repo ? snap.repo.split("/").slice(-2).join("/") : "sem repo";
+  $id("connTxt").textContent = snap.repo ? snap.repo.split(/[\\/]+/).filter(Boolean).slice(-2).join("/") : "sem repo";
   if(snap.repo && $id("repoInput").value==="") $id("repoInput").value = snap.repo;
   // header enxuto: com repo aberto, o caminho + "abrir" viram redundantes (o chip já mostra o repo)
   const hasRepo=!!snap.repo;
@@ -252,10 +456,12 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','askOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
+  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
     .some(id=>{ const el=$id(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
+    // as telas hoje são ABAS: a barra lateral continua à mostra ao lado — mantém ela viva (só troca o que mudou)
+    if(typeof renderRail==='function') safe(renderRail);
     const fw=$id('fwOverlay');
     if(fw && fw.style.display!=='none' && fwTask){ try{ fwLiveUpdate(); }catch(_){} }
     return;
@@ -269,6 +475,7 @@ async function refresh(){
   if(Date.now()<uiHoldUntil) return;
   lastSig = sig;
   render();
+  if(!window.__perfBoot){ window.__perfBoot=1; perfLog('[aba] central dados '+Math.round(performance.now())+'ms (boot → 1º render com o snapshot)'); }
 }
 // clique protegido: qualquer pointerdown segura re-renders por 600ms
 let uiHoldUntil=0;

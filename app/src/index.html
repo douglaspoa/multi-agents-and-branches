@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Constellation</title>
+<title>Starfork</title>
 <script>/* marca a plataforma no <html> ANTES do CSS: só o macOS tem semáforos à esquerda */try{var ua=navigator.userAgent;document.documentElement.classList.add(/Mac/i.test(ua)?'os-mac':/Windows/i.test(ua)?'os-win':'os-linux');}catch(e){document.documentElement.classList.add('os-mac');}</script>
 <link rel="stylesheet" href="css/10-base.css">
 <link rel="stylesheet" href="css/20-abas-e-telas.css">
@@ -15,6 +15,17 @@
 <link rel="stylesheet" href="css/80-ajustes-cards.css">
 <link rel="stylesheet" href="css/81-chat.css">
 <link rel="stylesheet" href="css/82-issues.css">
+<link rel="stylesheet" href="css/83-responsivo.css">
+<link rel="stylesheet" href="css/84-memoria.css">
+<link rel="stylesheet" href="css/85-mesa.css">
+<link rel="stylesheet" href="css/86-carregamento.css">
+<link rel="stylesheet" href="css/87-nova-demanda.css">
+<link rel="stylesheet" href="css/88-cara-de-produto.css">
+<link rel="stylesheet" href="css/88-acessibilidade.css">
+<!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
+     offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link id="ndFonts" rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
 <body>
 <div class="app">
@@ -22,33 +33,34 @@
   <aside class="sidebar" id="sidebar">
     <div class="sbhead" data-tauri-drag-region>
       <button class="railtgl" id="railToggle" title="Recolher a barra lateral (⌘B)" aria-label="Recolher barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>
-      <div class="brand" data-tauri-drag-region><span class="logo"><svg viewBox="0 0 20 20" fill="none"><g stroke="currentColor" stroke-width="1.1" stroke-opacity=".7" stroke-linecap="round"><path d="M5 14L9.5 9M9.5 9L15 11.5M9.5 9L12 4"/></g><g fill="currentColor"><circle cx="5" cy="14" r="1.5"/><circle cx="15" cy="11.5" r="1.5"/><circle cx="12" cy="4" r="1.4"/><circle cx="9.5" cy="9" r="2.2"/></g></svg></span>Constellation</div>
+      <div class="brand" data-tauri-drag-region><span class="logo" aria-hidden="true"><svg class="sf-mark" viewBox="0 0 16 16" aria-hidden="true"><g class="sf-g" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path class="sf-star" pathLength="1" fill="currentColor" stroke-width=".5" d="M6.2 1 7.4 4 10.4 5.2 7.4 6.4 6.2 9.4 5 6.4 2 5.2 5 4Z"/><path class="sf-b1" pathLength="1" d="M6.2 8.3v5.4"/><path class="sf-b2" pathLength="1" d="M6.2 11.9c0-2.6 2.2-3.5 5.2-4.3"/><circle class="sf-n1" cx="6.2" cy="13.8" r="1.35" fill="currentColor" stroke="none"/><circle class="sf-n2" cx="12.4" cy="7.3" r="1.5" fill="currentColor" stroke="none"/></g></svg></span>Starfork</div>
     </div>
     <div class="sbnew">
       <button class="btn primary sbbig" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova demanda</button>
       <button class="btn sbitem sbproj" id="projetosBtn" title="Projetos — todos os repositórios (trocar, adicionar, remover)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Projetos</button>
       <button class="btn sbitem" id="skillsBtn" title="Skills — escolha quais skills do Claude Code os agentes deste projeto seguem"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1" stroke-linecap="round"/></svg>Skills</button>
       <button class="btn sbitem" id="issuesBtn" title="Issues — o painel de issues do time: conexão, projetos e quadro (kanban)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg>Issues</button>
-      <button class="btn sbitem" id="agentsBtn" title="Agentes & Equipes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes &amp; Equipes</button>
+      <button class="btn sbitem" id="agentsBtn" title="Agentes & Equipes — quem executa as tarefas e em que ordem"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Agentes &amp; Equipes</button>
       <button class="btn sbitem" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg>Chat do projeto</button>
       <button class="btn sbitem" id="dailyBtn" title="Daily — resumo do que você fez no dia"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" stroke-linecap="round"/><path d="M5 9.5l1.6 1.6L11 7.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Daily</button>
-      <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho do repo" spellcheck="false" style="display:none">
+      <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho de uma pasta" spellcheck="false" style="display:none">
       <button class="btn" id="connectBtn" style="display:none">abrir</button>
       <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     </div>
     <div class="sbscroll">
       <div id="rail"></div>
-      <div id="railProj" style="display:none"></div>
     </div>
     <div class="sbnav">
-      <button class="btn sbitem" id="cloudBtn" title="Time na nuvem — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
+      <button class="btn sbitem" id="cloudBtn" title="Conta e time — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
       <div style="position:relative" id="moreWrap">
-      <button class="btn sbitem" id="moreBtn" title="mais — chat do projeto, configurações, ambiente" style="position:relative"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="3.2" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.8" cy="8" r="1.3"/></svg>Mais<span id="moreDot" style="display:none;position:absolute;top:6px;left:20px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
+      <button class="btn sbitem" id="moreBtn" title="Mais — preferências do projeto, configurações, ambiente" style="position:relative"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="3.2" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.8" cy="8" r="1.3"/></svg>Mais<span id="moreDot" style="display:none;position:absolute;top:6px;left:20px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
       <div class="moremenu" id="moreMenu" style="display:none">
       <button class="btn" id="prefsBtn" title="Preferências deste projeto — convenções que o TIME escreve e os agentes seguem"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6" stroke-linecap="round"/></svg>Preferências do projeto</button>
+      <button class="btn" id="memBtn" title="Memória do projeto — o cérebro de notas que os agentes consultam e alimentam"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6 2.8a2 2 0 0 0-2 2 2 2 0 0 0-1.3 3.4A2 2 0 0 0 4.2 12 2 2 0 0 0 8 12.6V3.6A2 2 0 0 0 6 2.8zM10 2.8a2 2 0 0 1 2 2 2 2 0 0 1 1.3 3.4 2 2 0 0 1-1.5 3.8A2 2 0 0 1 8 12.6" stroke-linejoin="round"/></svg>Memória do projeto</button>
+      <button class="btn" id="mesaBtn" title="Mesa de personas — vozes independentes debatem e votam o que construir a seguir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="7.4" width="11" height="2.6" rx=".8"/><circle cx="4.6" cy="4.4" r="1.3"/><circle cx="8" cy="3.8" r="1.3"/><circle cx="11.4" cy="4.4" r="1.3"/><path d="M4.4 10v3.2M11.6 10v3.2" stroke-linecap="round"/></svg>Mesa de personas</button>
       <button class="btn" id="cfgBtn" title="Configurações (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg>Configurações</button>
       <button class="btn" id="envBtn" title="Ambiente — verifica node, claude, gh e git" style="position:relative"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/><path d="M4.5 8.4h2l1-1.7 1 3 1-1.3h2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ambiente<span id="envDot" style="display:none;position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:99px;background:var(--warn)"></span></button>
-      <button class="btn" id="pubRelBtn" title="sobe o zip empacotado (dist/) pro canal do time — os Macs dos colegas mostram o botão atualizar">⇡ Publicar release</button>
+      <button class="btn" id="pubRelBtn" style="display:none" title="só em instalação de desenvolvimento ou pra admin da organização — sobe o zip empacotado (dist/) pro canal do time — os Macs dos colegas mostram o botão atualizar">⇡ Publicar release</button>
       </div>
       </div>
     </div>
@@ -62,7 +74,6 @@
 
   <div class="tabbar" id="tabBar" style="display:none"></div>
 
-  <div id="askBar" class="askbar" style="display:none"></div>
 
   <div class="body">
     <div class="feed">
@@ -82,18 +93,23 @@
       <div id="graphPane" class="pane" style="display:none"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
       <div id="teamPane" class="pane" style="display:none;padding:12px 12px 16px"><div id="teamBoard"></div></div>
-      <div id="emptyRepo" class="emptyrepo" style="display:none">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>
-        <div class="big">Nenhum projeto aberto</div>
-        <div>Escolha a pasta de um repositório git para começar.</div>
-        <button class="btn primary" id="emAbrir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5.2c0-.66.54-1.2 1.2-1.2h2.4c.3 0 .6.12.82.34l.86.86h5.5c.66 0 1.2.54 1.2 1.2v4.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2z" stroke-linejoin="round"/></svg>Abrir projeto</button>
+      <div id="emptyRepo" class="emptyrepo emstart" style="display:none">
+        <div class="emwrap">
+          <h1 class="emh1">O que você quer fazer?</h1>
+          <p class="emsub">Conte em português normal. O Starfork cria uma pasta pro projeto e a IA monta o plano com você — sem configurar nada antes.</p>
+          <textarea id="emWhat" class="emta" rows="4" placeholder="Ex.: um app de agendamento de aulas pro estúdio de pilates da minha irmã" spellcheck="true"></textarea>
+          <div class="emex"><span class="dim">exemplos:</span><button type="button" class="emchip" data-emex="um app de agendamento de aulas">um app de agendamento de aulas</button><button type="button" class="emchip" data-emex="um site de portfólio">um site de portfólio</button><button type="button" class="emchip" data-emex="um relatório a partir de uma planilha">um relatório a partir de uma planilha</button></div>
+          <div class="emwhere" id="emWhere"></div>
+          <div class="emerr" id="emErr" style="display:none"></div>
+          <div class="emcta"><button class="btn primary embig" id="emGo">Começar</button><span class="dim emkbd">⌘↵</span></div>
+          <div class="emalt"><a id="emAbrir">Abrir uma pasta que já tenho</a><span class="dim">·</span><a id="emNovo" title="escolher onde a pasta mora e (opcional) criar o repositório no GitHub">Criar projeto com GitHub…</a></div>
+        </div>
       </div>
     </div>
-    <div class="side" id="side"></div>
   </div>
 
   <div class="bus">
-    <span class="live">Barramento</span>
+    <span class="live" title="o que está acontecendo agora neste projeto">Agora</span>
     <span class="sep"></span>
     <span id="busSummary" class="dim">—</span>
     <span class="grow"></span>
@@ -104,13 +120,8 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead nf-head" data-tauri-drag-region><span class="ndeyebrow" data-tauri-drag-region>passo 2 de 2</span><select class="nd-projsel" id="ntProj" title="projeto onde a demanda vai abrir"></select><span class="nf-typechip" id="ntTypeChip" title="tipo escolhido na tela anterior"><span class="nf-typedot"></span><span id="ntTypeName">Feature</span><a id="ntTypeSwap" title="voltar e escolher outro tipo">trocar</a></span><span style="flex:1" data-tauri-drag-region></span><button class="as-btn" id="ntAI" title="a IA pergunta o essencial e monta a demanda completa (objetivo, entregáveis e critérios) conversando com você"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M7 2.4l.9 2.3 2.3.9-2.3.9L7 9.8l-.9-2.4-2.3-.9 2.3-.9z" stroke-linejoin="round"/><path d="M11.6 9.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" stroke-linejoin="round"/></svg>montar conversando</button><button class="as-btn" id="ntImport" title="importar uma spec .md pronta"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead nf-head" data-tauri-drag-region><span class="ndeyebrow" data-tauri-drag-region>nova demanda</span><select class="nd-projsel" id="ntProj" title="projeto onde a demanda vai abrir"></select><span class="nf-typechip" id="ntTypeChip" title="tipo da demanda"><span class="nf-typedot"></span><span id="ntTypeName">Feature</span><a id="ntTypeSwap" title="trocar o tipo da demanda">trocar</a></span><span style="flex:1" data-tauri-drag-region></span><div class="orq-seg ndseg ndseg-sm" role="tablist" aria-label="como montar a demanda"><button type="button" role="tab" id="ntAI" class="" data-ndseg="planner" title="a IA pergunta só o essencial e monta a demanda">Conversar</button><button type="button" role="tab" class="on" data-ndseg="form" title="formulário com todos os campos, sem conversa">Formulário</button><button type="button" role="tab" class="" data-ndseg="orq" title="um agente coordenador divide o problema em etapas e abre uma tarefa por etapa">Dividir</button></div><button class="as-btn" id="ntImport" title="importar uma spec .md pronta"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <div id="aiAssist" style="display:none">
-        <div class="aichat" id="aiChat"></div>
-        <div class="airow"><input class="in aiinput" id="aiInput" placeholder="descreva o que precisa… (ex.: rate limiting no gateway)"><button class="btn primary sm" id="aiSend">enviar</button></div>
-        <div class="aihint dim">O assistente pergunta o essencial e monta a spec — depois é só preencher o formulário.</div>
-      </div>
       <div id="ntRight">
       <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
       <!-- wizard por etapas (Entrega/Fix): uma pergunta por vez, sem scroll -->
@@ -118,7 +129,7 @@
         <div class="nf-progrow"><span class="ndeyebrow" id="wizStep"></span><div id="wizProg" class="nf-prog"></div></div>
         <h2 id="wizT" class="ndh1"></h2>
         <div id="wizH" class="ndsub"></div>
-        <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:11.5px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/></svg>guia de demanda deste repo (.cardume/SPEC.md)</summary><div id="wizGuideTx" class="mdview" style="font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
+        <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:11.5px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/></svg>guia de demanda deste repo <span class="mono" style="font-size:10.5px;opacity:.75">.cardume/SPEC.md</span></summary><div id="wizGuideTx" class="mdview" style="font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
       </div>
       <div id="ntMdPrev" style="display:none"></div>
       <!-- Como executar? — etapa da MESMA página (sem modal) -->
@@ -129,10 +140,10 @@
         <div class="seclbl2" style="margin-top:22px">Com qual IA? <span class="dim">· motor e versão do modelo — a recomendação olha a sua demanda</span></div>
         <div class="aipick" id="aiPickHow"></div>
         <div id="howEstimate" class="dim" style="font-size:12px;margin-top:10px"></div>
+        <div id="howBudgetHost" style="margin-top:6px"></div>
         <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
             <div style="display:none"><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
-            <div><label>Limite de custo (aviso)</label><input class="in" id="howCost" type="number" min="0" step="1" style="width:100%"></div>
             <div><label>Tarefas em paralelo</label><input class="in" id="howSlots" type="number" min="1" max="12" style="width:100%"></div>
           </div>
           <div id="howAgents" style="margin-top:12px"></div>
@@ -150,7 +161,7 @@
         <label style="display:flex;align-items:center">O que investigar<span style="flex:1"></span><button class="btn sm" data-aititle="ntInvTitle:ntInvObj" title="gera o título a partir do sintoma" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar do sintoma</button></label>
         <input class="in" id="ntInvTitle" placeholder="ex.: por que o custo da telemetria soma em dobro no filtro 'hoje'">
         <label style="margin-top:12px">Sintoma / pergunta <span class="dim" style="text-transform:none;letter-spacing:0">(o que acontece, onde, como reproduzir, desde quando)</span></label>
-        <textarea class="in ta" id="ntInvObj" rows="7" placeholder="ex.: usuários reportam que a exportação falha só em contas com +10k linhas; começou depois do deploy de terça. Reproduz em staging com a conta X…"></textarea>
+        <textarea class="in ta" id="ntInvObj" rows="7" placeholder="ex.: usuários reportam que a exportação falha só em contas com +10k linhas; começou depois do deploy de terça. Reproduz em staging com a conta X… · digite / pra referenciar uma tarefa já feita · ⌘V ou arraste um print pra anexar"></textarea>
         <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· print do erro, log, gráfico — onde o problema aparece</span><span style="flex:1"></span><button class="btn sm" id="ntInvRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
         <div id="ntInvRefs" class="reflist"></div>
         <label style="margin-top:12px">Quem investiga</label>
@@ -166,7 +177,7 @@
         <label style="display:flex;align-items:center">O que projetar<span style="flex:1"></span><button class="btn sm" data-aititle="ntDzTitle:ntDzObj" title="gera o título a partir do contexto/fluxo" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar do contexto</button></label>
         <input class="in" id="ntDzTitle" placeholder="ex.: tela de dashboard de times">
         <label style="margin-top:12px">Contexto e fluxo <span class="dim" style="text-transform:none;letter-spacing:0">(o problema, quem usa, o que precisa aparecer)</span></label>
-        <textarea class="in ta" id="ntDzObj" rows="7" placeholder="ex.: o gestor precisa ver as entregas do time por membro; hoje isso não existe. Fluxo: abre o app → aba Time → vê os números e clica pra detalhar…"></textarea>
+        <textarea class="in ta" id="ntDzObj" rows="7" placeholder="ex.: o gestor precisa ver as entregas do time por membro; hoje isso não existe. Fluxo: abre o app → aba Time → vê os números e clica pra detalhar… · digite / pra referenciar uma tarefa já feita · ⌘V ou arraste um print pra anexar"></textarea>
         <label style="margin-top:12px">Telas / estados a cobrir <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntDzScreens" placeholder="ex.: lista, detalhe, estado vazio, carregando, erro">
         <div class="seclbl2" style="margin-top:14px">Prints &amp; referências <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· mostre EXATAMENTE de que tela/lugar você fala</span><span style="flex:1"></span><button class="btn sm" id="ntDzRefAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>anexar</button></div>
@@ -185,7 +196,7 @@
         <label style="display:flex;align-items:center">O que corrigir<span style="flex:1"></span><button class="btn sm" data-aititle="ntFixTitle:ntFixObj" title="gera o título a partir dos detalhes" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar dos detalhes</button></label>
         <input class="in" id="ntFixTitle" placeholder="ex.: corrigir cálculo de custo na telemetria">
         <label style="margin-top:12px">Detalhes <span class="dim" style="text-transform:none;letter-spacing:0">(opcional — onde, sintoma, como reproduzir)</span></label>
-        <textarea class="in ta" id="ntFixObj" rows="7" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts"></textarea>
+        <textarea class="in ta" id="ntFixObj" rows="7" placeholder="ex.: o total soma em dobro quando o filtro é 'hoje' — ver src/telemetry/cost.ts · digite / pra referenciar uma tarefa já feita · ⌘V ou arraste um print pra anexar"></textarea>
         <label style="margin-top:12px">Arquivos/escopo <span class="dim" style="text-transform:none;letter-spacing:0">(opcional)</span></label>
         <input class="in" id="ntFixOwns" placeholder="src/telemetry/cost.ts">
         </div>
@@ -221,7 +232,7 @@
       <label style="display:flex;align-items:center">Título<span style="flex:1"></span><button class="btn sm" data-aititle="ntTitle:ntObj" title="gera o título a partir do objetivo/descrição" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/><path d="M12 9.5l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z" stroke-linejoin="round"/></svg> gerar da descrição</button></label>
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
       <label>Objetivo</label>
-      <textarea class="in ta" id="ntObj" rows="7" placeholder="o que precisa ser feito e por quê — cole contexto à vontade: sintomas, telas, critérios, links…"></textarea>
+      <textarea class="in ta" id="ntObj" rows="7" placeholder="o que precisa ser feito e por quê — cole contexto à vontade: sintomas, telas, critérios, links… · digite / pra referenciar uma tarefa já feita · ⌘V ou arraste um print pra anexar"></textarea>
       </div>
       <div class="wstep" data-w="2">
       <div id="ntDeliverables" class="listed" style="display:none"></div>
@@ -236,7 +247,7 @@
       </div>
       <label class="cfgck" style="display:flex;gap:9px;align-items:center;margin-top:10px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="ntLight"><span>Faixa leve <span class="dim">— mudança pequena: pula linkar dependências e o setup.sh na worktree (mais rápido; ligue só se a tarefa não precisa rodar/buildar o projeto)</span></span></label>
       <div class="two" id="ntTeamRow" style="margin-top:11px">
-        <div><label>Equipe (workflow)</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
+        <div><label>Equipe</label><select class="sel" id="ntWorkflow" style="width:100%"></select></div>
         <div><label>Motor</label><select class="sel" id="ntEngine" style="width:100%" title="Logcomex AI usa a LGCX_API_KEY da sua conta (Conta → Chaves de modelo)"><option value="claude">Claude (assinatura)</option><option value="codex">Codex (OpenAI)</option><option value="gateway">Gateway próprio (OpenAI-compatível)</option><option value="mock">Mock (sem IA)</option></select></div>
         <div><label>Versão do modelo</label><select class="sel" id="ntModel" style="width:100%" title="tarefa simples? um modelo mais rápido termina em fração do tempo"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio (rápido)</option><option value="haiku">Haiku — o mais veloz (tarefas simples)</option></select></div>
       </div>
@@ -245,7 +256,7 @@
         <div><label>Código da issue <span class="dim" style="text-transform:none;letter-spacing:0">(opcional — auto se houver etapa de issue)</span></label><input class="in" id="ntIssue" placeholder="ex.: FND-853"></div>
       </div>
       <div style="margin-top:11px"><label>Link da issue <span class="dim" style="text-transform:none;letter-spacing:0">(opcional — cole se já existe uma; senão, com a opção ligada, o agente cria)</span></label><input class="in mono" id="ntIssueUrl" placeholder="https://github.com/org/repo/issues/123"></div>
-      <div style="margin-top:11px"><label>Branch base <span class="dim" style="text-transform:none;letter-spacing:0">(de onde a worktree nasce — padrão: main)</span></label><input class="in mono" id="ntBase" placeholder="main (padrão do repo)"></div>
+      <div style="margin-top:11px"><label>Branch base <span class="dim" style="text-transform:none;letter-spacing:0">(o ponto de partida da cópia isolada do código — padrão: main)</span></label><input class="in mono" id="ntBase" placeholder="main (padrão do repo)"></div>
       <div class="two" style="margin-top:11px">
         <div><label>Aprovação das ações</label><select class="sel" id="ntApprove" style="width:100%"><option value="auto">Auto — o agente decide sozinho</option><option value="ask">Perguntar quando incerto</option></select></div>
         <div><label>Plano <span class="dim" style="text-transform:none;letter-spacing:0">(se houver etapa de plano)</span></label><select class="sel" id="ntPlan" style="width:100%"><option value="auto">Aceitar automaticamente</option><option value="review">Revisar antes de começar</option></select></div>
@@ -285,7 +296,7 @@
       <div id="wizFootL" class="nf-fl"></div>
       <button class="btn nf-ghost" id="ntCancel">cancelar</button>
       <span style="flex:1"></span>
-      <span class="dim" id="ntHint" style="display:none">cada demanda vira uma branch + worktree isolada</span>
+      <span class="dim" id="ntHint" style="display:none" title="cada demanda roda numa branch própria, numa cópia separada da pasta (worktree) — o seu código aberto não é tocado">cada demanda vira uma cópia isolada do código (branch)</span>
       <span id="ntMissing"></span>
       <button class="btn nf-ghost" id="ntDraft"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 3.5h6.5L12.5 6v6.5c0 .3-.2.5-.5.5H3.5c-.3 0-.5-.2-.5-.5v-9c0-.3.2-.5.5-.5z" stroke-linejoin="round"/></svg>salvar rascunho</button>
       <div id="wizFoot" class="nf-fr" style="display:none"></div>
@@ -299,7 +310,7 @@
   <div class="modal" style="width:min(680px,100%)">
     <div class="mhead"><b>Padrões de demanda da organização</b><span style="flex:1"></span><button class="x" id="orgTplClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <div class="imhint" style="border-left:2px solid var(--accent)">Vale pra <b>toda a organização</b>: o wizard mostra este guia e a IA o segue ao completar specs e desdobrar épicos. Um repo ainda pode refinar com <span class="mono">.cardume/SPEC.md</span> e <span class="mono">policy.json</span> (o repo vence).</div>
+      <div class="imhint" style="border-left:2px solid var(--accent)">Vale pra <b>toda a organização</b>: o wizard mostra este guia e a IA o segue ao completar specs e desdobrar épicos. Um repo ainda pode refinar com o próprio guia e política na pasta de trabalho do Starfork <span class="mono dim" style="font-size:10.5px">(.cardume/SPEC.md · policy.json)</span> — o repo vence.</div>
       <label style="margin-top:12px">Guia de spec <span class="dim" style="text-transform:none;letter-spacing:0">(markdown — apagar tudo volta ao template padrão do produto)</span></label>
       <textarea class="in ta mono" id="orgTplText" rows="12" style="font-size:11.5px"></textarea>
       <div class="seclbl2" style="margin-top:14px">Política de obrigatoriedade</div>
@@ -320,7 +331,7 @@
    <div style="width:min(660px,92%)">
     <div style="text-align:center">
       <div style="font-size:34px;line-height:1;color:var(--accent)">✦</div>
-      <h2 style="margin:12px 0 4px;font-size:22px">Assine o Constellation</h2>
+      <h2 style="margin:12px 0 4px;font-size:22px">Assine o Starfork</h2>
       <div class="dim" style="font-size:12.5px" id="payHint">7 dias grátis — a cobrança só começa depois do teste, e dá pra cancelar em 2 cliques.</div>
     </div>
     <div style="display:flex;justify-content:center;margin:16px 0 14px">
@@ -343,7 +354,7 @@
     <div id="pubForm" style="margin-top:12px">
       <label>Notas da versão <span class="dim" style="text-transform:none;letter-spacing:0">(o time vê no aviso de atualização)</span></label>
       <textarea class="in ta" id="pubNotes" rows="3">Melhorias e correções.</textarea>
-      <div class="dim" style="font-size:11.5px;margin-top:8px">Sobe o zip empacotado (dist/) + o aviso de versão usando a sua sessão — os Macs do time mostram <b>⬆ atualizar</b> no próximo boot ou em até 6h.</div>
+      <div class="dim" style="font-size:11.5px;margin-top:8px">Sobe o zip empacotado (dist/) + o aviso de versão usando a sua sessão — os Macs do time recebem o aviso de <b>atualizar</b> em até ~2 min.</div>
       <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="pubCancel">cancelar</button><button class="btn primary" id="pubGo">Publicar</button></div>
     </div>
     <div id="pubProg" style="display:none;margin-top:16px;align-items:center;gap:10px">
@@ -352,13 +363,29 @@
     <div id="pubDone" style="display:none;margin-top:16px"></div>
   </div>
 </div>
+<!-- Memória do projeto: o cérebro de notas .md ligadas por [[links]] (aba, não modal) -->
+<div class="overlay" id="memOverlay" style="display:none;z-index:95">
+  <div class="modal" style="width:min(1100px,100%)">
+    <div class="mhead"><b>Memória do projeto</b><span style="flex:1"></span><button class="x" id="memClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="memBody"></div>
+  </div>
+</div>
+<!-- Mesa de personas (party mode): personas debatem e votam o que construir (aba, não modal) -->
+<div class="overlay" id="mesaOverlay" style="display:none;z-index:95">
+  <div class="modal" style="width:min(1100px,100%)">
+    <div class="mhead"><b>Mesa de personas</b><span style="flex:1"></span><button class="x" id="mesaClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="mesaBody"></div>
+  </div>
+</div>
 <!-- Preferências do projeto: 1 arquivo por projeto, o time escreve, os agentes seguem -->
 <div class="overlay" id="prefsOverlay" style="display:none;z-index:95">
   <div class="modal" style="width:min(720px,100%)">
     <div class="mhead"><b>Preferências do projeto</b><span class="dim" id="prefsRepo" style="font-size:11px;margin-left:8px"></span><span style="flex:1"></span><button class="x" id="prefsClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <div class="imhint" style="border-left:2px solid var(--accent)">Um documento por projeto, escrito pelo <b>time</b> — convenções, padrões, o que evitar, decisões acordadas. <b>Todo agente</b> deste projeto lê e segue à risca (vira <span class="mono">.cardume/PREFS.md</span>). Sincroniza pra todos do time.</div>
+      <div class="imhint" style="border-left:2px solid var(--accent)">Um documento por projeto, escrito pelo <b>time</b> — convenções, padrões, o que evitar, decisões acordadas. <b>Todo agente</b> deste projeto lê e segue à risca (fica salvo na pasta de trabalho do Starfork, <span class="mono dim" style="font-size:10.5px">.cardume/PREFS.md</span>). Sincroniza pra todos do time.</div>
       <textarea class="in ta mono" id="prefsText" rows="16" style="font-size:12px;margin-top:10px" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea>
+      <div id="prefsProtHost"></div>
+      <div id="prefsMemHost"></div>
     </div>
     <div class="mfoot"><span class="dim" id="prefsMeta" style="font-size:11px"></span><span style="flex:1"></span><button class="btn" id="prefsCancel">fechar</button><button class="btn primary" id="prefsSave">salvar pro time</button></div>
   </div>
@@ -366,8 +393,8 @@
 <!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
 <div class="overlay" id="goOverlay" style="display:none;z-index:120">
   <div class="modal" style="max-width:420px;padding:0 0 20px;overflow:hidden">
-    <div class="cosmos tall"><canvas class="cosmos-c"></canvas><div class="cosmos-t">colocando no ar</div></div>
-    <div id="goSteps" style="padding:0 24px" style="margin-top:14px;display:flex;flex-direction:column;gap:9px"></div>
+    <div class="go-sky" id="goSky"></div>
+    <div id="goSteps" style="padding:0 24px;margin-top:14px;display:flex;flex-direction:column;gap:9px"></div>
   </div>
 </div>
 <!-- Como executar? (redesign): fluxo, modelo e limites antes de iniciar -->
@@ -400,8 +427,8 @@
   <div class="fw">
     <div class="plhead" data-tauri-drag-region>
       <div class="plheadl">
-        <span class="plheadic">✦</span>
-        <div class="plheadt"><b>Montar a demanda conversando</b><span class="fwsub" id="plMeter"></span></div>
+        <b class="plttl">Nova demanda</b>
+        <span class="fwsub plmeter" id="plMeter"></span>
       </div>
       <div class="plheadr">
         <button class="btn sm ghost" id="plNew" title="começar do zero (descarta o rascunho)">＋ novo</button>
@@ -414,7 +441,7 @@
         <div class="plchips" id="plChips"></div>
         <div class="plrefs" id="plRefsBar"></div>
         <div class="attrow attpend" id="plPend" style="display:none"></div>
-        <div class="plinput"><button class="btn sm" id="plAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in plta" id="plInput" rows="2" placeholder="responda aqui… (⌘V cola um print · clipe anexa)"></textarea><button class="btn sm trk-stop" id="plStop" style="display:none" title="interrompe a IA agora">■ parar</button><button class="btn primary sm" id="plSend">enviar</button></div>
+        <div class="plinput cc"><textarea class="in plta cc-ta" id="plInput" rows="2" placeholder="responda aqui… (/ referencia uma tarefa já feita)"></textarea><div class="cc-row"><button class="btn sm cc-clip" id="plAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span class="ndctl" id="plCtl"></span><span class="cc-sp"></span><button class="btn sm trk-stop" id="plStop" style="display:none" title="interrompe a IA agora">■ parar</button><button class="btn primary sm cc-send" id="plSend">enviar</button></div></div>
       </div>
       <div class="plmesh" id="plMesh"></div>
     </div>
@@ -424,19 +451,17 @@
 <!-- workspace 3 colunas estilo Cursor: arquivos · código+linhas · chat do agente -->
 <div class="overlay fwoverlay" id="fwOverlay" style="display:none">
   <div class="fw">
-    <div class="fwtabs" id="fwTabs" data-tauri-drag-region></div>
     <div class="fwhead">
-      <b class="mono" id="fwTaskName">Arquivos & chat</b>
+      <b class="fwtname" id="fwTaskName">Arquivos & chat</b><span id="fwTaskEpic" class="fwtaskepic"></span><span id="fwTaskProt"></span>
       <span class="fwsub" id="fwTaskBranch"></span>
       <span id="fwOrqChips"></span>
       <span class="phst" id="fwPhases" style="margin-left:12px"></span>
       <span class="fwmodes" id="fwModes"></span>
       <span style="flex:1"></span>
       <span id="fwReviewBar" style="display:flex;gap:8px;align-items:center"></span>
-      <button class="btn primary sm" id="fwPush" title="commita o que estiver solto e faz push da branch — o PR atualiza na hora"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px"><path d="M8 12.5v-8M4.5 8L8 4.5 11.5 8" stroke-linecap="round" stroke-linejoin="round"/></svg> commit &amp; push</button>
-      <button class="btn sm" id="fwClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
+      <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, modelo, custo, preview no celular…"></button>
+      <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
-    <div class="fwstep" id="fwStepChip" style="display:none"></div>
     <div class="fwcols" id="fwCols">
       <div class="fwtree" id="fwTree"></div>
       <div class="fwmain" id="fwMain"></div>
@@ -448,7 +473,7 @@
 
 
 <!-- lightbox das provas (prints) — setas navegam entre as evidências da demanda -->
-<div class="lbov" id="lbOverlay" style="display:none"><button class="lbx" id="lbClose" aria-label="fechar">✕</button><button class="lbnav lbprev" id="lbPrev" aria-label="anterior">‹</button><figure class="lbfig"><img id="lbImg" alt=""><figcaption class="lbcap" id="lbCap"></figcaption></figure><button class="lbnav lbnext" id="lbNext" aria-label="próxima">›</button></div>
+<div class="lbov" id="lbOverlay" style="display:none"><button class="lbx" id="lbClose" aria-label="fechar"><svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button><button class="lbnav lbprev" id="lbPrev" aria-label="anterior">‹</button><figure class="lbfig"><img id="lbImg" alt=""><figcaption class="lbcap" id="lbCap"></figcaption></figure><button class="lbnav lbnext" id="lbNext" aria-label="próxima">›</button></div>
 <!-- relatório gerado (entrega ou período): leitura + copiar/salvar/PDF -->
 <div class="overlay" id="repOverlay" style="display:none;z-index:96">
   <div class="modal" style="width:min(820px,100%)">
@@ -466,41 +491,27 @@
 
 <!-- chat com o agente (conversa contínua, retoma a sessão a cada mensagem) -->
 
-<!-- modal de resposta à pergunta do agente (ask_human) — legível + input estável -->
-<div class="overlay" id="askOverlay" style="display:none">
-  <div class="modal askmodal">
-    <div class="mhead"><span class="pmdot" style="background:var(--warn)"></span><b id="askAgent">Agente</b>&nbsp;<span class="dim">está esperando você</span><span style="flex:1"></span><button class="x" id="askClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody">
-      <div class="askq" id="askQ"></div>
-      <div class="askopts" id="askOpts"></div>
-      <label style="margin-top:14px">Sua resposta</label>
-      <textarea class="in ta askta" id="askTa" rows="4" placeholder="escreva sua resposta… (⌘+Enter envia)"></textarea>
-    </div>
-    <div class="mfoot"><span class="dim">responder libera o agente pra continuar</span><span style="flex:1"></span><button class="btn" id="askCancel">fechar</button><button class="btn primary" id="askSend">responder</button></div>
-  </div>
-</div>
-
 <div class="overlay" id="agOverlay" style="display:none">
   <div class="modal wide">
     <div class="mhead"><b>Agentes & Equipes</b><button class="x" id="agClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div class="seclbl2">Agentes <span style="flex:1"></span><button class="btn sm" id="agImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="btn sm" id="agAdd">+ novo agente</button></div>
-      <div class="imhint">Cada agente tem um papel e uma persona (instrução). Você pode <b>importar .md</b> no formato de subagente do Claude Code — frontmatter (<code>name</code>, <code>role</code>, <code>color</code>, <code>model</code>) + o corpo vira a persona.</div>
+      <div class="imhint">Cada agente tem um papel e uma persona (as instruções dele). Dá pra <b>importar um .md</b> de subagente do Claude Code: o cabeçalho do arquivo (entre as linhas <code>---</code>) traz nome, papel, cor e modelo, e o resto do texto vira a persona.</div>
       <div id="agList"></div>
-      <div class="seclbl2" style="margin-top:20px">Workflows (equipes) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ novo workflow</button></div>
-      <div class="imhint">Um workflow é a sequência de agentes que toca a tarefa. Arraste a ordem com ◀ ▶.</div>
+      <div class="seclbl2" style="margin-top:20px">Equipes (fluxos de trabalho) <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ nova equipe</button></div>
+      <div class="imhint">Uma equipe é o fluxo de trabalho: a sequência de agentes que toca a tarefa (ex.: planejar → construir → revisar). Arraste pra mudar a ordem.</div>
       <div id="wfList"></div>
     </div>
-    <div class="mfoot"><span class="dim">grava no cardume.config.json</span><span style="flex:1"></span><button class="btn" id="agCancel">cancelar</button><button class="btn primary" id="agSave">salvar catálogo</button></div>
+    <div class="mfoot"><span class="dim" title="arquivo: cardume.config.json na raiz do projeto">salvo nas configurações deste projeto</span><span style="flex:1"></span><button class="btn" id="agCancel">cancelar</button><button class="btn primary" id="agSave">salvar catálogo</button></div>
   </div>
 </div>
 
-<!-- Time na nuvem (Supabase): login → org/time → convites → seletor -->
+<!-- Conta e time (Supabase): login → org/time → convites → seletor -->
 <!-- entrada e assinatura (design onboarding-planos): criar conta · entrar · confirmar · planos · pagamento · pronto -->
 <div class="au" id="authOverlay" style="display:none"><div class="au-wrap"><aside class="au-left" id="auLeft"></aside><main class="au-right" id="auRight"></main></div></div>
 <div class="overlay" id="cloudOverlay" style="display:none">
   <div class="modal" style="width:min(780px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:15px;height:15px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><b id="cloudHead">Time na nuvem</b><span style="flex:1"></span><button class="btn sm" id="sbLogoutTop" style="display:none" title="deslogar desta máquina">sair da conta</button><button class="x" id="cloudClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:15px;height:15px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><b id="cloudHead">Conta e time</b><span style="flex:1"></span><button class="btn sm" id="sbLogoutTop" style="display:none" title="deslogar desta máquina">sair da conta</button><button class="x" id="cloudClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="cloudBody"></div>
   </div>
 </div>
@@ -522,7 +533,7 @@
     <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:10.5px" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/></svg>virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="chatthread" id="pcThread" style="min-height:340px;max-height:56vh"></div>
     <div class="attrow attpend pcpend" id="pcPend" style="display:none"></div>
-    <div class="chatinput"><button class="btn sm" id="pcAttach" title="anexar print/PDF/doc"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><textarea class="in" id="pcInput" rows="2" placeholder="pergunte sobre o projeto… (Enter envia · ⌘V cola um print)"></textarea><button class="btn primary sm" id="pcSend">enviar</button></div>
+    <div class="chatinput cc"><textarea class="in cc-ta" id="pcInput" rows="2" placeholder="pergunte sobre o projeto…"></textarea><div class="cc-row"><button class="btn sm cc-clip" id="pcAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span class="cc-sp"></span><button class="btn sm trk-stop" id="pcStop" style="display:none" title="interrompe a IA agora">■ parar</button><button class="btn primary sm cc-send" id="pcSend">enviar</button></div></div>
   </div>
 </div>
 
@@ -588,7 +599,7 @@
 
 <!-- onboarding do primeiro boot -->
 <div class="overlay" id="obOverlay" style="display:none">
-  <div class="modal" style="width:min(560px,100%)">
+  <div class="modal" style="width:min(560px,100%)" role="dialog" aria-modal="true" aria-labelledby="obTitle">
     <div class="mbody" id="obBody" style="padding:28px 30px"></div>
   </div>
 </div>
@@ -597,7 +608,7 @@
 <div class="overlay" id="envOverlay" style="display:none">
   <div class="modal" style="width:min(620px,100%)">
     <div class="mhead"><b>Ambiente</b><span style="flex:1"></span><button class="btn sm" id="envRecheck">verificar de novo</button><button class="x" id="envClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="envBody"><div class="dim" style="padding:8px 2px">verificando…</div></div>
+    <div class="mbody" id="envBody"></div>
   </div>
 </div>
 
@@ -643,7 +654,8 @@
   </div>
 </div>
 <script src="js/00-util.js"></script>
-<script src="js/05-cosmos.js"></script>
+<script src="js/06-carregamento.js"></script>
+<script src="js/09-remote-id.js"></script>
 <script src="js/10-core.js"></script>
 <script src="js/11-ambiente-updater.js"></script>
 <script src="js/12-chat-prefs-daily.js"></script>
@@ -666,6 +678,11 @@
 <script src="js/33-previsao.js"></script>
 <script src="js/33-switcher-projetos.js"></script>
 <script src="js/34-orquestrador.js"></script>
+<script src="js/35-ref-tarefa.js"></script>
+<script src="js/36-comecar.js"></script>
+<script src="js/37-memoria.js"></script>
+<script src="js/38-mesa.js"></script>
+<script src="js/39-i18n-auth.js"></script>
 <script src="js/40-nuvem-conta.js"></script>
 <script src="js/41-assinatura-chaves.js"></script>
 <script src="js/42-nuvem-sync-mobile.js"></script>
@@ -673,7 +690,10 @@
 <script src="js/44-onboarding.js"></script>
 <script src="js/45-entrega-time.js"></script>
 <script src="js/46-epico-time.js"></script>
+<script src="js/47-edicoes-agente.js"></script>
 <script src="js/50-coordenacao.js"></script>
 <script src="js/52-erros.js"></script>
+<script src="js/53-teto-protecao.js"></script>
+<script src="js/54-acessibilidade.js"></script>
 </body>
 </html>

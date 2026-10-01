@@ -1,4 +1,4 @@
-// Glob mínimo do Cardume — base da detecção proativa de sobreposição de escopo.
+// Glob mínimo do Starfork — base da detecção proativa de sobreposição de escopo.
 //
 // Os `scope.owns` de uma tarefa são padrões como "src/auth/**", "src/*.ts" ou
 // um caminho concreto "src/cli.ts". O barramento hoje casa caminho EXATO

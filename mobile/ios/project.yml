@@ -15,7 +15,7 @@ targets:
     info:
       path: Constellation/Info.plist
       properties:
-        CFBundleDisplayName: Constellation
+        CFBundleDisplayName: Starfork
         UILaunchScreen: {}
         UIUserInterfaceStyle: Dark
         ITSAppUsesNonExemptEncryption: false

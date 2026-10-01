@@ -1,4 +1,4 @@
-// Constellation — 25-grafo
+// Starfork — 25-grafo
 // ============================================================================
 // GRAFO v2 — trilhos por tarefa: cada branch é uma linha horizontal legível
 // (fork na base → commits clicáveis → ponta com o agente e a cor do status →
@@ -13,13 +13,13 @@ function renderGraph(){
   const mainCommits=commits.filter(c=>{ const r=parseRefs(c.refs); return r.includes('main')||r.includes('master')||!(c.parents||[]).length||true; }).slice(0,14);
   const tasks=(state.tasks||[]).filter(t=>t.kind!=='review' && t.status!=='draft' && notHidden(t));
   const ORDER={running:0,thinking:0,queued:1,'plan-review':1,paused:1,error:2,conflict:2,review:3,aborted:4,merged:5};
-  tasks.sort((a,b)=>(ORDER[a.status]??3)-(ORDER[b.status]??3) || b.created_at-a.created_at);
+  tasks.sort((a,b)=>(ORDER[a.status]??3)-(ORDER[b.status]??3) || taskTs(b)-taskTs(a));
   // garante os commits de cada tarefa (lazy — re-renderiza quando chegar)
-  tasks.forEach(t=>{ if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(activeIs('graph')) renderGraph(); }); });
+  tasks.forEach(t=>{ if(commitsNeedLoad(t.id) && !commitsLoading[t.id]){ const before=JSON.stringify(commitsCache[t.id]||null); loadCommits(t.id).then(c=>{ if(JSON.stringify(c||null)!==before) lastSig=''; }); } });
   const railW=520;
   const rail=(t)=>{
     const cs=(commitsCache[t.id]||[]).slice().reverse(); // antigo → novo
-    const col=STATUS_COLOR[t.status]||'var(--muted)';
+    const col=stColor(taskSt(t));
     const n=cs.length, shown=cs.slice(-24);
     const x0=16, xTip=railW-30;
     const step=shown.length>1?Math.min(34,(xTip-40-x0)/(shown.length-1)):0;
@@ -32,24 +32,35 @@ function renderGraph(){
     return `<svg width="${railW+70}" height="40" viewBox="0 0 ${railW+70} 40">${g}${tip}${merge}</svg>`+(n>24?`<span class="dim" style="font-size:10px">+${n-24}</span>`:'');
   };
   const rows=tasks.map(t=>{
-    const col=STATUS_COLOR[t.status]||'var(--muted)';
+    const col=stColor(taskSt(t));
     const cs=commitsCache[t.id];
-    return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}">
+    return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}" tabindex="0" title="abrir a tarefa">
       <div class="grh">
         <span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
         <b class="grt">${esc(t.title)}</b>
+        ${typeof epTaskBadge==='function'?epTaskBadge(t):''}
         ${linkChips(t)}
         <span style="flex:1"></span>
         <span class="mono dim" style="font-size:10px">${esc(t.base||'main')} → ${esc(t.branch)}</span>
-        <span class="fstatus" style="color:${col};font-size:10.5px">● ${esc(t.status)}${t.flag?' · '+(t.flag==='blocked'?'bloqueada':'encerrada'):''}</span>
+        ${stBadge(taskSt(t))}${t.flag==='blocked'?' <span class="flagbadge blk">bloqueada</span>':''}
       </div>
-      <div class="grrail">${cs===undefined?'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">carregando commits…</span>':(cs.length?rail(t):'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
+      <div class="grrail">${cs===undefined?'<div style="padding:8px 16px">'+skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando os commits' })+'</div>':(cs.length?rail(t):'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
     </div>`;
   }).join('');
   const mainRow=mainCommits.length?`<div class="grmain"><span class="mono" style="color:var(--text-2);font-size:11px;font-weight:700">main</span><div class="grmc">${mainCommits.slice(0,12).map(c=>`<span class="gmdot" data-hash="${escA(c.hash)}" title="${escA((c.subject||'').slice(0,90))}"></span>`).join('')}</div><span class="dim" style="font-size:10.5px">últimos ${Math.min(12,mainCommits.length)} commits · clique num ponto pra ver o diff</span></div>`:'';
-  host.innerHTML=`<div class="gtlwrap">${mainRow}${rows||'<div class="empty">nenhuma tarefa com branch ainda</div>'}</div>`;
+  // R7: vazio padrão (com saída) e guarda de innerHTML — o render roda a cada tick do snapshot e antes
+  // reescrevia o grafo inteiro sempre (piscava e engolia o clique no meio); agora só quando o HTML mudou
+  const empty=emptyHtml({ icon:'route', title:'Nenhuma tarefa com branch ainda', help:'Cada demanda iniciada ganha um trilho aqui, com os commits do agente e a ponta na cor do status.', action:{ id:'gtlNew', label:'Nova demanda' } });
+  if(!setHtmlGuarded(host, `<div class="gtlwrap">${mainRow}${rows||empty}</div>`)) return;
+  bindClick('gtlNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
+  // .sel = a última tarefa aberta (openTaskById grava `selected`) — ao voltar pro grafo, você acha de onde veio
   host.querySelectorAll('.gdot,.gmdot').forEach(d=>{ d.onclick=(e)=>{ e.stopPropagation(); openCommit(d.dataset.hash); }; });
-  host.querySelectorAll('[data-tsel]').forEach(r=>{ r.addEventListener('click',(e)=>{ if(e.target.closest('.gdot,.gmdot,[data-lk],[data-lkcfg]')) return; selected=r.dataset.tsel; lastSig=''; render(); }); });
+  host.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); // R5-7
+  // R7: clicar no trilho ABRE a tarefa (antes só "selecionava" — sem o painel lateral antigo, o clique não fazia nada visível)
+  host.querySelectorAll('[data-tsel]').forEach(r=>{
+    r.addEventListener('click',(e)=>{ if(e.target.closest('.gdot,.gmdot,[data-lk],[data-lkcfg],[data-epbadge]')) return; e.stopPropagation(); openTaskById(r.dataset.tsel); });
+    if(r.classList.contains('grow2')) r.addEventListener('keydown',(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); openTaskById(r.dataset.tsel); } });
+  });
   wireLinkChips(host);
 }
 const DEFPAT=[/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/,/^\s*(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_,\s]*)\s*=>/,/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/,/^\s*def\s+([A-Za-z0-9_]+)/,/^\s*#\[tauri::command\]/];
@@ -105,9 +116,10 @@ let curCommit=null;
 async function openCommit(hash){
   curCommit=hash;
   const ov=$id("cmOverlay"), body=$id("cmBody");
-  ov.style.display="flex"; body.innerHTML=cosmosHtml('carregando…','inline');
+  ov.style.display="flex"; ldPaint(body, skeletonHtml('tabela',{ n:6, cols:2, label:'carregando o commit' }));
   let d; try{ d=await invoke("commit_detail",{hash}); }
-  catch(e){ body.innerHTML='<div class="dim" style="font-size:12px">'+esc(String(e))+'</div>'; return; }
+  catch(e){ if(curCommit!==hash) return; body.innerHTML=errorHtml(e,'cmRetry','Não consegui abrir o commit'); ldWireErr(body,e,'Não consegui abrir o commit',()=>openCommit(hash)); return; }
+  if(curCommit!==hash) return; // outro commit foi aberto enquanto este carregava
   const files = parseDiff(d.diff);
   const tech = commitTech(files);
   // vincula à tarefa e ao(s) entregável(is)
@@ -132,7 +144,7 @@ async function openCommit(hash){
     ${d.body?`<div class="cmbody-txt">${esc(d.body).replace(/\n/g,"<br>")}</div>`:''}
     <div class="seclbl2" style="margin-top:15px">Alterações <span style="flex:1"></span><span class="dim" style="letter-spacing:0;text-transform:none">${d.files.length} arquivo(s)</span></div>
     <div class="diffwrap">${renderDiff(files)}</div>
-    ${(t && t.status!=='merged' && (t.roles||[]).some(r=>r.engine==='claude')) ? `<div class="instrbox" style="margin-top:14px">
+    ${(t && t.status!=='merged' && (t.roles||[]).some(r=>aiCanTalk(r.engine))) ? `<div class="instrbox" style="margin-top:14px">
       <div class="ilbl">${IC.ai} Pedir ajuste neste commit</div>
       <div class="ihint">Descreva o que não ficou bom — o agente refaz na worktree (mesma sessão) e recompõe o review.</div>
       <div class="irow"><input class="in iinput" id="cmRwInput" placeholder="ex.: renomeia verify() para verifyTotp()"><button class="btn primary sm" id="cmRwSend">pedir ajuste</button></div>
@@ -153,7 +165,7 @@ async function genAI(h){
   const el=$id("cmAI"); if(!el) return;
   el.innerHTML='<span class="dim">gerando resumo com IA…</span>';
   try{ const s=await invoke("ai_commit_summary",{hash:h}); if(curCommit!==h) return; $id("cmAI").textContent=s; }
-  catch(e){ if(curCommit!==h) return; const x=$id("cmAI"); x.innerHTML='<span class="dim">não foi possível gerar: '+esc(String(e).slice(0,90))+'</span> <button class="btn sm" id="cmAIbtn2">tentar de novo</button>'; const b=$id("cmAIbtn2"); if(b) b.onclick=()=>genAI(h); }
+  catch(e){ if(curCommit!==h) return; const x=$id("cmAI"); x.innerHTML='<span class="dim">'+esc(humanErr(e,'Não foi possível gerar').msg)+'</span> <button class="btn sm" id="cmAIbtn2">tentar de novo</button>'; const b=$id("cmAIbtn2"); if(b) b.onclick=()=>genAI(h); }
 }
 function closeCommit(){ curCommit=null; $id("cmOverlay").style.display="none"; }
 
@@ -168,39 +180,30 @@ function renderRail(){
   // depois os outros repos salvos, e o total no rodapé.
   const el = $id("rail");
   const curPath=state.repo||'';
-  const curName=curPath.split('/').filter(Boolean).slice(-1)[0]||'projeto';
-  const tagOf=(t)=>{
-    if(pendingOf(t.id).length) return ['⏳','var(--warn)'];
-    if(t.status==='plan-review') return ['plano','var(--warn)'];
-    if(t.prUrl&&t.status!=='merged') return ['PR','var(--info,#5b9df9)'];
-    if(['review','delivered'].includes(t.status)) return ['rev','var(--warn)'];
-    if(t.status==='queued') return ['fila','var(--muted)'];
-    if(t.status==='paused') return ['pausa','var(--muted)'];
-    if(t.status==='draft') return ['rasc','var(--muted)'];
-    if(['error','conflict','aborted'].includes(t.status)) return ['erro','var(--crit)'];
-    const k=taskType(t);
-    return [k==='invest'?'disc':k==='design'?'design':'exec', ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'];
-  };
-  const dotOf=(t)=> pendingOf(t.id).length||t.status==='plan-review' ? 'var(--warn)'
-    : ['error','conflict'].includes(t.status) ? 'var(--crit)'
-    : (ACTIVE_ST.has(t.status)||t.status==='thinking') ? 'var(--good)'
-    : ['review','delivered'].includes(t.status) ? 'var(--warn)' : 'var(--muted)';
+  const curName=pathBase(curPath)||'projeto';
+  // etiqueta e ponto = o status EFETIVO (taskSt: pergunta aberta vence, PR aberto = 'pr-open') com o nome curto e
+  // a cor do STATUS_META — antes era um vocabulário próprio (exec/disc/rev/rasc/ampulheta) que juntava erro/conflito/abortada em "erro"
+  const tagOf=(t)=>{ const st=taskSt(t); return [stShort(st), stColor(st), stLabel(st)]; };
+  const dotOf=(t)=> stColor(taskSt(t));
   // MESMA regra de visibilidade do quadro (bloqueadas e encerradas ficam fora — o quadro tem o chip pra revelar)
   const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&t.flag!=='blocked'&&!['merged','done'].includes(t.status));
   const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
-  const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| (b.createdAt||b.created_at)-(a.createdAt||a.created_at)).slice(0,12);
+  const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| taskTs(b)-taskTs(a)).slice(0,12);
   const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
   // rank de tarefa de OUTRO projeto (sem pendingOf): review/entregue e ativas em cima
   const rankOther=(t)=> (t.status==='review'||t.status==='delivered')?3 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : t.status==='plan-review'?1 : 0;
 
   // ---- PROJETO ATUAL (tarefas vivas do state, já priorizadas: pendência → plano → exec → review) ----
   let html = '';
-  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n">${rows.length}</span></div>${gitRailTag()}</div>`;
+  // R7: o número é o TOTAL de demandas vivas (antes era o das linhas mostradas, cortado em 12) e o que não coube
+  // vira uma linha "+N na Central" que abre a Central filtrada neste projeto
+  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n" title="${escA(nPl(mine.length,'demanda viva','demandas vivas'))}">${mine.length}</span></div>${gitRailTag()}</div>`;
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
-    html+=rows.map(t=>{ const [tg,tc]=tagOf(t);
-      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}"><span class="d" style="background:${dotOf(t)}"></span><span class="tt">${esc(t.title)}</span><span class="tg mono" style="color:${tc}">${esc(tg)}</span></div>`;
+    html+=rows.map(t=>{ const [tg,tc,tl]=tagOf(t);
+      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}" tabindex="0"><span class="d" style="background:${dotOf(t)}"></span><span class="tt" title="${escA(t.title)}">${esc(t.title)}</span>${sbEpDot(t)}<span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
     }).join('');
+    if(mine.length>rows.length) html+=`<div class="prow2 more" data-more="1" tabindex="0" title="ver todas as demandas deste projeto na Central"><span class="tt dim">+${mine.length-rows.length} na Central</span></div>`;
   } else if(!(window.orqRailRows&&window.orqRailRows())){
     html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:11px">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
   }
@@ -213,9 +216,10 @@ function renderRail(){
     html+=`<div class="rproj"><div class="rph"><b>${esc(p.name)}</b><span class="n">${act}</span></div></div>`;
     const ptasks=(p.tasks||[]).slice().sort((x,y)=>rankOther(y)-rankOther(x)).slice(0,3);
     if(ptasks.length){
-      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''}><span class="d" style="background:${t.status==='review'||t.status==='delivered'?'var(--warn)':ACTIVE_ST.has(t.status)?'var(--good)':'var(--muted)'}"></span><span class="tt">${esc(t.title)}</span></div>`).join('');
+      // ponto na cor do STATUS_META (stColor) — antes um vocabulário próprio (review = amarelo "warn", resto cinza)
+      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''} tabindex="0"><span class="d" style="background:${stColor(t.status)}" title="${escA(stLabel(t.status))}"></span><span class="tt" title="${escA(t.title+' · '+p.name)}">${esc(t.title)}</span></div>`).join('');
     } else {
-      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}"><span class="tt dim" style="font-size:11px">abrir projeto</span></div>`;
+      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}" tabindex="0"><span class="tt dim" style="font-size:11px">abrir projeto</span></div>`;
     }
   }
 
@@ -223,9 +227,11 @@ function renderRail(){
   const nProj=1+allOthers.length;
   html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
     <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
-  el.innerHTML = html;
+  if(el.__html===html && el.firstChild) return; // nada visível mudou: mantém o DOM (e os handlers) — sem piscar
+  el.__html=html; el.innerHTML = html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
+    if(r.dataset.more){ flowJump({ status:'all', proj:state.repo }); return; }
     if(r.classList.contains('other')){ // demanda de outro projeto: ABRE a tarefa (não é "selecionar projeto")
       if(r.dataset.id) switchToProjectTask(r.dataset.proj, r.dataset.id);
       else switchProject(r.dataset.proj);
@@ -233,5 +239,15 @@ function renderRail(){
     }
     if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });
+  // R7: linhas da barra lateral pelo teclado (Tab chega, Enter/Espaço abre) — vale pras linhas de plano (orqrow) também
+  el.querySelectorAll('.prow2[tabindex],.prow2.orqrow').forEach(r=>{ if(!r.hasAttribute('tabindex')) r.tabIndex=0;
+    r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
+}
+
+// R5-7: tarefa de épico na barra lateral = ◆ pequeno na cor do épico (nome no tooltip) — a linha é estreita demais pro selo inteiro
+function sbEpDot(t){
+  const id=t&&t.epic&&t.epic.epicId; if(!id) return '';
+  const nm=(typeof epNameOf==='function'&&epNameOf(id))||'épico', w=parseInt(t.epic.wave,10)||0;
+  return `<span class="sbepdot" style="color:${typeof epColor==='function'?epColor(id):'var(--accent)'}" title="${escA('épico “'+nm+'”'+(w?' · onda '+w:''))}">${IC.epic}</span>`;
 }

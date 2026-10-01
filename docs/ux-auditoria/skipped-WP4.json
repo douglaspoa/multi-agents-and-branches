@@ -1,0 +1,26 @@
+[
+  {
+    "id": "N13",
+    "area": "Navegação e jornada",
+    "titulo": "Fluxos em modal (desdobrar em épico, padrões da org, entrega do time) virarem aba",
+    "motivo": "Não é barato nem seguro no meu escopo. Os abridores ficam em arquivos de outros pacotes (bdOverlay em 31-nova-demanda-form.js, ctOverlay em 45-entrega-time.js / 43-espaco-times.js, orgTplOverlay acionado de 40 mas com estado próprio). Virar aba exige kind novo em VIEW_META/VIEW_OVERLAY + viewOpen que saiba reconstruir o conteúdo (ex.: qual tarefa está sendo desdobrada), e mexer em quem abre/fecha — risco de aba em branco ou de perder a proposta da IA. O ctOverlay já tem uma versão em aba (cttask/ctPageOverlay). Recomendação: fazer junto com o dono dos arquivos de épico/time."
+  },
+  {
+    "id": "N6-parcial",
+    "area": "Copy",
+    "titulo": "\"topo\" em arquivos fora do meu escopo",
+    "motivo": "Ainda citam o topo: 31-nova-demanda-form.js:426, 32-planner.js:213/243, 42-nuvem-sync-mobile.js:20/42, 43-espaco-times.js:69/111 (\"botão do topo\"), 12-chat-prefs-daily.js:212 (\"Troque a data no topo\" — esse está certo, a data fica no topo da tela). Pertencem a outros pacotes; trocar por \"Conta e time, no rodapé da barra lateral\"."
+  },
+  {
+    "id": "N7-parcial",
+    "area": "Marca",
+    "titulo": "\".cardume/SPEC.md\" no formulário de nova demanda",
+    "motivo": "index.html:121 (guia do wizard dentro do ntOverlay) é markup do composer, de outro pacote. Trocar pelo mesmo padrão usado aqui: \"guia de demanda deste repo (SPEC.md)\" com o caminho no title."
+  },
+  {
+    "id": "N8-parcial",
+    "area": "Navegação e jornada",
+    "titulo": "Título da Central dentro do quadro",
+    "motivo": "Ajustei a aba pra \"Central\"; o H1 \"Central de execuções\" e o tooltip do #coordChip vivem em 22-quadro-fluxo.js (outro pacote). O tooltip do chip é sobrescrito em tempo de execução pelo 50-coordenacao.js, então já sai em linguagem simples."
+  }
+]

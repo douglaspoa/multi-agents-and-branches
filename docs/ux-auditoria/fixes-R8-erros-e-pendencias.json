@@ -1,0 +1,245 @@
+[
+ {
+  "id": "R8b-01",
+  "area": "erros-e-pendencias",
+  "titulo": "Catálogo de erros cobre banco travado, os error N, git/gh comuns, 5xx e JSON inválido",
+  "antes": "\"database is locked\", \"(os error 2/5/32)\", \"index.lock\", \"a branch named … already exists\", HTTP 502 e \"Unexpected token < in JSON\" apareciam crus ou como \"Algo deu errado: …\".",
+  "depois": "19 classes novas no ERR_CATALOG (db-locked, db-broken, db-old, git-missing, git-dirty, git-lock, branch-exists, branch-clash, git-ref, pr-exists, no-commits, nothing-to-commit, no-pr, duplicate, cloud-permission, file-busy, not-found, server, bad-json) e rede/permissão/disco ampliados (DNS, reqwest, os error 5/13/28/61/112). A ordem evita falsos: lock sem permissão vai pra permissão, colisão de nome de branch não vira 'espere', os error 3 só é 'não encontrado' com o texto do Windows, bad-json ignora linha de stack e 'invalid args' do Tauri; wt-gone vem antes dos *-missing e tem o botão 'abrir a conversa'.",
+  "motivo": "Quem não programa precisa de uma frase em pt-BR que diga o que fazer, não o texto do SQLite/git.",
+  "arquivos": [
+   "app/src/js/00-util.js",
+   "app/tests/human-err.test.mjs"
+  ],
+  "como_ver": "Daily com o banco ocupado (print); ou node --test app/tests/human-err.test.mjs",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/daily-locked-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/daily-locked-after.png"
+  }
+ },
+ {
+  "id": "R8b-02",
+  "area": "erros-e-pendencias",
+  "titulo": "Binário ausente vindo do Rust vira 'não instalado'",
+  "antes": "\"falha ao rodar claude: No such file or directory (os error 2)\" / \"gh indisponível: …\" não casavam com claude-missing/gh-missing.",
+  "depois": "Os prefixos reais do lib.rs com os error 2/program not found (inclusive com o texto localizado do Windows antes) e a forma do zsh 'command not found: git|gh|claude' caem em 'não está instalado' com o botão Ambiente.",
+  "motivo": "A mensagem certa leva ao conserto certo.",
+  "arquivos": [
+   "app/src/js/00-util.js",
+   "app/tests/human-err.test.mjs"
+  ],
+  "como_ver": "node --test app/tests/human-err.test.mjs"
+ },
+ {
+  "id": "R8b-03",
+  "area": "erros-e-pendencias",
+  "titulo": "Bug: 'gh: Not Found (HTTP 404)' dizia 'gh não está instalado'",
+  "antes": "A regex de gh-missing casava 'gh: Not Found' de qualquer 404 da API do GitHub.",
+  "depois": "Um lookahead exclui o '(HTTP …)'; o teste confere que vira 'generic'.",
+  "motivo": "Mandava a pessoa reinstalar o gh quando o problema era um recurso inexistente.",
+  "arquivos": [
+   "app/src/js/00-util.js",
+   "app/tests/human-err.test.mjs"
+  ],
+  "como_ver": "node --test app/tests/human-err.test.mjs"
+ },
+ {
+  "id": "R8b-04",
+  "area": "erros-e-pendencias",
+  "titulo": "Daily com erro mantém o seletor de data",
+  "antes": "O erro ocupava a aba inteira e só dava pra 'tentar de novo' o mesmo dia; o texto era cru.",
+  "depois": "Cabeçalho 'Daily' + seletor de data acima do erro; 'tentar de novo' refaz pelo loadDaily (com a guarda de geração). Vale também quando a carga estoura o prazo; apagar a data no seletor volta pro dia que falhou.",
+  "motivo": "Item pendente do R7 (chat-memória-mesa-cfg).",
+  "arquivos": [
+   "app/src/js/12-chat-prefs-daily.js"
+  ],
+  "como_ver": "Mais › Daily com o banco ocupado",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/daily-locked-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/daily-locked-after.png"
+  }
+ },
+ {
+  "id": "R8b-05",
+  "area": "erros-e-pendencias",
+  "titulo": "Commit que não abre: erro padrão com 'tentar de novo'",
+  "antes": "O resumo do commit mostrava só 'fatal: not a valid object name …' em cinza, sem saída.",
+  "depois": "errorHtml/ldWireErr: frase do catálogo, cru pequeno embaixo e 'tentar de novo'; resposta atrasada de outro commit é descartada (no erro e no sucesso).",
+  "motivo": "Estado de erro padronizado (06-carregamento).",
+  "arquivos": [
+   "app/src/js/25-grafo.js"
+  ],
+  "como_ver": "Grafo → clique num commit que não existe mais",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/commit-erro-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/commit-erro-after.png"
+  }
+ },
+ {
+  "id": "R8b-06",
+  "area": "erros-e-pendencias",
+  "titulo": "Ambiente: verificação e contas do gh sem erro cru",
+  "antes": "Falha do env_check mostrava 'error sending request … dns error'; contas do gh mostravam 'gh indisponível: No such file…'.",
+  "depois": "humanErr com contexto ('Não consegui verificar o ambiente — Sem conexão agora…').",
+  "motivo": "A tela que resolve problemas não pode ela mesma falar em jargão.",
+  "arquivos": [
+   "app/src/js/11-ambiente-updater.js"
+  ],
+  "como_ver": "Mais › Ambiente sem internet",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/ambiente-gh-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/ambiente-gh-after.png"
+  }
+ },
+ {
+  "id": "R8b-07",
+  "area": "erros-e-pendencias",
+  "titulo": "'Merge PR' bloqueado deixa de parecer clicável",
+  "antes": "Botão primário desabilitado seguia verde (só com opacidade).",
+  "depois": "Primário desabilitado fica cinza em todo o app (.btn/.as-btn/.au-btn primary e .sk-add), inclusive no hover — os :hover de 30-refino-macos e 60-grafo não repintam de verde.",
+  "motivo": "Item pendente do R7 (tarefa).",
+  "arquivos": [
+   "app/src/css/10-base.css"
+  ],
+  "como_ver": "PR #42 com conflito",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/merge-bloqueado-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/merge-bloqueado-after.png"
+  }
+ },
+ {
+  "id": "R8b-08",
+  "area": "erros-e-pendencias",
+  "titulo": "Memória: caminho do arquivo recolhido",
+  "antes": "'.cardume/memoria/…md' aparecia solto no rodapé de toda nota.",
+  "depois": "Fica em 'onde fica este arquivo' (details), selecionável pra quem usa Obsidian.",
+  "motivo": "Item pendente do R7 (jargão).",
+  "arquivos": [
+   "app/src/js/37-memoria.js",
+   "app/src/css/84-memoria.css"
+  ],
+  "como_ver": "Memória → abra uma nota",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/memoria-caminho-before.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r8/erros-e-pendencias/memoria-caminho-after.png"
+  }
+ },
+ {
+  "id": "R8b-09",
+  "area": "erros-e-pendencias",
+  "titulo": "Slack sem bot: alert() vira toast com atalho",
+  "antes": "window.alert (não confiável no Tauri) com 9 linhas de passo a passo.",
+  "depois": "Toast curto com o passo a passo e o botão 'abrir Conta'.",
+  "motivo": "Mesma regra do askYes: nada de diálogos nativos.",
+  "arquivos": [
+   "app/src/js/23-kanban-artefatos-editor.js"
+  ],
+  "como_ver": "Entrega → enviar artefato pro Slack sem SLACK_BOT_TOKEN"
+ },
+ {
+  "id": "R8b-10",
+  "area": "erros-e-pendencias",
+  "titulo": "Comandos do celular devolvem o motivo em pt-BR",
+  "antes": "'push falhou: …', 'criar PR falhou: …' e String(e) cru iam pro intentResult que o iPhone mostra.",
+  "depois": "humanErr com contexto ('Não consegui enviar o código (push) — …'); o cru vai pro web_log.",
+  "motivo": "O celular é usado longe do terminal: a frase precisa ser acionável.",
+  "arquivos": [
+   "app/src/js/42-nuvem-sync-mobile.js"
+  ],
+  "como_ver": "Pelo celular, peça merge de um PR bloqueado"
+ },
+ {
+  "id": "R8b-11",
+  "area": "erros-e-pendencias",
+  "titulo": "Barra de status, menu de projetos e publicar no GitHub sem erro cru",
+  "antes": "connTxt, o menu de projetos e o passo 'Não deu' do publicar mostravam String(err).",
+  "depois": "humanErr (cru no title); falha do seletor de pastas deixou de ser engolida (showErr); a falha do publicar versão usa contexto e mostra o botão do catálogo quando existe.",
+  "motivo": "Primeiro contato com o app costuma ser justamente abrir projeto.",
+  "arquivos": [
+   "app/src/js/10-core.js",
+   "app/src/js/33-switcher-projetos.js"
+  ],
+  "como_ver": "Abra uma pasta sem permissão"
+ },
+ {
+  "id": "R8b-12",
+  "area": "erros-e-pendencias",
+  "titulo": "Arquivos/diff/explicação da tarefa com frase humana",
+  "antes": "'não consegui abrir este arquivo' + texto mono cru; a lista de arquivos com erro não oferecia a ação do catálogo.",
+  "depois": "errShort (frase do catálogo ou 1ª linha), cru no title. A lista de arquivos com erro usa errorHtml e liga o botão do catálogo só quando ele vale pra cópia da tarefa (nunca 'criar repositório'/'publicar no GitHub'); de quebra, o 'tentar de novo' da lista voltou a funcionar (o const tk=t.id estava dentro de um comentário → ReferenceError e esqueleto preso).",
+  "motivo": "Consistência com o catálogo em toda a tarefa.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/00-util.js"
+  ],
+  "como_ver": "Tarefa → Código com arquivo apagado"
+ },
+ {
+  "id": "R8b-13",
+  "area": "erros-e-pendencias",
+  "titulo": "Relatórios, prévia do app, verificação e PDF sem erro cru",
+  "antes": "'Falhou o relatório: <cru>', 'falhou o PDF: <cru>', verificação 'não deu pra conferir: <cru>', prévia 'O app não subiu: <cru>'.",
+  "depois": "humanErr/errShort com contexto em 27-entregas, 21-pull-request e 12-chat-prefs-daily.",
+  "motivo": "Idem.",
+  "arquivos": [
+   "app/src/js/27-entregas.js",
+   "app/src/js/21-pull-request.js",
+   "app/src/js/12-chat-prefs-daily.js"
+  ],
+  "como_ver": "Entrega → gerar relatório offline"
+ },
+ {
+  "id": "R8b-14",
+  "area": "erros-e-pendencias",
+  "titulo": "Conta/time, convenções, chaves e onboarding sem 'Falhou: <e.message>'",
+  "antes": "8 ações da Conta, convenções do time, teste de rota de IA, espaço do time e login (fallback) mostravam o texto do Supabase/Rust.",
+  "depois": "Conta usa o cloudErrMsg (vindo da main) com o contexto de cada ação ('Não consegui criar a organização', '…aceitar o convite', '…criar o time', '…revogar o convite', '…salvar a licença'…); convenções, teste de rota de IA e espaço do time usam humanErr; auErr usa errShort quando não é erro de auth conhecido.",
+  "motivo": "Erro cru na tela é o que o usuário leigo mais estranha.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/12-chat-prefs-daily.js",
+   "app/src/js/41-assinatura-chaves.js",
+   "app/src/js/43-espaco-times.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Conta → criar time com nome repetido"
+ },
+ {
+  "id": "R8b-15",
+  "area": "erros-e-pendencias",
+  "titulo": "Projetos, espaço usado, issues e orquestrador sem erro cru",
+  "antes": "'Não deu pra abrir: <cru>', 'Falhou medir/limpar', conexão/chave do painel, chat de issues 'Falhou: <cru>', orquestrador empurrava a resposta crua da IA (400 caracteres) e o erro cru no chat.",
+  "depois": "humanErr com contexto (+ showErr quando há botão que resolve); o cru da IA vai pro console.",
+  "motivo": "Erro cru na tela é o que o usuário leigo mais estranha.",
+  "arquivos": [
+   "app/src/js/13-skills-projetos.js",
+   "app/src/js/15-config-abas-onboarding.js",
+   "app/src/js/14-issues-projeto.js",
+   "app/src/js/34-orquestrador.js"
+  ],
+  "como_ver": "Orquestrador com resposta inválida"
+ },
+ {
+  "id": "R8b-16",
+  "area": "erros-e-pendencias",
+  "titulo": "Bug: erro antigo de 'medir espaço' ficava ao lado dos números",
+  "antes": "wsMsg de uma medição que falhou não era limpo quando a próxima dava certo.",
+  "depois": "Medição bem-sucedida apaga o erro de medição anterior.",
+  "motivo": "Estado impossível (erro + dados).",
+  "arquivos": [
+   "app/src/js/15-config-abas-onboarding.js"
+  ],
+  "como_ver": "Configurações → espaço usado"
+ },
+ {
+  "id": "R8b-17",
+  "area": "erros-e-pendencias",
+  "titulo": "Painel de issues não diz 'conecte o GitHub' pra erro do Jira/Linear",
+  "antes": "O aviso de atualização em segundo plano usava qualquer classe do catálogo (401 do painel virava 'Conecte sua conta do GitHub').",
+  "depois": "trkBgWhy (bloco puro testado): só rede/servidor/JSON/permissão valem pra painel externo; o resto mostra o texto do painel.",
+  "motivo": "Evita falso diagnóstico agora que o catálogo ficou maior.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Issues com chave do painel vencida"
+ }
+]

@@ -1,0 +1,157 @@
+/* Starfork — 87-nova-demanda: repaginada B — Nova demanda numa tela só.
+   Estado vazio acolhedor do planner, controles pequenos no composer (tipo + modo), popover,
+   Resumo progressivo com "Detalhes técnicos" e a prévia em linguagem de gente antes do Aprovar.
+   Cores e tamanhos pelos tokens do PR C (--accent-soft/--accent-line, --fs-*). Nenhuma animação infinita. */
+
+/* ---- cabeçalho: título + progresso legível (o segmentado grande saiu daqui) ---- */
+#plannerOverlay .plttl{font:600 var(--fs-md) var(--display);color:var(--text);letter-spacing:-.01em;white-space:nowrap}
+#plannerOverlay .plmeter{display:inline-flex;align-items:center;gap:9px;min-width:0}
+.plprog{position:relative;display:inline-block;width:72px;height:4px;border-radius:999px;background:var(--surface-3);overflow:hidden;flex:none}
+.plprog i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent) 60%,var(--surface-3));border-radius:inherit}
+.plmeterx{font:400 var(--fs-sm) var(--display);color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---- estado vazio: uma coluna só, conteúdo centrado ---- */
+#plannerOverlay .plcols.plempty{grid-template-columns:minmax(0,1fr)}
+#plannerOverlay .plcols.plempty .plmesh{display:none}
+.ndempty{max-width:760px;width:100%;margin:0 auto;padding:clamp(24px,7vh,72px) 8px 24px;font-family:var(--display);color:var(--text)}
+.ndproj{display:inline-flex;align-items:center;gap:8px;padding:5px 6px 5px 11px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface)}
+.ndproj-ic{display:grid;place-items:center;width:15px;height:15px;color:var(--text-2)}
+.ndproj-ic svg{width:15px;height:15px}
+.ndproj-l{font:400 var(--fs-sm) var(--display);color:var(--text-3)}
+.ndproj-name{font:600 var(--fs-sm) var(--display);color:var(--text);padding-right:6px}
+.ndproj .nd-projsel{border-radius:999px;padding-top:4px;padding-bottom:4px;font-weight:600}
+.ndempty-h{margin:18px 0 8px;font:600 var(--fs-xl)/1.15 var(--display);letter-spacing:-.02em;color:var(--text)}
+.ndempty-sub{margin:0 0 24px;max-width:600px;font:400 var(--fs-md)/1.55 var(--display);color:var(--text-3)}
+.ndexs{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.ndex{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:86px;text-align:left;padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer;box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 6px 16px -10px rgba(0,0,0,.6);transition:border-color .12s,background .12s,transform .12s}
+.ndex:hover{border-color:var(--accent-line);background:color-mix(in srgb,var(--accent-soft) 45%,var(--surface));transform:translateY(-1px)}
+.ndex:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);}
+.ndex-k{display:inline-flex;align-items:center;gap:6px;font:500 var(--fs-xs) var(--display);color:var(--text-3)}
+.ndex-k svg{width:14px;height:14px;color:var(--text-2);flex:none}
+.ndex-t{font:600 var(--fs-md)/1.35 var(--display);color:var(--text)}
+@media (prefers-reduced-motion:reduce){ .ndex{transition:none} .ndex:hover{transform:none} }
+
+/* ---- controles no composer: "Tipo: Automático ▾" + modo pequeno ---- */
+.ndctl{display:inline-flex;align-items:center;gap:8px;min-width:0;margin-left:6px;flex-wrap:wrap}
+.ndchip{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--text-3);font:400 var(--fs-sm) var(--display);cursor:pointer;white-space:nowrap}
+.ndchip b{font-weight:600;color:var(--text-2)}
+.ndchip.set{border-color:var(--accent-line);background:var(--accent-soft)}
+.ndchip.set b{color:var(--text)}
+.ndchip:hover{border-color:var(--border-strong);color:var(--text-2)}
+.ndcaret{width:12px;height:12px;opacity:.7}
+.orq-seg.ndseg-sm{padding:2px;gap:1px;border-radius:999px;border-color:var(--border);background:var(--surface-2)}
+.orq-seg.ndseg-sm button{padding:3px 10px;font:500 var(--fs-sm) var(--display);border-radius:999px;color:var(--text-3)}
+.orq-seg.ndseg-sm button:hover:not(.on){color:var(--text-2)}
+.orq-seg.ndseg-sm button.on{background:var(--surface-3);color:var(--text);font-weight:600;box-shadow:0 0 0 1px var(--border-strong) inset}
+.orq-seg.ndseg-sm button:disabled{opacity:.45;cursor:default}
+
+/* ---- popover (tipo, IA, escopo, custo, modo) ---- */
+.ndpop{position:fixed;z-index:9000;width:min(360px,calc(100vw - 16px));max-height:min(520px,calc(100vh - 16px));overflow:auto;padding:10px;border:1px solid var(--border-strong);border-radius:12px;background:var(--surface);color:var(--text);font-family:var(--display);box-shadow:0 18px 48px -12px rgba(0,0,0,.7)}
+.ndpop-h{font:600 var(--fs-md) var(--display);color:var(--text);margin:2px 4px 8px}
+.ndpop-h span{font-weight:400;color:var(--text-3);margin-left:4px}
+.ndpop-p{font:400 var(--fs-sm)/1.5 var(--display);color:var(--text-2);margin:0 4px 10px}
+.ndpop-opt{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:none;color:var(--text);font:inherit;cursor:pointer}
+.ndpop-opt b{font:600 var(--fs-sm) var(--display)}
+.ndpop-opt span{font:400 var(--fs-xs)/1.4 var(--display);color:var(--text-3)}
+.ndpop-opt:hover{background:var(--surface-3)}
+.ndpop-opt.on{border-color:var(--accent-line);background:var(--accent-soft)}
+.ndpop-tech{margin:10px 4px 2px;padding-top:8px;border-top:1px solid var(--border);font-size:var(--fs-xs);color:var(--text-3)}
+.ndpop-globs{margin:0 4px;padding:8px 10px;border-radius:8px;background:var(--surface-2);font-size:var(--fs-xs);line-height:1.6;color:var(--text-2);word-break:break-all}
+.ndpop .budgetfld{margin:0 4px}
+.ndpop .ndseg{margin:0 4px}
+.plmodel.plmodel-bare{font:400 var(--fs-sm)/1.5 var(--display);color:var(--text-2);padding:0 4px}
+.plmodel.plmodel-bare .plmchips{margin-top:8px}
+
+/* ---- prévia em linguagem de gente (acima do Aprovar e do "criar e rodar") ---- */
+.ndprev{display:flex;flex-wrap:wrap;align-items:center;gap:2px 0;padding:7px 8px;margin-bottom:9px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font:400 var(--fs-sm)/1.4 var(--display);color:var(--text-3)}
+.ndprev-i{display:inline-flex;align-items:baseline;gap:4px;padding:3px 6px;border:0;border-radius:6px;background:none;color:var(--text-3);font:inherit;cursor:pointer;white-space:nowrap}
+.ndprev-i b{font-weight:600;color:var(--text);text-decoration:underline dotted color-mix(in srgb,var(--text) 35%,transparent);text-underline-offset:3px}
+.ndprev-i i{font-style:normal;font-size:var(--fs-xs);color:var(--text-3)}
+.ndprev-i:hover{background:var(--surface-3)}
+.ndprev-i:hover b{text-decoration-color:var(--accent-line)}
+.ndprev-i:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);}
+.ndprev-sep{color:var(--text-3);opacity:.6;padding:0 1px}
+.plthread .plplan .ppfoot{flex-wrap:wrap;align-items:center}
+.plplan .ppfoot .ndprev{flex-basis:100%;margin-bottom:2px}
+.plplan .ppfoot-sp{flex:1}
+
+/* ---- Resumo progressivo: "Detalhes técnicos" (não o triângulo nativo) ---- */
+.pltech{border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.pltech>summary{list-style:none;display:flex;align-items:center;gap:7px;padding:8px 10px;cursor:pointer;user-select:none;-webkit-user-select:none}
+.pltech>summary::-webkit-details-marker{display:none}
+.pltech>summary::marker{content:''}
+.pltech-car{width:13px;height:13px;color:var(--text-3);flex:none;transition:transform .12s}
+.pltech[open]>summary .pltech-car{transform:rotate(90deg)}
+.pltech-t{font:600 var(--fs-sm) var(--display);color:var(--text-2);white-space:nowrap;flex:none}
+.pltech-d{font:400 var(--fs-xs) var(--display);color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pltech>summary:hover .pltech-t{color:var(--text)}
+.pltech-b{display:flex;flex-direction:column;gap:9px;padding:0 10px 10px}
+.pltech-yh{font:400 var(--fs-xs) var(--display);color:var(--text-3);margin-top:2px}
+.pltech-yh .mono{font-size:var(--fs-xs)}
+.pltech pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:var(--fs-xs);line-height:1.5;color:var(--text-2);max-height:260px;overflow:auto;-webkit-user-select:text;user-select:text;background:var(--surface-2);border-radius:6px;padding:8px}
+@media (prefers-reduced-motion:reduce){ .pltech-car{transition:none} }
+
+/* ---- card do épico: rótulos em texto normal (antes: mono em caixa-alta) ---- */
+.plplan .ppwave,.plplan .ppdh{font:600 var(--fs-sm) var(--display);letter-spacing:0;text-transform:none;color:var(--text)}
+.plplan .ppwave span,.plplan .ppdh span{font-weight:400;color:var(--text-3)}
+
+/* ---- repaginada C: o verde disciplinado nas peças do planner (tela da Nova demanda) ----
+   --accent cheio fica só no CTA (enviar / Aprovar), no foco e em "rodando"; o resto é soft + line com texto claro.
+   (o avatar .plav com o símbolo da marca fica em 50-workspace-planner.css) */
+.plplan{border-color:var(--accent-line)}
+.plplan .pphead{color:var(--text);font-size:var(--fs-sm)}
+.plplan .ppowns{color:var(--text-2)}
+.plplan .ppout,.plplan textarea.ppout{border-left-color:var(--accent-line)}
+.plplan .ppadd:hover{color:var(--text);border-color:var(--accent-line)}
+.plchip:hover{border-color:var(--accent-line);color:var(--text);background:var(--accent-soft)}
+.plplan .pphead svg{color:var(--accent)}   /* o símbolo da marca pode ser verde cheio */
+
+/* ---- R8 (planner): progresso ao vivo, um CTA, card do épico legível e 1024px ---- */
+.placts .plactsh{font:500 var(--fs-xs) var(--display);color:var(--text-3);opacity:1;margin-bottom:3px}
+.placts .plactsh::before{content:none}
+.placts .plslow{white-space:normal;opacity:1;margin-top:7px;padding:6px 9px;border-radius:7px;font:400 var(--fs-xs)/1.5 var(--display);color:var(--text-2);background:color-mix(in srgb,var(--warn) 9%,transparent);border:1px solid color-mix(in srgb,var(--warn) 25%,var(--border))}
+.placts .plslow::before{content:none}
+.plmeshfoot .plcreatehint{font-size:var(--fs-xs);line-height:1.45;margin-top:6px}
+.plmesh textarea.plfv{resize:none;min-height:44px}
+/* o card do épico ocupa a largura do fio (antes: 82% + avatar, apertado em 1024) */
+.plthread .plmsg.plmsg-plan{max-width:100%;align-self:stretch}
+.plplan .ppchip.static{cursor:default}
+.plplan .ppmini{border:0;background:none;color:var(--text-3);font:inherit;font-size:var(--fs-xs);padding:0 4px;margin-left:2px;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.plplan .ppmini:hover{color:var(--text)}
+.plplan .ppmini:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);border-radius:4px}
+@media (max-width:1240px){
+  #plannerOverlay .plcols:not(.plempty){grid-template-columns:minmax(0,1fr) 300px}
+  #plannerOverlay .plthread{padding:16px 14px 8px}
+  .plplan .ppfoot .ndprev{padding:5px 6px}
+  .plplan .ppfoot .ndprev-i{padding:2px 4px}
+}
+
+/* 1024: resumo mais estreito, card do épico sem avatar; tipo + modo + enviar numa linha só (antes o "enviar" caía pra linha de baixo) */
+@media (max-width:1100px){
+  #plannerOverlay .plcols:not(.plempty){grid-template-columns:minmax(0,1fr) 272px}
+  #plannerOverlay .plthread .plmsg.plmsg-plan .plav{display:none}
+  #plannerOverlay .ndchip-l{display:none}
+  #plannerOverlay .ndctl{gap:5px;margin-left:2px}
+  #plannerOverlay .orq-seg.ndseg-sm button{padding:3px 7px}
+}
+
+/* ---- R8 (formulário) ---- */
+/* Formulário | Markdown é uma troca de vista, não um CTA: sem o verde cheio (o único verde da tela é o "começar") */
+#ntOverlay .seg2{border:1px solid var(--border);background:var(--surface-2);border-radius:999px;padding:2px;gap:1px}
+#ntOverlay .seg2 button{border-radius:999px;padding:3px 11px;font:500 var(--fs-sm) var(--display);color:var(--text-3);background:transparent;box-shadow:none}
+#ntOverlay .seg2 button.on{background:var(--surface-3);color:var(--text);font-weight:600;box-shadow:0 0 0 1px var(--border-strong) inset}
+/* na vista Markdown o cabeçalho (onde mora a troca de vista) continuava escondido: não tinha como voltar pro formulário */
+#ntOverlay #ntRight.mdview>#wizHead{display:block!important}
+#ntOverlay #ntRight.mdview>#wizHead #wizGuide{display:none!important}
+/* o que falta: texto normal, não terminal */
+#ntOverlay #ntMissing{font:400 var(--fs-sm) var(--display);color:var(--text-3)}
+#ntOverlay #ntMissing.ok{color:var(--text-2)}
+#ntOverlay .missnow{border-color:color-mix(in srgb,var(--warn) 60%,var(--border));outline:1px solid color-mix(in srgb,var(--warn) 45%,transparent);outline-offset:1px}
+
+/* ---- R8 (Dividir / orquestrador) ---- */
+.orq-busyrow{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;font:400 var(--fs-sm) var(--display)}
+.orq-busyrow .trk-stop{display:inline-flex}
+.orq-msg{display:flex;align-items:flex-start;gap:12px;font-family:var(--display);line-height:1.5}
+.orq-msg>span{flex:1;min-width:0}
+.orq-msg.err{background:color-mix(in srgb,var(--st-err,#e5534b) 8%,transparent);border:1px solid color-mix(in srgb,var(--st-err,#e5534b) 25%,var(--border));color:var(--text-2)}
+.orq-msg .btn{flex:none}

@@ -1,0 +1,336 @@
+[
+ {
+  "id": "R7T-1",
+  "area": "Tela da Tarefa",
+  "titulo": "Skill, 'verificar requisitos' e 'aplicar correção' não matam mais o turno do agente",
+  "antes": "Clicar numa skill do '/', em 'verificar requisitos agora', em 'aplicar correção' de um comentário do PR ou em 'pedir pro agente subir o app' PARAVA o turno em andamento do agente sem perguntar, e a mensagem não aparecia na conversa até o próximo snapshot.",
+  "depois": "Com o agente trabalhando, esses envios vão NA FILA (igual ao Enter do chat) e a bolha aparece na hora com 'na fila — o agente lê quando terminar o turno atual'. O envio devolve se deu certo. Se a tarefa está parada numa pergunta do TETO DE CUSTO, esses envios automáticos são recusados com o aviso 'a tarefa está pausada no teto de custo — responda a pergunta do teto primeiro' (qualquer texto que não seja 'parar' ampliaria o teto).",
+  "motivo": "Um clique numa skill jogava fora o trabalho do turno atual — perda de trabalho e de custo sem aviso.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwSendText, fwIsBudgetAsk)",
+   "app/tests/tarefa.test.mjs"
+  ],
+  "como_ver": "Com uma tarefa rodando, digite '/' no chat e escolha uma skill: o agente continua trabalhando e a mensagem entra na fila.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/skill-na-fila.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/skill-na-fila.png"
+  }
+ },
+ {
+  "id": "R7T-2",
+  "area": "Tela da Tarefa",
+  "titulo": "'Aplicar correção' e 'pedir pro agente' só trocam de tela / avisam 'enviado' se o envio chegou",
+  "antes": "No PR, 'aplicar correção' trocava pra Conversa mesmo quando o envio falhava; 'pedir pro agente subir o app' e 'pedir pro agente corrigir' (checagens) mostravam 'enviado' mesmo com erro.",
+  "depois": "Só troca de tela / mostra o aviso de sucesso quando a mensagem chegou; se falhou, fica na tela com o erro e o botão volta. A intenção 'corrigir comentário' vinda do celular também só responde 'agente acordado' se o envio chegou.",
+  "motivo": "Erro engolido: a pessoa achava que o agente estava corrigindo e nada tinha sido enviado.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/21-pull-request.js (prFixOne, prFixReview)",
+   "app/src/js/27-entregas.js (pvAskAgent, vfFix)",
+   "app/src/js/42-nuvem-sync-mobile.js (fixComment do celular)"
+  ],
+  "como_ver": "Na aba PR, com o backend fora do ar, clique em 'aplicar correção': o erro aparece e a tela não muda.",
+  "shots": {}
+ },
+ {
+  "id": "R7T-3",
+  "area": "Tela da Tarefa",
+  "titulo": "Pergunta do agente não recebe duas respostas",
+  "antes": "Ao tocar numa opção da pergunta pendente, só aquele botão era desabilitado — e o poll de 1s recriava a conversa e reabilitava tudo. Dava pra mandar duas respostas (ou uma opção e depois o texto do campo) pra mesma pergunta.",
+  "depois": "Tocou numa opção: todas travam, a escolhida fica marcada e aparece 'resposta enviada — o agente retoma o turno' até o snapshot confirmar. Uma mensagem digitada nesse meio vai como conversa normal, não como 2ª resposta. Se o envio falhar, as opções destravam. A trava é por pergunta (id + criação) e sai quando a pergunta deixa de estar pendente — o próximo teto de custo da mesma tarefa nasce destravado.",
+  "motivo": "Corrida no envio: respostas duplicadas/contraditórias pro agente.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Abra uma tarefa 'aguardando você' e toque numa opção.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/workspace-asking-opcao.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/workspace-asking-opcao.png"
+  }
+ },
+ {
+  "id": "R7T-4",
+  "area": "Tela da Tarefa",
+  "titulo": "Seleção de linhas não gruda em todas as mensagens seguintes",
+  "antes": "Depois de selecionar linhas no Código e perguntar, a seleção continuava ativa: TODAS as mensagens seguintes saíam com o prefixo 'Sobre arquivo:linhas'.",
+  "depois": "A seleção é usada na mensagem enviada e sai (se você já marcou outro trecho enquanto enviava, esse fica).",
+  "motivo": "O agente recebia contexto errado nas mensagens seguintes.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwSendMsg)"
+  ],
+  "como_ver": "No Código, arraste pra selecionar linhas, envie uma pergunta e depois outra: a segunda vai sem o prefixo.",
+  "shots": {}
+ },
+ {
+  "id": "R7T-5",
+  "area": "Tela da Tarefa",
+  "titulo": "Teto de custo: responder 'parar aqui' pelo campo não retoma mais o agente",
+  "antes": "Na pausa do teto de custo, responder pelo campo de texto primeiro RETOMAVA a tarefa pausada (gastando) e só depois aplicava a resposta; a bolha da resposta ficava 3 min 'aguardando o agente'; e se a resposta falhasse o erro era engolido e as opções ficavam travadas. O texto dizia 'o turno continua' e 'PERGUNTA PENDENTE' como se fosse o agente perguntando.",
+  "depois": "Com pergunta aberta o envio não retoma nada (quem decide é a resposta); a bolha sai na hora; o erro sobe e destrava as opções. O cartão diz 'TETO DE CUSTO · SUA DECISÃO' e 'escolha uma opção — o agente fica pausado até você decidir'. Pergunta do teto que sumiu vira erro em pt-BR (não 'respondida em silêncio'); resposta do teto vinda do celular que falha vira aviso no feed e não é reaplicada a cada 7s.",
+  "motivo": "Gasto indevido justamente na tela que existe pra controlar gasto.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/53-teto-protecao.js (budgetAnswer)",
+   "app/src/js/42-nuvem-sync-mobile.js (cloudQuestionsTick)"
+  ],
+  "como_ver": "Tarefa que bateu no teto: abra a Conversa e responda 'parar aqui' pelo campo.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/teto-pausado.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/teto-pausado.png"
+  }
+ },
+ {
+  "id": "R7T-6",
+  "area": "Tela da Tarefa",
+  "titulo": "Cabeçalho acompanha o estado mesmo sem evento novo",
+  "antes": "A ação principal do topo (parar ↔ enviar, 'ver PR #n') e os botões de envio só atualizavam quando chegava evento novo ou mudava o status. Se a tarefa ficava ocupada/livre (busy) ou ganhava PR sem outro evento, o topo ficava velho.",
+  "depois": "A assinatura do tick inclui busy, PR, flag e etapa: o topo e a barra de envio trocam no próximo segundo.",
+  "motivo": "Estado impossível na tela: botão 'parar' com o agente parado, ou sem 'ver PR' com o PR aberto.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwLiveUpdate)"
+  ],
+  "como_ver": "Abra o PR de uma tarefa pelo terminal: o 'ver PR #n' aparece no topo sem precisar de outro evento.",
+  "shots": {}
+ },
+ {
+  "id": "R7T-7",
+  "area": "Tela da Tarefa",
+  "titulo": "PR com conflito ou checagem falhando mostra a saída ali mesmo",
+  "antes": "A página do PR dizia 'a branch conflita com a base — resolva o conflito antes de mergear' com o merge bloqueado e nenhum botão pra resolver (o 'resolver conflito' morava só no card da Central).",
+  "depois": "Abaixo do motivo aparece 'resolver o conflito com IA' (conflito) ou 'pedir pro agente corrigir as checagens' (checagens do GitHub falhando — a mensagem cita os nomes das que falharam, vindos do novo campo failingChecks do PR).",
+  "motivo": "Beco sem saída na tela onde a pessoa está.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwPrUnblockHtml)",
+   "app/src-tauri/src/lib.rs (PrInfo.failing_checks, pr_failing_checks + teste)"
+  ],
+  "como_ver": "Aba PR de uma tarefa com conflito.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/workspace-pr.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/workspace-pr.png"
+  }
+ },
+ {
+  "id": "R7T-8",
+  "area": "Tela da Tarefa",
+  "titulo": "Erro ao listar os arquivos não vira mais 'nada ainda'",
+  "antes": "Se a lista de arquivos falhava (worktree removida, git fora), a árvore dizia 'nada ainda — os arquivos que o agente alterar aparecem aqui', uma mentira.",
+  "depois": "Mostra 'Não consegui listar os arquivos desta tarefa' com 'tentar de novo' (erro técnico no tooltip); o poll limpa o erro sozinho quando volta a funcionar.",
+  "motivo": "Erro engolido que parecia estado vazio.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Force task_files a falhar (worktree apagada) e abra a tarefa.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/arquivos-erro.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/arquivos-erro.png"
+  }
+ },
+ {
+  "id": "R7T-9",
+  "area": "Tela da Tarefa",
+  "titulo": "Uma leitura de provas/artefatos por vez",
+  "antes": "A Entrega e a lista de requisitos chamavam loadReqProofs/loadArtifacts a cada render enquanto o cache estava vazio (a Entrega sem nenhuma trava) — várias leituras iguais do requirements.json e da lista de artefatos em paralelo, cada uma disparando outro render.",
+  "depois": "fwReqProofsEnsure/fwArtsEnsure: uma carga em voo por tarefa, um render quando chega. Um envio invalida por geração (fwInvalidate): a carga que termina numa geração velha descarta o resultado e busca de novo.",
+  "motivo": "Desempenho: I/O repetido e renders em cascata ao abrir a Entrega.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/27-entregas.js"
+  ],
+  "como_ver": "Abra a Entrega com debug=1 no harness: um read_artifact de requirements.json por abertura.",
+  "shots": {}
+ },
+ {
+  "id": "R7T-10",
+  "area": "Tela da Tarefa",
+  "titulo": "Tarefa com erro, pausada, em plano ou rascunho abre na Conversa",
+  "antes": "Sem arquivos, essas tarefas abriam no modo Código: uma coluna vazia 'nenhum arquivo alterado ainda' no meio da tela, com a explicação do erro espremida na lateral.",
+  "depois": "Abrem na Conversa, onde estão o erro, o plano e o campo pra mandar a próxima instrução.",
+  "motivo": "A ação estava escondida atrás de uma tela vazia.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwOpenInner)"
+  ],
+  "como_ver": "Abra a tarefa 'Migrar imagens…' (erro).",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/estado-t-error.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/estado-t-error.png"
+  }
+ },
+ {
+  "id": "R7T-11",
+  "area": "Tela da Tarefa",
+  "titulo": "Fase do funil coerente: erro não é 'Descoberta', concluída mostra tudo feito",
+  "antes": "Tarefa com erro/abortada aparecia em 'Descoberta' (como se nem tivesse começado); plano pra aprovar também; tarefa mergeada deixava o último ponto 'em andamento'.",
+  "depois": "Erro/abortada ficam em Execução, plano e fila em Despacho, conflito em Revisão; concluída mostra os 5 pontos cheios e 'Concluída'.",
+  "motivo": "Informação errada no cabeçalho de toda tarefa nesses estados.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (taskPhase, phasesHtml)"
+  ],
+  "como_ver": "Abra uma tarefa com erro e uma mergeada.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/fases-concluida.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/fases-concluida.png"
+  }
+ },
+ {
+  "id": "R7T-12",
+  "area": "Tela da Tarefa",
+  "titulo": "Rascunho ganha 'iniciar' no topo e 'editar o rascunho' no ⋯",
+  "antes": "Aberto na tela da Tarefa, o rascunho não tinha nenhuma ação principal — só o ⋯ com itens que não se aplicavam.",
+  "depois": "'▶ iniciar' (mesmo rótulo de '▶ continuar' e '▶ aprovar plano'; ação igual à da Central, com trava de clique duplo) e 'editar o rascunho' no ⋯.",
+  "motivo": "Beco sem saída pro vibe coder.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js"
+  ],
+  "como_ver": "Abra 'Filtro por faixa de preço' (rascunho).",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/estado-t-draft.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/estado-t-draft.png"
+  }
+ },
+ {
+  "id": "R7T-13",
+  "area": "Tela da Tarefa",
+  "titulo": "Plano pra aprovar: sem 'sem provas' e com subtítulo que diz o que fazer",
+  "antes": "No plano (e no rascunho) a barra de contexto dizia 'sem provas — verificar ›' — virava uma torre de 5 linhas na coluna estreita — e o subtítulo era 'mesma sessão — ele lembra o que fez'.",
+  "depois": "'sem provas' só aparece depois da construção (pronta pra revisar), numa linha; o subtítulo diz 'plano pronto — aprove pra ele começar a construir, ou peça ajustes aqui' (e 'na fila' quando enfileirada).",
+  "motivo": "Texto errado pro estado e layout quebrado.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Abra 'Cupom de desconto progressivo' (plano).",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/estado-t-plan.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/estado-t-plan.png"
+  }
+ },
+ {
+  "id": "R7T-14",
+  "area": "Tela da Tarefa",
+  "titulo": "Entrega de tarefa concluída não pede mais pra 'liberar a aprovação'",
+  "antes": "Numa tarefa já mergeada a Verificação aparecia em amarelo com 'ainda não rodou — rode pra liberar a aprovação', e o KPI mostrava '0/0 requisitos provados' (parecia reprovação).",
+  "depois": "Concluída: tom neutro e 'não rodou antes de concluir — dá pra rodar agora só pra conferir o código'. Sem requisitos, o KPI mostra '— sem requisitos'.",
+  "motivo": "Estado impossível (aprovar algo já mergeado) e número enganoso.",
+  "arquivos": [
+   "app/src/js/27-entregas.js (enVerifHtml, KPIs)"
+  ],
+  "como_ver": "Abra 'Login com Google' (mergeada) na Entrega.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/estado-t-merged.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/estado-t-merged.png"
+  }
+ },
+ {
+  "id": "R7T-15",
+  "area": "Tela da Tarefa",
+  "titulo": "Entrega usa a largura toda em janela estreita",
+  "antes": "Abaixo de 1100px (árvore recolhida) a regra do responsivo '1fr 300px' vencia a da Entrega: a página ficava espremida em ~470px com uma coluna VAZIA de 300px à direita.",
+  "depois": "`.fwcols.m-entrega.notree` volta a 1 coluna: a Entrega ocupa a largura toda em 1024.",
+  "motivo": "Layout quebrado em notebooks pequenos.",
+  "arquivos": [
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Janela de 1024px, aba Entrega.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/entrega-1024.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/entrega-1024.png"
+  }
+ },
+ {
+  "id": "R7T-16",
+  "area": "Tela da Tarefa",
+  "titulo": "Código: o nome do arquivo nunca é o que corta",
+  "antes": "No cabeçalho do Código/Revisão o caminho cortava no fim ('src/page…') — sumia justamente o nome do arquivo; o avatar do autor encolhia.",
+  "depois": "A pasta encolhe (…) e o nome fica inteiro e em destaque ('src/p… index.tsx'); o autor vira avatar + nome (tooltip 'escrito por').",
+  "motivo": "Não dava pra saber qual arquivo estava aberto.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwPathHtml)",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Aba Código com um arquivo em pasta funda.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/codigo-cabecalho.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/codigo-cabecalho.png"
+  }
+ },
+ {
+  "id": "R7T-17",
+  "area": "Tela da Tarefa",
+  "titulo": "Barra de contexto do chat: seta de verdade e sem encostar nas bordas",
+  "antes": "O indicador de expandir era um '▸' de 10px que parecia um ponto solto no canto; na Conversa larga a barra encostava nas duas bordas da coluna (width:100% com margem 0).",
+  "depois": "Seta SVG (IC.cright) que gira ao abrir (só transform), aria-expanded e tooltip; a barra fica alinhada com a conversa, com respiro dos lados.",
+  "motivo": "Acabamento e acessibilidade.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Aba Conversa de uma tarefa rodando.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/ctx-barra.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/ctx-barra.png"
+  }
+ },
+ {
+  "id": "R7T-18",
+  "area": "Tela da Tarefa",
+  "titulo": "Notas de sistema legíveis e com link clicável",
+  "antes": "Avisos como 'Na fila (1º)…', 'sessão caiu — retomando…' e 'PR aberto: https://…' eram mono, centralizados e viravam um bloco torto na coluna estreita; o link do PR era texto cru.",
+  "depois": "Alinhados com a fala do agente, fonte normal, e URLs viram link que abre no navegador.",
+  "motivo": "Leitura e ação direta (abrir o PR).",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwLinkify)",
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Conversa da tarefa com PR aberto.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/notas-sistema.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/notas-sistema.png"
+  }
+ },
+ {
+  "id": "R7T-19",
+  "area": "Tela da Tarefa",
+  "titulo": "Custo no rodapé da árvore não quebra no meio",
+  "antes": "'US$ 1,25 (≈ R$' numa linha e '6,88)' na outra quando a árvore fica estreita.",
+  "depois": "Rótulo e valor não quebram por dentro: se não couber, o valor desce inteiro, alinhado à direita.",
+  "motivo": "Acabamento.",
+  "arquivos": [
+   "app/src/css/50-workspace-planner.css"
+  ],
+  "como_ver": "Aba Revisão (árvore estreita).",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/before/custo-rodape.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/tarefa/after/custo-rodape.png"
+  }
+ },
+ {
+  "id": "R7T-20",
+  "area": "Tela da Tarefa",
+  "titulo": "Erros que sumiam agora aparecem",
+  "antes": "Fechar o acesso do celular dizia 'acesso fechado' mesmo se o túnel não fechou; abrir o preview/app falhava em silêncio; 'resolver conflito' que falhava deixava o botão 'resolvendo…' pra sempre; 'continuar' com clique duplo mandava dois resume.",
+  "depois": "Cada um mostra o erro humano (showErr); o botão de conflito volta ao rótulo original; 'continuar' trava no clique.",
+  "motivo": "Erros engolidos e cliques duplicados.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js",
+   "app/src/js/27-entregas.js"
+  ],
+  "como_ver": "Com o backend recusando open_url/tunnel_stop, use os botões de preview e 'fechar no celular'.",
+  "shots": {}
+ },
+ {
+  "id": "R7T-21",
+  "area": "Tela da Tarefa",
+  "titulo": "Bolha 'enviando…' não some antes da hora com texto repetido",
+  "antes": "A bolha otimista era dada como confirmada por QUALQUER evento com o mesmo texto até 60s antes do envio — e a comparação de tempo falhava com o horário em texto (ISO). Clicar de novo em 'verificar requisitos' ou 'pedir pro agente subir o app' (texto fixo) fazia a 2ª bolha sumir na hora, confirmada pelo evento do 1º clique.",
+  "depois": "Só confirma com evento DEPOIS do envio (2s de folga), com o horário ISO convertido, e cada evento confirma uma bolha só.",
+  "motivo": "A pessoa via a mensagem sumir e achava que não tinha sido enviada.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js (fwOptimFor)",
+   "app/tests/tarefa.test.mjs"
+  ],
+  "como_ver": "Clique duas vezes em 'verificar requisitos agora' numa tarefa pronta pra revisar: as duas bolhas ficam até o banco confirmar cada uma.",
+  "shots": {}
+ }
+]

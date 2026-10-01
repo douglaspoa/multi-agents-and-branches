@@ -1,0 +1,399 @@
+[
+ {
+  "id": "R7W3-01",
+  "area": "Issues",
+  "titulo": "Erro ao ler comentários aparece, com “tentar de novo”",
+  "antes": "Se a API do painel falhasse ao listar comentários, o detalhe da issue dizia “nenhum comentário” — o erro sumia calado e parecia que ninguém tinha comentado.",
+  "depois": "O detalhe mostra o erro padrão (“Não consegui ler os comentários: …”) com o botão “tentar de novo”.",
+  "motivo": "Erro engolido que mentia sobre o estado da issue.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Issues → Quadro → abra uma issue com a API de comentários fora do ar.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-comentarios-erro.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-comentarios-erro.png"
+  }
+ },
+ {
+  "id": "R7W3-02",
+  "area": "Issues",
+  "titulo": "Comentário não se perde ao falhar e não sai duplicado",
+  "antes": "Ao enviar um comentário que falhava, o texto digitado sumia; o botão continuava ativo (clique duplo = dois comentários) e o erro ficava num aviso do topo, longe da caixa. Não dava pra enviar com Enter.",
+  "depois": "O botão vira “enviando…” e trava; se falhar, o texto fica na caixa e o erro aparece logo abaixo (“o texto ficou na caixa, é só enviar de novo”). Enter envia. O rascunho sobrevive aos redesenhos automáticos do quadro.",
+  "motivo": "Perda de texto do usuário e envio duplicado.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Issues → abra uma issue → comente com a rede fora.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-desvincular.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-desvincular.png"
+  }
+ },
+ {
+  "id": "R7W3-03",
+  "area": "Issues",
+  "titulo": "Comentário enviado vazio com conector que usa {{body}}",
+  "antes": "O app mandava o texto só como {{text}}. Um conector editado à mão (ou gerado antes) com {{body}}/{{comment}} enviava o comentário VAZIO (o campo vazio é descartado). Na leitura, sem “fields.text”, o texto vinha em branco quando a API chamava de body.",
+  "depois": "Envio cobre text, body e comment; a leitura cai nos nomes comuns (body, comment, content, message; author/user; created_at/date). Helper puro trkField testado.",
+  "motivo": "Bug de dados silencioso: comentário perdido.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js",
+   "app/tests/issues.test.mjs"
+  ],
+  "como_ver": "Issues → detalhe → comentários passam a mostrar o texto e o autor.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-desvincular.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-desvincular.png"
+  }
+ },
+ {
+  "id": "R7W3-04",
+  "area": "Issues",
+  "titulo": "Filtro ou busca sem resultado mostra um vazio com “mostrar todas”",
+  "antes": "Buscar algo que não existe (ou ficar com o filtro “mudaram” salvo) deixava 5 colunas com “—”, sem explicar nem oferecer saída. O chip “mudaram 0” ficava sempre na tela e “com tarefa” não tinha contagem.",
+  "depois": "Vazio padrão (“Nenhuma issue com “…””, com dica por filtro) e o botão “mostrar todas”, que limpa busca e filtro. “com tarefa” mostra a contagem; “mudaram” só aparece quando há algo novo (ou está selecionado). O ◆ repetido ao lado da bolinha do épico saiu.",
+  "motivo": "Estado vazio sem ação (regra do carregamento único).",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Issues → Quadro → busque “zzz”.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-filtro-vazio.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-filtro-vazio.png"
+  }
+ },
+ {
+  "id": "R7W3-05",
+  "area": "Issues",
+  "titulo": "Barra do quadro numa linha e ações agrupadas à direita",
+  "antes": "Em 1440 o “+ nova issue” (ação principal) caía sozinho numa 2ª linha, à esquerda, embaixo da busca.",
+  "depois": "“atualizar” vira ícone (com título e aria-label, desabilitado enquanto atualiza), a busca encolhe um pouco e o grupo “atualizado agora · ↻ · + nova issue” fica sempre à direita — cabe numa linha em 1440 e quebra em bloco em 1280/1024.",
+  "motivo": "Hierarquia: a ação primária não pode parecer um resto de layout.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js",
+   "app/src/css/82-issues.css"
+  ],
+  "como_ver": "Issues → Quadro em 1440 e 1280.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-board.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-board.png"
+  }
+ },
+ {
+  "id": "R7W3-06",
+  "area": "Issues",
+  "titulo": "Cartões navegáveis por teclado; Esc fecha só o detalhe",
+  "antes": "Os cartões de issue (e o cabeçalho do grupo do épico) eram div com clique: sem Tab, sem Enter, sem nome acessível. Esc não fechava o painel de detalhe.",
+  "depois": "Cartões e cabeçalhos com role=button, tabindex e aria-label (“LOJ-16 — título”); Enter/Espaço abre; foco visível. Esc fecha só o detalhe e devolve o foco ao cartão (digitando num campo, o Esc é do campo).",
+  "motivo": "Acessibilidade e fluxo por teclado.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js",
+   "app/src/css/82-issues.css"
+  ],
+  "como_ver": "Issues → Quadro → Tab até um cartão → Enter → Esc.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-board.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-board.png"
+  }
+ },
+ {
+  "id": "R7W3-07",
+  "area": "Issues",
+  "titulo": "Erro de “não movi” sai da tela quando a próxima tentativa dá certo; Enter salva o responsável",
+  "antes": "Depois de uma falha ao arrastar uma issue, o aviso vermelho ficava pra sempre, mesmo com os próximos movimentos funcionando. O campo “Com quem está” só salvava clicando em “ok”.",
+  "depois": "Movimento bem-sucedido limpa o aviso da falha anterior; Enter no campo do responsável salva.",
+  "motivo": "Aviso velho vira ruído e desconfiança.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Issues → arraste uma issue com a rede fora, depois com a rede ok.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-board.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-board.png"
+  }
+ },
+ {
+  "id": "R7W3-08",
+  "area": "Issues",
+  "titulo": "Desvincular tarefa ligada à mão",
+  "antes": "“vincular a uma tarefa existente…” não tinha volta: escolheu a tarefa errada, ficava ligada pra sempre (e a issue andava junto com ela).",
+  "depois": "Tarefas vinculadas à mão ganham “desvincular” no detalhe da issue (a tarefa e a issue continuam existindo), com confirmação por toast.",
+  "motivo": "Ação sem desfazer.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Issues → detalhe → Tarefa no Starfork → desvincular.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-desvincular.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-desvincular.png"
+  }
+ },
+ {
+  "id": "R7W3-09",
+  "area": "Issues",
+  "titulo": "Nova issue sem conexão: vazio com ação em vez de texto solto",
+  "antes": "Abrir “Nova issue” com o painel sem conexão (ou sem endpoint de criação) mostrava só uma frase “Conecte o painel primeiro, em Issues → Conexão”, sem botão.",
+  "depois": "Vazio padrão com o motivo em linguagem de gente e o botão “abrir a Conexão”, que fecha a aba e abre Issues direto no estágio 1.",
+  "motivo": "Beco sem saída.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Com o painel sem endpoint de criação, abra Nova issue.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-novaissue-sem-criar.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-novaissue-sem-criar.png"
+  }
+ },
+ {
+  "id": "R7W3-10",
+  "area": "Issues",
+  "titulo": "Épico publicado no painel aparece como sucesso",
+  "antes": "Ao aprovar um épico e publicá-lo no painel, a mensagem “Épico publicado no painel: LOJ-40 + 5 filhas” saía no toast amarelo de aviso.",
+  "depois": "Mesma mensagem no toast verde de sucesso.",
+  "motivo": "Cor de aviso num sucesso confunde.",
+  "arquivos": [
+   "app/src/js/14-issues-projeto.js"
+  ],
+  "como_ver": "Aprove um épico com o painel conectado.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-issues-board.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-issues-board.png"
+  }
+ },
+ {
+  "id": "R7W3-11",
+  "area": "Épico",
+  "titulo": "Falha ao carregar as tarefas do épico não vira “nenhuma tarefa”",
+  "antes": "Se a leitura das tarefas do épico falhasse (rede, sessão), a página dizia “nenhuma tarefa neste épico ainda” e o KPI “0/0 tarefas entregues”.",
+  "depois": "Erro padrão com a mensagem humana, a ação do catálogo (quando houver) e “tentar de novo”; o KPI de tarefas some enquanto não há dado. Épico antigo sem “pronto quando” não mostra mais “0/0 pronto quando”.",
+  "motivo": "Erro engolido que mentia sobre o épico.",
+  "arquivos": [
+   "app/src/js/46-epico-time.js"
+  ],
+  "como_ver": "Abra um épico com a nuvem fora do ar.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-epic-erro-tarefas.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-epic-erro-tarefas.png"
+  }
+ },
+ {
+  "id": "R7W3-12",
+  "area": "Épico",
+  "titulo": "Checklist “pronto quando” sem corrida de clique duplo",
+  "antes": "Dois cliques rápidos em itens do checklist disparavam dois PATCH lendo o mesmo spec; o segundo gravava por cima e desfazia a marcação do primeiro.",
+  "depois": "Um salvamento por vez: os checkboxes travam até a nuvem responder e a página redesenha com o estado real; a mensagem de erro diz “Não consegui salvar a marcação”.",
+  "motivo": "Condição de corrida com perda de dado.",
+  "arquivos": [
+   "app/src/js/46-epico-time.js"
+  ],
+  "como_ver": "Página do épico → marque dois itens rapidamente.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-epic-page.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-epic-page.png"
+  }
+ },
+ {
+  "id": "R7W3-13",
+  "area": "Épico",
+  "titulo": "“Iniciar” de outro projeto avisa por toast, não por alert()",
+  "antes": "Clicar em ▶ iniciar numa tarefa de outro projeto usava alert() — que no Tauri não é confiável (mesmo problema do confirm).",
+  "depois": "Toast de aviso com o botão “abrir Projetos” pra trocar de projeto.",
+  "motivo": "alert/confirm quebrados no Tauri.",
+  "arquivos": [
+   "app/src/js/46-epico-time.js"
+  ],
+  "como_ver": "Página do épico → iniciar uma tarefa de outro repositório.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-epic-page.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-epic-page.png"
+  }
+ },
+ {
+  "id": "R7W3-14",
+  "area": "Épico",
+  "titulo": "Texto do épico antigo não promete botão que não existe; tarefas por teclado",
+  "antes": "Épico sem “pronto quando” dizia “ele fecha pelo botão abaixo” mesmo pra quem não pode fechar (sem botão) ou com o épico já concluído. As linhas de tarefa não eram focáveis.",
+  "depois": "O texto muda conforme a situação (“já está concluído” / “fecha pelo botão abaixo” / “quem criou o épico, ou um admin, fecha”). Linhas com role=button, Tab e Enter.",
+  "motivo": "Texto enganoso e acessibilidade.",
+  "arquivos": [
+   "app/src/js/46-epico-time.js",
+   "app/src/css/82-issues.css"
+  ],
+  "como_ver": "Abra um épico antigo sem ser o dono.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-epic-page.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-epic-page.png"
+  }
+ },
+ {
+  "id": "R7W3-15",
+  "area": "Projetos",
+  "titulo": "Publicar no GitHub direto na aba Projetos",
+  "antes": "Projeto criado só no computador só oferecia “publicar no GitHub” na hora de abrir o PR.",
+  "depois": "O cartão do projeto aberto sem GitHub ganha uma faixa explicando (“só no seu computador — o time e os PRs precisam dele no GitHub”) e o botão “publicar no GitHub” (o mesmo publishGithub, com confirmação).",
+  "motivo": "Pedido da área: publicar no GitHub pela visão de projetos.",
+  "arquivos": [
+   "app/src/js/13-skills-projetos.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Projetos com um projeto sem remote.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-projetos-sem-github.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-projetos-sem-github.png"
+  }
+ },
+ {
+  "id": "R7W3-16",
+  "area": "Projetos",
+  "titulo": "Erro ao remover projeto aparece; “remover” discreto e no canto",
+  "antes": "remove_project falhava calado (catch vazio) e a lista recarregava como se tivesse removido. “remover” tinha o mesmo peso de “ver tarefas”. O botão “Finder” aparecia assim no Windows/Linux.",
+  "depois": "Falha vira showErr e nada muda; “remover” vai pro canto, em vermelho discreto, com tooltip “não apaga nenhum arquivo”. Fora do Mac o botão diz “abrir pasta”.",
+  "motivo": "Erro engolido + ação destrutiva com peso de ação comum.",
+  "arquivos": [
+   "app/src/js/13-skills-projetos.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Projetos → remover.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-projetos.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-projetos.png"
+  }
+ },
+ {
+  "id": "R7W3-17",
+  "area": "Projetos",
+  "titulo": "Novo projeto sem CAIXA ALTA e sem “push/commit”",
+  "antes": "As opções do formulário herdavam o rótulo em caixa alta (“CRIAR O REPOSITÓRIO NO GITHUB E FAZER O PUSH”, “PRIVADO”, “PÚBLICO”) e o subtítulo falava em “git na main, 1º commit”.",
+  "depois": "Texto normal e linguagem de gente: “guardar também no GitHub (cópia na nuvem — e o time consegue revisar e aprovar as mudanças)”, “privado (só quem você convidar)”, subtítulo “cria a pasta, já pronta pros agentes trabalharem”. A dica sem GitHub aponta pra publicar em Projetos, não “na hora do PR”.",
+  "motivo": "Veto da Carla: siglas de git não aparecem por padrão.",
+  "arquivos": [
+   "app/src/js/13-skills-projetos.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Projetos → + novo projeto.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-projetos-novo.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-projetos-novo.png"
+  }
+ },
+ {
+  "id": "R7W3-18",
+  "area": "Skills",
+  "titulo": "“Ligar/desligar todas” volta ao estado anterior se falhar; importar confirma",
+  "antes": "Se salvar falhasse, a tela ficava com todas ligadas (sem ter salvo). Importar do Git ou colar um SKILL.md não dava nenhum retorno de sucesso.",
+  "depois": "Falha restaura o estado de antes e diz o que houve; importações mostram toast verde dizendo o que fazer em seguida (ligar no projeto).",
+  "motivo": "Estado da tela diferente do salvo.",
+  "arquivos": [
+   "app/src/js/13-skills-projetos.js"
+  ],
+  "como_ver": "Skills → ligar todas com falha ao salvar.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-skills-ligar-falha.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-skills-ligar-falha.png"
+  }
+ },
+ {
+  "id": "R7W3-19",
+  "area": "Skills",
+  "titulo": "Busca sem resultado com “limpar busca”, ocupando a grade",
+  "antes": "Busca sem resultado era uma linha cinza; o vazio ficava espremido na 1ª coluna da grade.",
+  "depois": "Vazio padrão (ícone, frase, dica do que a busca olha) com “limpar busca”, ocupando a largura toda.",
+  "motivo": "Estado vazio padronizado com ação.",
+  "arquivos": [
+   "app/src/js/13-skills-projetos.js",
+   "app/src/css/20-abas-e-telas.css"
+  ],
+  "como_ver": "Skills → busque “nada-disso”.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-skills-busca-vazia.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-skills-busca-vazia.png"
+  }
+ },
+ {
+  "id": "R7W3-20",
+  "area": "Agentes",
+  "titulo": "Remover agente tira ele das equipes (e pergunta antes)",
+  "antes": "Remover um agente deixava a etapa órfã nas equipes, mostrando o id cru (“orion”) — e o motor recebia um agente que não existe.",
+  "depois": "Se o agente está em equipes, pergunta antes (askYes) citando quais; ao remover, sai de todas (wfDropAgent, testado). Etapa órfã de catálogo antigo aparece como “agente removido” em destaque.",
+  "motivo": "Estado impossível gravado no catálogo.",
+  "arquivos": [
+   "app/src/js/33-switcher-projetos.js",
+   "app/src/css/20-abas-e-telas.css",
+   "app/tests/agentes.test.mjs"
+  ],
+  "como_ver": "Agentes & Equipes → apague um agente usado numa equipe.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-agents-agente-removido.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-agents-agente-removido.png"
+  }
+ },
+ {
+  "id": "R7W3-21",
+  "area": "Agentes",
+  "titulo": "Equipes com o mesmo nome não se sobrescrevem",
+  "antes": "Duas equipes “Nova equipe” ganhavam o mesmo id (nova-equipe) ao salvar/compartilhar: a segunda sobrescrevia a primeira no catálogo do time.",
+  "depois": "wfEnsureIds garante id único (nova-equipe, nova-equipe-2…) ao salvar e ao compartilhar; ids existentes ficam.",
+  "motivo": "Perda de dado no catálogo.",
+  "arquivos": [
+   "app/src/js/33-switcher-projetos.js",
+   "app/tests/agentes.test.mjs"
+  ],
+  "como_ver": "Agentes & Equipes → + nova equipe duas vezes → salvar.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-agents.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-agents.png"
+  }
+ },
+ {
+  "id": "R7W3-22",
+  "area": "Agentes",
+  "titulo": "Importar .md de subagente salvo no Windows",
+  "antes": "O cabeçalho (bloco ---) só era lido com quebra de linha \\n: arquivo com CRLF ou BOM virava persona inteira, com o nome do arquivo (“revisor.md”) como nome do agente.",
+  "depois": "agFrontmatter normaliza CRLF/BOM; sem nome no cabeçalho, usa o nome do arquivo sem “.md”. Testado.",
+  "motivo": "Importação quebrada fora do Mac (porta Windows).",
+  "arquivos": [
+   "app/src/js/33-switcher-projetos.js",
+   "app/tests/agentes.test.mjs"
+  ],
+  "como_ver": "Agentes → importar .md salvo no Windows.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-agents.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-agents.png"
+  }
+ },
+ {
+  "id": "R7W3-23",
+  "area": "Agentes",
+  "titulo": "“+ etapa” sem precisar arrastar",
+  "antes": "A única forma de pôr um agente numa equipe era arrastar o cartão — difícil no trackpad e impossível pelo teclado.",
+  "depois": "Cada equipe tem um seletor “+ etapa…” com os agentes do catálogo; o arrastar continua valendo. A dica vazia diz “arraste um agente pra cá, ou escolha ao lado”.",
+  "motivo": "Acessibilidade e atrito.",
+  "arquivos": [
+   "app/src/js/33-switcher-projetos.js",
+   "app/src/css/20-abas-e-telas.css"
+  ],
+  "como_ver": "Agentes & Equipes → + etapa…",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-agents.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-agents.png"
+  }
+ },
+ {
+  "id": "R7W3-24",
+  "area": "Agentes",
+  "titulo": "Cancelar com mudanças pergunta antes; motor “Mock” só pra dev",
+  "antes": "“cancelar” descartava na hora tudo que foi editado (agentes, cores, equipes). O editor oferecia o motor “Mock” pra qualquer usuário.",
+  "depois": "Cancelar com mudanças não salvas pede confirmação (askYes); sem mudanças fecha direto. “Mock (teste, sem IA)” só aparece na instalação de desenvolvimento ou se o agente já usa.",
+  "motivo": "Perda de edição e jargão de dev na tela.",
+  "arquivos": [
+   "app/src/js/33-switcher-projetos.js"
+  ],
+  "como_ver": "Agentes & Equipes → edite algo → cancelar.",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/before-agents-editor.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/harness/shots/r7/issues-epico-projetos/after-agents-editor.png"
+  }
+ }
+]

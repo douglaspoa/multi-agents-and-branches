@@ -149,7 +149,7 @@ struct NewTaskView: View {
                     .listRowBackground(T.accent.opacity(objective.isEmpty ? 0.3 : 1))
                     .foregroundStyle(.black)
                 } footer: {
-                    Text("O Constellation aberto no seu Mac assume em ~6s, cria a branch \(mode.branchType)/\(issue.isEmpty ? "" : issue.uppercased() + "-")… e roda o agente. Acompanhe ao vivo aqui.")
+                    Text("O Starfork aberto no seu Mac assume em ~6s, cria a branch \(mode.branchType)/\(issue.isEmpty ? "" : issue.uppercased() + "-")… e roda o agente. Acompanhe ao vivo aqui.")
                 }
             }
             .scrollContentBackground(.hidden)

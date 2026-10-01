@@ -151,9 +151,9 @@ struct OnboardingView: View {
     private var welcome: some View {
         frame {
             VStack(alignment: .leading, spacing: 16) {
-                HStack { Spacer(); OrbitIcon(glyph: "C", size: 58); Spacer() }.padding(.top, 26)
+                HStack { Spacer(); OrbitIcon(glyph: "S", size: 58); Spacer() }.padding(.top, 26)
                 VStack(spacing: 10) {
-                    Text("CONSTELLATION").font(.mono(10, .medium)).kerning(2.2).foregroundStyle(T.accent.opacity(0.8))
+                    Text("STARFORK").font(.mono(10, .medium)).kerning(2.2).foregroundStyle(T.accent.opacity(0.8))
                     Text("Sua equipe de agentes,\nno bolso").font(.system(size: 30, weight: .semibold)).kerning(-0.75)
                         .foregroundStyle(T.text).multilineTextAlignment(.center)
                     Text("Você escreve a demanda daqui. O Mac executa, testa e abre o PR sozinho.")
@@ -223,7 +223,7 @@ struct OnboardingView: View {
         frame(back: .welcome) {
             Text("BEM-VINDO DE VOLTA").font(.mono(10, .medium)).kerning(1.6).foregroundStyle(T.accent)
             h2("Entrar")
-            p("Mesma conta do Constellation no Mac — tudo sincronizado.")
+            p("Mesma conta do Starfork no Mac — tudo sincronizado.")
             msgView
             Field(label: "E-mail", placeholder: "voce@empresa.com", text: $email, keyboard: .emailAddress, content: .username)
             Field(label: "Senha", placeholder: "••••••••", text: $pass, secure: true, content: .password,
@@ -319,8 +319,9 @@ struct OnboardingView: View {
 
     struct PlanDef { let key: String; let name: String; let who: String; let hot: Bool; let feats: [String] }
     private let planDefs: [PlanDef] = [
-        PlanDef(key: "individual", name: "Solo", who: "1 pessoa, 1 repo", hot: false, feats: ["1 agente por vez, sem fila", "Branch + worktree isolada por tarefa", "Histórico de 30 dias"]),
-        PlanDef(key: "team", name: "Time", who: "squads de 3 a 12", hot: true, feats: ["Agentes em paralelo, sem limite de fila", "Workflows e personas compartilhados", "Daily automática e custo por pessoa", "Preferências do projeto sincronizadas"]),
+        // Solo tem TODAS as funcionalidades (30/09): o plano muda só quantas pessoas usam
+        PlanDef(key: "individual", name: "Solo", who: "1 pessoa, todas as funcionalidades", hot: false, feats: ["Agentes em paralelo e épicos em ondas", "Painel de Issues e daily automática", "Memória do projeto e custo antes de rodar", "App de iPhone pra responder o agente"]),
+        PlanDef(key: "team", name: "Time", who: "squads de 3 a 12", hot: true, feats: ["Tudo do Solo, pra cada pessoa do time", "Quadro e backlog compartilhados", "Convites, papéis e custo por pessoa", "Preferências do projeto sincronizadas"]),
         PlanDef(key: "enterprise", name: "Organização", who: "vários times e repos", hot: false, feats: ["Tudo do Time, sem teto de assentos", "SSO, auditoria e política por repo", "Chaves de modelo próprias (BYOK)", "Suporte dedicado"]),
     ]
     private func planRow(_ key: String, _ iv: String) -> Supa.BillingPlan? { supa.plans.first { $0.plan == key && $0.interval == iv } }
@@ -387,7 +388,7 @@ struct OnboardingView: View {
         } cta: {
             if planKey == "enterprise" {
                 primary("Falar com vendas") {
-                    if let u = URL(string: "mailto:vendas@constellation.ai?subject=Plano%20Organiza%C3%A7%C3%A3o%20Constellation") { UIApplication.shared.open(u) }
+                    if let u = URL(string: "mailto:vendas@starfork.com.br?subject=Plano%20Organiza%C3%A7%C3%A3o%20Starfork") { UIApplication.shared.open(u) }
                 }
             } else {
                 primary("Continuar para o pagamento", enabled: !supa.plans.isEmpty) { go(.pay) }
@@ -513,7 +514,7 @@ struct OnboardingView: View {
         return frame {
             VStack(spacing: 14) {
                 OrbitIcon(glyph: "✓", size: 58).padding(.top, 36)
-                Text("Constelação ativa").font(.system(size: 30, weight: .semibold)).kerning(-0.75).foregroundStyle(T.text)
+                Text("Estrela acesa").font(.system(size: 30, weight: .semibold)).kerning(-0.75).foregroundStyle(T.text)
                 Text((b?.status == "trialing" ? "Teste de \(trialDays) dias começou. " : "") + seatsTxt)
                     .font(.system(size: 14.5)).foregroundStyle(T.dim).multilineTextAlignment(.center)
             }.frame(maxWidth: .infinity)

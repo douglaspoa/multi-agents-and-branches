@@ -1,0 +1,22 @@
+[
+  {
+    "titulo": "setup.sh estourado: matar o grupo de processos inteiro",
+    "motivo": "O teto mata o bash; filhos que o setup.sh subiu em segundo plano continuam vivos. Resolver direito exige spawn em grupo próprio (detached) no util/run — mudança maior, fora do escopo desta onda."
+  },
+  {
+    "titulo": "resolveClaude/node no Windows (.exe, %USERPROFILE%\\.local\\bin)",
+    "motivo": "lib.rs linhas ~142/247 ainda procuram o binário só via HOME; já registrado como pendência da porta Windows (resolveClaude .exe + CI Windows)."
+  },
+  {
+    "titulo": "Chats do app (Rust) com --resume",
+    "motivo": "Conferido: os chats do app que usam --resume não gravam custo, então não têm a dupla contagem corrigida no motor (M3). Nada a fazer."
+  },
+  {
+    "titulo": "Nome do provider do Codex com aspas quebra o -c TOML",
+    "motivo": "model_providers.<id>.name=\"<nome>\" sem escape; o nome vem da configuração da conta (ALT_AI_LABEL). Raro; não corrigido."
+  },
+  {
+    "titulo": "ai_commit_summary (Rust) roda git/claude bloqueante dentro de async fn",
+    "motivo": "Bloqueia um worker do runtime, não a janela; sem travamento visível. Não mexido para não conflitar com outras ondas no lib.rs."
+  }
+]

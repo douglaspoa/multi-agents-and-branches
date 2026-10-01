@@ -1,7 +1,7 @@
 {
   "name": "cardume-app",
   "version": "0.0.1",
-  "description": "Shell desktop (Tauri v2, Mac-first) do Cardume — visor ao vivo do state.sqlite.",
+  "description": "Shell desktop (Tauri v2, Mac-first) do Starfork — visor ao vivo do state.sqlite.",
   "private": true,
   "scripts": {
     "tauri": "tauri",

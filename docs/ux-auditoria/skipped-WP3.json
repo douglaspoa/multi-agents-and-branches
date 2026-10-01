@@ -1,0 +1,16 @@
+[
+  {
+    "id": "C10",
+    "area": "Chats",
+    "titulo": "Remover o modal morto de pergunta do agente (askOverlay)",
+    "motivo_pulado": "Não é código morto seguro de remover SÓ pelo index.html: js/24-perguntas-agente.js (dono: outro agente) liga no carregamento $id('askClose').onclick, $id('askCancel'), $id('askSend'), $id('askTa') e $id('askOverlay').addEventListener — sem o markup o arquivo 24 quebra na carga (TypeError) e tudo depois dele para. openAsk() já redireciona pra tarefa (não abre mais o modal), então o modal é inalcançável, mas a remoção precisa ser feita junto em 24 (linhas 3, 13-20) + index.html (askOverlay) + as listas de 00-util.js (escBusy) e 10-core.js (bigOverlay).",
+    "arquivos": ["app/src/index.html", "app/src/js/24-perguntas-agente.js", "app/src/js/00-util.js", "app/src/js/10-core.js"]
+  },
+  {
+    "id": "C11",
+    "area": "Chats",
+    "titulo": "Remover o assistente lateral morto da Nova demanda (aiAssist)",
+    "motivo_pulado": "js/33-switcher-projetos.js (não é meu) faz no carregamento $id(\"aiSend\").onclick = sendAiMsg e $id(\"aiInput\").addEventListener(...). Remover o markup (index.html:109) ou as funções de 31 (aiAppend/sendAiMsg/fillFromSpec) derruba o 33 na carga (TypeError/ReferenceError). Precisa ser feito junto: 33:115-116 + index.html #aiAssist + 31 (aiSid/aiBusy/aiAppend/sendAiMsg, 353, 580) + CSS (#aiAssist/.aichat/.airow em 30-refino-macos.css e 40-sidebar-quadro.css).",
+    "arquivos": ["app/src/index.html", "app/src/js/31-nova-demanda-form.js", "app/src/js/33-switcher-projetos.js"]
+  }
+]

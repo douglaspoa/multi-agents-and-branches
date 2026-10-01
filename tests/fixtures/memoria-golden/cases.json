@@ -1,0 +1,4 @@
+[
+ {"name": "checkout: regras primeiro, relevantes, 1 salto, teto", "notes": ["local/checkout-gateway.md", "local/ferramentas.md", "local/relatorios.md", "local/usar-pnpm.md", "time/decisao-um-passo.md", "time/nunca-commitar-main.md"], "query": "Refazer a tela de checkout com o gateway novo", "index": 600, "notes_cap": 900, "expected": "expected-1.txt"},
+ {"name": "nota gigante é cortada e o espaço acaba", "notes": ["local/ferramentas.md", "local/relatorios.md"], "query": "relatórios mensais", "index": 300, "notes_cap": 500, "expected": "expected-2.txt"}
+]

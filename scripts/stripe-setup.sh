@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cria os produtos e preços do Constellation na SUA conta Stripe e imprime o SQL
+# Cria os produtos e preços do Starfork na SUA conta Stripe e imprime o SQL
 # de seed da tabela billing_plans. Rode você mesmo, com a sua chave:
 #   STRIPE_SECRET_KEY=sk_live_... bash scripts/stripe-setup.sh
 # (use sk_test_... primeiro pra testar tudo em modo teste)
@@ -9,8 +9,8 @@ api(){ curl -s https://api.stripe.com/v1/$1 -u "$STRIPE_SECRET_KEY:" "${@:2}"; }
 jqv(){ python3 -c "import sys,json;print(json.load(sys.stdin)['$1'])"; }
 
 echo "→ criando produtos…"
-P_IND=$(api products -d name="Constellation Solo" -d description="1 pessoa, 1 repo — agentes, branch + worktree isolada por tarefa, histórico de 30 dias" | jqv id)
-P_TEAM=$(api products -d name="Constellation Time" -d description="Por assento (squads de 3 a 12) — agentes em paralelo, workflows compartilhados, daily e custo por pessoa" | jqv id)
+P_IND=$(api products -d name="Starfork Solo" -d description="1 pessoa, 1 repo — agentes, branch + worktree isolada por tarefa, histórico de 30 dias" | jqv id)
+P_TEAM=$(api products -d name="Starfork Time" -d description="Por assento (squads de 3 a 12) — agentes em paralelo, workflows compartilhados, daily e custo por pessoa" | jqv id)
 
 echo "→ criando preços (BRL)…"
 IND_M=$(api prices -d product=$P_IND -d currency=brl -d unit_amount=4900  -d "recurring[interval]"=month | jqv id)

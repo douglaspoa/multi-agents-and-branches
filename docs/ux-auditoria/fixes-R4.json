@@ -1,0 +1,82 @@
+[
+ {
+  "id": "R4-1",
+  "area": "PR",
+  "titulo": "Um '✔' não fecha mais os comentários de outras pessoas",
+  "antes": "Quando o agente respondia um comentário da conversa do PR com '✔ …', TODOS os comentários anteriores (de qualquer pessoa) viravam 'resolvidos' e sumiam da lista e do 'corrigir N em aberto'.",
+  "depois": "Um comentário da conversa só conta como resolvido quando um '✔' posterior CITA ele (link, id ou @autor). O agente agora é instruído a colar o link do comentário na resposta, tanto no 'aplicar correção' quanto no 'corrigir todos'.",
+  "motivo": "Achado da 4ª revisão de código: corrigir o comentário da Bia escondia o da Ana, e ele nunca era enviado ao agente — exatamente o contrário da queixa original.",
+  "arquivos": [
+   "app/src-tauri/src/lib.rs",
+   "app/src/js/21-pull-request.js"
+  ],
+  "como_ver": "aba PR com 2 comentários de conversa e um ✔ que cita só um",
+  "estado_mock": "PR com comentários de conversa"
+ },
+ {
+  "id": "R4-2",
+  "area": "Épicos e quadro",
+  "titulo": "Resumo do épico em andamento conta o time todo",
+  "antes": "Para um épico sem tarefas na fila (todas já iniciadas), o grupo 'Épicos em andamento' mostrava só as tarefas desta máquina: um épico com 5 tarefas entregues por colegas aparecia '0/2 entregues'.",
+  "depois": "O resumo busca as tarefas do épico inteiro na nuvem também nesse caso.",
+  "motivo": "Achado da 4ª revisão de código; número errado de progresso é pior do que nenhum.",
+  "arquivos": [
+   "app/src/js/46-epico-time.js"
+  ],
+  "como_ver": "Central com épico sem fila e tarefas de colegas",
+  "estado_mock": "épico com tarefas de outros membros"
+ },
+ {
+  "id": "R4-3",
+  "area": "Conversa da tarefa",
+  "titulo": "'Aprovar plano' dentro da tarefa",
+  "antes": "Uma tarefa com plano pronto dizia na Central 'plano pronto — aprove pra continuar' e abria a aba da tarefa, mas lá não havia nenhum botão de aprovar (só existia no painel lateral antigo).",
+  "depois": "A ação principal da tarefa em 'plano pra aprovar' é '▶ aprovar plano'.",
+  "motivo": "Beco sem saída na jornada: o app pedia uma ação que a tela não oferecia.",
+  "arquivos": [
+   "app/src/js/20-workspace-tarefa.js"
+  ],
+  "como_ver": "openWorkspace(tarefa plan-review)",
+  "estado_mock": "tarefa em plan-review"
+ },
+ {
+  "id": "R4-4",
+  "area": "Épicos e quadro",
+  "titulo": "Filtro de projeto salvo não esvazia mais a Central em silêncio",
+  "antes": "Se o projeto filtrado deixasse de existir (removido ou renomeado), a Central, o cabeçalho, a barra de status e o Kanban ficavam vazios, sem nenhum controle visível para desfazer.",
+  "depois": "Projeto salvo que não existe mais volta para 'todos'; o filtro de projeto entra no aviso 'filtros ativos · limpar' e o 'limpar' também o reseta.",
+  "motivo": "Achado da 4ª revisão de código: persistir filtros sem mostrar que estão ativos faz o usuário achar que perdeu as tarefas.",
+  "arquivos": [
+   "app/src/js/22-quadro-fluxo.js"
+  ],
+  "como_ver": "lsSet('projFilter','/nao/existe'); refresh()",
+  "estado_mock": "—"
+ },
+ {
+  "id": "R4-5",
+  "area": "Nova demanda",
+  "titulo": "Seletor de 3 jeitos de montar sem abas empilhadas e sempre com 3 opções",
+  "antes": "Trocar entre 'Montar conversando / Preencher eu mesmo / Dividir entre vários agentes' abria uma aba nova a cada clique; e no formulário, para tipos diferentes de Feature, o seletor perdia uma opção (2 em vez de 3).",
+  "depois": "A troca acontece na mesma aba; a opção indisponível aparece desabilitada com o motivo no tooltip.",
+  "motivo": "Consistência do componente e menos abas órfãs.",
+  "arquivos": [
+   "app/src/js/14-nova-demanda-inicio.js",
+   "app/src/js/31-nova-demanda-form.js"
+  ],
+  "como_ver": "openTab('form') e trocar o tipo para Correção",
+  "estado_mock": "—"
+ },
+ {
+  "id": "R4-6",
+  "area": "Épicos e quadro",
+  "titulo": "Kanban: ordem das concluídas e rascunho de outro projeto",
+  "antes": "A coluna Concluídas ordenava errado quando misturava tarefas da nuvem (datas ISO) e locais (números); o ▶ de um rascunho de OUTRO projeto tentava iniciá-lo no projeto aberto.",
+  "depois": "Datas normalizadas; o ▶ de rascunho de outro projeto fica desabilitado com o aviso de abrir aquele projeto.",
+  "motivo": "Achados da 4ª revisão de código.",
+  "arquivos": [
+   "app/src/js/23-kanban-artefatos-editor.js"
+  ],
+  "como_ver": "Kanban com 'Todos os projetos'",
+  "estado_mock": "rascunho em outro projeto"
+ }
+]

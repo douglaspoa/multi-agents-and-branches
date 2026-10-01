@@ -1,4 +1,4 @@
-// Constellation — 41-assinatura-chaves
+// Starfork — 41-assinatura-chaves
 // ========== Assinatura (Stripe) ==========
 // billing_plans vazio = cobrança desligada (app livre). Semeou os planos
 // (BILLING-SETUP.md) → o gate liga sozinho no próximo sync. Nuvem sem clique.
@@ -11,14 +11,17 @@ async function billingSync(){
     billingPlans=await sbGet('billing_plans?select=*&active=eq.true');
     billingOn=billingPlans.length>0;
     if(!billingOn){ payHide(); return; }
-    // enquanto os dados da conta não carregaram, NÃO trave (senão o paywall pisca
-    // pra quem tem plano/enterprise) — um sync posterior (pós-cloudLoad) decide.
-    if(!cloudData){ payHide(); return; }
-    // licença ENTERPRISE da org cobre TODOS os membros — lê direto do cloudData.org
-    // (já vem com plan/paid_until via select=*), sem query extra nem corrida.
-    const org=cloudData.org;
-    const orgOk=!!(org && org.plan==='enterprise' && (!org.paid_until || new Date(org.paid_until)>new Date()));
-    if(orgOk){ myBilling={ plan:'enterprise', status:'active', org:true }; payHide(); return; }
+    // licença ENTERPRISE da org cobre TODOS os membros. Pergunta ao banco DIRETO (a RLS devolve só as
+    // orgs de que sou membro) em vez de depender do cloudData: antes, com a conta ainda carregando (ou
+    // falhando), o sync saía sem decidir, myBilling ficava vazio e o login mandava o membro enterprise
+    // pra tela de planos (24/09: Arllon, da Logcomex, preso na cobrança).
+    let orgs=(cloudData&&cloudData.org)?[cloudData.org]:null;
+    if(!orgs){ try{ orgs=await sbGet('orgs?select=plan,paid_until'); }catch(_){ payHide(); return; } }
+    // paid_until só é gravado pelo ADMIN (liberação manual): validade futura libera em QUALQUER plano da org.
+    // Antes só 'enterprise' contava — o Beto (org 'team', liberada até 01/11 pelo admin) caía na tela de planos (30/09).
+    const now=new Date();
+    const grant=(orgs||[]).find(o=>o && ((o.paid_until && new Date(o.paid_until)>now) || (o.plan==='enterprise' && !o.paid_until)));
+    if(grant){ myBilling={ plan:grant.plan||'enterprise', status:'active', org:true }; payHide(); return; }
     const rows=await sbGet('billing?select=*');
     const mine=rows.find(r=>r.user_id===cloudUserId());
     const team=rows.find(r=>r.plan==='team' && ['trialing','active'].includes(r.status) && r.team_id===cloudTeamId());
@@ -38,8 +41,9 @@ function payShow(){
       <div style="display:flex;align-items:center"><b style="font-size:14px">${titulo}</b><span style="flex:1"></span>${plan==='team'?'<span class="mono" style="font-size:9px;letter-spacing:.08em;color:var(--accent)">PRO TIME</span>':''}</div>
       <div><span style="font-size:23px;font-weight:700">${fmtBRL(p.amount_cents)}</span><span class="dim" style="font-size:12px"> ${per}</span></div>
       <div class="dim" style="font-size:11.5px;flex:1">${desc}</div>
-      <div class="mono" style="font-size:10px;color:var(--accent)">✓ ${p.trial_days} dias grátis</div>
-      <button class="btn primary" data-pay="${plan}" style="justify-content:center">Começar o teste</button>
+      <span class="au-trialchip" style="align-self:flex-start">${p.trial_days>0?p.trial_days:7} dias grátis</span>
+      <div class="dim" style="font-size:11px">Cadastre o cartão e nada é cobrado hoje. Cancelou antes do fim do teste, não paga nada.</div>
+      <button class="btn primary" data-pay="${plan}" style="justify-content:center">Começar ${p.trial_days>0?p.trial_days:7} dias grátis</button>
     </div>`;
   };
   $id('payCards').innerHTML=
@@ -56,7 +60,8 @@ $id('payLogout').onclick=()=>{ SB.setSess(null); cloudData=null; cloudBtnSync();
 async function payCheckout(plan,btn){
   const iv=payYear?'year':'month';
   const p=billingPlans.find(x=>x.plan===plan&&x.interval===iv); if(!p) return;
-  if(plan==='team'&&!cloudTeamId()){ alert('Pra assinar o plano Equipes, entre/crie um time primeiro (botão da nuvem).'); return; }
+  if(plan==='team'&&!cloudTeamId()){ toast('Pra assinar o plano Equipes, entre ou crie um time primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
+  const btnTx=btn?btn.textContent:''; // volta o rótulo que o botão tinha ("Começar N dias grátis")
   if(btn){ btn.disabled=true; btn.textContent='abrindo…'; }
   try{
     const r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST',
@@ -69,8 +74,8 @@ async function payCheckout(plan,btn){
     if(payPollT) clearInterval(payPollT);
     payPollT=setInterval(billingSync, 5000);
     setTimeout(()=>{ if(payPollT){ clearInterval(payPollT); payPollT=null; } }, 10*60*1000);
-  }catch(e){ alert('Não consegui abrir o checkout:\n'+e); }
-  finally{ if(btn){ btn.disabled=false; btn.textContent='Começar o teste'; } }
+  }catch(e){ showErr(e, 'Não consegui abrir o checkout'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=btnTx; } }
 }
 async function payPortal(btn){
   if(btn){ btn.disabled=true; }
@@ -80,7 +85,7 @@ async function payPortal(btn){
     const j=await r.json();
     if(!j.url) throw new Error(j.error||('HTTP '+r.status));
     try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
-  }catch(e){ alert('Não consegui abrir o portal:\n'+e); }
+  }catch(e){ showErr(e, 'Não consegui abrir o portal'); }
   finally{ if(btn) btn.disabled=false; }
 }
 // seção "Assinatura" dentro da Conta (cloudOverlay)
@@ -149,13 +154,13 @@ function secretsRenderCloud(){
     await secretSet(b.dataset.sedit, v.trim()); renderCloud();
   });
   el.querySelectorAll('[data-sdel]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('Remover '+b.dataset.sdel+' da sua conta (e desta máquina)?')) return;
+    if(!await askYes('Remover '+b.dataset.sdel+' da sua conta (e desta máquina)?')) return;
     await secretDel(b.dataset.sdel); renderCloud();
   });
   { const b=el.querySelector('#sbSecretAdd'); if(b) b.onclick=async()=>{
-      const n=await askText('Nome da variável','LGCX_API_KEY'); if(n===null) return;
+      const n=await askText('Nome da variável','MINHA_API_KEY'); if(n===null) return;
       const name=String(n).trim().toUpperCase().replace(/[^A-Z0-9_]/g,'_');
-      if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ alert('Nome inválido — use MAIÚSCULAS_E_UNDERSCORE.'); return; }
+      if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ toast('Nome inválido — use MAIÚSCULAS_E_UNDERSCORE.','warn'); return; }
       const v=await askText('Valor de '+name,'cole a chave'); if(v===null||!v.trim()) return;
       await secretSet(name, v.trim()); renderCloud();
     }; }
@@ -175,15 +180,15 @@ function routeAiCfgHtml(){
   const sw=(id,on,dis)=>`<label class="sw"><input type="checkbox" id="${id}"${on?' checked':''}${dis?' disabled':''}><span class="tr"><span class="kn"></span></span></label>`;
   const label=raGet('ALT_AI_LABEL')||'', models=raGet('ALT_AI_MODELS')||'';
   return `<div class="seclbl2" style="margin-top:22px">Gateway próprio <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· qualquer endpoint OpenAI-compatível da sua empresa (vLLM, LiteLLM, Azure, Ollama…)</span></div>
-    <div class="dim" style="margin-top:5px;line-height:1.5">Aparece como motor em "Com qual IA?" na hora de abrir a demanda e serve de <b>Route AI</b>: o agente continua sendo o <b>Claude Code</b> (todo o MCP do Constellation) — só o modelo por trás muda pro seu gateway. Config <b>individual</b> da sua conta.</div>
-    ${!logged?`<div class="rawarn" style="margin-top:10px">Entre na conta (botão da nuvem, no topo) pra configurar — a chave fica no seu cofre pessoal.</div>`:`
+    <div class="dim" style="margin-top:5px;line-height:1.5">Aparece como motor em "Com qual IA?" na hora de abrir a demanda e serve de <b>Route AI</b>: o agente continua sendo o <b>Claude Code</b> (todo o MCP do Starfork) — só o modelo por trás muda pro seu gateway. Config <b>individual</b> da sua conta.</div>
+    ${!logged?`<div class="rawarn" style="margin-top:10px">Entre na conta (Conta e time, no rodapé da barra lateral) pra configurar — a chave fica no seu cofre pessoal.</div>`:`
     <div id="raPanel" style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r-sm);padding:13px 14px;background:var(--surface-2)">
       <label style="margin:0">Chave do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(fica só no seu cofre)</span></label>
       ${hasKey
         ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="color:var(--ok,#3fb950)">✓ configurada</span><span class="dim mono" style="font-size:11px">••••${esc(key.slice(-4))}</span><span style="flex:1"></span><button class="btn sm" id="raKeyEdit">trocar</button></div>`
         : `<div style="display:flex;gap:8px;margin-top:6px"><input class="in mono" id="raKey" type="password" placeholder="cole a chave do gateway" style="flex:1"><button class="btn sm" id="raKeySave">salvar</button></div>`}
       <label style="margin-top:14px">Modelo</label>
-      <select class="sel" id="raModel" style="width:100%;margin-top:6px"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
+      <select class="sel" id="raModel" aria-label="modelo do gateway" style="width:100%;margin-top:6px"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
       <label style="margin-top:14px">Endpoint <span class="dim" style="text-transform:none;letter-spacing:0">(OpenAI-compatible)</span></label>
       <input class="in mono" id="raBase" value="${escA(baseUrl)}" placeholder="https://.../v1" style="margin-top:6px;font-size:12px"${hasKey?'':' disabled'}>
       <div class="two" style="margin-top:14px">
@@ -198,7 +203,7 @@ function routeAiCfgHtml(){
         <div class="rin"><b>Usar sempre <span class="dim" style="font-weight:400">(modo teste)</span></b><div class="dim" style="margin-top:2px">Todas as tarefas novas rodam na alternativa. Desligue pra voltar ao Claude.</div></div>
         ${sw('raAlways',always,!hasKey)}
       </div>
-      ${always?'<div class="rawarn" style="margin-top:10px;border-color:var(--warn,#9e6a03);color:var(--warn,#d29922)">⚠ Modo teste ligado — tudo está rodando na alternativa, não no Claude.</div>':''}
+      ${always?'<div class="rawarn" style="margin-top:10px;border-color:var(--warn,#9e6a03);color:var(--warn,#d29922)">${IC.warn} Modo teste ligado — tudo está rodando na alternativa, não no Claude.</div>':''}
       <div style="display:flex;gap:9px;align-items:center;margin-top:13px">
         <button class="btn sm" id="raTest"${hasKey?'':' disabled'}>testar conexão</button>
         <span class="dim" id="raTestMsg" style="font-size:11.5px"></span>
@@ -228,7 +233,7 @@ function wireRouteAiCfg(root){
   { const tb=$('raTest'); if(tb) tb.onclick=async()=>{
       const msg=$('raTestMsg'); msg.style.color='var(--muted)'; msg.textContent='testando…'; tb.disabled=true;
       try{ const r=await invoke('route_ai_ping'); msg.textContent='✓ '+r; msg.style.color='var(--ok,#3fb950)'; }
-      catch(e){ msg.textContent='✕ '+String(e); msg.style.color='var(--err,#f85149)'; }
+      catch(e){ const h=humanErr(e,'O teste falhou'); msg.textContent='✕ '+h.msg; msg.title=h.raw||''; msg.style.color='var(--crit)'; }
       tb.disabled=false;
     }; }
 }
@@ -239,7 +244,7 @@ let repoSyncBusy=false;
 async function userRepoSync(){
   if(!SB.sess()||repoSyncBusy) return; repoSyncBusy=true;
   try{
-    const info=await invoke('repo_docs').catch(()=>null);
+    const info=state.repo?await invoke('repo_docs').catch(()=>null):null; // sem projeto aberto: nada a sincronizar (antes: erro 'repo não definido' no painel a cada 10min)
     if(!info||!info.repo) return;
     await sbFetch('/rest/v1/user_repos?on_conflict=user_id,repo',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
       body: JSON.stringify({ user_id:cloudUserId(), repo:info.repo, path:info.path, last_opened:new Date().toISOString() }) });

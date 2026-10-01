@@ -1,13 +1,14 @@
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
+import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
 
 /**
  * Perfil do Chrome pra este agente. O perfil é PERSISTENTE por repo (login feito uma vez
@@ -17,7 +18,9 @@ import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
  * CÓPIA própria semeada com os cookies/logins atuais — cada tarefa no seu Chrome.
  */
 export function browserProfileFor(cwd: string, taskId: string): string {
-  const repoKey = (cwd.split("/.cardume/")[0] || cwd).replace(/[^a-zA-Z0-9]+/g, "_").slice(-60);
+  // separador dos DOIS jeitos: no Windows a worktree é C:\…\.cardume\worktrees\t — o split só por "/"
+  // dava uma chave por TAREFA (perfil novo, login perdido) em vez de uma por repo
+  const repoKey = (cwd.split(/[\\/]\.cardume[\\/]/)[0] || cwd).replace(/[^a-zA-Z0-9]+/g, "_").slice(-60);
   const root = join(homedir(), ".constellation", "browser");
   const shared = join(root, repoKey);
   mkdirSync(shared, { recursive: true });
@@ -38,13 +41,19 @@ export function browserProfileFor(cwd: string, taskId: string): string {
   if (!existsSync(mine)) {
     const skip = new Set(["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile", "Cache", "Code Cache", "GPUCache", "GrShaderCache", "ShaderCache", "DawnCache", "CacheStorage", "Crashpad"]);
     try {
-      cpSync(shared, mine, { recursive: true, filter: (src) => !skip.has(src.split("/").pop() ?? "") });
+      cpSync(shared, mine, { recursive: true, filter: (src) => !skip.has(lastSeg(src)) });
     } catch {
       // cópia parcial ou perfil sem nada ainda: perfil vazio próprio (funciona, só sem login salvo)
       mkdirSync(mine, { recursive: true });
     }
   }
   return mine;
+}
+
+/** Último pedaço de um caminho com "/" OU "\\" (no Windows o filtro de cópia comparava o caminho inteiro
+ * e copiava o `lockfile`/caches do Chrome junto — a cópia nascia "em uso"). */
+export function lastSeg(p: string): string {
+  return p.split(/[\\/]/).filter(Boolean).pop() ?? "";
 }
 
 /** "Mostrar o navegador dos agentes" (Configurações → ~/.constellation/settings.json). Padrão: segundo plano. */
@@ -91,8 +100,21 @@ function hasOpenAsk(dbFile: string, taskId: string): boolean {
   }
 }
 
-function resolveClaude(): string {
+export function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
+  // Windows: o binário é `claude.exe` (instalador nativo em %USERPROFILE%\.local\bin). O shim do npm
+  // (`claude.cmd`) NÃO serve — o Node recusa spawn de .cmd sem shell (EINVAL) — então só .exe; o
+  // fallback "claude.exe" deixa o CreateProcess procurar no PATH.
+  if (process.platform === "win32") {
+    try {
+      for (const p of [join(dirname(process.execPath), "claude.exe"), join(homedir(), ".local", "bin", "claude.exe"), join(homedir(), ".claude", "local", "claude.exe")]) {
+        if (existsSync(p)) return p;
+      }
+    } catch {
+      /* ignora */
+    }
+    return "claude.exe";
+  }
   // Ao lado do node em uso PRIMEIRO (nvm/dev — o claude que o dono atualiza);
   // depois os locais padrão pra PATH mínimo de app GUI (instalador nativo etc.).
   try {
@@ -115,6 +137,36 @@ function resolveClaude(): string {
     /* ignora */
   }
   return "claude";
+}
+
+/**
+ * Ambiente pra QUALQUER spawn do claude fora do motor (resumo de commit,
+ * destilador de memória…): sem marcadores de sessão aninhada e sem API key
+ * (quem paga é a assinatura) + PATH com a pasta do binário (o claude instalado
+ * via npm/nvm é um script `#!/usr/bin/env node` — com o PATH mínimo de app GUI
+ * o `env node` não acha o node).
+ */
+export function claudeEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.CLAUDE_CODE_SSE_PORT;
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  const dirs = [dirname(process.execPath)];
+  const bin = resolveClaude();
+  if (bin !== "claude" && bin !== "claude.exe") dirs.push(dirname(bin));
+  const cur = (env.PATH || "").split(delimiter).filter(Boolean);
+  env.PATH = [...dirs.filter((d) => !cur.includes(d)), ...cur].join(delimiter);
+  return env;
+}
+
+/** Erro de spawn do claude em pt-BR (bate com o catálogo `claude-missing` do app). */
+export function claudeErrText(err: unknown): string {
+  const e = err as { code?: string; message?: string };
+  const m = e?.message || String(err);
+  if (e?.code === "ENOENT" || /ENOENT/.test(m)) return "O Claude Code não está instalado neste computador (veja Mais › Ambiente).";
+  return m;
 }
 
 /**
@@ -175,20 +227,20 @@ export class ClaudeEngine implements AgentEngine {
     const envRule =
       " O ambiente desta worktree foi SEMEADO do repo principal (.env copiados, node_modules/.venv linkados) — veja .cardume/AMBIENTE.md. Antes de concluir que 'falta configuração', confira esse arquivo: o necessário pra RODAR o projeto provavelmente já está aqui.";
     const knowledgeRule =
-      " MEMÓRIA DO PROJETO EM ARQUIVOS — USE ANTES DE REDESCOBRIR: (1) .cardume/RUNBOOK.md tem os passos JÁ VALIDADOS pra subir o ambiente (backend, front, envs, VPN) — siga-os literalmente em vez de deduzir; se você validar um passo novo ou corrigir um obsoleto, ATUALIZE o RUNBOOK.md (comandos exatos, pré-requisitos, portas) — o sistema leva sua edição de volta pro repo e TODAS as tarefas futuras ganham. (2) .cardume/HISTORY.md é o índice das tarefas passadas do projeto — faça grep por termos do seu problema ANTES de investigar do zero: issue parecida pode já ter sido resolvida, com a branch citada pra você ler o diff (git log/show). (3) .cardume/PREFS.md são as PREFERÊNCIAS/CONVENÇÕES DESTE PROJETO escritas pelo TIME (padrões de código, o que evitar, decisões acordadas) — LEIA e RESPEITE à risca; na dúvida entre duas formas, a que estiver aqui vence.";
+      " MEMÓRIA DO PROJETO EM ARQUIVOS — USE ANTES DE REDESCOBRIR: (1) .cardume/RUNBOOK.md tem os passos JÁ VALIDADOS pra subir o ambiente (backend, front, envs, VPN) — siga-os literalmente em vez de deduzir; se você validar um passo novo ou corrigir um obsoleto, ATUALIZE o RUNBOOK.md (comandos exatos, pré-requisitos, portas) — o sistema leva sua edição de volta pro repo e TODAS as tarefas futuras ganham. (2) .cardume/HISTORY.md é o índice das tarefas passadas do projeto — faça grep por termos do seu problema ANTES de investigar do zero: issue parecida pode já ter sido resolvida, com a branch citada pra você ler o diff (git log/show). (3) .cardume/PREFS.md são as PREFERÊNCIAS/CONVENÇÕES DESTE PROJETO escritas pelo TIME (padrões de código, o que evitar, decisões acordadas) — LEIA e RESPEITE à risca; na dúvida entre duas formas, a que estiver aqui vence. (4) .cardume/memoria/ é o CÉREBRO DO PROJETO: notas .md com frontmatter (title, type: decisão|regra|gotcha|contexto|pessoa|glossário, tags, updated) ligadas por [[links]] — as do time ficam em .cardume/memoria/time/. O índice e as notas relevantes já estão no seu contexto; pra achar mais, rode grep -ril \"termo\" .cardume/memoria/ ANTES de investigar do zero, e siga os [[links]] das notas que baterem. PROPOR NOTA: se você descobrir algo que vale pra tarefas FUTURAS (decisão tomada, gotcha com a causa, regra de trabalho, termo do domínio), crie ou atualize UM arquivo .cardume/memoria/<slug-curto>.md nesse formato (corpo curto, com [[slug]] pras notas relacionadas) — o sistema leva pro cérebro com o seu rastro. Atualize a nota existente em vez de duplicar; NUNCA apague notas; NUNCA grave segredos, chaves ou valores de .env.";
     const specGapRule = (input.spec.linkedTo || (input.spec.refs ?? []).some((r) => /design|DESIGN\.md|INVESTIGATION\.md/i.test(r)))
       ? " HANDOFF DE DESIGN/DIAGNÓSTICO: esta entrega NASCE de um design ou investigação anexados — antes de escrever qualquer código, AVALIE se eles cobrem as decisões-chave (estados vazio/erro/carregando, origem dos dados, comportamentos de borda, o que fica fora). Qualquer lacuna ESSENCIAL ambígua → pergunte via mcp__cardume__ask_human ANTES de implementar, com opções concretas de interpretação — implementar em cima de suposição custa um rework inteiro; perguntar custa um minuto. Lacuna cosmética/pequena: decida sozinho e registre a decisão no resumo."
       : "";
     const scratchRule =
       " HIGIENE DO DIFF: scripts DESCARTÁVEIS de sondagem/verificação (probe, check, explore, harness de uma vez) NÃO fazem parte da entrega — crie-os em .cardume/tmp/ (ignorado pelo commit) ou APAGUE antes de finalizar. O diff final deve conter APENAS o que o revisor precisa mergear; teste reutilizável vai pra suíte do projeto, evidência vai pra .cardume/artifacts/.";
     const previewRule =
-      " SERVIDOR LOCAL VISÍVEL: sempre que você SUBIR um servidor/ambiente pra testar (vite, uvicorn, next dev…), ANUNCIE numa linha de texto exatamente no formato '🌐 preview: http://127.0.0.1:PORTA/caminho' (use 127.0.0.1, não localhost) — e RE-ANUNCIE com o caminho novo quando mudar a página/subpágina que está testando. O humano clica nesse link pra acompanhar seu trabalho ao vivo (inclusive do celular).";
+      " SERVIDOR LOCAL VISÍVEL: sempre que você SUBIR um servidor/ambiente pra testar (vite, uvicorn, next dev…), ANUNCIE numa linha de texto exatamente no formato 'PREVIEW: http://127.0.0.1:PORTA/caminho' (use 127.0.0.1, não localhost) — e RE-ANUNCIE com o caminho novo quando mudar a página/subpágina que está testando. O humano clica nesse link pra acompanhar seu trabalho ao vivo (inclusive do celular). E GRAVE COMO SUBIR em .cardume/preview.json (sobrescreva quando mudar comando/porta/caminho): {\"cmd\": \"<comando shell EXATO que você rodou>\", \"cwd\": \"<pasta relativa à worktree, '.' se for a raiz>\", \"url\": \"http://127.0.0.1:PORTA/caminho\", \"env\": {<variáveis extras, opcional>}} — o servidor MORRE quando seu turno termina, e o app usa esse arquivo pra oferecer 'subir de novo' ao humano sem te chamar.";
     const planRule =
       input.role === "builder" || input.role === "tester"
         ? " Se existir .cardume/PLAN.md, leia e SIGA o plano (o humano pode tê-lo revisado/ajustado)."
         : "";
     const adjustRule = input.spec.adjustment
-      ? `⚠ AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${input.spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
+      ? `ATENÇÃO — AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${input.spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
       : "";
     // REVIEW DE PR: não há repositório pra editar — o diff completo está em DIFF.patch.
     const prRule = input.spec.kind === "review" && input.spec.prUrl
@@ -227,10 +279,11 @@ export class ClaudeEngine implements AgentEngine {
           ? " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, um formulário que só o humano tem os dados) — NÃO tente logar nem inventar credenciais. Navegue até a tela, tire um screenshot, e chame mcp__cardume__ask_human dizendo 'abri o navegador na tela X, faça login/preencha e me avise quando terminar' e AGUARDE. O humano usa a MESMA janela pra logar; quando ele responder, continue de onde parou — a sessão dele já estará ativa no navegador. Peça login UMA vez: o perfil persiste, então em rodadas seguintes você provavelmente já estará logado."
           : " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, dados que só o humano tem) — NÃO tente logar nem inventar credenciais. Como o navegador está em segundo plano, o humano não consegue usar a janela: tire um screenshot e chame mcp__cardume__ask_human pedindo que ele (1) ligue 'mostrar o navegador dos agentes' em Configurações e (2) responda 'ok'. Quando ele responder, FINALIZE o turno dizendo exatamente o que ficou pendente (a URL da tela de login) — na retomada o navegador abre visível e ele faz o login na sua janela. O perfil persiste: peça login UMA vez.")
       : "";
+    const editRule = specEditRule(input); // só no turno fresco (baseline): o resume não repete
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${editRule}${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e
@@ -239,11 +292,14 @@ export class ClaudeEngine implements AgentEngine {
     // reinjeta a lista por turno, como groundRule/doneRule. Fresh/promptOverride já a
     // recebem via --append-system-prompt (systemContext), então aqui só o resume precisa.
     const skillsRule = input.skillsRule ?? "";
+    // Modo protegido (padrão do projeto; "Livre" em Preferências do projeto → CARDUME_PROTECT=0)
+    const protectOn = protectEnabled();
+    const protectRule = protectOn ? PROTECT_RULE : "";
     const prompt = input.resume
-      ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule
-      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule : baseline);
+      ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule + protectRule
+      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule + protectRule : baseline + protectRule);
 
-    // Escreve o mcp.json que injeta o servidor MCP do Cardume neste run.
+    // Escreve o mcp.json que injeta o servidor MCP do Starfork neste run.
     // Dev: src/mcp/server.ts ao lado do fonte. App empacotado: o bundle vira
     // Resources/engine/cli.mjs e o server mora em Resources/mcp/server.mjs.
     const serverPath = (() => {
@@ -261,7 +317,8 @@ export class ClaudeEngine implements AgentEngine {
         mcpServers: {
           cardume: {
             command: process.execPath,
-            args: ["--disable-warning=ExperimentalWarning", serverPath],
+            // o servidor MCP também usa node:sqlite: herda a flag se o motor precisou dela (node 22.5–22.12/23.0–23.3)
+            args: [...process.execArgv.filter((a) => a === "--experimental-sqlite"), "--disable-warning=ExperimentalWarning", serverPath],
             env: {
               CARDUME_DB: input.dbFile,
               CARDUME_TASK: input.spec.id,
@@ -309,18 +366,23 @@ export class ClaudeEngine implements AgentEngine {
       "--mcp-config",
       mcpConfigPath,
       "--strict-mcp-config",
+      // MODO PROTEGIDO (padrão): regras de negação valem MESMO em bypassPermissions.
+      // Variádico — fica ANTES de outra flag pra não engolir nada.
+      ...protectArgs(protectOn),
       "--permission-mode",
       "bypassPermissions", // auto-aprova ações; o humano entra via ask_human
     ];
     if (input.resume?.sessionId) {
-      // continua a MESMA sessão (modelo + system prompt já ficam na sessão)
+      // continua a MESMA sessão (o system prompt fica na sessão)
       args.push("--resume", input.resume.sessionId);
     } else {
       // turno normal, ou instrução nova sem sessão capturada (fallback: turno fresco)
       if (input.systemContext) args.push("--append-system-prompt", input.systemContext);
-      if (useAlt && alt) args.push("--model", alt.model);
-      else if (this.model) args.push("--model", this.model);
     }
+    // --model SEMPRE, inclusive no --resume: o Claude Code NÃO guarda o modelo na sessão —
+    // retomar sem a flag caía no padrão da assinatura (a escolha do usuário sumia no 2º turno).
+    if (useAlt && alt) args.push("--model", alt.model);
+    else if (this.model) args.push("--model", this.model);
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
     // Limpa marcadores de "sessão Claude Code" herdados (ex.: app aberto a
@@ -345,11 +407,21 @@ export class ClaudeEngine implements AgentEngine {
       delete env.ANTHROPIC_API_KEY;
       delete env.ANTHROPIC_AUTH_TOKEN;
     }
+    // CUSTO NO --resume: o claude restaura o custo acumulado da sessão (linha "cost-state" do
+    // transcript) e o `total_cost_usd` do result vem SOMADO com os turnos anteriores — cada conversa
+    // no chat da tarefa re-cobrava a sessão inteira. Base = o último acumulado gravado; custo do turno = diferença.
+    // Base: 1º o acumulado que NÓS gravamos no fim do turno anterior desta sessão (state.sqlite); senão o
+    // do transcript do Claude Code. Sem nenhum dos dois: avisa no chat (o turno pode incluir custo antigo).
+    const resumeSid = input.resume?.sessionId || "";
+    const storedBase = resumeSid ? readSessionCost(input.dbFile, resumeSid) : undefined;
+    const costBase = !resumeSid ? 0 : (storedBase ?? sessionCostBaseline(resumeSid));
+    let sessionId = resumeSid;
     const child = spawn(resolveClaude(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];
-    if (useAlt && alt) queue.push({ type: "note", text: `🔀 Route AI: rodando na ${alt.label} (${alt.model})` });
+    if (useAlt && alt) queue.push({ type: "note", text: `Route AI: rodando na ${alt.label} (${alt.model})` });
+    if (resumeSid && costBase === 0) queue.push({ type: "note", text: "custo: não achei o acumulado anterior desta sessão — o custo deste turno pode incluir turnos anteriores" });
     let done = false;
     let notify: (() => void) | null = null;
     const wake = () => {
@@ -359,26 +431,51 @@ export class ClaudeEngine implements AgentEngine {
         n();
       }
     };
+    // Ciclo de vida do processo (antes: só o 'close' encerrava o turno). Três furos fechados:
+    //  - o `result` saiu mas o claude NÃO terminou (MCP/filho segurando) → o turno ficava "rodando"
+    //    com o lock da tarefa por até 30 min (watchdog de inatividade). Agora: silêncio depois do
+    //    `result` por EXIT_GRACE → encerra o processo; o turno já estava concluído.
+    //  - SIGTERM ignorado → o gerador acabava com o processo vivo. Agora escala pra SIGKILL.
+    //  - quem consome o gerador parou (erro gravando no banco, break) → o claude seguia rodando
+    //    órfão. Agora o `finally` do gerador mata o processo.
+    let exited = false;
+    let sawDone = false;
+    let doneTimer: ReturnType<typeof setTimeout> | undefined;
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
+    const killChild = () => killProcess(child, () => exited);
+    const finish = () => {
+      clearTimeout(killTimer);
+      clearTimeout(doneTimer);
+      clearTimeout(closeTimer);
+      done = true;
+      wake();
+    };
 
     // Timeout de INATIVIDADE (não de relógio): reseta a cada sinal de vida do
     // agente. Assim um agente que trabalha muito (ou espera o humano responder)
     // não é morto — só encerra se ficar realmente parado por N minutos.
     const idleMin = 30;
-    let killTimer: ReturnType<typeof setTimeout>;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const resetIdle = () => {
       clearTimeout(killTimer);
       killTimer = setTimeout(() => {
         // bloqueado numa pergunta ao humano → não é inatividade do agente
         if (hasOpenAsk(input.dbFile, input.spec.id)) { resetIdle(); return; }
         queue.push({ type: "error", text: `inatividade de ${idleMin}min — agente encerrado`, status: "error" });
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* já morreu */
-        }
-        done = true;
-        wake();
+        killChild();
+        finish();
       }, idleMin * 60 * 1000);
+      // depois do `result`, qualquer saída nova adia o encerramento (o processo ainda fala)
+      if (sawDone && !exited) armDoneTimer();
+    };
+    const armDoneTimer = () => {
+      clearTimeout(doneTimer);
+      doneTimer = setTimeout(() => {
+        if (exited) return;
+        queue.push({ type: "note", text: "o claude concluiu o turno mas não fechou sozinho — processo encerrado" });
+        killChild();
+        finish();
+      }, exitGraceMs());
     };
     resetIdle();
 
@@ -390,7 +487,18 @@ export class ClaudeEngine implements AgentEngine {
     rl.on("line", (line) => {
       resetIdle();
       if (CAUSE_RE.test(line)) lastErr = line.slice(0, 300);
-      for (const ev of mapLine(line)) queue.push(ev);
+      if (line.includes('"session_id"') || line.includes('"total_cost_usd"')) {
+        try {
+          const o = JSON.parse(line);
+          if (typeof o?.session_id === "string" && o.session_id) sessionId = o.session_id;
+          // guarda o ACUMULADO da sessão: é a base do próximo --resume
+          if (o?.type === "result" && typeof o.total_cost_usd === "number" && sessionId) saveSessionCost(input.dbFile, sessionId, o.total_cost_usd);
+        } catch { /* linha que não é JSON */ }
+      }
+      for (const ev of mapLine(line, costBase)) {
+        if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
+        queue.push(ev);
+      }
       wake();
     });
     child.stderr.on("data", (d) => {
@@ -399,41 +507,151 @@ export class ClaudeEngine implements AgentEngine {
       if (s) { lastErr = s.slice(0, 300); queue.push({ type: "note", text: `stderr: ${s.slice(0, 140)}` }); }
       wake();
     });
-    child.on("close", (code) => {
-      clearTimeout(killTimer);
-      if (!queue.some((e) => e.type === "done")) {
-        queue.push({
-          type: code === 0 ? "note" : "error",
-          text: code === 0 ? "claude finalizou" : `claude saiu com código ${code}${lastErr ? " — " + lastErr : ""}`,
-          status: code === 0 ? undefined : "error",
-        });
-      }
-      done = true;
-      wake();
+    // sem `result`: o motivo da saída (código/sinal + último erro visto) vira o evento final
+    const pushExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (sawDone || done) return;
+      const ok = code === 0;
+      queue.push({
+        type: ok ? "note" : "error",
+        text: ok ? "claude finalizou" : `claude saiu com código ${code ?? signal}${lastErr ? " — " + lastErr : ""}`,
+        status: ok ? undefined : "error",
+      });
+    };
+    child.on("exit", (code, signal) => {
+      exited = true;
+      clearTimeout(doneTimer);
+      // um neto (servidor em segundo plano) herdando o stdout segura o 'close' pra sempre:
+      // o processo já saiu — dá um respiro pra drenar a saída e encerra o turno assim mesmo
+      closeTimer = setTimeout(() => {
+        if (done) return;
+        try { rl.close(); child.stdout?.destroy(); child.stderr?.destroy(); } catch { /* já fechados */ }
+        pushExit(code, signal);
+        finish();
+      }, 3000);
+    });
+    child.on("close", (code, signal) => {
+      // o `done` pode já ter sido ENTREGUE (a fila só guarda o que falta): sem o sawDone, um
+      // turno concluído ganhava um "saiu com código …" de erro no fim e disparava retry à toa
+      pushExit(code, signal);
+      finish();
     });
     child.on("error", (err) => {
-      clearTimeout(killTimer);
+      exited = true;
       queue.push({ type: "error", text: `falha ao iniciar claude: ${err.message}`, status: "error" });
-      done = true;
-      wake();
+      finish();
     });
 
-    yield { type: "status", text: `iniciando claude (approval: ${this.approval})`, status: "running" };
+    try {
+      yield { type: "status", text: `iniciando claude (approval: ${this.approval})`, status: "running" };
 
-    while (!done || queue.length > 0) {
-      if (queue.length === 0) {
-        await new Promise<void>((r) => {
-          notify = r;
-        });
-        continue;
+      while (!done || queue.length > 0) {
+        if (queue.length === 0) {
+          await new Promise<void>((r) => {
+            notify = r;
+          });
+          continue;
+        }
+        yield queue.shift()!;
       }
-      yield queue.shift()!;
+    } finally {
+      clearTimeout(killTimer);
+      clearTimeout(doneTimer);
+      clearTimeout(closeTimer);
+      if (!exited) killChild(); // consumidor abandonou o turno → nada de claude órfão
     }
   }
 }
 
-/** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[]. */
-export function mapLine(line: string): AgentEvent[] {
+/** Silêncio tolerado depois do `result` antes de encerrar o processo (CARDUME_CLAUDE_EXIT_GRACE_MS). */
+export function exitGraceMs(): number {
+  const n = Number(process.env.CARDUME_CLAUDE_EXIT_GRACE_MS);
+  return Number.isFinite(n) && n > 0 ? n : 90_000;
+}
+
+/** SIGTERM e, se o processo ignorar, SIGKILL depois de `hardMs`. Nunca lança. */
+export function killProcess(child: { kill: (s?: NodeJS.Signals) => boolean; once?: (ev: "exit", fn: () => void) => unknown }, isDead: () => boolean, hardMs = 3000): void {
+  if (isDead()) return;
+  try { child.kill("SIGTERM"); } catch { /* já morreu */ }
+  // timer NÃO é unref: um host de vida curta (CLI) sairia antes do SIGKILL e o filho que ignora SIGTERM
+  // ficaria órfão. Ele segura o host só enquanto o filho vive (cancelado no 'exit').
+  const t = setTimeout(() => {
+    if (isDead()) return;
+    try { child.kill("SIGKILL"); } catch { /* já morreu */ }
+  }, hardMs);
+  child.once?.("exit", () => clearTimeout(t));
+}
+
+/** Acumulado da sessão gravado por nós no fim do turno anterior (tabela session_cost). */
+export function readSessionCost(dbFile: string, sessionId: string): number | undefined {
+  try {
+    if (!existsSync(dbFile)) return undefined;
+    const db = new DatabaseSync(dbFile);
+    try {
+      db.exec("PRAGMA busy_timeout = 3000;");
+      const row = db.prepare("SELECT total FROM session_cost WHERE session_id = ?").get(sessionId) as { total?: number } | undefined;
+      return typeof row?.total === "number" ? row.total : undefined;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return undefined; // banco antigo sem a tabela
+  }
+}
+
+export function saveSessionCost(dbFile: string, sessionId: string, total: number): void {
+  try {
+    const db = new DatabaseSync(dbFile);
+    try {
+      db.exec("PRAGMA busy_timeout = 3000; CREATE TABLE IF NOT EXISTS session_cost (session_id TEXT PRIMARY KEY, total REAL NOT NULL, updated_at INTEGER NOT NULL);");
+      db.prepare("INSERT INTO session_cost (session_id, total, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET total=excluded.total, updated_at=excluded.updated_at").run(sessionId, total, Date.now());
+    } finally {
+      db.close();
+    }
+  } catch { /* custo é melhor-esforço */ }
+}
+
+/**
+ * Custo ACUMULADO já registrado de uma sessão do Claude Code (última linha `cost-state` do transcript
+ * <config>/projects/<pasta>/<sessão>.jsonl). 0 quando não achar — aí o turno conta como antes.
+ */
+export function sessionCostBaseline(sessionId: string): number {
+  if (!/^[\w-]{8,80}$/.test(sessionId)) return 0;
+  try {
+    const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
+    for (const d of readdirSync(root)) {
+      const f = join(root, d, `${sessionId}.jsonl`);
+      if (!existsSync(f)) continue;
+      // o cost-state é gravado no FIM de cada turno: basta a cauda (transcripts passam de 50 MB)
+      const lines = tailText(f, 4 * 1024 * 1024).split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i].includes('"cost-state"')) continue;
+        try {
+          const o = JSON.parse(lines[i]);
+          if (o?.type === "cost-state" && typeof o.totalCostUSD === "number" && o.totalCostUSD >= 0) return o.totalCostUSD;
+        } catch { /* linha truncada — tenta a anterior */ }
+      }
+      return 0;
+    }
+  } catch { /* sem pasta do claude */ }
+  return 0;
+}
+
+function tailText(file: string, max: number): string {
+  const fd = openSync(file, "r");
+  try {
+    const size = fstatSync(fd).size;
+    const len = Math.min(size, max);
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, size - len);
+    return buf.toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[].
+ * `costBase`: custo acumulado da sessão ANTES deste turno (só no --resume) — é descontado do total. */
+export function mapLine(line: string, costBase = 0): AgentEvent[] {
   const t = line.trim();
   if (!t) return [];
   let o: any;
@@ -467,7 +685,9 @@ export function mapLine(line: string): AgentEvent[] {
 
   if (o.type === "result") {
     const ok = !o.is_error;
-    const usd = typeof o.total_cost_usd === "number" ? o.total_cost_usd : 0;
+    const total = typeof o.total_cost_usd === "number" ? o.total_cost_usd : 0;
+    // arredonda a diferença (ponto flutuante) e nunca fica negativo (sessão reiniciada do zero)
+    const usd = costBase > 0 && total >= costBase ? Math.round((total - costBase) * 1e7) / 1e7 : total;
     const cost = usd ? ` · $${usd.toFixed(3)}` : "";
     const denials = Array.isArray(o.permission_denials) && o.permission_denials.length
       ? ` · ${o.permission_denials.length} permissão(ões) negada(s)`
@@ -482,7 +702,7 @@ export function mapLine(line: string): AgentEvent[] {
         text: (o.result ? String(o.result).slice(0, 4000) : "concluído") + cost + denials,
         status: ok ? "review" : "error",
         ok,
-        cost: { usd, inTok, outTok, ms },
+        cost: { usd, inTok, outTok, ...(ms ? { ms } : {}) },
       },
     ];
   }
@@ -490,12 +710,20 @@ export function mapLine(line: string): AgentEvent[] {
   return [];
 }
 
-function mapTool(name: string | undefined, inp: any): AgentEvent {
+export function mapTool(name: string | undefined, inp: any): AgentEvent {
   const n = (name ?? "").toLowerCase();
-  if (n.includes("ask_human")) return { type: "note", text: "❓ perguntou ao humano: " + String(inp?.question ?? "") };
+  if (n.includes("ask_human")) return { type: "note", text: "perguntou ao humano: " + String(inp?.question ?? "") };
   if (n.includes("claim")) return { type: "claim", text: String(inp?.path ?? ""), path: inp?.path, mode: inp?.mode ?? "write" };
   if (n.includes("edit") || n.includes("str_replace") || n.includes("notebook")) return { type: "edit", text: fileOf(inp), ok: true };
   if (n.includes("write") || n.includes("create")) return { type: "write", text: fileOf(inp), ok: true };
+  // busca/listagem viram FRASE ("buscando \"x\" em src") — antes caíam como "read" com o padrão cru e a tela
+  // não tinha como dizer se era um arquivo lido ou uma busca (a faixa "o que ele está fazendo" usa isto)
+  if (n === "grep" || n.endsWith("__grep")) {
+    const pat = String(inp?.pattern ?? "").slice(0, 80), where = String(inp?.path ?? "");
+    return { type: "read", text: `buscando "${pat}"${where ? " em " + where : ""}` };
+  }
+  if (n === "glob" || n === "ls") return { type: "read", text: `listando ${String(inp?.pattern ?? inp?.path ?? "").slice(0, 100)}` };
+  if (n === "webfetch" || n === "websearch") return { type: "read", text: `consultando ${String(inp?.url ?? inp?.query ?? "").slice(0, 100)}` };
   if (n.includes("read") || n.includes("grep") || n.includes("glob")) return { type: "read", text: fileOf(inp) || String(inp?.pattern ?? "") };
   if (n.includes("bash") || n.includes("shell")) return { type: "bash", text: String(inp?.command ?? "").slice(0, 120) };
   if (n.includes("task")) return { type: "note", text: "subagente: " + String(inp?.description ?? "") };
@@ -505,6 +733,21 @@ function mapTool(name: string | undefined, inp: any): AgentEvent {
 
 function fileOf(inp: any): string {
   return String(inp?.file_path ?? inp?.path ?? inp?.filename ?? "");
+}
+
+/**
+ * A ideia muda conforme se programa: o agente pode atualizar a SPEC de outras tarefas (irmãs do épico,
+ * rascunhos) e o próprio épico SEM acionar ninguém — tools mcp__cardume__edit_task / edit_epic
+ * (src/agent-edits.ts). Antes o único caminho era `talk`, que retoma o agente da outra tarefa.
+ */
+export function specEditRule(input: { role: string; spec: { epicId?: string } }): string {
+  // só quem constrói/planeja muda spec (o revisor julga a spec, não a reescreve) e só em tarefa de épico
+  if (!["builder", "planner"].includes(input.role) || !input.spec.epicId) return "";
+  return (
+    " A IDEIA MUDOU? Se o que você descobriu muda o escopo de uma tarefa IRMÃ do épico ou da sua, use mcp__cardume__epic_tasks pra ver as irmãs e os ids (também em .cardume/refs/EPIC.md, regenerado a cada turno) e atualize a spec dela com mcp__cardume__edit_task — pode indicar a irmã pelo id OU pelo título; nunca invente um id (objetivo, título, requisitos/entregáveis novos, owns/off) — isso NÃO inicia nem retoma o agente dela; se ela estiver rodando, recebe a mudança no próximo turno. NUNCA use `cardume talk` pra isso (ele dispara a execução)." +
+    ` Se mudou o próprio ÉPICO (descrição, requisitos, "pronto quando"), use mcp__cardume__edit_epic com epic_id ${input.spec.epicId}.` +
+    " Acrescentar/reescrever vale na hora; REMOVER requisito ou item do \"pronto quando\" (ou estreitar owns/off) vira PROPOSTA que o humano aprova ou recusa. Sempre com `note` dizendo o porquê — o humano vê o rastro (antes → depois) e pode desfazer. Tarefa mergeada/concluída não muda."
+  );
 }
 
 /**

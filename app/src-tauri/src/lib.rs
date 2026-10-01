@@ -1,8 +1,83 @@
 use std::collections::HashMap;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+
+/// Sinais usados pra controlar a árvore de processos do agente (pausar/retomar/
+/// matar). No Unix são os SIGxxx reais entregues ao GRUPO. No Windows não existe
+/// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
+/// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
+mod agent_edits;
+mod epic_context;
+mod memoria;
+mod mesa;
+#[cfg(target_os = "macos")]
+mod notif_mac;
+#[cfg(test)]
+mod snapshot_perf;
+
+mod procsig {
+    #[cfg(unix)]
+    pub const KILL: i32 = libc::SIGKILL;
+    #[cfg(unix)]
+    pub const TERM: i32 = libc::SIGTERM;
+    #[cfg(unix)]
+    pub const CONT: i32 = libc::SIGCONT;
+    #[cfg(unix)]
+    pub const STOP: i32 = libc::SIGSTOP;
+    #[cfg(windows)]
+    pub const KILL: i32 = 9;
+    #[cfg(windows)]
+    pub const TERM: i32 = 15;
+    #[cfg(windows)]
+    pub const CONT: i32 = 18;
+    #[cfg(windows)]
+    pub const STOP: i32 = 19;
+}
+
+/// Mata UM processo pelo pid (não o grupo — usado quando o processo não foi
+/// spawnado como líder de grupo próprio).
+#[cfg(unix)]
+fn kill_pid(pid: i32, sig: i32) {
+    unsafe { libc::kill(pid, sig); }
+}
+#[cfg(windows)]
+fn kill_pid(pid: i32, _sig: i32) {
+    let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+}
+
+/// PID ainda vivo? (Unix: kill(pid, 0); Windows: procura o PID na tasklist.)
+#[cfg(unix)]
+fn pid_alive(pid: i32) -> bool {
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+#[cfg(windows)]
+fn pid_alive(pid: i32) -> bool {
+    Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")))
+        .unwrap_or(false)
+}
+
+/// Deixa o processo pronto pra virar líder de um grupo próprio, ANTES do spawn
+/// (Unix: setsid via pre_exec; Windows: flag de criação equivalente).
+#[cfg(unix)]
+fn detach_new_group(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+}
+#[cfg(windows)]
+fn detach_new_group(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+}
 
 /// Repo explícito (quando a tela está PRESA a um projeto — ex.: plano do orquestrador
 /// criado num repo enquanto o usuário troca o projeto ativo na barra lateral) ou o ativo.
@@ -45,7 +120,7 @@ fn cli_path(repo: &PathBuf) -> String {
         }
     }
     if let Ok(exe) = std::env::current_exe() {
-        // Contents/MacOS/Constellation → Contents/Resources/engine/cli.mjs
+        // Contents/MacOS/Starfork → Contents/Resources/engine/cli.mjs
         if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
             let bundled = contents.join("Resources").join("engine").join("cli.mjs");
             if bundled.is_file() {
@@ -56,62 +131,128 @@ fn cli_path(repo: &PathBuf) -> String {
     repo.join("src").join("cli.ts").display().to_string()
 }
 
-/// Node: CARDUME_NODE → homebrew/local → a versão mais nova do nvm → PATH.
+/// Node: o MAIS NOVO de todos os instalados (CARDUME_NODE manda se existir). Antes era "o primeiro que
+/// existe" com /usr/bin/node antes do nvm: no Linux o node do sistema (v18) ganhava do nvm (v22) e o
+/// preflight travava o app (30/09, Carlos/Ubuntu). E o nvm era ordenado como texto ("v9" > "v22").
 fn node_bin() -> String {
     if let Ok(n) = std::env::var("CARDUME_NODE") {
         if !n.is_empty() && std::path::Path::new(&n).is_file() {
             return n;
         }
     }
-    for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"] {
-        if std::path::Path::new(p).is_file() {
-            return p.to_string();
-        }
+    node_pick().0
+}
+/// (node, precisa de --experimental-sqlite?). O motor usa `node:sqlite`: sem flag só existe a partir do
+/// 22.13 / 23.4; no 22.5–22.12 e 23.0–23.3 só com a flag. "O mais novo" não basta — no Mac do Roberto o
+/// mais novo era o 23.2 e o `cardume init` quebrava com ERR_UNKNOWN_BUILTIN_MODULE (30/09). Então TESTA
+/// cada candidato (do mais novo pro mais velho): primeiro um que carrega sem flag; senão um que carrega
+/// com a flag; senão o mais novo (o preflight mostra o problema). Cache de 30s.
+fn node_pick() -> (String, bool) {
+    static CACHE: std::sync::OnceLock<Mutex<Option<((String, bool), std::time::Instant)>>> = std::sync::OnceLock::new();
+    let cell = CACHE.get_or_init(|| Mutex::new(None));
+    if let Some((b, at)) = cell.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if at.elapsed() < std::time::Duration::from_secs(30) { return b; }
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        let nvm = std::path::PathBuf::from(home).join(".nvm").join("versions").join("node");
-        if let Ok(rd) = std::fs::read_dir(&nvm) {
-            let mut vers: Vec<_> = rd.flatten().map(|e| e.path()).collect();
-            vers.sort(); // lexicográfico basta pra escolher determinístico; preflight valida >=22.6
-            if let Some(latest) = vers.last() {
-                let n = latest.join("bin").join("node");
-                if n.is_file() {
-                    return n.display().to_string();
-                }
+    let mut vers: Vec<((u32, u32, u32), String)> = node_candidates().into_iter().filter_map(|b| node_version(&b).map(|v| (v, b))).collect();
+    vers.sort_by(|a, b| b.0.cmp(&a.0));
+    let pick = vers.iter().find(|(_, b)| node_sqlite_ok(b, false)).map(|(_, b)| (b.clone(), false))
+        .or_else(|| vers.iter().find(|(_, b)| node_sqlite_ok(b, true)).map(|(_, b)| (b.clone(), true)))
+        .or_else(|| vers.first().map(|(_, b)| (b.clone(), false)))
+        .unwrap_or_else(|| ("node".to_string(), false));
+    *cell.lock().unwrap_or_else(|e| e.into_inner()) = Some((pick.clone(), std::time::Instant::now()));
+    pick
+}
+/// O node carrega `node:sqlite` (com ou sem a flag)?
+fn node_sqlite_ok(bin: &str, flag: bool) -> bool {
+    let mut c = Command::new(bin);
+    if flag { c.arg("--experimental-sqlite"); }
+    c.args(["--disable-warning=ExperimentalWarning", "-e", "require('node:sqlite')"]);
+    output_timeout(c, 8).map(|o| o.status.success()).unwrap_or(false)
+}
+/// Command do node pronto pro motor: já leva --experimental-sqlite quando o node escolhido precisa.
+fn node_cmd() -> Command {
+    let forced = std::env::var("CARDUME_NODE").ok().filter(|n| !n.is_empty() && std::path::Path::new(n).is_file());
+    let (bin, flag) = match forced {
+        Some(n) => { let f = !node_sqlite_ok(&n, false) && node_sqlite_ok(&n, true); (n, f) }
+        None => node_pick(),
+    };
+    let mut c = Command::new(bin);
+    if flag { c.arg("--experimental-sqlite"); }
+    c
+}
+/// Como instalar o node certo EM CADA SISTEMA (antes: "brew install node" até no Linux)
+fn node_fix_hint() -> String {
+    if cfg!(target_os = "macos") { "brew install node".into() }
+    else if cfg!(windows) { "winget install OpenJS.NodeJS.LTS".into() }
+    else { "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && nvm install 22".into() }
+}
+/// Todos os lugares onde um node costuma morar (app aberto pelo menu NÃO herda o PATH do shell,
+/// então nvm/fnm/volta/asdf/mise precisam ser procurados à mão).
+fn node_candidates() -> Vec<String> {
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    let mut v: Vec<PathBuf> = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node", "/snap/bin/node"]
+        .iter().map(PathBuf::from).collect();
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from) {
+        // gerenciadores com UMA pasta por versão
+        for (base, tail) in [
+            (".nvm/versions/node", "bin"),
+            (".local/share/fnm/node-versions", "installation/bin"),
+            (".fnm/node-versions", "installation/bin"),
+            (".asdf/installs/nodejs", "bin"),
+            (".local/share/mise/installs/node", "bin"),
+            (".volta/tools/image/node", "bin"),
+        ] {
+            if let Ok(rd) = std::fs::read_dir(home.join(base)) {
+                for e in rd.flatten() { v.push(e.path().join(tail).join(exe)); }
             }
         }
+        v.push(home.join(".volta/bin").join(exe));
+        v.push(home.join(".local/bin").join(exe));
     }
-    // último recurso: resolve pelo PATH (Linux via pacote, ou node no PATH do usuário)
-    if let Ok(o) = Command::new("which").arg("node").output() {
+    if let Ok(o) = Command::new(if cfg!(windows) { "where" } else { "which" }).arg("node").output() {
         if o.status.success() {
-            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if !path.is_empty() && std::path::Path::new(&path).is_file() {
-                return path;
-            }
+            for l in String::from_utf8_lossy(&o.stdout).lines() { v.push(PathBuf::from(l.trim())); }
         }
     }
-    "node".to_string()
+    let mut seen = std::collections::HashSet::new();
+    v.into_iter().filter(|p| p.is_file()).map(|p| p.display().to_string()).filter(|p| seen.insert(p.clone())).collect()
+}
+/// Versão REAL do binário (roda `--version`) como tupla comparável (22,6,0).
+fn node_version(bin: &str) -> Option<(u32, u32, u32)> {
+    let mut c = Command::new(bin);
+    c.arg("--version");
+    let o = output_timeout(c, 5).ok().filter(|o| o.status.success())?;
+    let t = String::from_utf8_lossy(&o.stdout);
+    let mut it = t.trim().trim_start_matches('v').split('.').map(|x| x.parse::<u32>().unwrap_or(0));
+    Some((it.next()?, it.next().unwrap_or(0), it.next().unwrap_or(0)))
 }
 
-/// Acha o binário do `claude` sem depender do PATH (que pode estar stale via
-/// LSEnvironment): CARDUME_CLAUDE → ao lado do node → "claude" no PATH.
 /// Acha o `gh` sem depender do PATH (LaunchServices pode lançar com PATH mínimo).
-/// npm ao lado do node resolvido (nvm incluso) — app aberto pelo Finder tem
-/// PATH mínimo e um `npm` seco dá "No such file or directory" (Mac do Paulo).
-fn npm_cmd() -> Command {
-    let nb = node_bin();
-    let dir = std::path::Path::new(&nb).parent().map(|p| p.to_path_buf());
-    let npm = dir.as_ref().map(|d| d.join("npm")).filter(|p| p.is_file())
-        .map(|p| p.display().to_string())
-        .or_else(|| ["/opt/homebrew/bin/npm", "/usr/local/bin/npm"].iter().find(|p| std::path::Path::new(p).is_file()).map(|s| s.to_string()))
-        .unwrap_or_else(|| "npm".into());
-    let mut c = Command::new(npm);
-    // scripts do npm precisam achar o node no PATH
-    if let Some(d) = dir {
-        let path = std::env::var("PATH").unwrap_or_default();
-        c.env("PATH", format!("{}:{}", d.display(), path));
+/// E8 (bug #16): abre URL/arquivo/pasta no app padrão DO SISTEMA. Antes era `xdg-open` fora do Mac —
+/// no Windows todo link externo, artefato e o login pelo Google falhavam.
+/// macOS `open` · Windows `rundll32 url.dll,FileProtocolHandler` (aceita URL com `&`, que o `cmd /c start`
+/// quebraria) · Linux `xdg-open`.
+fn os_open(target: &std::ffi::OsStr) -> std::io::Result<std::process::Child> {
+    if cfg!(target_os = "macos") {
+        Command::new("open").arg(target).spawn()
+    } else if cfg!(target_os = "windows") {
+        Command::new("rundll32").arg("url.dll,FileProtocolHandler").arg(target).spawn()
+    } else {
+        Command::new("xdg-open").arg(target).spawn()
     }
-    c
+}
+/// Mostra o arquivo selecionado no gerenciador de arquivos (Finder `open -R` · Explorer `/select,`);
+/// no Linux abre a pasta que o contém.
+fn os_reveal(path: &std::path::Path) -> std::io::Result<std::process::Child> {
+    if cfg!(target_os = "macos") {
+        Command::new("open").arg("-R").arg(path).spawn()
+    } else if cfg!(target_os = "windows") {
+        let mut arg = std::ffi::OsString::from("/select,");
+        arg.push(path.as_os_str());
+        Command::new("explorer").arg(arg).spawn()
+    } else {
+        Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn()
+    }
 }
 
 fn gh_bin() -> String {
@@ -140,6 +281,21 @@ fn claude_bin() -> String {
         if !c.is_empty() {
             return c;
         }
+    }
+    // Windows: instalador nativo põe o claude.exe em %USERPROFILE%\.local\bin (não há HOME);
+    // senão "claude" — o Command do Rust acha o claude.exe pelo PATH.
+    #[cfg(windows)]
+    {
+        if let Some(up) = std::env::var_os("USERPROFILE") {
+            let up = std::path::PathBuf::from(up);
+            for rel in [[".local", "bin"], [".claude", "local"]] {
+                let cand = up.join(rel[0]).join(rel[1]).join("claude.exe");
+                if cand.is_file() {
+                    return cand.display().to_string();
+                }
+            }
+        }
+        return "claude".to_string();
     }
     // Ao lado do node configurado PRIMEIRO (instalação dev/nvm — é o claude
     // que o dono realmente usa e atualiza); depois os locais padrão pra apps
@@ -194,6 +350,16 @@ fn claude_bin() -> String {
         }
     }
     "claude".to_string()
+}
+
+/// `--model <id>` pros chats no claude — só id seguro (mesma regra do set_task_model); vazio/inválido = padrão da assinatura.
+fn push_model(args: &mut Vec<String>, model: &Option<String>) {
+    if let Some(m) = model.as_deref().map(str::trim) {
+        if !m.is_empty() && m.len() <= 80 && m.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:/[]".contains(c)) {
+            args.push("--model".to_string());
+            args.push(m.to_string());
+        }
+    }
 }
 
 fn push_opt(args: &mut Vec<String>, flag: &str, val: &Option<String>) {
@@ -322,6 +488,106 @@ fn ai_branch_name(title: &str) -> Option<String> {
     if name.len() >= 8 && name.len() <= 48 && name != "tarefa" { Some(name) } else { None }
 }
 
+#[cfg(all(test, unix))]
+mod stoppable_tests {
+    use super::*;
+    static TEST_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+    #[test]
+    fn output_stoppable_para_e_devolve_marcador() {
+        let h = std::thread::spawn(|| {
+            let mut c = Command::new("sh");
+            c.args(["-c", "sleep 20"]);
+            output_stoppable(c, 30, &TEST_PID, "TEST_STOPPED")
+        });
+        let t0 = std::time::Instant::now();
+        while TEST_PID.load(std::sync::atomic::Ordering::SeqCst) == 0 && t0.elapsed().as_secs() < 5 { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        assert!(stop_slot(&TEST_PID));
+        let r = h.join().unwrap();
+        assert_eq!(r.err().as_deref(), Some("TEST_STOPPED"));
+        assert!(t0.elapsed().as_secs() < 10);
+        assert!(!stop_slot(&TEST_PID)); // nada rodando → false
+    }
+    #[test]
+    fn stoppable_por_chave_so_derruba_o_proprio_pedido() {
+        let spawn = |k: &'static str| std::thread::spawn(move || { let mut c = Command::new("sh"); c.args(["-c", "sleep 20"]); output_stoppable_keyed(c, 30, k, "K_STOPPED") });
+        let (a, b) = (spawn("t-a"), spawn("t-b"));
+        let has = |k: &str| KEYED_PIDS.lock().unwrap().as_ref().map_or(false, |m| m.contains_key(k));
+        let t0 = std::time::Instant::now();
+        while !(has("t-a") && has("t-b")) && t0.elapsed().as_secs() < 5 { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        assert!(stop_keyed("t-a"));
+        assert_eq!(a.join().unwrap().err().as_deref(), Some("K_STOPPED"));
+        assert!(has("t-b"), "o outro pedido continua rodando");
+        assert!(!stop_keyed("t-a"));
+        assert!(stop_keyed("t-b"));
+        assert_eq!(b.join().unwrap().err().as_deref(), Some("K_STOPPED"));
+        assert!(!has("t-b"));
+    }
+    #[test]
+    fn output_stoppable_ok_quando_termina() {
+        static P2: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+        let mut c = Command::new("sh");
+        c.args(["-c", "echo oi"]);
+        let o = output_stoppable(c, 10, &P2, "X").unwrap();
+        assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "oi");
+        assert_eq!(P2.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+}
+
+/// Pergunta do agente aparece na tela? Só a de tarefa com turno VIVO (quem espera a resposta é o processo do turno).
+/// Banco antigo sem busy_pid: não dá pra saber → mostra. Desempate de posse (tiebreak) não espera processo → mostra.
+fn pending_visible(kind: &str, has_busy: bool, task_busy: Option<bool>) -> bool {
+    if kind != "question" || !has_busy { return true; }
+    task_busy == Some(true)
+}
+
+#[cfg(test)]
+mod pending_visible_tests {
+    use super::pending_visible;
+    #[test]
+    fn pergunta_orfa_some() {
+        assert!(pending_visible("question", true, Some(true)));
+        assert!(!pending_visible("question", true, Some(false)), "turno acabou: ninguém espera a resposta");
+        assert!(!pending_visible("question", true, None), "tarefa apagada");
+        assert!(pending_visible("question", false, Some(false)), "banco antigo sem busy_pid");
+        assert!(pending_visible("tiebreak", true, Some(false)));
+    }
+}
+
+#[cfg(test)]
+mod quick_project_tests {
+    use super::{project_slug, unique_child};
+    #[test]
+    fn nome_livre_com_sufixo() {
+        let tmp = std::env::temp_dir().join(format!("starfork-quick-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app");
+        std::fs::create_dir_all(tmp.join("app")).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app-2");
+        std::fs::create_dir_all(tmp.join("app-2")).unwrap();
+        assert_eq!(unique_child(&tmp, "app"), "app-3");
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(project_slug("  App de Aulas "), "app-de-aulas");
+        assert_eq!(project_slug("Painel Finanças — Ação"), "painel-financas-acao");
+    }
+}
+
+#[cfg(test)]
+mod push_model_tests {
+    use super::push_model;
+    #[test]
+    fn modelo_escolhido_vira_flag_so_quando_valido() {
+        let mut a = vec![];
+        push_model(&mut a, &Some(" claude-opus-5-5 ".into()));
+        assert_eq!(a, vec!["--model".to_string(), "claude-opus-5-5".to_string()]);
+        for bad in [None, Some(String::new()), Some("  ".into()), Some("opus; rm -rf /".into())] {
+            let mut b: Vec<String> = vec![];
+            push_model(&mut b, &bad);
+            assert!(b.is_empty(), "{bad:?}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod slug_tests {
     use super::slug_id;
@@ -389,11 +655,40 @@ fn claude_friendly_error(msg: &str) -> String {
 }
 
 #[cfg(test)]
+mod budget_spec_tests {
+    use super::*;
+    #[test]
+    fn snapshot_carries_budget_keys_only() {
+        let sp = serde_json::json!({"kind":"build","budgetUsd":7.5,"budgetHit":{"cap":5,"mode":"paused"},"deliverables":[]});
+        let b = task_front_spec(&sp).expect("tem teto");
+        assert_eq!(b["budgetUsd"], 7.5);
+        assert_eq!(b["budgetHit"]["mode"], "paused");
+        assert!(b.get("kind").is_none());
+        assert!(task_front_spec(&serde_json::json!({"kind":"build"})).is_none());
+        assert!(task_front_spec(&serde_json::json!({"budgetHit":null})).is_none());
+        // rastro das edições de agente vai RESUMIDO pro front (t.spec.agentEdits) + propostas
+        let e = task_front_spec(&serde_json::json!({"agentEdits":[{"id":"e1","changes":[{"field":"objective","before":"a","after":"b"}]}],"agentProposals":[{"id":"p1","status":"open"}],"objective":"x"})).expect("tem rastro");
+        assert_eq!(e["agentEdits"][0]["id"], "e1");
+        assert_eq!(e["agentEdits"][0]["fields"][0], "objective");
+        assert!(e["agentEdits"][0].get("changes").is_none());
+        assert_eq!(e["agentProposals"][0]["id"], "p1");
+        assert!(e.get("objective").is_none());
+    }
+}
+
+#[cfg(test)]
 mod claude_json_tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
+    #[cfg(windows)]
+    use std::os::windows::process::ExitStatusExt;
     fn out(code: i32, stdout: &str, stderr: &str) -> std::process::Output {
-        std::process::Output { status: std::process::ExitStatus::from_raw(code << 8), stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() }
+        #[cfg(unix)]
+        let status = std::process::ExitStatus::from_raw(code << 8);
+        #[cfg(windows)]
+        let status = std::process::ExitStatus::from_raw(code as u32);
+        std::process::Output { status, stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() }
     }
     #[test]
     fn login_expirado_vira_mensagem_clara() {
@@ -423,6 +718,14 @@ mod claude_json_tests {
 #[cfg(test)]
 mod artifact_tests {
     use super::*;
+    #[test]
+    fn nome_citado_pelo_agente_normaliza() {
+        assert_eq!(artifact_norm_name("./.cardume/artifacts/print.png", "t1"), "print.png");
+        assert_eq!(artifact_norm_name(".cardume/artifacts/t1/entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
+        assert_eq!(artifact_norm_name("t1/x.md", "t1"), "x.md");
+        assert_eq!(artifact_norm_name("entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
+        assert_eq!(artifact_norm_name("t10/x.md", "t1"), "t10/x.md");
+    }
     #[test]
     fn nome_com_subpasta_vale_mas_escape_nao() {
         assert!(artifact_name_ok("relatorio.pdf"));
@@ -463,7 +766,7 @@ fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, S
     let watch = std::thread::spawn(move || {
         // se o processo não avisar que terminou dentro do tempo, mata.
         if rx.recv_timeout(std::time::Duration::from_secs(secs)).is_err() {
-            unsafe { libc::kill(pid, libc::SIGKILL); }
+            kill_pid(pid, procsig::KILL);
         }
     });
     let out = child.wait_with_output();
@@ -476,10 +779,152 @@ fn output_timeout(mut cmd: Command, secs: u64) -> Result<std::process::Output, S
     }
 }
 
-/// Envia um sinal ao GRUPO de processos (pid negativo) — atinge node + claude.
+/// Igual ao output_timeout, mas PARÁVEL: o processo nasce num grupo próprio
+/// (detach_new_group) e o pid fica em `slot` pra um comando *_stop derrubar o grupo
+/// inteiro (signal_group). Parado pelo usuário → Err(`stopped`); estourou o tempo →
+/// Err("comando expirou…"). Mesmo padrão do issue_chat/ISSUE_CHAT_PID.
+fn output_stoppable(cmd: Command, secs: u64, slot: &'static std::sync::atomic::AtomicI32, stopped: &str) -> Result<std::process::Output, String> {
+    use std::sync::atomic::Ordering;
+    // só zera se ainda for o MEU pid (outra chamada pode ter começado)
+    output_stoppable_with(cmd, secs, stopped, &|pid| slot.store(pid, Ordering::SeqCst), &|pid| { let _ = slot.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst); })
+}
+/// Pids PARÁVEIS por pedido (chave vinda do front): duas abas fazendo a mesma coisa não se derrubam.
+static KEYED_PIDS: std::sync::Mutex<Option<std::collections::HashMap<String, i32>>> = std::sync::Mutex::new(None);
+fn keyed_set(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { g.get_or_insert_with(Default::default).insert(key.to_string(), pid); } }
+fn keyed_clear(key: &str, pid: i32) { if let Ok(mut g) = KEYED_PIDS.lock() { if let Some(m) = g.as_mut() { if m.get(key) == Some(&pid) { m.remove(key); } } } }
+fn stop_keyed(key: &str) -> bool {
+    let pid = KEYED_PIDS.lock().ok().and_then(|mut g| g.as_mut().and_then(|m| m.remove(key)));
+    match pid { Some(p) if p > 0 => { signal_group(p, procsig::KILL); true } _ => false }
+}
+fn output_stoppable_keyed(cmd: Command, secs: u64, key: &str, stopped: &str) -> Result<std::process::Output, String> {
+    output_stoppable_with(cmd, secs, stopped, &|pid| keyed_set(key, pid), &|pid| keyed_clear(key, pid))
+}
+fn output_stoppable_with(mut cmd: Command, secs: u64, stopped: &str, on_start: &dyn Fn(i32), on_end: &dyn Fn(i32)) -> Result<std::process::Output, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    detach_new_group(&mut cmd);
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    let pid = child.id() as i32;
+    on_start(pid);
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let timed_out = std::sync::Arc::new(AtomicBool::new(false));
+    let timed_out2 = timed_out.clone();
+    let watch = std::thread::spawn(move || {
+        if rx.recv_timeout(std::time::Duration::from_secs(secs)).is_err() { timed_out2.store(true, Ordering::SeqCst); signal_group(pid, procsig::KILL); }
+    });
+    let out = child.wait_with_output();
+    let _ = tx.send(());
+    let _ = watch.join();
+    on_end(pid);
+    let out = out.map_err(|e| e.to_string())?;
+    if out.status.code().is_none() {
+        return Err(if timed_out.load(Ordering::SeqCst) { format!("comando expirou após {secs}s (rede indisponível?)") } else { stopped.to_string() });
+    }
+    Ok(out)
+}
+fn stop_slot(slot: &std::sync::atomic::AtomicI32) -> bool {
+    let pid = slot.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
+}
+
+/// Envia um sinal ao GRUPO de processos — atinge node + claude.
+/// Unix: pid negativo (grupo criado via setsid em detach_new_group).
+/// Windows: sem grupo POSIX — CONT/STOP não têm equivalente (no-op); TERM/KILL
+/// derrubam a árvore inteira via `taskkill /T /F`.
+#[cfg(unix)]
 fn signal_group(pid: i32, sig: i32) {
     unsafe {
         libc::kill(-pid, sig);
+    }
+}
+#[cfg(windows)]
+fn signal_group(pid: i32, sig: i32) {
+    if sig == procsig::TERM || sig == procsig::KILL {
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+}
+
+/// MODO PROTEGIDO — regras de NEGAÇÃO do Claude Code (`--disallowedTools`), que valem
+/// MESMO em `--permission-mode bypassPermissions` (as regras de deny são avaliadas antes
+/// do modo). ESPELHO de src/engine/protect.ts (denyRules) — o teste TS confere a lista.
+const PROTECT_DENY: [&str; 50] = [
+    "Read(**/.env)",
+    "Edit(**/.env)",
+    "Read(**/.env.local)",
+    "Edit(**/.env.local)",
+    "Read(**/.env.*.local)",
+    "Edit(**/.env.*.local)",
+    "Read(**/.env.development*)",
+    "Edit(**/.env.development*)",
+    "Read(**/.env.production*)",
+    "Edit(**/.env.production*)",
+    "Read(**/.env.staging*)",
+    "Edit(**/.env.staging*)",
+    "Read(**/.env.test*)",
+    "Edit(**/.env.test*)",
+    "Read(**/*.pem)",
+    "Edit(**/*.pem)",
+    "Read(**/*.key)",
+    "Edit(**/*.key)",
+    "Read(**/id_rsa*)",
+    "Edit(**/id_rsa*)",
+    "Read(**/id_ed25519*)",
+    "Edit(**/id_ed25519*)",
+    "Read(~/.ssh/**)",
+    "Edit(~/.ssh/**)",
+    "Read(~/.aws/**)",
+    "Edit(~/.aws/**)",
+    "Read(**/.ssh/**)",
+    "Edit(**/.ssh/**)",
+    "Read(**/.aws/**)",
+    "Edit(**/.aws/**)",
+    "Bash(rm -rf /)",
+    "Bash(rm -rf / *)",
+    "Bash(rm -rf ~)",
+    "Bash(rm -rf ~/)",
+    "Bash(rm -rf ~/*)",
+    "Bash(rm -rf $HOME*)",
+    "Bash(git push --force*)",
+    "Bash(git push -f*)",
+    "Bash(git push * --force*)",
+    "Bash(git push * -f)",
+    "Bash(git push * -f *)",
+    "Bash(curl * | sh*)",
+    "Bash(curl * | bash*)",
+    "Bash(wget * | sh*)",
+    "Bash(wget * | bash*)",
+    "Bash(sudo *)",
+    "Bash(cat *.env)",
+    "Bash(cat *.env.local)",
+    "Bash(cat *.pem)",
+    "Bash(cat *id_rsa*)",
+];
+/// Projeto "Protegido" (padrão) ou "Livre" — Preferências do projeto grava
+/// `protect:<caminho do repo>` = "0" em ~/.constellation/settings.json pra desligar.
+fn protect_on(repo: &std::path::Path) -> bool {
+    setting_get(&format!("protect:{}", repo.display())).map(|v| v.trim() != "0").unwrap_or(true)
+}
+/// Args a pôr ANTES de `--permission-mode` (a flag é variádica: outra flag encerra a lista).
+fn protect_args(on: bool) -> Vec<String> {
+    if !on { return vec![]; }
+    let mut v = vec!["--disallowedTools".to_string()];
+    v.extend(PROTECT_DENY.iter().map(|s| s.to_string()));
+    v
+}
+#[cfg(test)]
+mod protect_tests {
+    use super::*;
+    #[test]
+    fn livre_nao_passa_nada() { assert!(protect_args(false).is_empty()); }
+    #[test]
+    fn protegido_bloqueia_segredos_e_destrutivos() {
+        let a = protect_args(true);
+        assert_eq!(a[0], "--disallowedTools");
+        assert_eq!(a.len(), 1 + PROTECT_DENY.len());
+        for must in ["Read(**/.env)", "Edit(**/.env)", "Read(**/*.pem)", "Bash(rm -rf /)", "Bash(git push --force*)", "Bash(sudo *)"] {
+            assert!(a.iter().any(|x| x == must), "{must}");
+        }
+        assert!(a[1..].iter().all(|r| !r.starts_with('-') && !r.contains(',')));
     }
 }
 
@@ -487,19 +932,17 @@ fn signal_group(pid: i32, sig: i32) {
 /// pra podermos pausar/abortar a árvore inteira. Uma thread limpa o registro
 /// quando o processo termina naturalmente (evita PID reciclado no mapa).
 fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Result<(), String> {
-    // O APP é quem notifica (plugin Tauri, atribuído ao Constellation — clicar
+    // O APP é quem notifica (plugin Tauri, atribuído ao Starfork — clicar
     // abre o app). As do motor via osascript saem como "Editor de Script" e o
     // clique abre ele; caladas aqui. No CLI puro (sem app) elas continuam.
     cmd.env("CARDUME_NOTIFY", "0");
     // intervalo (min) pra retomar sozinho quando bate o limite de uso da IA
     if let Some(m) = setting_get("limitRetryMin") { cmd.env("CARDUME_LIMIT_RETRY_MIN", m); }
-    unsafe {
-        cmd.pre_exec(|| {
-            // novo grupo/sessão: o node vira líder e o claude herda o grupo
-            libc::setsid();
-            Ok(())
-        });
-    }
+    // modo protegido do PROJETO (padrão ligado) → o motor passa as regras de negação ao claude
+    let protect = repo_of(state).map(|r| protect_on(&r)).unwrap_or(true);
+    cmd.env("CARDUME_PROTECT", if protect { "1" } else { "0" });
+    // novo grupo/sessão: o node vira líder e o claude herda o grupo
+    detach_new_group(&mut cmd);
     // stdout/stderr ficam como o CHAMADOR configurou (ex.: new_task redireciona
     // pra .cardume/logs); quem não configura herda… nada: os callers setam null.
     let child = cmd
@@ -536,7 +979,23 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
     Ok(())
 }
 
-#[derive(Serialize)]
+/// O pedaço do spec que o front lê em `t.spec` no snapshot (None quando não há nada):
+/// teto de custo (budgetUsd, budgetHit), o RESUMO das edições de agente (agentEdits: quem/quando/campos —
+/// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
+fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
+    let mut m = serde_json::Map::new();
+    for k in ["budgetUsd", "budgetHit"] {
+        if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
+    }
+    if let Some(e) = agent_edits::compact_edits(spec) { m.insert("agentEdits".into(), e); }
+    if let Some(p) = spec.get("agentProposals").and_then(|v| v.as_array()) {
+        let tail: Vec<serde_json::Value> = p.iter().rev().take(10).rev().cloned().collect();
+        m.insert("agentProposals".into(), serde_json::Value::Array(tail));
+    }
+    if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
+}
+
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Task {
     id: String,
@@ -568,12 +1027,18 @@ struct Task {
     /// tal como estão no spec — None numa tarefa comum. O front espalha isso de volta na nuvem.
     epic: Option<serde_json::Value>,
     depends_on: Vec<String>,
+    /// Só as chaves do TETO de custo do spec (budgetUsd, budgetHit) — o front (53-teto-protecao) lê
+    /// `t.spec`; sem isto a pausa acontecia mas a pergunta "continuar/parar" nunca aparecia.
+    spec: Option<serde_json::Value>,
     /// Um turno do MOTOR está rodando agora (lock busy_pid vivo) — pode ser um
     /// turno de fundo (verificar provas, rework) mesmo com status 'review'.
     busy: bool,
+    /// Pedidos (mensagens, entregáveis, rework) esperando na FILA do motor (work_queue 'queued').
+    /// Com `busy` false e isto > 0 = fila parada: o front avisa em vez de a mensagem "sumir".
+    queued: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Review {
     task_id: String,
@@ -584,7 +1049,7 @@ struct Review {
     by_agent: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Event {
     id: i64,
@@ -597,7 +1062,7 @@ struct Event {
     ok: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Claim {
     id: i64,
@@ -608,7 +1073,7 @@ struct Claim {
     yielded_to: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Diff {
     task_id: String,
@@ -617,7 +1082,7 @@ struct Diff {
     deletions: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Pending {
     id: i64,
@@ -629,7 +1094,7 @@ struct Pending {
     created_at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Cost {
     task_id: String,
@@ -642,12 +1107,14 @@ struct Cost {
     ms: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
     repo: Option<String>,
     /// false = pasta aberta sem repositório git (sem branch/PR/worktree até criar um)
     git: bool,
+    /// false = repositório só local (sem remote): "abrir PR" vira "publicar no GitHub" (E4)
+    remote: bool,
     tasks: Vec<Task>,
     events: Vec<Event>,
     claims: Vec<Claim>,
@@ -709,7 +1176,7 @@ fn open(path: &PathBuf) -> Result<Connection, String> {
     Ok(c)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_repo(state: State<AppState>, repo: String) -> Result<String, String> {
     let db = PathBuf::from(&repo).join(".cardume").join("state.sqlite");
     if !db.exists() {
@@ -968,9 +1435,15 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
     let conn = open(&dbpath)?;
-    let (branch, base): (String, String) = conn
+    // tarefa fora do state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem): não há
+    // commits a listar — vazio, não "Query returned no rows" (era o erro recorrente em app_errors)
+    let (branch, base): (String, String) = match conn
         .query_row("SELECT branch, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(|e| e.to_string())?;
+    {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(vec![]),
+        Err(e) => return Err(e.to_string()),
+    };
     let mb = merge_base_ref(&repo, &base, &branch);
     let out = Command::new("git")
         .arg("-C")
@@ -999,16 +1472,6 @@ fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_jso
     Ok(commits)
 }
 
-#[tauri::command(async)]
-fn current_repo(state: State<AppState>) -> Option<String> {
-    state
-        .db
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-        .and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.display().to_string()))
-}
-
 /// Resolve o repo do projeto ativo (parent do .cardume/state.sqlite).
 fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
@@ -1016,26 +1479,33 @@ fn active_repo(state: &State<AppState>) -> Result<PathBuf, String> {
 }
 
 /// Métricas de coordenação (conflitos, colisões, reworks) — baseline do "caos".
-/// Proxy do CLI `cardume metrics --json`: a lógica mora no núcleo TS (fonte única).
+/// Mesmo JSON do `cardume metrics --json` (Store.coordinationMetrics no núcleo TS), mas feito AQUI
+/// com 3 COUNTs read-only: antes spawnava `node cli.mjs metrics` a cada 20s (e a cada 2s quando
+/// falhava), abrindo o Store com migrate() no MESMO sqlite em que os agentes escrevem.
 #[tauri::command(async)]
 fn coordination_metrics(state: State<AppState>) -> Result<String, String> {
-    let repo = active_repo(&state)?;
-    let out = Command::new(node_bin())
-        .args([
-            "--disable-warning=ExperimentalWarning".to_string(),
-            cli_path(&repo),
-            "metrics".to_string(),
-            "--repo".to_string(),
-            repo.display().to_string(),
-            "--json".to_string(),
-        ])
-        .current_dir(&repo)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0) };
+    let mut by_status = serde_json::Map::new();
+    let mut total: i64 = 0;
+    if let Ok(mut st) = conn.prepare("SELECT status, COUNT(*) FROM task GROUP BY status") {
+        if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+            for (k, n) in rows.flatten() {
+                total += n;
+                by_status.insert(k, serde_json::json!(n));
+            }
+        }
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let conflict = by_status.get("conflict").and_then(|v| v.as_i64()).unwrap_or(0);
+    let m = serde_json::json!({
+        "totalTasks": total,
+        "byStatus": by_status,
+        "conflictTasks": conflict,
+        "collisionEvents": count("SELECT COUNT(*) FROM event WHERE type = 'collision'"),
+        "reworkCount": count("SELECT COUNT(*) FROM work_queue WHERE kind = 'rework'"),
+    });
+    Ok(m.to_string())
 }
 
 /// Checa sobreposição de escopo de uma demanda nova contra tarefas ativas.
@@ -1044,7 +1514,7 @@ fn coordination_metrics(state: State<AppState>) -> Result<String, String> {
 #[tauri::command(async)]
 fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String> {
     let repo = active_repo(&state)?;
-    let out = Command::new(node_bin())
+    let out = node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning".to_string(),
             cli_path(&repo),
@@ -1064,9 +1534,95 @@ fn overlap_check(state: State<AppState>, owns: String) -> Result<String, String>
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+// ---------- edições de spec feitas por agentes (src/agent-edits.ts) ----------
+/// Pendências que o motor não aplica sozinho (épico/cartão na nuvem): o front aplica pela sessão dele.
+#[tauri::command(async)]
+fn agent_edits_pending(state: State<AppState>) -> Result<Vec<serde_json::Value>, String> {
+    let repo = active_repo(&state)?;
+    Ok(agent_edits::read_pending(&repo.join(".cardume").join("agent-edits")))
+}
+
+/// Contexto vivo do épico pro motor (src/epic-context.ts) — escrita atômica em .cardume/epic-context/.
+#[tauri::command(async)]
+fn write_epic_context(state: State<AppState>, epic_id: String, json: String) -> Result<(), String> {
+    let repo = active_repo(&state)?;
+    epic_context::write_context(&repo.join(".cardume").join("epic-context"), &epic_id, &json)
+}
+
+/// Épicos cujo contexto o motor pediu pra atualizar (lê e apaga o pedido).
+#[tauri::command(async)]
+fn epic_context_requests(state: State<AppState>) -> Result<Vec<String>, String> {
+    let repo = active_repo(&state)?;
+    Ok(epic_context::take_requests(&repo.join(".cardume").join("epic-context")))
+}
+
+/// Anota o desfecho (applied | refused | gone) — a edição sai da fila de vez.
+#[tauri::command(async)]
+fn agent_edits_done(state: State<AppState>, id: String, outcome: String, msg: Option<String>) -> Result<(), String> {
+    let repo = active_repo(&state)?;
+    agent_edits::mark_done(&repo.join(".cardume").join("agent-edits"), &id, &outcome, &msg.unwrap_or_default())
+}
+
+/// Edita / desfaz / decide proposta na spec de uma tarefa LOCAL sem acionar o agente dela.
+/// Proxy do CLI `cardume task edit <id> --json [--patch <json>] [--edit-id <id>] [--undo|--approve|--reject <id>]`.
+/// Ok = JSON do resultado (com `mode`: applied | queued | proposed | unchanged); Err = mensagem do motor.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn task_edit_cli(state: State<AppState>, task_id: String, patch: Option<String>, undo: Option<String>, approve: Option<String>, reject: Option<String>,
+                 edit_id: Option<String>, by_agent: Option<String>, by_task: Option<String>, note: Option<String>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let mut args = vec![
+        "--disable-warning=ExperimentalWarning".to_string(),
+        cli_path(&repo),
+        "task".to_string(),
+        "edit".to_string(),
+        task_id,
+        "--json".to_string(),
+        "--repo".to_string(),
+        repo.display().to_string(),
+        "--by-agent".to_string(),
+        by_agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Você".to_string()),
+    ];
+    for (flag, v) in [("--patch", patch), ("--undo", undo), ("--approve", approve), ("--reject", reject), ("--edit-id", edit_id), ("--by-task", by_task), ("--note", note)] {
+        if let Some(v) = v.filter(|s| !s.trim().is_empty()) { args.push(flag.into()); args.push(v); }
+    }
+    let out = node_cmd().args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
+    agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+
+/// Lista OFICIAL do "pronto quando" (da nuvem) → cópias locais das tarefas abertas do épico (CLI `epic sync`).
+#[tauri::command(async)]
+fn epic_sync_cli(state: State<AppState>, epic_id: String, done_when: Vec<String>, seq: Option<i64>, note: Option<String>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let patch = serde_json::json!({ "doneWhen": done_when, "seq": seq.unwrap_or(0) }).to_string();
+    let mut args = vec![
+        "--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "epic".into(), "sync".into(), epic_id,
+        "--json".into(), "--repo".into(), repo.display().to_string(), "--by-agent".into(), "Starfork".into(), "--patch".into(), patch,
+    ];
+    if let Some(n) = note.filter(|s| !s.trim().is_empty()) { args.push("--note".into()); args.push(n); }
+    let out = node_cmd().args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
+    agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+
+/// Detalhe COMPLETO (antes → depois) de uma edição/proposta de agente — o snapshot só leva o resumo.
+#[tauri::command(async)]
+fn task_agent_edit(state: State<AppState>, task_id: String, edit_id: String) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(3000));
+    let spec_json: String = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get(0)).map_err(|_| "tarefa não encontrada".to_string())?;
+    let spec: serde_json::Value = serde_json::from_str(&spec_json).map_err(|_| "spec ilegível".to_string())?;
+    for k in ["agentEdits", "agentProposals"] {
+        if let Some(hit) = spec.get(k).and_then(|v| v.as_array()).and_then(|a| a.iter().find(|e| e.get("id").and_then(|x| x.as_str()) == Some(edit_id.as_str()))) {
+            return Ok(hit.clone());
+        }
+    }
+    Err("edição não encontrada (saiu do rastro)".into())
+}
+
 // ---------- lista de projetos (switcher multi-projeto) ----------
 fn projects_file() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let home = home_dir_s();
     PathBuf::from(home).join(".cardume").join("projects.json")
 }
 fn read_project_list() -> Vec<String> {
@@ -1124,11 +1680,84 @@ fn list_projects(state: State<AppState>) -> Vec<Project> {
         .collect()
 }
 
-/// Abre um projeto: valida git, inicializa o workspace Cardume se preciso,
+/// Abre um projeto: valida git, inicializa o workspace do Starfork se preciso,
 /// torna-o o projeto ativo e adiciona ao topo da lista.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_project(state: State<AppState>, path: String) -> Result<String, String> {
     open_project_at(&state, &path)
+}
+
+/// Cache do "é git?" por pasta (30s): o snapshot perguntava a cada 1s = fork+exec de
+/// `git rev-parse` por segundo. git_init_repo limpa; o TTL cobre `git init` feito fora do app.
+fn git_cache() -> &'static Mutex<HashMap<String, (bool, std::time::Instant)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn repo_is_git_cached(path: &str) -> bool {
+    if let Some((v, at)) = git_cache().lock().unwrap_or_else(|e| e.into_inner()).get(path).copied() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return v;
+        }
+    }
+    let v = repo_is_git(path);
+    git_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), (v, std::time::Instant::now()));
+    v
+}
+
+/// E4 (bug #5): o repositório tem remote? Projeto criado só local (gitGate / "Começar") não tem — e o push
+/// falhava com "Could not read from remote", que a tela lia como "sem internet". Cache de 30s (o snapshot é 1/s);
+/// publish_github limpa.
+fn remote_cache() -> &'static Mutex<HashMap<String, (bool, std::time::Instant)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn repo_has_remote(path: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("remote")
+        .output()
+        .map(|o| o.status.success() && !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        .unwrap_or(false)
+}
+fn repo_has_remote_cached(path: &str) -> bool {
+    if let Some((v, at)) = remote_cache().lock().unwrap_or_else(|e| e.into_inner()).get(path).copied() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return v;
+        }
+    }
+    let v = repo_has_remote(path);
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), (v, std::time::Instant::now()));
+    v
+}
+
+/// E4: publica o projeto ATIVO (repositório só local) no GitHub — `gh repo create --source --push`,
+/// o mesmo caminho do "novo projeto". O nome do repositório é o da pasta.
+#[tauri::command(async)]
+fn publish_github(state: State<AppState>, private: bool, owner: String) -> Result<String, String> {
+    let repo = repo_of(&state)?;
+    let rs = repo.display().to_string();
+    if !repo_is_git(&rs) {
+        return Err("esta pasta ainda não é um repositório git".into());
+    }
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
+    if repo_has_remote(&rs) {
+        return Ok("o projeto já está no GitHub".into());
+    }
+    let slug = project_slug(repo.file_name().and_then(|n| n.to_str()).unwrap_or("projeto"));
+    let slug = if slug.is_empty() { "projeto".to_string() } else { slug };
+    let full = if owner.trim().is_empty() { slug } else { format!("{}/{}", owner.trim(), slug) };
+    let mut c = Command::new(gh_bin());
+    c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &rs, "--remote", "origin", "--push"]);
+    c.current_dir(&repo);
+    let out = output_timeout(c, 180)?;
+    remote_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(format!("gh repo create: {}", if err.is_empty() { "sem detalhe do gh".to_string() } else { err }));
+    }
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok(if url.is_empty() { format!("publicado como {full}") } else { url })
 }
 
 /// A pasta é um repositório git? (pasta simples abre, mas sem branch/PR/worktree)
@@ -1149,6 +1778,7 @@ fn repo_is_git(path: &str) -> bool {
 fn git_init_repo(state: State<AppState>) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let rs = repo.display().to_string();
+    git_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(&rs);
     if repo_is_git(&rs) { return Ok("já é um repositório git".into()); }
     let out = Command::new("git").args(["init", "-q", "-b", "main"]).arg(&repo).output().map_err(|e| e.to_string())?;
     if !out.status.success() {
@@ -1169,8 +1799,8 @@ fn git_init_repo(state: State<AppState>) -> Result<String, String> {
     let has_ident = Command::new("git").arg("-C").arg(&repo).args(["config", "user.email"]).output().map(|o| o.status.success() && !o.stdout.is_empty()).unwrap_or(false);
     let mut c = Command::new("git");
     c.arg("-C").arg(&repo);
-    if !has_ident { c.args(["-c", "user.name=Constellation", "-c", "user.email=constellation@local"]); }
-    let out = c.args(["commit", "-q", "-m", "chore: início do repositório (Constellation)"]).output().map_err(|e| e.to_string())?;
+    if !has_ident { c.args(["-c", "user.name=Starfork", "-c", "user.email=starfork@local"]); }
+    let out = c.args(["commit", "-q", "-m", "chore: início do repositório (Starfork)"]).output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if !err.contains("nothing to commit") { return Err(format!("commit inicial falhou: {err}")); }
@@ -1199,7 +1829,7 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
             repo.display().to_string(),
         ];
         if !is_git { args.push("--no-git".into()); } // por último: o parser do CLI consome o próximo arg como valor
-        let out = Command::new(node_bin())
+        let out = node_cmd()
             .args(&args)
             .current_dir(&repo)
             .output()
@@ -1212,7 +1842,7 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
         }
     }
     if !db.exists() {
-        return Err("workspace Cardume não pôde ser criado".to_string());
+        return Err("workspace do Starfork não pôde ser criado".to_string());
     }
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
@@ -1235,14 +1865,95 @@ fn create_project(
     private: bool,
     owner: String,
 ) -> Result<String, String> {
-    let slug: String = name
+    create_project_in(&state, parent, name, github, private, owner)
+}
+
+/// Pasta padrão dos projetos criados pelo "Começar" da tela vazia: ~/Documents/Starfork
+fn starfork_projects_dir() -> PathBuf {
+    PathBuf::from(home_dir_s()).join("Documents").join("Starfork")
+}
+
+/// Nome livre dentro de `parent`: `slug`, senão `slug-2`, `slug-3`…
+fn unique_child(parent: &std::path::Path, slug: &str) -> String {
+    if !parent.join(slug).exists() { return slug.to_string(); }
+    let mut n = 2;
+    loop {
+        let c = format!("{slug}-{n}");
+        if !parent.join(&c).exists() { return c; }
+        n += 1;
+    }
+}
+
+/// letra acentuada → letra base (sem crate de Unicode: cobre o português e o espanhol)
+fn fold_accent(c: char) -> char {
+    match c {
+        'á' | 'à' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+        'é' | 'è' | 'ê' | 'ë' => 'e',
+        'í' | 'ì' | 'î' | 'ï' => 'i',
+        'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+        'ú' | 'ù' | 'û' | 'ü' => 'u',
+        'ç' => 'c',
+        'ñ' => 'n',
+        'ý' | 'ÿ' => 'y',
+        _ => c,
+    }
+}
+
+fn project_slug(name: &str) -> String {
+    let raw: String = name
         .trim()
         .to_lowercase()
         .chars()
+        .map(fold_accent)
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' { c } else { '-' })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string();
+        .collect();
+    // sem "--" repetido nem hífen nas pontas
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        if c == '-' && out.ends_with('-') { continue; }
+        out.push(c);
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// git instalado e funcionando? (no Mac sem as ferramentas de linha de comando, o /usr/bin/git existe mas falha)
+fn git_available() -> bool {
+    Command::new("git").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+}
+const GIT_MISSING_MSG: &str = "O git não está instalado neste computador (o Starfork usa o git por baixo pra guardar cada versão do seu trabalho).\n\nNo Mac: abra o app Terminal, cole  xcode-select --install  e aperte Enter; aceite a instalação. No Windows/Linux: instale pelo site git-scm.com.\n\nDepois clique em Começar de novo.";
+
+/// Onde o "Começar" vai criar a pasta (sem criar nada): ~/Documents/Starfork/<nome livre>
+#[tauri::command(async)]
+fn quick_project_target(name: String) -> Result<String, String> {
+    let slug = project_slug(&name);
+    if slug.is_empty() { return Err("dê um nome ao projeto".into()); }
+    let dir = starfork_projects_dir();
+    Ok(dir.join(unique_child(&dir, &slug)).display().to_string())
+}
+
+/// "Começar sem portões": cria ~/Documents/Starfork/<nome> (com sufixo -2… se já existir),
+/// git init + 1º commit, SEM GitHub e sem gh — e abre como projeto ativo.
+#[tauri::command(async)]
+fn quick_create_project(state: State<AppState>, name: String) -> Result<String, String> {
+    if !git_available() { return Err(GIT_MISSING_MSG.into()); }
+    let slug = project_slug(&name);
+    if slug.is_empty() { return Err("dê um nome ao projeto".into()); }
+    let dir = starfork_projects_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("não consegui criar a pasta {}: {e}", dir.display()))?;
+    let free = unique_child(&dir, &slug);
+    create_project_in(&state, dir.display().to_string(), free, false, true, String::new())
+}
+
+fn create_project_in(
+    state: &AppState,
+    parent: String,
+    name: String,
+    github: bool,
+    private: bool,
+    owner: String,
+) -> Result<String, String> {
+    // BUG-22: acentos viram a letra base ("Painel Finanças" → painel-financas, não painel-finan-as)
+    let slug = project_slug(&name);
     if slug.is_empty() {
         return Err("dê um nome ao projeto".into());
     }
@@ -1251,10 +1962,6 @@ fn create_project(
         return Err(format!("pasta não existe: {parent}"));
     }
     let repo = parent_p.join(&slug);
-    if repo.exists() {
-        return Err(format!("já existe uma pasta {} em {}", slug, parent));
-    }
-    std::fs::create_dir_all(&repo).map_err(|e| format!("não consegui criar a pasta: {e}"))?;
     let run = |args: &[&str]| -> Result<String, String> {
         let out = Command::new("git")
             .arg("-C")
@@ -1267,36 +1974,52 @@ fn create_project(
         }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     };
-    run(&["init", "-b", "main"])?;
-    std::fs::write(repo.join("README.md"), format!("# {}
-
-Projeto criado pelo Constellation.
-", name.trim()))
-        .map_err(|e| e.to_string())?;
-    std::fs::write(repo.join(".gitignore"), ".DS_Store
-node_modules/
-.env
-.cardume/
-").map_err(|e| e.to_string())?;
-    run(&["add", "-A"])?;
-    run(&["-c", "user.name=Constellation", "-c", "user.email=constellation@local", "commit", "-q", "-m", "chore: projeto criado pelo Constellation"])
-        .or_else(|_| run(&["commit", "-q", "-m", "chore: projeto criado pelo Constellation"]))?;
-    if github {
+    // BUG-10: a pasta já existe? Se é um repositório git (ex.: tentativa anterior em que só o GitHub falhou),
+    // REAPROVEITA em vez de travar em "já existe"; pasta com outras coisas e sem git continua recusada.
+    let reuse = repo.exists() && repo_is_git(&repo.display().to_string());
+    if repo.exists() && !reuse {
+        let empty = std::fs::read_dir(&repo).map(|mut d| d.next().is_none()).unwrap_or(false);
+        if !empty {
+            return Err(format!("já existe uma pasta {} em {} (e ela não é um projeto git). Escolha outro nome ou use \"abrir existente…\".", slug, parent));
+        }
+    }
+    if !reuse {
+        std::fs::create_dir_all(&repo).map_err(|e| format!("não consegui criar a pasta: {e}"))?;
+        run(&["init", "-b", "main"])?;
+        std::fs::write(repo.join("README.md"), format!("# {}\n\nProjeto criado pelo Starfork.\n", name.trim()))
+            .map_err(|e| e.to_string())?;
+        std::fs::write(repo.join(".gitignore"), ".DS_Store\nnode_modules/\n.env\n.cardume/\n").map_err(|e| e.to_string())?;
+        run(&["add", "-A"])?;
+        // BUG-22: autor do 1º commit = a identidade do git do usuário; o "Starfork <starfork@local>" só quando não há nenhuma
+        let has_ident = run(&["config", "user.email"]).map(|o| !o.trim().is_empty()).unwrap_or(false);
+        if has_ident {
+            run(&["commit", "-q", "-m", "chore: projeto criado pelo Starfork"])?;
+        } else {
+            run(&["-c", "user.name=Starfork", "-c", "user.email=starfork@local", "commit", "-q", "-m", "chore: projeto criado pelo Starfork"])?;
+        }
+    }
+    let has_origin = run(&["remote", "get-url", "origin"]).is_ok();
+    if github && !has_origin {
         let full = if owner.trim().is_empty() { slug.clone() } else { format!("{}/{}", owner.trim(), slug) };
         let mut c = Command::new(gh_bin());
         c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &repo.display().to_string(), "--remote", "origin", "--push"]);
         c.current_dir(&repo);
-        let out = output_timeout(c, 120)?;
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let fail = match output_timeout(c, 120) {
+            Ok(out) if out.status.success() => None,
+            Ok(out) => Some(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Some(e),
+        };
+        if let Some(err) = fail {
+            // prefixo GH_FAIL::<pasta>:: → a tela oferece "abrir mesmo assim sem GitHub" (a pasta e o git já existem)
             return Err(format!(
-                "pasta e git criados em {}, mas o GitHub falhou: {}\n\nConfira a conta ativa do gh em Configurações → GitHub.",
+                "GH_FAIL::{}::A pasta e o git foram criados em {}, mas o GitHub recusou criar o repositório.\n\nMotivo: {}\n\nConfira a conta do GitHub em Configurações → GitHub e tente de novo (a pasta é reaproveitada), ou abra o projeto agora só no seu computador.",
                 repo.display(),
-                err
+                repo.display(),
+                if err.is_empty() { "sem detalhe do gh".to_string() } else { err }
             ));
         }
     }
-    open_project_at(&state, &repo.display().to_string())
+    open_project_at(state, &repo.display().to_string())
 }
 
 // ---------- contas do GitHub (gh auth) ----------
@@ -1313,7 +2036,12 @@ struct GhAccount {
 fn gh_accounts() -> Result<Vec<GhAccount>, String> {
     let mut c = Command::new(gh_bin());
     c.args(["auth", "status"]);
-    let out = output_timeout(c, 10)?;
+    // gh NÃO instalado = nenhuma conta (a tela já oferece instalar) — antes virava erro no painel (30/09)
+    let out = match output_timeout(c, 10) {
+        Ok(o) => o,
+        Err(e) if e.contains("os error 2") || e.to_lowercase().contains("no such file") || e.contains("not found") => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
     let text = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
     let mut list: Vec<GhAccount> = vec![];
     for line in text.lines() {
@@ -1462,11 +2190,11 @@ fn gh_owners() -> Vec<String> {
 }
 
 /// Troca o projeto ativo para um já existente na lista.
-#[tauri::command]
+#[tauri::command(async)]
 fn switch_project(state: State<AppState>, path: String) -> Result<String, String> {
     let db = PathBuf::from(&path).join(".cardume").join("state.sqlite");
     if !db.exists() {
-        return Err(format!("sem workspace Cardume em {path}"));
+        return Err(format!("sem workspace do Starfork em {path}"));
     }
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
@@ -1479,12 +2207,34 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
 }
 
 /// Remove um projeto da lista (não apaga nada do repo em disco).
-#[tauri::command]
-fn remove_project(path: String) -> Vec<String> {
+#[tauri::command(async)]
+fn remove_project(state: State<AppState>, path: String) -> Vec<String> {
     let mut list = read_project_list();
     list.retain(|p| p != &path);
     write_project_list(&list);
+    // BUG-20: tirar o projeto ATIVO da lista também o fecha — vai pro próximo da lista (ou pro estado vazio).
+    // Antes ele seguia aberto e o list_projects o devolvia pra lista no refresh seguinte.
+    if active_repo_of(&state).as_deref() == Some(path.as_str()) {
+        let next = list.iter().map(|p| PathBuf::from(p).join(".cardume").join("state.sqlite")).find(|db| db.exists());
+        if let Some(db) = &next { ensure_app_schema(db); }
+        *state.db.lock().unwrap_or_else(|e| e.into_inner()) = next;
+    }
     list
+}
+
+/// Abre a pasta de um projeto DA LISTA no Finder/Explorer (o open_url só aceita http/https — BUG-15).
+#[tauri::command(async)]
+fn reveal_project(path: String) -> Result<(), String> {
+    // só pastas que já são projetos conhecidos: o webview não pode mandar abrir um caminho qualquer
+    if !read_project_list().iter().any(|p| p == &path) {
+        return Err("esse projeto não está na lista".into());
+    }
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("a pasta não existe mais: {path}"));
+    }
+    os_open(dir.as_os_str()).map_err(|e| format!("não consegui abrir a pasta: {e}"))?;
+    Ok(())
 }
 
 // ---------- artefatos da tarefa (docs/provas produzidos pelo agente) ----------
@@ -1563,7 +2313,9 @@ fn list_artifacts(state: State<AppState>, task_id: String) -> Result<Vec<Artifac
     let mut out: Vec<Artifact> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     // 1) AO VIVO na worktree (aparece antes de a tarefa fechar o turno)
-    if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(db) = db_path_now {
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
                 if !wt.is_empty() {
@@ -1589,7 +2341,17 @@ struct ArtifactContent {
 
 #[tauri::command(async)]
 fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactContent, String> {
-    let path = artifact_path(&state, &task_id, &name)?;
+    // evidência que é arquivo do PRÓPRIO repo (ex.: "tests/login.test.ts"): só LEITURA, da worktree
+    let path = match artifact_path(&state, &task_id, &name) {
+        Ok(p) => p,
+        Err(e) => {
+            let rel = name.trim().trim_start_matches("./");
+            match task_worktree(&state, &task_id) {
+                Ok(wt) if artifact_name_ok(rel) && wt.join(rel).is_file() => wt.join(rel),
+                _ => return Err(e),
+            }
+        }
+    };
     let kind = artifact_kind(&name);
     if kind == "image" {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
@@ -1648,15 +2410,81 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+/// "Carimbo" barato do estado: caminho do DB + (mtime, tamanho) do state.sqlite e do -wal.
+/// Qualquer escrita do motor muda o -wal (ou o arquivo principal no checkpoint). O poll de 1s
+/// do front (33-switcher) só pede o snapshot inteiro (~0,5 MB de JSON) quando o carimbo muda
+/// (ou a cada poucos segundos, pelo que não mora no DB: pid vivo, cache multi-projeto).
+#[tauri::command(async)]
+fn snapshot_stamp(state: State<AppState>) -> String {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(p) = path else { return "none".into() };
+    let st = |f: &std::path::Path| -> String {
+        std::fs::metadata(f)
+            .map(|m| {
+                let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+                format!("{t}:{}", m.len())
+            })
+            .unwrap_or_else(|_| "-".into())
+    };
+    let mut wal = p.clone().into_os_string();
+    wal.push("-wal");
+    format!("{}|{}|{}", p.display(), st(&p), st(std::path::Path::new(&wal)))
+}
+
 #[tauri::command(async)]
 fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
+    let __t0 = std::time::Instant::now();
+    let r = snapshot_inner(state);
+    let ms = __t0.elapsed().as_millis();
+    if ms > 1000 { web_log(format!("[rust] snapshot interno {ms}ms")); }
+    r
+}
+fn snapshot_inner(state: State<AppState>) -> Result<Snapshot, String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    snapshot_or_cached(path)
+}
+/// Último snapshot BOM por banco. Com o state.sqlite travado (checkpoint/recuperação do WAL depois de
+/// um processo morto, CLI fechando…), o snapshot esperava o busy_timeout inteiro (8s) = o mesmo prazo
+/// do front → "snapshot demorou >8s" e a tela parava justo depois de enviar mensagem. Agora a leitura
+/// desiste em SNAP_BUSY_MS e devolve o último estado bom (até 60s de idade); o próximo poll pega o novo.
+const SNAP_BUSY_MS: u64 = 2500;
+fn snap_cache() -> &'static Mutex<HashMap<PathBuf, (std::time::Instant, Snapshot)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<PathBuf, (std::time::Instant, Snapshot)>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn snapshot_or_cached(path: Option<PathBuf>) -> Result<Snapshot, String> {
+    let Some(p) = path.clone() else { return snapshot_at(None) };
+    match snapshot_at(path) {
+        Ok(s) => {
+            snap_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(p, (std::time::Instant::now(), s.clone()));
+            Ok(s)
+        }
+        Err(e) => {
+            let hit = snap_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&p)
+                .filter(|(at, _)| at.elapsed() < std::time::Duration::from_secs(60))
+                .map(|(_, s)| s.clone());
+            match hit {
+                Some(s) => {
+                    web_log(format!("[rust] snapshot ocupado ({e}) — devolvi o último estado bom"));
+                    Ok(s)
+                }
+                None => Err(e),
+            }
+        }
+    }
+}
+/// O snapshot a partir do caminho do state.sqlite (sem State — dá pra medir/testar direto num banco).
+fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
     let path = match path {
         Some(p) => p,
         None => {
             return Ok(Snapshot {
                 repo: None,
                 git: true,
+                remote: true,
                 tasks: vec![],
                 events: vec![],
                 claims: vec![],
@@ -1668,12 +2496,27 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         }
     };
     let conn = open(&path)?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(SNAP_BUSY_MS));
 
-    // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only)
-    let has_busy: bool = conn
-        .query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name='busy_pid'", [], |r| r.get::<_, i64>(0))
-        .map(|n| n > 0)
-        .unwrap_or(false);
+    // busy_pid pode não existir em DB de motor antigo (migração é do motor; aqui é read-only).
+    // Coluna não some: "tem" fica em cache pra sempre por DB; "não tem" é reconferido a cada 30s.
+    let has_busy: bool = {
+        static HB: std::sync::OnceLock<Mutex<HashMap<PathBuf, (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+        let hb = HB.get_or_init(|| Mutex::new(HashMap::new()));
+        let hit = hb.lock().unwrap_or_else(|e| e.into_inner()).get(&path).copied();
+        match hit {
+            Some((true, _)) => true,
+            Some((false, at)) if at.elapsed() < std::time::Duration::from_secs(30) => false,
+            _ => {
+                let v = conn
+                    .query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name='busy_pid'", [], |r| r.get::<_, i64>(0))
+                    .map(|n| n > 0)
+                    .unwrap_or(false);
+                hb.lock().unwrap_or_else(|e| e.into_inner()).insert(path.clone(), (v, std::time::Instant::now()));
+                v
+            }
+        }
+    };
     let tasks = conn
         .prepare(&format!(
             "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{} \
@@ -1718,15 +2561,27 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
                     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
                 },
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
+                spec: task_front_spec(&spec),
                 busy: r
                     .get::<_, Option<i64>>(16)
                     .unwrap_or(None)
-                    .map(|pid| unsafe { libc::kill(pid as i32, 0) } == 0)
+                    .map(|pid| pid_alive(pid as i32))
                     .unwrap_or(false),
+                queued: 0,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
+    // fila do motor por tarefa (índice wq_task). Banco antigo sem work_queue: fica 0.
+    let mut tasks = tasks;
+    if let Ok(mut st) = conn.prepare("SELECT task_id, COUNT(*) FROM work_queue WHERE status='queued' GROUP BY task_id") {
+        if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+            let q: HashMap<String, i64> = rows.filter_map(|x| x.ok()).collect();
+            for t in tasks.iter_mut() {
+                if let Some(n) = q.get(&t.id) { t.queued = *n; }
+            }
+        }
+    }
 
     // Limita o payload: só os eventos mais recentes (evita serializar todo o
     // histórico a cada poll). 1200 cobre o uso real (com textos agora longos) e limita o
@@ -1778,19 +2633,20 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
 
+    // SÓ o que a tela usa (summary + como testar, cortados). functions_json/files_json chegam a 700 KB por
+    // revisão (4.851 funções numa só) e a tela nunca lê — iam INTEIROS a cada 1s: ~3,5 MB de JSON por poll no
+    // logcomex-ai-v2, a página parseando isso sem parar = app travando e snapshot > 8s.
     let reviews = conn
-        .prepare("SELECT task_id,summary,functions_json,files_json,how_to_test,by_agent FROM review")
+        .prepare("SELECT task_id,substr(summary,1,2000),substr(how_to_test,1,4000),by_agent FROM review")
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
-            let fj: String = r.get(2)?;
-            let flj: String = r.get(3)?;
             Ok(Review {
                 task_id: r.get(0)?,
                 summary: r.get(1)?,
-                functions: serde_json::from_str(&fj).unwrap_or(serde_json::Value::Array(vec![])),
-                files: serde_json::from_str(&flj).unwrap_or(serde_json::Value::Array(vec![])),
-                how_to_test: r.get(4)?,
-                by_agent: r.get(5)?,
+                functions: serde_json::Value::Array(vec![]),
+                files: serde_json::Value::Array(vec![]),
+                how_to_test: r.get(2)?,
+                by_agent: r.get(3)?,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -1841,8 +2697,13 @@ fn snapshot(state: State<AppState>) -> Result<Snapshot, String> {
         .and_then(|d| d.parent())
         .map(|r| r.display().to_string());
 
-    let git = repo.as_deref().map(repo_is_git).unwrap_or(true);
-    Ok(Snapshot { repo, git, tasks, events, claims, diffs, reviews, pending, costs })
+    let git = repo.as_deref().map(repo_is_git_cached).unwrap_or(true);
+    let remote = git && repo.as_deref().map(repo_has_remote_cached).unwrap_or(true);
+    // pergunta ÓRFÃ: o processo que esperava a resposta já acabou (lock do turno solto/morto). Mostrar como
+    // "aguardando sua resposta" mentia — a resposta caía no vazio (29/09). Some da tela; a mensagem vira conversa.
+    let mut pending = pending;
+    pending.retain(|p| pending_visible(&p.kind, has_busy, tasks.iter().find(|t| t.id == p.task_id).map(|t| t.busy)));
+    Ok(Snapshot { repo, git, remote, tasks, events, claims, diffs, reviews, pending, costs })
 }
 
 /// Grava a resposta do humano a uma pergunta pendente (write-path do app).
@@ -1862,7 +2723,7 @@ fn resolve_pending(state: State<AppState>, id: i64, answer: String) -> Result<()
 
 /// Pede um AJUSTE (rework) sobre um commit/etapa de uma tarefa já concluída:
 /// enfileira o feedback e dispara `cardume rework <taskId>` (aplica via --resume).
-#[tauri::command]
+#[tauri::command(async)]
 fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<(), String> {
     let t = text.trim();
     if t.is_empty() {
@@ -1871,7 +2732,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
     add_instruction(state.clone(), task_id.clone(), text.clone())?;
     let repo = repo_of(&state)?;
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -1890,13 +2751,16 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
 /// worktree pro estado da base (descarta o trabalho parcial, preserva .cardume),
 /// limpa os registros (eventos/claims/review/pendências/custo/diff) e re-executa
 /// o time inteiro. Usado quando uma execução deu ruim (ex.: timeout sem implementar).
-#[tauri::command]
+#[tauri::command(async)]
 fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // 1) encerra o processo atual, se houver
-    if let Some(p) = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() } {
-        signal_group(p, libc::SIGCONT);
-        signal_group(p, libc::SIGTERM);
+    if let Some(p) = live_task_pid(&state, &task_id) {
+        signal_group(p, procsig::CONT);
+        signal_group(p, procsig::TERM);
+        // espera morrer (o motor novo recusa rodar com o lock busy_pid de um processo vivo)
+        for _ in 0..20 { if !pid_alive(p) { break; } std::thread::sleep(std::time::Duration::from_millis(100)); }
+        if pid_alive(p) { signal_group(p, procsig::KILL); std::thread::sleep(std::time::Duration::from_millis(200)); }
         if let Ok(mut m) = state.procs.lock() { m.remove(&task_id); }
     }
     // 2) worktree + base
@@ -1908,12 +2772,12 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
-    let _ = conn.execute("UPDATE task SET done_roles=0, status='queued', session_id=NULL WHERE id=?1", params![task_id]);
+    let _ = conn.execute("UPDATE task SET done_roles=0, status='queued', session_id=NULL, busy_pid=NULL WHERE id=?1", params![task_id]);
     for tbl in ["event", "claim", "review", "pending", "cost", "diffstat"] {
         let _ = conn.execute(&format!("DELETE FROM {tbl} WHERE task_id=?1"), params![task_id]);
     }
     // 5) re-executa o time
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -1931,11 +2795,11 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// Pede um ENTREGÁVEL sob demanda numa tarefa já pronta: doc de arquitetura,
 /// testes comprovando, ou prova (prints). Roda um agente que lê o código e
 /// produz o artefato — sem reimplementar. kind: "doc" | "tests" | "proof".
-#[tauri::command]
+#[tauri::command(async)]
 fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -1954,14 +2818,14 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
 
 /// Conversa com o agente numa tarefa pronta: retoma a sessão (--resume) por um
 /// turno pra corrigir/entregar o que faltou (ex.: "teste na UI real e me dê os prints").
-#[tauri::command]
+#[tauri::command(async)]
 fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: Option<bool>, agent: Option<String>) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let m = message.trim().to_string();
     if m.is_empty() {
         return Err("mensagem vazia".to_string());
     }
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -2033,7 +2897,7 @@ fn config(state: State<AppState>) -> Result<serde_json::Value, String> {
 /// Catálogo global do usuário (~/.cardume/agents.json) — agentes/workflows
 /// disponíveis em TODO projeto. O config do repo tem precedência por id.
 fn merge_global_catalog(mut cfg: serde_json::Value) -> serde_json::Value {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir_s();
     let gpath = PathBuf::from(home).join(".cardume").join("agents.json");
     let global: serde_json::Value = std::fs::read_to_string(&gpath)
         .ok()
@@ -2063,7 +2927,7 @@ fn merge_global_catalog(mut cfg: serde_json::Value) -> serde_json::Value {
 }
 
 /// Salva o catálogo (agentes + workflows) editado na UI em cardume.config.json.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let s = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
@@ -2246,7 +3110,7 @@ fn new_task(
     push_opt(&mut args, "--risk", &risk);
     if hitl { args.push("--hitl".to_string()); }
 
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args(&args).current_dir(&repo);
     // saída do CLI vai pra um log — criação nunca mais falha em SILÊNCIO
     let log_dir = repo.join(".cardume").join("logs");
@@ -2291,7 +3155,7 @@ fn new_task(
 }
 
 /// Remote origin do repo aberto, normalizado (ex.: github.com/org/repo) —
-/// identifica o "projeto" no time da nuvem, independente de https/ssh.
+/// identifica o "projeto" no time da nuvem, independente de https/ssh/alias.
 #[tauri::command(async)]
 fn repo_remote(state: State<AppState>) -> Result<String, String> {
     remote_of_path(&repo_of(&state)?)
@@ -2303,18 +3167,49 @@ fn repo_remote_of(path: String) -> Result<String, String> {
     remote_of_path(&PathBuf::from(path))
 }
 
+/// Identidade atual + a forma ANTIGA desta máquina (antes da normalização do alias de ssh):
+/// o front lê a nuvem pelas duas (`in.(remote,legacy)`) e grava sempre na `remote`.
+/// `path` vazio = projeto aberto. `legacy` == `remote` quando não houve mudança.
+#[tauri::command(async)]
+fn repo_remote_ids(state: State<AppState>, path: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = match path.filter(|p| !p.trim().is_empty()) { Some(p) => PathBuf::from(p), None => repo_of(&state)? };
+    let remote = remote_of_path(&repo)?;
+    let legacy = remote_of_path_legacy(&repo).unwrap_or_else(|_| remote.clone());
+    Ok(serde_json::json!({ "remote": remote, "legacy": legacy }))
+}
+
+/// Identidade do projeto: remote do github.com (direto, com usuário/token, `www.`, alias de ssh)
+/// vira SEMPRE `github.com/owner/repo`; outros hosts mantêm a forma antiga.
 fn remote_of_path(repo: &PathBuf) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C").arg(repo)
-        .args(["config", "--get", "remote.origin.url"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if raw.is_empty() {
-        // sem remote: usa o nome da pasta como identidade local
-        return Ok(format!("local/{}", repo.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
+    match origin_url(repo) {
+        Ok(raw) => Ok(remote_identity_from_url(&raw, &ssh_resolve_hostname_cached)),
+        Err(_) => Ok(local_identity(repo)),
     }
-    let mut s = raw.trim_end_matches(".git").to_string();
+}
+
+/// A identidade de antes (host do jeito que estava no remote, alias incluso) — só pra achar
+/// linhas/chaves gravadas por versões antigas.
+fn remote_of_path_legacy(repo: &PathBuf) -> Result<String, String> {
+    match origin_url(repo) {
+        Ok(raw) => Ok(legacy_identity_from_url(&raw)),
+        Err(_) => Ok(local_identity(repo)),
+    }
+}
+
+fn local_identity(repo: &PathBuf) -> String {
+    // sem remote: usa o nome da pasta como identidade local
+    format!("local/{}", repo.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default())
+}
+
+fn remote_identity_from_url(raw: &str, resolve: &dyn Fn(&str) -> Option<String>) -> String {
+    if let Some(r) = parse_git_remote(raw) {
+        if remote_is_github(&r, resolve) { return format!("github.com/{}/{}", r.owner, r.name); }
+    }
+    legacy_identity_from_url(raw)
+}
+
+fn legacy_identity_from_url(raw: &str) -> String {
+    let mut s = raw.trim().trim_end_matches(".git").to_string();
     if let Some(rest) = s.strip_prefix("git@") {
         s = rest.replacen(':', "/", 1);
     } else {
@@ -2322,7 +3217,193 @@ fn remote_of_path(repo: &PathBuf) -> Result<String, String> {
             if let Some(rest) = s.strip_prefix(p) { s = rest.to_string(); break; }
         }
     }
-    Ok(s)
+    s
+}
+
+/// `ssh -G` custa um processo (até 3s): a identidade é pedida a cada tick, então guarda por host.
+fn ssh_resolve_hostname_cached(alias: &str) -> Option<String> {
+    static C: std::sync::OnceLock<Mutex<HashMap<String, Option<String>>>> = std::sync::OnceLock::new();
+    let c = C.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(v) = c.lock().unwrap_or_else(|e| e.into_inner()).get(alias) { return v.clone(); }
+    let v = ssh_resolve_hostname(alias);
+    c.lock().unwrap_or_else(|e| e.into_inner()).insert(alias.to_string(), v.clone());
+    v
+}
+
+/// Remote git decomposto. `ssh` = forma scp (`git@host:o/r`) ou `ssh://` — só aí o host pode ser
+/// um ALIAS do ~/.ssh/config (ex.: `github.com-work`, `github-market4u`) que aponta pro github.com.
+#[derive(Debug, Clone, PartialEq)]
+struct GitRemote { host: String, owner: String, name: String, ssh: bool }
+
+/// Aceita `git@host:owner/repo(.git)`, `host:owner/repo`, `ssh://git@host[:porta]/owner/repo`,
+/// `https://[user[:token]@][www.]github.com/owner/repo(.git)`. Caminho local → None.
+fn parse_git_remote(raw: &str) -> Option<GitRemote> {
+    let s = raw.trim();
+    if s.is_empty() { return None; }
+    let (authority, path, ssh) = if let Some((scheme, rest)) = s.split_once("://") {
+        let scheme = scheme.to_ascii_lowercase();
+        if scheme == "file" { return None; }
+        let (auth, path) = rest.split_once('/').unwrap_or((rest, ""));
+        (auth.to_string(), path.to_string(), scheme.contains("ssh") || scheme == "git")
+    } else {
+        // forma scp: [user@]host:caminho — o ':' tem que vir antes de qualquer '/'
+        let colon = s.find(':')?;
+        if s.find('/').is_some_and(|sl| sl < colon) { return None; }
+        (s[..colon].to_string(), s[colon + 1..].to_string(), true)
+    };
+    let host = authority.rsplit('@').next().unwrap_or("");
+    let host = host.split(':').next().unwrap_or("").to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    if host.is_empty() { return None; }
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path).trim_end_matches('/');
+    let segs: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    if segs.len() < 2 { return None; }
+    let name = segs[segs.len() - 1].to_string();
+    let owner = segs[..segs.len() - 1].join("/");
+    Some(GitRemote { host, owner, name, ssh })
+}
+
+/// `ssh -G <alias>` só IMPRIME a config resolvida (não conecta): devolve o `hostname` real.
+fn ssh_resolve_hostname(alias: &str) -> Option<String> {
+    if alias.starts_with('-') { return None; }
+    let mut c = Command::new("ssh");
+    c.args(["-G", alias]);
+    let o = output_timeout(c, 3).ok()?;
+    if !o.status.success() { return None; }
+    String::from_utf8_lossy(&o.stdout).lines()
+        .find_map(|l| l.strip_prefix("hostname ").map(|h| h.trim().to_ascii_lowercase()))
+}
+
+fn is_github_dot_com(h: &str) -> bool { h == "github.com" || h == "ssh.github.com" }
+
+/// O host do remote é o github.com? Direto, via alias do ssh (resolver injetável nos testes) ou,
+/// sem ssh disponível, pela heurística de alias (`github.com-work`, `github-market4u`, `github`).
+/// `github.empresa.com` (Enterprise) NÃO conta: tem ponto e não é github.com.
+fn remote_is_github(r: &GitRemote, resolve: &dyn Fn(&str) -> Option<String>) -> bool {
+    if is_github_dot_com(&r.host) { return true; }
+    if !r.ssh { return false; }
+    if let Some(real) = resolve(&r.host) {
+        if is_github_dot_com(&real) { return true; }
+        if real != r.host { return false; } // alias que aponta pra OUTRO host
+    }
+    r.host.starts_with("github.com") || (r.host.starts_with("github") && !r.host.contains('.'))
+}
+
+/// `owner/repo` do github.com a partir da URL do remote + se o host é alias (≠ "github.com"),
+/// caso em que os comandos do gh devem receber `--repo owner/repo` explícito.
+fn github_slug_from_url(raw: &str, resolve: &dyn Fn(&str) -> Option<String>) -> Result<(String, bool), String> {
+    let r = parse_git_remote(raw).ok_or("não reconheci a URL do remote origin")?;
+    if !remote_is_github(&r, resolve) {
+        return Err(format!("criar PR pelo navegador só vale pra repos do github.com (o remote aponta pra {})", r.host));
+    }
+    Ok((format!("{}/{}", r.owner, r.name), r.host != "github.com"))
+}
+
+fn origin_url(repo: &PathBuf) -> Result<String, String> {
+    let out = Command::new("git").arg("-C").arg(repo)
+        .args(["config", "--get", "remote.origin.url"]).output().map_err(|e| e.to_string())?;
+    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if raw.is_empty() { return Err("sem remote origin".into()); }
+    Ok(raw)
+}
+
+fn github_slug_of(repo: &PathBuf) -> Result<(String, bool), String> {
+    github_slug_from_url(&origin_url(repo)?, &ssh_resolve_hostname)
+}
+
+/// `--repo owner/repo` quando o origin usa alias de ssh (o gh pode não mapear o alias pro github.com).
+fn gh_repo_args(repo: &PathBuf) -> Vec<String> {
+    match github_slug_of(repo) {
+        Ok((slug, true)) => vec!["--repo".into(), slug],
+        _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod git_remote_tests {
+    use super::*;
+    fn none(_: &str) -> Option<String> { None }
+    fn slug(u: &str) -> Result<(String, bool), String> { github_slug_from_url(u, &none) }
+    #[test]
+    fn parse_formas_comuns() {
+        let r = parse_git_remote("git@github.com:market4u-ti/sap-integration-service.git").unwrap();
+        assert_eq!((r.host.as_str(), r.owner.as_str(), r.name.as_str(), r.ssh), ("github.com", "market4u-ti", "sap-integration-service", true));
+        let r = parse_git_remote("ssh://git@ssh.github.com:443/o/r.git").unwrap();
+        assert_eq!((r.host.as_str(), r.owner.as_str(), r.name.as_str()), ("ssh.github.com", "o", "r"));
+        let r = parse_git_remote("https://paulo:ghp_x@www.GitHub.com/o/r.git/").unwrap();
+        assert_eq!((r.host.as_str(), r.owner.as_str(), r.name.as_str(), r.ssh), ("github.com", "o", "r", false));
+        let r = parse_git_remote("https://gitlab.com/g/sub/proj").unwrap();
+        assert_eq!((r.owner.as_str(), r.name.as_str()), ("g/sub", "proj"));
+        assert!(parse_git_remote("/Users/x/repo").is_none());
+        assert!(parse_git_remote("./x/y:z").is_none());
+        assert!(parse_git_remote("file:///tmp/r.git").is_none());
+        assert!(parse_git_remote("").is_none());
+    }
+    #[test]
+    fn github_direto_https_e_ssh() {
+        assert_eq!(slug("git@github.com:o/r.git").unwrap(), ("o/r".to_string(), false));
+        assert_eq!(slug("https://github.com/o/r").unwrap(), ("o/r".to_string(), false));
+        assert_eq!(slug("https://u@github.com/o/r.git").unwrap(), ("o/r".to_string(), false));
+        assert_eq!(slug("ssh://git@ssh.github.com:443/o/r.git").unwrap(), ("o/r".to_string(), true));
+    }
+    #[test]
+    fn alias_de_ssh_pela_heuristica() {
+        assert_eq!(slug("git@github.com-work:market4u-ti/sap-integration-service.git").unwrap(), ("market4u-ti/sap-integration-service".to_string(), true));
+        assert_eq!(slug("git@github-market4u:o/r.git").unwrap(), ("o/r".to_string(), true));
+        // Enterprise e outros hosts não viram github.com
+        assert!(slug("git@github.empresa.com:o/r.git").is_err());
+        assert!(slug("https://gitlab.com/o/r").is_err());
+        // alias https não existe: host estranho em https não é github
+        assert!(slug("https://github-work/o/r").is_err());
+    }
+    #[test]
+    fn alias_resolvido_pelo_ssh_config() {
+        let gh = |h: &str| if h == "trabalho" { Some("github.com".to_string()) } else { Some(h.to_string()) };
+        assert_eq!(github_slug_from_url("git@trabalho:o/r.git", &gh).unwrap(), ("o/r".to_string(), true));
+        // alias "github-x" que o ssh resolve pra OUTRO host (gitlab): não é github
+        let gl = |_: &str| Some("gitlab.com".to_string());
+        assert!(github_slug_from_url("git@github-x:o/r.git", &gl).is_err());
+        // https nunca consulta o ssh
+        let panic = |_: &str| -> Option<String> { panic!("não devia chamar ssh") };
+        assert!(github_slug_from_url("https://meu-host/o/r", &panic).is_err());
+        assert!(github_slug_from_url("https://github.com/o/r", &panic).is_ok());
+    }
+    #[test]
+    fn identidade_normalizada_do_github() {
+        let id = |u: &str| remote_identity_from_url(u, &none);
+        assert_eq!(id("git@github.com-work:org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("git@github-market4u:org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("git@github.com:org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("https://paulo:ghp_x@github.com/org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("https://u@github.com/org/repo"), "github.com/org/repo");
+        assert_eq!(id("https://www.GitHub.com/org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("ssh://git@ssh.github.com:443/org/repo.git"), "github.com/org/repo");
+        assert_eq!(id("https://github.com/org/repo/"), "github.com/org/repo");
+        // alias resolvido pelo ~/.ssh/config
+        let gh = |h: &str| if h == "trabalho" { Some("github.com".to_string()) } else { None };
+        assert_eq!(remote_identity_from_url("git@trabalho:org/repo.git", &gh), "github.com/org/repo");
+    }
+    #[test]
+    fn identidade_fora_do_github_nao_muda() {
+        let id = |u: &str| remote_identity_from_url(u, &none);
+        for u in ["https://gitlab.com/g/sub/proj.git", "git@gitlab.com:g/proj.git", "git@github.empresa.com:o/r.git",
+                  "ssh://git@bitbucket.org/o/r.git", "/Users/x/repo", "https://github-work/o/r"] {
+            assert_eq!(id(u), legacy_identity_from_url(u), "{u}");
+        }
+        assert_eq!(id("https://gitlab.com/g/sub/proj.git"), "gitlab.com/g/sub/proj");
+    }
+    #[test]
+    fn identidade_legada_preservada() {
+        assert_eq!(legacy_identity_from_url("git@github.com-work:org/repo.git"), "github.com-work/org/repo");
+        assert_eq!(legacy_identity_from_url("https://u@github.com/org/repo.git"), "u@github.com/org/repo");
+        assert_eq!(legacy_identity_from_url("git@github.com:org/repo.git"), "github.com/org/repo");
+    }
+    #[test]
+    fn erro_de_host_nao_vaza_credencial() {
+        let e = slug("https://user:segredo@gitlab.com/o/r").unwrap_err();
+        assert!(!e.contains("segredo") && e.contains("gitlab.com"));
+    }
 }
 
 /// Reordena as tarefas no Fluxo: grava sort_order = posição na lista recebida.
@@ -2340,10 +3421,15 @@ fn reorder_tasks(state: State<AppState>, ids: Vec<String>) -> Result<(), String>
 }
 
 /// Inicia uma tarefa em rascunho (roda a equipe). Detached, como new_task.
-#[tauri::command]
+#[tauri::command(async)]
 fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    // duplo clique em ▶ / "aprovar plano" subia DOIS times na mesma worktree
+    // (olha o lock do turno, não o processo: um node terminando de fechar não deve travar o ▶)
+    if busy_task_pid(&state, &task_id).is_some() {
+        return Err("essa tarefa já está rodando".into());
+    }
     let repo = repo_of(&state)?;
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
         &cli_path(&repo),
@@ -2360,7 +3446,7 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 
 /// Revisa um PR por link/número — SEM criar branch. Roda `review-pr` (detached,
 /// rastreado como as demais tarefas: aparece na trilha/Kanban, com pausar/abortar).
-#[tauri::command]
+#[tauri::command(async)]
 fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> Result<(), String> {
     let repo = repo_of(&state)?;
     // id amigável: pr-<número> quando dá pra extrair; senão, slug do link.
@@ -2384,7 +3470,7 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
         repo.display().to_string(),
     ];
     push_opt(&mut args, "--agents", &agents);
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = node_cmd();
     cmd.args(&args).current_dir(&repo);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &id, cmd)?;
@@ -2406,7 +3492,7 @@ fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) 
 
 /// Momento do build (mtime do executável) — carimbo no rodapé pra saber qual
 /// versão está rodando (evita depurar tela de build antiga).
-#[tauri::command]
+#[tauri::command(async)]
 fn build_info() -> String {
     std::env::current_exe()
         .ok()
@@ -2420,7 +3506,7 @@ fn build_info() -> String {
 /// Marca o STATUS da tarefa manualmente (ex.: PR mergeado direto no GitHub →
 /// "marcar como mergeada"; erro resolvido à mão → "voltar pra review").
 /// Whitelist de estados seguros; merged também libera claims/pendências.
-#[tauri::command]
+#[tauri::command(async)]
 fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> Result<(), String> {
     if !["review", "merged", "draft", "running", "cancelled"].contains(&status.as_str()) {
         return Err(format!("status inválido: {status}"));
@@ -2429,13 +3515,13 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
     if status == "cancelled" {
         let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
         if let Some(p) = pid {
-            signal_group(p, libc::SIGCONT); // destrava se pausado
-            signal_group(p, libc::SIGTERM);
+            signal_group(p, procsig::CONT); // destrava se pausado
+            signal_group(p, procsig::TERM);
             let procs = state.procs.clone();
             let tid = task_id.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(1200));
-                signal_group(p, libc::SIGKILL);
+                signal_group(p, procsig::KILL);
                 if let Ok(mut m) = procs.lock() {
                     if m.get(&tid) == Some(&p) { m.remove(&tid); }
                 }
@@ -2444,13 +3530,15 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
     }
     set_task_status(&state, &task_id, &status)?;
     if status == "merged" || status == "cancelled" {
-        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db_path_now {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
                 let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
                 let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
                 // mergeada: a worktree já não serve — cancelada fica (dá pra retomar/inspecionar; a limpeza manual tira)
-                if status == "merged" { if let Ok(repo) = repo_of(&state) { remove_task_worktree(&repo, &conn, &task_id); } }
+                if status == "merged" { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
             }
         }
     }
@@ -2510,13 +3598,35 @@ fn task_events(state: State<AppState>, task_id: String, since_id: Option<i64>) -
 
 // ---------- controles por execução (pausar / retomar / abortar) ----------
 
+/// PID VIVO do processo da tarefa: o mapa `procs` (spawn desta sessão do app) ou, depois
+/// de reiniciar o app (o mapa zera, mas o motor segue vivo via setsid), o lock `busy_pid`
+/// do banco. Usado por iniciar/pausar/retomar/parar/abortar — antes só o parar tinha o fallback.
+fn live_task_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let from_map = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(task_id).copied() };
+    if let Some(p) = from_map { if pid_alive(p) { return Some(p); } }
+    busy_task_pid(state, task_id)
+}
+/// Só o LOCK do motor (task.busy_pid, gravado enquanto um turno roda e limpo ao fim):
+/// é o que diz "tem um time trabalhando nesta worktree agora".
+fn busy_task_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone(); // trava solta já aqui
+    let path = db_path_now?;
+    let conn = open(&path).ok()?;
+    let bp: Option<i64> = conn
+        .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| r.get::<_, Option<i64>>(0))
+        .ok()
+        .flatten();
+    let bp = bp? as i32;
+    if bp > 0 && pid_alive(bp) { Some(bp) } else { None }
+}
+
 /// Congela a árvore de processos do agente (SIGSTOP no grupo) e marca 'paused'.
-#[tauri::command]
+#[tauri::command(async)]
 fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    let pid = live_task_pid(&state, &task_id);
     match pid {
         Some(p) => {
-            signal_group(p, libc::SIGSTOP);
+            signal_group(p, procsig::STOP);
             set_task_status(&state, &task_id, "paused")
         }
         None => Err("tarefa não está em execução".to_string()),
@@ -2525,12 +3635,12 @@ fn pause_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 
 /// Retoma a árvore congelada (SIGCONT) e volta pra 'running' — o orquestrador
 /// segue e atualiza o status conforme avança nas etapas.
-#[tauri::command]
+#[tauri::command(async)]
 fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    let pid = live_task_pid(&state, &task_id);
     match pid {
         Some(p) => {
-            signal_group(p, libc::SIGCONT);
+            signal_group(p, procsig::CONT);
             set_task_status(&state, &task_id, "running")
         }
         None => Err("tarefa não está pausada".to_string()),
@@ -2540,63 +3650,62 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// PARA o turno atual do agente (ex.: no chat, pra intervir) sem "abortar" a
 /// tarefa: mata o processo em execução e volta o status pra 'review', deixando a
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let mut pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
-    // vivo (setsid) — fallback: o lock busy_pid do banco diz quem matar.
-    if pid.is_none() {
-        if let Ok(db) = state.db.lock() {
-            if let Some(path) = db.clone() {
-                if let Ok(conn) = open(&path) {
-                    if let Ok(Some(bp)) = conn
-                        .query_row("SELECT busy_pid FROM task WHERE id = ?1", params![task_id], |r| {
-                            r.get::<_, Option<i64>>(0)
-                        })
-                    {
-                        let bp = bp as i32;
-                        if unsafe { libc::kill(bp, 0) } == 0 {
-                            pid = Some(bp);
-                        }
-                    }
-                }
+    // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
+    let pid = live_task_pid(&state, &task_id);
+    if let Some(p) = pid {
+        // ESPERA o turno morrer (≤ ~1,6s) antes de voltar: o "■ parar e enviar" do chat chama
+        // talk_task logo em seguida, e o motor novo via o busy_pid do processo AINDA VIVO → a
+        // mensagem ia pra fila de um turno que morria no SIGKILL sem drenar = presa pra sempre.
+        // Roda numa thread do runtime (comando async), não na da janela.
+        stop_and_wait(p, 1000);
+        if let Ok(mut m) = state.procs.lock() {
+            if m.get(&task_id) == Some(&p) {
+                m.remove(&task_id);
             }
         }
-    }
-    if let Some(p) = pid {
-        signal_group(p, libc::SIGCONT);
-        signal_group(p, libc::SIGTERM);
-        let procs = state.procs.clone();
-        let tid = task_id.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            signal_group(p, libc::SIGKILL);
-            if let Ok(mut m) = procs.lock() {
-                if m.get(&tid) == Some(&p) {
-                    m.remove(&tid);
-                }
-            }
-        });
     }
     // volta pra review (não 'aborted') pra poder continuar conversando
     set_task_status(&state, &task_id, "review")?;
     Ok(())
 }
 
+/// CONT + TERM no grupo, espera até `grace_ms` o processo sair; senão KILL e mais um respiro curto.
+/// Devolve se o processo morreu.
+fn stop_and_wait(p: i32, grace_ms: u64) -> bool {
+    signal_group(p, procsig::CONT);
+    signal_group(p, procsig::TERM);
+    let step = std::time::Duration::from_millis(50);
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_millis(grace_ms) {
+        if !pid_alive(p) { return true; }
+        std::thread::sleep(step);
+    }
+    signal_group(p, procsig::KILL);
+    let t1 = std::time::Instant::now();
+    while t1.elapsed() < std::time::Duration::from_millis(600) {
+        if !pid_alive(p) { return true; }
+        std::thread::sleep(step);
+    }
+    !pid_alive(p)
+}
+
 /// Aborta a tarefa: mata a árvore de processos (SIGCONT p/ destravar + SIGTERM,
 /// e SIGKILL após um respiro), marca 'aborted' e libera os claims de arquivo
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
-#[tauri::command]
+#[tauri::command(async)]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
-    let pid = { state.procs.lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied() };
+    let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
-        signal_group(p, libc::SIGCONT); // caso esteja pausado, destrava pra poder morrer
-        signal_group(p, libc::SIGTERM);
+        signal_group(p, procsig::CONT); // caso esteja pausado, destrava pra poder morrer
+        signal_group(p, procsig::TERM);
         let procs = state.procs.clone();
         let tid = task_id.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(1200));
-            signal_group(p, libc::SIGKILL);
+            signal_group(p, procsig::KILL);
             if let Ok(mut m) = procs.lock() {
                 if m.get(&tid) == Some(&p) {
                     m.remove(&tid);
@@ -2606,7 +3715,9 @@ fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     }
     set_task_status(&state, &task_id, "aborted")?;
     // libera claims de arquivo + perguntas pendentes desta tarefa (best-effort)
-    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(path) = db_path_now {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
@@ -2681,7 +3792,7 @@ fn daily_digest(state: State<AppState>, from_ms: i64, to_ms: i64) -> Result<Vec<
         }
         // marcos do dia: status/notes relevantes (curtos, sem stream)
         if let Ok(mut ns) = conn.prepare(
-            "SELECT text FROM event WHERE task_id=?1 AND ts>=?2 AND ts<?3 AND type IN ('status','note') AND text NOT LIKE '⏳%' AND text NOT LIKE '▶%' ORDER BY id",
+            "SELECT text FROM event WHERE task_id=?1 AND ts>=?2 AND ts<?3 AND type IN ('status','note') AND text NOT LIKE '⏳%' AND text NOT LIKE 'Na fila (%' AND text NOT LIKE 'Limite de uso%' AND text NOT LIKE '▶%' ORDER BY id",
         ) {
             if let Ok(it) = ns.query_map(params![t.id, from_ms, to_ms], |r| r.get::<_, String>(0)) {
                 let mut v: Vec<String> = it.flatten().map(|s| s.chars().take(160).collect()).collect();
@@ -2834,9 +3945,11 @@ fn set_task_model(state: State<AppState>, task_id: String, model: String) -> Res
 /// Pede ao orquestrador (claude headless, só leitura no repo) um PLANO em JSON:
 /// fases com objetivos verificáveis, dependências e autonomia. Nada é criado aqui.
 #[tauri::command(async)]
-fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>) -> Result<String, String> {
+fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String>, req_id: Option<String>) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o ORQUESTRADOR do Constellation. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
+    let sys = "Você é o ORQUESTRADOR do Starfork. O usuário descreve um problema inteiro; você o quebra em FASES e cada fase vira uma tarefa real com branch e worktree próprias, executada por um subagente. Você NUNCA escreve código — só planeja. Pode explorar o repositório (Read, Grep, Glob) antes de responder pra citar arquivos, serviços e testes REAIS. Responda SOMENTE com um bloco de código ```json no formato {\"title\":\"nome curto do plano\",\"summary\":\"1-2 frases explicando o plano\",\"phases\":[{\"key\":\"n1\",\"name\":\"nome curto da fase\",\"kind\":\"invest|design|build|review\",\"agent\":\"Investigador|Designer|Coder|Revisor\",\"objective\":\"o que essa fase entrega, em 1-3 frases\",\"objectives\":[\"critério verificável 1\",\"critério 2\"],\"autonomy\":\"ask|free\",\"dependsOn\":[\"n0\"]}]}. Regras: 2 a 6 fases; keys n1..n6; kind invest = investigação sem mexer em código (gera INVESTIGATION.md com evidência), design = proposta/desenho (DESIGN.md), build = implementação com testes e prova, review = revisar e provar a implementação de outra fase. INTEGRAÇÃO: sempre que houver 2 ou mais fases build, a ÚLTIMA fase do plano deve ser uma review que dependa de TODAS as fases build — ela recebe uma branch criada a partir da main com o merge de todas as branches de build, testa tudo junto (suite + UI real) e é dela que sai o Pull Request final; as fases build NÃO abrem PR próprio. Com uma única fase build, a review final é opcional. Cada fase tem 2 a 5 objetivos VERIFICÁVEIS (algo que dá pra provar com print, teste ou arquivo). dependsOn lista as fases que precisam PROVAR o resultado antes desta começar; fases sem dependência rodam em paralelo — use paralelismo quando os escopos são disjuntos. autonomy \"ask\" quando a fase toma decisão que é do usuário (ex.: escolher a correção), \"free\" quando pode seguir sozinha. Nada de texto fora do bloco json.";
+    // memória do projeto (índice + notas relevantes ao briefing): o orquestrador não começa do zero
+    let sys = memoria::with_memory(sys, &repo, &briefing);
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -2844,7 +3957,7 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
         "--output-format".to_string(),
         "json".to_string(),
         "--append-system-prompt".to_string(),
-        sys.to_string(),
+        sys,
         "--allowedTools".to_string(),
         "Read,Grep,Glob".to_string(),
     ];
@@ -2854,10 +3967,18 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 300)?;
+    // parável (orq_plan_stop → ORQ_PLAN_STOPPED): antes eram até 5 min de "montando o plano" sem saída
+    // chave por pedido (req_id do front): duas abas "Dividir" montando plano ao mesmo tempo, o parar de uma não derruba a outra
+    let key = format!("orq-plan:{}", req_id.unwrap_or_default());
+    let out = output_stoppable_keyed(cmd, ORQ_PLAN_SECS, &key, "ORQ_PLAN_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(v["result"].as_str().unwrap_or("").to_string())
 }
+/// Prazo do ai_orchestrate — o front mostra o mesmo número (ORQ_PLAN_SECS em 34-orquestrador.js).
+const ORQ_PLAN_SECS: u64 = 300;
+/// PARA o orquestrador montando o plano do pedido `req_id` (ai_orchestrate → ORQ_PLAN_STOPPED).
+#[tauri::command(async)]
+fn orq_plan_stop(req_id: String) -> Result<bool, String> { Ok(stop_keyed(&format!("orq-plan:{req_id}"))) }
 
 fn orch_dir(repo: &PathBuf) -> PathBuf {
     let d = repo.join(".cardume").join("orchestrations");
@@ -2869,7 +3990,7 @@ fn orch_ok_id(id: &str) -> bool {
 }
 
 /// Salva/atualiza o plano (JSON inteiro) em .cardume/orchestrations/<id>.json
-#[tauri::command]
+#[tauri::command(async)]
 fn orch_save(state: State<AppState>, id: String, data: serde_json::Value, repo: Option<String>) -> Result<(), String> {
     if !orch_ok_id(&id) { return Err("id inválido".into()); }
     let repo = repo_or(&state, repo)?;
@@ -2912,7 +4033,7 @@ fn orch_list(state: State<AppState>) -> Vec<serde_json::Value> {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn orch_delete(state: State<AppState>, id: String, repo: Option<String>) -> Result<(), String> {
     if !orch_ok_id(&id) { return Err("id inválido".into()); }
     let repo = repo_or(&state, repo)?;
@@ -2923,7 +4044,7 @@ fn orch_delete(state: State<AppState>, id: String, repo: Option<String>) -> Resu
 
 /// Funde chaves no spec_json da tarefa (ex.: orchestration, dependsOn) e,
 /// se vier `base`, troca a branch base da worktree (fase que parte da anterior).
-#[tauri::command]
+#[tauri::command(async)]
 fn patch_task_spec(state: State<AppState>, task_id: String, patch: serde_json::Value, base: Option<String>) -> Result<(), String> {
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open(&db).map_err(|e| e.to_string())?;
@@ -3035,17 +4156,14 @@ fn chrome_bin() -> Option<String> {
 }
 
 /// Salva um documento (.md) em ~/Documents/Constellation/ e revela no Finder.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_doc(name: String, content: String) -> Result<String, String> {
-    let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Documents").join("Constellation");
+    let dir = PathBuf::from(home_dir_s()).join("Documents").join("Constellation");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.'|' ') { c } else { '-' }).collect();
     let p = dir.join(safe.trim());
     std::fs::write(&p, content).map_err(|e| e.to_string())?;
-    #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg("-R").arg(&p).spawn();
-    #[cfg(not(target_os = "macos"))]
-    let _ = Command::new("xdg-open").arg(p.parent().unwrap_or(&p)).spawn();
+    let _ = os_reveal(&p);
     Ok(p.display().to_string())
 }
 
@@ -3053,7 +4171,7 @@ fn save_doc(name: String, content: String) -> Result<String, String> {
 #[tauri::command(async)]
 fn html_to_pdf(html: String, name: String) -> Result<String, String> {
     let chrome = chrome_bin().ok_or("Google Chrome não encontrado — instale o Chrome pra gerar PDF")?;
-    let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Documents").join("Constellation");
+    let dir = PathBuf::from(home_dir_s()).join("Documents").join("Constellation");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-'|'_'|'.') { c } else { '-' }).collect();
     let html_path = dir.join(format!("{safe}.html"));
@@ -3071,10 +4189,7 @@ fn html_to_pdf(html: String, name: String) -> Result<String, String> {
         return Err(format!("Chrome não gerou o PDF: {}", String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()));
     }
     let _ = std::fs::remove_file(&html_path);
-    #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg(&pdf_path).spawn(); // abre no Preview
-    #[cfg(not(target_os = "macos"))]
-    let _ = Command::new("xdg-open").arg(&pdf_path).spawn(); // abre no leitor de PDF padrão
+    let _ = os_open(pdf_path.as_os_str()); // abre no leitor de PDF padrão (Preview no Mac)
     Ok(pdf_path.display().to_string())
 }
 
@@ -3154,20 +4269,19 @@ fn tool_line(name: &str, input: &serde_json::Value) -> String {
 static PLANNER_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// PARA a resposta em andamento do planner ("montar conversando"): mata o grupo do claude.
-#[tauri::command]
+#[tauri::command(async)]
 fn ai_chat_stop() -> bool {
     let pid = PLANNER_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, libc::SIGKILL); true } else { false }
+    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
 
 /// Planner conversando. Roda o claude em stream-json e, a cada tool_use, emite `planner-activity`
 /// ({ line }) pro chat mostrar o que a IA está fazendo; `ai_chat_stop` derruba o processo (PLANNER_STOPPED).
 #[tauri::command(async)]
-fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
-    use std::io::BufRead;
-    use tauri::Emitter;
+fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o PLANNER do Constellation: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
+    let sys = "Você é o PLANNER do Starfork: monta a ESPECIFICAÇÃO de uma tarefa conversando com o Douglas, em português, de forma ANALÍTICA e INVESTIGATIVA, UMA pergunta por vez e AFIADA, fechando só o que ainda falta — e chegando no PROBLEMA REAL, não só no que ele pediu. INVESTIGUE o código de verdade (Read/Grep/Glob/LS, git log/show/diff) ANTES de perguntar o óbvio: NADA de chutar; cite arquivo:linha quando ajudar e prefira DESCOBRIR lendo a perguntar o que dá pra ver no código. Mas investigue com PARCIMÔNIA: poucas leituras DIRECIONADAS (nunca varredura exaustiva do repo), e se a mensagem for SAUDAÇÃO/conversa fiada ou você ainda NÃO tiver um problema concreto pra apurar, responda DIRETO e rápido SEM usar ferramentas — só investigue quando já houver um problema/tarefa concreto. Vá atrás da CAUSA, não do sintoma: se o Douglas já traz uma solução, entenda antes o PROBLEMA por trás (o que acontece, o que deveria acontecer, por que importa) e desafie suposições com gentileza. Faça POUCAS perguntas, porém afiadas — só o que muda a solução. MÉTODO por tipo de tarefa: (a) BUG/FIX — levante os passos pra REPRODUZIR, o esperado vs o obtido e desde quando; leia o código suspeito e proponha a CAUSA-RAIZ (não o remendo); os requirements devem incluir um TESTE que falha hoje e passa depois + um guard contra regressão. (b) FEATURE — use Jobs-to-be-Done: QUEM é o usuário, qual a TAREFA/resultado que ele quer, e COMO saberemos que resolveu; requirements são critérios de aceite VERIFICÁVEIS (Dado/Quando/Então) cobrindo estados vazio/carregando/erro e casos de borda. (c) REFACTOR/CHORE/DESIGN — qual a DOR concreta e o ALVO, e como PROVAR que o comportamento não mudou (antes/depois). Responda SEMPRE E SOMENTE com um bloco de código ```json contendo as chaves {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false} (e OPCIONALMENTE \"plan\") — nada fora do bloco. Regras: `say` é sua próxima fala curta e objetiva (a pergunta que falta, ou uma confirmação de que pode criar). `chips` são 0 a 4 respostas rápidas sugeridas pra essa pergunta (strings curtas). `patch` contém SÓ os campos que ficaram claros nesta rodada — chaves possíveis: title (string), objective (string), deliverables (array de strings), requirements (array de strings), owns (array de caminhos), off (array de caminhos), engine (string), autonomy (string curta, ex.: \"clarifications: ask\"), artifacts (array com qualquer combinação de \"doc\", \"proof\", \"tests\"); NÃO invente, deixe de fora o que não sabe. `asking` é o nome do campo que você está perguntando AGORA (um de: title, objective, deliverables, requirements, owns, off, autonomy, engine, artifacts) ou \"\". `done` só vira true quando title, objective e deliverables estiverem fechados E o usuário confirmar que pode criar. Se ainda não houver objetivo, comece perguntando o objetivo. Antes de fechar, SEMPRE pergunte quais ENTREGÁVEIS DE COMPROVAÇÃO o usuário quer — documento de arquitetura (doc), prints de prova (proof) e/ou testes (tests) — e grave a escolha em patch.artifacts. Se o usuário não souber um critério, sugira `autonomy: clarifications: ask`. TAMANHO DO PEDIDO — decida assim que o pedido ficar concreto e ABRA o `say` com o rótulo do caminho e o motivo em 1 frase — 'Tarefa única: …', 'Épico pequeno: …' ou 'Inception: …' (ex.: 'Tarefa única: uma frente só, tudo em src/cart.') — na rodada em que decide E de novo na rodada em que devolver `plan`: (1) TAREFA ÚNICA — uma frente, um escopo de arquivos, cabe numa sessão de um agente: fluxo normal, sem `plan`. (2) ÉPICO PEQUENO — 2 a 6 frentes independentes que podem virar entregas separadas rodando EM PARALELO (ex.: 'cadastro por e-mail, login social e recuperação de senha' — fatias de VALOR, cada uma atravessando front, backend e dados): NÃO tente fechar uma tarefa só — proponha um ÉPICO retornando a chave `plan`. (3) INCEPTION COMPLETA — mais de 6 frentes, ou incerteza alta sobre escopo/arquitetura: NÃO devolva `plan` ainda; no `say` liste as frentes (título + resultado em 1 linha) em ordem sugerida e pergunte por qual começar (as 4 primeiras também em `chips`); a frente escolhida vira um ÉPICO PEQUENO na rodada seguinte; as outras ficam só na conversa (o usuário abre outro épico depois) — NÃO as coloque em `patch`. Na dúvida entre (1) e (2), prefira (1): menos épico, não mais. O usuário SEMPRE pode mandar trocar ('vira épico', 'faz tarefa única', 'quebra mais fino') — obedeça sem discutir e diga que trocou. Formato do `plan` = {\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{\"title\":\"\",\"objective\":\"\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável\"],\"owns\":\"caminho(s) que essa tarefa mexe\"}]} com 2 a 6 tarefas. `after` são os ÍNDICES (0-based, na ordem de `tasks`) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já (ex.: a 3ª tarefa com `after`:[0,1] espera as duas primeiras). `risk` é exatamente low, medium ou high; `hitl` é true quando parte da tarefa precisa de uma PESSOA (login, chave, aprovação, dado que só ela tem); `boundaries` lista comportamentos que a tarefa NÃO pode alterar ([] se não houver). REGRAS DO ÉPICO: organize por VALOR pro usuário, nunca por camada técnica ('banco', 'API', 'front' não são tarefas — cada tarefa atravessa as camadas que precisa); a primeira tarefa é o TRACER BULLET (o caminho mais fino atravessando todas as camadas, provando que elas se conectam); cada tarefa é STANDALONE: funciona e é testável sem as posteriores, e cria só as tabelas/modelos que ELA precisa (nada de 'setup do banco' ou 'criar todos os modelos'); nenhuma tarefa depende de tarefa posterior; `after` marca pré-requisitos REAIS e, como única exceção, serializa frentes que mexem nos MESMOS arquivos (ou elas viram UMA tarefa) — tarefas sem `after` entre si rodam ao mesmo tempo e por isso têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de `requirements` e, juntas, as tarefas cobrem todos; `verify` é UMA linha que alguém além de quem codou consegue checar. NÃO devolva `wave`: a onda é calculada de `after`. Ao propor `plan`, use `say` pra explicar o plano em 1-2 frases, deixe `done`:false e NÃO preencha os campos de tarefa única em patch — espere o usuário aprovar o plano na tela. Nada de texto fora do bloco json.";
+    let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o planner não começa do zero
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -3176,38 +4290,52 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
         "stream-json".to_string(),
         "--verbose".to_string(),
         "--append-system-prompt".to_string(),
-        sys.to_string(),
+        sys,
         // read-only: o planner INVESTIGA o código (lê/grep/git) mas NÃO edita nada.
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
-        // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
-        "--permission-mode".to_string(),
-        "bypassPermissions".to_string(),
     ];
+    // bypass NÃO respeita o --allowedTools acima (só as regras de NEGAÇÃO valem) → modo protegido
+    args.extend(protect_args(protect_on(&repo)));
+    // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
+    args.push("--permission-mode".to_string());
+    args.push("bypassPermissions".to_string());
     if let Some(sid) = &session_id {
         if !sid.is_empty() {
             args.push("--resume".to_string());
             args.push(sid.clone());
         }
     }
+    push_model(&mut args, &model); // IA padrão do usuário (Configurações) — antes o planner ignorava
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    cmd.process_group(0); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
+    // grupo próprio (detach_new_group, dentro do helper): o "parar" derruba o claude E o que ele tiver aberto
+    run_claude_stream(&app, cmd, &PLANNER_PID, "PLANNER_STOPPED", 600, "planner-activity")
+}
+
+/// Roda o `claude -p --output-format stream-json` e, enquanto ele trabalha, emite cada ferramenta usada
+/// ("lendo X", "procurando Y") no evento `event` — a tela mostra o que a IA está fazendo em vez de só
+/// "pensando…". `slot` guarda o pid pro botão parar; parar → Err(stop_marker). Usado pelo planner e pelo chat do projeto.
+fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync::atomic::AtomicI32, stop_marker: &str, timeout_secs: u64, event: &str) -> Result<AiChat, String> {
+    use std::io::BufRead;
+    use tauri::Emitter;
+    detach_new_group(&mut cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     let pid = child.id() as i32;
-    PLANNER_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
+    slot.store(pid, std::sync::atomic::Ordering::SeqCst);
     // watchdog: investigar o código leva tempo, mas não pra sempre — com "parar" na tela, 10 min é o teto
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let timed_out2 = timed_out.clone();
     let watch = std::thread::spawn(move || {
-        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { timed_out2.store(true, std::sync::atomic::Ordering::SeqCst); signal_group(pid, libc::SIGKILL); }
+        if rx.recv_timeout(std::time::Duration::from_secs(timeout_secs)).is_err() { timed_out2.store(true, std::sync::atomic::Ordering::SeqCst); signal_group(pid, procsig::KILL); }
     });
     // lê o stream linha a linha: tool_use → evento pro chat; result → resposta final
     let stdout = child.stdout.take().ok_or("sem stdout do claude")?;
     let stderr = child.stderr.take();
     let app2 = app.clone();
+    let event = event.to_string();
     let reader = std::thread::spawn(move || -> (String, String, String, bool) {
         let mut result = String::new(); let mut sid = String::new(); let mut last_text = String::new(); let mut is_error = false;
         for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -3219,7 +4347,7 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
                             if p.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
                                 let name = p.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
                                 let inp = p.get("input").cloned().unwrap_or(serde_json::Value::Null);
-                                let _ = app2.emit("planner-activity", serde_json::json!({ "line": tool_line(name, &inp) }));
+                                let _ = app2.emit(&event, serde_json::json!({ "line": tool_line(name, &inp) }));
                             } else if p.get("type").and_then(|t| t.as_str()) == Some("text") {
                                 if let Some(t) = p.get("text").and_then(|t| t.as_str()) { last_text = t.to_string(); }
                             }
@@ -3244,12 +4372,12 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     let status = child.wait();
     let _ = tx.send(());
     let _ = watch.join();
-    let _ = PLANNER_PID.compare_exchange(pid, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
+    let _ = slot.compare_exchange(pid, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
     let (result, sid, last_text, is_error) = reader.join().unwrap_or_default();
     let err_txt = err_txt.join().unwrap_or_default();
     let status = status.map_err(|e| e.to_string())?;
     if status.code().is_none() {
-        return Err(if timed_out.load(std::sync::atomic::Ordering::SeqCst) { "comando expirou após 600s (a IA não terminou de investigar)".to_string() } else { "PLANNER_STOPPED".to_string() });
+        return Err(if timed_out.load(std::sync::atomic::Ordering::SeqCst) { format!("comando expirou após {timeout_secs}s (a IA não terminou de investigar)") } else { stop_marker.to_string() });
     }
     // mesmo tratamento do claude_json antigo: is_error (login expirado, limite de uso…) vira erro AMIGÁVEL, não fala do bot
     if is_error {
@@ -3274,7 +4402,7 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
     let repo = repo_or(&state, repo)?;
     let locked = plan.contains("\"status\":\"running\"") || plan.contains("\"status\":\"done\"");
     let sys = format!(concat!(
-        "Você é o ORQUESTRADOR do Constellation conversando com o dev em português sobre o PROJETO aberto e o PLANO que você propôs. ",
+        "Você é o ORQUESTRADOR do Starfork conversando com o dev em português sobre o PROJETO aberto e o PLANO que você propôs. ",
         "Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar. Você NÃO edita arquivos nem roda comandos que alterem estado. ",
         "Seja direto e específico (arquivos/linhas quando útil). ",
         "Responda SEMPRE com um bloco ```json com as chaves {{\"say\":\"sua resposta em markdown curto\"}}{}. Nada de texto fora do bloco.\n\nPLANO ATUAL (JSON):\n{}"),
@@ -3286,6 +4414,7 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
         },
         plan
     );
+    let sys = memoria::with_memory(&sys, &repo, &prompt); // cérebro do projeto
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -3309,7 +4438,7 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 300)?;
+    let out = output_stoppable(cmd, 300, &ORQ_CHAT_PID, "ORQ_CHAT_STOPPED")?;
     let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
@@ -3325,8 +4454,8 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let cli = std::env::var("CARDUME_CLI").map_err(|_| "só a instalação de desenvolvimento publica releases")?;
     // CARDUME_CLI → .../src/cli.ts → raiz do produto
     let root = PathBuf::from(&cli).parent().and_then(|p| p.parent()).map(|p| p.to_path_buf()).ok_or("CARDUME_CLI inesperado")?;
-    let zip = root.join("dist").join("Constellation-portable.zip");
-    let bin = root.join("dist").join("Constellation-portable.app").join("Contents").join("MacOS").join("Constellation");
+    let zip = root.join("dist").join("Starfork-portable.zip");
+    let bin = root.join("dist").join("Starfork-portable.app").join("Contents").join("MacOS").join("Starfork");
     if !zip.exists() { return Err(format!("rode scripts/package-app.sh antes — sem {}", zip.display())); }
     let mtime_ms = |p: &PathBuf| -> Option<i64> {
         std::fs::metadata(p).and_then(|m| m.modified()).ok()
@@ -3336,8 +4465,9 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let build_ms = mtime_ms(&bin).ok_or("binário do portable não encontrado")?;
     // GUARD: se o app DEV (deploy-local) é bem mais novo que o portable, o pacote
     // está DEFASADO — publicar mandaria um build velho pros colegas. Barra.
-    let dev_bin = root.join("dist").join("Constellation.app").join("Contents").join("MacOS").join("Constellation");
-    if let Some(dev_ms) = mtime_ms(&dev_bin) {
+    let dev_bin = root.join("dist").join("Starfork.app").join("Contents").join("MacOS").join("Starfork");
+    let old_dev_bin = root.join("dist").join("Constellation.app").join("Contents").join("MacOS").join("Constellation");
+    if let Some(dev_ms) = mtime_ms(&dev_bin).or_else(|| mtime_ms(&old_dev_bin)) {
         // 30min de folga: ignora o skew de reempacotar+redeploy na mesma sessão,
         // mas pega o caso real (portable de dias atrás, esquecido).
         if dev_ms > build_ms + 1_800_000 {
@@ -3345,16 +4475,24 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
         }
     }
     let size = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
-    // 1) zip
-    let mut c1 = Command::new("curl");
-    c1.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
-        "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
-        "-H", "x-upsert: true", "-H", "Content-Type: application/zip",
-        "--data-binary"]).arg(format!("@{}", zip.display()))
-        .arg(format!("{url}/storage/v1/object/releases/Constellation-portable.zip"));
-    let r1 = output_timeout(c1, 300)?;
-    let code1 = String::from_utf8_lossy(&r1.stdout).trim().to_string();
-    if code1 != "200" { return Err(format!("upload do zip falhou (HTTP {code1}) — você é o owner do canal?")); }
+    // 1) zip — primeiro com o nome novo e, em seguida, com o antigo (Constellation-portable.zip):
+    // clientes de antes do rename (ou links velhos) continuam achando o release.
+    // Só o Starfork-portable.zip pode falhar a publicação; o alias antigo é best-effort.
+    let mut warn = String::new();
+    for name in ["Starfork-portable.zip", "Constellation-portable.zip"] {
+        let mut c1 = Command::new("curl");
+        c1.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
+            "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
+            "-H", "x-upsert: true", "-H", "Content-Type: application/zip",
+            "--data-binary"]).arg(format!("@{}", zip.display()))
+            .arg(format!("{url}/storage/v1/object/releases/{name}"));
+        let r1 = output_timeout(c1, 300)?;
+        let code1 = String::from_utf8_lossy(&r1.stdout).trim().to_string();
+        if code1 != "200" {
+            if name == "Starfork-portable.zip" { return Err(format!("upload do {name} falhou (HTTP {code1}) — você é o owner do canal?")); }
+            warn = format!(" · aviso: alias {name} não subiu (HTTP {code1})");
+        }
+    }
     // 2) latest.json
     let d = build_ms / 1000;
     let version = {
@@ -3362,7 +4500,7 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
     let meta = serde_json::json!({
-        "buildMs": build_ms, "version": version, "file": "Constellation-portable.zip",
+        "buildMs": build_ms, "version": version, "file": "Starfork-portable.zip",
         "size": size, "notes": notes.unwrap_or_else(|| "Melhorias e correções.".into()),
         "publishedAt": chrono_iso_now(),
     });
@@ -3377,7 +4515,7 @@ fn publish_release(url: String, anon: String, token: String, notes: Option<Strin
     let r2 = output_timeout(c2, 60)?;
     let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
     if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
-    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time mostram ⬆ atualizar no próximo boot ou em até 6h", size as f64 / 1048576.0))
+    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time recebem o aviso de atualizar em até ~2 min{warn}", size as f64 / 1048576.0))
 }
 fn chrono_iso_now() -> String {
     let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();
@@ -3387,7 +4525,7 @@ fn chrono_iso_now() -> String {
 /// Memória do repo (.cardume) que SEGUE a conta do usuário — o JS sincroniza
 /// com user_repo_docs na nuvem (mais novo vence, dos dois lados).
 const REPO_DOCS: [&str; 5] = ["RUNBOOK.md", "HISTORY.md", "SPEC.md", "PREFS.md", "policy.json"];
-#[tauri::command]
+#[tauri::command(async)]
 fn repo_docs(state: State<AppState>) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;
     let name = PathBuf::from(&repo).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -3403,7 +4541,7 @@ fn repo_docs(state: State<AppState>) -> Result<serde_json::Value, String> {
     }
     Ok(serde_json::json!({ "repo": name, "path": repo, "docs": docs }))
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn repo_doc_write(state: State<AppState>, doc: String, content: String) -> Result<(), String> {
     if !REPO_DOCS.contains(&doc.as_str()) { return Err("doc desconhecido".into()); }
     let repo = repo_of(&state)?;
@@ -3429,13 +4567,28 @@ fn llm_env_get(key: &str) -> Option<String> {
 }
 
 /// Resolve o caminho de um artefato (coletado no repo, ou AO VIVO na worktree).
+/// Nome como o AGENTE cita (evidência do requirements.json, link no chat): "./.cardume/artifacts/x.png",
+/// ".cardume/artifacts/<task>/x.png" → "x.png". Era a origem do "artefato não encontrado" ao clicar na prova.
+fn artifact_norm_name(name: &str, task_id: &str) -> String {
+    let mut n = name.trim().trim_start_matches("./");
+    n = n.strip_prefix(".cardume/artifacts/").unwrap_or(n);
+    if !task_id.is_empty() {
+        if let Some(rest) = n.strip_prefix(task_id).and_then(|r| r.strip_prefix('/')) { n = rest; }
+    }
+    n.to_string()
+}
+
 fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<PathBuf, String> {
+    let cited = name.trim().to_string();
+    let norm = artifact_norm_name(name, task_id);
+    let name = norm.as_str();
     if !artifact_name_ok(name) {
         return Err("nome de artefato inválido".into());
     }
-    let name = name.trim();
     // worktree AO VIVO primeiro (é a versão mais nova), depois a cópia coletada
-    if let Some(db) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(db) = db_path_now {
         if let Ok(conn) = open(&db) {
             if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
                 if !wt.is_empty() {
@@ -3454,7 +4607,7 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
     for p in [col.join(name), col.join(task_id).join(name)] {
         if p.is_file() { return Ok(p); }
     }
-    Err("artefato não encontrado".into())
+    Err(format!("artefato não encontrado: {cited} (ainda não foi gerado ou já foi removido)"))
 }
 
 /// Envia um artefato pro Slack (files.getUploadURLExternal → PUT → completeUploadExternal).
@@ -3508,13 +4661,13 @@ fn slack_send_artifact(state: State<AppState>, task_id: String, name: String, ch
 }
 
 fn llm_env_path() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("llm.env")
+    PathBuf::from(home_dir_s()).join(".constellation").join("llm.env")
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn read_llm_env() -> Result<String, String> {
     Ok(std::fs::read_to_string(llm_env_path()).unwrap_or_default())
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn write_llm_env(content: String) -> Result<(), String> {
     let p = llm_env_path();
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -3620,18 +4773,9 @@ fn issue_json_path(state: &State<AppState>) -> Result<PathBuf, String> {
     Ok(repo_of(state)?.join(".cardume").join("issue.json"))
 }
 
-/// Config de "criar issue ao abrir demanda" deste repo (espelho local do que o
-/// time compartilha na nuvem). O motor lê esse arquivo em Orchestrator.issueContext.
-#[tauri::command]
-fn get_issue_config(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let p = issue_json_path(&state)?;
-    let txt = std::fs::read_to_string(&p)
-        .unwrap_or_else(|_| "{\"enabled\":false,\"instructions\":\"\",\"titleTemplate\":\"\",\"bodyTemplate\":\"\"}".into());
-    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!({ "enabled": false, "instructions": "", "titleTemplate": "", "bodyTemplate": "" })))
-}
-
-/// Grava a config de issue do repo (o app mantém isto sincronizado com a nuvem).
-#[tauri::command]
+/// Grava a config de "criar issue ao abrir demanda" do repo (espelho local do que o time
+/// compartilha na nuvem; o app mantém sincronizado). O motor lê em Orchestrator.issueContext.
+#[tauri::command(async)]
 fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
     let p = issue_json_path(&state)?;
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -3641,18 +4785,18 @@ fn set_issue_config(state: State<AppState>, config: serde_json::Value) -> Result
 
 // ===== Painel de Issues: conexão genérica com um tracker (conector declarativo) =====
 fn constellation_home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation")
+    PathBuf::from(home_dir_s()).join(".constellation")
 }
 
 /// Cache local do painel de issues do time (a nuvem — issue_trackers — é a fonte;
 /// sem nuvem, vale só nesta máquina). Nunca contém o VALOR de chaves.
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_local_get() -> Result<serde_json::Value, String> {
     let txt = std::fs::read_to_string(constellation_home().join("issue-tracker.json")).unwrap_or_else(|_| "null".into());
     Ok(serde_json::from_str(&txt).unwrap_or(serde_json::Value::Null))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_local_set(config: serde_json::Value) -> Result<(), String> {
     let d = constellation_home();
     std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
@@ -3671,7 +4815,7 @@ fn url_host(url: &str) -> Option<String> {
 /// Vincula uma chave do cofre a UM host. O conector é compartilhado pelo time —
 /// sem este vínculo LOCAL, um conector adulterado poderia mandar a chave de
 /// alguém pra outro servidor. Só o humano desta máquina cria o vínculo (no painel).
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_bind_secret(name: String, host: String) -> Result<(), String> {
     let p = tracker_binds_path();
     let mut m: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&p).ok()
@@ -3682,7 +4826,7 @@ fn tracker_bind_secret(name: String, host: String) -> Result<(), String> {
 }
 
 /// Quais chaves (só NOMES) existem no cofre local e a que host cada uma está vinculada.
-#[tauri::command]
+#[tauri::command(async)]
 fn tracker_secret_status(names: Vec<String>) -> serde_json::Value {
     let binds: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(tracker_binds_path()).ok()
         .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
@@ -3739,9 +4883,11 @@ fn tracker_http(method: String, url: String, headers: Option<std::collections::H
     }
     // GET é idempotente: repete 1x em falha transitória (DNS/VPN trocando, conexão caindo).
     // Escrita (POST/PUT/PATCH/DELETE) nunca repete — criaria issue/comentário em dobro.
-    // --compressed: as listas de issues vinham a 100 KB+ e estouravam os 30 s antigos.
-    let mut args: Vec<&str> = vec!["-sS", "--compressed", "--connect-timeout", "10", "--max-time", "60", "-w", "\n%{http_code}", "--config", "-"];
-    if m == "GET" { args.extend(["--retry", "1", "--retry-delay", "2", "--retry-all-errors"]); }
+    // --compressed: as listas de issues vinham a 100 KB+ (comprimidas cabem folgadas em 30 s).
+    // Teto DURO: conexão 10 s, chamada 30 s e a repetição só cabe dentro dos mesmos 30 s
+    // (--retry-max-time) — antes 60 s + retry podiam somar minutos com a rede caindo (curl 28).
+    let mut args: Vec<&str> = vec!["-sS", "--compressed", "--connect-timeout", "10", "--max-time", "30", "-w", "\n%{http_code}", "--config", "-"];
+    if m == "GET" { args.extend(["--retry", "1", "--retry-delay", "2", "--retry-max-time", "30", "--retry-all-errors"]); }
     let mut child = Command::new("curl")
         .args(&args)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
@@ -3768,7 +4914,8 @@ fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, 
     if !docs.trim().is_empty() { prompt.push_str(&format!("\n\nDOCUMENTAÇÃO:\n{docs}")); }
     let mut c = claude_cmd(&claude_bin());
     c.args(["-p", &prompt]);
-    if !files.is_empty() { c.args(["--allowedTools", "Read", "--permission-mode", "bypassPermissions"]); }
+    // sem repo aqui: sempre protegido (só lê a documentação que você escolheu)
+    if !files.is_empty() { c.arg("--allowedTools").arg("Read").args(protect_args(true)).args(["--permission-mode", "bypassPermissions"]); }
     let out = c.stdin(Stdio::null()).output().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
@@ -3783,26 +4930,29 @@ fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, 
 fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>, repo: Option<String>, model: Option<String>, context: String) -> Result<AiChat, String> {
     let repo = repo_or(&state, repo)?;
     let sys = format!("{}\n\nCONTEXTO DO PAINEL (JSON):\n{}", ISSUE_CHAT_PROMPT, context);
+    let sys = memoria::with_memory(&sys, &repo, &prompt); // cérebro do projeto
     let mut args: Vec<String> = vec![
         "-p".to_string(), prompt,
         "--output-format".to_string(), "json".to_string(),
         "--append-system-prompt".to_string(), sys,
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
-        "--permission-mode".to_string(), "bypassPermissions".to_string(),
     ];
+    args.extend(protect_args(protect_on(&repo))); // bypass ignora o allowedTools; negação vale
+    args.push("--permission-mode".to_string());
+    args.push("bypassPermissions".to_string());
     if let Some(m) = model.filter(|m| !m.trim().is_empty()) { args.push("--model".to_string()); args.push(m); }
     if let Some(sid) = &session_id { if !sid.is_empty() { args.push("--resume".to_string()); args.push(sid.clone()); } }
     let mut cmd = claude_cmd(&claude_bin());
     cmd.args(&args).current_dir(&repo);
-    cmd.process_group(0); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
+    detach_new_group(&mut cmd); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     let pid = child.id() as i32;
     ISSUE_CHAT_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     let watch = std::thread::spawn(move || {
-        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { signal_group(pid, libc::SIGKILL); }
+        if rx.recv_timeout(std::time::Duration::from_secs(600)).is_err() { signal_group(pid, procsig::KILL); }
     });
     let out = child.wait_with_output();
     let _ = tx.send(());
@@ -3818,10 +4968,10 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
 static ISSUE_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// PARA a pesquisa em andamento da aba "Nova issue" (mata o grupo do claude).
-#[tauri::command]
+#[tauri::command(async)]
 fn issue_chat_stop() -> bool {
     let pid = ISSUE_CHAT_PID.swap(0, std::sync::atomic::Ordering::SeqCst);
-    if pid > 0 { signal_group(pid, libc::SIGKILL); true } else { false }
+    if pid > 0 { signal_group(pid, procsig::KILL); true } else { false }
 }
 
 const ISSUE_CHAT_PROMPT: &str = r#"Você monta ISSUES pro painel do time conversando com o dev, em português, no projeto aberto nesta pasta. O dev manda UMA ideia ou uma LISTA (várias linhas = várias issues). Seu trabalho é FECHAR AS ARESTAS de cada uma antes de criar: PESQUISE o código de verdade (Read/Grep/Glob/LS, git log/show/grep) — onde isso mora, o que já existe, o que está faltando, qual a causa provável — com PARCIMÔNIA (poucas leituras direcionadas por issue, nunca varredura do repo). Você NÃO edita nada.
@@ -3830,7 +4980,7 @@ Não invente: o que o código não responde vira pergunta em `open`. Pergunte PO
 TAMANHO DA LISTA (diga no `say`, na 1ª frase, qual caminho tomou): se as linhas forem 3 ou mais FRENTES de UMA MESMA entrega (mesmo resultado pro usuário — ex.: cadastro, login social e recuperação de senha), proponha agrupar num ÉPICO: devolva a chave opcional `epic` = {"title":"nome curto","outcome":"1 frase: pra quem, o que muda e o sinal de que funcionou","doneWhen":["3 a 6 checagens que uma PESSOA roda sem abrir nenhuma issue"]} e abra o `say` com "Épico: <título> — …"; a ordem das issues é a ordem de build (a primeira é o caminho mais fino que atravessa tudo). Bugs soltos, itens sem relação entre si ou lista curta NÃO ganham `epic` (mande `"epic":null`) e o `say` abre com "Issues soltas: …". Na dúvida, sem épico. `epic` é ESTADO COMPLETO como `issues`: enquanto o agrupamento valer, repita o objeto inteiro em TODA rodada (perguntas, respostas e lotes); só mande `"epic":null` quando decidir desagrupar. O dev pode mandar "vira épico" ou "sem épico" — obedeça e diga que trocou. Se o contexto trouxer `epicSupport:false`, ainda proponha o `epic` quando fizer sentido: o app cita o épico no corpo das issues.
 Responda SEMPRE E SOMENTE com um bloco ```json: {"say":"sua fala curta em markdown","chips":["0 a 4 respostas rápidas"],"epic":null,"issues":[{"title":"","description":"","requirements":[""],"goal":"","assignee":"","priority":"","type":"","open":[""],"skip":false}],"done":false}. `issues` traz SEMPRE a lista COMPLETA e atualizada (não só o que mudou), na ordem do dev — EXCETO quando a mensagem vier marcada com [LOTE k/n]: aí devolva em `issues` SÓ as issues daquele lote (o app junta) e guarde as perguntas menos importantes em `open` em vez de encher o `say`. Lista grande = pesquisa mais enxuta por item (1-2 buscas direcionadas cada). `done` só vira true quando nenhuma issue tem `open` pendente E o dev confirmar que pode criar. Se a mensagem for saudação ou ainda não houver nada concreto, responda direto sem usar ferramentas e com "issues":[]. JSON ESTRITAMENTE VÁLIDO: dentro das strings use \\n pra quebra de linha, escape aspas, e NUNCA coloque cercas ``` dentro de `say`/`description` (pra citar caminho, label ou trecho use `crase simples`). Nada de texto fora do bloco json."#;
 
-const TRACKER_AI_PROMPT: &str = r#"Você configura a conexão do Constellation com um painel/tracker de issues a partir da DOCUMENTAÇÃO da API dele. Responda SOMENTE um JSON válido (sem markdown, sem comentários) neste formato:
+const TRACKER_AI_PROMPT: &str = r#"Você configura a conexão do Starfork com um painel/tracker de issues a partir da DOCUMENTAÇÃO da API dele. Responda SOMENTE um JSON válido (sem markdown, sem comentários) neste formato:
 {
  "name": "nome curto do painel",
  "baseUrl": "https://…",
@@ -3859,9 +5009,9 @@ Regras: (1) NUNCA escreva o valor real de uma chave, mesmo que apareça na doc �
 
 /// Lista as skills disponíveis (pessoais em ~/.claude/skills + do projeto em
 /// <repo>/.claude/skills), marcando quais estão ATIVAS pra este repo.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir_s();
     let mut items: Vec<(String, String, String)> = Vec::new();
     scan_skills_dir(&PathBuf::from(&home).join(".claude").join("skills"), "pessoal", &mut items);
     if let Ok(repo) = repo_of(&state) {
@@ -3884,16 +5034,8 @@ fn list_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!(arr))
 }
 
-/// Skills ATIVAS pra este repo (array de {name, description}).
-#[tauri::command]
-fn get_active_skills(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let p = skills_json_path(&state)?;
-    let txt = std::fs::read_to_string(&p).unwrap_or_else(|_| "[]".into());
-    Ok(serde_json::from_str(&txt).unwrap_or_else(|_| serde_json::json!([])))
-}
-
 /// Grava as skills ativas do repo (o motor injeta no contexto do agente).
-#[tauri::command]
+#[tauri::command(async)]
 fn set_active_skills(state: State<AppState>, skills: serde_json::Value) -> Result<(), String> {
     let p = skills_json_path(&state)?;
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -3924,11 +5066,11 @@ fn skill_name_ok(n: &str) -> bool {
     !n.is_empty() && n.len() <= 64 && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 fn skills_root() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".claude").join("skills")
+    PathBuf::from(home_dir_s()).join(".claude").join("skills")
 }
 
 /// Cria uma skill nova na biblioteca pessoal (~/.claude/skills/<nome>/SKILL.md).
-#[tauri::command]
+#[tauri::command(async)]
 fn create_skill(name: String, description: String, body: String) -> Result<String, String> {
     let n = name.trim().to_lowercase().replace(' ', "-");
     if !skill_name_ok(&n) { return Err("nome inválido — use letras, números e hífen".into()); }
@@ -3941,7 +5083,7 @@ fn create_skill(name: String, description: String, body: String) -> Result<Strin
 }
 
 /// Importa uma skill colando o conteúdo do SKILL.md (o nome sai do frontmatter).
-#[tauri::command]
+#[tauri::command(async)]
 fn import_skill_md(content: String) -> Result<String, String> {
     let tmp = std::env::temp_dir().join("cardume-import-skill.md");
     std::fs::write(&tmp, &content).map_err(|e| e.to_string())?;
@@ -4006,7 +5148,7 @@ fn git_skills(url: String, branch: Option<String>, subpath: Option<String>, pick
 
 /// Preferências do app (não-segredos) em ~/.constellation/settings.json.
 fn settings_path() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".constellation").join("settings.json")
+    PathBuf::from(home_dir_s()).join(".constellation").join("settings.json")
 }
 fn setting_get(key: &str) -> Option<String> {
     let content = std::fs::read_to_string(settings_path()).ok()?;
@@ -4016,11 +5158,11 @@ fn setting_get(key: &str) -> Option<String> {
         other => Some(other.to_string()),
     }
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn read_settings() -> Result<String, String> {
     Ok(std::fs::read_to_string(settings_path()).unwrap_or_else(|_| "{}".into()))
 }
-#[tauri::command]
+#[tauri::command(async)]
 fn write_setting(key: String, value: String) -> Result<(), String> {
     let p = settings_path();
     if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
@@ -4061,7 +5203,7 @@ fn fetch_task_ref(state: State<AppState>, task_id: String, url: String, anon: St
 /// Política de obrigatoriedade DO REPO (.cardume/policy.json) — a "Definition of
 /// Done" que o formulário e o motor respeitam. Sem arquivo → defaults sensatos.
 /// Campos: minRequirements, proofRequired, testsRequired, docRequired, costWarn.
-#[tauri::command]
+#[tauri::command(async)]
 fn read_policy(state: State<AppState>) -> serde_json::Value {
     // devolve SÓ o que o REPO define — o JS monta a cadeia completa:
     // padrão do produto < política da ORG (nuvem) < .cardume do repo
@@ -4297,7 +5439,7 @@ fn apns_jwt() -> Result<String, String> {
     if !g.0.is_empty() && g.1.elapsed().as_secs() < 2400 {
         return Ok(g.0.clone());
     }
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir_s();
     let key = std::env::var("CONSTELLATION_APNS_KEY").unwrap_or(format!("{home}/.constellation/AuthKey_AC5R9Y7ZYS.p8"));
     let kid = std::env::var("CONSTELLATION_APNS_KID").unwrap_or("AC5R9Y7ZYS".into());
     let team = std::env::var("CONSTELLATION_APNS_TEAM").unwrap_or("SUB6889LA9".into());
@@ -4357,15 +5499,34 @@ fn apns_push(token: String, title: String, body: String, category: Option<String
 
 /// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
 /// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
-#[tauri::command]
+#[tauri::command(async)]
 fn is_dev_install() -> bool {
     std::env::var("CARDUME_CLI").map(|v| !v.is_empty()).unwrap_or(false)
+}
+
+/// Destino do update: instala no lugar, exceto o rename único Constellation.app →
+/// Starfork.app (quando o zip traz Starfork.app e esse irmão ainda não existe).
+/// Bundle id igual → dados e permissões seguem.
+fn update_dest(cur_app: &std::path::Path, new_app: &std::path::Path) -> PathBuf {
+    let name = |p: &std::path::Path| p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string());
+    let sib = cur_app.with_file_name("Starfork.app");
+    if name(cur_app).as_deref() == Some("Constellation.app")
+        && name(new_app).as_deref() == Some("Starfork.app")
+        && !sib.exists()
+    {
+        return sib;
+    }
+    cur_app.to_path_buf()
 }
 
 /// Auto-update estilo Claude: baixa o zip (URL assinada), troca o .app em
 /// disco e relança. curl/ditto não aplicam quarantine → abre sem Gatekeeper.
 #[tauri::command(async)]
 fn apply_update(url: String) -> Result<(), String> {
+    // E8: o pacote do canal é um .app zipado (ditto/cp -R) — só serve no Mac
+    if !cfg!(target_os = "macos") {
+        return Err("a atualização automática só existe no Mac por enquanto — baixe a versão nova em starfork.com.br".to_string());
+    }
     if !url.starts_with("https://") {
         return Err("url inválida".to_string());
     }
@@ -4394,18 +5555,25 @@ fn apply_update(url: String) -> Result<(), String> {
     if cur_app.extension().map(|x| x != "app").unwrap_or(true) {
         return Err("instalação não-bundle — atualize manualmente".to_string());
     }
+    let dest = update_dest(&cur_app, &new_app);
     let backup = cur_app.with_extension("app.old");
     let _ = std::fs::remove_dir_all(&backup);
     std::fs::rename(&cur_app, &backup).map_err(|e| format!("não consegui mover o app atual: {e}"))?;
-    let cp = Command::new("cp").arg("-R").arg(&new_app).arg(&cur_app).output().map_err(|e| e.to_string())?;
+    let cp = Command::new("cp").arg("-R").arg(&new_app).arg(&dest).output().map_err(|e| e.to_string())?;
     if !cp.status.success() {
+        if dest != cur_app { let _ = std::fs::remove_dir_all(&dest); }
         let _ = std::fs::rename(&backup, &cur_app); // rollback
         return Err(format!("cópia falhou: {}", String::from_utf8_lossy(&cp.stderr)));
     }
     let _ = std::fs::remove_dir_all(&backup);
     let _ = std::fs::remove_dir_all(&tmp);
+    if dest != cur_app {
+        // caminho novo: registra no LaunchServices (best-effort, igual ao deploy-local.sh)
+        let _ = Command::new("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
+            .arg("-f").arg(&dest).output();
+    }
     // relança a versão nova e sai
-    let _ = Command::new("open").arg("-n").arg(&cur_app).spawn();
+    let _ = Command::new("open").arg("-n").arg(&dest).spawn();
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(600));
         std::process::exit(0);
@@ -4413,19 +5581,32 @@ fn apply_update(url: String) -> Result<(), String> {
     Ok(())
 }
 
+static PROJECT_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static ORQ_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// PARA a resposta em andamento do Chat do projeto (mata o grupo do claude → PROJECT_CHAT_STOPPED).
+#[tauri::command(async)]
+fn project_chat_stop() -> Result<bool, String> { Ok(stop_slot(&PROJECT_CHAT_PID)) }
+
+/// PARA a resposta em andamento da conversa com o orquestrador (→ ORQ_CHAT_STOPPED).
+#[tauri::command(async)]
+fn orq_chat_stop() -> Result<bool, String> { Ok(stop_slot(&ORQ_CHAT_PID)) }
+
 /// Chat do PROJETO: conversa livre sobre o repo (arquitetura, dúvidas, ideias)
 /// com leitura REAL do código — sem tarefa e sem editar nada. A conversa pode
 /// virar tarefa depois (a UI pede a spec pro mesmo session).
 #[tauri::command(async)]
-fn project_chat(state: State<AppState>, prompt: String, session_id: Option<String>) -> Result<AiChat, String> {
+fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
     let repo = repo_of(&state)?;
-    let sys = "Você é o copiloto do PROJETO aberto no Constellation, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
+    let sys = "Você é o copiloto do PROJETO aberto no Starfork, conversando com o dev em português. Pode e DEVE ler o código de verdade (Read/Grep/Glob, git log/show/diff) antes de afirmar qualquer coisa — nada de chutar pela memória. Você NÃO edita arquivos nem roda comandos que alterem estado: é conversa + leitura. Seja direto e específico (arquivos/linhas quando útil). Se o assunto virar trabalho concreto, diga que dá pra transformar a conversa numa tarefa pelo botão 'virar tarefa'.";
+    let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o chat não começa do zero
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
         prompt,
         "--output-format".to_string(),
-        "json".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
         "--append-system-prompt".to_string(),
         sys.to_string(),
         "--allowedTools".to_string(),
@@ -4437,24 +5618,30 @@ fn project_chat(state: State<AppState>, prompt: String, session_id: Option<Strin
             args.push(sid.clone());
         }
     }
+    push_model(&mut args, &model); // IA padrão do usuário (Configurações) — antes o chat do projeto ignorava
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
-    let out = output_timeout(cmd, 240)?;
-    let v = claude_json(&out)?;
-    Ok(AiChat {
-        text: v["result"].as_str().unwrap_or("").to_string(),
-        session_id: v["session_id"].as_str().unwrap_or("").to_string(),
-    })
+    // stream: cada leitura/busca vira uma linha "o que a IA está fazendo" na tela (antes: só "lendo o projeto…"
+    // por minutos, parecia travado)
+    run_claude_stream(&app, cmd, &PROJECT_CHAT_PID, "PROJECT_CHAT_STOPPED", 600, "project-chat-activity")
 }
 
 // ---------- revisão de arquivos da tarefa (abrir/editar/salvar) ----------
+/// Tarefa que não está no state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem).
+/// Estado legítimo: listas (arquivos/commits) devolvem vazio; o resto usa esta frase (o front não reporta).
+const TASK_GONE: &str = "esta tarefa não está neste projeto (foi apagada ou pertence a outro projeto)";
+/// Worktree já removida (merge/limpeza). Mandar mensagem na tarefa a recria (ensureTaskWorktree).
+const WT_GONE: &str = "a cópia de trabalho desta tarefa não existe mais (já foi limpa) — mande uma mensagem na conversa da tarefa pra retomá-la e ela é recriada";
+fn task_query_err(e: rusqlite::Error) -> String {
+    if matches!(e, rusqlite::Error::QueryReturnedNoRows) { TASK_GONE.to_string() } else { e.to_string() }
+}
 fn task_wt_base(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = open(&path)?;
     conn.query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| {
         Ok((PathBuf::from(r.get::<_, String>(0)?), r.get::<_, String>(1)?))
     })
-    .map_err(|e| e.to_string())
+    .map_err(task_query_err)
 }
 /// Ponto de comparação REAL da tarefa: merge-base entre a base e o HEAD da
 /// worktree, preferindo origin/<base>. Sem isso, se o agente mergear
@@ -4501,7 +5688,13 @@ struct TaskFile {
 /// Arquivos alterados pela tarefa (git diff base...HEAD na worktree).
 #[tauri::command(async)]
 fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, String> {
-    let (wt, base) = task_wt_base(&state, &task_id)?;
+    // tarefa de outro projeto/apagada ou worktree já limpa (merge): nada a listar — vazio, sem erro
+    let (wt, base) = match task_wt_base(&state, &task_id) {
+        Ok(v) => v,
+        Err(e) if e == TASK_GONE => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
+    if !wt.is_dir() { return Ok(vec![]); }
     // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
     // assim os arquivos aparecem ao vivo enquanto o agente edita, antes do commit.
     let base = task_diff_base(&wt, &base);
@@ -4586,7 +5779,26 @@ struct FileContent {
 fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<FileContent, String> {
     safe_rel(&path)?;
     let (wt, base) = task_wt_base(&state, &task_id)?;
-    let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| e.to_string())?;
+    if !wt.is_dir() {
+        // worktree limpa (tarefa mergeada/encerrada): mostra a versão da branch (ou da base) no repo
+        let repo = active_repo(&state)?;
+        let branch: String = open(&state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?)?
+            .query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get(0))
+            .unwrap_or_default();
+        let clean = base.trim_start_matches("origin/").to_string();
+        for rev in [branch, format!("origin/{clean}"), clean] {
+            if rev.is_empty() { continue; }
+            if let Ok(o) = Command::new("git").arg("-C").arg(&repo).args(["show", &format!("{rev}:{path}")]).output() {
+                if o.status.success() {
+                    return Ok(FileContent { content: String::from_utf8_lossy(&o.stdout).to_string(), added_lines: vec![] });
+                }
+            }
+        }
+        return Err(WT_GONE.into());
+    }
+    let content = std::fs::read_to_string(wt.join(&path)).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound { format!("o arquivo {path} não existe mais nesta cópia da tarefa (foi apagado ou renomeado)") } else { e.to_string() }
+    })?;
     // linhas novas (do diff unified=0): parse dos hunks @@ -a,b +c,d @@
     let mut added: Vec<i64> = Vec::new();
     let base = task_diff_base(&wt, &base);
@@ -4628,7 +5840,7 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
     // diário: últimas falas RELEVANTES do agente (o que foi feito de verdade)
     let mut notes: Vec<String> = vec![];
     if let Ok(mut st) = conn.prepare(
-        "SELECT substr(text,1,400) FROM event WHERE task_id=?1 AND type IN ('note','done') AND length(text)>40 AND text NOT LIKE '💬%' AND text NOT LIKE '❓%' AND text NOT LIKE 'perguntou%' AND text NOT LIKE 'humano%' AND text NOT LIKE 'requisito adicionado%' ORDER BY id DESC LIMIT 12",
+        "SELECT substr(text,1,400) FROM event WHERE task_id=?1 AND type IN ('note','done') AND length(text)>40 AND text NOT LIKE '💬%' AND text NOT LIKE 'Você:%' AND text NOT LIKE '❓%' AND text NOT LIKE 'perguntou%' AND text NOT LIKE 'humano%' AND text NOT LIKE 'requisito adicionado%' ORDER BY id DESC LIMIT 12",
     ) {
         if let Ok(rows) = st.query_map(params![task_id], |r| r.get::<_, String>(0)) {
             notes = rows.flatten().collect();
@@ -4664,7 +5876,7 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
     if body.len() < 80 || !body.contains("## ") {
         return Err("corpo gerado inválido".to_string());
     }
-    Ok(format!("{body}\n\n_Aberto pelo Constellation._"))
+    Ok(format!("{body}\n\n_Aberto pelo Starfork._"))
 }
 
 /// Diff unificado de UM arquivo da tarefa (tela de Revisão do redesign):
@@ -4740,7 +5952,7 @@ fn ai_file_why(state: State<AppState>, task_id: String, path: String) -> Result<
 }
 
 /// Apaga a explicação em cache de um arquivo (botão ↻ "gerar de novo").
-#[tauri::command]
+#[tauri::command(async)]
 fn ai_file_why_reset(state: State<AppState>, task_id: String, path: String) -> Result<(), String> {
     use std::hash::{Hash, Hasher};
     safe_rel(&path)?;
@@ -4754,7 +5966,7 @@ fn ai_file_why_reset(state: State<AppState>, task_id: String, path: String) -> R
 }
 
 /// Renomeia a branch de uma tarefa existente (git branch -m) + atualiza o DB.
-#[tauri::command]
+#[tauri::command(async)]
 fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
     let clean: String = name.trim().replace(' ', "-").chars().filter(|c| c.is_ascii_alphanumeric() || "/_.-".contains(*c)).collect();
     if clean.is_empty() || clean.contains("..") || clean.starts_with('/') || clean.ends_with('/') {
@@ -4765,7 +5977,9 @@ fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Resul
     if !out.status.success() {
         return Err(format!("git branch -m: {}", String::from_utf8_lossy(&out.stderr)));
     }
-    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(path) = db_path_now {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
             let _ = conn.execute("UPDATE task SET branch=?1 WHERE id=?2", params![clean, task_id]);
@@ -4855,9 +6069,10 @@ fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), 
             }
         }
     }
+    let ra = gh_repo_args(&repo);
     for c in &cands {
         let mut v = Command::new(gh_bin());
-        v.args(["pr", "view", c, "--json", "number"]).current_dir(&repo);
+        v.args(["pr", "view", c, "--json", "number"]).args(&ra).current_dir(&repo);
         if let Ok(o) = output_timeout(v, 10) {
             if o.status.success() {
                 return Ok((repo, c.clone()));
@@ -4868,6 +6083,10 @@ fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), 
 }
 
 fn repo_slug(repo: &PathBuf) -> Result<String, String> {
+    // origin via alias de ssh: o slug vem do próprio remote (o gh pode não resolver o alias)
+    if let Ok((slug, true)) = github_slug_of(repo) {
+        return Ok(slug);
+    }
     let mut cmd = Command::new(gh_bin());
     cmd.args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).current_dir(repo);
     let out = output_timeout(cmd, 10)?;
@@ -4880,6 +6099,8 @@ fn repo_slug(repo: &PathBuf) -> Result<String, String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EnvCheck {
+    /// "req" = sem isso a tarefa não roda · "rec" = recomendado (gh: só publicar/PR) · "opt" = opcional (túnel)
+    kind: String,
     name: String,
     ok: bool,
     detail: String,
@@ -4903,25 +6124,26 @@ fn env_check() -> Vec<EnvCheck> {
     let nb = node_bin();
     match ver(&nb, &["--version"]) {
         Some(v) => {
-            let okv = v.trim_start_matches('v').split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 22).unwrap_or(false);
-            out.push(EnvCheck { name: "Node.js (≥22.6)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { "brew install node".into() } });
+            // ok = o motor RODA (carrega node:sqlite, com a flag se preciso) — '>= 22' deixava passar o 23.2, que quebra
+            let okv = node_sqlite_ok(&nb, false) || node_sqlite_ok(&nb, true);
+            out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.13)".into(), ok: okv, detail: format!("{v} · {nb}"), fix: if okv { String::new() } else { node_fix_hint() } });
         }
-        None => out.push(EnvCheck { name: "Node.js (≥22.6)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install node".into() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Node.js (≥22.13)".into(), ok: false, detail: "não encontrado".into(), fix: node_fix_hint() }),
     }
     // motor
-    let cli = cli_path(&std::env::var("HOME").map(PathBuf::from).unwrap_or_default());
+    let cli = cli_path(&PathBuf::from(home_dir_s()));
     let cli_ok = std::path::Path::new(&cli).is_file();
-    out.push(EnvCheck { name: "Motor do Constellation".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
+    out.push(EnvCheck { kind: "req".into(), name: "Motor do Starfork".into(), ok: cli_ok, detail: cli.clone(), fix: if cli_ok { String::new() } else { "reinstale o app (o motor vai dentro dele)".into() } });
     // git
     match ver("git", &["--version"]) {
-        Some(v) => out.push(EnvCheck { name: "Git".into(), ok: true, detail: v, fix: String::new() }),
-        None => out.push(EnvCheck { name: "Git".into(), ok: false, detail: "não encontrado".into(), fix: "xcode-select --install".into() }),
+        Some(v) => out.push(EnvCheck { kind: "req".into(), name: "Git".into(), ok: true, detail: v, fix: String::new() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Git".into(), ok: false, detail: "não encontrado".into(), fix: "xcode-select --install".into() }),
     }
     // claude CLI
     let cb = claude_bin();
     match ver(&cb, &["--version"]) {
-        Some(v) => out.push(EnvCheck { name: "Claude Code".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() }),
-        None => out.push(EnvCheck { name: "Claude Code".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() }),
+        Some(v) => out.push(EnvCheck { kind: "req".into(), name: "Claude Code".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() }),
+        None => out.push(EnvCheck { kind: "req".into(), name: "Claude Code".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() }),
     }
     // gh autenticado
     let gb = gh_bin();
@@ -4931,20 +6153,21 @@ fn env_check() -> Vec<EnvCheck> {
         Ok(o) if o.status.success() => {
             let s = String::from_utf8_lossy(&o.stderr).to_string() + &String::from_utf8_lossy(&o.stdout);
             let acct = s.lines().find(|l| l.contains("account")).unwrap_or("autenticado").trim().to_string();
-            out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: true, detail: acct, fix: String::new() });
+            out.push(EnvCheck { kind: "rec".into(), name: "GitHub CLI (gh)".into(), ok: true, detail: acct, fix: String::new() });
         }
-        Ok(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "instalado mas SEM login".into(), fix: "gh auth login".into() }),
-        Err(_) => out.push(EnvCheck { name: "GitHub CLI (gh)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install gh && gh auth login".into() }),
+        Ok(_) => out.push(EnvCheck { kind: "rec".into(), name: "GitHub CLI (gh)".into(), ok: false, detail: "instalado mas SEM login".into(), fix: "gh auth login".into() }),
+        Err(_) => out.push(EnvCheck { kind: "rec".into(), name: "GitHub CLI (gh)".into(), ok: false, detail: "não encontrado".into(), fix: "brew install gh && gh auth login".into() }),
     }
-    // opcional: túnel do preview pro celular (📱). Sem ele o app funciona 100% —
+    // opcional: túnel do preview pro celular. Sem ele o app funciona 100% —
     // só o botão de abrir o preview no celular fica indisponível.
     let cf = ["/opt/homebrew/bin/cloudflared", "/opt/homebrew/opt/cloudflared/bin/cloudflared", "/usr/local/bin/cloudflared"]
         .iter()
         .any(|p| std::path::Path::new(p).is_file());
     out.push(EnvCheck {
+        kind: "opt".into(),
         name: "Túnel do preview (opcional)".into(),
         ok: cf,
-        detail: if cf { "cloudflared instalado — botão 📱 celular disponível".into() } else { "sem cloudflared — o botão '📱 celular' do preview fica desativado (resto funciona normal)".into() },
+        detail: if cf { "cloudflared instalado — botão do celular disponível".into() } else { "sem cloudflared — o botão do celular no preview fica desativado (resto funciona normal)".into() },
         fix: if cf { String::new() } else { "brew install cloudflared".into() },
     });
     out
@@ -4986,7 +6209,7 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
     let st = Command::new("git").arg("-C").arg(&wt).args(["status", "--porcelain"]).output().map_err(|e| e.to_string())?;
     let mut committed = false;
     if !String::from_utf8_lossy(&st.stdout).trim().is_empty() {
-        let c = Command::new("git").arg("-C").arg(&wt).args(["commit", "-m", "ajustes via Constellation"]).output().map_err(|e| e.to_string())?;
+        let c = Command::new("git").arg("-C").arg(&wt).args(["commit", "-m", "ajustes via Starfork"]).output().map_err(|e| e.to_string())?;
         if !c.status.success() {
             return Err(format!("commit falhou: {}", String::from_utf8_lossy(&c.stderr)));
         }
@@ -5005,22 +6228,15 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
 #[tauri::command(async)]
 fn open_artifact(state: State<AppState>, task_id: String, name: String) -> Result<(), String> {
     let path = artifact_path(&state, &task_id, &name)?;
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    Command::new(opener).arg(&path).spawn().map_err(|e| e.to_string())?;
+    os_open(path.as_os_str()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// Revela o artefato no gerenciador de arquivos (Finder no macOS), selecionando-o.
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal_artifact(state: State<AppState>, task_id: String, name: String) -> Result<String, String> {
     let path = artifact_path(&state, &task_id, &name)?;
-    if cfg!(target_os = "macos") {
-        Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| e.to_string())?;
-    } else {
-        // fallback: abre a pasta que contém o arquivo
-        let dir = path.parent().unwrap_or(&path);
-        Command::new("xdg-open").arg(dir).spawn().map_err(|e| e.to_string())?;
-    }
+    os_reveal(&path).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -5030,11 +6246,7 @@ fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("url inválida".to_string());
     }
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    Command::new(opener)
-        .arg(&url)
-        .spawn()
-        .map_err(|e| format!("falha ao abrir o link: {e}"))?;
+    os_open(std::ffi::OsStr::new(&url)).map_err(|e| format!("falha ao abrir o link: {e}"))?;
     Ok(())
 }
 
@@ -5052,8 +6264,7 @@ fn oauth_wait_callback(authorize_url: String) -> Result<String, String> {
         .map_err(|e| format!("porta 8788 ocupada — feche outra tentativa de login e tente de novo ({e})"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     // abre o navegador na tela de login do Google (via Supabase)
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    let _ = Command::new(opener).arg(&authorize_url).spawn();
+    let _ = os_open(std::ffi::OsStr::new(&authorize_url));
     // espera o callback (teto de 3 min)
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
     loop {
@@ -5065,7 +6276,7 @@ fn oauth_wait_callback(authorize_url: String) -> Result<String, String> {
                 let first = req.lines().next().unwrap_or("");
                 let path = first.split_whitespace().nth(1).unwrap_or("");
                 let query = path.split('?').nth(1).unwrap_or("").to_string();
-                let body = "<!doctype html><html><head><meta charset=utf-8><title>Login</title><style>body{font:16px -apple-system,system-ui,sans-serif;background:#0e1113;color:#e6e6e6;display:grid;place-items:center;height:100vh;margin:0}</style></head><body><div style=\"text-align:center\"><div style=\"font-size:44px;color:#16a34a;line-height:1\">✓</div><h2 style=\"margin:14px 0 4px\">Login concluído</h2><p style=\"color:#94a3b8;margin:0\">Pode fechar esta aba e voltar pro Constellation.</p></div></body></html>";
+                let body = "<!doctype html><html><head><meta charset=utf-8><title>Login</title><style>body{font:16px -apple-system,system-ui,sans-serif;background:#0e1113;color:#e6e6e6;display:grid;place-items:center;height:100vh;margin:0}</style></head><body><div style=\"text-align:center\"><div style=\"font-size:44px;color:#16a34a;line-height:1\">✓</div><h2 style=\"margin:14px 0 4px\">Login concluído</h2><p style=\"color:#94a3b8;margin:0\">Pode fechar esta aba e voltar pro Starfork.</p></div></body></html>";
                 let _ = stream.write_all(
                     format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes(),
                 );
@@ -5111,17 +6322,10 @@ fn list_branches(state: State<AppState>) -> Result<Vec<String>, String> {
 
 /// URL pra criar o PR no NAVEGADOR (a branch já foi empurrada). Fallback quando o
 /// `gh` do dev não enxerga o repo (sem convite/SSO) mas o navegador dele SIM.
-#[tauri::command]
+#[tauri::command(async)]
 fn pr_compare_url(state: State<AppState>, task_id: String, base: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let out = Command::new("git").arg("-C").arg(&repo)
-        .args(["config", "--get", "remote.origin.url"]).output().map_err(|e| e.to_string())?;
-    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if raw.is_empty() { return Err("sem remote origin".into()); }
-    let mut s = raw.trim_end_matches(".git").to_string();
-    if let Some(rest) = s.strip_prefix("git@") { s = rest.replacen(':', "/", 1); }
-    else { for p in ["https://", "http://", "ssh://git@", "ssh://"] { if let Some(rest) = s.strip_prefix(p) { s = rest.to_string(); break; } } }
-    let path = s.strip_prefix("github.com/").ok_or("criar PR pelo navegador só vale pra repos do github.com")?;
+    let (path, _) = github_slug_of(&repo)?;
     let branch = task_branch(&state, &task_id)?;
     let b = if base.trim().is_empty() { "main" } else { base.trim() };
     Ok(format!("https://github.com/{path}/compare/{b}...{branch}?expand=1"))
@@ -5132,9 +6336,10 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     let repo = repo_of(&state)?;
     let branch = task_branch(&state, &task_id)?;
     // já existe PR (na branch atual OU no nome antigo pós-rename)? devolve ele
+    let ra = gh_repo_args(&repo);
     if let Ok((r2, head)) = pr_head(&state, &task_id) {
         let mut v = Command::new(gh_bin());
-        v.args(["pr", "view", &head, "--json", "url", "-q", ".url"]).current_dir(&r2);
+        v.args(["pr", "view", &head, "--json", "url", "-q", ".url"]).args(&ra).current_dir(&r2);
         if let Ok(o) = output_timeout(v, 10) {
             if o.status.success() {
                 let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -5154,28 +6359,28 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     }
     let out = Command::new(gh_bin())
         .args(["pr", "create", "--head", &branch, "--base", &base, "--title", &title, "--body", &body])
+        .args(&ra)
         .current_dir(&repo)
         .output()
         .map_err(|e| format!("gh indisponível: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if err.contains("already exists") {
-            let u = Command::new(gh_bin()).args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).current_dir(&repo).output().map_err(|e| e.to_string())?;
+            let u = Command::new(gh_bin()).args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).args(&ra).current_dir(&repo).output().map_err(|e| e.to_string())?;
             if u.status.success() {
                 return Ok(String::from_utf8_lossy(&u.stdout).trim().to_string());
             }
         }
-        if err.contains("Could not resolve to a Repository") {
-            return Err(format!(
-                "gh pr create: {err}\n\nSua conta do gh NÃO enxerga este repositório (o push funcionou porque o git usa outra credencial). Causas comuns:\n1) você ainda não foi convidado pra organização dona do repo — peça o convite;\n2) o token do gh não tem SSO autorizado pra org — rode `gh auth refresh -h github.com -s repo` e autorize o SSO quando o navegador abrir."
-            ));
+        if let Some(r) = gh_no_repo_access(&err) {
+            // GH_NO_ACCESS: → a tela cai sozinha pro PR no navegador (a branch já foi enviada)
+            return Err(format!("GH_NO_ACCESS: o gh logado não enxerga {r} — o push funcionou (o git usa outra credencial). Para o app gerenciar o PR, rode `gh auth login` com a conta que tem acesso; se a org usa SSO, `gh auth refresh -h github.com -s repo` e autorize."));
         }
         return Err(format!("gh pr create: {err}"));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct PrComment {
     path: Option<String>,
@@ -5183,12 +6388,41 @@ struct PrComment {
     author: String,
     body: String,
     is_bot: bool,
-    /// id do review comment (inline) — permite responder via gh api …/replies
+    /// id do comentário (review inline OU conversa — este parseado da url #issuecomment-N)
     id: Option<i64>,
     /// este comentário é uma RESPOSTA a outro (thread)
     in_reply_to: Option<i64>,
-    /// já tem resposta na thread (endereçado)
+    /// endereçado: thread → a última palavra começa com "✔" OU é uma RESPOSTA sua (conta do gh);
+    /// conversa → um comentário POSTERIOR "✔ …" (seu/do bot, ou que cita este) fechou o assunto.
+    /// Autoria sozinha nunca conta: quem revisa o próprio PR (agente commitando com a sua conta) tem os
+    /// próprios comentários como pendência de verdade.
     answered: bool,
+    /// thread de review marcada como resolvida no GitHub
+    resolved: bool,
+    /// o código comentado mudou depois (GitHub marca a thread como desatualizada)
+    outdated: bool,
+    /// id (node) da thread de review — resolver via GraphQL (resolveReviewThread)
+    thread_id: Option<String>,
+    /// autor do último comentário da thread
+    last_author: String,
+    /// link direto do comentário no GitHub
+    url: String,
+    created_at: String,
+}
+/// Resumo de review (APPROVED/CHANGES_REQUESTED/COMMENTED) com texto — o corpo do review.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PrReview {
+    id: String,
+    author: String,
+    body: String,
+    state: String,
+    submitted_at: String,
+    is_bot: bool,
+    url: String,
+    /// o mesmo autor deu um review decisivo DEPOIS (aprovou/pediu mudanças de novo/foi dispensado):
+    /// este não vale mais — um "pediu mudanças" antigo não volta pro rework
+    superseded: bool,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -5201,28 +6435,306 @@ struct PrInfo {
     mergeable: String,
     body: String,
     comments: Vec<PrComment>,
+    reviews: Vec<PrReview>,
+    is_draft: bool,
+    merge_state_status: String,
+    base_ref_name: String,
+    checks_total: i64,
+    checks_fail: i64,
+    checks_pending: i64,
+    /// nomes das checagens que falharam (o "pedir pro agente corrigir as checagens" da tela do PR cita quais)
+    failing_checks: Vec<String>,
+    /// login da conta do gh (quem "respondeu" as threads)
+    gh_user: String,
 }
 
-/// Status do PR da tarefa: estado, decisão (aprovado/mudanças) e comentários
-/// (conversa + inline por arquivo — inclui CodeRabbit e pessoas).
+fn pr_is_bot(a: &str) -> bool {
+    let l = a.to_lowercase();
+    l.contains("coderabbit") || l.contains("[bot]")
+}
+
+/// "Respondido" (thread de review) = a última palavra começa com ✔ (padrão das respostas do agente) OU é
+/// uma RESPOSTA da sua conta. Um comentário sozinho seu NÃO está respondido: quando o agente usa a sua
+/// conta e você revisa o PR dele, o seu próprio comentário é pendência (antes nascia "tratado").
+fn pr_thread_answered(n_comments: usize, last_author: &str, last_body: &str, me: &str) -> bool {
+    last_body.trim_start().starts_with('✔') || (n_comments > 1 && !me.is_empty() && last_author.eq_ignore_ascii_case(me))
+}
+
+/// Conversa do PR (issue comments, lista plana e cronológica): um comentário está respondido quando um
+/// comentário POSTERIOR começa com "✔" E cita este (link, #id ou @autor) — o agente é instruído a colar o link. O próprio "✔ …" é resposta, não pendência. Autoria sozinha não conta.
+fn pr_mark_conv_answered(conv: &mut [PrComment], me: &str) {
+    let n = conv.len();
+    let mut marks = vec![false; n];
+    for i in 0..n {
+        let c = &conv[i];
+        if c.body.trim_start().starts_with('✔') {
+            marks[i] = true;
+            continue;
+        }
+        let later = |j: usize| -> bool {
+            let (a, b) = (&conv[i].created_at, &conv[j].created_at);
+            if !a.is_empty() && !b.is_empty() && a != b { b > a } else { j > i }
+        };
+        let id_tx = c.id.map(|x| x.to_string());
+        let mention = format!("@{}", c.author).to_lowercase();
+        marks[i] = (0..n).any(|j| {
+            if j == i || !later(j) {
+                return false;
+            }
+            let r = &conv[j];
+            if !r.body.trim_start().starts_with('✔') {
+                return false;
+            }
+            let low = r.body.to_lowercase();
+            let cites = (!c.url.is_empty() && r.body.contains(&c.url))
+                || id_tx.as_ref().map(|t| r.body.contains(t.as_str())).unwrap_or(false)
+                || (!c.author.is_empty() && low.contains(&mention));
+            // precisa CITAR este comentário: um "✔" genérico não fecha os comentários de outras pessoas
+            cites
+        });
+    }
+    for (c, m) in conv.iter_mut().zip(marks) {
+        c.answered = m;
+    }
+}
+
+/// reviews do `gh pr view --json reviews` → resumos com texto; marca como `superseded` o review que o mesmo
+/// autor já substituiu por outro decisivo (APPROVED / CHANGES_REQUESTED / DISMISSED) depois.
+fn pr_parse_reviews(arr: &serde_json::Value, url: &str) -> Vec<PrReview> {
+    let mut out = vec![];
+    let Some(rs) = arr.as_array() else { return out };
+    let login = |r: &serde_json::Value| r["author"]["login"].as_str().unwrap_or("").to_string();
+    for (i, r) in rs.iter().enumerate() {
+        let body = r["body"].as_str().unwrap_or("").to_string();
+        if body.trim().is_empty() {
+            continue;
+        }
+        let author = login(r);
+        let at = r["submittedAt"].as_str().unwrap_or("").to_string();
+        let superseded = rs.iter().enumerate().any(|(j, o)| {
+            if j == i || !login(o).eq_ignore_ascii_case(&author) {
+                return false;
+            }
+            let decisive = matches!(o["state"].as_str().unwrap_or(""), "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED");
+            let oat = o["submittedAt"].as_str().unwrap_or("");
+            let after = if !at.is_empty() && !oat.is_empty() && oat != at { oat > at.as_str() } else { j > i };
+            decisive && after
+        });
+        out.push(PrReview {
+            id: r["id"].as_str().unwrap_or("").to_string(),
+            is_bot: pr_is_bot(&author),
+            author,
+            body,
+            state: r["state"].as_str().unwrap_or("").to_string(),
+            submitted_at: at,
+            url: url.to_string(),
+            superseded,
+        });
+    }
+    out
+}
+
+/// chave do comentário igual à da UI (prCmtKey no 21-pull-request.js): id numérico, senão autor:início do texto
+fn pr_cmt_key(c: &PrComment) -> String {
+    match c.id {
+        Some(id) => id.to_string(),
+        None => format!("{}:{}", c.author, c.body.chars().take(40).collect::<String>()),
+    }
+}
+
+/// gh pr view falhou porque NÃO HÁ PR (ou o repo não tem GitHub) — isso é "sem PR", não erro de rede.
+fn gh_says_no_pr(stderr: &str) -> bool {
+    let l = stderr.to_lowercase();
+    l.contains("no pull requests found")
+        || l.contains("no open pull requests")
+        || l.contains("could not find pull request")
+        || l.contains("none of the git remotes")
+        || l.contains("no git remotes")
+        || l.contains("not a git repository")
+}
+
+/// "GraphQL: Could not resolve to a Repository with the name 'org/repo'" = a conta logada no gh NÃO
+/// enxerga o repo (outra conta, sem convite, SSO não autorizado). Não é rede nem "sem PR": devolve o repo.
+fn gh_no_repo_access(stderr: &str) -> Option<String> {
+    let i = stderr.find("Could not resolve to a Repository")?;
+    let rest = &stderr[i..];
+    let name = rest.split('\'').nth(1).unwrap_or("").trim();
+    Some(if name.is_empty() { "este repositório".to_string() } else { name.to_string() })
+}
+
+/// statusCheckRollup → (total, falhando, pendentes). CheckRun usa status/conclusion; StatusContext usa state.
+/// nomes das checagens que falharam no statusCheckRollup (CheckRun.name / StatusContext.context)
+fn pr_failing_checks(rollup: &serde_json::Value) -> Vec<String> {
+    let mut out = vec![];
+    if let Some(arr) = rollup.as_array() {
+        for c in arr {
+            let is_ctx = c["__typename"].as_str() == Some("StatusContext") || (c.get("state").is_some() && c.get("status").is_none());
+            let failed = if is_ctx {
+                matches!(c["state"].as_str().unwrap_or(""), "FAILURE" | "ERROR")
+            } else {
+                let status = c["status"].as_str().unwrap_or("");
+                (status.is_empty() || status == "COMPLETED")
+                    && matches!(c["conclusion"].as_str().unwrap_or(""), "FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" | "STARTUP_FAILURE")
+            };
+            if failed {
+                let n = c["name"].as_str().or_else(|| c["context"].as_str()).unwrap_or("").trim().to_string();
+                if !n.is_empty() && !out.contains(&n) { out.push(n); }
+            }
+        }
+    }
+    out
+}
+fn pr_checks_summary(rollup: &serde_json::Value) -> (i64, i64, i64) {
+    let (mut tot, mut fail, mut pend) = (0i64, 0i64, 0i64);
+    if let Some(arr) = rollup.as_array() {
+        for c in arr {
+            tot += 1;
+            let is_ctx = c["__typename"].as_str() == Some("StatusContext") || (c.get("state").is_some() && c.get("status").is_none());
+            if is_ctx {
+                match c["state"].as_str().unwrap_or("") {
+                    "FAILURE" | "ERROR" => fail += 1,
+                    "PENDING" | "EXPECTED" => pend += 1,
+                    _ => {}
+                }
+            } else {
+                let status = c["status"].as_str().unwrap_or("");
+                if !status.is_empty() && status != "COMPLETED" {
+                    pend += 1;
+                } else {
+                    match c["conclusion"].as_str().unwrap_or("") {
+                        "FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" | "STARTUP_FAILURE" => fail += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    (tot, fail, pend)
+}
+
+/// Resposta do GraphQL reviewThreads → comentários achatados (raiz + respostas com in_reply_to).
+fn pr_parse_review_threads(v: &serde_json::Value, me: &str) -> Vec<PrComment> {
+    let mut out = vec![];
+    let threads = &v["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"];
+    let Some(ths) = threads.as_array() else { return out };
+    for th in ths {
+        let Some(cs) = th["comments"]["nodes"].as_array() else { continue };
+        if cs.is_empty() {
+            continue;
+        }
+        let login = |c: &serde_json::Value| c["author"]["login"].as_str().unwrap_or("").to_string();
+        let last = cs.last().unwrap();
+        let last_author = login(last);
+        let answered = pr_thread_answered(cs.len(), &last_author, last["body"].as_str().unwrap_or(""), me);
+        let resolved = th["isResolved"].as_bool().unwrap_or(false);
+        let outdated = th["isOutdated"].as_bool().unwrap_or(false);
+        let thread_id = th["id"].as_str().map(|s| s.to_string());
+        let root_id = cs[0]["databaseId"].as_i64();
+        for (i, c) in cs.iter().enumerate() {
+            let body = c["body"].as_str().unwrap_or("").to_string();
+            if body.trim().is_empty() {
+                continue;
+            }
+            let author = login(c);
+            out.push(PrComment {
+                path: c["path"].as_str().map(|s| s.to_string()),
+                line: c["line"].as_i64().or_else(|| c["originalLine"].as_i64()),
+                is_bot: pr_is_bot(&author),
+                author,
+                body,
+                id: c["databaseId"].as_i64(),
+                // resposta aponta pra raiz (-1 se a raiz veio sem id: continua sendo "resposta", não vira card)
+                in_reply_to: if i == 0 { None } else { Some(root_id.unwrap_or(-1)) },
+                answered,
+                resolved,
+                outdated,
+                thread_id: thread_id.clone(),
+                last_author: last_author.clone(),
+                url: c["url"].as_str().unwrap_or("").to_string(),
+                created_at: c["createdAt"].as_str().unwrap_or("").to_string(),
+            });
+        }
+    }
+    out
+}
+
+/// Login da conta do gh (cache de 10 min — a conta pode ser trocada no app).
+fn gh_user_login(repo: &PathBuf) -> String {
+    static CACHE: Mutex<Option<(String, std::time::Instant)>> = Mutex::new(None);
+    if let Some((u, at)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(600) {
+            return u.clone();
+        }
+    }
+    let mut c = Command::new(gh_bin());
+    c.args(["api", "user", "-q", ".login"]).current_dir(repo);
+    match output_timeout(c, 10) {
+        Ok(o) if o.status.success() => {
+            let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !u.is_empty() {
+                *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((u.clone(), std::time::Instant::now()));
+            }
+            u
+        }
+        _ => String::new(),
+    }
+}
+
+/// Status do PR da tarefa: estado, decisão (aprovado/mudanças), checks, reviews e comentários
+/// (conversa + threads inline com resolvido/desatualizado — inclui CodeRabbit e pessoas).
+/// Falha de rede/gh vira ERRO (a UI diz "não consegui falar com o GitHub"); só "não há PR" vira exists:false.
 #[tauri::command(async)]
 fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> {
     let (repo, branch) = pr_head(&state, &task_id)?;
-    let empty = PrInfo { exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(), comments: vec![] };
-    let mut vcmd = Command::new(gh_bin());
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments"]).current_dir(&repo);
-    // rede caída / gh pendurado → devolve "sem PR" em vez de travar/errar a UI
-    let view = match output_timeout(vcmd, 12) {
-        Ok(o) => o,
-        Err(_) => return Ok(empty),
+    let empty = PrInfo {
+        exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(),
+        comments: vec![], reviews: vec![], is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
+        checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(),
     };
+    let mut vcmd = Command::new(gh_bin());
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName"]).args(gh_repo_args(&repo)).current_dir(&repo);
+    let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !view.status.success() {
-        return Ok(empty);
+        let err = String::from_utf8_lossy(&view.stderr).to_string();
+        if gh_says_no_pr(&err) {
+            return Ok(empty);
+        }
+        if let Some(r) = gh_no_repo_access(&err) {
+            return Err(format!("GH_NO_ACCESS: a conta logada no gh não tem acesso a {r} — rode `gh auth switch` (ou `gh auth login`) com a conta que enxerga esse repositório; se a org usa SSO, `gh auth refresh -h github.com -s repo` e autorize"));
+        }
+        return Err(format!("gh pr view falhou: {}", err.trim()));
     }
     let v: serde_json::Value = serde_json::from_slice(&view.stdout).map_err(|e| e.to_string())?;
     let number = v["number"].as_i64().unwrap_or(0);
-    let is_bot = |a: &str| { let l = a.to_lowercase(); l.contains("coderabbit") || l.contains("[bot]") };
+    let is_bot = pr_is_bot;
+    let mut me = String::new();
     let mut comments: Vec<PrComment> = vec![];
+    // threads inline via GraphQL: traz resolvido/desatualizado (o REST não tem) + o login da conta (viewer)
+    let slug = if number > 0 { repo_slug(&repo).ok() } else { None };
+    let mut got_threads = false;
+    if let Some(slug) = slug.as_ref() {
+        if let Some((owner, name)) = slug.split_once('/') {
+            let q = "query($owner:String!,$name:String!,$num:Int!){viewer{login} repository(owner:$owner,name:$name){pullRequest(number:$num){reviewThreads(first:100){nodes{id isResolved isOutdated comments(first:50){nodes{databaseId author{login} body path line originalLine createdAt url}}}}}}}";
+            let mut gcmd = Command::new(gh_bin());
+            gcmd.args(["api", "graphql", "-f", &format!("query={q}"), "-f", &format!("owner={owner}"), "-f", &format!("name={name}"), "-F", &format!("num={number}")]).current_dir(&repo);
+            if let Ok(o) = output_timeout(gcmd, 15) {
+                if o.status.success() {
+                    if let Ok(gv) = serde_json::from_slice::<serde_json::Value>(&o.stdout) {
+                        if gv["data"]["repository"]["pullRequest"].is_object() {
+                            me = gv["data"]["viewer"]["login"].as_str().unwrap_or("").to_string();
+                            comments.extend(pr_parse_review_threads(&gv, &me));
+                            got_threads = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if me.is_empty() {
+        me = gh_user_login(&repo);
+    }
+    // conversa do PR (issue comments)
+    let mut conv: Vec<PrComment> = vec![];
     if let Some(arr) = v["comments"].as_array() {
         for c in arr {
             let author = c["author"]["login"].as_str().unwrap_or("").to_string();
@@ -5230,18 +6742,33 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
             if body.trim().is_empty() {
                 continue;
             }
+            let url = c["url"].as_str().unwrap_or("").to_string();
+            // id numérico sai da url (#issuecomment-N) — o "id" do gh aqui é node id
+            let id = url.rsplit_once("#issuecomment-").and_then(|(_, n)| n.parse::<i64>().ok());
             let bot = is_bot(&author);
-            comments.push(PrComment { path: None, line: None, author, body, is_bot: bot, id: None, in_reply_to: None, answered: false });
+            conv.push(PrComment {
+                // "respondido" é decidido abaixo (pr_mark_conv_answered): autoria sozinha não conta
+                // minimizado no GitHub (resolvido/desatualizado/spam) não é mais pendência
+                resolved: c["isMinimized"].as_bool().unwrap_or(false),
+                last_author: author.clone(),
+                created_at: c["createdAt"].as_str().unwrap_or("").to_string(),
+                author, body, is_bot: bot, id, url,
+                ..Default::default()
+            });
         }
     }
-    if number > 0 {
-        if let Ok(slug) = repo_slug(&repo) {
+    pr_mark_conv_answered(&mut conv, &me);
+    comments.splice(0..0, conv);
+    // fallback: GraphQL falhou → REST antigo (sem resolvido/desatualizado; "respondido" = tem resposta)
+    if !got_threads && number > 0 {
+        if let Some(slug) = slug.as_ref() {
             let mut acmd = Command::new(gh_bin());
             acmd.args(["api", &format!("repos/{}/pulls/{}/comments", slug, number), "--paginate"]).current_dir(&repo);
             if let Ok(o) = output_timeout(acmd, 15) {
                 if o.status.success() {
                     if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&o.stdout) {
                         if let Some(a) = arr.as_array() {
+                            let mut rest: Vec<PrComment> = vec![];
                             for c in a {
                                 let author = c["user"]["login"].as_str().unwrap_or("").to_string();
                                 let body = c["body"].as_str().unwrap_or("").to_string();
@@ -5251,28 +6778,41 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
                                 let path = c["path"].as_str().map(|s| s.to_string());
                                 let line = c["line"].as_i64().or_else(|| c["original_line"].as_i64());
                                 let bot = is_bot(&author);
-                                comments.push(PrComment { path, line, author, body, is_bot: bot, id: c["id"].as_i64(), in_reply_to: c["in_reply_to_id"].as_i64(), answered: false });
+                                rest.push(PrComment {
+                                    path, line, is_bot: bot, id: c["id"].as_i64(), in_reply_to: c["in_reply_to_id"].as_i64(),
+                                    last_author: author.clone(), author, body,
+                                    url: c["html_url"].as_str().unwrap_or("").to_string(),
+                                    created_at: c["created_at"].as_str().unwrap_or("").to_string(),
+                                    ..Default::default()
+                                });
                             }
+                            // marca como RESPONDIDO todo comentário cuja thread tem resposta
+                            let replied: std::collections::HashSet<i64> = rest.iter().filter_map(|c| c.in_reply_to).collect();
+                            for c in rest.iter_mut() {
+                                if let Some(cid) = c.id {
+                                    if replied.contains(&cid) {
+                                        c.answered = true;
+                                    }
+                                }
+                            }
+                            comments.extend(rest);
                         }
                     }
                 }
             }
         }
     }
-    // marca como RESPONDIDO todo comentário cuja thread tem resposta
-    let replied: std::collections::HashSet<i64> = comments.iter().filter_map(|c| c.in_reply_to).collect();
-    for c in comments.iter_mut() {
-        if let Some(cid) = c.id {
-            if replied.contains(&cid) {
-                c.answered = true;
-            }
-        }
-    }
     let url = v["url"].as_str().unwrap_or("").to_string();
+    // resumos de review com texto (o "request changes" com explicação não aparecia em lugar nenhum)
+    let reviews: Vec<PrReview> = pr_parse_reviews(&v["reviews"], &url);
+    let (checks_total, checks_fail, checks_pending) = pr_checks_summary(&v["statusCheckRollup"]);
+    let failing_checks = pr_failing_checks(&v["statusCheckRollup"]);
     // PERSISTE o PR na tarefa (spec.prUrl): sem isso o link só existia "ao
     // vivo" via gh — snapshot/sync do time ficavam com pr_url nulo pra sempre.
     if !url.is_empty() {
-        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db_path_now {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
                 if let Ok(spec_str) = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
@@ -5292,7 +6832,9 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     // → a tarefa vira 'merged'. Sem isto ela fica presa em 'review' pra sempre
     // depois de um merge externo. Não sobrescreve estado já terminal.
     if pr_state == "MERGED" {
-        if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+        let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(path) = db_path_now {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
                 let flipped = conn.execute(
@@ -5300,7 +6842,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
                     params![task_id],
                 ).unwrap_or(0);
                 // worktree mergeada não serve mais — libera o disco na hora
-                if flipped > 0 { if let Ok(repo) = repo_of(&state) { remove_task_worktree(&repo, &conn, &task_id); } }
+                if flipped > 0 { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
             }
         }
     }
@@ -5313,6 +6855,15 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         mergeable: v["mergeable"].as_str().unwrap_or("").to_string(),
         body: v["body"].as_str().unwrap_or("").to_string(),
         comments,
+        reviews,
+        is_draft: v["isDraft"].as_bool().unwrap_or(false),
+        merge_state_status: v["mergeStateStatus"].as_str().unwrap_or("").to_string(),
+        base_ref_name: v["baseRefName"].as_str().unwrap_or("").to_string(),
+        checks_total,
+        checks_fail,
+        checks_pending,
+        failing_checks,
+        gh_user: me,
     })
 }
 
@@ -5324,47 +6875,606 @@ struct RepoCheck {
     detail: String,
 }
 
-/// Checagens pré-PR na worktree da tarefa (modal "Preparando o PR"):
-/// roda lint/test do package.json quando existem. Sem scripts → lista vazia.
-#[tauri::command(async)]
-fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>, String> {
+// ---------- Gate de verificação: checagens do projeto (testes, lint, tipos, build) ----------
+// O projeto declara as checagens em <repo>/.cardume/checks.json (Preferências do projeto →
+// "Checagens antes de aprovar"). Sem arquivo, vale o que for DETECTADO na cópia da tarefa
+// (package.json, Cargo.toml, pytest, go.mod). Cada checagem roda NA WORKTREE da tarefa, num
+// grupo de processo próprio (detach_new_group) com tempo-limite (signal_group mata a árvore),
+// e devolve exit code, duração e as últimas ~200 linhas do log — não um .txt que o agente escreveu.
+
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct CheckDef {
+    id: String,
+    label: String,
+    cmd: String,
+    #[serde(default)]
+    on: bool,
+    /// de onde veio: "package.json", "Cargo.toml", "pytest", "go.mod" ou "custom"
+    #[serde(default)]
+    source: String,
+}
+
+/// Checagens que dá pra deduzir dos arquivos do projeto. `on` = ligada por padrão
+/// (build fica desligado: costuma ser lento e o typecheck já pega o grosso).
+fn detect_checks_in(dir: &Path) -> Vec<CheckDef> {
+    let mut out: Vec<CheckDef> = vec![];
+    let def = |id: &str, label: &str, cmd: String, on: bool, source: &str| CheckDef { id: id.into(), label: label.into(), cmd, on, source: source.into() };
+    if let Ok(txt) = std::fs::read_to_string(dir.join("package.json")) {
+        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
+            let pm = if dir.join("pnpm-lock.yaml").is_file() { "pnpm" }
+                else if dir.join("yarn.lock").is_file() { "yarn" }
+                else if dir.join("bun.lockb").is_file() || dir.join("bun.lock").is_file() { "bun" }
+                else { "npm" };
+            let run = |s: &str| match pm {
+                "pnpm" => format!("pnpm run {s}"),
+                "yarn" => format!("yarn {s}"),
+                "bun" => format!("bun run {s}"),
+                _ => format!("npm run {s} --silent"),
+            };
+            let scripts = &j["scripts"];
+            let has = |s: &str| scripts[s].as_str().map(|v| !v.trim().is_empty()).unwrap_or(false);
+            if has("lint") { out.push(def("npm:lint", "Linter", run("lint"), true, "package.json")); }
+            if let Some(tc) = ["typecheck", "type-check", "check-types", "tsc"].iter().find(|s| has(s)) {
+                out.push(def("npm:typecheck", "Tipos (typecheck)", run(tc), true, "package.json"));
+            }
+            // o "test" que o `npm init` cria ("no test specified && exit 1") não é teste
+            if has("test") && !scripts["test"].as_str().unwrap_or("").contains("no test specified") {
+                out.push(def("npm:test", "Testes", run("test"), true, "package.json"));
+            }
+            if has("build") { out.push(def("npm:build", "Build", run("build"), false, "package.json")); }
+        }
+    }
+    if dir.join("Cargo.toml").is_file() {
+        out.push(def("cargo:test", "Testes (Rust)", "cargo test".into(), true, "Cargo.toml"));
+    }
+    let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap_or_default();
+    let pytest = dir.join("pytest.ini").is_file()
+        || dir.join("conftest.py").is_file()
+        || read("pyproject.toml").contains("pytest")
+        || read("setup.cfg").contains("[tool:pytest]")
+        || read("tox.ini").contains("[pytest]");
+    if pytest {
+        let py = if cfg!(windows) { "python" } else { "python3" };
+        out.push(def("py:pytest", "Testes (Python)", format!("{py} -m pytest -q"), true, "pytest"));
+    }
+    if dir.join("go.mod").is_file() {
+        out.push(def("go:test", "Testes (Go)", "go test ./...".into(), true, "go.mod"));
+    }
+    out
+}
+
+/// Detectadas + configuração do projeto → lista final (com `on` resolvido).
+/// cfg = { "enabled": { "<id>": bool }, "custom": [{ id?, label, cmd, on? }], "timeoutMin": n }
+fn effective_checks(detected: &[CheckDef], cfg: &serde_json::Value) -> Vec<CheckDef> {
+    let mut out: Vec<CheckDef> = detected
+        .iter()
+        .map(|d| CheckDef { on: cfg["enabled"][&d.id].as_bool().unwrap_or(d.on), ..d.clone() })
+        .collect();
+    if let Some(arr) = cfg["custom"].as_array() {
+        for (i, c) in arr.iter().enumerate() {
+            let cmd = c["cmd"].as_str().unwrap_or("").trim().to_string();
+            if cmd.is_empty() { continue; }
+            let id = c["id"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()).unwrap_or_else(|| format!("custom:{i}"));
+            let label = c["label"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or(&cmd).to_string();
+            out.push(CheckDef { id, label, cmd, on: c["on"].as_bool().unwrap_or(true), source: "custom".into() });
+        }
+    }
+    out
+}
+
+fn checks_cfg_path(repo: &Path) -> PathBuf { repo.join(".cardume").join("checks.json") }
+fn read_checks_cfg(repo: &Path) -> serde_json::Value {
+    std::fs::read_to_string(checks_cfg_path(repo))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+fn checks_timeout_secs(cfg: &serde_json::Value) -> u64 {
+    cfg["timeoutMin"].as_u64().filter(|m| *m >= 1 && *m <= 120).unwrap_or(10) * 60
+}
+
+/// Últimas N linhas do log, sem cores ANSI e com cada linha limitada — memória
+/// constante mesmo com teste que cospe megabytes.
+struct LineTail {
+    max_lines: usize,
+    max_cols: usize,
+    lines: std::collections::VecDeque<String>,
+    total: usize,
+}
+impl LineTail {
+    fn new(max_lines: usize, max_cols: usize) -> Self { LineTail { max_lines, max_cols, lines: Default::default(), total: 0 } }
+    fn push(&mut self, raw: &str) {
+        let mut s = strip_ansi(raw.trim_end_matches(['\r', '\n']));
+        if s.chars().count() > self.max_cols {
+            s = s.chars().take(self.max_cols).collect::<String>() + "…";
+        }
+        self.total += 1;
+        self.lines.push_back(s);
+        while self.lines.len() > self.max_lines { self.lines.pop_front(); }
+    }
+    fn text(&self) -> String {
+        let cut = self.total.saturating_sub(self.lines.len());
+        let head = if cut > 0 { format!("… ({cut} linhas antes cortadas)\n") } else { String::new() };
+        head + &self.lines.iter().cloned().collect::<Vec<_>>().join("\n")
+    }
+}
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\u{1b}' {
+            if it.peek() == Some(&'[') {
+                it.next();
+                while let Some(&n) = it.peek() { it.next(); if ('@'..='~').contains(&n) { break; } }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// FNV-1a 64 (estável entre versões do app — vai pro cache do front).
+fn fnv64(parts: &[&[u8]]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for p in parts { for b in p.iter() { h ^= *b as u64; h = h.wrapping_mul(0x0100_0000_01b3); } }
+    h
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct TaskFingerprint {
+    fingerprint: String,
+    head: String,
+    dirty: bool,
+}
+/// "Versão" do código da tarefa: HEAD + (se houver) hash das mudanças não commitadas.
+/// Mudou → as checagens anteriores ficam desatualizadas. `.cardume/` fica de fora
+/// (relatório/prints do agente não invalidam teste).
+fn wt_fingerprint(wt: &Path) -> Result<TaskFingerprint, String> {
+    let git = |args: &[&str]| -> Result<Vec<u8>, String> {
+        let o = Command::new("git").arg("-C").arg(wt).args(args).output().map_err(|e| e.to_string())?;
+        if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).trim().to_string()); }
+        Ok(o.stdout)
+    };
+    let head = String::from_utf8_lossy(&git(&["rev-parse", "HEAD"])?).trim().to_string();
+    let st = git(&["status", "--porcelain=v1", "--untracked-files=all", "--", ".", ":(exclude).cardume"])?;
+    let dirty = !st.iter().all(|b| b.is_ascii_whitespace());
+    let short: String = head.chars().take(12).collect();
+    if !dirty {
+        return Ok(TaskFingerprint { fingerprint: short, head, dirty });
+    }
+    let diff = git(&["diff", "HEAD", "--", ".", ":(exclude).cardume"]).unwrap_or_default();
+    // untracked: o diff não mostra o conteúdo — tamanho + mtime bastam pra perceber a mudança
+    let mut extra = String::new();
+    for line in String::from_utf8_lossy(&st).lines() {
+        if let Some(p) = line.strip_prefix("?? ") {
+            if let Ok(m) = std::fs::metadata(wt.join(p.trim_matches('"'))) {
+                let mt = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0);
+                extra.push_str(&format!("{p}:{}:{mt}\n", m.len()));
+            }
+        }
+    }
+    let h = fnv64(&[&st, &diff, extra.as_bytes()]);
+    Ok(TaskFingerprint { fingerprint: format!("{short}+{h:016x}"), head, dirty })
+}
+
+fn task_worktree(state: &State<AppState>, task_id: &str) -> Result<PathBuf, String> {
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("sem projeto aberto")?;
     let conn = open(&db)?;
     let wt: String = conn
         .query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
-    let mut out: Vec<RepoCheck> = vec![];
-    let pkg = PathBuf::from(&wt).join("package.json");
-    if let Ok(txt) = std::fs::read_to_string(&pkg) {
-        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
-            for (script, label) in [("lint", "Linter"), ("test", "Testes")] {
-                if j["scripts"][script].as_str().is_some() {
-                    let mut c = npm_cmd();
-                    c.args(["run", script, "--silent"]).current_dir(&wt);
-                    match output_timeout(c, 300) {
-                        Ok(o) => {
-                            let ok = o.status.success();
-                            let tail = |b: &[u8]| -> String {
-                                let s = String::from_utf8_lossy(b);
-                                s.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
-                            };
-                            out.push(RepoCheck {
-                                name: label.to_string(),
-                                ok,
-                                detail: if ok { "passou".into() } else { tail(&o.stderr).chars().take(500).collect() },
-                            });
-                        }
-                        Err(e) => out.push(RepoCheck {
-                            name: label.to_string(),
-                            ok: false,
-                            detail: if e.contains("os error 2") { "npm não encontrado nesta máquina — instale o Node (brew install node) e verifique o Ambiente".into() } else { e },
-                        }),
-                    }
+        .map_err(task_query_err)?;
+    let p = PathBuf::from(&wt);
+    if wt.is_empty() || !p.is_dir() {
+        return Err(WT_GONE.into());
+    }
+    Ok(p)
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct CheckResult {
+    id: String,
+    label: String,
+    cmd: String,
+    ok: bool,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    timed_out: bool,
+    stopped: bool,
+    log: String,
+}
+
+/// pid do grupo da checagem em andamento por tarefa (pra "parar") + tarefas canceladas.
+static CHECK_PIDS: std::sync::OnceLock<Mutex<HashMap<String, i32>>> = std::sync::OnceLock::new();
+static CHECK_STOPS: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+fn check_pids() -> &'static Mutex<HashMap<String, i32>> { CHECK_PIDS.get_or_init(|| Mutex::new(HashMap::new())) }
+fn check_stops() -> &'static Mutex<std::collections::HashSet<String>> { CHECK_STOPS.get_or_init(|| Mutex::new(Default::default())) }
+
+/// PATH pras checagens: app aberto pelo Finder tem PATH mínimo — junta o node
+/// resolvido (nvm incluso), Homebrew, cargo e go.
+fn checks_path_env() -> String {
+    let mut dirs: Vec<String> = vec![];
+    if let Some(d) = Path::new(&node_bin()).parent() { dirs.push(d.display().to_string()); }
+    let home = home_opt().unwrap_or_default();
+    for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin"] { dirs.push(d.into()); }
+    if !home.is_empty() {
+        dirs.push(format!("{home}/.cargo/bin"));
+        dirs.push(format!("{home}/go/bin"));
+        dirs.push(format!("{home}/.local/bin"));
+    }
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let cur = std::env::var("PATH").unwrap_or_default();
+    format!("{}{sep}{cur}", dirs.join(sep))
+}
+
+/// Roda UMA checagem no diretório, num grupo próprio; tempo-limite → mata a árvore.
+fn run_one_check(task_id: &str, dir: &Path, def: &CheckDef, secs: u64) -> CheckResult {
+    use std::io::BufRead;
+    let started = std::time::Instant::now();
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(format!("{} 2>&1", def.cmd));
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(format!("exec 2>&1\n{}", def.cmd));
+        c
+    };
+    // CI=1: vitest/jest/etc. rodam uma vez (sem modo watch); sem cor no log
+    cmd.current_dir(dir).env("PATH", checks_path_env()).env("CI", "1").env("FORCE_COLOR", "0").env("NO_COLOR", "1");
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    detach_new_group(&mut cmd);
+    let fail = |msg: String, started: std::time::Instant| CheckResult {
+        id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(), ok: false, exit_code: None,
+        duration_ms: started.elapsed().as_millis() as u64, timed_out: false, stopped: false, log: msg,
+    };
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return fail(format!("não consegui rodar o comando: {e}"), started),
+    };
+    let pid = child.id() as i32;
+    check_pids().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string(), pid);
+    let tail = Arc::new(Mutex::new(LineTail::new(200, 400)));
+    if let Some(out) = child.stdout.take() {
+        let t2 = tail.clone();
+        // a thread pode ficar presa se um neto escapar do grupo e segurar o pipe — por isso
+        // NÃO é joinada: o resultado lê o que já chegou.
+        std::thread::spawn(move || {
+            let mut r = std::io::BufReader::new(out);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match r.read_until(b'\n', &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => t2.lock().unwrap_or_else(|e| e.into_inner()).push(&String::from_utf8_lossy(&buf)),
                 }
             }
-        }
+        });
     }
-    Ok(out)
+    let deadline = started + std::time::Duration::from_secs(secs);
+    let (mut timed_out, mut stopped) = (false, false);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) => {}
+            Err(_) => break None,
+        }
+        if check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) {
+            stopped = true;
+            signal_group(pid, procsig::KILL);
+            break child.wait().ok();
+        }
+        if std::time::Instant::now() >= deadline {
+            timed_out = true;
+            signal_group(pid, procsig::KILL);
+            break child.wait().ok();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    };
+    // sobras em segundo plano (servidor de teste etc.) morrem junto com o grupo
+    signal_group(pid, procsig::KILL);
+    check_pids().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    std::thread::sleep(std::time::Duration::from_millis(150)); // últimas linhas do pipe
+    let mut log = tail.lock().unwrap_or_else(|e| e.into_inner()).text();
+    if timed_out { log.push_str(&format!("\n⏱ passou de {} min — a checagem foi interrompida", secs / 60)); }
+    if stopped { log.push_str("\n■ interrompida por você"); }
+    let exit_code = status.and_then(|s| s.code());
+    CheckResult {
+        id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(),
+        ok: !timed_out && !stopped && exit_code == Some(0),
+        exit_code, duration_ms: started.elapsed().as_millis() as u64, timed_out, stopped, log,
+    }
+}
+
+/// Roda as checagens LIGADAS na worktree, em ordem; `on_step(i, Some(res))` depois de cada uma.
+fn run_checks_in(task_id: &str, wt: &Path, defs: &[CheckDef], secs: u64, mut on_step: impl FnMut(&CheckDef, Option<&CheckResult>)) -> Vec<CheckResult> {
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    let mut out = vec![];
+    for d in defs.iter().filter(|d| d.on) {
+        if check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) { break; }
+        on_step(d, None);
+        let r = run_one_check(task_id, wt, d, secs);
+        on_step(d, Some(&r));
+        out.push(r);
+    }
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+    out
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChecksConfig {
+    detected: Vec<CheckDef>,
+    effective: Vec<CheckDef>,
+    cfg: serde_json::Value,
+    file: String,
+    dir: String,
+}
+/// Checagens do projeto: detectadas (na cópia da tarefa, se `task_id`; senão no repo)
+/// + a configuração salva. O front mostra/edita; `run_checks` usa a mesma conta.
+#[tauri::command(async)]
+fn checks_config(state: State<AppState>, task_id: Option<String>) -> Result<ChecksConfig, String> {
+    let repo = repo_of(&state)?;
+    let dir = task_id.as_deref().filter(|s| !s.is_empty()).and_then(|t| task_worktree(&state, t).ok()).unwrap_or_else(|| repo.clone());
+    let cfg = read_checks_cfg(&repo);
+    let detected = detect_checks_in(&dir);
+    let effective = effective_checks(&detected, &cfg);
+    Ok(ChecksConfig { detected, effective, cfg, file: checks_cfg_path(&repo).display().to_string(), dir: dir.display().to_string() })
+}
+
+#[tauri::command(async)]
+fn checks_save(state: State<AppState>, cfg: serde_json::Value) -> Result<String, String> {
+    if !cfg.is_object() { return Err("configuração inválida".into()); }
+    let repo = repo_of(&state)?;
+    let p = checks_cfg_path(&repo);
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(p.display().to_string())
+}
+
+#[tauri::command(async)]
+fn task_fingerprint(state: State<AppState>, task_id: String) -> Result<TaskFingerprint, String> {
+    wt_fingerprint(&task_worktree(&state, &task_id)?)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChecksRun {
+    fingerprint: String,
+    head: String,
+    dirty: bool,
+    at: i64,
+    results: Vec<CheckResult>,
+}
+/// Roda as checagens ligadas do projeto na worktree da tarefa. Progresso sai no
+/// evento `checks-progress` ({ taskId, id, label, phase: "start"|"done", result }).
+#[tauri::command(async)]
+fn run_checks(app: tauri::AppHandle, state: State<AppState>, task_id: String) -> Result<ChecksRun, String> {
+    use tauri::Emitter;
+    let repo = repo_of(&state)?;
+    let wt = task_worktree(&state, &task_id)?;
+    if check_pids().lock().unwrap_or_else(|e| e.into_inner()).contains_key(&task_id) {
+        return Err("as checagens desta tarefa já estão rodando".into());
+    }
+    let cfg = read_checks_cfg(&repo);
+    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let fp = wt_fingerprint(&wt)?; // ANTES de rodar: é esta versão que foi verificada
+    let tid = task_id.clone();
+    let results = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |d, r| {
+        let _ = app.emit("checks-progress", serde_json::json!({ "taskId": tid, "id": d.id, "label": d.label, "phase": if r.is_some() { "done" } else { "start" }, "result": r }));
+    });
+    Ok(ChecksRun { fingerprint: fp.fingerprint, head: fp.head, dirty: fp.dirty, at: now_ms(), results })
+}
+
+#[tauri::command(async)]
+fn run_checks_stop(task_id: String) -> bool {
+    check_stops().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.clone());
+    let pid = check_pids().lock().unwrap_or_else(|e| e.into_inner()).get(&task_id).copied();
+    if let Some(p) = pid { signal_group(p, procsig::KILL); true } else { false }
+}
+
+/// "Aprovar mesmo assim": registra o motivo no projeto (.cardume/checks-overrides.jsonl).
+#[tauri::command(async)]
+fn checks_override_log(state: State<AppState>, task_id: String, reason: String, fingerprint: String, failing: Vec<String>) -> Result<(), String> {
+    use std::io::Write;
+    let repo = repo_of(&state)?;
+    let p = repo.join(".cardume").join("checks-overrides.jsonl");
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    let line = serde_json::json!({ "at": now_ms(), "taskId": task_id, "reason": reason, "fingerprint": fingerprint, "failing": failing });
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| e.to_string())?;
+    writeln!(f, "{line}").map_err(|e| e.to_string())
+}
+
+/// Checagens pré-PR (modal "Preparando o PR" antigo e aprovação pelo celular): agora usa
+/// as MESMAS checagens do projeto (detectadas + .cardume/checks.json). Sem nenhuma → lista vazia.
+#[tauri::command(async)]
+fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>, String> {
+    let repo = repo_of(&state)?;
+    let wt = task_worktree(&state, &task_id)?;
+    let cfg = read_checks_cfg(&repo);
+    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let res = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |_, _| {});
+    Ok(res
+        .into_iter()
+        .map(|r| {
+            let detail = if r.ok { "passou".to_string() } else {
+                let lines: Vec<&str> = r.log.lines().collect();
+                let tail = lines[lines.len().saturating_sub(8)..].join("\n");
+                if tail.contains("os error 2") || tail.contains("not found") && r.exit_code == Some(127) {
+                    format!("comando não encontrado nesta máquina ({}) — verifique o Ambiente", r.cmd)
+                } else { tail.chars().take(600).collect() }
+            };
+            RepoCheck { name: r.label, ok: r.ok, detail }
+        })
+        .collect())
+}
+
+// ---------- Entrega sem código: salvar os entregáveis numa pasta do usuário ----------
+/// Pasta do usuário em qualquer SO — a mesma que o motor enxerga (Node os.homedir()): no Windows
+/// USERPROFILE primeiro; no macOS/Linux HOME. Antes, 11 lugares liam só o HOME: no Windows o cofre
+/// (llm.env), settings.json, skills e o catálogo global caíam numa pasta RELATIVA ao diretório atual.
+fn home_dir_s() -> String {
+    home_opt().unwrap_or_else(|| {
+        // nunca em silêncio: sem pasta do usuário, cofre/configurações iriam pra pasta atual
+        eprintln!("[starfork] pasta do usuário não encontrada (HOME/USERPROFILE vazios) — usando a pasta atual");
+        ".".into()
+    })
+}
+fn home_opt() -> Option<String> {
+    home_from(std::env::var("HOME").ok(), std::env::var("USERPROFILE").ok(), cfg!(windows))
+}
+fn home_from(home: Option<String>, profile: Option<String>, windows: bool) -> Option<String> {
+    let home = home.filter(|h| !h.trim().is_empty());
+    let profile = profile.filter(|p| !p.trim().is_empty());
+    if windows { profile.or(home) } else { home.or(profile) }
+}
+/// Pasta padrão das entregas: ~/Documents/Starfork/Entregas
+#[tauri::command(async)]
+fn deliverables_default_dir() -> String {
+    PathBuf::from(home_dir_s()).join("Documents").join("Starfork").join("Entregas").display().to_string()
+}
+/// Um nome de pasta seguro (sem barra, dois-pontos, ..; no máx. 80 caracteres).
+fn safe_dir_component(s: &str) -> String {
+    let c: String = s.chars().map(|ch| if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || ch.is_control() { ' ' } else { ch }).collect();
+    let c = c.split_whitespace().collect::<Vec<_>>().join(" ");
+    let c = c.trim_matches('.').trim().chars().take(80).collect::<String>();
+    if c.is_empty() { "entrega".into() } else { c }
+}
+/// Caminho livre: "x.pdf" já existe → "x (2).pdf".
+fn free_path(p: PathBuf) -> PathBuf {
+    if !p.exists() { return p; }
+    let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    for i in 2..1000 {
+        let c = dir.join(format!("{stem} ({i}){ext}"));
+        if !c.exists() { return c; }
+    }
+    p
+}
+/// Copia os artefatos da tarefa pra <base>/<sub…>/ (sub = "projeto/2026-09-27 título",
+/// cada parte higienizada). Devolve a pasta final.
+#[tauri::command(async)]
+fn save_deliverables(state: State<AppState>, task_id: String, names: Vec<String>, base: Option<String>, sub: String) -> Result<String, String> {
+    let base = base.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()).unwrap_or_else(deliverables_default_dir);
+    let base = if let Some(rest) = base.strip_prefix("~/") { PathBuf::from(home_dir_s()).join(rest) } else { PathBuf::from(&base) };
+    if !base.is_absolute() { return Err("escolha uma pasta com o caminho completo".into()); }
+    let mut dest = base;
+    for part in sub.split('/').filter(|p| !p.trim().is_empty()) { dest.push(safe_dir_component(part)); }
+    std::fs::create_dir_all(&dest).map_err(|e| format!("não consegui criar a pasta {}: {e}", dest.display()))?;
+    let mut n = 0;
+    for name in names.iter().filter(|n| n.as_str() != "requirements.json") {
+        let src = artifact_path(&state, &task_id, name)?;
+        let fname = Path::new(name).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| "arquivo".into());
+        std::fs::copy(&src, free_path(dest.join(fname))).map_err(|e| format!("falhou copiar {name}: {e}"))?;
+        n += 1;
+    }
+    if n == 0 { return Err("nenhum entregável pra salvar".into()); }
+    Ok(dest.display().to_string())
+}
+/// Abre uma pasta no Finder/gerenciador de arquivos.
+#[tauri::command(async)]
+fn open_folder(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_dir() { return Err("pasta não encontrada".into()); }
+    os_open(p.as_os_str()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod checks_tests {
+    use super::*;
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sf-checks-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    #[test]
+    fn detecta_scripts_do_package_json_e_ignora_test_placeholder() {
+        let d = tmp("pkg");
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"lint":"eslint .","typecheck":"tsc --noEmit","test":"echo \"Error: no test specified\" && exit 1","build":"vite build"}}"#).unwrap();
+        let c = detect_checks_in(&d);
+        let ids: Vec<&str> = c.iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(ids, vec!["npm:lint", "npm:typecheck", "npm:build"]);
+        assert_eq!(c[0].cmd, "npm run lint --silent");
+        assert!(!c[2].on, "build desligado por padrão");
+        std::fs::write(d.join("pnpm-lock.yaml"), "").unwrap();
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"test":"vitest"}}"#).unwrap();
+        let c = detect_checks_in(&d);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].cmd, "pnpm run test");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn detecta_cargo_pytest_e_go() {
+        let d = tmp("multi");
+        std::fs::write(d.join("Cargo.toml"), "[package]\nname='x'").unwrap();
+        std::fs::write(d.join("pyproject.toml"), "[tool.pytest.ini_options]\n").unwrap();
+        std::fs::write(d.join("go.mod"), "module x").unwrap();
+        let ids: Vec<String> = detect_checks_in(&d).into_iter().map(|x| x.id).collect();
+        assert_eq!(ids, vec!["cargo:test", "py:pytest", "go:test"]);
+        let vazio = tmp("vazio");
+        assert!(detect_checks_in(&vazio).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&vazio);
+    }
+    #[test]
+    fn config_liga_desliga_e_soma_comandos_proprios() {
+        let det = vec![
+            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: "npm run lint".into(), on: true, source: "package.json".into() },
+            CheckDef { id: "npm:build".into(), label: "Build".into(), cmd: "npm run build".into(), on: false, source: "package.json".into() },
+        ];
+        let cfg = serde_json::json!({ "enabled": { "npm:lint": false, "npm:build": true }, "custom": [ { "label": "E2E", "cmd": "npx playwright test" }, { "cmd": "  " } ] });
+        let e = effective_checks(&det, &cfg);
+        assert_eq!(e.len(), 3);
+        assert!(!e[0].on && e[1].on);
+        assert_eq!((e[2].id.as_str(), e[2].label.as_str(), e[2].on, e[2].source.as_str()), ("custom:0", "E2E", true, "custom"));
+        assert_eq!(checks_timeout_secs(&cfg), 600);
+        assert_eq!(checks_timeout_secs(&serde_json::json!({ "timeoutMin": 3 })), 180);
+    }
+    #[test]
+    fn log_guarda_so_as_ultimas_linhas_sem_cor_e_cortadas() {
+        let mut t = LineTail::new(200, 10);
+        for i in 0..250 { t.push(&format!("linha {i}\n")); }
+        let s = t.text();
+        assert!(s.starts_with("… (50 linhas antes cortadas)"));
+        assert!(s.ends_with("linha 249"));
+        assert_eq!(s.lines().count(), 201);
+        let mut t = LineTail::new(5, 10);
+        t.push("\u{1b}[31mFALHOU\u{1b}[0m um teste bem comprido");
+        assert_eq!(t.text(), "FALHOU um …");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn roda_checagem_com_exit_code_e_mata_no_tempo_limite() {
+        let d = tmp("run");
+        let ok = CheckDef { id: "a".into(), label: "A".into(), cmd: "echo oi; echo erro >&2; exit 0".into(), on: true, source: "custom".into() };
+        let r = run_one_check("t-test-a", &d, &ok, 30);
+        assert!(r.ok);
+        assert_eq!(r.exit_code, Some(0));
+        assert!(r.log.contains("oi") && r.log.contains("erro"), "stderr vai junto no log: {}", r.log);
+        let bad = CheckDef { cmd: "echo quebrou; exit 3".into(), ..ok.clone() };
+        let r = run_one_check("t-test-b", &d, &bad, 30);
+        assert!(!r.ok);
+        assert_eq!(r.exit_code, Some(3));
+        let slow = CheckDef { cmd: "sleep 30".into(), ..ok.clone() };
+        let t0 = std::time::Instant::now();
+        let r = run_one_check("t-test-c", &d, &slow, 1);
+        assert!(r.timed_out && !r.ok);
+        assert!(t0.elapsed().as_secs() < 10);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn nome_de_pasta_seguro() {
+        assert_eq!(safe_dir_component("Relatório: agosto/2026?"), "Relatório agosto 2026");
+        assert_eq!(safe_dir_component(".."), "entrega");
+        assert_eq!(safe_dir_component("  "), "entrega");
+    }
 }
 
 #[derive(Serialize)]
@@ -5471,6 +7581,86 @@ fn list_all_tasks() -> Vec<AllTask> {
             for t in rows.flatten() { out.push(t); }
         }
     }
+    out
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DoneTask {
+    id: String,
+    title: String,
+    objective: String,
+    status: String,
+    flag: Option<String>,
+    branch: String,
+    kind: String,
+    pr_url: Option<String>,
+    summary: Option<String>,
+    docs: Vec<String>,
+    created_at: i64,
+    finished_at: i64,
+    repo: String,
+    proj: String,
+}
+
+/// Tarefas JÁ FEITAS de todos os projetos (entregues/mergeadas/finalizadas) — alimenta o
+/// "/" da Nova demanda pra referenciar trabalho anterior. `finished_at` = último evento.
+/// Best-effort como o list_all_tasks: projeto ilegível é pulado.
+#[tauri::command(async)]
+fn list_done_tasks() -> Vec<DoneTask> {
+    let clip = |s: String, n: usize| if s.chars().count() > n { s.chars().take(n).collect::<String>() + "…" } else { s };
+    let mut out: Vec<DoneTask> = Vec::new();
+    for p in read_project_list() {
+        let name = PathBuf::from(&p).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
+        let db = PathBuf::from(&p).join(".cardume").join("state.sqlite");
+        let conn = match Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
+        let sql = "SELECT t.id,t.title,t.objective,t.status,t.flag,t.branch,t.spec_json,t.created_at, \
+                   (SELECT MAX(e.ts) FROM event e WHERE e.task_id=t.id), \
+                   (SELECT r.summary FROM review r WHERE r.task_id=t.id) \
+                   FROM task t WHERE (t.status IN ('merged','done','review') OR t.flag='closed') \
+                   AND t.status NOT IN ('cancelled','aborted')";
+        let mut st = match conn.prepare(sql) { Ok(s) => s, Err(_) => continue };
+        let rows = st.query_map([], |r| {
+            let spec: serde_json::Value = serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or_default();
+            let created: i64 = r.get::<_, Option<i64>>(7)?.unwrap_or(0);
+            Ok(DoneTask {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                objective: clip(r.get::<_, Option<String>>(2)?.unwrap_or_default(), 1200),
+                status: r.get(3)?,
+                flag: r.get::<_, Option<String>>(4)?.filter(|s| !s.is_empty()),
+                branch: r.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                kind: spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
+                pr_url: spec.get("prUrl").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                summary: r.get::<_, Option<String>>(9)?.map(|s| clip(s, 800)),
+                docs: vec![],
+                created_at: created,
+                finished_at: r.get::<_, Option<i64>>(8)?.unwrap_or(created),
+                repo: p.clone(),
+                proj: name.clone(),
+            })
+        });
+        if let Ok(rows) = rows {
+            for mut t in rows.flatten() {
+                // docs da entrega (ARCHITECTURE/DESIGN/INVESTIGATION…) viram anexo da tarefa nova
+                let dir = PathBuf::from(&p).join(".cardume").join("artifacts").join(&t.id);
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    let mut md: Vec<String> = rd.flatten().map(|e| e.path())
+                        .filter(|x| x.extension().map(|e| e.eq_ignore_ascii_case("md")).unwrap_or(false))
+                        .map(|x| x.to_string_lossy().to_string()).collect();
+                    md.sort();
+                    md.truncate(4);
+                    t.docs = md;
+                }
+                out.push(t);
+            }
+        }
+    }
+    out.sort_by(|a, b| b.finished_at.cmp(&a.finished_at));
     out
 }
 
@@ -5649,42 +7839,89 @@ fn workspace_clean(state: State<AppState>, worktrees: bool, temp: bool, artifact
     Ok(serde_json::json!({ "freed": freed, "removed": removed, "errors": errors }))
 }
 
+/// O merge do PR aconteceu? Sucesso do `gh pr merge`, OU falha com o PR já MERGED no GitHub
+/// (a falha foi só na limpeza da branch local).
+fn pr_merge_landed(gh_ok: bool, state_after: Option<&str>) -> bool {
+    gh_ok || state_after.map(|s| s.trim().eq_ignore_ascii_case("MERGED")).unwrap_or(false)
+}
+
 /// Mergeia o PR (gh) e marca a tarefa como merged localmente.
 #[tauri::command(async)]
 fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
     let (repo, branch) = pr_head(&state, &task_id)?;
     let m = match method.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
-    let out = Command::new(gh_bin())
-        .args(["pr", "merge", &branch, m, "--delete-branch"])
-        .current_dir(&repo)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    let mut c = Command::new(gh_bin());
+    c.args(["pr", "merge", &branch, m, "--delete-branch"]).args(gh_repo_args(&repo)).current_dir(&repo);
+    // teto: sem ele uma rede pendurada deixava o botão "mergeando…" pra sempre
+    let res = output_timeout(c, 120);
+    let gh_ok = matches!(&res, Ok(o) if o.status.success());
+    let mut cleanup_branch = false;
+    if !gh_ok {
+        // o `--delete-branch` tenta apagar a branch LOCAL — presa na worktree da tarefa, o gh falha DEPOIS
+        // de mergear no GitHub; e um teto estourado pode ter chegado ao GitHub também. Confere o estado real.
+        let mut v = Command::new(gh_bin());
+        v.args(["pr", "view", &branch, "--json", "state", "--jq", ".state"]).args(gh_repo_args(&repo)).current_dir(&repo);
+        let state_after = output_timeout(v, 20).ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+        if !pr_merge_landed(false, state_after.as_deref()) {
+            return Err(match res { Ok(o) => String::from_utf8_lossy(&o.stderr).to_string(), Err(e) => e });
+        }
+        cleanup_branch = true; // o gh não terminou a limpeza: fazemos depois de tirar a worktree
     }
     // marca merged localmente + remove a worktree
-    if let Some(path) = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(path) = db_path_now {
         if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+            preview_kill(&state.procs, &task_id);
             remove_task_worktree(&repo, &conn, &task_id);
             let _ = conn.execute("UPDATE task SET status='merged' WHERE id=?1", params![task_id]);
+        }
+    }
+    if cleanup_branch {
+        // best-effort: branch local (liberada agora que a worktree saiu) e a remota, se ainda existir
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["worktree", "prune"]).output();
+        let _ = Command::new("git").arg("-C").arg(&repo).args(["branch", "-D", &branch]).output();
+        let mut ls = Command::new("git");
+        ls.arg("-C").arg(&repo).args(["ls-remote", "--heads", "origin", &branch]).env("GIT_TERMINAL_PROMPT", "0");
+        if output_timeout(ls, 20).map(|o| !o.stdout.is_empty()).unwrap_or(false) {
+            let mut del = Command::new("git");
+            del.arg("-C").arg(&repo).args(["push", "origin", "--delete", &branch]).env("GIT_TERMINAL_PROMPT", "0");
+            let _ = output_timeout(del, 30);
         }
     }
     Ok("PR mergeado".to_string())
 }
 
+/// "Pediu mudanças" que ainda vale: o review mais recente do autor (não substituído), não ignorado na UI,
+/// e só enquanto a decisão do PR continua CHANGES_REQUESTED (aprovado depois → nada a reenviar).
+fn pr_open_review_asks<'a>(info: &'a PrInfo, ign: &std::collections::HashSet<String>) -> Vec<&'a PrReview> {
+    if info.decision != "CHANGES_REQUESTED" {
+        return vec![];
+    }
+    info.reviews
+        .iter()
+        .enumerate()
+        .filter(|(i, r)| r.state == "CHANGES_REQUESTED" && !r.superseded && !ign.contains(&if r.id.is_empty() { format!("idx:{i}") } else { r.id.clone() }))
+        .map(|(_, r)| r)
+        .collect()
+}
+
 /// Coleta os comentários do PR e manda o agente endereçá-los (rework via --resume).
 #[tauri::command(async)]
-fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String> {
+fn rework_from_pr(state: State<AppState>, task_id: String, ignored: Option<Vec<String>>) -> Result<(), String> {
     let info = pr_status(state.clone(), task_id.clone())?;
-    if !info.exists || info.comments.is_empty() {
+    // o que a UI ignorou (localStorage prIgn:*) NÃO vai pro agente — mesma conta do botão "corrigir N em aberto"
+    let ign: std::collections::HashSet<String> = ignored.unwrap_or_default().into_iter().collect();
+    let asks = pr_open_review_asks(&info, &ign);
+    if !info.exists || (info.comments.is_empty() && asks.is_empty()) {
         return Err("nenhum comentário de review pra endereçar".to_string());
     }
     let repo = repo_of(&state)?;
     let slug = repo_slug(&repo).unwrap_or_default();
-    // só o que ainda NÃO foi endereçado (nem é resposta de thread)
-    let open: Vec<&PrComment> = info.comments.iter().filter(|c| !c.answered && c.in_reply_to.is_none()).collect();
-    if open.is_empty() {
+    // só o que ainda NÃO foi endereçado: nem resposta de thread, nem respondido, resolvido, desatualizado ou ignorado
+    let open: Vec<&PrComment> = info.comments.iter().filter(|c| !c.answered && !c.resolved && !c.outdated && c.in_reply_to.is_none() && !ign.contains(&pr_cmt_key(c))).collect();
+    if open.is_empty() && asks.is_empty() {
         return Err("todos os comentários já têm resposta — nada a endereçar".to_string());
     }
     let mut text = format!("Endereça os comentários de review do PR #{} (aplique as correções pedidas):\n", info.number);
@@ -5695,10 +7932,15 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
             _ => "(conversa)".to_string(),
         };
         let snippet: String = c.body.replace('\n', " ").chars().take(300).collect();
-        match c.id {
-            Some(id) => text.push_str(&format!("- [comment_id={id}] [{}] {loc}: {snippet}\n", c.author)),
-            None => text.push_str(&format!("- [conversa] [{}]: {snippet}\n", c.author)),
+        // comentário inline (tem path) responde via …/replies; conversa do PR responde com gh pr comment
+        match (c.id, c.path.is_some()) {
+            (Some(id), true) => text.push_str(&format!("- [comment_id={id}] [{}] {loc}: {snippet}\n", c.author)),
+            _ => text.push_str(&format!("- [conversa] [{}] {}: {snippet}\n", c.author, c.url)),
         }
+    }
+    for r in &asks {
+        let snippet: String = r.body.replace('\n', " ").chars().take(500).collect();
+        text.push_str(&format!("- [review · pediu mudanças] [{}]: {snippet}\n", r.author));
     }
     text.push_str(&format!(
         "\nDEPOIS de aplicar TODAS as correções, FECHE O CICLO (obrigatório):\n\
@@ -5706,14 +7948,14 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
          2. Push: git push (o PR atualiza sozinho)\n\
          3. RESPONDA cada comentário inline no GitHub, um a um, dizendo O QUE mudou (ou por que não mudou):\n\
             gh api repos/{slug}/pulls/{num}/comments/<comment_id>/replies -f body=\"✔ <o que foi feito>\"\n\
-         4. Pros itens de (conversa), responda com: gh pr comment {num} --body \"...\"\n\
+         4. Pros itens de (conversa), responda UM comentário por item, citando o link dele: gh pr comment {num} --body \"✔ <link do comentário> <o que foi feito>\"\n\
          Sem commit + push + respostas o rework NÃO está completo.\n",
         num = info.number,
         slug = slug,
     ));
     // enfileira como instrução e dispara o rework
     add_instruction(state, task_id.clone(), text)?;
-    Command::new(node_bin())
+    node_cmd()
         .args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "rework", &task_id, "--repo", &repo.display().to_string()])
         .current_dir(&repo)
         .stdin(Stdio::null())
@@ -5724,12 +7966,40 @@ fn rework_from_pr(state: State<AppState>, task_id: String) -> Result<(), String>
     Ok(())
 }
 
+/// Marca uma thread de review como RESOLVIDA no GitHub (GraphQL resolveReviewThread).
+#[tauri::command(async)]
+fn pr_resolve_thread(state: State<AppState>, thread_id: String) -> Result<(), String> {
+    let tid = thread_id.trim();
+    if tid.is_empty() || tid.len() > 200 || !tid.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '=') {
+        return Err("id de thread inválido".to_string());
+    }
+    let repo = repo_of(&state)?;
+    let q = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id isResolved}}}";
+    let mut c = Command::new(gh_bin());
+    c.args(["api", "graphql", "-f", &format!("query={q}"), "-f", &format!("id={tid}")]).current_dir(&repo);
+    let o = output_timeout(c, 15).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
+    if !o.status.success() {
+        let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+        return Err(if err.is_empty() { "gh api graphql falhou".to_string() } else { err });
+    }
+    let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap_or(serde_json::Value::Null);
+    if let Some(errs) = v["errors"].as_array() {
+        if !errs.is_empty() {
+            return Err(errs.iter().filter_map(|e| e["message"].as_str()).collect::<Vec<_>>().join("; "));
+        }
+    }
+    if v["data"]["resolveReviewThread"]["thread"]["isResolved"].as_bool() != Some(true) {
+        return Err("o GitHub não confirmou a resolução da thread".to_string());
+    }
+    Ok(())
+}
+
 /// E4 — resolução de conflito assistida por IA: dispara o agente pra mergear a
 /// base e resolver os conflitos na worktree (turno longo → spawn sem bloquear a UI).
 #[tauri::command(async)]
 fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
-    Command::new(node_bin())
+    node_cmd()
         .args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "resolve-conflict", &task_id, "--repo", &repo.display().to_string()])
         .current_dir(&repo)
         .stdin(Stdio::null())
@@ -5740,10 +8010,10 @@ fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), Strin
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
-    let out = Command::new(node_bin())
+    let out = node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning",
             &cli_path(&repo),
@@ -5915,7 +8185,7 @@ fn import_attachment(state: State<AppState>, path: String, task_id: Option<Strin
 /// Grava um arquivo de REFERÊNCIA gerado pelo app (ex.: EPIC.md compilado) com o nome exato, numa pasta
 /// própria em .cardume/tmp/refs/ (ignorada pelo git), e devolve o caminho absoluto pra ir em `refs` do new_task.
 /// Diferente dos anexos, o nome não é slugificado — o prompt cita ".cardume/refs/EPIC.md" literalmente.
-#[tauri::command]
+#[tauri::command(async)]
 fn write_ref_file(state: State<AppState>, name: String, text: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let safe: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')).collect();
@@ -6020,10 +8290,11 @@ async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
-    Command::new(node_bin())
+    preview_kill(&state.procs, &task_id); // o preview que o app subiu não fica órfão
+    node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning",
             &cli_path(&repo),
@@ -6038,53 +8309,441 @@ fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Espelha o console do webview em /tmp/constellation-web.log — sem isso,
+/// Caminho do log do webview: no Mac fica /tmp/constellation-web.log (scripts e o time leem ali);
+/// no Windows/Linux, a pasta temporária do sistema (E10 — o /tmp fixo não existe no Windows).
+fn web_log_path() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/tmp/constellation-web.log")
+    } else {
+        std::env::temp_dir().join("constellation-web.log")
+    }
+}
+/// Espelha o console do webview no log acima — sem isso,
 /// erro de JS nos ticks é invisível e vira caça às cegas.
-#[tauri::command]
+#[tauri::command(async)]
 fn web_log(line: String) {
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/constellation-web.log") {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(web_log_path()) {
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let _ = writeln!(f, "{ts} {}", line.chars().take(600).collect::<String>());
     }
 }
 
-/// Notificação NATIVA com clique útil. O plugin (notify-rust) cai no bundle do
-/// Editor de Script quando não registra o app — clicar abria o editor. Aqui:
-/// mac-notification-sys com o bundle do Constellation + resposta do clique →
-/// evento "notif-open" pro front abrir a tarefa certa.
+/// Notificação NATIVA com clique útil. macOS: UNUserNotificationCenter (notif_mac.rs)
+/// com o id da tarefa no userInfo — o clique volta pelo delegate como evento
+/// "notif-open". Erro (sem permissão, fora do .app) volta pro front, que cai no
+/// tauri-plugin-notification. Linux/Windows: plugin direto (sem roteamento do clique).
 #[tauri::command(async)]
-fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) {
+async fn notify_native(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    std::thread::spawn(move || {
-        use mac_notification_sys::{Notification, NotificationResponse};
-        let sent = Notification::default()
-            .title(&title)
-            .message(&body)
-            .sound("Ping")
-            .send();
-        if let Ok(NotificationResponse::Click | NotificationResponse::ActionButton(_)) = sent {
-            use tauri::{Emitter, Manager};
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-            let _ = app.emit("notif-open", task_id.unwrap_or_default());
-        }
-    });
-    // Linux/Windows: sem resposta de clique nativa — envia pelo tauri-plugin-notification
-    // (já registrado). Perde só o "clicar abre a tarefa", não a notificação.
+    {
+        let _ = app;
+        notif_mac::post(title, body, task_id).await
+    }
     #[cfg(not(target_os = "macos"))]
     {
         use tauri_plugin_notification::NotificationExt;
         let _ = task_id;
-        let _ = app
-            .notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show();
+        app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())
+    }
+}
+
+/// Permissão de notificação do app: authorized · denied · notDetermined ·
+/// provisional · unsupported (fora do macOS, ou binário fora do .app — o front
+/// então usa a checagem do plugin).
+#[tauri::command(async)]
+async fn notif_status() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        notif_mac::status().await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("unsupported".to_string())
+    }
+}
+
+/// Abre Ajustes do Sistema › Notificações (URL fixa — o open_url só aceita http/https).
+#[tauri::command(async)]
+fn notif_open_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        os_open(std::ffi::OsStr::new("x-apple.systempreferences:com.apple.Notifications-Settings.extension"))
+            .map_err(|e| format!("não consegui abrir os Ajustes do Sistema: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("disponível só no macOS".to_string())
+    }
+}
+
+// ===================== PREVIEW: "o app caiu → subir de novo" =====================
+// O agente sobe o servidor de preview DENTRO do grupo de processos dele — quando o turno
+// acaba, o motor mata o grupo e o link anunciado ('PREVIEW: http://127.0.0.1:PORTA/…')
+// morre junto. Aqui o app (1) sabe se o preview está no ar (preview_alive), (2) sabe COMO
+// subir (preview_info: .cardume/preview.json gravado pelo agente, ou um palpite pelo
+// package.json/manage.py) e (3) sobe num grupo PRÓPRIO, que sobrevive ao fim do turno
+// (preview_start/preview_stop/preview_log_tail). Só roda com clique explícito do humano.
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct PreviewInfo {
+    cmd: String,
+    cwd: String,
+    url: Option<String>,
+    env: HashMap<String, String>,
+    guessed: bool,
+}
+
+/// Saída de um preview que o app subiu e que JÁ terminou (task_id → código), pra UI
+/// distinguir "subindo" de "morreu no caminho".
+static PREVIEW_EXITS: std::sync::OnceLock<Mutex<HashMap<String, Option<i32>>>> = std::sync::OnceLock::new();
+fn preview_exits() -> &'static Mutex<HashMap<String, Option<i32>>> { PREVIEW_EXITS.get_or_init(|| Mutex::new(HashMap::new())) }
+
+/// host:porta de uma URL de preview — SÓ loopback (127.0.0.1 / localhost / [::1]) e http(s).
+/// Qualquer outro host é recusado: o app nunca sonda/abre máquina de terceiros por aqui.
+fn preview_host_port(url: &str) -> Result<(String, u16), String> {
+    let u = url.trim();
+    let (rest, def_port) = if let Some(r) = u.strip_prefix("http://") { (r, 80u16) }
+        else if let Some(r) = u.strip_prefix("https://") { (r, 443u16) }
+        else { return Err("preview precisa ser http(s)".into()) };
+    let auth = rest.split(|c| c == '/' || c == '?' || c == '#').next().unwrap_or("");
+    if auth.is_empty() || auth.contains('@') { return Err("url de preview inválida".into()); }
+    let (host, port) = if let Some(r) = auth.strip_prefix('[') {
+        let end = r.find(']').ok_or("url de preview inválida")?;
+        let h = &r[..end];
+        let tail = &r[end + 1..];
+        let p = if let Some(p) = tail.strip_prefix(':') { p.parse::<u16>().map_err(|_| "porta inválida")? } else if tail.is_empty() { def_port } else { return Err("url de preview inválida".into()) };
+        (h.to_string(), p)
+    } else {
+        match auth.rsplit_once(':') {
+            Some((h, p)) => (h.to_string(), p.parse::<u16>().map_err(|_| "porta inválida")?),
+            None => (auth.to_string(), def_port),
+        }
+    };
+    let h = host.to_ascii_lowercase();
+    if !matches!(h.as_str(), "127.0.0.1" | "localhost" | "::1") {
+        return Err("só dá pra checar preview local (127.0.0.1 / localhost)".into());
+    }
+    if port == 0 { return Err("porta inválida".into()); }
+    Ok((h, port))
+}
+
+/// TCP connect com teto curto. `localhost` tenta 127.0.0.1 e ::1 (Node 17+ às vezes só escuta no ::1).
+fn preview_alive_url(url: &str, timeout_ms: u64) -> Result<bool, String> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+    let (host, port) = preview_host_port(url)?;
+    let ips: Vec<IpAddr> = match host.as_str() {
+        "127.0.0.1" => vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        "::1" => vec![IpAddr::V6(Ipv6Addr::LOCALHOST)],
+        _ => vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)],
+    };
+    let to = std::time::Duration::from_millis(timeout_ms);
+    Ok(ips.into_iter().any(|ip| TcpStream::connect_timeout(&SocketAddr::new(ip, port), to).is_ok()))
+}
+
+/// Lê .cardume/preview.json da worktree (gravado pelo agente quando sobe o servidor).
+fn preview_read_json(wt: &Path) -> Option<PreviewInfo> {
+    let raw = std::fs::read_to_string(wt.join(".cardume").join("preview.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let cmd = v.get("cmd").and_then(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())?;
+    let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ".".into());
+    let url = v.get("url").and_then(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| preview_host_port(s).is_ok());
+    let mut env = HashMap::new();
+    if let Some(o) = v.get("env").and_then(|x| x.as_object()) {
+        for (k, val) in o {
+            // PATH do projeto não substitui o do app (senão some o node/npm) — o resto passa
+            if k.eq_ignore_ascii_case("PATH") || k.is_empty() { continue; }
+            let s = match val { serde_json::Value::String(s) => s.clone(), serde_json::Value::Null => continue, other => other.to_string() };
+            env.insert(k.clone(), s);
+        }
+    }
+    Some(PreviewInfo { cmd, cwd, url, env, guessed: false })
+}
+
+/// Palpite quando o agente não gravou o preview.json (tarefas antigas): scripts do
+/// package.json (dev → start, com o gerenciador do lockfile), vite/next soltos, Django
+/// (manage.py) e FastAPI óbvio (main.py com FastAPI()). Procura na raiz e em pastas
+/// de front comuns.
+fn preview_guess(wt: &Path) -> Option<PreviewInfo> {
+    let dirs = [".", "frontend", "web", "app", "client", "ui"];
+    for d in dirs {
+        let dir = if d == "." { wt.to_path_buf() } else { wt.join(d) };
+        let pj = dir.join("package.json");
+        let Ok(raw) = std::fs::read_to_string(&pj) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+        let has = |f: &str| dir.join(f).is_file() || wt.join(f).is_file();
+        let pm = if has("pnpm-lock.yaml") { "pnpm" } else if has("yarn.lock") { "yarn" } else if has("bun.lockb") || has("bun.lock") { "bun" } else { "npm" };
+        let scripts = v.get("scripts").and_then(|s| s.as_object());
+        let script = |n: &str| scripts.and_then(|s| s.get(n)).and_then(|x| x.as_str()).is_some();
+        let cmd = if script("dev") {
+            match pm { "npm" => "npm run dev".to_string(), "bun" => "bun run dev".to_string(), p => format!("{p} dev") }
+        } else if script("start") {
+            match pm { "bun" => "bun run start".to_string(), p => format!("{p} start") }
+        } else {
+            let dep = |n: &str| ["dependencies", "devDependencies"].iter().any(|k| v.get(k).and_then(|o| o.get(n)).is_some());
+            if dep("vite") { "npx vite".to_string() } else if dep("next") { "npx next dev".to_string() } else { continue }
+        };
+        return Some(PreviewInfo { cmd, cwd: d.to_string(), url: None, env: HashMap::new(), guessed: true });
+    }
+    let py = if cfg!(windows) { "python" } else { "python3" };
+    if wt.join("manage.py").is_file() {
+        return Some(PreviewInfo { cmd: format!("{py} manage.py runserver 127.0.0.1:8000"), cwd: ".".into(), url: None, env: HashMap::new(), guessed: true });
+    }
+    for (file, module) in [("main.py", "main:app"), ("app/main.py", "app.main:app")] {
+        if let Ok(src) = std::fs::read_to_string(wt.join(file)) {
+            if src.contains("FastAPI(") {
+                return Some(PreviewInfo { cmd: format!("{py} -m uvicorn {module} --host 127.0.0.1 --port 8000"), cwd: ".".into(), url: None, env: HashMap::new(), guessed: true });
+            }
+        }
+    }
+    None
+}
+
+/// preview.json → senão palpite. A URL anunciada no chat (se houver) completa o palpite.
+fn preview_info_for(wt: &Path, url: Option<String>) -> Option<PreviewInfo> {
+    let announced = url.filter(|u| preview_host_port(u).is_ok());
+    if let Some(mut i) = preview_read_json(wt) {
+        if i.url.is_none() { i.url = announced; }
+        return Some(i);
+    }
+    preview_guess(wt).map(|mut i| { i.url = announced; i })
+}
+
+/// Pasta de trabalho do preview DENTRO da worktree (sem '..', sem caminho absoluto fora dela).
+fn preview_cwd(wt: &Path, cwd: &str) -> Result<PathBuf, String> {
+    let rel = Path::new(cwd.trim());
+    if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir)) {
+        return Err(format!("pasta do preview fora da tarefa: {cwd}"));
+    }
+    let p = if cwd.trim().is_empty() || cwd.trim() == "." { wt.to_path_buf() } else { wt.join(rel) };
+    if !p.is_dir() { return Err(format!("a pasta do preview não existe: {cwd}")); }
+    Ok(p)
+}
+
+fn preview_log_path(wt: &Path) -> PathBuf { wt.join(".cardume").join("logs").join("preview.log") }
+
+/// Mata o preview rastreado da tarefa (se houver). true = havia um.
+fn preview_kill(procs: &Arc<Mutex<HashMap<String, i32>>>, task_id: &str) -> bool {
+    let pid = procs.lock().ok().and_then(|mut m| m.remove(&format!("preview:{task_id}")));
+    if let Some(p) = pid {
+        signal_group(p, procsig::TERM);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if pid_alive(p) { signal_group(p, procsig::KILL); }
+        true
+    } else { false }
+}
+
+/// Sobe o preview num grupo PRÓPRIO (não morre com o turno do agente); stdout+stderr no
+/// .cardume/logs/preview.log (zerado a cada subida). Devolve o pid do líder do grupo.
+fn preview_spawn(procs: &Arc<Mutex<HashMap<String, i32>>>, task_id: &str, wt: &Path, info: &PreviewInfo) -> Result<i32, String> {
+    use std::io::Write;
+    preview_kill(procs, task_id);
+    let dir = preview_cwd(wt, &info.cwd)?;
+    let logp = preview_log_path(wt);
+    if let Some(d) = logp.parent() { std::fs::create_dir_all(d).map_err(|e| format!("não criei a pasta de log: {e}"))?; }
+    let mut log = std::fs::File::create(&logp).map_err(|e| format!("não abri o log do preview: {e}"))?;
+    let _ = writeln!(log, "$ {}   (em {})", info.cmd, if info.cwd.is_empty() { "." } else { &info.cwd });
+    let err = log.try_clone().map_err(|e| e.to_string())?;
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(&info.cmd);
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(&info.cmd);
+        c
+    };
+    // PATH do app (node/nvm/homebrew) + binários locais do projeto (.venv, node_modules/.bin)
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let bin = if cfg!(windows) { "Scripts" } else { "bin" };
+    let mut local: Vec<String> = vec![];
+    for base in [dir.clone(), wt.to_path_buf()] {
+        for sub in [base.join("node_modules").join(".bin"), base.join(".venv").join(bin)] {
+            if sub.is_dir() { let s = sub.display().to_string(); if !local.contains(&s) { local.push(s); } }
+        }
+    }
+    let path = if local.is_empty() { checks_path_env() } else { format!("{}{sep}{}", local.join(sep), checks_path_env()) };
+    cmd.current_dir(&dir).env("PATH", path).env("BROWSER", "none").env("NO_COLOR", "1").env("FORCE_COLOR", "0");
+    for (k, v) in &info.env { cmd.env(k, v); }
+    cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(err));
+    detach_new_group(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("não consegui rodar o comando do preview: {e}"))?;
+    let pid = child.id() as i32;
+    if let Ok(mut m) = procs.lock() { m.insert(format!("preview:{task_id}"), pid); }
+    if let Ok(mut m) = preview_exits().lock() { m.remove(task_id); }
+    let (procs2, tid) = (procs.clone(), task_id.to_string());
+    std::thread::spawn(move || {
+        let code = child.wait().ok().and_then(|s| s.code());
+        // só limpa se ainda é ESTE processo (uma nova subida pode já ter trocado o pid)
+        let mine = procs2.lock().ok().map(|mut m| {
+            let k = format!("preview:{tid}");
+            if m.get(&k) == Some(&pid) { m.remove(&k); true } else { false }
+        }).unwrap_or(false);
+        if mine { if let Ok(mut m) = preview_exits().lock() { m.insert(tid, code); } }
+    });
+    Ok(pid)
+}
+
+/// Últimas `n` linhas do log do preview.
+fn preview_tail(wt: &Path, n: usize) -> String {
+    let raw = std::fs::read(preview_log_path(wt)).unwrap_or_default();
+    let s = String::from_utf8_lossy(&raw);
+    let lines: Vec<&str> = s.lines().collect();
+    let from = lines.len().saturating_sub(n);
+    lines[from..].iter().map(|l| l.chars().take(400).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+/// O preview está no ar? Só loopback; TCP connect com ~800ms de teto.
+#[tauri::command(async)]
+fn preview_alive(url: String) -> Result<bool, String> {
+    preview_alive_url(&url, 800)
+}
+
+/// Como subir o preview desta tarefa: .cardume/preview.json (do agente) ou palpite
+/// (`guessed: true`). `url` = a última anunciada no chat, completa o palpite. null = não sei.
+#[tauri::command(async)]
+fn preview_info(state: State<AppState>, task_id: String, url: Option<String>) -> Result<Option<PreviewInfo>, String> {
+    let wt = match task_worktree(&state, &task_id) { Ok(w) => w, Err(_) => return Ok(None) };
+    Ok(preview_info_for(&wt, url))
+}
+
+/// Sobe o preview (clique do humano). Retorna rápido; a UI checa preview_alive até subir.
+#[tauri::command(async)]
+fn preview_start(state: State<AppState>, task_id: String, url: Option<String>) -> Result<PreviewInfo, String> {
+    let wt = task_worktree(&state, &task_id)?;
+    let info = preview_info_for(&wt, url).ok_or("não sei como subir este app — peça pro agente subir e gravar .cardume/preview.json")?;
+    preview_spawn(&state.procs, &task_id, &wt, &info)?;
+    web_log(format!("[preview] {task_id}: subindo `{}` em {}", info.cmd, info.cwd));
+    Ok(info)
+}
+
+/// Derruba o preview que o app subiu (se houver).
+#[tauri::command(async)]
+fn preview_stop(state: State<AppState>, task_id: String) -> Result<bool, String> {
+    Ok(preview_kill(&state.procs, &task_id))
+}
+
+/// Final do log + estado do processo que o app subiu: {log, running, exited, exitCode}.
+#[tauri::command(async)]
+fn preview_log_tail(state: State<AppState>, task_id: String) -> Result<serde_json::Value, String> {
+    let wt = task_worktree(&state, &task_id)?;
+    let pid = state.procs.lock().ok().and_then(|m| m.get(&format!("preview:{task_id}")).copied());
+    let running = pid.map(pid_alive).unwrap_or(false);
+    let exit = preview_exits().lock().ok().and_then(|m| m.get(&task_id).copied());
+    Ok(serde_json::json!({ "log": preview_tail(&wt, 60), "running": running, "exited": exit.is_some(), "exitCode": exit.flatten() }))
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sf-pv-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    #[test]
+    fn host_validation_only_loopback() {
+        assert_eq!(preview_host_port("http://127.0.0.1:5173/x?y=1").unwrap(), ("127.0.0.1".into(), 5173));
+        assert_eq!(preview_host_port("http://localhost:3000").unwrap(), ("localhost".into(), 3000));
+        assert_eq!(preview_host_port("http://[::1]:8080/").unwrap(), ("::1".into(), 8080));
+        assert_eq!(preview_host_port("https://127.0.0.1/").unwrap(), ("127.0.0.1".into(), 443));
+        assert_eq!(preview_host_port("http://LOCALHOST:1/").unwrap().1, 1);
+        for bad in ["http://example.com:80/", "http://10.0.0.2:3000", "http://127.0.0.1.evil.com:80/", "http://evil@127.0.0.1:80/",
+                    "ftp://127.0.0.1:21", "file:///etc/passwd", "http://0.0.0.0:3000", "http://127.0.0.1:0/", "http://127.0.0.1:abc", "http://[::2]:80/", ""] {
+            assert!(preview_host_port(bad).is_err(), "devia recusar {bad}");
+            assert!(preview_alive_url(bad, 50).is_err());
+        }
+    }
+    #[test]
+    fn guess_from_package_json_and_python() {
+        let d = tmp("guess");
+        assert!(preview_guess(&d).is_none());
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"start":"node s.js","dev":"vite"}}"#).unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "npm run dev");
+        std::fs::write(d.join("pnpm-lock.yaml"), "").unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "pnpm dev");
+        std::fs::remove_file(d.join("pnpm-lock.yaml")).unwrap();
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"start":"node s.js"}}"#).unwrap();
+        std::fs::write(d.join("yarn.lock"), "").unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "yarn start");
+        std::fs::write(d.join("package.json"), r#"{"devDependencies":{"vite":"5"}}"#).unwrap();
+        assert_eq!(preview_guess(&d).unwrap().cmd, "npx vite");
+        // front numa subpasta
+        let d2 = tmp("guess2");
+        std::fs::create_dir_all(d2.join("frontend")).unwrap();
+        std::fs::write(d2.join("frontend/package.json"), r#"{"scripts":{"dev":"next dev"}}"#).unwrap();
+        let g = preview_guess(&d2).unwrap();
+        assert_eq!((g.cmd.as_str(), g.cwd.as_str(), g.guessed), ("npm run dev", "frontend", true));
+        // python
+        let d3 = tmp("guess3");
+        std::fs::write(d3.join("manage.py"), "").unwrap();
+        assert!(preview_guess(&d3).unwrap().cmd.contains("manage.py runserver"));
+        let d4 = tmp("guess4");
+        std::fs::write(d4.join("main.py"), "app = FastAPI()\n").unwrap();
+        assert!(preview_guess(&d4).unwrap().cmd.contains("uvicorn main:app"));
+        for x in [d, d2, d3, d4] { let _ = std::fs::remove_dir_all(x); }
+    }
+    #[test]
+    fn json_wins_over_guess_and_cwd_is_confined() {
+        let d = tmp("json");
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"dev":"vite"}}"#).unwrap();
+        std::fs::create_dir_all(d.join(".cardume")).unwrap();
+        std::fs::write(d.join(".cardume/preview.json"), r#"{"cmd":"npm run dev -- --port 5190","cwd":".","url":"http://127.0.0.1:5190/x","env":{"A":"1","PATH":"/nope","N":2}}"#).unwrap();
+        let i = preview_info_for(&d, Some("http://127.0.0.1:9/".into())).unwrap();
+        assert_eq!(i.cmd, "npm run dev -- --port 5190");
+        assert_eq!(i.url.as_deref(), Some("http://127.0.0.1:5190/x"));
+        assert!(!i.guessed);
+        assert_eq!(i.env.get("A").map(|s| s.as_str()), Some("1"));
+        assert_eq!(i.env.get("N").map(|s| s.as_str()), Some("2"));
+        assert!(!i.env.contains_key("PATH"));
+        // url de outro host no json é ignorada; a anunciada completa
+        std::fs::write(d.join(".cardume/preview.json"), r#"{"cmd":"x","url":"http://evil.com/"}"#).unwrap();
+        assert_eq!(preview_info_for(&d, Some("http://127.0.0.1:9/".into())).unwrap().url.as_deref(), Some("http://127.0.0.1:9/"));
+        assert!(preview_cwd(&d, "../").is_err());
+        assert!(preview_cwd(&d, "/etc").is_err());
+        assert!(preview_cwd(&d, "nao-existe").is_err());
+        assert_eq!(preview_cwd(&d, ".").unwrap(), d);
+        let _ = std::fs::remove_dir_all(d);
+    }
+    /// Teste FUNCIONAL de verdade: sobe um http.server (python) via preview.json, espera
+    /// ficar no ar, confere o log e derruba — nada fica rodando.
+    #[test]
+    fn real_start_alive_stop() {
+        if Command::new("python3").arg("--version").output().is_err() { eprintln!("sem python3 — pulando"); return; }
+        let d = tmp("real");
+        let port = { let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap(); l.local_addr().unwrap().port() };
+        let url = format!("http://127.0.0.1:{port}/");
+        std::fs::create_dir_all(d.join(".cardume")).unwrap();
+        std::fs::create_dir_all(d.join("site")).unwrap();
+        std::fs::write(d.join("site/index.html"), "ola").unwrap();
+        std::fs::write(d.join(".cardume/preview.json"), format!(r#"{{"cmd":"python3 -m http.server {port} --bind 127.0.0.1","cwd":"site","url":"{url}"}}"#)).unwrap();
+        assert_eq!(preview_alive_url(&url, 300), Ok(false));
+        let procs: Arc<Mutex<HashMap<String, i32>>> = Arc::new(Mutex::new(HashMap::new()));
+        let info = preview_info_for(&d, None).unwrap();
+        let pid = preview_spawn(&procs, "t1", &d, &info).unwrap();
+        let mut up = false;
+        for _ in 0..50 { if preview_alive_url(&url, 300) == Ok(true) { up = true; break; } std::thread::sleep(std::time::Duration::from_millis(200)); }
+        assert!(up, "o http.server não subiu; log:\n{}", preview_tail(&d, 60));
+        assert!(pid_alive(pid));
+        assert!(preview_tail(&d, 60).contains("python3 -m http.server"));
+        // nova subida mata a anterior (um preview por tarefa)
+        assert!(preview_kill(&procs, "t1"));
+        let mut down = false;
+        for _ in 0..25 { if preview_alive_url(&url, 200) == Ok(false) { down = true; break; } std::thread::sleep(std::time::Duration::from_millis(200)); }
+        assert!(down, "o preview não caiu depois do stop");
+        assert!(!preview_kill(&procs, "t1"));
+        // comando que morre na hora → exit registrado (a UI mostra "falhou" + log)
+        std::fs::write(d.join(".cardume/preview.json"), r#"{"cmd":"echo quebrou; exit 3"}"#).unwrap();
+        let info2 = preview_info_for(&d, None).unwrap();
+        preview_spawn(&procs, "t2", &d, &info2).unwrap();
+        let mut code = None;
+        for _ in 0..25 { if let Some(c) = preview_exits().lock().unwrap().get("t2").copied() { code = Some(c); break; } std::thread::sleep(std::time::Duration::from_millis(100)); }
+        assert_eq!(code, Some(Some(3)));
+        assert!(preview_tail(&d, 60).contains("quebrou"));
+        let _ = std::fs::remove_dir_all(d);
     }
 }
 
@@ -6103,7 +8762,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
         let key = format!("tunnel:{task_id}");
         if let Ok(mut m) = state.procs.lock() {
             if let Some(old) = m.remove(&key) {
-                signal_group(old, libc::SIGTERM);
+                signal_group(old, procsig::TERM);
             }
         }
     }
@@ -6118,12 +8777,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
     let mut cmd = Command::new(&bin);
     // http2: o transporte QUIC dá 530 intermitente em algumas redes
     cmd.args(["tunnel", "--no-autoupdate", "--protocol", "http2", "--http-host-header", &host_header, "--url", &origin]);
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
+    detach_new_group(&mut cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
@@ -6146,7 +8800,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
     let public = match rx.recv_timeout(std::time::Duration::from_secs(25)) {
         Ok(p) => p,
         Err(_) => {
-            signal_group(pid, libc::SIGKILL);
+            signal_group(pid, procsig::KILL);
             return Err("o túnel não respondeu em 25s (rede?) — tente de novo".to_string());
         }
     };
@@ -6167,7 +8821,7 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
     if !healthy {
-        signal_group(pid, libc::SIGKILL);
+        signal_group(pid, procsig::KILL);
         return Err("túnel criado mas não ficou acessível (530) — tente de novo".to_string());
     }
     if let Ok(mut m) = state.procs.lock() {
@@ -6178,11 +8832,11 @@ fn tunnel_start(state: State<AppState>, task_id: String, url: String) -> Result<
 }
 
 /// Derruba o túnel da tarefa (se houver).
-#[tauri::command]
+#[tauri::command(async)]
 fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
     if let Ok(mut m) = state.procs.lock() {
         if let Some(pid) = m.remove(&format!("tunnel:{task_id}")) {
-            signal_group(pid, libc::SIGTERM);
+            signal_group(pid, procsig::TERM);
         }
     }
     Ok(())
@@ -6190,10 +8844,36 @@ fn tunnel_stop(state: State<AppState>, task_id: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // registra o bundle nas notificações UMA vez (senão a lib cai no Editor de Script)
-    #[cfg(target_os = "macos")]
-    let _ = mac_notification_sys::set_application("dev.constellation.app");
+    // Quem notifica é o APP (UNUserNotificationCenter/plugin). As do motor via osascript saem como
+    // "Editor de Script" (clicar abre o editor) e duplicam as do app: cala em TODO processo filho
+    // (spawn_tracked já seta; aqui cobre qualquer outro caminho que suba o motor). Antes de qualquer thread.
+    std::env::set_var("CARDUME_NOTIFY", "0");
     web_log("[rust] app iniciou".to_string());
+    // RUNTIME PRÓPRIO COM FOLGA: o padrão do Tauri tem 1 thread por núcleo (10 aqui) e os comandos
+    // `#[tauri::command(async)]` síncronos rodam DIRETO nessas threads. Comandos que esperam algo externo
+    // (IA, OAuth, processos) ocupavam as 10 e o snapshot nem executava — sonda registrou "runtime SATURADO:
+    // tarefa não rodou em 60s" logo após os "snapshot demorou >8s" (24/09). 64 threads = sem fila.
+    {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(64)
+            .thread_name("constellation-rt")
+            .enable_all()
+            .build()
+            .expect("runtime do app");
+        tauri::async_runtime::set(rt.handle().clone());
+        std::mem::forget(rt); // vive o app inteiro
+    }
+    // DIAGNÓSTICO: a cada 2s agenda uma tarefa vazia no runtime e mede quanto ela espera pra rodar.
+    // Espera alta = threads do runtime todas ocupadas por comandos bloqueantes (o snapshot fica na fila).
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let t0 = std::time::Instant::now();
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        tauri::async_runtime::spawn(async move { let _ = tx.send(()); });
+        if rx.recv_timeout(std::time::Duration::from_secs(60)).is_err() { web_log("[rust] runtime SATURADO: tarefa não rodou em 60s".to_string()); continue; }
+        let ms = t0.elapsed().as_millis();
+        if ms > 500 { web_log(format!("[rust] runtime ocupado: tarefa esperou {ms}ms pra rodar")); }
+    });
     // túneis órfãos de instâncias anteriores (setsid sobrevive ao app): limpa
     let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
     // Mac acordado enquanto o app estiver aberto: este Mac é quem atende os
@@ -6212,20 +8892,58 @@ pub fn run() {
                 let cand = dir.join("engine").join("cli.mjs");
                 let _ = ENGINE_RESOURCE.set(cand.is_file().then_some(cand));
             }
+            // notificações: delegate (clique → tarefa; banner com o app na frente) + pedido de permissão
+            #[cfg(target_os = "macos")]
+            notif_mac::init(app.handle().clone());
             Ok(())
         })
         .manage(AppState::from_env())
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            memoria::memory_list,
+            memoria::memory_read,
+            memoria::memory_write,
+            memoria::memory_delete,
+            memoria::memory_move,
+            memoria::memory_graph,
+            memoria::memory_set_mode,
+            memoria::memory_open_obsidian,
+            mesa::mesa_ask,
+            mesa::mesa_stop,
+            mesa::mesa_resume,
+            mesa::mesa_save,
+            mesa::mesa_delete,
+            mesa::mesa_read,
+            mesa::mesa_list,
+            preview_alive,
+            preview_info,
+            preview_start,
+            preview_stop,
+            preview_log_tail,
             workspace_usage,
             workspace_clean,
-            current_repo,
             coordination_metrics,
             overlap_check,
+            agent_edits_pending,
+            agent_edits_done,
+            write_epic_context,
+            epic_context_requests,
+            task_edit_cli,
+            epic_sync_cli,
+            task_agent_edit,
             resolve_conflict,
             list_projects,
             projects_overview,
             repo_checks,
+            checks_config,
+            checks_save,
+            task_fingerprint,
+            run_checks,
+            run_checks_stop,
+            checks_override_log,
+            deliverables_default_dir,
+            save_deliverables,
+            open_folder,
             file_diff,
             pr_body_ai,
             ai_spec,
@@ -6242,11 +8960,10 @@ pub fn run() {
             write_llm_env,
             route_ai_ping,
             list_skills,
-            get_active_skills,
             set_active_skills,
-            get_issue_config,
             set_issue_config,
             repo_remote_of,
+            repo_remote_ids,
             tracker_local_get,
             tracker_local_set,
             tracker_bind_secret,
@@ -6255,10 +8972,14 @@ pub fn run() {
             tracker_ai_build,
             issue_chat,
             issue_chat_stop,
+            project_chat_stop,
+            orq_chat_stop,
+            orq_plan_stop,
             create_skill,
             import_skill_md,
             git_skills,
             list_all_tasks,
+            list_done_tasks,
             read_settings,
             write_setting,
             fetch_task_ref,
@@ -6266,6 +8987,9 @@ pub fn run() {
             open_project,
             git_init_repo,
             create_project,
+            quick_project_target,
+            quick_create_project,
+            reveal_project,
             ai_orchestrate,
             ai_orchestrate_chat,
             ai_file_why,
@@ -6284,6 +9008,7 @@ pub fn run() {
             switch_project,
             remove_project,
             snapshot,
+            snapshot_stamp,
             task_events,
             build_info,
             graph,
@@ -6315,10 +9040,13 @@ pub fn run() {
             is_dev_install,
             apply_update,
             notify_native,
+            notif_status,
+            notif_open_settings,
             web_log,
             tunnel_start,
             tunnel_stop,
             open_url,
+            publish_github,
             oauth_wait_callback,
             open_artifact,
             reveal_artifact,
@@ -6340,6 +9068,7 @@ pub fn run() {
             open_pr,
             pr_compare_url,
             pr_status,
+            pr_resolve_thread,
             merge_pr,
             rework_from_pr,
             merge_task,
@@ -6362,10 +9091,11 @@ pub fn run() {
             read_artifact
         ])
         .build(tauri::generate_context!())
-        .expect("erro ao iniciar o Cardume")
+        .expect("erro ao iniciar o Starfork")
         .run(|_app, event| {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
+                mesa::mesa_kill_all(); // personas da mesa rodam em grupo destacado: não sobrevivem ao app
                 let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
             }
         });
@@ -6378,6 +9108,27 @@ mod cardume_hygiene_tests {
         let o = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git");
         String::from_utf8_lossy(&o.stdout).to_string()
     }
+    #[test]
+    fn update_dest_rename_only_constellation_to_starfork() {
+        let tmp = std::env::temp_dir().join(format!("cardume-upd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let new_sf = PathBuf::from("/x/Starfork.app");
+        // Constellation → Starfork
+        let cur = tmp.join("Constellation.app");
+        assert_eq!(update_dest(&cur, &new_sf), tmp.join("Starfork.app"));
+        // mesmo nome → no lugar
+        let cur_sf = tmp.join("Starfork.app");
+        assert_eq!(update_dest(&cur_sf, &new_sf), cur_sf);
+        // nome customizado → no lugar
+        let custom = tmp.join("MyApp.app");
+        assert_eq!(update_dest(&custom, &new_sf), custom);
+        // irmão Starfork.app já existe → no lugar
+        std::fs::create_dir_all(tmp.join("Starfork.app")).unwrap();
+        assert_eq!(update_dest(&cur, &new_sf), cur);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn remove_worktree_dir_only_inside_cardume() {
         let tmp = std::env::temp_dir().join(format!("cardume-hyg-{}", std::process::id()));
@@ -6407,5 +9158,163 @@ mod cardume_hygiene_tests {
         assert!(remove_worktree_dir(&tmp, &orphan));
         assert!(!orphan.exists());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+#[cfg(test)]
+mod pr_status_tests {
+    use super::*;
+    #[test]
+    fn gh_sem_acesso_ao_repo_devolve_o_nome() {
+        let e = "GraphQL: Could not resolve to a Repository with the name 'market4u-ti/loja'. (repository)";
+        assert_eq!(gh_no_repo_access(e).as_deref(), Some("market4u-ti/loja"));
+        assert_eq!(gh_no_repo_access("no pull requests found"), None);
+    }
+    #[test]
+    fn review_threads_flatten_and_mark_answered_resolved() {
+        let v = serde_json::json!({"data":{"viewer":{"login":"eu"},"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+            {"id":"PRRT_1","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":10,"author":{"login":"coderabbitai[bot]"},"body":"troque X","path":"a.rs","line":3,"originalLine":3,"createdAt":"t","url":"u10"},
+                {"databaseId":11,"author":{"login":"EU"},"body":"feito","path":"a.rs","line":null,"originalLine":3,"createdAt":"t","url":"u11"}]}},
+            {"id":"PRRT_2","isResolved":true,"isOutdated":true,"comments":{"nodes":[
+                {"databaseId":20,"author":{"login":"ana"},"body":"e isso?","path":"b.rs","line":null,"originalLine":7,"createdAt":"t","url":"u20"}]}},
+            {"id":"PRRT_3","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":30,"author":{"login":"ana"},"body":"ok?","path":"c.rs","line":1,"originalLine":1,"createdAt":"t","url":"u30"},
+                {"databaseId":31,"author":{"login":"bot"},"body":"✔ ajustado","path":"c.rs","line":1,"originalLine":1,"createdAt":"t","url":"u31"}]}},
+            {"id":"PRRT_4","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":40,"author":{"login":"ana"},"body":"pendente","path":"d.rs","line":2,"originalLine":2,"createdAt":"t","url":"u40"}]}}
+        ]}}}}});
+        let cs = pr_parse_review_threads(&v, "eu");
+        assert_eq!(cs.len(), 6);
+        let root = |id: i64| cs.iter().find(|c| c.id == Some(id)).unwrap();
+        assert!(root(10).answered && root(10).is_bot && root(10).in_reply_to.is_none());
+        assert_eq!(root(11).in_reply_to, Some(10));
+        assert_eq!(root(11).line, Some(3)); // line nulo cai no originalLine
+        assert!(root(20).resolved && root(20).outdated && !root(20).answered);
+        assert!(root(30).answered); // última começa com ✔
+        assert!(!root(40).answered && !root(40).resolved);
+        assert_eq!(root(40).thread_id.as_deref(), Some("PRRT_4"));
+        assert_eq!(root(40).url, "u40");
+    }
+    #[test]
+    fn own_lone_comment_is_not_answered() {
+        // agente commitando com a SUA conta e você revisando o PR dele: seu comentário sozinho é pendência
+        let v = serde_json::json!({"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+            {"id":"T1","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":50,"author":{"login":"eu"},"body":"renomeie isto","path":"x.rs","line":1,"createdAt":"t","url":"u50"}]}},
+            {"id":"T2","isResolved":false,"isOutdated":false,"comments":{"nodes":[
+                {"databaseId":60,"author":{"login":"eu"},"body":"e aqui?","path":"y.rs","line":2,"createdAt":"t","url":"u60"},
+                {"databaseId":61,"author":{"login":"eu"},"body":"ajustei","path":"y.rs","line":2,"createdAt":"t","url":"u61"}]}}
+        ]}}}}});
+        let cs = pr_parse_review_threads(&v, "eu");
+        let root = |id: i64| cs.iter().find(|c| c.id == Some(id)).unwrap();
+        assert!(!root(50).answered, "comentário solitário do próprio usuário não pode nascer respondido");
+        assert!(root(60).answered, "resposta da sua conta na thread fecha");
+        assert!(pr_thread_answered(1, "ana", "✔ feito", "eu"));
+        assert!(!pr_thread_answered(1, "eu", "pendente", "eu"));
+    }
+    fn conv(id: i64, author: &str, body: &str, at: &str) -> PrComment {
+        PrComment { id: Some(id), author: author.into(), body: body.into(), created_at: at.into(), is_bot: pr_is_bot(author),
+            url: format!("https://github.com/o/r/pull/1#issuecomment-{id}"), ..Default::default() }
+    }
+    #[test]
+    fn conversation_answered_only_by_later_check_comment() {
+        let mut cs = vec![
+            conv(1, "eu", "faltou o teste", "2026-01-01T10:00:00Z"),
+            conv(2, "ana", "e a doc?", "2026-01-01T10:05:00Z"),
+            conv(3, "eu", "✔ https://github.com/o/r/pull/1#issuecomment-1 adicionei o teste", "2026-01-01T11:00:00Z"),
+            conv(4, "ana", "mais uma coisa", "2026-01-01T12:00:00Z"),
+            conv(5, "bia", "✔ @ana doc feita", "2026-01-01T09:00:00Z"), // ANTES do comentário da ana: não fecha
+        ];
+        pr_mark_conv_answered(&mut cs, "eu");
+        assert!(cs[0].answered, "✔ posterior que cita o link fecha");
+        assert!(!cs[1].answered, "✔ que cita OUTRO comentário não fecha este (o da ana segue aberto)");
+        assert!(cs[2].answered, "o próprio ✔ não é pendência");
+        assert!(!cs[3].answered, "sem ✔ depois → aberto");
+        let mut solo = vec![conv(7, "eu", "meu comentário", "2026-01-01T10:00:00Z")];
+        pr_mark_conv_answered(&mut solo, "eu");
+        assert!(!solo[0].answered, "autoria sozinha não marca respondido");
+        // ✔ de terceiro só fecha se citar o comentário
+        let mut cit = vec![conv(8, "ana", "x", "2026-01-01T10:00:00Z"), conv(9, "bia", "✔ @ana resolvido", "2026-01-01T11:00:00Z"),
+            conv(10, "caio", "y", "2026-01-01T10:30:00Z")];
+        pr_mark_conv_answered(&mut cit, "eu");
+        assert!(cit[0].answered && !cit[2].answered);
+    }
+    #[test]
+    fn reviews_superseded_and_open_asks() {
+        let r = serde_json::json!([
+            {"id":"R1","author":{"login":"ana"},"body":"mude X","state":"CHANGES_REQUESTED","submittedAt":"2026-01-01T10:00:00Z"},
+            {"id":"R2","author":{"login":"ana"},"body":"","state":"APPROVED","submittedAt":"2026-01-02T10:00:00Z"},
+            {"id":"R3","author":{"login":"bia"},"body":"mude Y","state":"CHANGES_REQUESTED","submittedAt":"2026-01-01T10:00:00Z"},
+            {"id":"R4","author":{"login":"bia"},"body":"obs","state":"COMMENTED","submittedAt":"2026-01-03T10:00:00Z"},
+            {"id":"R5","author":{"login":"caio"},"body":"ok","state":"APPROVED","submittedAt":"2026-01-01T10:00:00Z"}
+        ]);
+        let rs = pr_parse_reviews(&r, "u");
+        assert_eq!(rs.len(), 4); // R2 sem texto fica de fora
+        let get = |id: &str| rs.iter().find(|x| x.id == id).unwrap();
+        assert!(get("R1").superseded, "aprovou depois → pedido antigo não vale");
+        assert!(!get("R3").superseded, "COMMENTED depois não derruba o pedido de mudanças");
+        let mk = |decision: &str| PrInfo {
+            exists: true, number: 1, url: "u".into(), state: "OPEN".into(), decision: decision.into(), mergeable: String::new(), body: String::new(),
+            comments: vec![], reviews: rs.clone(), is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
+            checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(),
+        };
+        let none = std::collections::HashSet::new();
+        let info = mk("CHANGES_REQUESTED");
+        let asks: Vec<&str> = pr_open_review_asks(&info, &none).iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(asks, vec!["R3"]);
+        let ign: std::collections::HashSet<String> = ["R3".to_string()].into_iter().collect();
+        assert!(pr_open_review_asks(&info, &ign).is_empty(), "ignorado na UI não vai pro agente");
+        assert!(pr_open_review_asks(&mk("APPROVED"), &none).is_empty(), "PR aprovado → nada a reenviar");
+        let c = PrComment { id: None, author: "ana".into(), body: "abc".into(), ..Default::default() };
+        assert_eq!(pr_cmt_key(&c), "ana:abc");
+    }
+    #[test]
+    fn checks_summary_counts_fail_and_pending() {
+        let r = serde_json::json!([
+            {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},
+            {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"},
+            {"__typename":"CheckRun","name":"e2e","status":"IN_PROGRESS","conclusion":""},
+            {"__typename":"StatusContext","context":"ci/lint","state":"PENDING"},
+            {"__typename":"StatusContext","context":"vercel","state":"ERROR"}
+        ]);
+        assert_eq!(pr_checks_summary(&r), (5, 2, 2));
+        assert_eq!(pr_failing_checks(&r), vec!["test".to_string(), "vercel".to_string()]);
+        assert!(pr_failing_checks(&serde_json::Value::Null).is_empty());
+        assert_eq!(pr_checks_summary(&serde_json::Value::Null), (0, 0, 0));
+    }
+    #[test]
+    fn no_pr_vs_network_error() {
+        assert!(gh_says_no_pr("no pull requests found for branch \"x\""));
+        assert!(gh_says_no_pr("none of the git remotes configured for this repository point to a known GitHub host"));
+        assert!(!gh_says_no_pr("error connecting to api.github.com"));
+        assert!(!gh_says_no_pr("HTTP 502: Bad Gateway"));
+    }
+}
+
+#[cfg(test)]
+mod motor_r7_tests {
+    use super::{home_from, pr_merge_landed};
+
+    #[test]
+    fn pasta_do_usuario_no_windows_usa_userprofile() {
+        // macOS/Linux: HOME; sem HOME, USERPROFILE
+        assert_eq!(home_from(Some("/Users/ana".into()), Some("C:\\Users\\x".into()), false).as_deref(), Some("/Users/ana"));
+        assert_eq!(home_from(None, Some("C:\\Users\\ana".into()), false).as_deref(), Some("C:\\Users\\ana"));
+        // Windows: USERPROFILE primeiro (igual ao os.homedir() do Node — um HOME do Git Bash não desvia o cofre)
+        assert_eq!(home_from(Some("/c/Users/ana".into()), Some("C:\\Users\\ana".into()), true).as_deref(), Some("C:\\Users\\ana"));
+        assert_eq!(home_from(Some("/c/Users/ana".into()), None, true).as_deref(), Some("/c/Users/ana"));
+        // vazio não conta; sem nenhum → None (quem chama registra o aviso)
+        assert_eq!(home_from(Some("".into()), Some("C:\\Users\\ana".into()), false).as_deref(), Some("C:\\Users\\ana"));
+        assert_eq!(home_from(None, None, false), None);
+    }
+
+    #[test]
+    fn merge_do_pr_vale_quando_o_github_ja_mergeou() {
+        assert!(pr_merge_landed(true, None));
+        // gh falhou só ao apagar a branch local (presa na worktree) — o PR está MERGED
+        assert!(pr_merge_landed(false, Some("MERGED\n")));
+        assert!(!pr_merge_landed(false, Some("OPEN")));
+        assert!(!pr_merge_landed(false, None));
     }
 }

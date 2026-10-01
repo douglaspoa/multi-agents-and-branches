@@ -1,4 +1,4 @@
-// Constellation — 45-entrega-time: a tarefa de um COLEGA abre como PÁGINA de entrega (uma aba),
+// Starfork — 45-entrega-time: a tarefa de um COLEGA abre como PÁGINA de entrega (uma aba),
 // com o mesmo layout da aba "Entrega" das tarefas locais — só que alimentada pela nuvem:
 // cartão (tasks), requisitos provados (requirements_proof), provas publicadas (artifacts_meta +
 // Storage) e atividade (task_activity). O modal antigo (openCloudTask) fica só pra EDITAR o cartão.
@@ -65,26 +65,26 @@ function ctPageRender(){
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence.map(e=>String(e).split('/').pop())));
   const proofsHtml = imgs.length
     ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=c.urls[a.storage_path]; return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${escA(th)}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evidenceNames.has(String(a.name).split('/').pop())?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}</div>`
-    : `<div class="en-empty">${c.loaded?'nenhum print publicado — quem executa publica as provas pelo botão "publicar provas pro time" na tarefa dele':'carregando provas…'}</div>`;
+    : `<div class="en-empty">${c.loaded?'nenhum print publicado — quem executa publica as provas pelo botão "publicar provas pro time" na tarefa dele':skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando as provas' })}</div>`;
   const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>{ const a=findArt(e); return a?`<button class="reqevb mono" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">${esc(e)}</button>`:`<span class="reqevb mono" title="essa evidência ainda não foi publicada pro time" style="opacity:.5;cursor:default">${esc(e)}</span>`; }).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem requisitos no cartão</div>';
   const docIc=n=>/\.pdf$/i.test(n)?'PDF':/\.html?$/i.test(n)?'HTML':/\.md$/i.test(n)?'MD':/\.json$/i.test(n)?'JSON':'TXT';
   const docsHtml = docs.length
     ? docs.map(a=>`<div class="en-doc"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${a.created_at?'há '+agoTx(a.created_at):''}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">abrir</button><button class="btn sm ghost" data-cdl="${escA(a.storage_path)}" title="abrir no navegador (link assinado, 1h)">↗</button></span></div>`).join('')
-    : `<div class="en-empty">${c.loaded?'nenhum documento publicado ainda':'carregando…'}</div>`;
+    : `<div class="en-empty">${c.loaded?'nenhum documento publicado ainda':skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando os documentos' })}</div>`;
   const dels=(sp.deliverables||[]).filter(Boolean);
   const K={created:'criou o cartão',edited:'editou o cartão',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas',comment:'comentou',status:'mudou o status'};
   const act=c.act||[];
   const timeline = act.length
     ? `<div class="stepper">${act.map((a,i)=>{ const last=i===act.length-1; return `<div class="step ${last?'cur':'done'}" style="cursor:default"><span class="smark">${last?'●':'✓'}</span><span class="stx"><span class="srole" style="text-transform:none">${esc(tmName(a.user_id))} · ${esc(K[a.kind]||a.kind)}</span><span class="sname">${esc(new Date(a.at).toLocaleString('pt-BR'))}${a.body?' — '+esc(String(a.body).slice(0,160)):''}</span></span></div>`; }).join('')}</div>`
-    : `<div class="en-empty">${c.loaded?'sem atividade registrada':'carregando…'}</div>`;
+    : `<div class="en-empty">${c.loaded?'sem atividade registrada':skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'carregando a atividade' })}</div>`;
   const note = ct.last_note ? `<div class="seclbl2" style="margin-top:14px">Última nota do agente${ct.stage?` <span class="dim">· ${esc(ct.stage)}</span>`:''}</div><div class="en-how">${esc(ct.last_note)}</div>` : '';
   main.innerHTML=`<div class="enpage">
     <div class="en-head">
       <div class="en-ht">
-        <span class="ndeyebrow">tarefa do time · ${esc(CT_ST_PT[ct.status]||ct.status)}${ep?' · ◆ '+esc(ep):''}</span>
+        <span class="ndeyebrow">tarefa do time · ${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''}</span>
         <h2 class="en-h1">${esc(ct.title)}</h2>
         ${sp.objective?`<p class="en-obj">${esc(sp.objective)}</p>`:''}
-        <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button>`:''}</div>
+        <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${ct.status==='backlog'?`<button class="btn sm primary" id="ctpStart" title="assumir e iniciar agora nesta máquina">▶ iniciar</button>`:''}${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
       </div>
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(ct.pr_url)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
@@ -103,13 +103,15 @@ function ctPageRender(){
   main.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>lbOpen(ct.id, imgs.map(a=>a.name), +b.dataset.lb));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-cart]').forEach(b=>b.onclick=()=>openCloudArtifact(b.dataset.cart, b.dataset.cname));
-  main.querySelectorAll('[data-cdl]').forEach(b=>b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.cdl)); }catch(e){ alert('Falha ao abrir: '+(e.message||e)); } });
+  main.querySelectorAll('[data-cdl]').forEach(b=>b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.cdl)); }catch(e){ showErr(e, 'Falha ao abrir'); } });
   bindClick('ctpEdit', ()=>openCloudTask(ct));
+  bindClick('ctpStart', ()=>{ if(window.epCardStart) epCardStart(ct, $id('ctpStart')); else teamClaimStart(ct, $id('ctpStart')); });
+  bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
   { const h=$id('ctPageName'); if(h) h.textContent=ct.title; const s=$id('ctPageSub'); if(s) s.textContent=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||''; }
 }
 // Abre um artefato PUBLICADO (Storage) no mesmo visualizador dos artefatos locais.
 async function openCloudArtifact(storagePath, name){
-  let url; try{ url=await cloudSignedUrl(storagePath); }catch(e){ alert('Falha ao abrir: '+(e.message||e)); return; }
+  let url; try{ url=await cloudSignedUrl(storagePath); }catch(e){ showErr(e, 'Falha ao abrir'); return; }
   const isImg=/\.(png|jpe?g|gif|webp|svg)$/i.test(name), isPdf=/\.pdf$/i.test(name), isMd=/\.(md|markdown)$/i.test(name), isTxt=/\.(txt|json|csv|yaml|yml|log|html?)$/i.test(name);
   if(!(isImg||isPdf||isMd||isTxt)){ openExternal(url); return; }
   let body='';

@@ -1,0 +1,545 @@
+[
+ {
+  "id": "AU-1",
+  "area": "Conta, login e senha",
+  "titulo": "Todo erro do servidor de contas sai em português, com o próximo passo",
+  "antes": "Erros do Supabase apareciam crus e em inglês na tela: \"Falhou: Password is known to be weak and easy to guess, please choose a different one.\", \"Falhou: Error sending confirmation email\", \"Falhou: Signups not allowed for otp\", \"Falhou: For security purposes, you can only request this after 42 seconds.\", \"Falhou: Something brand new went wrong\", \"Falhou: auth falhou (502)\", \"Falhou: Internal Server Error\". A tradução era um punhado de regex espalhadas em 2 arquivos (auErr no 44 e outro bloco no 40) que só pegavam 5 textos.",
+  "depois": "Um tradutor só (authErrInfo/authErrPt no novo 39-i18n-auth.js) entende error_code do GoTrue E os textos antigos (msg/error_description), HTTP 429/5xx, rede e timeout — ~35 códigos mapeados. Cada mensagem diz o que fazer (\"Escolha outra — uma frase com números funciona bem\", \"Tente de novo em alguns minutos\"). Erro que o app não conhece vira \"Algo deu errado. Tente de novo em instantes.\" com \"código: brand_new_code · HTTP 400\" em letra pequena, e vai pro app_errors (sem e-mail nem senha).",
+  "motivo": "A pessoa não sabe inglês técnico nem o que fazer depois do erro; e o suporte precisa do código pra rastrear o que o app não explica.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after signup-weak-server  (caso \"signup-weak-server\" em authcases.js; ?scene=auth&case=signup-weak-server&nosess=1)",
+  "estado_mock": "signup → 422 weak_password, reasons [pwned], msg em inglês",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-signup-weak-server.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-signup-weak-server.png"
+  }
+ },
+ {
+  "id": "AU-2",
+  "area": "Conta, login e senha",
+  "titulo": "Erro desconhecido ou falha do servidor: mensagem genérica + código pequeno pro suporte",
+  "antes": "\"Falhou: Something brand new went wrong\" (inglês cru) e \"Falhou: auth falhou (502)\" quando o servidor devolvia HTML.",
+  "depois": "\"Algo deu errado. Tente de novo em instantes.\" + \"código: brand_new_code · HTTP 400\"; 5xx/502 → \"O servidor de contas está com problema agora. Tente de novo em alguns minutos.\" + \"código: HTTP 502\". O caso também é registrado em app_errors (source \"auth\").",
+  "motivo": "Nunca mostrar inglês; ainda assim deixar um rastro que o suporte consiga pesquisar.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after signup-unknown  (caso \"signup-unknown\" em authcases.js; ?scene=auth&case=signup-unknown&nosess=1)",
+  "estado_mock": "signup → 400 { error_code:\"brand_new_code\" }",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-signup-unknown.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-signup-unknown.png"
+  }
+ },
+ {
+  "id": "AU-3",
+  "area": "Conta, login e senha",
+  "titulo": "Cadastro com e-mail que já tem conta não fica esperando um código que nunca chega",
+  "antes": "Com confirmação de e-mail ligada, o Supabase responde \"sucesso\" (user com identities vazio) quando o e-mail já existe e NÃO manda e-mail (anti-enumeração). O app ia pra tela \"Confirme o e-mail\" e a pessoa esperava um código que nunca chegava.",
+  "depois": "O app detecta identities vazio e fica no cadastro: embaixo do e-mail aparece \"Já existe uma conta com esse e-mail. Entre com a sua senha ou use “esqueci a senha”.\" com os atalhos \"entrar\" (abre o login com o e-mail preenchido) e \"esqueci a senha\" (manda o código de recuperação).",
+  "motivo": "Era um beco sem saída silencioso — o pior tipo de erro de cadastro.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after signup-exists-fake  (caso \"signup-exists-fake\" em authcases.js; ?scene=auth&case=signup-exists-fake&nosess=1)",
+  "estado_mock": "signup → 200 { identities: [] } (e-mail já cadastrado, confirmação ligada)",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-signup-exists-fake.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-signup-exists-fake.png"
+  }
+ },
+ {
+  "id": "AU-4",
+  "area": "Conta, login e senha",
+  "titulo": "Erro aparece ao lado do campo e o que foi digitado não some",
+  "antes": "Todo erro ia pra uma caixa no TOPO do formulário (empurrando os campos pra baixo) e o formulário era redesenhado do zero: a senha digitada era apagada a cada erro (cadastro com e-mail existente, servidor fora etc.).",
+  "depois": "Erro de e-mail fica embaixo do e-mail, de senha embaixo da senha, de código embaixo do código (aria-invalid + aria-describedby + role=alert), numa linha com espaço reservado — o formulário não pula. Erros sem campo (rede, limite, servidor) ficam numa caixa logo acima dos botões. Ao re-renderizar a mesma tela (ocupado/erro) o app devolve o que a pessoa digitou.",
+  "motivo": "Redigitar a senha a cada erro e caçar a mensagem no topo cansa e confunde.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after signup-exists  (caso \"signup-exists\" em authcases.js; ?scene=auth&case=signup-exists&nosess=1)",
+  "estado_mock": "signup → 422 user_already_exists",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-signup-exists.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-signup-exists.png"
+  }
+ },
+ {
+  "id": "AU-5",
+  "area": "Conta, login e senha",
+  "titulo": "Regras da senha visíveis antes de enviar, com medidor coerente com o mínimo",
+  "antes": "Só \"use 8+ caracteres\" e 4 tracinhos que acendiam por comprimento (1 a cada 3 letras): \"abc12\" já acendia 1, \"aaaaaaaaaaaa\" enchia o medidor. O painel Conta ainda aceitava senha de 6.",
+  "depois": "Embaixo da senha: medidor com rótulo (fraca/razoável/boa/forte, cor por nível) e a lista \"○/✓ 8+ caracteres · letras e números · 12+ deixa mais forte\", atualizada ao digitar. Abaixo de 8 nunca passa de \"fraca\"; repetição não conta. Mínimo único AUTH_PASS_MIN=8 em todo o app (o 2º formulário de 6 caracteres foi removido).",
+  "motivo": "A pessoa precisa saber a regra ANTES de levar um erro.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after signup-typing-weak  (caso \"signup-typing-weak\" em authcases.js; ?scene=auth&case=signup-typing-weak&nosess=1)",
+  "estado_mock": "digitando \"abc12\" no cadastro (sem enviar)",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-signup-typing-weak.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-signup-typing-weak.png"
+  }
+ },
+ {
+  "id": "AU-6",
+  "area": "Conta, login e senha",
+  "titulo": "E-mail inválido avisado no campo, antes de ir ao servidor",
+  "antes": "\"informe um e-mail válido.\" numa caixa no topo; \"douglas@empresa\" (sem domínio completo) passava.",
+  "depois": "Validação de formato ao sair do campo e ao enviar (\"Esse e-mail não parece válido — confira se está completo (ex.: voce@empresa.com).\"), embaixo do e-mail, com foco nele. A mensagem some sozinha quando o e-mail fica válido.",
+  "motivo": "Erro de digitação é o erro mais comum de cadastro.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after signup-invalid-email  (caso \"signup-invalid-email\" em authcases.js; ?scene=auth&case=signup-invalid-email&nosess=1)",
+  "estado_mock": "cadastro com \"douglas@\" e senha \"abc\"",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-signup-invalid-email.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-signup-invalid-email.png"
+  }
+ },
+ {
+  "id": "AU-7",
+  "area": "Conta, login e senha",
+  "titulo": "Código de 6 dígitos: colar ou autopreencher preenche as 6 caixas",
+  "antes": "Cada caixa aceitava 1 dígito e ficava com o ÚLTIMO: o autopreenchimento do macOS (\"código do Mail\") ou colar numa caixa deixava só \"3\" e o resto vazio.",
+  "depois": "autocomplete=\"one-time-code\" na 1ª caixa; digitar/colar/autopreencher vários dígitos espalha pelas 6 e confirma sozinho. Setas ←/→ navegam, Backspace volta, Enter confirma. Enquanto confirma os dígitos continuam visíveis; só somem se o código estiver errado.",
+  "motivo": "É o caminho mais rápido de confirmar e estava quebrado.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after confirm-autofill  (caso \"confirm-autofill\" em authcases.js; ?scene=auth&case=confirm-autofill&nosess=1)",
+  "estado_mock": "tela de código; \"482913\" entra de uma vez na 1ª caixa (verify pendurado pra fotografar o \"confirmando…\")",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-confirm-autofill.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-confirm-autofill.png"
+  }
+ },
+ {
+  "id": "AU-8",
+  "area": "Conta, login e senha",
+  "titulo": "Código errado ou expirado: mensagem no código, caixas limpas e foco na 1ª",
+  "antes": "\"Falhou: código inválido ou expirado — peça um novo.\" numa caixa no topo, que empurrava as caixas.",
+  "depois": "Borda de alerta nas caixas e, embaixo delas, \"Código inválido ou expirado. Use o código do e-mail mais recente (vale 10 minutos) ou peça um novo.\"; caixas limpas e foco na primeira. Embaixo do código, sem erro, fica a validade: \"O código vale 10 minutos (até 23:13). Confira também o spam.\"",
+  "motivo": "Depois de reenviar, os códigos antigos param de valer — a pessoa precisa saber que é o do e-mail MAIS RECENTE.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after confirm-wrong-code  (caso \"confirm-wrong-code\" em authcases.js; ?scene=auth&case=confirm-wrong-code&nosess=1)",
+  "estado_mock": "verify → 403 otp_expired \"Token has expired or is invalid\"",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-confirm-wrong-code.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-confirm-wrong-code.png"
+  }
+ },
+ {
+  "id": "AU-9",
+  "area": "Conta, login e senha",
+  "titulo": "Reenviar código respeita o tempo que o servidor pede (e o limite por hora)",
+  "antes": "Ao reenviar cedo demais: \"Falhou: For security purposes, you can only request this after 42 seconds.\" (inglês) e o link \"reenviar código\" continuava ativo. Relógio no formato 0:SS (quebrava acima de 59 s). Ao zerar, a tela era redesenhada e apagava os dígitos já digitados.",
+  "depois": "\"Por segurança, espere 42 s antes de pedir outro código.\" e o botão volta com esse tempo (m:ss). Limite de e-mails por hora (o servidor manda só 2/h hoje) → mensagem própria e 5 min de espera, pra não queimar a cota. Ao zerar só o link troca — os dígitos ficam.",
+  "motivo": "Com SMTP padrão (2 e-mails/h), reenviar à toa trava a pessoa por uma hora.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after confirm-resend-rate  (caso \"confirm-resend-rate\" em authcases.js; ?scene=auth&case=confirm-resend-rate&nosess=1)",
+  "estado_mock": "resend → 429 over_email_send_rate_limit \"…after 42 seconds.\"",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-confirm-resend-rate.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-confirm-resend-rate.png"
+  }
+ },
+ {
+  "id": "AU-10",
+  "area": "Conta, login e senha",
+  "titulo": "Tela do código: \"trocar e-mail\" e sem texto técnico pro usuário",
+  "antes": "Não dava pra corrigir o e-mail digitado errado (só \"entrar com a senha\"); o rodapé mostrava instrução de admin: \"peça pro admin incluir {{ .Token }} nos templates (Supabase → Auth → Email Templates)\".",
+  "depois": "Link \"trocar e-mail\" ao lado do endereço (volta pro cadastro/login com o e-mail preenchido). Rodapé só com o que a pessoa pode fazer (\"Confirmou pelo link do e-mail? entrar com a senha.\"). Os templates já têm {{ .Token }} (conferido), o aviso de admin saiu.",
+  "motivo": "E-mail digitado errado era beco sem saída; texto de configuração não é pro usuário final.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after confirm-screen  (caso \"confirm-screen\" em authcases.js; ?scene=auth&case=confirm-screen&nosess=1)",
+  "estado_mock": "signup → 200 (confirmação por código)",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-confirm-screen.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-confirm-screen.png"
+  }
+ },
+ {
+  "id": "AU-11",
+  "area": "Conta, login e senha",
+  "titulo": "Login com e-mail não confirmado leva direto pro código",
+  "antes": "\"Falhou: confirme o e-mail primeiro — use o código que enviamos.\" no login, sem caminho até a tela do código.",
+  "depois": "O login abre a tela \"Confirme o e-mail\" com o aviso \"Seu e-mail ainda não foi confirmado. Digite o código de 6 dígitos que enviamos no cadastro — ou peça um novo.\" e o \"reenviar código\" já liberado (sem gastar e-mail automaticamente).",
+  "motivo": "Quem fecha o app antes de confirmar precisa de um caminho de volta.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-unconfirmed  (caso \"login-unconfirmed\" em authcases.js; ?scene=auth&case=login-unconfirmed&nosess=1)",
+  "estado_mock": "token (password) → 400 email_not_confirmed",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-unconfirmed.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-unconfirmed.png"
+  }
+ },
+ {
+  "id": "AU-12",
+  "area": "Conta, login e senha",
+  "titulo": "Senha errada: aviso no campo, senha selecionada e atalho \"esqueci a senha\"",
+  "antes": "\"Falhou: e-mail ou senha incorretos.\" no topo; a senha era apagada. O texto legado (error_description) às vezes não era reconhecido.",
+  "depois": "Embaixo da senha: \"E-mail ou senha incorretos. Confira a senha (Caps Lock?) ou use “esqueci a senha”.\" + link \"esqueci a senha\" que já manda o código pro e-mail digitado. A senha continua no campo, selecionada, pra redigitar por cima. Funciona com error_code e com o formato antigo.",
+  "motivo": "Erro mais comum do login — precisa de conserto em 1 clique.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-wrong-pass  (caso \"login-wrong-pass\" em authcases.js; ?scene=auth&case=login-wrong-pass&nosess=1)",
+  "estado_mock": "token (password) → 400 invalid_credentials",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-wrong-pass.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-wrong-pass.png"
+  }
+ },
+ {
+  "id": "AU-13",
+  "area": "Conta, login e senha",
+  "titulo": "Mostrar/ocultar senha e aviso de Caps Lock",
+  "antes": "Não havia como ver a senha digitada nem aviso de Caps Lock.",
+  "depois": "Botão \"mostrar/ocultar\" dentro do campo (aria-pressed, rótulo acessível) em login, cadastro e nova senha; selo \"Caps Lock ligado\" aparece no campo enquanto a tecla estiver ativa.",
+  "motivo": "Metade dos \"senha errada\" é Caps Lock ou erro de digitação invisível.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-caps-showpass  (caso \"login-caps-showpass\" em authcases.js; ?scene=auth&case=login-caps-showpass&nosess=1)",
+  "estado_mock": "login com senha digitada, Caps Lock ligado e \"mostrar\" clicado",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-caps-showpass.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-caps-showpass.png"
+  }
+ },
+ {
+  "id": "AU-14",
+  "area": "Conta, login e senha",
+  "titulo": "Enter envia, botão ocupado não envia 2x e nada fica pendurado",
+  "antes": "Enter só funcionava no campo de senha; dava pra disparar a mesma chamada 2x (Enter + clique, autoenvio do código + Enter); sem teto de tempo, \"entrando…\" podia ficar pra sempre se a rede pendurasse.",
+  "depois": "Cada tela é um <form>: Enter envia de qualquer campo. Toda ação checa \"ocupado\" antes de chamar o servidor. sbAuth tem teto de 20 s → \"O servidor demorou demais para responder. Confira sua conexão e tente de novo.\"",
+  "motivo": "Duplo envio gasta código/e-mail (limite de 2/h) e pendurar sem fim parece travamento.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-busy  (caso \"login-busy\" em authcases.js; ?scene=auth&case=login-busy&nosess=1)",
+  "estado_mock": "token (password) pendurado (captura do estado \"entrando…\")",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-busy.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-busy.png"
+  }
+ },
+ {
+  "id": "AU-15",
+  "area": "Conta, login e senha",
+  "titulo": "\"Esqueci a senha\" sem e-mail: aviso no campo de e-mail",
+  "antes": "Link \"esqueci\" (no rótulo, antes da senha na ordem do Tab) e aviso no topo.",
+  "depois": "\"Digite o seu e-mail acima — o código de recuperação vai para ele.\" embaixo do e-mail, com foco nele. O link virou \"esqueci a senha\" e fica DEPOIS da senha na ordem do Tab (visualmente na linha do rótulo).",
+  "motivo": "Orientar onde agir, no lugar certo.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after forgot-no-email  (caso \"forgot-no-email\" em authcases.js; ?scene=auth&case=forgot-no-email&nosess=1)",
+  "estado_mock": "login sem e-mail → clique em \"esqueci a senha\"",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-forgot-no-email.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-forgot-no-email.png"
+  }
+ },
+ {
+  "id": "AU-16",
+  "area": "Conta, login e senha",
+  "titulo": "Recuperação pedida cedo demais: tempo exato + \"já tenho um código\"",
+  "antes": "\"Falhou: For security purposes, you can only request this after 42 seconds.\" (inglês) e nenhum jeito de ir pra tela do código que já tinha sido enviado.",
+  "depois": "\"Por segurança, espere 42 s antes de pedir outro código.\" + atalho \"já tenho um código\" que abre a tela de recuperação sem mandar outro e-mail.",
+  "motivo": "Quem clica 2x em \"esqueci\" já recebeu o código — não deve ficar preso.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after forgot-rate-after  (caso \"forgot-rate-after\" em authcases.js; ?scene=auth&case=forgot-rate-after&nosess=1)",
+  "estado_mock": "recover → 429 over_email_send_rate_limit \"…after 42 seconds.\"",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-forgot-rate-after.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-forgot-rate-after.png"
+  }
+ },
+ {
+  "id": "AU-17",
+  "area": "Conta, login e senha",
+  "titulo": "Nova senha: erros em português, no campo certo",
+  "antes": "\"Falhou: erro 422\" (a troca de senha usava sbFetch, que não lia o formato de erro do GoTrue) — valia pra \"mesma senha\", \"senha vazada\" etc. \"as senhas não conferem.\" no topo.",
+  "depois": "Troca via sbAuthUpdate (PUT /auth/v1/user com renovação do token 1x): \"A nova senha precisa ser diferente da atual.\", \"Essa senha aparece em vazamentos conhecidos…\", \"As senhas não conferem — digite a mesma senha nos dois campos.\" (embaixo do 2º campo). Regras e medidor também aqui. Campo username oculto pro gerenciador de senhas salvar certo.",
+  "motivo": "O erro mais frequente da troca de senha virava \"erro 422\".",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after newpass-same  (caso \"newpass-same\" em authcases.js; ?scene=auth&case=newpass-same&nosess=1)",
+  "estado_mock": "recover → verify ok → PUT /user → 422 same_password",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-newpass-same.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-newpass-same.png"
+  }
+ },
+ {
+  "id": "AU-18",
+  "area": "Conta, login e senha",
+  "titulo": "Nova senha com o código já vencido: pedir código novo em 1 clique",
+  "antes": "\"Sessão expirada — entre de novo e repita \\\"esqueci\\\".\" com os campos de senha ativos (salvar dava erro).",
+  "depois": "Sem sessão, a tela explica (\"O código de recuperação expirou antes de você salvar a senha. Peça um código novo — leva um minuto.\") e oferece \"pedir código novo\" (manda pro mesmo e-mail) e \"voltar ao login\". \"Voltar ao login\" com sessão de recuperação aberta também sai da conta.",
+  "motivo": "Beco sem saída → um clique.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after newpass-nosess  (caso \"newpass-nosess\" em authcases.js; ?scene=auth&case=newpass-nosess&nosess=1)",
+  "estado_mock": "tela nova senha sem sessão, e-mail conhecido",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-newpass-nosess.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-newpass-nosess.png"
+  }
+ },
+ {
+  "id": "AU-19",
+  "area": "Conta, login e senha",
+  "titulo": "Senha redefinida: a pessoa já entra",
+  "antes": "Funcionava, mas sem confirmação visível de que a senha mudou.",
+  "depois": "Toast \"Senha alterada ✓\" e segue pro fluxo pós-login (planos ou \"Estrela acesa\").",
+  "motivo": "Confirmação explícita do que aconteceu.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after newpass-ok-ready  (caso \"newpass-ok-ready\" em authcases.js; ?scene=auth&case=newpass-ok-ready&nosess=1)",
+  "estado_mock": "recover → verify ok → PUT /user ok",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-newpass-ok-ready.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-newpass-ok-ready.png"
+  }
+ },
+ {
+  "id": "AU-20",
+  "area": "Conta, login e senha",
+  "titulo": "Sessão expirada vira aviso amigável — e ficar offline não desloga",
+  "antes": "Qualquer falha ao renovar o token (inclusive SEM INTERNET no boot, 5xx ou 429) apagava a sessão e jogava no login sem explicação. Várias chamadas 401 ao mesmo tempo gastavam o mesmo refresh_token (\"Already Used\") → logout à toa. Chamadas depois mostravam \"sessão expirou — entre de novo\".",
+  "depois": "Renovação única (single-flight). Só derruba a sessão quando o servidor diz que o refresh_token não vale (refresh_token_not_found/already_used…); rede/5xx/429 mantêm a sessão e tentam de novo. Quando cai de verdade, o login abre com \"Sua sessão expirou — entre de novo pra continuar de onde parou.\" e o estado da conta (cloudData, billing) é limpo.",
+  "motivo": "Deslogar quem só perdeu o Wi-Fi é o bug de sessão mais irritante que existe.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after session-expired  (caso \"session-expired\" em authcases.js; ?scene=auth&case=session-expired&nosess=1)",
+  "estado_mock": "sessão salva + refresh → 400 refresh_token_not_found",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-session-expired.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-session-expired.png"
+  }
+ },
+ {
+  "id": "AU-21",
+  "area": "Conta, login e senha",
+  "titulo": "Sair da conta: um caminho só, que limpa tudo e revoga o token",
+  "antes": "3 implementações diferentes de \"sair\" (cabeçalho, painel Conta e tela de entrada) que só apagavam sb:sess e cloudData; billing ficava em memória e o refresh_token continuava válido no servidor.",
+  "depois": "sbLogout(): revoga o refresh_token (POST /auth/v1/logout?scope=local, sem travar a UI), limpa sessão, cloudData, convite automático, billing e aviso de expiração, e volta pro login. Usado pelos 4 botões.",
+  "motivo": "Máquina compartilhada / troca de conta não pode herdar estado da conta anterior.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Leitura de código / teste unitário (sem estado visual próprio).",
+  "estado_mock": "leitura de código (sem estado visual próprio)",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "AU-22",
+  "area": "Conta, login e senha",
+  "titulo": "Google/GitHub: só aparecem se estiverem ligados no servidor (hoje não estão)",
+  "antes": "Os botões Google/GitHub sempre apareciam. Com os providers DESLIGADOS no Supabase, o clique abria o navegador numa página de erro JSON e o app ficava 3 minutos em \"entrando…\" sem saída.",
+  "depois": "O app lê /auth/v1/settings (público) e só mostra o provider ligado — hoje nenhum, então somem. Quando ligarem, aparecem sozinhos; a espera tem \"cancelar\" e os erros (inclusive os do navegador) passam pelo tradutor.",
+  "motivo": "Botão que nunca funciona é pior que botão nenhum.",
+  "arquivos": [
+   "app/src/js/40-nuvem-conta.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-oauth  (caso \"login-oauth\" em authcases.js; ?scene=auth&case=login-oauth&nosess=1)",
+  "estado_mock": "providers desligados (settings external google/github=false); clique no Google",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-oauth.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-oauth.png"
+  }
+ },
+ {
+  "id": "AU-23",
+  "area": "Conta, login e senha",
+  "titulo": "Painel Conta sem sessão: sem 2º formulário de login",
+  "antes": "O painel Conta tinha o seu próprio formulário de login/cadastro, com regras diferentes (senha de 6), botão Google sempre visível e erros em inglês.",
+  "depois": "Mostra só \"Você não está conectado…\" + \"Entrar ou criar conta\", que abre a tela de entrada única (+ \"servidor…\" pra dev/admin).",
+  "motivo": "Duas portas de entrada com regras diferentes = dois conjuntos de bugs.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/40-nuvem-conta.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after cloud-nosess  (caso \"cloud-nosess\" em authcases.js; ?scene=auth&case=cloud-nosess&nosess=1)",
+  "estado_mock": "sem sessão; aba Conta aberta",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-cloud-nosess.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-cloud-nosess.png"
+  }
+ },
+ {
+  "id": "AU-24",
+  "area": "Conta, login e senha",
+  "titulo": "Sem internet: mensagem clara em vez de host técnico",
+  "antes": "\"Falhou: sem conexão com fivoakrhazlzcdoocgbg.supabase.co — verifique sua internet/VPN (a rede pode estar bloqueando o Supabase).\"",
+  "depois": "\"Sem conexão com o servidor de contas. Confira sua internet ou VPN e tente de novo.\" (o que foi digitado continua nos campos).",
+  "motivo": "Nome de host do Supabase não significa nada pro usuário.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/40-nuvem-conta.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-network  (caso \"login-network\" em authcases.js; ?scene=auth&case=login-network&nosess=1)",
+  "estado_mock": "token (password) → fetch rejeitado (\"Load failed\")",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-network.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-network.png"
+  }
+ },
+ {
+  "id": "AU-25",
+  "area": "Conta, login e senha",
+  "titulo": "Entrar com código (antigo \"Link mágico\") com e-mail sem conta",
+  "antes": "\"Falhou: Signups not allowed for otp\" (inglês).",
+  "depois": "Embaixo do e-mail: \"Não achamos conta com esse e-mail. Confira o endereço ou crie uma conta.\" + atalho \"criar conta\" com o e-mail preenchido. O botão virou \"Entrar com código por e-mail\" (é um código, não um link).",
+  "motivo": "Nome e erro diziam coisas que a pessoa não entende.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-magic-nouser  (caso \"login-magic-nouser\" em authcases.js; ?scene=auth&case=login-magic-nouser&nosess=1)",
+  "estado_mock": "otp (create_user:false) → 422 otp_disabled \"Signups not allowed for otp\"",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-magic-nouser.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-magic-nouser.png"
+  }
+ },
+ {
+  "id": "AU-26",
+  "area": "Conta, login e senha",
+  "titulo": "Acessibilidade e teclado nas telas de conta",
+  "antes": "Rótulos sem \"for\", links <a> sem href (não recebiam foco pelo Tab), \"esqueci\" antes da senha na ordem do Tab, sem foco no campo com erro, sem aria nos erros.",
+  "depois": "label for= em todos os campos, autocomplete certo (username/current-password/new-password/one-time-code), aria-invalid + aria-describedby ligando campo e mensagem, role=alert/status nas mensagens, links viram botões de teclado (Tab + Enter/Espaço), foco vai pro 1º campo vazio ao abrir a tela e pro campo com erro depois de errar, anel de foco visível.",
+  "motivo": "Teclado e leitor de tela precisam funcionar no primeiro contato com o produto.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js",
+   "app/src/css/60-grafo-times-nova-demanda.css"
+  ],
+  "como_ver": "Harness: scratchpad/harness-auth — ./build.sh WORKTREE after && ./shoot-auth.sh after after login-empty  (caso \"login-empty\" em authcases.js; ?scene=auth&case=login-empty&nosess=1)",
+  "estado_mock": "tela de login vazia (foco no campo)",
+  "shots": {
+   "before": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/before-login-empty.png",
+   "after": "/private/tmp/claude-501/-Users-douglassobreira-Documents-Git-branches-with-agents/1ad8c805-c86a-411e-87e2-68f28c18da25/scratchpad/auth-shots/after-login-empty.png"
+  }
+ },
+ {
+  "id": "AU-27",
+  "area": "Conta, login e senha",
+  "titulo": "Mensagens da tela não injetam HTML",
+  "antes": "au.msg era inserido como HTML cru — texto do servidor (ex.: um msg com \"<\") entrava direto no innerHTML.",
+  "depois": "Mensagens e ações são sempre escapadas; links de ação são dados (rótulo + função), não HTML.",
+  "motivo": "Texto de fora nunca deve virar HTML.",
+  "arquivos": [
+   "app/src/js/44-onboarding.js"
+  ],
+  "como_ver": "Leitura de código / teste unitário (sem estado visual próprio).",
+  "estado_mock": "leitura de código",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "AU-28",
+  "area": "Conta, login e senha",
+  "titulo": "Testes unitários da tradução de erros (node --test)",
+  "antes": "Nenhum teste das mensagens de auth.",
+  "depois": "app/src/js/__tests__/auth-errors.test.mjs carrega o 39-i18n-auth.js num contexto vm e testa 38 formatos de erro (código + legado + rede + timeout + 5xx), \"sem inglês\" em toda mensagem, segundos do rate limit, referência do erro desconhecido, fallback de idioma (T com \"en\" parcial), e-mail e força da senha. 48 testes, rodam com `node --test` na raiz.",
+  "motivo": "Um locale novo ou um código novo do GoTrue não pode regredir sem alguém ver.",
+  "arquivos": [
+   "app/src/js/__tests__/auth-errors.test.mjs",
+   "app/src/js/39-i18n-auth.js"
+  ],
+  "como_ver": "Leitura de código / teste unitário (sem estado visual próprio).",
+  "estado_mock": "node --test",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "AU-29",
+  "area": "Conta, login e senha",
+  "titulo": "Pronto pra outro idioma",
+  "antes": "Todo texto das telas de conta estava fixo no JS.",
+  "depois": "Dicionário I18N[\"pt-BR\"] + T(\"chave\",{vars}) com fallback pro pt-BR; as telas criar conta/entrar/código/nova senha e todos os erros usam T. Novo idioma = I18N[\"en\"]={…} + i18nSetLocale(\"en\").",
+  "motivo": "Pedido do produto: hoje só pt-BR, mas sem reescrever quando entrar outro.",
+  "arquivos": [
+   "app/src/js/39-i18n-auth.js",
+   "app/src/js/44-onboarding.js",
+   "app/src/index.html",
+   "app/README.md"
+  ],
+  "como_ver": "Leitura de código / teste unitário (sem estado visual próprio).",
+  "estado_mock": "leitura de código / teste \"T: variáveis, fallback pro pt-BR e idioma novo\"",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ },
+ {
+  "id": "AU-30",
+  "area": "Conta, login e senha",
+  "titulo": "Script de SMTP não deixa a senha num arquivo legível em /tmp",
+  "antes": "scripts/supabase-auth-mail.sh smtp gravava a senha do SMTP em /tmp/sb-smtp.json (permissão padrão) e só apagava se o curl desse certo.",
+  "depois": "Arquivo temporário 0600 (umask 077 + mktemp), apagado sempre (trap RETURN).",
+  "motivo": "Segredo em /tmp legível por outros usuários da máquina.",
+  "arquivos": [
+   "scripts/supabase-auth-mail.sh"
+  ],
+  "como_ver": "Leitura de código / teste unitário (sem estado visual próprio).",
+  "estado_mock": "bash -n scripts/supabase-auth-mail.sh",
+  "shots": {
+   "before": null,
+   "after": null
+  }
+ }
+]
