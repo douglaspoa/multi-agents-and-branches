@@ -22,7 +22,7 @@ export interface CodexProvider {
   envKey: string; // variável com a chave (vem do llm.env da CONTA)
 }
 
-function resolveCodex(): string {
+export function resolveCodex(): string {
   const envBin = process.env.CARDUME_CODEX;
   if (envBin && existsSync(envBin)) return envBin;
   // ao lado do node que roda o motor (nvm incluso — mesmo padrão do claude)

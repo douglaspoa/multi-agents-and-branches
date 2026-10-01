@@ -1,0 +1,42 @@
+[
+ {
+  "name": "ok com aviso de skills no meio (codex-cli 0.153)",
+  "jsonl": "{\"type\":\"thread.started\",\"thread_id\":\"x\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Skill descriptions were shortened\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"agent_message\",\"text\":\"primeira\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"agent_message\",\"text\":\"  resposta final \\n\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}",
+  "text": "resposta final",
+  "refused": false
+ },
+ {
+  "name": "modelo recusado (conta ChatGPT)",
+  "jsonl": "{\"type\":\"thread.started\",\"thread_id\":\"x\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Model metadata for `gpt-5-codex` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.\"}}\n{\"type\":\"turn.started\"}\n{\"type\": \"error\", \"message\": \"{\\\"type\\\": \\\"error\\\", \\\"status\\\": 400, \\\"error\\\": {\\\"type\\\": \\\"invalid_request_error\\\", \\\"message\\\": \\\"The 'gpt-5-codex' model is not supported when using Codex with a ChatGPT account.\\\"}}\"}\n{\"type\": \"turn.failed\", \"error\": {\"message\": \"{\\\"type\\\": \\\"error\\\", \\\"status\\\": 400, \\\"error\\\": {\\\"type\\\": \\\"invalid_request_error\\\", \\\"message\\\": \\\"The 'gpt-5-codex' model is not supported when using Codex with a ChatGPT account.\\\"}}\"}}",
+  "rawError": "not supported when using Codex with a ChatGPT account",
+  "refused": true,
+  "friendly": "O Codex falhou"
+ },
+ {
+  "name": "turn.failed 401",
+  "jsonl": "{\"type\": \"turn.failed\", \"error\": {\"message\": \"{\\\"error\\\": {\\\"message\\\": \\\"401 Unauthorized: invalid api key\\\"}}\"}}",
+  "rawError": "401 Unauthorized",
+  "refused": false,
+  "friendly": "O Codex está sem login/chave"
+ },
+ {
+  "name": "erro de cota",
+  "jsonl": "{\"type\":\"error\",\"message\":\"429 rate limit exceeded\"}",
+  "rawError": "429",
+  "refused": false,
+  "friendly": "sem cota"
+ },
+ {
+  "name": "vazio",
+  "jsonl": "",
+  "refused": false,
+  "friendly": "sem resposta"
+ },
+ {
+  "name": "modelo inexistente NÃO é recusa de conta",
+  "jsonl": "{\"type\": \"turn.failed\", \"error\": {\"message\": \"model not found: xyz\"}}",
+  "rawError": "model not found",
+  "refused": false,
+  "friendly": "O Codex falhou"
+ }
+]

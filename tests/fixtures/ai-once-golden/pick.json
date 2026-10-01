@@ -1,0 +1,12 @@
+[
+  { "pref": "claude", "avail": { "claude": true, "codex": true, "gateway": true }, "expect": "claude" },
+  { "pref": "codex", "avail": { "claude": true, "codex": true, "gateway": true }, "expect": "codex" },
+  { "pref": "gateway", "avail": { "claude": true, "codex": true, "gateway": true }, "expect": "gateway" },
+  { "pref": "logcomex", "avail": { "claude": false, "codex": false, "gateway": true }, "expect": "gateway" },
+  { "pref": "codex", "avail": { "claude": true, "codex": false, "gateway": true }, "expect": "claude" },
+  { "pref": "claude", "avail": { "claude": false, "codex": true, "gateway": true }, "expect": "codex" },
+  { "pref": "claude", "avail": { "claude": false, "codex": false, "gateway": true }, "expect": "gateway" },
+  { "pref": "", "avail": { "claude": false, "codex": true, "gateway": false }, "expect": "codex" },
+  { "pref": "mock", "avail": { "claude": true, "codex": true, "gateway": false }, "expect": "claude" },
+  { "pref": "codex", "avail": { "claude": false, "codex": false, "gateway": false }, "expect": null }
+]

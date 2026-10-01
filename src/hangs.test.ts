@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { run } from "./util/run.ts";
 import { GitService } from "./git.ts";
 import { Orchestrator, prUrlFrom } from "./orchestrator.ts";
+import { tempHome } from "./testing/temp-home.ts";
 import type { TaskSpec } from "./types.ts";
 
 // scripts falsos com shebang, sleep e sinais POSIX: não valem no Windows
@@ -90,22 +91,24 @@ test("setup.sh do projeto que não termina: a tarefa nasce e o AMBIENTE.md avisa
 test("claude auxiliar (destilador/resumo) pendurado: desiste no teto em vez de prender o processo", POSIX, async () => {
   const { root, repo } = repoTmp();
   const orch = new Orchestrator(repo);
+  const H = tempHome(); // IA padrão do dev (ex.: Codex) não vaza pro teste
   try {
     const fake = join(root, "claude-lento.sh");
     writeFileSync(fake, "#!/bin/sh\nsleep 30\n");
     chmodSync(fake, 0o755);
     const t0 = Date.now();
-    const out = await withEnv({ CARDUME_CLAUDE: fake, CARDUME_AUX_TIMEOUT_MS: "500" }, () => (orch as unknown as { aux(p: string): Promise<string> }).aux("oi"));
+    const out = await withEnv({ HOME: H.home, CARDUME_CLAUDE: fake, CARDUME_AUX_TIMEOUT_MS: "500" }, () => (orch as unknown as { aux(p: string): Promise<string> }).aux("oi"));
     assert.equal(out, "");
     assert.ok(Date.now() - t0 < 8000, `demorou ${Date.now() - t0}ms`);
     // o resumo do commit (dentro do pipeline, com o lock da tarefa) também tem teto e registra a falha
     mkdirSync(join(repo, ".cardume"), { recursive: true });
     orch.store.createTask({ id: "t-sum", title: "t", objective: "o", agent: "A", roles: [], engine: "claude" } as unknown as TaskSpec, "b", repo, "main");
     const head = git(repo, "rev-parse", "HEAD");
-    await withEnv({ CARDUME_CLAUDE: fake, CARDUME_AUX_TIMEOUT_MS: "500" }, () =>
+    await withEnv({ HOME: H.home, CARDUME_CLAUDE: fake, CARDUME_AUX_TIMEOUT_MS: "500" }, () =>
       (orch as unknown as { summarizeCommit(t: string, h: string, w: string, s: unknown): Promise<void> }).summarizeCommit("t-sum", head, repo, { objective: "o", agent: "A" }));
     assert.ok(orch.store.eventsForTask("t-sum").some((e) => /resumo IA do commit falhou/.test(e.text)));
   } finally {
+    H.cleanup();
     orch.close();
     rmSync(root, { recursive: true, force: true });
   }

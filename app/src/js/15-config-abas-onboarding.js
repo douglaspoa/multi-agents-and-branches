@@ -463,6 +463,14 @@ $id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdC
 $id('cfgClose').onclick=cfgHide;
 $id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') cfgHide(); });
 
+// @ob-envfix-inicio — correção do item no tour: UMA linha por opção (envFixLines, igual à aba Ambiente);
+// só linha de COMANDO ganha "copiar" ("configure…"/"reinstale…" são instrução). Testado em app/tests/ia-auxiliar.test.mjs.
+function obEnvFixHtml(fix, soft){
+  return envFixLines(fix).map((f,i,all)=>`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:11px">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span>${f.cmd
+    ?`<code class="mono" style="font-size:10.5px;color:${soft?'var(--text-2)':'var(--warn)'};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(f.text)}">${esc(f.text)}</code><button class="btn sm" data-envfix="${escA(f.text)}">copiar</button>`
+    :`<span style="font-size:11.5px;color:var(--warn)">${esc(f.text)}</span>`}</div>`).join('');
+}
+// @ob-envfix-fim
 // ---------- onboarding de 60 segundos (primeiro boot) ----------
 // Ordem do 1º uso: login (gate obrigatório do 44-onboarding) → ESTE tour → abrir/criar projeto.
 // Antes o tour abria em 900ms e o gate de login (3,2s) cobria ele no meio. Agora ele só começa com
@@ -471,7 +479,7 @@ $id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') c
 const OB_STEPS=[
   { t:'Bem-vindo ao Starfork', b:'Você conta o que precisa em português normal e <b>agentes de IA</b> fazem o trabalho — cada tarefa numa <b>cópia separada do seu projeto</b>, então uma não atrapalha a outra. No fim, cada entrega vem com <b>provas de verdade</b> (prints, testes, documentos) pra você revisar antes de aprovar.' },
   { t:'Seu time vê o essencial', b:'Com a conta num time (<b>Conta e time</b>, no rodapé da barra lateral), o time vê o <b>andamento de cada tarefa</b>: título, status e custo sincronizam sozinhos. A <b>conversa com o agente fica só no seu computador</b>, e as provas só sobem quando você publicar.' },
-  { t:'O que o computador precisa', b:'Os agentes usam o <b>Git</b> (guarda o histórico) e o <b>Claude Code</b> (a IA, com login feito). O <b>GitHub</b> é recomendado — só serve pra publicar. Outros extras são opcionais. Estamos conferindo agora; o que faltar vem com o comando pronto pra copiar.', env:true },
+  { t:'O que o computador precisa', b:'Os agentes usam o <b>Git</b> (guarda o histórico) e <b>uma IA</b> — o <b>Claude Code</b>, o <b>Codex</b> (OpenAI) ou o gateway da sua empresa; basta uma, com login feito. O <b>GitHub</b> é recomendado — só serve pra publicar. Outros extras são opcionais. Estamos conferindo agora; o que faltar vem com o comando pronto pra copiar.', env:true },
   { t:'Agora é com você', b:'Diga o que você quer fazer — um app, um site, um relatório, uma planilha — e o Starfork cria a pasta do projeto e a IA monta o plano com você. Se já tem uma pasta, é só abrir.', proj:true },
 ];
 let obStep=0;
@@ -528,11 +536,11 @@ function renderOb(){
   if(s.env) runEnvCheck().then(()=>{
     const el=$id('obEnv'); if(!el) return;
     const S=envSummary(envChecks);
-    el.innerHTML=(envChecks||[]).map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', tag=ENV_KIND_TAG[k], manual=/reinstale/i.test(c.fix||'');
+    el.innerHTML=(envChecks||[]).map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', tag=ENV_KIND_TAG[k];
       // mesmo ícone da aba Ambiente: ✓ ok · ! obrigatório faltando · – recomendado/opcional faltando (neutro)
       const icon=c.ok?`<span style="color:var(--good)">${IC.ok}</span>`:soft?'<span style="color:var(--text-3);font:600 13px var(--code);width:14px;text-align:center">–</span>':`<span style="color:var(--warn)">${IC.warn}</span>`;
       return `<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--border);font-size:12.5px">
-      ${icon}<div style="flex:1;min-width:0"><b>${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}</b>${tag?` <span class="envtag">${tag}</span>`:''} <span class="dim">${esc(c.ok?(c.detail||'').slice(0,60):envWhat(c)||(c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:11px">${manual?'como resolver:':'rode no Terminal:'}</span>${manual?`<span style="font-size:11.5px;color:var(--warn)">${esc(c.fix)}</span>`:`<code class="mono" style="font-size:10.5px;color:${soft?'var(--text-2)':'var(--warn)'};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(c.fix)}">${esc(c.fix)}</code><button class="btn sm" data-envfix="${escA(c.fix)}">copiar</button>`}</div>`:''}</div></div>`; }).join('')
+      ${icon}<div style="flex:1;min-width:0"><b>${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}</b>${tag?` <span class="envtag">${tag}</span>`:''} <span class="dim">${esc(c.ok?(c.detail||'').slice(0,60):envWhat(c)||(c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?obEnvFixHtml(c.fix, soft):''}</div></div>`; }).join('')
       +(S.reqBad?'<div class="dim" style="font-size:11.5px;margin-top:8px">Dá pra seguir mesmo assim — o que faltar fica com um aviso em <b>Mais › Ambiente</b>, no rodapé da barra lateral.</div>'
         :'<div style="font-size:12px;margin-top:8px;color:var(--good)">Tudo certo pra começar.'+(S.optBad?' <span class="dim">Os opcionais dá pra instalar depois.</span>':'')+'</div>');
     el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>envCopy(b); });

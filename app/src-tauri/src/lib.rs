@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
+mod ai_once;
 mod epic_context;
 mod learn;
 mod memoria;
@@ -477,13 +478,7 @@ fn ai_branch_name(title: &str) -> Option<String> {
     let prompt = format!(
         "Resuma este título de tarefa num NOME DE BRANCH curto: kebab-case, só ascii minúsculo e hifens, 3 a 5 palavras, máximo 40 caracteres, capturando a essência. Responda SOMENTE o nome, sem aspas.\n\nTítulo: {title}"
     );
-    let mut cmd = claude_cmd(&claude_bin());
-    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]);
-    let out = output_timeout(cmd, 20).ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout);
+    let s = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 20 }).ok()?;
     let name = slug_id(s.trim().trim_matches('"'));
     // sanidade: nome curto real, não eco do título nem vazio
     if name.len() >= 8 && name.len() <= 48 && name != "tarefa" { Some(name) } else { None }
@@ -1415,16 +1410,9 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
     let prompt = format!(
         "Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n{ctx}Mensagem do commit: {msg}\n\nDiff:\n{diff}"
     );
-    let claude = claude_bin();
-    let mut cmd = claude_cmd(&claude);
-    cmd.args(["-p", &prompt]).current_dir(&repo);
-    let out = output_timeout(cmd, 60)?;
-    if !out.status.success() {
-        return Err(format!("claude falhou: {}", String::from_utf8_lossy(&out.stderr)));
-    }
-    let summary = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let summary = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: Some(&repo), secs: 60 })?;
     if summary.is_empty() {
-        return Err("resposta vazia do claude".into());
+        return Err("a IA devolveu uma resposta vazia — tente de novo".into());
     }
     let _ = conn.execute("INSERT OR REPLACE INTO commit_summary(hash,summary,created_at) VALUES(?1,?2,?3)", params![&hash, &summary, now_ms()]);
     Ok(summary)
@@ -3817,15 +3805,7 @@ fn ai_daily(text: String) -> Result<String, String> {
     let prompt = format!(
         "Você escreve o update de DAILY de um dev, em português, a partir do log abaixo (tarefas tocadas, commits, marcos, custo). Formato: bullets curtos '- ' agrupados em 'Feito:' e 'Em andamento:' (e 'Bloqueios:' só se houver pergunta pendente). Direto, específico, sem enfeite, sem custo/token. Máx 8 bullets.\n\n{ctx}"
     );
-    let out = claude_cmd(&claude_bin())
-        .args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 180 })
 }
 
 /// RELATÓRIO técnico do dia (markdown completo): o quê, por quê, arquitetura, como validar.
@@ -3843,15 +3823,7 @@ fn ai_daily_report(text: String, date: String) -> Result<String, String> {
          3) Se houver riscos ou pontos que precisam de decisão de NEGÓCIO, uma seção final `## Pontos de atenção` (profissional, sem jargão de processo).\n\n\
          PROIBIDO mencionar (não cite NADA disso): nomes de branch, hashes de commit, caminhos de arquivo internos (.cardume etc.), status internos de execução (timeout, erro de pipeline, rework, 'em review', 'merged'), perguntas feitas ao time durante a execução, custos/tokens, e a frase 'não especificado no log'. Se um dado não estiver claro, simplesmente NÃO comente — NUNCA escreva que faltou informação. Escreva com confiança e clareza, como um líder de produto reportando à diretoria.\n\n{ctx}"
     );
-    let out = claude_cmd(&claude_bin())
-        .args(["-p", &prompt, "--model", "claude-sonnet-5"])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })
 }
 
 /// Relatório por DEMANDA (o que foi feito e por quê) ou por PERÍODO (várias entregas),
@@ -3878,15 +3850,7 @@ fn ai_task_report(text: String, kind: String, label: String) -> Result<String, S
              PROIBIDO: hashes de commit, caminhos internos (.cardume etc.), status internos de execução (timeout, rework, 'em review'), custos/tokens, e frases como 'não informado'. Se um dado faltar, não comente.\n\n{ctx}"
         )
     };
-    let out = claude_cmd(&claude_bin())
-        .args(["-p", &prompt, "--model", "claude-sonnet-5"])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })
 }
 
 /// Grava um artefato GERADO PELO APP (ex.: relatório da entrega) na pasta coletada
@@ -4213,15 +4177,7 @@ fn ai_decompose(state: State<AppState>, text: String, guide: Option<String>) -> 
     let prompt = format!(
         "Você é um tech lead quebrando um trabalho grande num ÉPICO com tarefas que AGENTES DE IA executarão (cada uma vira branch + worktree própria; tarefas sem dependência entre si rodam AO MESMO TEMPO). Com base no contexto, monte o envelope do épico e de 3 a 7 tarefas. Responda SOMENTE um objeto JSON válido, sem markdown, neste formato: {{\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{{\"title\":\"verbo + objeto (máx 60 chars)\",\"objective\":\"2-4 frases: o que fazer, onde, e qual o entregável\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável (2 a 4, frases completas que alguém marca ✓/✗ testando)\"],\"owns\":\"pastas/arquivos que ela reivindica, separados por vírgula (deduza do contexto; vazio se não der)\"}}]}}. `after` são os ÍNDICES (0-based, na ordem de tasks) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já. `risk` é low, medium ou high; `hitl` true quando parte precisa de uma PESSOA. REGRAS: organize por VALOR pro usuário, nunca por camada técnica; a primeira tarefa é o TRACER BULLET; cada tarefa é STANDALONE (funciona sem as posteriores); nenhuma depende de posterior; `after` só com pré-requisitos REAIS e, como única exceção, pra serializar quem mexe nos MESMOS arquivos — tarefas sem `after` entre si têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de requirements e, juntas, as tarefas cobrem todos. NÃO devolva `wave`.{guide}\n\nCONTEXTO:\n{ctx}"
     );
-    let out = claude_cmd(&claude_bin())
-        .args(["-p", &prompt])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 600 })
 }
 
 /// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
@@ -4235,15 +4191,7 @@ fn ai_title(text: String) -> Result<String, String> {
     let prompt = format!(
         "Gere um TÍTULO curto (máximo 60 caracteres) em português para uma tarefa de desenvolvimento, no estilo de issue: verbo no infinitivo + objeto específico (ex.: \"Adicionar autocomplete nos filtros da home\"). Responda SOMENTE o título — sem aspas, sem ponto final, sem explicação.\n\nDescrição da tarefa:\n{desc}"
     );
-    let out = claude_cmd(&claude_bin())
-        .args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    let s = String::from_utf8_lossy(&out.stdout);
+    let s = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 180 })?;
     let title = s.trim().trim_matches('"').trim().chars().take(80).collect::<String>();
     if title.is_empty() {
         return Err("não veio título — tente de novo".to_string());
@@ -4913,15 +4861,15 @@ fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, 
     let mut prompt = String::from(TRACKER_AI_PROMPT);
     if !files.is_empty() { prompt.push_str(&format!("\n\nLEIA também estes arquivos de documentação (use a tool Read em CADA um; eles se complementam — junte tudo num conector só):\n{}", files.join("\n"))); }
     if !docs.trim().is_empty() { prompt.push_str(&format!("\n\nDOCUMENTAÇÃO:\n{docs}")); }
-    let mut c = claude_cmd(&claude_bin());
-    c.args(["-p", &prompt]);
-    // sem repo aqui: sempre protegido (só lê a documentação que você escolheu)
-    if !files.is_empty() { c.arg("--allowedTools").arg("Read").args(protect_args(true)).args(["--permission-mode", "bypassPermissions"]); }
-    let out = c.stdin(Stdio::null()).output().map_err(|e| format!("falha ao rodar claude: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    // sem repo aqui: sempre protegido (só lê a documentação que você escolheu). No claude: tool Read liberada
+    // (mesmos args de antes); no codex: sandbox só-leitura lê os arquivos passados.
+    let mut extra: Vec<String> = vec![];
+    if !files.is_empty() {
+        extra.extend(["--allowedTools".to_string(), "Read".to_string()]);
+        extra.extend(protect_args(true));
+        extra.extend(["--permission-mode".to_string(), "bypassPermissions".to_string()]);
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &extra, cwd: None, secs: 600 })
 }
 
 /// "Nova issue" conversando (uma ou várias): roda no repo do PROJETO escolhido, PESQUISA o
@@ -5263,13 +5211,7 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
          - Tudo em pt-BR. NÃO invente escopo que o humano não pediu — complete e organize o que ele quis dizer.{guide_block}\n\
          Rascunho:\n{draft}"
     );
-    let mut cmd = claude_cmd(&claude_bin());
-    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]).current_dir(&repo);
-    let out = output_timeout(cmd, 60)?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    let raw = String::from_utf8_lossy(&out.stdout);
+    let raw = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: Some(&repo), secs: 60 })?;
     // parse robusto: do primeiro '{' ao último '}' (tolera lixo em volta)
     let s = raw.find('{').and_then(|a| raw.rfind('}').map(|b| &raw[a..=b])).ok_or("resposta sem JSON")?;
     let v: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("JSON inválido da IA: {e}"))?;
@@ -5306,13 +5248,7 @@ fn ai_estimate(state: State<AppState>, title: String, objective: String, items: 
         model.unwrap_or_else(|| "padrão".into()),
         items.len()
     );
-    let mut cmd = claude_cmd(&claude_bin());
-    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]).current_dir(&repo);
-    let out = output_timeout(cmd, 45)?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    let raw = String::from_utf8_lossy(&out.stdout);
+    let raw = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: Some(&repo), secs: 45 })?;
     let s = raw.find('{').and_then(|a| raw.rfind('}').map(|b| &raw[a..=b])).ok_or("resposta sem JSON")?;
     let v: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("JSON inválido da IA: {e}"))?;
     let arr = v["items"].as_array().cloned().unwrap_or_default();
@@ -5867,13 +5803,7 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
         notes.join("\n---\n").chars().take(4000).collect::<String>(),
         stat.chars().take(1500).collect::<String>(),
     );
-    let mut cmd = claude_cmd(&claude_bin());
-    cmd.args(["-p", &prompt, "--model", "claude-haiku-4-5-20251001"]);
-    let out = output_timeout(cmd, 75)?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    let body = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let body = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 75 })?;
     if body.len() < 80 || !body.contains("## ") {
         return Err("corpo gerado inválido".to_string());
     }
@@ -5941,13 +5871,7 @@ fn ai_file_why(state: State<AppState>, task_id: String, path: String) -> Result<
          PROIBIDO repetir o objetivo da tarefa, falar do 'plano' ou generalizar ('foram feitas melhorias'). Cite nomes reais do diff.\n\n\
          Tarefa: {title}\nObjetivo: {objective}\nArquivo: {path}\n\nDIFF:\n```\n{diff_cut}\n```",
     );
-    let out = claude_cmd(&claude_bin())
-        .args(["-p", &prompt, "--model", "claude-sonnet-5"])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("falha ao rodar claude: {e}"))?;
-    if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
-    let md = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let md = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })?;
     let _ = std::fs::write(&cache, &md);
     Ok(md)
 }
@@ -6108,6 +6032,30 @@ struct EnvCheck {
     fix: String,
 }
 
+/// Item obrigatório "Motor de IA (pelo menos um)" do Ambiente: ok se QUALQUER motor está disponível,
+/// mostrando qual as chamadas auxiliares vão usar; nenhum → as 3 correções possíveis (uma por linha).
+fn env_ai_item(pref: &str, av: &ai_once::Avail, codex_login: bool) -> EnvCheck {
+    let name = "Motor de IA (pelo menos um)".to_string();
+    match ai_once::pick_engine(pref, av) {
+        // o motor em uso é o Codex mas ele está sem login: as chamadas iam falhar — não está pronto
+        Some(ai_once::AiEngine::Codex) if !codex_login => EnvCheck {
+            kind: "req".into(), name, ok: false,
+            detail: "em uso: Codex — instalado, mas sem login (nem chave OpenAI na conta)".into(),
+            fix: "codex login".into(),
+        },
+        Some(e) => {
+            let want = ai_once::AiEngine::parse(pref).unwrap_or(ai_once::AiEngine::Claude);
+            let note = if want == e { "sua IA padrão".to_string() } else { format!("sua IA padrão ({}) não está disponível — usando o que há", want.label()) };
+            EnvCheck { kind: "req".into(), name, ok: true, detail: format!("em uso: {} · {note}", e.label()), fix: String::new() }
+        }
+        None => EnvCheck {
+            kind: "req".into(), name, ok: false,
+            detail: "nenhum encontrado — instale o Claude Code OU o Codex, ou configure um gateway da sua empresa".into(),
+            fix: "npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Configurações → Gateway próprio".into(),
+        },
+    }
+}
+
 /// Preflight do ambiente: tudo que o app precisa pra rodar tarefas, com o
 /// comando de correção pronto — mata a classe "cliquei e nada" pra novatos.
 #[tauri::command(async)]
@@ -6140,12 +6088,31 @@ fn env_check() -> Vec<EnvCheck> {
         Some(v) => out.push(EnvCheck { kind: "req".into(), name: "Git".into(), ok: true, detail: v, fix: String::new() }),
         None => out.push(EnvCheck { kind: "req".into(), name: "Git".into(), ok: false, detail: "não encontrado".into(), fix: "xcode-select --install".into() }),
     }
-    // claude CLI
+    // IA: basta UM motor (Claude Code, Codex ou gateway) — antes o Claude era obrigatório e quem só
+    // tinha OpenAI/LLM da empresa não usava o produto. Cada motor aparece como opcional, com a correção.
     let cb = claude_bin();
-    match ver(&cb, &["--version"]) {
-        Some(v) => out.push(EnvCheck { kind: "req".into(), name: "Claude Code".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() }),
-        None => out.push(EnvCheck { kind: "req".into(), name: "Claude Code".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() }),
-    }
+    let claude_v = if ai_once::bin_exists(&cb) { ver(&cb, &["--version"]) } else { None };
+    let xb = ai_once::codex_bin();
+    let codex_v = if ai_once::bin_exists(&xb) { ver(&xb, &["--version"]) } else { None };
+    let codex_login = codex_v.is_some() && ai_once::codex_logged_in(&xb);
+    let gw = ai_once::gateway_cfg();
+    // MESMA regra das chamadas (ai_once::availability → pick_engine)
+    let av = ai_once::availability();
+    let pref = ai_once::pref_engine();
+    out.push(env_ai_item(&pref, &av, codex_login));
+    out.push(match &claude_v {
+        Some(v) => EnvCheck { kind: "opt".into(), name: "Claude Code (opcional)".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() },
+        None => EnvCheck { kind: "opt".into(), name: "Claude Code (opcional)".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() },
+    });
+    out.push(match &codex_v {
+        Some(v) if codex_login => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: true, detail: format!("{v} · {xb}"), fix: String::new() },
+        Some(v) => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("{v} · {xb} — instalado, mas SEM login (nem chave OpenAI em Conta → Chaves de modelo)"), fix: "codex login".into() },
+        None => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @openai/codex && codex login".into() },
+    });
+    out.push(match &gw {
+        Some(g) => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: true, detail: format!("{} · modelo {}", g.base, g.model), fix: String::new() },
+        None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Configurações → Gateway próprio (URL, chave e modelo)".into() },
+    });
     // gh autenticado
     let gb = gh_bin();
     let mut ghc = Command::new(&gb);
@@ -9320,5 +9287,25 @@ mod motor_r7_tests {
         assert!(pr_merge_landed(false, Some("MERGED\n")));
         assert!(!pr_merge_landed(false, Some("OPEN")));
         assert!(!pr_merge_landed(false, None));
+    }
+}
+
+#[cfg(test)]
+mod env_ai_tests {
+    use super::*;
+    fn av(c: bool, x: bool, g: bool) -> ai_once::Avail { ai_once::Avail { claude: c, codex: x, gateway: g } }
+    #[test]
+    fn ai_once_env_so_codex_ok_e_sem_nenhum_falha() {
+        let so_codex = env_ai_item("codex", &av(false, true, false), true);
+        assert!(so_codex.ok && so_codex.kind == "req" && so_codex.detail.contains("Codex"), "{}", so_codex.detail);
+        let fallback = env_ai_item("codex", &av(true, false, false), false);
+        assert!(fallback.ok && fallback.detail.contains("Claude Code") && fallback.detail.contains("não está disponível"));
+        let nada = env_ai_item("claude", &av(false, false, false), false);
+        assert!(!nada.ok && nada.kind == "req");
+        assert_eq!(nada.fix.lines().count(), 3);
+        assert!(nada.fix.contains("claude-code") && nada.fix.contains("@openai/codex") && nada.fix.contains("Gateway"));
+        // Codex em uso sem login: não está pronto, correção = codex login
+        let sem_login = env_ai_item("codex", &av(false, true, false), false);
+        assert!(!sem_login.ok && sem_login.fix == "codex login");
     }
 }
