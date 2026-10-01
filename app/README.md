@@ -76,6 +76,7 @@ app/
       25-grafo.js             grafo git por trilhos
       26-sidebar-projetos.js  sidebar por projeto
       27-entregas.js          card de demanda (Execução/Concluídas), aba Entrega (provas, docs, lightbox), relatório da entrega/período
+      28-medidor-plano.js     medidor do plano no menu lateral (Claude/Codex/DeepSeek), minimizável — comando plan_usage
       29-ia-picker.js         "Com qual IA?" — motor + modelo com ícones e recomendação
       30-sua-ia.js            painel "Sua IA": estado/config/teste/padrão de cada motor (1º acesso + Configurações)
       30-anexos.js            anexos importados (chips, bloco [ANEXOS], composer: anexar/colar/arrastar)

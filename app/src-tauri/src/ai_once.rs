@@ -461,12 +461,12 @@ pub(crate) fn parse_gateway(body: &str) -> Result<String, String> {
 }
 
 /// Arquivos temporários PRIVADOS (0600, nome único) apagados sempre — inclusive em erro/pânico.
-struct TmpFiles(Vec<PathBuf>);
+pub(crate) struct TmpFiles(pub(crate) Vec<PathBuf>);
 impl Drop for TmpFiles {
     fn drop(&mut self) { for p in &self.0 { let _ = std::fs::remove_file(p); } }
 }
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
-fn tmp_private(files: &mut TmpFiles, kind: &str, content: &str) -> Result<PathBuf, String> {
+pub(crate) fn tmp_private(files: &mut TmpFiles, kind: &str, content: &str) -> Result<PathBuf, String> {
     use std::io::Write;
     let p = std::env::temp_dir().join(format!("starfork-ai-{}-{}-{kind}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::SeqCst)));
     let mut o = std::fs::OpenOptions::new();

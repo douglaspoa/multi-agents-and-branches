@@ -13,6 +13,7 @@ mod epic_context;
 mod learn;
 mod memoria;
 mod mesa;
+mod plan_usage;
 #[cfg(target_os = "macos")]
 mod notif_mac;
 #[cfg(test)]
@@ -8909,6 +8910,7 @@ pub fn run() {
         .manage(AppState::from_env())
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            plan_usage::plan_usage,
             memoria::memory_list,
             memoria::memory_read,
             memoria::memory_write,
