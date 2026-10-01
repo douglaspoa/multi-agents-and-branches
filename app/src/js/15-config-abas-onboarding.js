@@ -244,7 +244,8 @@ let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 const MULTI_KINDS=new Set(['nova','planner','form','orq']);
 // views únicas que guardam trabalho em andamento na própria tela: voltar pela ABA só mostra (não reabre —
 // reabrir zerava a seleção de Issues e as edições não salvas de Agentes/Configurações); o menu/openTab recarrega
-const KEEP_ON_SWITCH=new Set(['memoria','mesa','issues','issuesbulk','agents','cfg','skills','projetos','prefs','conta','env','daily','uso']);
+// (a aba Uso fica de fora: voltar pra ela chama openUso, que só relê se os dados tiverem mais de 1 min)
+const KEEP_ON_SWITCH=new Set(['memoria','mesa','issues','issuesbulk','agents','cfg','skills','projetos','prefs','conta','env','daily']);
 let tabSeq=0;
 function tabStateApi(kind){ return window['TAB_STATE_'+kind]||null; }
 function saveTabState(tab){ if(!tab||!MULTI_KINDS.has(tab.kind)) return; const api=tabStateApi(tab.kind); if(!api||!api.get) return; try{ tab.state=api.get(); if(tab.state&&tab.state._title) tab.title=String(tab.state._title).slice(0,28); }catch(e){ console.error('saveTabState',e); } }

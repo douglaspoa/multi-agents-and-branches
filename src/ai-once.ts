@@ -10,7 +10,7 @@ import {
   dshModelFor, dshNodeOk, dshNodeMsg, dshSpawnSpec, dshVersion, dshVersionOk, isDshLabel,
   extraPatch, resolveDsh, runPatchYaml, writeBasePatch,
 } from "./engine/dsh.ts";
-import { claudeNumbers, recordUsage, type UsageSource } from "./usage-ledger.ts";
+import { claudeEnvelope, claudeModelOf, claudeNumbers, recordUsage, type UsageSource } from "./usage-ledger.ts";
 
 /**
  * IA AUXILIAR "de uma vez" do motor (destilador de memória, retro, resumo de commit) — o MESMO
@@ -102,33 +102,58 @@ export function engineAvail(e: AiEngineKind): boolean {
   return v;
 }
 
-/** Tokens/custo vistos numa chamada (somam as tentativas — o retry do Codex também cobra). */
-export interface UsageAcc { inTok: number; outTok: number; usd: number }
-const newAcc = (): UsageAcc => ({ inTok: 0, outTok: 0, usd: 0 });
+/** Tokens/custo vistos numa chamada (somam as tentativas — o retry do Codex também cobra) + o modelo USADO. */
+export interface UsageAcc { inTok: number; cachedTok: number; outTok: number; usd: number; model?: string }
+const newAcc = (): UsageAcc => ({ inTok: 0, cachedTok: 0, outTok: 0, usd: 0 });
+
+/** Erros do Claude headless → ação concreta. MESMAS regras e textos do Rust `claude_friendly_error` (lib.rs). */
+export function claudeFriendlyError(msg: string): string {
+  const l = String(msg ?? "").toLowerCase();
+  if (l.includes("oauth") || l.includes("authenticate") || l.includes("401") || l.includes("not logged in") || l.includes("invalid api key"))
+    return `Login do Claude Code expirou — abra um terminal, rode \`claude\` e digite /login (ou \`claude auth login\`), depois tente de novo aqui.\n\n(${msg})`;
+  if (l.includes("rate limit") || l.includes("429") || l.includes("usage limit") || l.includes("overloaded"))
+    return `O Claude está sem cota/limite no momento — espere um pouco e tente de novo.\n\n(${msg})`;
+  if (l.includes("no conversation found") || (l.includes("session") && l.includes("not found")))
+    return `A sessão da conversa expirou no Claude — clique em '+ novo' pra recomeçar.\n\n(${msg})`;
+  return msg;
+}
+export const CLAUDE_NO_ANSWER = "O Claude Code terminou sem resposta — tente de novo.";
 
 /** Saída de `claude -p --output-format json` → o MESMO texto que o `-p` puro devolvia (`result`), custo/tokens no
- * acumulador. Saída que não é o JSON (claude antigo, falso de teste) passa como veio. Erro no JSON → lança. */
+ * acumulador (≡ Rust claude_once_text). Envelope = ÚLTIMA linha que começa com `{`; erro nele → mensagem humana;
+ * envelope sem `result` ou JSON que não é o envelope → erro humano (nunca o JSON cru como resposta). Texto puro
+ * (claude antigo, falso de teste) passa como veio. */
 export function claudeOnceText(stdout: string, acc?: UsageAcc): string {
   const t = String(stdout ?? "").trim();
-  let o: any;
-  try { o = JSON.parse(t); } catch { return t; }
-  if (!o || typeof o !== "object" || Array.isArray(o) || (!("result" in o) && !("is_error" in o))) return t;
+  const o = claudeEnvelope(t);
+  if (!o) {
+    if (t.split("\n").some((l) => l.trimStart().startsWith("{"))) throw new Error(`${CLAUDE_NO_ANSWER} (resposta inesperada do Claude Code)`);
+    return t;
+  }
   const n = claudeNumbers(o);
-  if (acc) { acc.inTok += n.inTok; acc.outTok += n.outTok; acc.usd += n.usd; }
-  const r = String(o.result ?? "").trim();
-  if (o.is_error) throw new Error(r || "O Claude Code devolveu um erro sem mensagem.");
+  if (acc) {
+    acc.inTok += n.inTok; acc.cachedTok += n.cachedTok; acc.outTok += n.outTok; acc.usd += n.usd;
+    acc.model = claudeModelOf(o) ?? acc.model;
+  }
+  const r = typeof o.result === "string" ? o.result.trim() : undefined;
+  if (o.is_error) throw new Error(r ? claudeFriendlyError(r) : "O Claude Code devolveu um erro sem mensagem.");
+  if (r === undefined) throw new Error(CLAUDE_NO_ANSWER);
   return r;
 }
-/** Tokens de um JSONL do Codex (`turn.completed`) ou do dsh (`status` step_end). */
-export function jsonlTokens(stdout: string, dsh: boolean): { inTok: number; outTok: number } {
-  let i = 0, o = 0;
+/** Tokens de um JSONL do Codex (`turn.completed`, cache em `cached_input_tokens`) ou do dsh (`status` step_end). */
+export function jsonlTokens(stdout: string, dsh: boolean): { inTok: number; cachedTok: number; outTok: number } {
+  let i = 0, c = 0, o = 0;
   for (const line of String(stdout ?? "").split("\n")) {
     let v: any;
     try { v = JSON.parse(line.trim()); } catch { continue; }
-    if (!dsh && v?.type === "turn.completed") { i += Number(v.usage?.input_tokens) || 0; o += Number(v.usage?.output_tokens) || 0; }
-    if (dsh && v?.type === "status" && v.phase === "step_end") { i += Number(v.usage?.inputTokens) || 0; o += Number(v.usage?.outputTokens) || 0; }
+    if (!dsh && v?.type === "turn.completed") { i += Number(v.usage?.input_tokens) || 0; c += Number(v.usage?.cached_input_tokens) || 0; o += Number(v.usage?.output_tokens) || 0; }
+    if (dsh && v?.type === "status" && v.phase === "step_end") {
+      const u = v.usage ?? {};
+      i += Number(u.inputTokens) || 0; o += Number(u.outputTokens) || 0;
+      c += Number(u.cachedInputTokens ?? u.cacheReadTokens ?? u.cachedTokens) || 0; // nome ainda não documentado pelo dsh (≡ Rust)
+    }
   }
-  return { inTok: i, outTok: o };
+  return { inTok: i, cachedTok: c, outTok: o };
 }
 
 export function claudeArgs(prompt: string, model?: string): string[] {
@@ -302,7 +327,7 @@ export async function dshRun(bin: string, prompt: string, o: AiOnceOpts, userMod
     });
     if (r.spawnErr) throw new Error(r.spawnErr.code === "ENOENT" ? DSH_MISSING_MSG : `Não consegui rodar o DeepSeek Harness: ${r.spawnErr.message}`);
     if (r.timedOut) throw new Error(DSH_TIMEOUT_MSG);
-    if (acc) { const t = jsonlTokens(r.stdout, true); acc.inTok += t.inTok; acc.outTok += t.outTok; }
+    if (acc) { const t = jsonlTokens(r.stdout, true); acc.inTok += t.inTok; acc.cachedTok += t.cachedTok; acc.outTok += t.outTok; acc.model = dshPlan(o.tier, userModel); }
     const out = dshOutcome(r.stdout);
     if (out.text) return out.text;
     if (out.raw) throw new Error(dshFriendlyError(out.raw));
@@ -369,7 +394,7 @@ async function codexExec(bin: string, prompt: string, cwd: string | undefined, m
     throw new CodexFail(r.spawnErr.message, `Não consegui rodar o Codex: ${r.spawnErr.message}`);
   }
   if (r.timedOut) throw new CodexFail("timeout", CODEX_TIMEOUT_MSG);
-  if (acc) { const t = jsonlTokens(r.stdout, false); acc.inTok += t.inTok; acc.outTok += t.outTok; }
+  if (acc) { const t = jsonlTokens(r.stdout, false); acc.inTok += t.inTok; acc.cachedTok += t.cachedTok; acc.outTok += t.outTok; acc.model = model; }
   const out = codexOutcome(r.stdout);
   if (out.text) return out.text;
   if (out.raw) throw new CodexFail(out.raw, codexFriendlyError(out.raw));
@@ -406,7 +431,11 @@ export async function gatewayCall(g: GatewayCfg, prompt: string, timeout: number
     throw new Error(`Não consegui falar com o gateway (${g.base}) — cheque a URL e a internet/VPN. (${(err as Error).message})`);
   }
   if (acc) {
-    try { const u = JSON.parse(body.trim())?.usage ?? {}; acc.inTok += Number(u.prompt_tokens) || 0; acc.outTok += Number(u.completion_tokens) || 0; } catch { /* sem usage */ }
+    acc.model = g.model;
+    try {
+      const u = JSON.parse(body.trim())?.usage ?? {};
+      acc.inTok += Number(u.prompt_tokens) || 0; acc.cachedTok += Number(u.prompt_tokens_details?.cached_tokens) || 0; acc.outTok += Number(u.completion_tokens) || 0;
+    } catch { /* sem usage */ }
   }
   const r = parseGateway(body);
   if (r.text) return r.text;
@@ -422,10 +451,13 @@ export async function aiOnce(prompt: string, o: AiOnceOpts, deps: AiOnceDeps = {
   const userModel = userModelFor(prefs.engine, engine, prefs.model);
   const acc = newAcc();
   const t0 = Date.now();
-  const model = engine === "claude" ? o.claudeModel : engine === "codex" ? codexPlan(o.tier, userModel).model : engine === "deepseek" ? dshPlan(o.tier, userModel) : (userModel || gatewayCfg()?.model);
+  // modelo planejado DESTE motor (nunca o do Claude numa linha de outro motor); o acumulador traz o USADO de verdade
+  // (Codex sem -m depois da recusa = padrão do Codex; Claude = o de maior custo no modelUsage)
+  const planned = engine === "claude" ? o.claudeModel : engine === "codex" ? codexPlan(o.tier, userModel).model : engine === "deepseek" ? dshPlan(o.tier, userModel) : (userModel || gatewayCfg()?.model);
   const log = (ok: boolean) => recordUsage({
-    source: o.usage?.source ?? "outros", project: o.usage?.project, taskId: o.usage?.taskId, engine, model,
-    inTok: acc.inTok, outTok: acc.outTok, usd: acc.usd, ms: Date.now() - t0, ok,
+    source: o.usage?.source ?? "outros", project: o.usage?.project, taskId: o.usage?.taskId, engine,
+    model: engine === "claude" ? (o.claudeModel ?? acc.model) : ("model" in acc ? acc.model : planned),
+    inTok: acc.inTok, cachedTok: acc.cachedTok, outTok: acc.outTok, usd: acc.usd, ms: Date.now() - t0, ok,
   });
   try {
     const out = await runEngine(engine, prompt, o, deps, userModel, acc);

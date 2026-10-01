@@ -116,7 +116,7 @@ test('Rust: cada chat escolhe o motor ANTES dos argumentos do claude; os não-Cl
   const ask = cut(mesa, 'pub fn mesa_ask(', '\n}\n');
   assert.ok(ask.indexOf('ai_once::chat_engine()') > 0 && ask.indexOf('ask_other(') < ask.indexOf('claude_cmd('), 'mesa: motor antes do claude');
   // fora do Claude: US$ 0 (como nas tarefas) + tokens + motor — a tela aplica o TETO POR TOKENS (teste abaixo)
-  assert.match(cut(mesa, 'fn ask_other(', '\n}\n'), /"costUsd": 0\.0, "inTok": out\.in_tok, "outTok": out\.out_tok, "engine": eng\.id\(\)/);
+  assert.match(cut(mesa, 'fn ask_other(', '\n}\n'), /"costUsd": 0\.0, "inTok": out\.in_tok, "outTok": out\.out_tok, "cachedTok": out\.cached_tok, "engine": eng\.id\(\)/);
   const once = rs('ai_once.rs');
   assert.match(once, /sandbox_mode=\\"read-only\\"/);
   assert.match(once, /DSH_PERMISSION_MODE", "read-only"/);
@@ -246,14 +246,15 @@ test('Sua IA: aviso visível de que, fora do Claude, a IA dos chats consegue ler
 
 test('mesa fora do Claude: TETO POR TOKENS (US$ 0 + tokens → gasto estimado conservador)', () => {
   const src = read('38-mesa.js');
-  const M = new Function(cut(src, '// @puro-inicio', '// @puro-fim') + '\nreturn { mesaCapHit, mesaTokUsd, mesaSpentUsd, MESA_TOK_USD_PER_M };')();
-  assert.equal(M.mesaTokUsd('codex', 1e6), 10);
-  assert.equal(M.mesaTokUsd('desconhecido', 1e6), 10, 'motor sem taxa → a mais alta');
-  const m = { costUsd: 0, tokUsd: M.mesaTokUsd('codex', 120000), capBrl: 5.5 }; // 1,2 US$ ≈ R$ 6,6
+  const M = new Function(cut(src, '// @puro-inicio', '// @puro-fim') + '\nreturn { mesaCapHit, mesaTokUsd, mesaSpentUsd, MESA_TOK_USD };')();
+  assert.equal(M.mesaTokUsd('codex', 0, 1e6), 10, 'saída do codex: US$ 10/milhão');
+  assert.equal(M.mesaTokUsd('codex', 1e6, 0, 1e6), 0.125, 'entrada toda do cache: preço de cache');
+  assert.equal(M.mesaTokUsd('desconhecido', 0, 1e6), 15, 'motor sem taxa → o fallback (o mais caro)');
+  const m = { costUsd: 0, tokUsd: M.mesaTokUsd('codex', 0, 120000), capBrl: 5.5 }; // 1,2 US$ ≈ R$ 6,6
   assert.equal(M.mesaCapHit(m.costUsd, m.capBrl, 5.5), false, 'só pelo custo (US$ 0) nunca dispararia');
   assert.equal(M.mesaCapHit(M.mesaSpentUsd(m), m.capBrl, 5.5), true, 'com a estimativa por tokens, dispara');
   // a tela soma os tokens do retorno e usa mesaSpentUsd em TODO teto; e mostra "teto por tokens"
-  assert.match(src, /m\.tokUsd=\(\+m\.tokUsd\|\|0\)\+mesaTokUsd\(r\.engine, tok\)/);
+  assert.match(src, /m\.tokUsd=\(\+m\.tokUsd\|\|0\)\+mesaTokUsd\(r\.engine, r\.inTok, r\.outTok, r\.cachedTok\)/);
   assert.doesNotMatch(src, /mesaCapHit\(m\.costUsd/);
   assert.match(src, /teto por tokens/);
 });

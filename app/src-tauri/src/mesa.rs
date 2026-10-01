@@ -197,7 +197,7 @@ pub fn mesa_ask(
     cmd.args(&args).current_dir(&repo);
     let started = std::time::Instant::now();
     let out = run_stoppable(cmd, ASK_SECS, &id, Some(prompt))?;
-    crate::usage_ledger::record_claude_output("personas", Some(&repo), model.as_deref(), &out, started); // livro de uso
+    crate::usage_ledger::record_claude_output(&crate::usage_ledger::Tag::new("personas", &repo, &model, &None), &out, started); // livro de uso
     let cost = cost_of(&out);
     match claude_json(&out) {
         Ok(v) => Ok(serde_json::json!({ "text": v["result"].as_str().unwrap_or(""), "costUsd": cost })),
@@ -225,8 +225,8 @@ pub(crate) fn ask_other(eng: ai_once::AiEngine, id: &str, sys: &str, prompt: &st
     let r = ai_once::chat_turn(eng, &t, &h);
     ai_once::record_chat("personas", eng, repo, &r, started); // livro de uso: tokens + US$ estimado
     let out = r?;
-    // US$ 0 (o motor não informa preço) + tokens: a tela aplica o TETO POR TOKENS (38-mesa.js, MESA_TOK_USD_PER_M)
-    Ok(serde_json::json!({ "text": out.text, "costUsd": 0.0, "inTok": out.in_tok, "outTok": out.out_tok, "engine": eng.id() }))
+    // US$ 0 (o motor não informa preço) + tokens: a tela aplica o TETO POR TOKENS (38-mesa.js, MESA_TOK_USD: entrada/cache/saída)
+    Ok(serde_json::json!({ "text": out.text, "costUsd": 0.0, "inTok": out.in_tok, "outTok": out.out_tok, "cachedTok": out.cached_tok, "engine": eng.id() }))
 }
 
 /// Para TODAS as personas desta mesa — as que estão rodando e as que ainda iam começar.

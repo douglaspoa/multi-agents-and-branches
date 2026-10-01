@@ -1,6 +1,18 @@
 {
-  "_doc": "Tabela ÚNICA de preço ESTIMADO (US$ por milhão de tokens, entrada+saída somadas) dos motores que não informam custo (Codex, DeepSeek, gateway) — e do Claude quando ele não informar. Lida pelo motor TS (src/usage-ledger.ts), pelo Rust (usage_ledger.rs, include_str!) e espelhada pela mesa (MESA_TOK_USD_PER_M em app/src/js/38-mesa.js, conferida por teste). `models` sobrepõe o motor para um modelo específico.",
-  "perMillion": { "claude": 15, "codex": 10, "deepseek": 2, "gateway": 10 },
-  "models": {},
-  "fallback": 10
+  "_doc": "Tabela ÚNICA de preço ESTIMADO, em US$ por MILHÃO de tokens, separada em entrada nova (`in`), entrada lida do cache (`cached_in`) e saída (`out`). Vale pros motores que não informam custo (Codex, DeepSeek, gateway) e pro Claude quando ele não informar. Lida pelo motor TS (src/usage-ledger.ts), pelo Rust (usage_ledger.rs, include_str!) e espelhada pelo teto da mesa (MESA_TOK_USD em app/src/js/38-mesa.js, conferida por teste). Escolha: `models` (chave exata ou o MAIOR prefixo do id do modelo) → `engines` (padrão do motor) → `fallback`. Escrita de cache do Claude conta como entrada nova (`in`).",
+  "_source": "Preços de lista públicos conhecidos em 2026-10-01: Anthropic (anthropic.com/pricing — Haiku 4.5 1/5, cache 0,10; Sonnet 4.x 3/15, cache 0,30; Opus 4.5 5/25, cache 0,50), OpenAI (openai.com/api/pricing — gpt-5 / gpt-5-codex 1,25/10, cache 0,125; gpt-5-mini 0,25/2, cache 0,025), DeepSeek (api-docs.deepseek.com/quick_start/pricing — deepseek-chat V3.2 0,28/0,42, cache 0,028). Modelos mais novos sem preço publicado conhecido (claude-sonnet-5, claude-opus-5-5, deepseek-flash, deepseek-v4-pro) usam o preço da família — revisar quando houver tabela oficial. Gateway = preço do gpt-5 (desconhecido; conservador).",
+  "engines": {
+    "claude": { "in": 3, "cached_in": 0.3, "out": 15 },
+    "codex": { "in": 1.25, "cached_in": 0.125, "out": 10 },
+    "deepseek": { "in": 0.28, "cached_in": 0.028, "out": 0.42 },
+    "gateway": { "in": 1.25, "cached_in": 0.125, "out": 10 }
+  },
+  "models": {
+    "claude-haiku": { "in": 1, "cached_in": 0.1, "out": 5 },
+    "claude-sonnet": { "in": 3, "cached_in": 0.3, "out": 15 },
+    "claude-opus": { "in": 5, "cached_in": 0.5, "out": 25 },
+    "gpt-5-mini": { "in": 0.25, "cached_in": 0.025, "out": 2 },
+    "gpt-5": { "in": 1.25, "cached_in": 0.125, "out": 10 }
+  },
+  "fallback": { "in": 3, "cached_in": 0.3, "out": 15 }
 }

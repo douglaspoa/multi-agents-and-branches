@@ -23,7 +23,7 @@ export interface AgentEvent {
   /** Para "status"/"done": novo status do agente. */
   status?: string;
   /** Para "done": custo/uso do turno (do event 'result' do stream-json). */
-  cost?: { usd: number; inTok: number; outTok: number; ms?: number };
+  cost?: { usd: number; inTok: number; outTok: number; ms?: number; /** parte da entrada lida do cache (livro de uso) */ cachedTok?: number };
 }
 
 export interface RunInput {

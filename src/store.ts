@@ -544,13 +544,13 @@ export class Store {
   // ---------- custo/tokens por turno de agente ----------
   /** Turno de agente: grava no `cost` do projeto E no livro de uso (aba Uso) com o MESMO `at` — a aba lê o `cost`
    * antigo como histórico e pula o par (task_id, at) que o livro já tem (não conta duas vezes). `engine`/`model` = do papel. */
-  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0, engine?: string, model?: string): void {
+  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0, engine?: string, model?: string, cachedTok = 0): void {
     const at = Date.now();
     this.db
       .prepare(`INSERT INTO cost (task_id, agent, role, usd, in_tok, out_tok, ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(taskId, agent, role ?? null, usd, inTok, outTok, Math.round(ms) || 0, at);
     if (this.repo) {
-      recordUsage({ at, source: "tarefa", project: this.repo, taskId, role: agent || role, engine: engine || this.taskEngine(taskId), model, inTok, outTok, usd, ms });
+      recordUsage({ at, source: "tarefa", project: this.repo, taskId, role: agent || role, engine: engine || this.taskEngine(taskId), model, inTok, cachedTok, outTok, usd, ms });
     }
   }
   private taskEngine(taskId: string): string {
