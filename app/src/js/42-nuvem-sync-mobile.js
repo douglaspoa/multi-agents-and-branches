@@ -620,6 +620,22 @@ function tsTeamName(id){ return ((((cloudData&&cloudData.teams)||[]).find(x=>x.i
 function tsSetScope(s){ tmScope=s==='org'?'org':'team'; lsSet('tmScope',tmScope); teamTasks=null; teamPaintSig=''; if(typeof renderTeamBoard==='function') renderTeamBoard(); }
 // presença: marca "estou online" a cada 60s (profiles.last_seen_at)
 setInterval(()=>{ if(SB.sess()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
+// versão: o build deste app (mtime do executável = buildMs do release) + sistema, pra /admin ver quem está
+// desatualizado. PATCH SEPARADO da presença: banco sem a migration 0029 não pode derrubar o "online".
+// Manda no boot, depois de logar e a cada 30 min (o build só muda quando o app é atualizado e reaberto).
+let appVerSent='';
+async function appVersionPing(){
+  try{
+    if(!SB.sess()) return;
+    const ms=Number(await invoke('build_info'))||0; if(!ms) return;
+    const os=(typeof osKind==='function')?osKind():'';
+    const key=cloudUserId()+'|'+ms+'|'+os; if(key===appVerSent) return;
+    await sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ app_build_ms: ms, app_os: os||null, app_build_seen_at: new Date().toISOString() }) });
+    appVerSent=key;
+  }catch(_){ /* sem a coluna ainda / offline: tenta no próximo ciclo */ }
+}
+setTimeout(appVersionPing, 8000);
+setInterval(()=>{ appVerSent=''; appVersionPing(); }, 30*60000);
 let teamFetchP=null; // promise compartilhada: chamadas concorrentes esperam o MESMO fetch
 function teamFetch(force){
   if(teamFetchP) return teamFetchP;

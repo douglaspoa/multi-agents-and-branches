@@ -85,11 +85,23 @@ const actions: Record<string, (sql: Sql, b: Body, me: { id: string; email: strin
       order by e.at desc limit ${limit}`;
   },
 
+  // release atual do canal do time (releases/latest.json, bucket privado) — base do "atual × desatualizado"
+  async "app.release"() {
+    const { data, error } = await admin().storage.from("releases").download("latest.json");
+    if (error || !data) return null;
+    try {
+      const j = JSON.parse(await data.text());
+      return { buildMs: Number(j.buildMs) || 0, version: String(j.version ?? ""), publishedAt: j.publishedAt ?? null, notes: String(j.notes ?? "") };
+    } catch { return null; }
+  },
+
   async "users.list"(sql, b) {
     const q = str(b, "q"), limit = Math.min(500, num(b, "limit", 200));
     return await sql`
       select u.id, u.email, u.created_at, u.last_sign_in_at, u.email_confirmed_at, u.banned_until,
              u.raw_app_meta_data->'providers' as providers, p.name, p.last_seen_at,
+             p.app_build_ms, p.app_os, p.app_build_seen_at,
+             (select e.build from app_errors e where e.user_id = u.id and e.build is not null order by e.at desc limit 1) as last_error_build,
              (select coalesce(json_agg(json_build_object('org_id', o.id, 'org', o.name, 'role', om.role, 'plan', o.plan)), '[]'::json)
                 from org_members om join orgs o on o.id = om.org_id where om.user_id = u.id) as orgs,
              (select coalesce(json_agg(json_build_object('team_id', t.id, 'team', t.name, 'role', tm.role)), '[]'::json)
