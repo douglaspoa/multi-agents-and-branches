@@ -12,6 +12,7 @@
 // janela visível; config da Sua IA mudou → planMeterReset.
 let pmData=null, pmAt=0, pmErr='', _pmP=null, _pmTurnT=0;
 const pmOpen=new Set(); // IAs com os detalhes abertos (só nesta sessão)
+const pmOrd={ prev:null }; // última ordem (a lista não pula a cada leitura)
 const PM_MIN_KEY='planMeterMin';
 const PM_EVERY=120000;
 const PM_TURN_WAIT=3000;
@@ -71,6 +72,11 @@ function pmBar(key, label, pct, blocked){ const p=Math.max(0, Math.min(100, Numb
 function pmTop(bars){ return (bars||[]).reduce((a,b)=>!a||b.pct>a.pct?b:a, null); }
 const PM_HINT_ON='Ative a % do Claude em Sua IA.';
 const PM_HINT_WAIT='A % aparece depois da próxima resposta do Claude Code.';
+// instalada há > 30 min e nenhum dado: o Claude Code só manda rate_limits em plano Pro/Max
+const PM_HINT_PLAN='sem dados da barra — precisa de plano Pro/Max no Claude Code (com chave de API não há %)';
+const PM_WAIT_MS=30*60000;
+// a barra só atualiza no Claude Code interativo (as rodadas do Starfork são headless): > 2 h = avisa
+const PM_STALE_MS=2*3600000;
 const PM_NOTE_CLAUDE='Sem a barra de status, a % exata do Claude só aparece perto do limite.';
 // uma IA: { id, name, level, bars:[{key,label,pct,level}], text, sub, hint, details:[], short, top, tip }
 function pmRowClaude(c, now){
@@ -93,8 +99,9 @@ function pmRowClaude(c, now){
   else if(c.state==='warn'){ if(!bars.length) text='perto do limite'+(win?' ('+win+')':'')+(reset?' · reinicia '+reset:''); level=pmMaxLevel(level, 'warn'); }
   else if(!bars.length && c.state==='ok'){ text='ok'+(reset?' · reinicia '+reset:''); level='ok'; }
   else if(!bars.length){ text=c.starforkError?'uso do Starfork indisponível':sf.turns>0?'Starfork usou '+pmTok(tok)+' tok em 5h':'sem dados ainda'; }
-  const sub=fromSl && c.updatedAt?'atualizado '+pmAgo(c.updatedAt, now):'';
-  const hint=fromSl?'':(c.statusline?PM_HINT_WAIT:PM_HINT_ON);
+  const n=now||Date.now();
+  const sub=fromSl && c.updatedAt?'atualizado '+pmAgo(c.updatedAt, n)+(n-c.updatedAt>PM_STALE_MS?' — abra o Claude Code pra atualizar':''):'';
+  const hint=fromSl?'':!c.statusline?PM_HINT_ON:(c.statuslineWaitingSince && n-c.statuslineWaitingSince>PM_WAIT_MS)?PM_HINT_PLAN:PM_HINT_WAIT;
   const details=[];
   for(const [k,w] of ws) if(w && w.resetsAt) details.push(PM_WIN[k]+(w.reset?' já reiniciou':' reinicia '+pmWhen(w.resetsAt, now)));
   if(!fromSl && reset) details.push(blocked?'Volta às '+reset:'Janela '+(win||'')+' reinicia às '+reset);
@@ -103,7 +110,9 @@ function pmRowClaude(c, now){
   if(!fromSl) details.push(PM_NOTE_CLAUDE);
   const top=pmTop(bars);
   const short=blocked?'limite atingido':top?top.label+' '+pmPct(top.pct):c.state==='warn'?'perto do limite':c.state==='ok'?'ok':text;
-  return { id:'claude', name, level, bars, text, sub, hint, details, short, top:top?top.pct:null, topBar:top, tip:details.join('\n') };
+  // ordem: bloqueado acima de tudo (101); perto do limite sem % conta como 70
+  const rank=blocked?101:top?top.pct:level==='crit'?101:level==='warn'?70:-1;
+  return { id:'claude', name, level, bars, text, sub, hint, details, short, top:top?top.pct:null, rank, topBar:top, tip:details.join('\n') };
 }
 function pmRowCodex(x, now){
   const name=PM_NAME.codex;
@@ -124,8 +133,23 @@ function pmRowDeepseek(d){
   const det=empty?'Saldo insuficiente na conta DeepSeek.':'Saldo da conta DeepSeek (API oficial).';
   return { id:'deepseek', name, level:empty?'crit':'ok', bars:[], text:empty?'sem saldo · '+money:'saldo '+money, sub:'', hint:'', details:[det], short:empty?'sem saldo':money, top:null, tip:det };
 }
-// IA padrão primeiro; depois as outras por maior uso (sem % = no fim; empate = ordem do painel)
-function pmRows(u, now, defEng){
+const pmRank=r=>r.rank!=null?r.rank:r.top!=null?r.top:-1;
+// IA padrão primeiro; depois as outras por maior uso (sem % = no fim; empate = ordem do painel).
+// `ord` (opcional, estado da tela): { prev:[{id,rank}] } — mantém a ordem anterior enquanto nenhuma IA mudar ≥ 10 pontos
+// (a lista não pula a cada leitura); só quando reordena, `ord.prev` é atualizado.
+function pmOrder(rows, defEng, ord){
+  const fresh=[...rows].sort((a,b)=>(b.id===defEng)-(a.id===defEng) || pmRank(b)-pmRank(a) || PM_ORDER.indexOf(a.id)-PM_ORDER.indexOf(b.id));
+  const prev=ord && Array.isArray(ord.prev)?ord.prev:null;
+  const same=prev && prev.length===rows.length && rows.every(r=>{ const p=prev.find(x=>x.id===r.id); return p && Math.abs(pmRank(r)-p.rank)<10; });
+  if(same){
+    const kept=prev.map(p=>rows.find(r=>r.id===p.id));
+    // a IA padrão SEMPRE primeiro (trocar a padrão reordena só ela)
+    return [...kept.filter(r=>r.id===defEng), ...kept.filter(r=>r.id!==defEng)];
+  }
+  if(ord) ord.prev=fresh.map(r=>({ id:r.id, rank:pmRank(r) }));
+  return fresh;
+}
+function pmRows(u, now, defEng, ord){
   if(!u) return [];
   const conf=Array.isArray(u.configured)?u.configured:[];
   const out=[];
@@ -135,8 +159,7 @@ function pmRows(u, now, defEng){
     if(id==='codex') out.push(pmRowCodex(u.codex, now));
     if(id==='deepseek') out.push(pmRowDeepseek(u.deepseek));
   }
-  const rank=r=>r.top==null?-1:r.top;
-  return out.sort((a,b)=>(b.id===defEng)-(a.id===defEng) || rank(b)-rank(a) || PM_ORDER.indexOf(a.id)-PM_ORDER.indexOf(b.id));
+  return pmOrder(out, defEng, ord);
 }
 // a do minimizado: a IA padrão (se configurada), senão a 1ª
 function pmMain(rows, defEng){ return rows.find(r=>r.id===defEng)||rows[0]||null; }
@@ -159,12 +182,12 @@ function pmIaHtml(r, open){
     +`<div class="pm-det" id="${did}"${open?'':' hidden'}>${r.details.map(d=>`<div>${esc(d)}</div>`).join('')}</div>`
     +'</div>';
 }
-function pmHtml(u, min, defEng, now, err, open){
+function pmHtml(u, min, defEng, now, err, open, ord){
   open=open||[];
   const isOpen=id=>typeof open.has==='function'?open.has(id):open.includes(id);
   if(!u && err) return `<button class="pm-head pm-empty" data-pm="retry" title="${escA(err)}">${pmDot('idle')}<span class="pm-title">não consegui ler o uso — tentar de novo</span></button>`;
   if(!u) return `<button class="pm-head" data-pm="toggle" aria-expanded="${!min}"><span class="pm-title">Uso do plano</span><span class="pm-sum dim">verificando…</span>${PM_CHEV}</button>`;
-  const rows=pmRows(u, now, defEng);
+  const rows=pmRows(u, now, defEng, ord);
   if(!rows.length) return `<button class="pm-head pm-empty" data-pm="cfg" title="Nenhuma IA pronta — abrir Sua IA">${pmDot('idle')}<span class="pm-title">configure sua IA</span></button>`;
   const main=pmMain(rows, defEng);
   const head=`<button class="pm-head" data-pm="toggle" aria-expanded="${!min}" aria-controls="pmRows" title="${min?'Mostrar o uso de cada IA':'Minimizar'}"><span class="pm-title">${min?esc(main.name):'Uso do plano'}</span>`
@@ -189,8 +212,14 @@ function pmDefEng(){
 function pmRender(){
   const el=document.getElementById('planMeter'); if(!el) return;
   const min=pmIsMin();
-  const html=pmHtml(pmData, min, pmDefEng(), Date.now(), pmErr, pmOpen);
-  if(el.__html!==html){ el.innerHTML=html; el.__html=html; }
+  const html=pmHtml(pmData, min, pmDefEng(), Date.now(), pmErr, pmOpen, pmOrd);
+  if(el.__html!==html){
+    // redesenho em segundo plano (ciclo de 2 min, fim de turno): o foco volta pro mesmo controle
+    const a=typeof document!=='undefined'?document.activeElement:null;
+    const sel=a && el.contains && el.contains(a) && a.dataset && a.dataset.pm ? `[data-pm="${a.dataset.pm}"]${a.dataset.pmId?`[data-pm-id="${a.dataset.pmId}"]`:''}` : '';
+    el.innerHTML=html; el.__html=html;
+    if(sel && el.querySelector){ const f=el.querySelector(sel); if(f && f.focus) f.focus(); }
+  }
   el.classList.toggle('min', min);
 }
 function pmToggle(){ lsSet(PM_MIN_KEY, pmIsMin()?'0':'1'); pmRender(); }
@@ -217,7 +246,8 @@ function planMeterTurnEnd(){
   _pmTurnT=setTimeout(pmLoad, PM_TURN_WAIT);
 }
 // config da Sua IA mudou (o Rust já esqueceu prontas/saldo em ai_avail_refresh): relê agora
-function planMeterReset(){ return pmLoad(); }
+// uma leitura em andamento pode ser de ANTES da mudança: espera ela e lê de novo
+function planMeterReset(){ return _pmP?_pmP.finally(()=>pmLoad()):pmLoad(); }
 window.planMeterTurnEnd=planMeterTurnEnd;
 window.planMeterReset=planMeterReset;
 function pmWire(){

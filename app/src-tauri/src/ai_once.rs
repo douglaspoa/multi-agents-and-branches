@@ -1309,13 +1309,23 @@ pub(crate) struct EngineStatus {
     pub in_use: bool,
     /// só Claude: a barra de status do Starfork (% real do plano no medidor) está instalada no Claude Code
     pub statusline_installed: bool,
+    /// só Claude: instalada, mas o node dela sumiu e a reinstalação do boot falhou ("precisa ser reparada")
+    pub statusline_repair: bool,
+}
+
+/// Marca no cartão do Claude o estado da barra de status (instalada / precisa reparar).
+pub(crate) fn mark_statusline(out: &mut [EngineStatus], installed: bool, repair: bool) {
+    if let Some(c) = out.iter_mut().find(|s| s.id == "claude") {
+        c.statusline_installed = installed;
+        c.statusline_repair = installed && repair;
+    }
 }
 
 pub(crate) fn engines_status_from(pref: &str, p: &Probe) -> Vec<EngineStatus> {
     let want = AiEngine::parse(pref).unwrap_or(AiEngine::Claude);
     let mk = |e: AiEngine, id: &'static str, label: String| EngineStatus {
         id, label, installed: false, ready: false, state: "install", reason: String::new(), fixes: vec![], key_name: None,
-        key_saved: false, models: vec![], detail: String::new(), is_default: want == e, in_use: false, statusline_installed: false,
+        key_saved: false, models: vec![], detail: String::new(), is_default: want == e, in_use: false, statusline_installed: false, statusline_repair: false,
     };
     let mut out = vec![];
     // Claude Code
@@ -1390,7 +1400,7 @@ pub(crate) fn engines_status() -> Vec<EngineStatus> {
         deepseek_key: dsh_key().is_some(),
     };
     let mut out = engines_status_from(&pref_engine(), &p);
-    if let Some(c) = out.iter_mut().find(|s| s.id == "claude") { c.statusline_installed = crate::plan_usage::statusline_installed(); }
+    mark_statusline(&mut out, crate::plan_usage::statusline_installed(), crate::plan_usage::SL_REPAIR.load(std::sync::atomic::Ordering::SeqCst));
     out
 }
 
@@ -1691,6 +1701,21 @@ echo '{{"type":"item.completed","item":{{"id":"i","type":"agent_message","text":
         Probe { claude_bin: None, codex_bin: None, codex_login: false, openai_key: false, gateway: None, gateway_label: String::new(),
             gateway_models: vec![], dsh_bin: None, dsh: Err(DshIssue::Missing), deepseek_key: false }
     }
+    #[test]
+    fn cartao_do_claude_marca_a_barra_de_status() {
+        let mut v = engines_status_from("claude", &probe());
+        mark_statusline(&mut v, true, false);
+        let c = v.iter().find(|s| s.id == "claude").unwrap();
+        assert!(c.statusline_installed && !c.statusline_repair);
+        assert!(v.iter().filter(|s| s.id != "claude").all(|s| !s.statusline_installed), "só o Claude");
+        mark_statusline(&mut v, true, true);
+        assert!(v.iter().find(|s| s.id == "claude").unwrap().statusline_repair);
+        mark_statusline(&mut v, false, true);
+        assert!(!v.iter().find(|s| s.id == "claude").unwrap().statusline_repair, "desligada: nada a reparar");
+        let j = serde_json::to_value(&v[0]).unwrap();
+        assert!(j.get("statuslineInstalled").is_some() && j.get("statuslineRepair").is_some());
+    }
+
     fn st<'a>(v: &'a [EngineStatus], id: &str) -> &'a EngineStatus { v.iter().find(|s| s.id == id).unwrap() }
 
     #[test]

@@ -63,7 +63,12 @@ function suaIaLoad(force){
   if(_suaIaP){ if(!force) return _suaIaP; return _suaIaP.then(()=>suaIaLoad(true)); }
   if(!force && suaIaList && suaIaList.length && Date.now()-suaIaAt<20000) return Promise.resolve(suaIaList);
   _suaIaP=Promise.resolve().then(()=>invoke('ai_engines_status'))
-    .then(r=>{ suaIaList=Array.isArray(r)?r:[]; suaIaAt=Date.now(); suaIaUi.loadErr=''; return suaIaList; })
+    .then(r=>{
+      suaIaList=Array.isArray(r)?r:[]; suaIaAt=Date.now(); suaIaUi.loadErr='';
+      const cl=suaIaList.find(s=>s.id==='claude');
+      if(cl && cl.statuslineInstalled) suaIaSlStatusLoad(); else suaIaUi.slStatus=null;
+      return suaIaList;
+    })
     .catch(e=>{ if(!suaIaList) suaIaList=[]; _suaIaFailAt=Date.now(); suaIaUi.loadErr=String((e&&e.message)||e||''); return suaIaList; })
     .finally(()=>{ _suaIaP=null; suaIaRefresh(); });
   return _suaIaP;
@@ -95,8 +100,20 @@ function suaIaKeyHtml(s, hk){
 // Claude com este clique; a instalação/remoção é do CLI (src/claude-statusline.ts) via claude_statusline_set.
 function suaIaSlHtml(s, hk){
   const fid=`suaIaSl-${hk}`, on=!!s.statuslineInstalled, busy=!!suaIaUi.busy.sl;
-  return `<div class="suaia-sl"><input type="checkbox" role="switch" id="${fid}" data-sasl="1"${on?' checked':''}${busy?' disabled':''} aria-describedby="${fid}-d"><label for="${fid}">${busy?(on?'desativando…':'ativando…'):'Mostrar a % do plano do Claude no medidor'}</label></div>
-    <div class="suaia-why dim" id="${fid}-d">${on?'Ativo: a barra de status do Claude Code manda a % das janelas de 5 h e da semana pro medidor.':'Instala uma barra de status no Claude Code que manda a % das janelas de 5 h e da semana pro medidor.'} Se você já tem uma barra de status, ela continua aparecendo; desligar desfaz.</div>`;
+  const st=on?suaIaUi.slStatus:null;
+  const repair=on && (s.statuslineRepair || (st && st.installed && st.nodeOk===false));
+  const over=st && Array.isArray(st.overriddenBy) ? st.overriddenBy : [];
+  const base=f=>String(f).split(/[\\/]/).slice(-2).join('/');
+  return `<div class="suaia-sl"><input type="checkbox" role="switch" id="${fid}" data-sasl="1"${on?' checked':''}${busy?' disabled aria-busy="true"':''} aria-describedby="${fid}-d"><label for="${fid}">${busy?(on?'desativando…':'ativando…'):'Mostrar a % do plano do Claude no medidor'}</label></div>
+    <div class="suaia-why dim" id="${fid}-d">${on?'Ativo: a barra de status do Claude Code manda a % das janelas de 5 h e da semana pro medidor.':'Instala uma barra de status no Claude Code que manda a % das janelas de 5 h e da semana pro medidor.'} Requer plano Pro/Max no Claude Code (com chave de API não há %). Se você já tem uma barra de status, ela continua aparecendo; desligar desfaz.</div>
+    ${repair?`<div class="suaia-secret" role="status" data-sasl-repair="1">⚠ a barra de status do Claude precisa ser reparada — desligue e ligue de novo.</div>`:''}
+    ${over.length?`<div class="suaia-secret" role="note" data-sasl-over="1">⚠ o projeto aberto define a própria barra de status (${esc(over.map(base).join(', '))}) — ela substitui a do Starfork nesse projeto, e a % do Claude não chega enquanto você usar o Claude Code nele.</div>`:''}`;
+}
+// estado detalhado da barra (node ok? o projeto aberto tem barra própria?) — só com ela ligada; sem bloquear o painel
+function suaIaSlStatusLoad(){
+  return Promise.resolve().then(()=>invoke('claude_statusline_status'))
+    .then(r=>{ suaIaUi.slStatus=r&&typeof r==='object'?r:null; suaIaRefresh(); })
+    .catch(()=>{ suaIaUi.slStatus=null; });
 }
 function suaIaCardHtml(s, opts, shortest, ob){
   const e=suaIaEngine(s.id), d=aiDefaults(), isDef=suaIaDefEng()===s.id, hk=opts.hk||'h';

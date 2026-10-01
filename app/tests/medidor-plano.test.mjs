@@ -226,6 +226,64 @@ test('IA padrão Codex / DeepSeek ("deepseek" ou "dsh…"): a barra fina é dela
   }
 });
 
+test('pmAgo: limites (agora / min / h / d)', () => {
+  const P = load();
+  const ago = (ms) => P.ctx.pmAgo(NOW - ms, NOW);
+  assert.deepEqual([0, 59999, 60000, 3599999, 3600000, 86399999, 86400000, 3 * 86400000].map(ago),
+    ['agora', 'agora', 'há 1 min', 'há 59 min', 'há 1 h', 'há 23 h', 'há 1 d', 'há 3 d']);
+  assert.equal(P.ctx.pmAgo(NOW + 5000, NOW), 'agora', 'relógio adiantado não vira negativo');
+});
+
+test('barra velha (> 2 h): mostra a % mas pede pra abrir o Claude Code; instalada > 30 min sem dados → precisa de Pro/Max', () => {
+  const P = load();
+  const H = 3600 * 1000;
+  assert.equal(row(P, C({ updatedAt: NOW - 2 * H }), 'claude').sub, 'atualizado há 2 h', 'exatamente 2 h: ainda sem aviso');
+  const old = row(P, C({ updatedAt: NOW - 3 * H }), 'claude');
+  assert.equal(old.sub, 'atualizado há 3 h — abra o Claude Code pra atualizar');
+  assert.equal(bars(old), '5h 43 · semana 61', 'a % continua visível');
+  const wait = (since) => row(P, C({ ...NO_SL, statusline: true, statuslineWaitingSince: since }), 'claude').hint;
+  assert.equal(wait(NOW - 10 * 60000), 'A % aparece depois da próxima resposta do Claude Code.');
+  assert.equal(wait(null), 'A % aparece depois da próxima resposta do Claude Code.');
+  assert.equal(wait(NOW - 31 * 60000), 'sem dados da barra — precisa de plano Pro/Max no Claude Code (com chave de API não há %)');
+});
+
+test('ordem: Claude bloqueado/perto do limite SEM % sobe (101 / 70)', () => {
+  const P = load();
+  const hot = (o) => U({ claude: { ...GOLDEN.claude, ...NO_SL, ...o }, codex: { hasData: true, primary: { usedPercent: 80, windowMinutes: 300 } } });
+  assert.equal(rows(P, hot({ state: 'blocked' }), 'deepseek').map((r) => r.id).join(','), 'deepseek,claude,codex', 'bloqueado (101) passa o Codex 80 %');
+  assert.equal(rows(P, hot({ state: 'warn', window: 'seven_day' }), 'deepseek').map((r) => r.id).join(','), 'deepseek,codex,claude', 'warn (70) fica abaixo de 80 %');
+  const cold = U({ claude: { ...GOLDEN.claude, ...NO_SL, state: 'warn', window: 'seven_day' }, codex: { hasData: true, primary: { usedPercent: 50, windowMinutes: 300 } } });
+  assert.equal(rows(P, cold, 'deepseek').map((r) => r.id).join(','), 'deepseek,claude,codex', 'warn (70) acima de 50 %');
+});
+
+test('ordem estável: só reordena quando alguma IA muda ≥ 10 pontos; a IA padrão sempre primeiro', () => {
+  const P = load();
+  const ord = { prev: null };
+  const cx = (p) => U({ codex: { hasData: true, primary: { usedPercent: p, windowMinutes: 300 } } });
+  const ids = (u, def = 'deepseek') => P.ctx.pmRows(u, NOW, def, ord).map((r) => r.id).join(',');
+  assert.equal(ids(cx(55)), 'deepseek,claude,codex', 'Claude 61 > Codex 55');
+  assert.equal(ids(cx(64)), 'deepseek,claude,codex', 'Codex +9: não pula');
+  assert.equal(ids(cx(65)), 'deepseek,codex,claude', 'Codex +10: reordena');
+  assert.equal(ids(cx(60)), 'deepseek,codex,claude', 'caiu 5: mantém');
+  assert.equal(ids(cx(60), 'claude'), 'claude,deepseek,codex', 'trocou a padrão: ela vem primeiro (mesma ordem pro resto)');
+});
+
+test('planMeterReset com leitura em andamento: espera ela e lê de novo; redesenho devolve o foco', async () => {
+  const P = load();
+  const n0 = P.calls.length;
+  const p1 = P.run('pmLoad()');
+  const p2 = P.run('planMeterReset()');
+  await p1; await p2;
+  assert.equal(P.calls.length, n0 + 2, 'a em andamento + uma NOVA depois dela');
+  // foco num "detalhes" antes do redesenho → volta pro mesmo controle
+  let focused = null;
+  const btn = { focus: () => { focused = 'novo' } };
+  Object.assign(P.el, { contains: () => true, querySelector: (sel) => (sel === '[data-pm="det"][data-pm-id="codex"]' ? btn : null) });
+  P.ctx.document.activeElement = { dataset: { pm: 'det', pmId: 'codex' } };
+  P.run('pmData=JSON.parse(JSON.stringify(pmData)); pmData.codex.primary.usedPercent=12; pmRender()');
+  assert.equal(focused, 'novo');
+});
+
 test('1ª leitura falha → "não consegui ler o uso — tentar de novo"; tentar de novo relê', async () => {
   let fail = true;
   const P = load({}, { fail: () => fail });

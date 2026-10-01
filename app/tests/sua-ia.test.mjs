@@ -326,3 +326,38 @@ test('Claude: interruptor da % do plano no medidor — só com o Claude instalad
   assert.match(r.text, /^✕ Não consegui ativar a % do Claude: .*não é um JSON válido/);
   assert.ok(!/data-sasl="1" checked/.test(card()), 'falhou: continua desligado');
 });
+
+test('interruptor do Claude: ocupado = desabilitado ("ativando…"); Pro/Max na descrição; reparo e barra do projeto avisam', async () => {
+  const claudeOn = { ...ST.claude, installed: true, ready: true, state: 'ready', reason: 'pronto', fixes: [], statuslineInstalled: true, statuslineRepair: false };
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let slStatus = { ok: true, installed: true, nodeOk: true, overriddenBy: [] };
+  const P = load({}, { invoke: async (cmd) => {
+    if (cmd === 'claude_statusline_set') { await gate; return { ok: true, message: 'ok' }; }
+    if (cmd === 'ai_engines_status') return [{ ...claudeOn, statuslineInstalled: false }, ST.codexOk, ST.dsKey, ST.gwNo];
+    if (cmd === 'claude_statusline_status') return slStatus;
+    return null;
+  } });
+  setList(P, [{ ...claudeOn, statuslineInstalled: false }, ST.codexOk, ST.dsKey, ST.gwNo]);
+  const card = () => cut(P.ctx.suaIaHtml(P.run('suaIaList'), { hk: 'h' }), 'data-suaia="claude"', 'data-suaia="codex"');
+  assert.match(card(), /Requer plano Pro\/Max no Claude Code \(com chave de API não há %\)/);
+  const p = P.ctx.suaIaSetStatusline(true);
+  assert.match(card(), /data-sasl="1" disabled aria-busy="true"/, 'ocupado: não dá pra clicar de novo');
+  assert.match(card(), /<label for="suaIaSl-h">ativando…<\/label>/);
+  release();
+  await p;
+  assert.ok(!/data-sasl="1"[^>]*disabled/.test(card()), 'terminou: habilitado de novo');
+  // ligado + reparo pendente (boot não conseguiu reinstalar) ou node sumido (status)
+  setList(P, [{ ...claudeOn, statuslineRepair: true }, ST.codexOk, ST.dsKey, ST.gwNo]);
+  assert.match(card(), /a barra de status do Claude precisa ser reparada/);
+  setList(P, [claudeOn, ST.codexOk, ST.dsKey, ST.gwNo]);
+  P.run('suaIaUi.slStatus=null');
+  assert.ok(!/precisa ser reparada|data-sasl-over/.test(card()));
+  slStatus = { ok: true, installed: true, nodeOk: false, overriddenBy: ['/r/proj/.claude/settings.local.json'] };
+  await P.ctx.suaIaSlStatusLoad();
+  assert.match(card(), /precisa ser reparada/);
+  assert.match(card(), /o projeto aberto define a própria barra de status \(\.claude\/settings\.local\.json\) — ela substitui a do Starfork/);
+  // desligado: nada disso aparece
+  setList(P, [{ ...claudeOn, statuslineInstalled: false, statuslineRepair: true }, ST.codexOk, ST.dsKey, ST.gwNo]);
+  assert.ok(!/precisa ser reparada|data-sasl-over/.test(card()));
+});

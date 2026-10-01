@@ -826,8 +826,8 @@ function cmdClaudeStatusline(sub: string | undefined, a: Args) {
   try {
     if (sub === "install") r = slInstall({ node: a.flags.node });
     else if (sub === "uninstall") r = slUninstall();
-    else if (sub === "status") r = slStatus();
-    else { console.error(c.red("✕ use: cardume claude-statusline install [--node <caminho>] | uninstall | status [--json]")); process.exitCode = 1; return; }
+    else if (sub === "status") r = slStatus({ repo: a.flags.repo });
+    else { console.error(c.red("✕ use: cardume claude-statusline install [--node <caminho>] | uninstall | status [--repo <p>] [--json]")); process.exitCode = 1; return; }
   } catch (e) {
     r = { ok: false, message: "não consegui mexer na barra de status: " + ((e as Error)?.message ?? String(e)) };
   }
