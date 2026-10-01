@@ -109,6 +109,7 @@ async function auAfterSession(){
   lsSet('sb:ended','');
   try{ await cloudLoad(); }catch(_){ }
   try{ cloudBtnSync(); }catch(_){ }
+  try{ if(typeof appVersionPing==='function') appVersionPing(); }catch(_){ } // /admin vê a versão logo após o login
   try{ await billingSync(); }catch(_){ }
   if(typeof billingOn!=='undefined' && billingOn && !billingActive()){ auPlanFromSite(); auShow('plans'); return; }
   auShow('ready');
