@@ -136,12 +136,12 @@ export function mapCodexLine(line: string, seen: Set<string> = new Set()): Agent
   } else if (/agent_message|assistant/i.test(itemType)) {
     if (text) evs.push({ type: "note", text: text.slice(0, 1200) });
   } else if (/turn\.completed|task_complete|turn_complete/i.test(itemType)) {
-    const usage = (o as { usage?: { input_tokens?: number; output_tokens?: number } }).usage ?? {};
+    const usage = (o as { usage?: { input_tokens?: number; output_tokens?: number; cached_input_tokens?: number } }).usage ?? {};
     evs.push({
       type: "done",
       text: "codex finalizou",
       status: "review",
-      cost: { usd: 0, inTok: usage.input_tokens ?? 0, outTok: usage.output_tokens ?? 0 },
+      cost: { usd: 0, inTok: usage.input_tokens ?? 0, outTok: usage.output_tokens ?? 0, cachedTok: usage.cached_input_tokens ?? 0 },
     });
   }
   return evs;

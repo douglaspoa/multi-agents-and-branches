@@ -33,7 +33,7 @@ test("comando aparece UMA vez no feed (antes: item.started e item.completed dupl
 test("uso do turno vira custo/tokens no done", () => {
   const [d] = mapCodexLine(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1200, cached_input_tokens: 200, output_tokens: 300 } }));
   assert.equal(d.type, "done");
-  assert.deepEqual(d.cost, { usd: 0, inTok: 1200, outTok: 300 });
+  assert.deepEqual(d.cost, { usd: 0, inTok: 1200, outTok: 300, cachedTok: 200 }); // cache vai pro livro de uso (preço menor)
 });
 
 test("chaves da conta vêm de <home>/.constellation/llm.env (homedir, não $HOME cru)", () => {

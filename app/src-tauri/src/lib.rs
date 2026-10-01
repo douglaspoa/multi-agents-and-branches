@@ -14,6 +14,7 @@ mod learn;
 mod memoria;
 mod mesa;
 mod plan_usage;
+mod usage_ledger;
 #[cfg(target_os = "macos")]
 mod notif_mac;
 #[cfg(test)]
@@ -479,11 +480,11 @@ fn slug_id(input: &str) -> String {
 /// Nome de branch REFEITO pela IA quando o título não cabe no slug (48).
 /// Haiku resume o título num kebab-case curto; timeout curto e best-effort —
 /// falhou/offline → None e o chamador usa o corte em fronteira de palavra.
-fn ai_branch_name(title: &str) -> Option<String> {
+fn ai_branch_name(title: &str, project: Option<&Path>) -> Option<String> {
     let prompt = format!(
         "Resuma este título de tarefa num NOME DE BRANCH curto: kebab-case, só ascii minúsculo e hifens, 3 a 5 palavras, máximo 40 caracteres, capturando a essência. Responda SOMENTE o nome, sem aspas.\n\nTítulo: {title}"
     );
-    let s = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 20 }).ok()?;
+    let s = ai_once::ai_once_as("titulo-branch", project, ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 20 }).ok()?;
     let name = slug_id(s.trim().trim_matches('"'));
     // sanidade: nome curto real, não eco do título nem vazio
     if name.len() >= 8 && name.len() <= 48 && name != "tarefa" { Some(name) } else { None }
@@ -1430,7 +1431,7 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
     let prompt = format!(
         "Você é um revisor de código sênior. Em 2 a 4 frases, explique de forma TÉCNICA e direta O QUE foi feito neste commit e POR QUE (a intenção/como se conecta ao objetivo). NÃO liste arquivos nem número de linhas — foque na mudança e no propósito. Responda em português.\n\n{ctx}Mensagem do commit: {msg}\n\nDiff:\n{diff}"
     );
-    let summary = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: Some(&repo), secs: 60 })?;
+    let summary = ai_once::ai_once_as("commit-pr", Some(std::path::Path::new(&repo)), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: Some(&repo), secs: 60 })?;
     if summary.is_empty() {
         return Err("a IA devolveu uma resposta vazia — tente de novo".into());
     }
@@ -3011,7 +3012,7 @@ fn new_task(
     // Título que NÃO CABE no slug → a IA REFAZ o nome (decisão do Douglas:
     // nada de nome truncado); sem IA/offline, cai no corte em fronteira.
     let mut id = if slug_raw(&title).len() > 48 {
-        ai_branch_name(&title).unwrap_or_else(|| slug_id(&title))
+        ai_branch_name(&title, Some(&repo)).unwrap_or_else(|| slug_id(&title))
     } else {
         slug_id(&title)
     };
@@ -3820,17 +3821,17 @@ fn daily_digest(state: State<AppState>, from_ms: i64, to_ms: i64) -> Result<Vec<
 
 /// Resumo do dia em bullets, pronto pra colar na daily (Haiku).
 #[tauri::command(async)]
-fn ai_daily(text: String) -> Result<String, String> {
+fn ai_daily(state: State<AppState>, text: String) -> Result<String, String> {
     let ctx: String = text.chars().take(6000).collect();
     let prompt = format!(
         "Você escreve o update de DAILY de um dev, em português, a partir do log abaixo (tarefas tocadas, commits, marcos, custo). Formato: bullets curtos '- ' agrupados em 'Feito:' e 'Em andamento:' (e 'Bloqueios:' só se houver pergunta pendente). Direto, específico, sem enfeite, sem custo/token. Máx 8 bullets.\n\n{ctx}"
     );
-    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 180 })
+    ai_once::ai_once_as("relatorios", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 180 })
 }
 
 /// RELATÓRIO técnico do dia (markdown completo): o quê, por quê, arquitetura, como validar.
 #[tauri::command(async)]
-fn ai_daily_report(text: String, date: String) -> Result<String, String> {
+fn ai_daily_report(state: State<AppState>, text: String, date: String) -> Result<String, String> {
     let ctx: String = text.chars().take(14000).collect();
     let prompt = format!(
         "Você escreve um RELATÓRIO EXECUTIVO do dia de engenharia PARA A DIRETORIA, em português (pt-BR), tom profissional e objetivo — foco em RESULTADO e IMPACTO no produto/negócio, não na mecânica interna. Saída SOMENTE em Markdown bem formatado, começando com `# Relatório do dia — {date}`.\n\n\
@@ -3843,13 +3844,13 @@ fn ai_daily_report(text: String, date: String) -> Result<String, String> {
          3) Se houver riscos ou pontos que precisam de decisão de NEGÓCIO, uma seção final `## Pontos de atenção` (profissional, sem jargão de processo).\n\n\
          PROIBIDO mencionar (não cite NADA disso): nomes de branch, hashes de commit, caminhos de arquivo internos (.cardume etc.), status internos de execução (timeout, erro de pipeline, rework, 'em review', 'merged'), perguntas feitas ao time durante a execução, custos/tokens, e a frase 'não especificado no log'. Se um dado não estiver claro, simplesmente NÃO comente — NUNCA escreva que faltou informação. Escreva com confiança e clareza, como um líder de produto reportando à diretoria.\n\n{ctx}"
     );
-    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })
+    ai_once::ai_once_as("relatorios", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })
 }
 
 /// Relatório por DEMANDA (o que foi feito e por quê) ou por PERÍODO (várias entregas),
 /// escrito pela IA a partir dos fatos que o app já guarda (spec, provas, commits, PR).
 #[tauri::command(async)]
-fn ai_task_report(text: String, kind: String, label: String) -> Result<String, String> {
+fn ai_task_report(state: State<AppState>, text: String, kind: String, label: String) -> Result<String, String> {
     let ctx: String = text.chars().take(16000).collect();
     let prompt = if kind == "periodo" {
         format!(
@@ -3870,7 +3871,7 @@ fn ai_task_report(text: String, kind: String, label: String) -> Result<String, S
              PROIBIDO: hashes de commit, caminhos internos (.cardume etc.), status internos de execução (timeout, rework, 'em review'), custos/tokens, e frases como 'não informado'. Se um dado faltar, não comente.\n\n{ctx}"
         )
     };
-    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })
+    ai_once::ai_once_as("relatorios", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })
 }
 
 /// Grava um artefato GERADO PELO APP (ex.: relatório da entrega) na pasta coletada
@@ -3940,8 +3941,9 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let key = orq_plan_key(req_id);
     let eng = ai_once::chat_engine()?;
     if eng != ai_once::AiEngine::Claude {
-        return chat_other(eng, &sys, &briefing, &None, &repo, ORQ_PLAN_SECS, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}).map(|c| c.text);
+        return chat_other("orquestrador", eng, &sys, &briefing, &None, &repo, ORQ_PLAN_SECS, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}).map(|c| c.text);
     }
+    let tag = usage_ledger::Tag::new("orquestrador", &repo, &model, &None); // livro de uso
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -3960,7 +3962,9 @@ fn ai_orchestrate(state: State<AppState>, briefing: String, model: Option<String
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // parável (orq_plan_stop → ORQ_PLAN_STOPPED): antes eram até 5 min de "montando o plano" sem saída
+    let started = std::time::Instant::now();
     let out = output_stoppable_keyed(cmd, ORQ_PLAN_SECS, &key, "ORQ_PLAN_STOPPED")?;
+    usage_ledger::record_claude_output(&tag, &out, started);
     let v = claude_json(&out)?;
     Ok(v["result"].as_str().unwrap_or("").to_string())
 }
@@ -4209,12 +4213,16 @@ fn ai_decompose(state: State<AppState>, text: String, guide: Option<String>) -> 
     let prompt = format!(
         "Você é um tech lead quebrando um trabalho grande num ÉPICO com tarefas que AGENTES DE IA executarão (cada uma vira branch + worktree própria; tarefas sem dependência entre si rodam AO MESMO TEMPO). Com base no contexto, monte o envelope do épico e de 3 a 7 tarefas. Responda SOMENTE um objeto JSON válido, sem markdown, neste formato: {{\"epic\":\"nome curto do épico\",\"outcome\":\"1 frase: pra quem, o que muda e qual sinal mostra que funcionou\",\"requirements\":[{{\"id\":\"R1\",\"text\":\"requisito do épico, uma linha\"}}],\"doneWhen\":[\"checagem que uma PESSOA roda sem abrir nenhuma tarefa (3 a 6; cada uma falha hoje)\"],\"boundaries\":[\"o que NÃO muda com este épico\"],\"tasks\":[{{\"title\":\"verbo + objeto (máx 60 chars)\",\"objective\":\"2-4 frases: o que fazer, onde, e qual o entregável\",\"verify\":\"1 linha: como se prova que ESTA tarefa entregou\",\"covers\":[\"R1\"],\"after\":[],\"risk\":\"medium\",\"hitl\":false,\"boundaries\":[\"comportamento que ESTA tarefa não pode mudar\"],\"requirements\":[\"critério verificável (2 a 4, frases completas que alguém marca ✓/✗ testando)\"],\"owns\":\"pastas/arquivos que ela reivindica, separados por vírgula (deduza do contexto; vazio se não der)\"}}]}}. `after` são os ÍNDICES (0-based, na ordem de tasks) das irmãs que precisam estar PRONTAS antes desta; [] = pode começar já. `risk` é low, medium ou high; `hitl` true quando parte precisa de uma PESSOA. REGRAS: organize por VALOR pro usuário, nunca por camada técnica; a primeira tarefa é o TRACER BULLET; cada tarefa é STANDALONE (funciona sem as posteriores); nenhuma depende de posterior; `after` só com pré-requisitos REAIS e, como única exceção, pra serializar quem mexe nos MESMOS arquivos — tarefas sem `after` entre si têm `owns` DISJUNTOS (nunca o mesmo arquivo); cada `covers` cita ids de requirements e, juntas, as tarefas cobrem todos. NÃO devolva `wave`.{guide}\n\nCONTEXTO:\n{ctx}"
     );
-    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 600 })
+    ai_once::ai_once_as("nova-tarefa", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 600 })
 }
 
 /// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
 #[tauri::command(async)]
-fn ai_title(text: String) -> Result<String, String> {
+fn ai_title(state: State<AppState>, text: String) -> Result<String, String> {
+    ai_title_in(&text, repo_of(&state).ok().as_deref())
+}
+/// Título da tarefa (sem State — dá pra testar/chamar direto). `project` = repo aberto (livro de uso).
+fn ai_title_in(text: &str, project: Option<&Path>) -> Result<String, String> {
     let t = text.trim();
     if t.is_empty() {
         return Err("escreva a descrição primeiro".to_string());
@@ -4223,7 +4231,7 @@ fn ai_title(text: String) -> Result<String, String> {
     let prompt = format!(
         "Gere um TÍTULO curto (máximo 60 caracteres) em português para uma tarefa de desenvolvimento, no estilo de issue: verbo no infinitivo + objeto específico (ex.: \"Adicionar autocomplete nos filtros da home\"). Responda SOMENTE o título — sem aspas, sem ponto final, sem explicação.\n\nDescrição da tarefa:\n{desc}"
     );
-    let s = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 180 })?;
+    let s = ai_once::ai_once_as("titulo-branch", project, ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 180 })?;
     let title = s.trim().trim_matches('"').trim().chars().take(80).collect::<String>();
     if title.is_empty() {
         return Err("não veio título — tente de novo".to_string());
@@ -4257,7 +4265,7 @@ enum ChatStop<'a> {
 /// Uma rodada de chat num motor que NÃO é o Claude (Codex/DeepSeek/gateway, via ai_once::chat_turn): mesmas
 /// instruções (`sys`), só-leitura no `cwd`, linhas de atividade em `activity`, parável como o Claude da tela.
 #[allow(clippy::too_many_arguments)]
-fn chat_other(eng: ai_once::AiEngine, sys: &str, prompt: &str, session_id: &Option<String>, cwd: &Path, secs: u64, stop: ChatStop, marker: &str, activity: &dyn Fn(String)) -> Result<AiChat, String> {
+fn chat_other(source: &str, eng: ai_once::AiEngine, sys: &str, prompt: &str, session_id: &Option<String>, cwd: &Path, secs: u64, stop: ChatStop, marker: &str, activity: &dyn Fn(String)) -> Result<AiChat, String> {
     use std::sync::atomic::Ordering;
     let started = std::time::Instant::now();
     let stop_id = match &stop { ChatStop::Slot(s) => slot_stop_id(s), ChatStop::Key(k) => k.to_string() };
@@ -4272,7 +4280,9 @@ fn chat_other(eng: ai_once::AiEngine, sys: &str, prompt: &str, session_id: &Opti
     let cancelled = || stop_requested_since(&stop_id, started);
     let t = ai_once::ChatTurn { sys, prompt, session_id: session_id.as_deref(), cwd, secs };
     let h = ai_once::ChatHooks { activity, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: marker };
-    ai_once::chat_turn(eng, &t, &h).map(|o| AiChat { text: o.text, session_id: o.session_id })
+    let r = ai_once::chat_turn(eng, &t, &h);
+    ai_once::record_chat(source, eng, cwd, &r, started); // livro de uso (melhor-esforço)
+    r.map(|o| AiChat { text: o.text, session_id: o.session_id })
 }
 /// Emite a linha de atividade da tela (planner-activity / project-chat-activity) — mesmo formato do stream do Claude.
 fn emit_activity(app: &tauri::AppHandle, event: &str) -> impl Fn(String) {
@@ -4300,12 +4310,39 @@ mod chat_other_tests {
     }
     fn wait_until(f: impl Fn() -> bool) { for _ in 0..200 { if f() { return; } std::thread::sleep(std::time::Duration::from_millis(25)); } panic!("não aconteceu a tempo"); }
 
+    /// Livro de uso: uma rodada do planner no Codex grava `nova-tarefa`, codex, tokens (com o cache) e US$ estimado.
+    #[test]
+    fn chat_other_grava_a_rodada_no_livro() {
+        let lock = crate::ai_once::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tmpdir("chatother-livro-home");
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
+        let d = tmpdir("chatother-livro");
+        let bin = fake_codex_chat(&d, "");
+        let db = d.join("usage.sqlite");
+        let _g = EnvGuard::set(&[("HOME", home.display().to_string().as_str()), ("CARDUME_CODEX", bin.as_str()), ("CARDUME_CLAUDE", "/nao/existe/claude"), ("CARDUME_USAGE_DB", db.display().to_string().as_str())]);
+        crate::ai_once::clear_avail_cache();
+        let r = chat_other("nova-tarefa", ai_once::AiEngine::Codex, "PLANNER", "oi", &None, &d, 60, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &|_| {});
+        assert!(r.is_ok(), "{:?}", r.err());
+        let rows = usage_ledger::ledger_rows(&db, 0, None, None).unwrap();
+        assert_eq!(rows.len(), 1);
+        let x = &rows[0];
+        assert_eq!((x.source.as_str(), x.engine.as_str(), x.in_tok, x.out_tok, x.estimated, x.ok), ("nova-tarefa", "codex", 120, 30, true, true));
+        assert_eq!(x.model.as_deref(), Some("gpt-5-codex"));
+        assert!((x.usd - usage_ledger::estimate_usd("codex", "gpt-5-codex", 120, 0, 30)).abs() < 1e-12);
+        assert_eq!(x.project.as_deref(), Some(usage_ledger::norm_project(&d.display().to_string()).as_str()));
+        crate::ai_once::clear_avail_cache();
+        drop(lock);
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn chat_other_parar_pelo_slot_devolve_o_marcador_da_tela() {
         let (_l, home, d, _g) = setup("chatother-slot");
         let t0 = std::time::Instant::now();
         let r = std::thread::scope(|sc| {
-            let h = sc.spawn(|| chat_other(ai_once::AiEngine::Codex, "PLANNER", "oi", &None, &d, 60, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &|_| {}));
+            let h = sc.spawn(|| chat_other("outros", ai_once::AiEngine::Codex, "PLANNER", "oi", &None, &d, 60, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &|_| {}));
             wait_until(|| PLANNER_PID.load(Ordering::SeqCst) > 0);
             assert!(ai_chat_stop(), "o parar do planner acha o processo");
             h.join().unwrap()
@@ -4324,7 +4361,7 @@ mod chat_other_tests {
         assert_eq!(key, "orq-plan:teste-chave");
         assert_ne!(orq_plan_key(None), orq_plan_key(None), "sem req_id cada pedido tem a sua chave");
         let r = std::thread::scope(|sc| {
-            let h = sc.spawn(|| chat_other(ai_once::AiEngine::Codex, "ORQ", "plano", &None, &d, 60, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}));
+            let h = sc.spawn(|| chat_other("outros", ai_once::AiEngine::Codex, "ORQ", "plano", &None, &d, 60, ChatStop::Key(&key), "ORQ_PLAN_STOPPED", &|_| {}));
             wait_until(|| KEYED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|m| m.contains_key(&key)));
             assert!(orq_plan_stop("teste-chave".into()).unwrap());
             h.join().unwrap()
@@ -4359,7 +4396,7 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o planner não começa do zero
     let eng = chat_pick(&session_id)?;
     if eng != ai_once::AiEngine::Claude {
-        return chat_other(eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &emit_activity(&app, "planner-activity"));
+        return chat_other("nova-tarefa", eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &emit_activity(&app, "planner-activity"));
     }
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
@@ -4389,15 +4426,17 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
     // grupo próprio (detach_new_group, dentro do helper): o "parar" derruba o claude E o que ele tiver aberto
-    run_claude_stream(&app, cmd, &PLANNER_PID, "PLANNER_STOPPED", 600, "planner-activity")
+    run_claude_stream(&app, cmd, &PLANNER_PID, "PLANNER_STOPPED", 600, "planner-activity", usage_ledger::Tag::new("nova-tarefa", &repo, &model, &session_id))
 }
 
 /// Roda o `claude -p --output-format stream-json` e, enquanto ele trabalha, emite cada ferramenta usada
 /// ("lendo X", "procurando Y") no evento `event` — a tela mostra o que a IA está fazendo em vez de só
 /// "pensando…". `slot` guarda o pid pro botão parar; parar → Err(stop_marker). Usado pelo planner e pelo chat do projeto.
-fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync::atomic::AtomicI32, stop_marker: &str, timeout_secs: u64, event: &str) -> Result<AiChat, String> {
+#[allow(clippy::too_many_arguments)]
+fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync::atomic::AtomicI32, stop_marker: &str, timeout_secs: u64, event: &str, tag: usage_ledger::Tag) -> Result<AiChat, String> {
     use std::io::BufRead;
     use tauri::Emitter;
+    let started = std::time::Instant::now();
     detach_new_group(&mut cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
@@ -4415,8 +4454,9 @@ fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync:
     let stderr = child.stderr.take();
     let app2 = app.clone();
     let event = event.to_string();
-    let reader = std::thread::spawn(move || -> (String, String, String, bool) {
+    let reader = std::thread::spawn(move || -> (String, String, String, bool, Option<serde_json::Value>) {
         let mut result = String::new(); let mut sid = String::new(); let mut last_text = String::new(); let mut is_error = false;
+        let mut res_v: Option<serde_json::Value> = None;
         for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
             let v: serde_json::Value = match serde_json::from_str(&line) { Ok(v) => v, Err(_) => continue };
             match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
@@ -4437,13 +4477,14 @@ fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync:
                     result = v.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string();
                     sid = v.get("session_id").and_then(|r| r.as_str()).unwrap_or("").to_string();
                     is_error = v.get("is_error").and_then(|b| b.as_bool()).unwrap_or(false) || v.get("subtype").and_then(|t| t.as_str()).map(|t| t.starts_with("error")).unwrap_or(false);
+                    res_v = Some(v.clone()); // custo/tokens pro livro de uso
                 }
                 // medidor do plano: o mesmo registro do motor TS (um arquivo por janela em ~/.constellation/usage)
                 "rate_limit_event" => plan_usage::record_claude_rate_limit(&v, &plan_usage::claude_usage_dir(), now_ms()),
                 _ => {}
             }
         }
-        (result, sid, last_text, is_error)
+        (result, sid, last_text, is_error, res_v)
     });
     let err_txt = std::thread::spawn(move || {
         let mut s = String::new();
@@ -4454,7 +4495,9 @@ fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync:
     let _ = tx.send(());
     let _ = watch.join();
     let _ = slot.compare_exchange(pid, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
-    let (result, sid, last_text, is_error) = reader.join().unwrap_or_default();
+    let (result, sid, last_text, is_error, res_v) = reader.join().unwrap_or_default();
+    // livro de uso (melhor-esforço): o `result` do stream traz o custo informado pelo Claude (total da sessão → diferença)
+    if let Some(v) = &res_v { usage_ledger::record(usage_ledger::claude_entry(tag.source, Some(tag.project), tag.model.as_deref(), tag.baseline, v, started.elapsed().as_millis() as i64, !is_error)); }
     let err_txt = err_txt.join().unwrap_or_default();
     let status = status.map_err(|e| e.to_string())?;
     if status.code().is_none() {
@@ -4498,8 +4541,9 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
     let sys = memoria::with_memory(&sys, &repo, &prompt); // cérebro do projeto
     let eng = chat_pick(&session_id)?;
     if eng != ai_once::AiEngine::Claude {
-        return chat_other(eng, &sys, &prompt, &session_id, &repo, 300, ChatStop::Slot(&ORQ_CHAT_PID), "ORQ_CHAT_STOPPED", &|_| {});
+        return chat_other("orquestrador", eng, &sys, &prompt, &session_id, &repo, 300, ChatStop::Slot(&ORQ_CHAT_PID), "ORQ_CHAT_STOPPED", &|_| {});
     }
+    let tag = usage_ledger::Tag::new("orquestrador", &repo, &model, &session_id); // livro de uso (base da sessão ANTES do turno)
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
         "-p".to_string(),
@@ -4523,7 +4567,9 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
     }
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&repo);
+    let started = std::time::Instant::now();
     let out = output_stoppable(cmd, 300, &ORQ_CHAT_PID, "ORQ_CHAT_STOPPED")?;
+    usage_ledger::record_claude_output(&tag, &out, started);
     let v = claude_json(&out)?;
     Ok(AiChat {
         text: v["result"].as_str().unwrap_or("").to_string(),
@@ -4990,7 +5036,7 @@ fn tracker_http(method: String, url: String, headers: Option<std::collections::H
 /// Lê a DOCUMENTAÇÃO do tracker (texto colado e/ou arquivo — PDF/MD) e devolve o
 /// CONECTOR declarativo (JSON) que o painel executa. Nunca inclui valor de chave.
 #[tauri::command(async)]
-fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, String> {
+fn tracker_ai_build(state: State<AppState>, docs: String, files: Option<Vec<String>>) -> Result<String, String> {
     let docs: String = docs.chars().take(60000).collect();
     let files: Vec<String> = files.unwrap_or_default().into_iter().filter(|f| !f.trim().is_empty()).collect();
     if docs.trim().is_empty() && files.is_empty() { return Err("cole a documentação ou escolha um arquivo".into()); }
@@ -5005,7 +5051,7 @@ fn tracker_ai_build(docs: String, files: Option<Vec<String>>) -> Result<String, 
         extra.extend(protect_args(true));
         extra.extend(["--permission-mode".to_string(), "bypassPermissions".to_string()]);
     }
-    ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &extra, cwd: None, secs: 600 })
+    ai_once::ai_once_as("outros", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &extra, cwd: None, secs: 600 })
 }
 
 /// "Nova issue" conversando (uma ou várias): roda no repo do PROJETO escolhido, PESQUISA o
@@ -5018,8 +5064,9 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
     let sys = memoria::with_memory(&sys, &repo, &prompt); // cérebro do projeto
     let eng = chat_pick(&session_id)?;
     if eng != ai_once::AiEngine::Claude {
-        return chat_other(eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&ISSUE_CHAT_PID), "ISSUE_CHAT_STOPPED", &|_| {});
+        return chat_other("chat-issues", eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&ISSUE_CHAT_PID), "ISSUE_CHAT_STOPPED", &|_| {});
     }
+    let tag = usage_ledger::Tag::new("chat-issues", &repo, &model, &session_id); // livro de uso (base da sessão ANTES do turno)
     let mut args: Vec<String> = vec![
         "-p".to_string(), prompt,
         "--output-format".to_string(), "json".to_string(),
@@ -5036,6 +5083,7 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
     cmd.args(&args).current_dir(&repo);
     detach_new_group(&mut cmd); // grupo próprio: o "parar" derruba o claude E o que ele tiver aberto
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let started = std::time::Instant::now();
     let child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
     let pid = child.id() as i32;
     ISSUE_CHAT_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
@@ -5049,6 +5097,7 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
     // só zera se ainda for o MEU pid (outra chamada pode ter começado)
     let _ = ISSUE_CHAT_PID.compare_exchange(pid, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
     let out = out.map_err(|e| e.to_string())?;
+    usage_ledger::record_claude_output(&tag, &out, started);
     if out.status.code().is_none() { return Err("ISSUE_CHAT_STOPPED".into()); }
     let v = claude_json(&out)?;
     Ok(AiChat { text: v["result"].as_str().unwrap_or("").to_string(), session_id: v["session_id"].as_str().unwrap_or("").to_string() })
@@ -5350,7 +5399,7 @@ fn ai_spec(state: State<AppState>, title: String, objective: String, kind: Strin
          - Tudo em pt-BR. NÃO invente escopo que o humano não pediu — complete e organize o que ele quis dizer.{guide_block}\n\
          Rascunho:\n{draft}"
     );
-    let raw = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: Some(&repo), secs: 60 })?;
+    let raw = ai_once::ai_once_as("nova-tarefa", Some(std::path::Path::new(&repo)), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: Some(&repo), secs: 60 })?;
     // parse robusto: do primeiro '{' ao último '}' (tolera lixo em volta)
     let s = raw.find('{').and_then(|a| raw.rfind('}').map(|b| &raw[a..=b])).ok_or("resposta sem JSON")?;
     let v: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("JSON inválido da IA: {e}"))?;
@@ -5387,7 +5436,7 @@ fn ai_estimate(state: State<AppState>, title: String, objective: String, items: 
         model.unwrap_or_else(|| "padrão".into()),
         items.len()
     );
-    let raw = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: Some(&repo), secs: 45 })?;
+    let raw = ai_once::ai_once_as("previsao", Some(std::path::Path::new(&repo)), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: Some(&repo), secs: 45 })?;
     let s = raw.find('{').and_then(|a| raw.rfind('}').map(|b| &raw[a..=b])).ok_or("resposta sem JSON")?;
     let v: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("JSON inválido da IA: {e}"))?;
     let arr = v["items"].as_array().cloned().unwrap_or_default();
@@ -5678,7 +5727,7 @@ fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, s
     let sys = memoria::with_memory(sys, &repo, &prompt); // cérebro do projeto: o chat não começa do zero
     let eng = chat_pick(&session_id)?;
     if eng != ai_once::AiEngine::Claude {
-        return chat_other(eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PROJECT_CHAT_PID), "PROJECT_CHAT_STOPPED", &emit_activity(&app, "project-chat-activity"));
+        return chat_other("chat-projeto", eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PROJECT_CHAT_PID), "PROJECT_CHAT_STOPPED", &emit_activity(&app, "project-chat-activity"));
     }
     let claude = claude_bin();
     let mut args: Vec<String> = vec![
@@ -5703,7 +5752,7 @@ fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, s
     cmd.args(&args).current_dir(&repo);
     // stream: cada leitura/busca vira uma linha "o que a IA está fazendo" na tela (antes: só "lendo o projeto…"
     // por minutos, parecia travado)
-    run_claude_stream(&app, cmd, &PROJECT_CHAT_PID, "PROJECT_CHAT_STOPPED", 600, "project-chat-activity")
+    run_claude_stream(&app, cmd, &PROJECT_CHAT_PID, "PROJECT_CHAT_STOPPED", 600, "project-chat-activity", usage_ledger::Tag::new("chat-projeto", &repo, &model, &session_id))
 }
 
 // ---------- revisão de arquivos da tarefa (abrir/editar/salvar) ----------
@@ -5946,7 +5995,7 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
         notes.join("\n---\n").chars().take(4000).collect::<String>(),
         stat.chars().take(1500).collect::<String>(),
     );
-    let body = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 75 })?;
+    let body = ai_once::ai_once_as("commit-pr", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 75 })?;
     if body.len() < 80 || !body.contains("## ") {
         return Err("corpo gerado inválido".to_string());
     }
@@ -6014,7 +6063,7 @@ fn ai_file_why(state: State<AppState>, task_id: String, path: String) -> Result<
          PROIBIDO repetir o objetivo da tarefa, falar do 'plano' ou generalizar ('foram feitas melhorias'). Cite nomes reais do diff.\n\n\
          Tarefa: {title}\nObjetivo: {objective}\nArquivo: {path}\n\nDIFF:\n```\n{diff_cut}\n```",
     );
-    let md = ai_once::ai_once(ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })?;
+    let md = ai_once::ai_once_as("relatorios", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 600 })?;
     let _ = std::fs::write(&cache, &md);
     Ok(md)
 }
@@ -9092,6 +9141,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_repo,
             plan_usage::plan_usage,
+            usage_ledger::usage_report,
+            usage_ledger::usage_task_detail,
             claude_statusline_set,
             claude_statusline_status,
             memoria::memory_list,

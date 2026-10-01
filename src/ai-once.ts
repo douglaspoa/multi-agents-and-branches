@@ -10,6 +10,7 @@ import {
   dshModelFor, dshNodeOk, dshNodeMsg, dshSpawnSpec, dshVersion, dshVersionOk, isDshLabel,
   extraPatch, resolveDsh, runPatchYaml, writeBasePatch,
 } from "./engine/dsh.ts";
+import { claudeEnvelope, claudeModelOf, claudeNumbers, recordUsage, type UsageSource } from "./usage-ledger.ts";
 
 /**
  * IA AUXILIAR "de uma vez" do motor (destilador de memória, retro, resumo de commit) — o MESMO
@@ -99,6 +100,69 @@ export function engineAvail(e: AiEngineKind): boolean {
   const v = e === "claude" ? binExists(resolveClaude()) : e === "codex" ? binExists(resolveCodex()) : e === "deepseek" ? dshAvail().ok : !!gatewayCfg();
   availCache.set(e, { v, at: Date.now() });
   return v;
+}
+
+/** Tokens/custo vistos numa chamada (somam as tentativas — o retry do Codex também cobra) + o modelo USADO. */
+export interface UsageAcc { inTok: number; cachedTok: number; outTok: number; usd: number; model?: string }
+const newAcc = (): UsageAcc => ({ inTok: 0, cachedTok: 0, outTok: 0, usd: 0 });
+
+/** Erros do Claude headless → ação concreta. MESMAS regras e textos do Rust `claude_friendly_error` (lib.rs). */
+export function claudeFriendlyError(msg: string): string {
+  const l = String(msg ?? "").toLowerCase();
+  if (l.includes("oauth") || l.includes("authenticate") || l.includes("401") || l.includes("not logged in") || l.includes("invalid api key"))
+    return `Login do Claude Code expirou — abra um terminal, rode \`claude\` e digite /login (ou \`claude auth login\`), depois tente de novo aqui.\n\n(${msg})`;
+  if (l.includes("rate limit") || l.includes("429") || l.includes("usage limit") || l.includes("overloaded"))
+    return `O Claude está sem cota/limite no momento — espere um pouco e tente de novo.\n\n(${msg})`;
+  if (l.includes("no conversation found") || (l.includes("session") && l.includes("not found")))
+    return `A sessão da conversa expirou no Claude — clique em '+ novo' pra recomeçar.\n\n(${msg})`;
+  return msg;
+}
+export const CLAUDE_NO_ANSWER = "O Claude Code terminou sem resposta — tente de novo.";
+
+/** Saída de `claude -p --output-format json` → o MESMO texto que o `-p` puro devolvia (`result`), custo/tokens no
+ * acumulador (≡ Rust claude_once_text). Envelope = ÚLTIMA linha que começa com `{`; erro nele → mensagem humana;
+ * envelope sem `result` ou JSON que não é o envelope → erro humano (nunca o JSON cru como resposta). Texto puro
+ * (claude antigo, falso de teste) passa como veio. */
+/** Linha que é um objeto do PROTOCOLO do Claude Code (envelope cortado, evento system/assistant/user) — nunca uma
+ * resposta da IA. Uma resposta que é JSON (ex.: a retro devolve {"notas":…}) não tem esse `type`. ≡ Rust. */
+export function isClaudeProtocolLine(l: string): boolean {
+  const s = l.trim();
+  if (!s.startsWith("{")) return false;
+  if (/^\{\s*"type"\s*:\s*"(result|system|assistant|user)"/.test(s)) return true; // inclusive cortada
+  try { const o = JSON.parse(s); return !!o && typeof o === "object" && ["result", "system", "assistant", "user"].includes(o.type); } catch { return false; }
+}
+export function claudeOnceText(stdout: string, acc?: UsageAcc): string {
+  const t = String(stdout ?? "").trim();
+  const o = claudeEnvelope(t);
+  if (!o) {
+    if (t.split("\n").some(isClaudeProtocolLine)) throw new Error(`${CLAUDE_NO_ANSWER} (resposta inesperada do Claude Code)`); // envelope cortado / evento do protocolo
+    // texto puro (claude antigo / falso de teste), mesmo que a RESPOSTA seja um JSON (ex.: a retro) — passa como veio
+    return t;
+  }
+  const n = claudeNumbers(o);
+  if (acc) {
+    acc.inTok += n.inTok; acc.cachedTok += n.cachedTok; acc.outTok += n.outTok; acc.usd += n.usd;
+    acc.model = claudeModelOf(o) ?? acc.model;
+  }
+  const r = typeof o.result === "string" ? o.result.trim() : undefined;
+  if (o.is_error) throw new Error(r ? claudeFriendlyError(r) : "O Claude Code devolveu um erro sem mensagem.");
+  if (r === undefined) throw new Error(CLAUDE_NO_ANSWER);
+  return r;
+}
+/** Tokens de um JSONL do Codex (`turn.completed`, cache em `cached_input_tokens`) ou do dsh (`status` step_end). */
+export function jsonlTokens(stdout: string, dsh: boolean): { inTok: number; cachedTok: number; outTok: number } {
+  let i = 0, c = 0, o = 0;
+  for (const line of String(stdout ?? "").split("\n")) {
+    let v: any;
+    try { v = JSON.parse(line.trim()); } catch { continue; }
+    if (!dsh && v?.type === "turn.completed") { i += Number(v.usage?.input_tokens) || 0; c += Number(v.usage?.cached_input_tokens) || 0; o += Number(v.usage?.output_tokens) || 0; }
+    if (dsh && v?.type === "status" && v.phase === "step_end") {
+      const u = v.usage ?? {};
+      i += Number(u.inputTokens) || 0; o += Number(u.outputTokens) || 0;
+      c += Number(u.cachedInputTokens ?? u.cacheReadTokens ?? u.cachedTokens) || 0; // nome ainda não documentado pelo dsh (≡ Rust)
+    }
+  }
+  return { inTok: i, cachedTok: c, outTok: o };
 }
 
 export function claudeArgs(prompt: string, model?: string): string[] {
@@ -255,7 +319,7 @@ export function dshFriendlyError(msg: string): string {
 
 let dshSeq = 0;
 /** Uma chamada auxiliar no dsh: SÓ-LEITURA, prompt no STDIN, só a DEEPSEEK_API_KEY no env (nunca no argv). */
-export async function dshRun(bin: string, prompt: string, o: AiOnceOpts, userModel?: string): Promise<string> {
+export async function dshRun(bin: string, prompt: string, o: AiOnceOpts, userModel?: string, acc?: UsageAcc): Promise<string> {
   // binário → node → chave (mesma ordem do dshAvail/DshEngine.run); nada é gravado antes
   if (!dshBinExists(bin)) throw new Error(DSH_MISSING_MSG);
   if (!dshNodeOk()) throw new Error(dshNodeMsg(process.versions.node));
@@ -272,6 +336,7 @@ export async function dshRun(bin: string, prompt: string, o: AiOnceOpts, userMod
     });
     if (r.spawnErr) throw new Error(r.spawnErr.code === "ENOENT" ? DSH_MISSING_MSG : `Não consegui rodar o DeepSeek Harness: ${r.spawnErr.message}`);
     if (r.timedOut) throw new Error(DSH_TIMEOUT_MSG);
+    if (acc) { const t = jsonlTokens(r.stdout, true); acc.inTok += t.inTok; acc.cachedTok += t.cachedTok; acc.outTok += t.outTok; acc.model = dshPlan(o.tier, userModel); }
     const out = dshOutcome(r.stdout);
     if (out.text) return out.text;
     if (out.raw) throw new Error(dshFriendlyError(out.raw));
@@ -288,6 +353,8 @@ export interface AiOnceOpts {
   claudeModel?: string;
   cwd?: string;
   timeout: number;
+  /** livro de uso (aba Uso): origem + projeto/tarefa. Sem isto conta como "outros". */
+  usage?: { source: UsageSource; project?: string; taskId?: string };
 }
 /** Ganchos de teste: disponibilidade e binário do codex forçados. */
 export interface AiOnceDeps { avail?: Partial<AiAvail>; codexBin?: string; dshBin?: string }
@@ -319,7 +386,7 @@ class CodexFail extends Error {
 }
 
 /** Uma execução do codex. Só a OPENAI_API_KEY do cofre entra no env (o codex lê diffs não confiáveis). */
-async function codexExec(bin: string, prompt: string, cwd: string | undefined, model: string | undefined, low: boolean, deadline: number): Promise<string> {
+async function codexExec(bin: string, prompt: string, cwd: string | undefined, model: string | undefined, low: boolean, deadline: number, acc?: UsageAcc): Promise<string> {
   const left = deadline - Date.now();
   if (left <= 0) throw new CodexFail("timeout", CODEX_TIMEOUT_MSG);
   const llm = loadLlmEnv();
@@ -336,6 +403,7 @@ async function codexExec(bin: string, prompt: string, cwd: string | undefined, m
     throw new CodexFail(r.spawnErr.message, `Não consegui rodar o Codex: ${r.spawnErr.message}`);
   }
   if (r.timedOut) throw new CodexFail("timeout", CODEX_TIMEOUT_MSG);
+  if (acc) { const t = jsonlTokens(r.stdout, false); acc.inTok += t.inTok; acc.cachedTok += t.cachedTok; acc.outTok += t.outTok; acc.model = model; }
   const out = codexOutcome(r.stdout);
   if (out.text) return out.text;
   if (out.raw) throw new CodexFail(out.raw, codexFriendlyError(out.raw));
@@ -344,21 +412,21 @@ async function codexExec(bin: string, prompt: string, cwd: string | undefined, m
 }
 
 /** Codex com retry de modelo recusado: usa o tempo que SOBROU e lembra a recusa no processo. */
-export async function codexRun(bin: string, prompt: string, o: AiOnceOpts, userModel?: string): Promise<string> {
+export async function codexRun(bin: string, prompt: string, o: AiOnceOpts, userModel?: string, acc?: UsageAcc): Promise<string> {
   const deadline = Date.now() + Math.max(o.timeout, 120_000);
   const { model, low } = codexPlan(o.tier, userModel);
   try {
-    return await codexExec(bin, prompt, o.cwd, model, low, deadline);
+    return await codexExec(bin, prompt, o.cwd, model, low, deadline, acc);
   } catch (err) {
     if (model && err instanceof CodexFail && codexModelRefused(err.raw)) {
       codexRefused.add(model);
-      return await codexExec(bin, prompt, o.cwd, undefined, low, deadline).catch((e) => { throw new Error((e as Error).message); });
+      return await codexExec(bin, prompt, o.cwd, undefined, low, deadline, acc).catch((e) => { throw new Error((e as Error).message); });
     }
     throw new Error((err as Error).message);
   }
 }
 
-export async function gatewayCall(g: GatewayCfg, prompt: string, timeout: number): Promise<string> {
+export async function gatewayCall(g: GatewayCfg, prompt: string, timeout: number, acc?: UsageAcc): Promise<string> {
   let body = "";
   try {
     const res = await fetch(`${g.base}/chat/completions`, {
@@ -371,30 +439,63 @@ export async function gatewayCall(g: GatewayCfg, prompt: string, timeout: number
   } catch (err) {
     throw new Error(`Não consegui falar com o gateway (${g.base}) — cheque a URL e a internet/VPN. (${(err as Error).message})`);
   }
+  if (acc) {
+    acc.model = g.model;
+    try {
+      const u = JSON.parse(body.trim())?.usage ?? {};
+      acc.inTok += Number(u.prompt_tokens) || 0; acc.cachedTok += Number(u.prompt_tokens_details?.cached_tokens) || 0; acc.outTok += Number(u.completion_tokens) || 0;
+    } catch { /* sem usage */ }
+  }
   const r = parseGateway(body);
   if (r.text) return r.text;
   throw new Error(r.error);
 }
 
-/** O ponto único. Lança Error com mensagem humana (nunca JSON cru). */
+/** O ponto único. Lança Error com mensagem humana (nunca JSON cru). Grava UMA linha no livro de uso (melhor-esforço). */
 export async function aiOnce(prompt: string, o: AiOnceOpts, deps: AiOnceDeps = {}): Promise<string> {
   const prefs = readAiPrefs();
   const has = (e: AiEngineKind) => (deps.avail && deps.avail[e] !== undefined ? !!deps.avail[e] : engineAvail(e));
   const engine = pickWith(prefs.engine, has);
   if (!engine) throw new Error(NO_ENGINE_MSG);
   const userModel = userModelFor(prefs.engine, engine, prefs.model);
-  if (engine === "claude") {
-    try {
-      const { stdout } = await run(resolveClaude(), claudeArgs(prompt, o.claudeModel), { cwd: o.cwd, env: claudeEnv(), timeout: o.timeout });
-      return stdout.trim();
-    } catch (err) {
-      const e = err as Error & { stderr?: string };
-      throw new Error(e.stderr?.trim() ? e.stderr.trim().slice(0, 400) : claudeErrText(err));
-    }
+  const acc = newAcc();
+  const t0 = Date.now();
+  // modelo planejado DESTE motor (nunca o do Claude numa linha de outro motor); o acumulador traz o USADO de verdade
+  // (Codex sem -m depois da recusa = padrão do Codex; Claude = o de maior custo no modelUsage)
+  const planned = engine === "claude" ? o.claudeModel : engine === "codex" ? codexPlan(o.tier, userModel).model : engine === "deepseek" ? dshPlan(o.tier, userModel) : (userModel || gatewayCfg()?.model);
+  const log = (ok: boolean) => recordUsage({
+    source: o.usage?.source ?? "outros", project: o.usage?.project, taskId: o.usage?.taskId, engine,
+    model: engine === "claude" ? (o.claudeModel ?? acc.model) : ("model" in acc ? acc.model : planned),
+    inTok: acc.inTok, cachedTok: acc.cachedTok, outTok: acc.outTok, usd: acc.usd, ms: Date.now() - t0, ok,
+  });
+  try {
+    const out = await runEngine(engine, prompt, o, deps, userModel, acc);
+    log(true);
+    return out;
+  } catch (err) {
+    log(false);
+    throw err;
   }
-  if (engine === "codex") return codexRun(deps.codexBin ?? resolveCodex(), prompt, o, userModel);
-  if (engine === "deepseek") return dshRun(deps.dshBin ?? resolveDsh(), prompt, o, userModel);
+}
+
+async function runEngine(engine: AiEngineKind, prompt: string, o: AiOnceOpts, deps: AiOnceDeps, userModel: string | undefined, acc: UsageAcc): Promise<string> {
+  if (engine === "claude") {
+    let stdout = "";
+    try {
+      // --output-format json: custo informado pelo Claude (livro de uso); o texto devolvido segue o `result`, igual ao -p puro
+      ({ stdout } = await run(resolveClaude(), [...claudeArgs(prompt, o.claudeModel), "--output-format", "json"], { cwd: o.cwd, env: claudeEnv(), timeout: o.timeout }));
+    } catch (err) {
+      const e = err as Error & { stderr?: string; stdout?: string };
+      if (e.stderr?.trim()) throw new Error(e.stderr.trim().slice(0, 400));
+      // erro dentro do JSON (login expirado, limite…): exit 1 com stderr vazio
+      if (e.stdout?.trim()) claudeOnceText(e.stdout, acc);
+      throw new Error(claudeErrText(err));
+    }
+    return claudeOnceText(stdout, acc);
+  }
+  if (engine === "codex") return codexRun(deps.codexBin ?? resolveCodex(), prompt, o, userModel, acc);
+  if (engine === "deepseek") return dshRun(deps.dshBin ?? resolveDsh(), prompt, o, userModel, acc);
   const g = gatewayCfg();
   if (!g) throw new Error("Configure o gateway (URL, chave e modelo) em Configurações → Gateway próprio.");
-  return gatewayCall(userModel ? { ...g, model: userModel } : g, prompt, Math.max(o.timeout, 90_000));
+  return gatewayCall(userModel ? { ...g, model: userModel } : g, prompt, Math.max(o.timeout, 90_000), acc);
 }

@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { basename, dirname } from "node:path";
+import { recordUsage } from "./usage-ledger.ts";
 import type {
   AgentStatus,
   ClaimMode,
@@ -36,8 +38,11 @@ export function withBusyRetry<T>(fn: () => T, tries = 4, baseMs = 150): T {
  */
 export class Store {
   db: DatabaseSync;
+  /** repo do projeto (pai de <repo>/.cardume/state.sqlite) — o livro de uso só recebe turnos de banco de projeto real */
+  private repo: string | null;
 
   constructor(file: string) {
+    this.repo = basename(dirname(file)) === ".cardume" ? dirname(dirname(file)) : null;
     // Tarefas paralelas rodam em processos separados escrevendo no mesmo DB: espera o lock (até 8s)
     // em vez de falhar com "database is locked". O busy_timeout vem ANTES de qualquer outra coisa —
     // antes o `journal_mode = WAL` rodava com timeout 0 e falhava na hora quando outro processo
@@ -537,10 +542,21 @@ export class Store {
   }
 
   // ---------- custo/tokens por turno de agente ----------
-  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0): void {
+  /** Turno de agente: grava no `cost` do projeto E no livro de uso (aba Uso) com o MESMO `at` — a aba lê o `cost`
+   * antigo como histórico e pula o par (task_id, at) que o livro já tem (não conta duas vezes). `engine`/`model` = do papel. */
+  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0, engine?: string, model?: string, cachedTok = 0): void {
+    const at = Date.now();
     this.db
       .prepare(`INSERT INTO cost (task_id, agent, role, usd, in_tok, out_tok, ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(taskId, agent, role ?? null, usd, inTok, outTok, Math.round(ms) || 0, Date.now());
+      .run(taskId, agent, role ?? null, usd, inTok, outTok, Math.round(ms) || 0, at);
+    if (this.repo) {
+      recordUsage({ at, source: "tarefa", project: this.repo, taskId, role: agent || role, engine: engine || this.taskEngine(taskId), model, inTok, cachedTok, outTok, usd, ms });
+    }
+  }
+  private taskEngine(taskId: string): string {
+    try {
+      return String((this.db.prepare(`SELECT engine FROM task WHERE id = ?`).get(taskId) as { engine?: string } | undefined)?.engine ?? "");
+    } catch { return ""; }
   }
 
   close(): void {

@@ -363,3 +363,14 @@ test('janela volta ao foco: relê se a última leitura tem mais de 30 s (macOS p
   await P.run('pmAt=Date.now()-31000; pmOnFocus()');
   assert.equal(P.calls.length, n0 + 1, 'foco depois de 30 s relê');
 });
+
+test('"ver uso detalhado": o link aparece na lista expandida e o clique (pmWire) abre a aba Uso', async () => {
+  const P = load({});
+  await P.run('pmLoad()');
+  assert.match(P.el.innerHTML, /<button class="pm-uso" data-pm="uso"[^>]*>ver uso detalhado<\/button><\/div>$/);
+  const opened = [];
+  P.ctx.usoOpenTab = () => opened.push('uso');
+  click(P, 'uso');
+  assert.deepEqual(opened, ['uso']);
+  assert.ok(!P.calls.some((c) => c[0] === 'suaIaOpenCfg'), 'não cai no "abrir Sua IA"');
+});

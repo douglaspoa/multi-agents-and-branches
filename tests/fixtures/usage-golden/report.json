@@ -1,0 +1,229 @@
+{
+  "_doc": "Formato do usage_report (Rust) que a aba Uso (55-uso.js) consome. O teste do Rust confere que as CHAVES batem com o que ele devolve; o teste do front renderiza este arquivo.",
+  "report": {
+    "period": "7d",
+    "since": 1790265600000,
+    "totals": {
+      "usd": 3.5302,
+      "usdEstimated": 0.0302,
+      "usdReported": 3.5,
+      "inTok": 2100000,
+      "outTok": 180000,
+      "calls": 9,
+      "ms": 840000,
+      "cachedTok": 1500000
+    },
+    "tests": {
+      "usd": 0.0002,
+      "usdEstimated": 0.0002,
+      "usdReported": 0,
+      "inTok": 20,
+      "cachedTok": 0,
+      "outTok": 2,
+      "calls": 1,
+      "ms": 2000
+    },
+    "bySource": [
+      {
+        "source": "tarefa",
+        "usd": 3.1,
+        "usdEstimated": 0,
+        "usdReported": 3.1,
+        "inTok": 2000000,
+        "outTok": 150000,
+        "calls": 4,
+        "ms": 800000,
+        "cachedTok": 1500000
+      },
+      {
+        "source": "nova-tarefa",
+        "usd": 0.4,
+        "usdEstimated": 0,
+        "usdReported": 0.4,
+        "inTok": 90000,
+        "outTok": 20000,
+        "calls": 2,
+        "ms": 30000,
+        "cachedTok": 0
+      },
+      {
+        "source": "personas",
+        "usd": 0.03,
+        "usdEstimated": 0.03,
+        "usdReported": 0,
+        "inTok": 2000,
+        "outTok": 1000,
+        "calls": 2,
+        "ms": 9000,
+        "cachedTok": 0
+      },
+      {
+        "source": "titulo-branch",
+        "usd": 0.0002,
+        "usdEstimated": 0.0002,
+        "usdReported": 0,
+        "inTok": 10,
+        "outTok": 10,
+        "calls": 1,
+        "ms": 1000,
+        "cachedTok": 0
+      }
+    ],
+    "byEngine": [
+      {
+        "engine": "claude",
+        "usd": 3.5,
+        "usdEstimated": 0,
+        "usdReported": 3.5,
+        "inTok": 2090000,
+        "outTok": 170000,
+        "calls": 6,
+        "ms": 830000,
+        "cachedTok": 0
+      },
+      {
+        "engine": "codex",
+        "usd": 0.0302,
+        "usdEstimated": 0.0302,
+        "usdReported": 0,
+        "inTok": 2010,
+        "outTok": 1010,
+        "calls": 3,
+        "ms": 10000,
+        "cachedTok": 0
+      }
+    ],
+    "byProject": [
+      {
+        "project": "/Users/x/proj-a",
+        "name": "proj-a",
+        "usd": 3.5302,
+        "usdEstimated": 0.0302,
+        "usdReported": 3.5,
+        "inTok": 2100000,
+        "outTok": 180000,
+        "calls": 9,
+        "ms": 840000,
+        "cachedTok": 0
+      }
+    ],
+    "projects": [
+      {
+        "project": "/Users/x/proj-a",
+        "name": "proj-a"
+      },
+      {
+        "project": "/Users/x/proj-b",
+        "name": "proj-b"
+      }
+    ],
+    "tasks": [
+      {
+        "taskId": "t-filtro",
+        "project": "/Users/x/proj-a",
+        "projectName": "proj-a",
+        "title": "Filtro por data",
+        "legacy": false,
+        "usd": 2.6,
+        "usdEstimated": 0,
+        "usdReported": 2.6,
+        "inTok": 1500000,
+        "outTok": 100000,
+        "calls": 3,
+        "ms": 600000,
+        "cachedTok": 0
+      },
+      {
+        "taskId": "t-antiga",
+        "project": "/Users/x/proj-a",
+        "projectName": "proj-a",
+        "title": "Tarefa antiga",
+        "legacy": true,
+        "usd": 0.5,
+        "usdEstimated": 0,
+        "usdReported": 0.5,
+        "inTok": 500000,
+        "outTok": 50000,
+        "calls": 1,
+        "ms": 200000,
+        "cachedTok": 0
+      }
+    ],
+    "tasksTotal": 2
+  },
+  "detail": {
+    "taskId": "t-filtro",
+    "project": "/Users/x/proj-a",
+    "title": "Filtro por data",
+    "totals": {
+      "usd": 2.62,
+      "usdEstimated": 0.02,
+      "usdReported": 2.6,
+      "inTok": 1502000,
+      "outTok": 100000,
+      "calls": 4,
+      "ms": 610000,
+      "cachedTok": 0
+    },
+    "byRole": [
+      {
+        "role": "Coder",
+        "engines": [
+          "claude"
+        ],
+        "usd": 2.0,
+        "usdEstimated": 0,
+        "usdReported": 2.0,
+        "inTok": 1200000,
+        "outTok": 80000,
+        "calls": 2,
+        "ms": 500000,
+        "cachedTok": 0
+      },
+      {
+        "role": "Revisor",
+        "engines": [
+          "codex"
+        ],
+        "usd": 0.02,
+        "usdEstimated": 0.02,
+        "usdReported": 0,
+        "inTok": 2000,
+        "outTok": 0,
+        "calls": 1,
+        "ms": 10000,
+        "cachedTok": 0
+      }
+    ],
+    "rounds": [
+      {
+        "at": 1790300000000,
+        "role": "Coder",
+        "engine": "claude",
+        "model": "claude-sonnet-5",
+        "inTok": 600000,
+        "outTok": 40000,
+        "usd": 1.0,
+        "estimated": false,
+        "ms": 250000,
+        "ok": true,
+        "legacy": true,
+        "cachedTok": 0
+      },
+      {
+        "at": 1790300600000,
+        "role": "Revisor",
+        "engine": "codex",
+        "model": "gpt-5-codex",
+        "inTok": 2000,
+        "outTok": 0,
+        "usd": 0.02,
+        "estimated": true,
+        "ms": 10000,
+        "ok": true,
+        "legacy": false,
+        "cachedTok": 0
+      }
+    ]
+  }
+}

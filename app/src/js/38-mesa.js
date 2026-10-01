@@ -211,10 +211,16 @@ function mesaCost(nPersonas, nRounds, model, est){
 }
 function mesaCapHit(usd, capBrl, rate){ return +capBrl>0 && (+usd||0)*(+rate>0?+rate:5.5) >= +capBrl; }
 // TETO POR TOKENS fora do Claude: Codex/DeepSeek/gateway devolvem US$ 0 (como nas tarefas) mas informam tokens. Pra o
-// teto da mesa continuar valendo, cada token vira um gasto ESTIMADO com uma taxa FIXA e CONSERVADORA (US$ por milhão de
-// tokens, entrada+saída juntas, puxada pro preço de saída — melhor parar cedo do que estourar):
-const MESA_TOK_USD_PER_M={ codex:10, deepseek:2, gateway:10 };
-function mesaTokUsd(engine, tokens){ const r=MESA_TOK_USD_PER_M[String(engine||'')]||10; return (+tokens||0)*r/1e6; }
+// teto da mesa continuar valendo, cada token vira um gasto ESTIMADO pela MESMA tabela do livro de uso (US$ por milhão:
+// entrada nova, entrada em cache, saída). Espelho de src/usage-prices.json (`engines` e `fallback`) — app/tests/uso.test.mjs
+// confere que é igual. Motor sem taxa → o fallback (o mais caro).
+const MESA_TOK_USD={ codex:{ in:1.25, cached_in:0.125, out:10 }, deepseek:{ in:0.28, cached_in:0.028, out:0.42 }, gateway:{ in:1.25, cached_in:0.125, out:10 } };
+const MESA_TOK_FALLBACK={ in:3, cached_in:0.3, out:15 };
+function mesaTokUsd(engine, inTok, outTok, cachedTok){
+  const r=MESA_TOK_USD[String(engine||'')]||MESA_TOK_FALLBACK;
+  const i=Math.max(0,+inTok||0), c=Math.min(i, Math.max(0,+cachedTok||0));
+  return ((i-c)*r.in + c*r.cached_in + Math.max(0,+outTok||0)*r.out)/1e6;
+}
 // o que conta pro teto: o custo real (Claude) + a estimativa por tokens (outros motores)
 function mesaSpentUsd(m){ return (+m.costUsd||0)+(+m.tokUsd||0); }
 // variação de pontos entre duas apurações (tabela "antes → depois")
@@ -336,7 +342,7 @@ async function mesaAsk(m, sys, prompt, json){
   const r=await invoke('mesa_ask',{ repo:m.repo, id:m.id, personaSys:sys, prompt, model:m.model||MESA_MODEL, json:!!json });
   m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0); // erro do claude também cobra — entra no gasto
   { const tok=(+(r&&r.inTok)||0)+(+(r&&r.outTok)||0); // fora do Claude: US$ 0 + tokens → teto por tokens
-    if(!(+(r&&r.costUsd)>0) && tok>0){ m.tokens=(+m.tokens||0)+tok; m.tokUsd=(+m.tokUsd||0)+mesaTokUsd(r.engine, tok); } }
+    if(!(+(r&&r.costUsd)>0) && tok>0){ m.tokens=(+m.tokens||0)+tok; m.tokUsd=(+m.tokUsd||0)+mesaTokUsd(r.engine, r.inTok, r.outTok, r.cachedTok); } }
   if(r && r.error) throw new Error(r.error);
   return String((r&&r.text)||'');
 }

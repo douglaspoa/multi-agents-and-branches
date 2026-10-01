@@ -194,7 +194,9 @@ function pmHtml(u, min, defEng, now, err, open, ord){
     +(min?`<span class="pm-sum pm-${main.level}">${esc(main.short)}</span>`:'<span class="pm-sum"></span>')+PM_CHEV+'</button>';
   const minBar=min && main.topBar?pmBarHtml(main.name, main.topBar, 'pm-bar pm-minbar'):'';
   const list=rows.map(r=>pmIaHtml(r, isOpen(r.id))).join('');
-  return head+minBar+`<div class="pm-rows" id="pmRows"${min?' hidden':''}>${list}</div>`;
+  // "ver uso detalhado": a aba Uso (quanto cada parte do Starfork gasta)
+  const more='<button class="pm-uso" data-pm="uso" title="Abrir a aba Uso: gasto por origem, por IA, por projeto e por tarefa">ver uso detalhado</button>';
+  return head+minBar+`<div class="pm-rows" id="pmRows"${min?' hidden':''}>${list}${more}</div>`;
 }
 // @medidor-puro-fim
 function pmIsMin(){ return lsGet(PM_MIN_KEY)==='1'; }
@@ -267,6 +269,7 @@ function pmWire(){
       const f=el.querySelector && el.querySelector(`[data-pm="det"][data-pm-id="${id}"]`); if(f && f.focus) f.focus();
     }
     else if(b.dataset.pm==='retry'){ pmErr=''; pmRender(); pmLoad(); }
+    else if(b.dataset.pm==='uso'){ if(typeof usoOpenTab==='function') usoOpenTab(); else if(window.usoOpenTab) window.usoOpenTab(); }
     else if(typeof suaIaOpenCfg==='function') suaIaOpenCfg();
   });
 }

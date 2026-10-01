@@ -763,7 +763,7 @@ export function mapLine(line: string, costBase = 0): AgentEvent[] {
         text: (o.result ? String(o.result).slice(0, 4000) : "concluído") + cost + denials,
         status: ok ? "review" : "error",
         ok,
-        cost: { usd, inTok, outTok, ...(ms ? { ms } : {}) },
+        cost: { usd, inTok, outTok, ...(Number(u.cache_read_input_tokens) > 0 ? { cachedTok: Number(u.cache_read_input_tokens) } : {}), ...(ms ? { ms } : {}) },
       },
     ];
   }

@@ -420,6 +420,8 @@ pub(crate) fn codex_exec(bin: &str, prompt: &str, cwd: Option<&Path>, model: Opt
     };
     if timed { return Err(fail("timeout", CODEX_TIMEOUT_MSG.into())); }
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let (ti, tc, to) = jsonl_tokens(&stdout, false);
+    used_add(ti, tc, to, 0.0);
     match codex_outcome(&stdout) {
         (Some(s), _) => Ok(s),
         (None, Some(raw)) => Err(fail(&raw, codex_friendly_error(&raw))),
@@ -529,7 +531,26 @@ pub(crate) fn gateway_call(g: &Gateway, prompt: &str, secs: u64) -> Result<Strin
     if !out.status.success() && out.stdout.is_empty() {
         return Err(format!("Não consegui falar com o gateway ({}) — cheque a URL e a internet/VPN (curl código {}).", g.base, out.status.code().unwrap_or(-1)));
     }
-    parse_gateway(&String::from_utf8_lossy(&out.stdout))
+    let body = String::from_utf8_lossy(&out.stdout);
+    let (ti, tc, to) = gateway_tokens(&body);
+    used_add(ti, tc, to, 0.0);
+    parse_gateway(&body)
+}
+/// Tokens do `usage` do chat/completions: (entrada, dela em cache — prompt_tokens_details.cached_tokens, saída).
+pub(crate) fn gateway_tokens(body: &str) -> (i64, i64, i64) {
+    let u = serde_json::from_str::<serde_json::Value>(body.trim()).map(|v| v["usage"].clone()).unwrap_or_default();
+    (u["prompt_tokens"].as_i64().unwrap_or(0), u["prompt_tokens_details"]["cached_tokens"].as_i64().unwrap_or(0), u["completion_tokens"].as_i64().unwrap_or(0))
+}
+/// Soma dos tokens de um JSONL do Codex (`turn.completed`) ou do dsh (`step_end`) — as MESMAS leituras dos chats:
+/// (entrada, dela em cache, saída).
+pub(crate) fn jsonl_tokens(stdout: &str, dsh: bool) -> (i64, i64, i64) {
+    let mut seen = std::collections::HashSet::new();
+    let (mut i, mut c, mut o) = (0i64, 0i64, 0i64);
+    for line in stdout.lines() {
+        let evs = if dsh { dsh_events(line) } else { codex_events(line, &mut seen) };
+        for ev in evs { if let ChatEv::Usage(a, b, k) = ev { i += a as i64; o += b as i64; c += k as i64; } }
+    }
+    (i, c, o)
 }
 
 // ---------- DeepSeek Harness (beta) ----------
@@ -778,6 +799,8 @@ pub(crate) fn dsh_run_secs(bin: &str, key: &str, req: &AiOnce, user_model: Optio
     };
     drop(files);
     if timed { return Err(DSH_TIMEOUT_MSG.into()); }
+    let (ti, tc, to) = jsonl_tokens(&String::from_utf8_lossy(&out.stdout), true);
+    used_add(ti, tc, to, 0.0);
     match dsh_outcome(&String::from_utf8_lossy(&out.stdout)) {
         (Some(s), _) => Ok(s),
         (None, Some(raw)) => Err(dsh_friendly_error(&raw)),
@@ -788,29 +811,110 @@ pub(crate) fn dsh_run_secs(bin: &str, key: &str, req: &AiOnce, user_model: Optio
     }
 }
 
+// ---------- uso (livro-razão, usage_ledger.rs) ----------
+// Cada execução de motor SOMA aqui os tokens/custo que viu (inclusive a 2ª tentativa do Codex — ela também cobra);
+// quem gravou a linha (ai_once_as) zera antes e lê depois, na MESMA thread (as chamadas de uma vez são síncronas).
+thread_local! {
+    static USED: std::cell::RefCell<Used> = std::cell::RefCell::new(Used::default());
+}
+/// Tokens/custo vistos numa chamada (entrada TOTAL, dela em cache, saída, US$ informado) + o modelo que o Claude disse.
+#[derive(Default, Clone, Debug, PartialEq)]
+pub(crate) struct Used { pub inp: i64, pub cached: i64, pub out: i64, pub usd: f64, pub model: Option<String> }
+pub(crate) fn used_reset() { USED.with(|u| *u.borrow_mut() = Used::default()); }
+pub(crate) fn used_add(i: i64, c: i64, o: i64, usd: f64) { USED.with(|u| { let mut u = u.borrow_mut(); u.inp += i; u.cached += c; u.out += o; u.usd += usd; }); }
+pub(crate) fn used_take() -> Used { USED.with(|u| std::mem::take(&mut *u.borrow_mut())) }
+const CLAUDE_NO_ANSWER: &str = "O Claude Code terminou sem resposta — tente de novo.";
+
+/// Texto de `claude -p --output-format json` → o MESMO texto que o `-p` puro devolvia (o campo `result`), e o custo/
+/// tokens no acumulador. O envelope é a ÚLTIMA linha que começa com `{` (usage_ledger::claude_envelope); erro dentro
+/// dele vira a mensagem humana de sempre; envelope sem `result` (ou JSON que não é o envelope) vira erro humano —
+/// nunca devolvemos o JSON cru como resposta. Saída de texto puro (claude antigo, falso de teste) passa como veio.
+/// Linha que é objeto do PROTOCOLO do Claude Code (envelope cortado, evento system/assistant/user) — nunca uma
+/// resposta da IA (a retro devolve um JSON {"notas":…} em texto, sem esse `type`). ≡ TS isClaudeProtocolLine.
+pub(crate) fn is_claude_protocol_line(l: &str) -> bool {
+    let s = l.trim();
+    if !s.starts_with('{') { return false; }
+    const TYPES: [&str; 4] = ["result", "system", "assistant", "user"];
+    let head = s.trim_start_matches('{').trim_start();
+    if TYPES.iter().any(|t| head.starts_with(&format!("\"type\":\"{t}\"")) || head.starts_with(&format!("\"type\": \"{t}\""))) { return true; }
+    serde_json::from_str::<serde_json::Value>(s).ok().and_then(|v| v["type"].as_str().map(|t| TYPES.contains(&t))).unwrap_or(false)
+}
+pub(crate) fn claude_once_text(stdout: &str) -> Result<String, String> {
+    let t = stdout.trim();
+    let Some(v) = usage_ledger::claude_envelope(t) else {
+        // só um envelope do Claude CORTADO vira erro; resposta em texto que é um JSON (ex.: a retro) passa como veio
+        if t.lines().any(is_claude_protocol_line) { return Err(format!("{CLAUDE_NO_ANSWER} (resposta inesperada do Claude Code)")); }
+        return Ok(t.to_string());
+    };
+    let (i, c, o, usd, _) = usage_ledger::claude_numbers(&v);
+    used_add(i, c, o, usd);
+    if let Some(m) = usage_ledger::claude_model_of(&v) { USED.with(|u| u.borrow_mut().model = Some(m)); }
+    let r = v["result"].as_str().map(|r| r.trim().to_string());
+    if v["is_error"].as_bool().unwrap_or(false) {
+        return Err(match r.filter(|r| !r.is_empty()) { Some(r) => claude_friendly_error(&r), None => "O Claude Code devolveu um erro sem mensagem.".into() });
+    }
+    r.ok_or_else(|| CLAUDE_NO_ANSWER.to_string())
+}
+
 // ---------- o ponto único ----------
 
 fn run_claude(req: &AiOnce) -> Result<String, String> {
     let mut cmd = claude_cmd(&claude_bin());
     cmd.args(claude_args(req.prompt, req.claude_model, req.claude_extra));
+    // custo informado pelo próprio Claude (livro de uso); o texto devolvido continua o `result`, igual ao -p puro
+    if !req.claude_extra.iter().any(|a| a == "--output-format") { cmd.args(["--output-format", "json"]); }
     if let Some(d) = req.cwd { cmd.current_dir(d); }
     let out = output_timeout(cmd, req.secs).map_err(|e| format!("Não consegui rodar o Claude Code: {e}"))?;
     if !out.status.success() {
+        // erro dentro do JSON (login expirado, limite…): exit 1 com stderr vazio
+        if out.stderr.iter().all(|b| b.is_ascii_whitespace()) {
+            if let Err(e) = claude_once_text(&String::from_utf8_lossy(&out.stdout)) { return Err(e); }
+        }
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let err = if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().chars().take(300).collect() } else { err };
         return Err(if err.is_empty() {
             format!("O Claude Code saiu com código {} sem mensagem.", out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()))
         } else { claude_friendly_error(&err) });
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    claude_once_text(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// Roda a chamada auxiliar no motor resolvido.
-pub(crate) fn ai_once(req: AiOnce) -> Result<String, String> {
+/// Roda a chamada auxiliar no motor resolvido (sem origem: conta como "outros").
+#[cfg(test)]
+pub(crate) fn ai_once(req: AiOnce) -> Result<String, String> { ai_once_as("outros", None, req) }
+
+/// Roda a chamada auxiliar no motor resolvido e grava UMA linha no livro de uso (`source` = origem fixa da aba Uso,
+/// `project` = repo quando a tela tem um). O resultado devolvido é exatamente o de antes — o livro é melhor-esforço.
+pub(crate) fn ai_once_as(source: &str, project: Option<&Path>, req: AiOnce) -> Result<String, String> {
     let pref = pref_engine();
     let eng = pick_with(&pref, engine_avail).ok_or_else(|| NO_ENGINE_MSG.to_string())?;
     let user_model = user_model_for(&pref, eng, setting_get("aiModel").as_deref());
-    run_on(eng, &req, user_model.as_deref(), None).map(|x| x.0)
+    used_reset();
+    let t0 = Instant::now();
+    let r = run_on(eng, &req, user_model.as_deref(), None);
+    let u = used_take();
+    // modelo: o USADO (Codex sem -m depois da recusa = padrão); falhou → o planejado DESTE motor (nunca o do Claude
+    // numa linha de outro motor)
+    let model = match &r {
+        Ok((_, m)) => if eng == AiEngine::Claude { m.clone().or(u.model.clone()) } else { m.clone() },
+        Err(_) => planned_model(eng, req.tier, req.claude_model, user_model.as_deref()),
+    };
+    usage_ledger::record(usage_ledger::Entry {
+        project: project.map(|p| p.display().to_string()), model, in_tok: u.inp, cached_tok: u.cached, out_tok: u.out, usd: u.usd,
+        ms: t0.elapsed().as_millis() as i64, ok: r.is_ok(),
+        ..usage_ledger::Entry::new(source, eng.id())
+    });
+    r.map(|x| x.0)
+}
+
+/// Modelo que a chamada IA usaria neste motor (pro livro de uso quando ela falha).
+pub(crate) fn planned_model(eng: AiEngine, tier: Tier, claude_model: Option<&str>, user_model: Option<&str>) -> Option<String> {
+    match eng {
+        AiEngine::Claude => claude_model.map(String::from),
+        AiEngine::Codex => codex_plan(tier, user_model).0,
+        AiEngine::Deepseek => Some(dsh_plan(tier, user_model)),
+        AiEngine::Gateway => user_model.map(String::from).or_else(|| gateway_cfg().map(|g| g.model)),
+    }
 }
 
 /// Prazo (s) de uma chamada: `exact` (o "testar" do painel, curto) vale como veio; sem ele, os pisos de sempre —
@@ -936,6 +1040,8 @@ pub(crate) struct ChatOut {
     pub session_id: String,
     pub in_tok: u64,
     pub out_tok: u64,
+    /// parte da entrada lida do cache (preço menor no livro de uso)
+    pub cached_tok: u64,
 }
 
 const CHAT_RO_RULE: &str = "Você está em modo SÓ-LEITURA: pode ler o projeto nesta pasta, mas NÃO edita arquivos nem roda comandos que alterem estado, e não lê arquivos de segredo (.env, chaves).";
@@ -972,7 +1078,8 @@ fn sys_remember(tagged_sid: &str, sys: &str) {
 pub(crate) enum ChatEv {
     Session(String),
     Activity(String),
-    Usage(u64, u64),
+    /// (entrada, saída, entrada em cache)
+    Usage(u64, u64, u64),
 }
 
 /// "/bin/zsh -lc 'rg -n foo'" → "rg -n foo" (o Codex embrulha todo comando num shell).
@@ -999,7 +1106,7 @@ pub(crate) fn codex_events(line: &str, seen: &mut std::collections::HashSet<Stri
     }
     if t == "turn.completed" {
         let u = &v["usage"];
-        return vec![ChatEv::Usage(u["input_tokens"].as_u64().unwrap_or(0), u["output_tokens"].as_u64().unwrap_or(0))];
+        return vec![ChatEv::Usage(u["input_tokens"].as_u64().unwrap_or(0), u["output_tokens"].as_u64().unwrap_or(0), u["cached_input_tokens"].as_u64().unwrap_or(0))];
     }
     if !t.starts_with("item.") { return vec![]; }
     let item = &v["item"];
@@ -1029,7 +1136,9 @@ pub(crate) fn dsh_events(line: &str) -> Vec<ChatEv> {
         "tool_call" => vec![ChatEv::Activity(crate::tool_line(v["tool"].as_str().unwrap_or("tool"), &v["input"]))],
         "status" if v["phase"].as_str() == Some("step_end") => {
             let u = &v["usage"];
-            vec![ChatEv::Usage(u["inputTokens"].as_u64().unwrap_or(0), u["outputTokens"].as_u64().unwrap_or(0))]
+            // cache: o dsh ainda não documenta o campo — lê os nomes conhecidos (0 se não vier)
+            let c = ["cachedInputTokens", "cacheReadTokens", "cachedTokens"].iter().find_map(|k| u[*k].as_u64()).unwrap_or(0);
+            vec![ChatEv::Usage(u["inputTokens"].as_u64().unwrap_or(0), u["outputTokens"].as_u64().unwrap_or(0), c)]
         }
         _ => vec![],
     }
@@ -1127,11 +1236,11 @@ fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&s
     let mut cmd = codex_command(bin, key, Some(t.cwd));
     cmd.args(codex_chat_args(resume, model));
     let mut seen = std::collections::HashSet::new();
-    let (mut sid, mut tin, mut tout) = (resume.map(String::from).unwrap_or_default(), 0u64, 0u64);
+    let (mut sid, mut tin, mut tout, mut tcache) = (resume.map(String::from).unwrap_or_default(), 0u64, 0u64, 0u64);
     let input = chat_input(resume.map(|r| format!("codex:{r}")).as_deref(), t.sys, t.prompt);
     let r = run_proc(cmd, Some(&input), left, h, &mut |line| {
         for ev in codex_events(line, &mut seen) {
-            match ev { ChatEv::Session(s) => sid = s, ChatEv::Activity(a) => (h.activity)(a), ChatEv::Usage(i, o) => { tin += i; tout += o; } }
+            match ev { ChatEv::Session(s) => sid = s, ChatEv::Activity(a) => (h.activity)(a), ChatEv::Usage(i, o, c) => { tin += i; tout += o; tcache += c; } }
         }
     });
     let out = match r {
@@ -1146,7 +1255,7 @@ fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&s
         (Some(text), _) => {
             let session_id = if sid.is_empty() { String::new() } else { format!("codex:{sid}") };
             sys_remember(&session_id, t.sys);
-            Ok(ChatOut { text, session_id, in_tok: tin, out_tok: tout })
+            Ok(ChatOut { text, session_id, in_tok: tin, out_tok: tout, cached_tok: tcache })
         }
         (None, raw) => {
             let raw = raw.unwrap_or_else(|| out.stderr.trim().chars().take(400).collect());
@@ -1175,11 +1284,11 @@ pub(crate) fn codex_chat(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Opt
 /// Rodada no DeepSeek Harness (SÓ-LEITURA), retomando com `--session-id`. Prazo = o da tela (`t.secs`).
 pub(crate) fn dsh_chat(bin: &str, key: &str, t: &ChatTurn, resume: Option<&str>, user_model: Option<&str>, h: &ChatHooks) -> Result<ChatOut, String> {
     let (cmd, files) = dsh_command(bin, key, Tier::Capaz, user_model, Some(t.cwd), resume)?;
-    let (mut sid, mut tin, mut tout) = (resume.map(String::from).unwrap_or_default(), 0u64, 0u64);
+    let (mut sid, mut tin, mut tout, mut tcache) = (resume.map(String::from).unwrap_or_default(), 0u64, 0u64, 0u64);
     let input = chat_input(resume.map(|r| format!("dsh:{r}")).as_deref(), t.sys, t.prompt);
     let r = run_proc(cmd, Some(&input), t.secs, h, &mut |line| {
         for ev in dsh_events(line) {
-            match ev { ChatEv::Session(s) => sid = s, ChatEv::Activity(a) => (h.activity)(a), ChatEv::Usage(i, o) => { tin += i; tout += o; } }
+            match ev { ChatEv::Session(s) => sid = s, ChatEv::Activity(a) => (h.activity)(a), ChatEv::Usage(i, o, c) => { tin += i; tout += o; tcache += c; } }
         }
     });
     drop(files);
@@ -1195,7 +1304,7 @@ pub(crate) fn dsh_chat(bin: &str, key: &str, t: &ChatTurn, resume: Option<&str>,
         (Some(text), _) => {
             let session_id = if sid.is_empty() { String::new() } else { format!("dsh:{sid}") };
             sys_remember(&session_id, t.sys);
-            Ok(ChatOut { text, session_id, in_tok: tin, out_tok: tout })
+            Ok(ChatOut { text, session_id, in_tok: tin, out_tok: tout, cached_tok: tcache })
         }
         (None, raw) => {
             let stderr = out.stderr.replace("dsh: ", "");
@@ -1260,7 +1369,28 @@ pub(crate) fn gateway_chat(g: &Gateway, t: &ChatTurn, h: &ChatHooks) -> Result<C
     }
     let text = parse_gateway(&out.stdout)?;
     let u = serde_json::from_str::<serde_json::Value>(out.stdout.trim()).map(|v| v["usage"].clone()).unwrap_or_default();
-    Ok(ChatOut { text, session_id: GATEWAY_SID.into(), in_tok: u["prompt_tokens"].as_u64().unwrap_or(0), out_tok: u["completion_tokens"].as_u64().unwrap_or(0) })
+    Ok(ChatOut { text, session_id: GATEWAY_SID.into(), in_tok: u["prompt_tokens"].as_u64().unwrap_or(0), out_tok: u["completion_tokens"].as_u64().unwrap_or(0), cached_tok: u["prompt_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0) })
+}
+
+/// Modelo que os chats usam neste motor (só pro livro de uso — estimativa por modelo).
+pub(crate) fn chat_model(eng: AiEngine) -> Option<String> {
+    let um = user_model_for(&pref_engine(), eng, setting_get("aiModel").as_deref());
+    match eng {
+        AiEngine::Claude => None,
+        AiEngine::Codex => codex_plan(Tier::Capaz, um.as_deref()).0,
+        AiEngine::Deepseek => Some(dsh_plan(Tier::Capaz, um.as_deref())),
+        AiEngine::Gateway => um.or_else(|| gateway_cfg().map(|g| g.model)),
+    }
+}
+
+/// Grava a rodada de um chat fora do Claude no livro de uso (tokens + custo estimado).
+pub(crate) fn record_chat(source: &str, eng: AiEngine, cwd: &Path, r: &Result<ChatOut, String>, started: Instant) {
+    let (i, o, c) = r.as_ref().map(|c| (c.in_tok as i64, c.out_tok as i64, c.cached_tok as i64)).unwrap_or((0, 0, 0));
+    usage_ledger::record(usage_ledger::Entry {
+        project: Some(cwd.display().to_string()), model: chat_model(eng), in_tok: i, cached_tok: c, out_tok: o,
+        ms: started.elapsed().as_millis() as i64, ok: r.is_ok(),
+        ..usage_ledger::Entry::new(source, eng.id())
+    });
 }
 
 /// Uma rodada de chat num motor que NÃO é o Claude (o Claude segue no caminho de cada tela).
@@ -1462,7 +1592,15 @@ pub(crate) fn ai_test_run(engine: &str, model: Option<&str>) -> Result<AiTestOut
     let req = AiOnce { prompt: AI_TEST_PROMPT, tier: Tier::Rapido, claude_model: if eng == AiEngine::Claude { m.as_deref() } else { None }, claude_extra: &[], cwd: None, secs: AI_TEST_SECS };
     let t0 = Instant::now();
     let user_model = if eng == AiEngine::Claude { None } else { m.as_deref() };
-    let (text, used) = run_on(eng, &req, user_model, Some(AI_TEST_SECS))?;
+    used_reset();
+    let r = run_on(eng, &req, user_model, Some(AI_TEST_SECS));
+    let u = used_take();
+    usage_ledger::record(usage_ledger::Entry {
+        model: r.as_ref().ok().and_then(|x| x.1.clone()).or(u.model), in_tok: u.inp, cached_tok: u.cached, out_tok: u.out, usd: u.usd,
+        ms: t0.elapsed().as_millis() as i64, ok: r.is_ok(),
+        ..usage_ledger::Entry::new("teste", eng.id()) // testes de conexão: fora do total principal da aba Uso
+    });
+    let (text, used) = r?;
     let used = used.unwrap_or_default();
     let fallback = !requested.is_empty() && used != requested;
     Ok(AiTestOut { engine: eng.label().to_string(), text: text.chars().take(200).collect(), ms: t0.elapsed().as_millis() as u64, model: used, requested, fallback })
@@ -2062,7 +2200,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         assert_eq!(codex_events(r#"{"type":"item.completed","item":{"id":"c2","type":"command_execution","command":["bash","-lc","ls"]}}"#, &mut seen), vec![ChatEv::Activity("rodando ls".into())]);
         assert_eq!(codex_events(r#"{"type":"item.started","item":{"id":"w","type":"web_search","query":"tauri emit"}}"#, &mut seen), vec![ChatEv::Activity("consultando tauri emit".into())]);
         assert!(codex_events(r#"{"type":"item.completed","item":{"id":"m","type":"agent_message","text":"oi"}}"#, &mut seen).is_empty());
-        assert_eq!(codex_events(r#"{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3}}"#, &mut seen), vec![ChatEv::Usage(10, 3)]);
+        assert_eq!(codex_events(r#"{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3}}"#, &mut seen), vec![ChatEv::Usage(10, 3, 0)]);
         assert!(codex_events("lixo", &mut seen).is_empty());
         // item SEM id: a linha sai uma vez (started e completed do mesmo comando não duplicam; só-completed também sai)
         let noid_st = r#"{"type":"item.started","item":{"type":"command_execution","command":"cat README.md"}}"#;
@@ -2074,7 +2212,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         assert_eq!(dsh_events(r#"{"type":"session","sessionId":"s1"}"#), vec![ChatEv::Session("s1".into())]);
         assert_eq!(dsh_events(r#"{"type":"tool_call","callId":"c","tool":"read","input":{"path":"src/app/main.ts"}}"#), vec![ChatEv::Activity("lendo src/app/main.ts".into())]);
         assert_eq!(dsh_events(r#"{"type":"tool_call","callId":"c","tool":"grep","input":{"pattern":"filtro"}}"#), vec![ChatEv::Activity("procurando \"filtro\"".into())]);
-        assert_eq!(dsh_events(r#"{"type":"status","phase":"step_end","usage":{"inputTokens":7,"outputTokens":2}}"#), vec![ChatEv::Usage(7, 2)]);
+        assert_eq!(dsh_events(r#"{"type":"status","phase":"step_end","usage":{"inputTokens":7,"outputTokens":2}}"#), vec![ChatEv::Usage(7, 2, 0)]);
         assert!(dsh_events(r#"{"type":"final","text":"x"}"#).is_empty());
         // o Claude continua igual
         assert_eq!(crate::tool_line("Read", &serde_json::json!({"file_path":"/a/b/c/d.rs"})), "lendo b/c/d.rs");
@@ -2530,7 +2668,7 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         let _env = EnvGuard::set(&[("CODEX_HOME", codex_home.as_str()), ("HOME", tmp_s.as_str()), ("CARDUME_CLAUDE", "/nao/existe/claude")]);
         assert_eq!(resolve_engine(), Ok(AiEngine::Codex));
         let t0 = Instant::now();
-        let title = crate::ai_title("quero que a lista de pedidos tenha um filtro por intervalo de datas salvo na URL".into());
+        let title = crate::ai_title_in("quero que a lista de pedidos tenha um filtro por intervalo de datas salvo na URL", None);
         eprintln!("ai_title ({:?}): {title:?}", t0.elapsed());
         assert!(title.is_ok());
         let t0 = Instant::now();
@@ -2569,5 +2707,146 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         assert!(!cru, "com o PATH do Finder o codex do npm não roda sozinho");
         assert!(codex_logged_in(&bin), "a checagem põe a pasta do codex no PATH e vê o login");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // ---------- livro de uso (aba Uso) ----------
+
+    #[test]
+    fn claude_json_devolve_o_mesmo_texto_e_soma_o_custo() {
+        used_reset();
+        let t = claude_once_text(r#"{"type":"result","is_error":false,"result":"  Título curto \n","session_id":"s","total_cost_usd":0.003,"usage":{"input_tokens":5,"cache_read_input_tokens":5,"output_tokens":2},"modelUsage":{"claude-haiku-4-5":{"costUSD":0.003}}}"#).unwrap();
+        assert_eq!(t, "Título curto");
+        assert_eq!(used_take(), Used { inp: 10, cached: 5, out: 2, usd: 0.003, model: Some("claude-haiku-4-5".into()) });
+        // aviso antes do envelope: vale a ÚLTIMA linha que começa com `{`
+        let t = claude_once_text("Warning: algo\n{\"type\":\"result\",\"result\":\"ok\"}\n").unwrap();
+        assert_eq!(t, "ok");
+        // texto puro (claude antigo / falso) passa igual
+        assert_eq!(claude_once_text("  texto puro \n").unwrap(), "texto puro");
+        // resposta que É um JSON em texto (a retro) passa como veio
+        assert_eq!(claude_once_text("{\"notas\":[],\"skills\":[]}\n").unwrap(), "{\"notas\":[],\"skills\":[]}");
+        // JSON que não é o envelope, ou envelope sem `result`: erro humano, nunca o JSON cru como resposta
+        let e = claude_once_text(r#"{"type":"system","subtype":"init"}"#).unwrap_err();
+        assert!(e.starts_with("O Claude Code terminou sem resposta") && !e.contains("subtype"), "{e}");
+        let e = claude_once_text(r#"{"type":"result","is_error":false,"session_id":"s"}"#).unwrap_err();
+        assert!(e.starts_with("O Claude Code terminou sem resposta"), "{e}");
+        // erro dentro do JSON vira a mensagem humana de sempre (e o custo conta)
+        used_reset();
+        let e = claude_once_text(r#"{"is_error":true,"result":"Failed to authenticate. API Error: 401","total_cost_usd":0.001}"#).unwrap_err();
+        assert!(e.starts_with("Login do Claude Code expirou"), "{e}");
+        assert_eq!(used_take().usd, 0.001);
+    }
+
+    /// Força a disponibilidade de um motor (o cache de 30 s) — pros testes de motores sem binário real.
+    fn force_avail(e: AiEngine, v: bool) {
+        AVAIL_CACHE.lock().unwrap_or_else(|x| x.into_inner()).get_or_insert_with(HashMap::new).insert(e, (v, Instant::now()));
+    }
+
+    #[test]
+    fn ai_once_as_deepseek_e_gateway_gravam_tokens_e_estimado() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _gw = GW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let d = tmpdir("livro-ds-gw");
+        let home = d.join("home");
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        let db = d.join("usage.sqlite");
+        // dsh falso com tokens (step_end) e cache
+        let dsh = script(&d, "dsh", r#"cat > /dev/null
+echo '{"type":"session","sessionId":"s1"}'
+echo '{"type":"status","phase":"step_end","usage":{"inputTokens":4000,"outputTokens":100,"cachedInputTokens":3000}}'
+echo '{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}'
+echo '{"type":"final","text":"resposta do deepseek"}'
+"#);
+        let (home_s, db_s, dshh) = (home.display().to_string(), db.display().to_string(), d.join("dshhome").display().to_string());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_DSH", dsh.as_str()), ("CARDUME_DSH_HOME", dshh.as_str()), ("DEEPSEEK_API_KEY", "sk-ds-teste"), ("CARDUME_CLAUDE", "/nao/existe/claude"), ("CARDUME_USAGE_DB", db_s.as_str())]);
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"deepseek"}"#).unwrap();
+        clear_avail_cache();
+        force_avail(AiEngine::Deepseek, true);
+        let out = ai_once_as("previsao", None, AiOnce { prompt: "p", tier: Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 20 }).unwrap();
+        assert_eq!(out, "resposta do deepseek");
+        // gateway: servidor local com usage (cache em prompt_tokens_details)
+        let (port, srv) = serve_once(r#"{"choices":[{"message":{"content":"resposta do gateway"},"finish_reason":"stop"}],"usage":{"prompt_tokens":800,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":600}}}"#);
+        std::fs::write(home.join(".constellation/llm.env"), format!("ALT_AI_KEY=gw-chave\nALT_AI_BASE_URL=http://127.0.0.1:{port}/v1\nALT_AI_MODEL=m-gw\n")).unwrap();
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"gateway"}"#).unwrap();
+        clear_avail_cache();
+        let out = ai_once_as("relatorios", None, AiOnce { prompt: "p", tier: Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 20 }).unwrap();
+        assert_eq!(out, "resposta do gateway");
+        let _ = srv.join();
+        // gateway falhando: a linha NÃO leva o modelo do Claude
+        std::fs::write(home.join(".constellation/llm.env"), "ALT_AI_KEY=gw-chave\nALT_AI_BASE_URL=http://127.0.0.1:9/v1\nALT_AI_MODEL=m-gw\n").unwrap();
+        clear_avail_cache();
+        assert!(ai_once_as("relatorios", None, AiOnce { prompt: "p", tier: Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &[], cwd: None, secs: 3 }).is_err());
+        clear_avail_cache();
+        let rows = usage_ledger::ledger_rows(&db, 0, None, None).unwrap();
+        assert_eq!(rows.len(), 3, "{rows:?}");
+        let r = &rows[0];
+        assert_eq!((r.source.as_str(), r.engine.as_str(), r.in_tok, r.cached_tok, r.out_tok, r.estimated), ("previsao", "deepseek", 4000, 3000, 100, true));
+        assert_eq!(r.model.as_deref(), Some(dsh_plan(Tier::Rapido, None).as_str()));
+        assert!((r.usd - usage_ledger::estimate_usd("deepseek", r.model.as_deref().unwrap(), 4000, 3000, 100)).abs() < 1e-12);
+        let r = &rows[1];
+        assert_eq!((r.source.as_str(), r.engine.as_str(), r.in_tok, r.cached_tok, r.out_tok, r.estimated, r.model.as_deref()), ("relatorios", "gateway", 800, 600, 20, true, Some("m-gw")));
+        let r = &rows[2];
+        assert_eq!((r.engine.as_str(), r.ok, r.model.as_deref()), ("gateway", false, Some("m-gw")));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn ai_once_as_grava_no_livro_claude_informado_e_codex_estimado() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let d = tmpdir("livro");
+        let home = d.join("home");
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        let db = d.join("usage.sqlite");
+        let claude = script(&d, "claude", &format!(r#"printf '%s\n' "$@" > "{}/claude-argv.txt"
+echo '{{"type":"result","is_error":false,"result":"filtro-por-data","session_id":"s1","total_cost_usd":0.0042,"usage":{{"input_tokens":300,"output_tokens":12}}}}'
+"#, d.display()));
+        let cdir = tmpdir("livro-codex");
+        let codex = fake_codex_chat(&cdir, "");
+        let (home_s, db_s) = (home.display().to_string(), db.display().to_string());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_CLAUDE", claude.as_str()), ("CARDUME_CODEX", codex.as_str()), ("CARDUME_USAGE_DB", db_s.as_str()), ("DEEPSEEK_API_KEY", "")]);
+        // Claude: o texto é o MESMO que o -p puro devolvia; o custo vem do JSON
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"claude"}"#).unwrap();
+        clear_avail_cache();
+        let proj = d.join("proj");
+        let out = ai_once_as("titulo-branch", Some(&proj), AiOnce { prompt: "p", tier: Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 20 }).unwrap();
+        assert_eq!(out, "filtro-por-data");
+        let argv = std::fs::read_to_string(d.join("claude-argv.txt")).unwrap();
+        assert_eq!(argv.lines().collect::<Vec<_>>(), vec!["-p", "p", "--model", "claude-haiku-4-5-20251001", "--output-format", "json"]);
+        // Codex: tokens do turn.completed + US$ estimado
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
+        clear_avail_cache();
+        let out = ai_once_as("personas", None, AiOnce { prompt: "p", tier: Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 20 });
+        assert!(out.is_ok(), "{out:?}");
+        clear_avail_cache();
+        let rows = usage_ledger::ledger_rows(&db, 0, None, None).unwrap();
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert_eq!((rows[0].source.as_str(), rows[0].engine.as_str(), rows[0].in_tok, rows[0].out_tok, rows[0].estimated), ("titulo-branch", "claude", 300, 12, false));
+        assert!((rows[0].usd - 0.0042).abs() < 1e-9);
+        assert_eq!(rows[0].project.as_deref(), Some(proj.display().to_string().as_str()));
+        assert_eq!(rows[0].model.as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert_eq!((rows[1].source.as_str(), rows[1].engine.as_str(), rows[1].in_tok, rows[1].out_tok, rows[1].estimated), ("personas", "codex", 120, 30, true));
+        assert!((rows[1].usd - usage_ledger::estimate_usd("codex", "gpt-5-codex", 120, 0, 30)).abs() < 1e-12);
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&cdir);
+    }
+
+    #[test]
+    fn ai_once_as_livro_quebrado_devolve_o_mesmo_resultado() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let d = tmpdir("livro-ruim");
+        let home = d.join("home");
+        std::fs::create_dir_all(home.join(".constellation")).unwrap();
+        std::fs::write(home.join(".constellation/settings.json"), r#"{"aiEngine":"codex"}"#).unwrap();
+        std::fs::write(d.join("arquivo"), "x").unwrap();
+        let bad = d.join("arquivo").join("usage.sqlite"); // impossível de criar
+        let cdir = tmpdir("livro-ruim-codex");
+        let codex = fake_codex_chat(&cdir, "");
+        let (home_s, bad_s) = (home.display().to_string(), bad.display().to_string());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_CLAUDE", "/nao/existe/claude"), ("CARDUME_CODEX", codex.as_str()), ("CARDUME_USAGE_DB", bad_s.as_str()), ("DEEPSEEK_API_KEY", "")]);
+        clear_avail_cache();
+        let out = ai_once_as("titulo-branch", None, AiOnce { prompt: "p", tier: Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 20 }).unwrap();
+        assert!(out.contains("Qual o objetivo?"), "{out}");
+        clear_avail_cache();
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&cdir);
     }
 }

@@ -96,7 +96,7 @@ test("CLI new (caminho do app): --engine/--model chegam no argv do claude — bu
   reset();
   run("--id", "c1", "--title", "c1", "--engine", "claude", "--model", "claude-sonnet-5");
   run("--id", "c2", "--title", "c2", "--agents", "iris", "--engine", "claude", "--model", "haiku");
-  const cl = calls().filter((c) => c.bin === "claude" && c.argv.includes("--output-format"));
+  const cl = calls().filter((c) => c.bin === "claude" && flag(c, "--output-format") === "stream-json");
   assert.ok(cl.some((c) => flag(c, "--model") === "claude-sonnet-5"), JSON.stringify(cl.map((c) => flag(c, "--model"))));
   assert.ok(cl.some((c) => flag(c, "--model") === "haiku"), JSON.stringify(cl.map((c) => flag(c, "--model"))));
 });
@@ -110,7 +110,7 @@ test("CLI new com --engine codex: roda o CODEX com -m, nunca o claude", async ()
   const codex = cs.filter((c) => c.bin === "codex");
   assert.ok(codex.length > 0, "o codex deveria ter rodado");
   assert.equal(flag(codex[0], "-m"), "gpt-5-codex");
-  assert.equal(cs.filter((c) => c.bin === "claude" && c.argv.includes("--output-format")).length, 0, "nenhum agente no claude");
+  assert.equal(cs.filter((c) => c.bin === "claude" && flag(c, "--output-format") === "stream-json").length, 0, "nenhum agente no claude");
 });
 
 test("conversa/instrução numa tarefa Codex continua no Codex com o modelo dela (antes caía no Claude)", async () => {
@@ -129,7 +129,7 @@ test("conversa/instrução numa tarefa Codex continua no Codex com o modelo dela
     reset();
     await orch.talkToAgent("t1", "ajusta o texto do botão");
     const cs = calls();
-    assert.equal(cs.filter((c) => c.bin === "claude" && c.argv.includes("--output-format")).length, 0, JSON.stringify(cs.map((c) => c.bin)));
+    assert.equal(cs.filter((c) => c.bin === "claude" && flag(c, "--output-format") === "stream-json").length, 0, JSON.stringify(cs.map((c) => c.bin)));
     const codex = cs.filter((c) => c.bin === "codex");
     assert.equal(codex.length, 1);
     assert.equal(flag(codex[0], "-m"), "gpt-5");
@@ -154,7 +154,7 @@ test("conversa numa tarefa Claude mantém o modelo escolhido também no --resume
     orch.store.setSession("t2", "sess-1"); // já teve um turno → a conversa RETOMA a sessão
     reset();
     await orch.talkToAgent("t2", "mais um ajuste");
-    const cl = calls().filter((c) => c.bin === "claude" && c.argv.includes("--output-format"));
+    const cl = calls().filter((c) => c.bin === "claude" && flag(c, "--output-format") === "stream-json");
     assert.equal(cl.length, 1);
     assert.equal(flag(cl[0], "--resume"), "sess-1");
     assert.equal(flag(cl[0], "--model"), "claude-opus-5-5");
@@ -185,7 +185,7 @@ test("CLI new com --engine deepseek: roda o DSH com o modelo no patch da worktre
   run("d1", "deepseek-flash");
   const cs = calls();
   assert.ok(cs.some((c) => c.bin === "dsh"), "o dsh deveria ter rodado: " + JSON.stringify(cs.map((c) => c.bin)));
-  assert.equal(cs.filter((c) => (c.bin === "claude" && c.argv.includes("--output-format")) || c.bin === "codex").length, 0, "nenhum agente no claude/codex");
+  assert.equal(cs.filter((c) => (c.bin === "claude" && flag(c, "--output-format") === "stream-json") || c.bin === "codex").length, 0, "nenhum agente no claude/codex");
   const { Store } = await import("./store.ts");
   const st = new Store(join(repo, ".cardume", "state.sqlite"));
   try {
@@ -213,7 +213,7 @@ test("conversa numa tarefa DeepSeek continua no dsh com --session-id e o modelo 
     reset();
     await orch.talkToAgent("t3", "ajusta o texto do botão");
     const cs = calls();
-    assert.equal(cs.filter((c) => (c.bin === "claude" && c.argv.includes("--output-format")) || c.bin === "codex").length, 0, JSON.stringify(cs.map((c) => c.bin)));
+    assert.equal(cs.filter((c) => (c.bin === "claude" && flag(c, "--output-format") === "stream-json") || c.bin === "codex").length, 0, JSON.stringify(cs.map((c) => c.bin)));
     const dsh = cs.filter((c) => c.bin === "dsh");
     assert.equal(dsh.length, 1);
     assert.equal(flag(dsh[0], "--session-id"), "session-ds-0");
