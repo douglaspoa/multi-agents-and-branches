@@ -13,6 +13,7 @@ import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./conf
 import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
+import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
 // ---------- parse de flags simples (src/util/args.ts) ----------
@@ -818,6 +819,24 @@ function cmdEpicSync(repo: string, id: string | undefined, a: Args) {
   }
 }
 
+/** Barra de status do Claude Code (% real do plano no medidor) — fonte única: src/claude-statusline.ts. */
+function cmdClaudeStatusline(sub: string | undefined, a: Args) {
+  const json = !!a.flags.json;
+  let r: { ok: boolean; message: string };
+  try {
+    if (sub === "install") r = slInstall({ node: a.flags.node });
+    else if (sub === "uninstall") r = slUninstall();
+    else if (sub === "status") r = slStatus({ repo: a.flags.repo });
+    else { console.error(c.red("✕ use: cardume claude-statusline install [--node <caminho>] | uninstall | status [--repo <p>] [--json]")); process.exitCode = 1; return; }
+  } catch (e) {
+    r = { ok: false, message: "não consegui mexer na barra de status: " + ((e as Error)?.message ?? String(e)) };
+  }
+  if (json) console.log(JSON.stringify(r));
+  else if (r.ok) console.log(c.green("✓") + " " + r.message);
+  else console.error(c.red("✕ " + r.message));
+  if (!r.ok) process.exitCode = 1;
+}
+
 // ---------- dispatch ----------
 async function main() {
   const argv = process.argv.slice(2);
@@ -883,6 +902,9 @@ async function main() {
     case "talk":
       await cmdTalk(repo, a._[1], a.flags.msg, !!a.flags["as-req"], a.flags.agent);
       break;
+    case "claude-statusline":
+      cmdClaudeStatusline(a._[1], a);
+      break;
     case "demo":
       await cmdDemo();
       break;
@@ -928,6 +950,10 @@ ${c.dim("entregar & integrar")}
   ${c.green("cardume review-pr")} ${c.dim("--pr <url|nº>")}      revisa um PR do GitHub (sem branch/worktree)
   ${c.green("cardume merge")} ${c.dim("<taskId>")}               faz merge da branch na base e remove a worktree
   ${c.green("cardume rm")}   ${c.dim("<taskId>")}                remove worktree + branch + registros
+
+${c.dim("Claude Code")}
+  ${c.green("cardume claude-statusline")} ${c.dim("install [--node <caminho>] | uninstall | status [--json]")}
+      barra de status que leva a % real do plano do Claude ao medidor (encadeia a sua barra, se tiver)
 
 ${c.dim("catálogo")}
   ${c.green("cardume agents")} ${c.dim("[--repo <p>]")}          catálogo de agentes (review, design, testes…)

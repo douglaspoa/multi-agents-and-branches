@@ -19,6 +19,8 @@ export const TEXT_FLAGS = new Set([
   // task edit / epic edit (src/agent-edits.ts)
   "req-add", "req-remove", "deliv-add", "note", "by-agent", "by-task", "description", "outcome", "done-when-add", "done-when-remove",
   "patch", "undo", "edit-id", "reject", "by-role",
+  // claude-statusline install (src/claude-statusline.ts)
+  "node",
 ]);
 
 /** Flags SEM valor (booleanas). */

@@ -1,0 +1,266 @@
+{
+  "_doc": "Contrato da barra de status do Claude Code (spec-medidor-v2-statusline), lido por src/claude-statusline.test.ts e pelos testes de app/src-tauri/src/plan_usage.rs: comando gravado no settings.json (node), detecção 'instalada', arquivo que o script grava e como o Rust lê.",
+  "commands": [
+    {
+      "node": "/opt/my node/bin/node",
+      "script": "/home/u/.constellation/usage/claude-statusline.mjs",
+      "command": "\"/opt/my node/bin/node\" \"/home/u/.constellation/usage/claude-statusline.mjs\""
+    },
+    {
+      "node": "/opt/a\"b/node",
+      "script": "/home/u/.constellation/usage/claude-statusline.mjs",
+      "command": "\"/opt/a\\\"b/node\" \"/home/u/.constellation/usage/claude-statusline.mjs\""
+    }
+  ],
+  "settings": [
+    {
+      "name": "barra do Starfork",
+      "text": "{\"statusLine\": {\"type\": \"command\", \"command\": \"\\\"/opt/my node/bin/node\\\" \\\"/home/u/.constellation/usage/claude-statusline.mjs\\\"\"}}",
+      "installed": true,
+      "node": "/opt/my node/bin/node"
+    },
+    {
+      "name": "aspas no caminho do node",
+      "text": "{\"model\": \"x\", \"statusLine\": {\"type\": \"command\", \"command\": \"\\\"/opt/a\\\\\\\"b/node\\\" \\\"/home/u/.constellation/usage/claude-statusline.mjs\\\"\", \"padding\": 0}}",
+      "installed": true,
+      "node": "/opt/a\"b/node"
+    },
+    {
+      "name": "barra de terceiro",
+      "text": "{\"statusLine\": {\"type\": \"command\", \"command\": \"~/bin/minha-barra.sh\"}}",
+      "installed": false,
+      "node": null
+    },
+    {
+      "name": "sem statusLine",
+      "text": "{\"model\": \"x\"}",
+      "installed": false,
+      "node": null
+    },
+    {
+      "name": "statusLine que não é objeto",
+      "text": "{\"statusLine\": \"claude-statusline.mjs\"}",
+      "installed": false,
+      "node": null
+    },
+    {
+      "name": "JSON quebrado",
+      "text": "{lixo",
+      "installed": false,
+      "node": null
+    }
+  ],
+  "script": {
+    "stdin": {
+      "model": {
+        "id": "claude-opus",
+        "display_name": "Opus"
+      },
+      "rate_limits": {
+        "five_hour": {
+          "used_percentage": 43,
+          "resets_at": 1790884800
+        },
+        "seven_day": {
+          "used_percentage": 61.4,
+          "resets_at": 1791400000
+        }
+      }
+    },
+    "file": {
+      "v": 1,
+      "fiveHour": {
+        "pct": 43,
+        "resetsAt": 1790884800000
+      },
+      "sevenDay": {
+        "pct": 61.4,
+        "resetsAt": 1791400000000
+      }
+    },
+    "line": "5h 43% · semana 61%"
+  },
+  "read": [
+    {
+      "name": "recente",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": 43,
+          "resetsAt": 1790884800000
+        },
+        "sevenDay": {
+          "pct": 61.4,
+          "resetsAt": 1791400000000
+        },
+        "at": 1790869940000
+      },
+      "expect": {
+        "fiveHour": {
+          "pct": 43.0,
+          "resetsAt": 1790884800000,
+          "reset": false
+        },
+        "sevenDay": {
+          "pct": 61.4,
+          "resetsAt": 1791400000000,
+          "reset": false
+        },
+        "at": 1790869940000
+      }
+    },
+    {
+      "name": "janela de 5h já reiniciou → 0",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": 97,
+          "resetsAt": 1790869999999
+        },
+        "sevenDay": {
+          "pct": 40,
+          "resetsAt": 1791400000000
+        },
+        "at": 1790848400000
+      },
+      "expect": {
+        "fiveHour": {
+          "pct": 0.0,
+          "resetsAt": 1790869999999,
+          "reset": true
+        },
+        "sevenDay": {
+          "pct": 40.0,
+          "resetsAt": 1791400000000,
+          "reset": false
+        },
+        "at": 1790848400000
+      }
+    },
+    {
+      "name": "sem at → velho (ignora)",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": 43,
+          "resetsAt": 1790884800000
+        },
+        "sevenDay": {
+          "pct": 61,
+          "resetsAt": 1791400000000
+        }
+      },
+      "expect": null
+    },
+    {
+      "name": "sem resetsAt: 5h some depois de 5 h, semana fica até 7 d",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": 43,
+          "resetsAt": null
+        },
+        "sevenDay": {
+          "pct": 20,
+          "resetsAt": null
+        },
+        "at": 1790848400000
+      },
+      "expect": {
+        "fiveHour": null,
+        "sevenDay": {
+          "pct": 20.0,
+          "resetsAt": null,
+          "reset": false
+        },
+        "at": 1790848400000
+      }
+    },
+    {
+      "name": "sem resetsAt e mais de 7 d → nada",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": 43,
+          "resetsAt": null
+        },
+        "sevenDay": {
+          "pct": 20,
+          "resetsAt": null
+        },
+        "at": 1790178800000
+      },
+      "expect": null
+    },
+    {
+      "name": "teto 0–100",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": -5,
+          "resetsAt": 1790884800000
+        },
+        "sevenDay": {
+          "pct": 150,
+          "resetsAt": 1791400000000
+        },
+        "at": 1790870000000
+      },
+      "expect": {
+        "fiveHour": {
+          "pct": 0.0,
+          "resetsAt": 1790884800000,
+          "reset": false
+        },
+        "sevenDay": {
+          "pct": 100.0,
+          "resetsAt": 1791400000000,
+          "reset": false
+        },
+        "at": 1790870000000
+      }
+    },
+    {
+      "name": "resetsAt em segundos",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": 10,
+          "resetsAt": 1790884800
+        },
+        "sevenDay": null,
+        "at": 1790870000000
+      },
+      "expect": {
+        "fiveHour": {
+          "pct": 10.0,
+          "resetsAt": 1790884800000,
+          "reset": false
+        },
+        "sevenDay": null,
+        "at": 1790870000000
+      }
+    },
+    {
+      "name": "pct inválido",
+      "now": 1790870000000,
+      "file": {
+        "v": 1,
+        "fiveHour": {
+          "pct": "x",
+          "resetsAt": 1790884800000
+        },
+        "sevenDay": null,
+        "at": 1790870000000
+      },
+      "expect": null
+    }
+  ]
+}

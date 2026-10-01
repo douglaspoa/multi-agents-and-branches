@@ -63,7 +63,12 @@ function suaIaLoad(force){
   if(_suaIaP){ if(!force) return _suaIaP; return _suaIaP.then(()=>suaIaLoad(true)); }
   if(!force && suaIaList && suaIaList.length && Date.now()-suaIaAt<20000) return Promise.resolve(suaIaList);
   _suaIaP=Promise.resolve().then(()=>invoke('ai_engines_status'))
-    .then(r=>{ suaIaList=Array.isArray(r)?r:[]; suaIaAt=Date.now(); suaIaUi.loadErr=''; return suaIaList; })
+    .then(r=>{
+      suaIaList=Array.isArray(r)?r:[]; suaIaAt=Date.now(); suaIaUi.loadErr='';
+      const cl=suaIaList.find(s=>s.id==='claude');
+      if(cl && cl.statuslineInstalled) suaIaSlStatusLoad(); else suaIaUi.slStatus=null;
+      return suaIaList;
+    })
     .catch(e=>{ if(!suaIaList) suaIaList=[]; _suaIaFailAt=Date.now(); suaIaUi.loadErr=String((e&&e.message)||e||''); return suaIaList; })
     .finally(()=>{ _suaIaP=null; suaIaRefresh(); });
   return _suaIaP;
@@ -91,6 +96,25 @@ function suaIaKeyHtml(s, hk){
   const fid=`suaIaKey-${hk}-${s.id}`; // único por container (o tour e as Configurações podem estar abertos juntos)
   return `<div class="suaia-key"><label class="dim suaia-lbl" for="${fid}">${esc(lead)}</label><input class="in mono" type="password" id="${fid}" data-sakey="${s.id}" autocomplete="off" spellcheck="false" placeholder="${s.id==='deepseek'?'chave de platform.deepseek.com':'sk-…'}"${busy}><button type="button" class="btn sm" data-sa="keysave" data-id="${s.id}"${busy}>${suaIaUi.busy[s.id]==='key'?'salvando…':'salvar'}</button>${s.keySaved?`<button type="button" class="btn sm" data-sa="keycancel" data-id="${s.id}">cancelar</button>`:''}</div>`;
 }
+// Claude: interruptor da % real do plano no medidor (barra de status do Claude Code). Só mexe no settings.json do
+// Claude com este clique; a instalação/remoção é do CLI (src/claude-statusline.ts) via claude_statusline_set.
+function suaIaSlHtml(s, hk){
+  const fid=`suaIaSl-${hk}`, on=!!s.statuslineInstalled, busy=!!suaIaUi.busy.sl;
+  const st=on?suaIaUi.slStatus:null;
+  const repair=on && (s.statuslineRepair || (st && st.installed && st.nodeOk===false));
+  const over=st && Array.isArray(st.overriddenBy) ? st.overriddenBy : [];
+  const base=f=>String(f).split(/[\\/]/).slice(-2).join('/');
+  return `<div class="suaia-sl"><input type="checkbox" role="switch" id="${fid}" data-sasl="1"${on?' checked':''}${busy?' disabled aria-busy="true"':''} aria-describedby="${fid}-d"><label for="${fid}">${busy?(on?'desativando…':'ativando…'):'Mostrar a % do plano do Claude no medidor'}</label></div>
+    <div class="suaia-why dim" id="${fid}-d">${on?'Ativo: a barra de status do Claude Code manda a % das janelas de 5 h e da semana pro medidor.':'Instala uma barra de status no Claude Code que manda a % das janelas de 5 h e da semana pro medidor.'} Requer plano Pro/Max no Claude Code (com chave de API não há %). Se você já tem uma barra de status, ela continua aparecendo; desligar desfaz.</div>
+    ${repair?`<div class="suaia-secret" role="status" data-sasl-repair="1">⚠ a barra de status do Claude precisa ser reparada — desligue e ligue de novo.</div>`:''}
+    ${over.length?`<div class="suaia-secret" role="note" data-sasl-over="1">⚠ o projeto aberto define a própria barra de status (${esc(over.map(base).join(', '))}) — ela substitui a do Starfork nesse projeto, e a % do Claude não chega enquanto você usar o Claude Code nele.</div>`:''}`;
+}
+// estado detalhado da barra (node ok? o projeto aberto tem barra própria?) — só com ela ligada; sem bloquear o painel
+function suaIaSlStatusLoad(){
+  return Promise.resolve().then(()=>invoke('claude_statusline_status'))
+    .then(r=>{ suaIaUi.slStatus=r&&typeof r==='object'?r:null; suaIaRefresh(); })
+    .catch(()=>{ suaIaUi.slStatus=null; });
+}
 function suaIaCardHtml(s, opts, shortest, ob){
   const e=suaIaEngine(s.id), d=aiDefaults(), isDef=suaIaDefEng()===s.id, hk=opts.hk||'h';
   const model=suaIaModel(s.id), models=suaIaModels(s);
@@ -109,7 +133,7 @@ function suaIaCardHtml(s, opts, shortest, ob){
       <span class="suaia-st ${s.ready?'ok':'bad'}" title="${escA(s.reason||'')}">${s.ready?'● ':'○ '}${esc(suaIaStateText(s))}</span>${isDef?'<span class="suaia-tag def">padrão</span>':''}${picked?'<span class="suaia-tag def">✓ escolhida</span>':''}</div>
     <div class="suaia-why">${esc(s.reason||'')}${note}</div>
     ${SUAIA_SECRET_NOTE[s.id]?`<div class="suaia-secret dim" data-suaia-secret="${s.id}">⚠ ${esc(SUAIA_SECRET_NOTE[s.id])}</div>`:''}
-    ${s.ready?'':suaIaFixesHtml(s.fixes)}${gwCfg}${suaIaKeyHtml(s, hk)}
+    ${s.ready?'':suaIaFixesHtml(s.fixes)}${gwCfg}${suaIaKeyHtml(s, hk)}${s.id==='claude'&&s.installed?suaIaSlHtml(s, hk):''}
     <div class="suaia-row">
       <select class="in suaia-model" data-samodel="${s.id}" aria-label="modelo do ${escA(name)}">${models.map(m=>`<option value="${escA(m.id)}"${m.id===model?' selected':''}>${esc(m.name)}</option>`).join('')}</select>
       <button type="button" class="btn sm" data-sa="test" data-id="${s.id}"${busy==='test'||!s.ready?' disabled':''} title="${s.ready?'faz uma chamada curtinha de verdade':'configure antes de testar'}">${busy==='test'?'testando…':'testar'}</button>
@@ -207,6 +231,22 @@ async function suaIaUseDefault(id, model){
   suaIaRefresh();
   return true;
 }
+// interruptor da barra de status do Claude: liga/desliga pelo CLI e relê o painel e o medidor
+async function suaIaSetStatusline(on){
+  suaIaUi.busy.sl=true; suaIaUi.msg.claude=null; suaIaRefresh();
+  try{
+    const r=await invoke('claude_statusline_set',{ on:!!on })||{};
+    suaIaUi.msg.claude={ ok:true, text:'✓ '+(r.message||(on?'% do Claude ativada':'% do Claude desativada')) };
+  }catch(e){
+    const raw=String((e&&e.message)||e||'');
+    const ctx=on?'Não consegui ativar a % do Claude':'Não consegui desativar a % do Claude';
+    suaIaUi.msg.claude={ ok:false, text:'✕ '+(typeof humanErr==='function'?humanErr(e, ctx).msg:ctx+': '+raw), raw };
+  }
+  suaIaUi.busy.sl=false;
+  await suaIaLoad(true);
+  if(typeof planMeterReset==='function') planMeterReset();
+  return suaIaUi.msg.claude;
+}
 // 1º acesso: o motor que o "continuar" vai aplicar (escolha da pessoa entre os candidatos, ou o único pronto)
 function suaIaObPickId(){
   const ob=suaIaObSuggest(suaIaList, suaIaDefEng()); if(!ob) return null;
@@ -263,7 +303,7 @@ function suaIaWire(host){
     // o "Gateway próprio" das Configurações fica logo abaixo do painel, no mesmo container
     if(a==='gwscroll'){ const r=host.parentElement && host.parentElement.querySelector('#raHost'); if(r && r.scrollIntoView) r.scrollIntoView(typeof scrollOpts==='function'?scrollOpts('start'):{ block:'start' }); return; }
   };
-  host.onchange=ev=>{ const s=ev.target.closest && ev.target.closest('[data-samodel]'); if(!s || !host.contains(s)) return; suaIaUi.model[s.dataset.samodel]=s.value; suaIaUi.msg[s.dataset.samodel]=null; suaIaRefresh(); };
+  host.onchange=ev=>{ const sl=ev.target.closest && ev.target.closest('[data-sasl]'); if(sl && host.contains(sl)){ suaIaSetStatusline(!!sl.checked); return; } const s=ev.target.closest && ev.target.closest('[data-samodel]'); if(!s || !host.contains(s)) return; suaIaUi.model[s.dataset.samodel]=s.value; suaIaUi.msg[s.dataset.samodel]=null; suaIaRefresh(); };
   host.onkeydown=ev=>{ const i=ev.target.closest && ev.target.closest('[data-sakey]'); if(i && host.contains(i) && ev.key==='Enter'){ ev.preventDefault(); suaIaKeyGo(i.dataset.sakey, i.value, host); } };
 }
 async function suaIaKeyGo(id, value, host){

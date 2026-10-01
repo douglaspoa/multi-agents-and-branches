@@ -112,14 +112,18 @@ static ENGINE_RESOURCE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLo
 /// Motor: CARDUME_CLI (dev — TS ao vivo) → recurso bundlado (resource_dir) →
 /// heurística pelo exe (.app do macOS) → src/cli.ts do repo aberto (último recurso).
 fn cli_path(repo: &PathBuf) -> String {
+    engine_cli_path().unwrap_or_else(|| repo.join("src").join("cli.ts").display().to_string())
+}
+/// O motor SEM depender do repo aberto: CARDUME_CLI → recurso bundlado → heurística pelo exe. None = só o do repo.
+fn engine_cli_path() -> Option<String> {
     if let Ok(p) = std::env::var("CARDUME_CLI") {
         if !p.is_empty() && std::path::Path::new(&p).is_file() {
-            return p;
+            return Some(p);
         }
     }
     if let Some(Some(p)) = ENGINE_RESOURCE.get() {
         if p.is_file() {
-            return p.display().to_string();
+            return Some(p.display().to_string());
         }
     }
     if let Ok(exe) = std::env::current_exe() {
@@ -127,11 +131,11 @@ fn cli_path(repo: &PathBuf) -> String {
         if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
             let bundled = contents.join("Resources").join("engine").join("cli.mjs");
             if bundled.is_file() {
-                return bundled.display().to_string();
+                return Some(bundled.display().to_string());
             }
         }
     }
-    repo.join("src").join("cli.ts").display().to_string()
+    None
 }
 
 /// Node: o MAIS NOVO de todos os instalados (CARDUME_NODE manda se existir). Antes era "o primeiro que
@@ -6204,6 +6208,43 @@ fn ai_avail_refresh() { ai_once::clear_avail_cache(); plan_usage::clear_caches()
 #[tauri::command(async)]
 fn ai_engines_status() -> Vec<ai_once::EngineStatus> { ai_once::engines_status() }
 
+/// Barra de status do Claude Code (% real do plano no medidor): liga/desliga pelo interruptor do cartão do Claude
+/// em "Sua IA". Fonte única = CLI `cardume claude-statusline install|uninstall|status` (src/claude-statusline.ts); o
+/// node escolhido pelo app vai no comando da barra (`--node`). Só roda com a ação explícita da pessoa (ou o reparo do
+/// boot, que só reinstala uma barra JÁ instalada). Não depende do repo aberto: motor bundlado, senão o do repo.
+fn claude_statusline_cli(repo: Option<PathBuf>, sub: &str, node: Option<String>) -> Result<serde_json::Value, String> {
+    let cli = engine_cli_path()
+        .or_else(|| repo.as_ref().map(|r| r.join("src").join("cli.ts")).filter(|p| p.is_file()).map(|p| p.display().to_string()))
+        .ok_or("não achei o motor do Starfork pra mexer na barra de status — reinstale o app ou abra um projeto")?;
+    let mut args = vec!["--disable-warning=ExperimentalWarning".to_string(), cli, "claude-statusline".into(), sub.into(), "--json".into()];
+    if let Some(n) = node { args.push("--node".into()); args.push(n); }
+    if sub == "status" { if let Some(r) = &repo { args.push("--repo".into()); args.push(r.display().to_string()); } }
+    let mut c = node_cmd();
+    c.args(&args).env_remove("CARDUME_ROLE");
+    let out = output_timeout(c, 30)?;
+    plan_usage::parse_statusline_cli(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+#[tauri::command(async)]
+fn claude_statusline_set(state: State<AppState>, on: bool) -> Result<serde_json::Value, String> {
+    let r = claude_statusline_cli(active_repo(&state).ok(), if on { "install" } else { "uninstall" }, on.then(node_bin));
+    if r.is_ok() { plan_usage::SL_REPAIR.store(false, std::sync::atomic::Ordering::SeqCst); }
+    r
+}
+/// Estado da barra pro cartão do Claude: node ok? o projeto aberto tem barra própria (que substitui a nossa)?
+#[tauri::command(async)]
+fn claude_statusline_status(state: State<AppState>) -> Result<serde_json::Value, String> {
+    claude_statusline_cli(active_repo(&state).ok(), "status", None)
+}
+/// Boot: barra instalada com um node que sumiu (nvm removeu a versão…) → reinstala (idempotente) com o node atual;
+/// falhou → o cartão do Claude mostra "a barra de status do Claude precisa ser reparada".
+fn claude_statusline_boot_repair() {
+    if plan_usage::statusline_node_missing(&plan_usage::claude_config_dir()).is_none() { return; }
+    if let Err(e) = claude_statusline_cli(None, "install", Some(node_bin())) {
+        eprintln!("[starfork] barra de status do Claude precisa ser reparada: {e}");
+        plan_usage::SL_REPAIR.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Painel "Sua IA" → "testar": chamada mínima FORÇANDO o motor, prazo curto; erro humano do próprio motor.
 #[tauri::command(async)]
 fn ai_test(engine: String, model: Option<String>) -> Result<ai_once::AiTestOut, String> { ai_once::ai_test_run(&engine, model.as_deref()) }
@@ -9043,12 +9084,16 @@ pub fn run() {
             // notificações: delegate (clique → tarefa; banner com o app na frente) + pedido de permissão
             #[cfg(target_os = "macos")]
             notif_mac::init(app.handle().clone());
+            // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
+            std::thread::spawn(claude_statusline_boot_repair);
             Ok(())
         })
         .manage(AppState::from_env())
         .invoke_handler(tauri::generate_handler![
             set_repo,
             plan_usage::plan_usage,
+            claude_statusline_set,
+            claude_statusline_status,
             memoria::memory_list,
             memoria::memory_read,
             memoria::memory_write,

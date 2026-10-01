@@ -5,6 +5,10 @@
 //!   (run_claude_stream → record_claude_rate_limit), formato fixado por tests/fixtures/plan-usage-golden/) + o uso que
 //!   o Starfork registrou nas últimas 5 h NESTE projeto (tabela `cost`, atribuída pelo motor do papel).
 //!   Porcentagem SÓ quando o evento trouxe `utilization` (o Claude Code manda perto do limite) — nunca inventada.
+//!   + a % REAL das janelas de 5 h e da semana pela barra de status do Claude Code (opcional, interruptor em Sua IA):
+//!   `~/.constellation/usage/claude-statusline.json` `{fiveHour:{pct,resetsAt}, sevenDay, at}`, gravado pelo script que
+//!   o CLI `cardume claude-statusline install` instala (src/claude-statusline.ts — fonte única). Janela que já
+//!   reiniciou → 0 %; `rate_limit_event` MAIS NOVO que o arquivo com rejected/allowed_warning → o estado prevalece.
 //!   NUNCA chama /api/oauth/usage nem lê o token do Keychain.
 //! - Codex → a última linha `token_count` COM rate_limits das sessões mais novas em
 //!   `$CODEX_HOME/sessions/AAAA/MM/DD/rollout-*.jsonl` (só a cauda; no máximo 2 arquivos). Nunca lê `auth.json`.
@@ -24,6 +28,18 @@ pub(crate) struct StarforkUse {
     pub ms: i64,
 }
 
+/// Uma janela do Claude pela barra de status (% real).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClaudeWin {
+    /// 0–100 (já reiniciou → 0)
+    pub pct: f64,
+    /// epoch ms
+    pub resets_at: Option<i64>,
+    /// a janela já reiniciou desde a gravação
+    pub reset: bool,
+}
+
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClaudeUsage {
@@ -39,6 +55,18 @@ pub(crate) struct ClaudeUsage {
     pub starfork: StarforkUse,
     /// não deu pra ler o uso do Starfork (o widget mostra "uso do Starfork indisponível")
     pub starfork_error: Option<String>,
+    /// % real das janelas pela barra de status do Claude Code (None = sem o arquivo / janela não veio)
+    pub five_hour: Option<ClaudeWin>,
+    pub seven_day: Option<ClaudeWin>,
+    /// quando a barra de status gravou (epoch ms) — "atualizado há X"
+    pub updated_at: Option<i64>,
+    /// a barra de status do Starfork está instalada no Claude Code (dica "ative a % do Claude em Sua IA")
+    pub statusline: bool,
+    /// instalada e AINDA sem o arquivo de dados: desde quando (epoch ms, instalação) — > 30 min = plano sem % (API)
+    pub statusline_waiting_since: Option<i64>,
+    /// quando o Claude Code mandou o rate_limit_event escolhido (só pra mesclar com a barra; não vai pro front)
+    #[serde(skip)]
+    pub event_at: Option<i64>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -157,7 +185,7 @@ fn util_pct(u: f64) -> f64 {
 /// Janelas já reiniciadas (resetsAt no passado) ou velhas (> 5 h sem reinício conhecido) não contam mais.
 /// Prioridade: bloqueado > perto do limite (maior utilization) > janela de 5 h > qualquer outra.
 pub(crate) fn claude_summary(file: Option<&Value>, now: i64, starfork: Result<StarforkUse, String>) -> ClaudeUsage {
-    struct W { kind: String, status: String, resets: Option<i64>, util: Option<f64> }
+    struct W { kind: String, status: String, resets: Option<i64>, util: Option<f64>, at: i64 }
     let mut ws: Vec<W> = vec![];
     if let Some(map) = file.and_then(|f| f.get("windows")).and_then(|w| w.as_object()) {
         for (kind, w) in map {
@@ -168,7 +196,7 @@ pub(crate) fn claude_summary(file: Option<&Value>, now: i64, starfork: Result<St
             let live = match resets { Some(r) => r > now, None => now - at < FIVE_H_MS };
             if !live { continue; }
             let util = w.get("utilization").and_then(|u| u.as_f64()).filter(|u| u.is_finite() && *u >= 0.0);
-            ws.push(W { kind: kind.clone(), status, resets, util });
+            ws.push(W { kind: kind.clone(), status, resets, util, at });
         }
     }
     let pick = ws.iter().filter(|w| w.status == "rejected").max_by_key(|w| w.resets.unwrap_or(0))
@@ -177,7 +205,10 @@ pub(crate) fn claude_summary(file: Option<&Value>, now: i64, starfork: Result<St
         .or_else(|| ws.first());
     let (sf, sf_err) = match starfork { Ok(s) => (s, None), Err(e) => (StarforkUse::default(), Some(e)) };
     match pick {
-        None => ClaudeUsage { state: "none", window: None, pct: None, resets_at: None, starfork: sf, starfork_error: sf_err },
+        None => ClaudeUsage {
+            state: "none", window: None, pct: None, resets_at: None, starfork: sf, starfork_error: sf_err,
+            five_hour: None, seven_day: None, updated_at: None, statusline: false, statusline_waiting_since: None, event_at: None,
+        },
         Some(w) => ClaudeUsage {
             state: match w.status.as_str() { "rejected" => "blocked", "allowed_warning" => "warn", _ => "ok" },
             window: Some(w.kind.clone()),
@@ -185,7 +216,138 @@ pub(crate) fn claude_summary(file: Option<&Value>, now: i64, starfork: Result<St
             resets_at: w.resets,
             starfork: sf,
             starfork_error: sf_err,
+            five_hour: None, seven_day: None, updated_at: None, statusline: false, statusline_waiting_since: None,
+            event_at: Some(w.at).filter(|a| *a > 0),
         },
+    }
+}
+
+// ---------- Claude: barra de status (% real) ----------
+
+const SEVEN_D_MS: i64 = 7 * 24 * 3600 * 1000;
+
+/// Pasta de config do Claude Code: `CLAUDE_CONFIG_DIR` (como o próprio Claude Code), senão `~/.claude`.
+/// MESMA regra do TS (src/claude-statusline.ts: claudeConfigDir).
+pub(crate) fn claude_config_dir() -> PathBuf {
+    std::env::var("CLAUDE_CONFIG_DIR").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(home_dir_s()).join(".claude"))
+}
+
+/// A barra instalada aponta pra um node que sumiu e a reinstalação do boot falhou → o cartão do Claude avisa.
+pub(crate) static SL_REPAIR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `claude-statusline.json` → (5 h, semana, quando gravou). None: sem `at` (não dá pra saber se é velho) ou sem
+/// nenhuma janela legível. Janela com `resetsAt` passado → 0 %; SEM `resetsAt`, some quando o arquivo é mais velho
+/// que a própria janela (5 h / 7 d). % sempre 0–100. Formato fixado por tests/fixtures/plan-usage-golden/statusline.json.
+pub(crate) fn statusline_windows(sl: &Value, now: i64) -> Option<(Option<ClaudeWin>, Option<ClaudeWin>, i64)> {
+    let at = sl.get("at").and_then(epoch_ms)?;
+    let win = |k: &str, span: i64| -> Option<ClaudeWin> {
+        let w = sl.get(k)?;
+        let pct = w.get("pct")?.as_f64().filter(|p| p.is_finite())?;
+        let resets_at = w.get("resetsAt").and_then(epoch_ms);
+        if resets_at.is_none() && now - at > span { return None; }
+        let reset = resets_at.is_some_and(|r| r <= now);
+        Some(ClaudeWin { pct: if reset { 0.0 } else { (pct.clamp(0.0, 100.0) * 10.0).round() / 10.0 }, resets_at, reset })
+    };
+    let (f, s) = (win("fiveHour", FIVE_H_MS), win("sevenDay", SEVEN_D_MS));
+    if f.is_none() && s.is_none() { return None; }
+    Some((f, s, at))
+}
+
+/// Mescla a barra de status no resumo do evento. A barra manda nas porcentagens; o estado do evento prevalece quando:
+/// bloqueado (`rejected`) com a volta ainda no futuro — ou mais novo que a barra; perto do limite (`allowed_warning`)
+/// — a menos que a barra mostre aquela janela abaixo de 70 %. Destaque (window/pct/resetsAt) = a janela mais cheia
+/// (empate → 5 h).
+pub(crate) fn with_statusline(mut c: ClaudeUsage, sl: Option<&Value>, now: i64) -> ClaudeUsage {
+    let Some((f, s, at)) = sl.and_then(|v| statusline_windows(v, now)) else { return c };
+    c.five_hour = f;
+    c.seven_day = s;
+    c.updated_at = Some(at);
+    let file_pct = match c.window.as_deref() {
+        Some("five_hour") => c.five_hour.as_ref().map(|w| w.pct),
+        Some("seven_day") => c.seven_day.as_ref().map(|w| w.pct),
+        _ => None,
+    };
+    let keep = match c.state {
+        "blocked" => c.resets_at.is_some_and(|r| r > now) || c.event_at.is_some_and(|e| e > at),
+        "warn" => file_pct.is_none_or(|p| p >= 70.0),
+        _ => false,
+    };
+    if keep {
+        if c.pct.is_none() { c.pct = file_pct; }
+        return c;
+    }
+    let top = [("seven_day", &c.seven_day), ("five_hour", &c.five_hour)].into_iter()
+        .filter_map(|(k, w)| w.as_ref().map(|w| (k, w.clone())))
+        .max_by(|a, b| a.1.pct.total_cmp(&b.1.pct));
+    if let Some((k, w)) = top {
+        c.state = "ok";
+        c.window = Some(k.to_string());
+        c.pct = Some(w.pct);
+        c.resets_at = w.resets_at;
+    }
+    c
+}
+
+fn statusline_cmd(settings: &str) -> Option<String> {
+    serde_json::from_str::<Value>(settings).ok()?
+        .get("statusLine")?.get("command")?.as_str().map(String::from)
+}
+
+/// O `statusLine` do settings.json do Claude Code é o do Starfork? MESMA regra do `isOurs` do TS
+/// (src/claude-statusline.ts): o comando aponta pro claude-statusline.mjs. Golden: statusline.json.
+pub(crate) fn statusline_installed_in(settings: &str) -> bool {
+    statusline_cmd(settings).is_some_and(|c| c.contains("claude-statusline.mjs"))
+}
+
+/// 1º argumento do comando (o node): entre aspas (com \x → x) ou até o 1º espaço. MESMA regra do `nodeOfCommand` do TS.
+pub(crate) fn node_of_command(cmd: &str) -> Option<String> {
+    let t = cmd.trim_start();
+    let mut it = t.chars();
+    match it.next()? {
+        '"' => {
+            let mut out = String::new();
+            while let Some(ch) = it.next() {
+                match ch {
+                    '\\' => out.push(it.next()?),
+                    '"' => return Some(out),
+                    _ => out.push(ch),
+                }
+            }
+            None
+        }
+        _ => t.split_whitespace().next().map(String::from),
+    }
+}
+
+/// Node gravado no comando da barra do Starfork (None: não instalada).
+pub(crate) fn statusline_node_in(settings: &str) -> Option<String> {
+    if !statusline_installed_in(settings) { return None; }
+    node_of_command(&statusline_cmd(settings)?)
+}
+
+fn read_settings_in(claude_dir: &Path) -> Option<String> { std::fs::read_to_string(claude_dir.join("settings.json")).ok() }
+
+pub(crate) fn statusline_installed_at(claude_dir: &Path) -> bool { read_settings_in(claude_dir).is_some_and(|s| statusline_installed_in(&s)) }
+
+pub(crate) fn statusline_installed() -> bool { statusline_installed_at(&claude_config_dir()) }
+
+/// Barra instalada cujo node sumiu (nvm removeu a versão…)? → Some(node antigo). O boot reinstala com o node atual.
+pub(crate) fn statusline_node_missing(claude_dir: &Path) -> Option<String> {
+    let n = statusline_node_in(&read_settings_in(claude_dir)?)?;
+    (!Path::new(&n).is_file()).then_some(n)
+}
+
+/// Saída do `cardume claude-statusline … --json` → o objeto, ou o erro humano.
+pub(crate) fn parse_statusline_cli(stdout: &str, stderr: &str) -> Result<Value, String> {
+    let v = stdout.lines().rev().find_map(|l| serde_json::from_str::<Value>(l.trim()).ok().filter(|v| v.is_object()));
+    match v {
+        Some(v) if v.get("ok").and_then(|o| o.as_bool()) == Some(true) => Ok(v),
+        Some(v) => Err(v.get("message").and_then(|m| m.as_str()).unwrap_or("não consegui mexer na barra de status").to_string()),
+        None => {
+            let e = stderr.trim();
+            Err(if e.is_empty() { "o motor não respondeu".to_string() } else { e.chars().take(400).collect() })
+        }
     }
 }
 
@@ -394,12 +556,29 @@ pub(crate) fn clear_caches() {
 }
 
 pub(crate) fn collect(db: Option<PathBuf>, configured: Vec<&'static str>, now: i64) -> PlanUsage {
+    collect_in(&claude_usage_dir(), &claude_config_dir(), db, configured, now)
+}
+
+/// `usage_dir` = ~/.constellation/usage; `claude_dir` = config do Claude Code (parametrizados pros testes).
+/// A barra de status só entra quando está INSTALADA (desligou → o arquivo velho não conta).
+pub(crate) fn collect_in(usage_dir: &Path, claude_dir: &Path, db: Option<PathBuf>, configured: Vec<&'static str>, now: i64) -> PlanUsage {
     let has = |id: &str| configured.contains(&id);
     let default_engine = ai_once::pref_engine();
     let claude = has("claude").then(|| {
-        let windows = read_claude_windows(&claude_usage_dir());
+        let windows = read_claude_windows(usage_dir);
         let used = match db.as_deref() { Some(d) => starfork_claude_use(d, now - FIVE_H_MS, &default_engine), None => Ok(StarforkUse::default()) };
-        claude_summary(Some(&windows), now, used)
+        let mut c = claude_summary(Some(&windows), now, used);
+        if statusline_installed_at(claude_dir) {
+            let data = usage_dir.join("claude-statusline.json");
+            match std::fs::read_to_string(&data) {
+                Ok(t) => c = with_statusline(c, serde_json::from_str::<Value>(&t).ok().as_ref(), now),
+                // instalada sem dados ainda: desde a instalação (statusline-prev.json é gravado só ao instalar)
+                Err(_) => c.statusline_waiting_since = std::fs::metadata(usage_dir.join("statusline-prev.json")).and_then(|m| m.modified()).ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64),
+            }
+            c.statusline = true;
+        }
+        c
     });
     let codex = has("codex").then(|| codex_usage(now));
     let deepseek = has("deepseek").then(deepseek_usage);
@@ -606,6 +785,138 @@ mod tests {
         assert_eq!(claude_summary(Some(&f), NOW, Ok(sf())).state, "ok");
     }
 
+    fn sl(f: Option<f64>, s: Option<f64>, at: i64) -> Value {
+        let w = |p: Option<f64>, r: i64| p.map(|p| json!({ "pct": p, "resetsAt": r })).unwrap_or(Value::Null);
+        json!({ "v": 1, "fiveHour": w(f, 1_790_884_800_000), "sevenDay": w(s, 1_791_400_000_000), "at": at })
+    }
+
+    #[test]
+    fn barra_de_status_da_a_porcentagem_real() {
+        let ev = json!({ "windows": { "five_hour": { "status": "allowed", "resetsAt": 1_790_884_800, "at": NOW - 600_000 } } });
+        let c = with_statusline(claude_summary(Some(&ev), NOW, Ok(sf())), Some(&sl(Some(43.0), Some(61.0), NOW - 120_000)), NOW);
+        assert_eq!(c.five_hour, Some(ClaudeWin { pct: 43.0, resets_at: Some(1_790_884_800_000), reset: false }));
+        assert_eq!(c.seven_day.as_ref().map(|w| w.pct), Some(61.0));
+        assert_eq!((c.state, c.window.as_deref(), c.pct), ("ok", Some("seven_day"), Some(61.0)), "destaque = a janela mais cheia");
+        assert_eq!(c.updated_at, Some(NOW - 120_000));
+        // sem evento nenhum: a barra sozinha basta
+        let c = with_statusline(claude_summary(None, NOW, Ok(sf())), Some(&sl(Some(10.0), None, NOW)), NOW);
+        assert_eq!((c.state, c.window.as_deref(), c.pct, c.seven_day.clone()), ("ok", Some("five_hour"), Some(10.0), None));
+        // sem arquivo / arquivo sem janelas: nada muda
+        let base = claude_summary(Some(&ev), NOW, Ok(sf()));
+        assert_eq!(with_statusline(base.clone(), None, NOW), base);
+        assert_eq!(with_statusline(base.clone(), Some(&json!({ "at": NOW })), NOW), base);
+        assert_eq!(with_statusline(base.clone(), Some(&json!({ "fiveHour": { "pct": "x" } })), NOW), base);
+    }
+
+    #[test]
+    fn barra_de_status_janela_reiniciada_vira_zero() {
+        let s = json!({ "fiveHour": { "pct": 97, "resetsAt": NOW - 1 }, "sevenDay": { "pct": 40, "resetsAt": NOW + 1000 }, "at": NOW - 6 * 3600 * 1000 });
+        let c = with_statusline(claude_summary(None, NOW, Ok(sf())), Some(&s), NOW);
+        assert_eq!(c.five_hour, Some(ClaudeWin { pct: 0.0, resets_at: Some(NOW - 1), reset: true }));
+        assert_eq!((c.window.as_deref(), c.pct), (Some("seven_day"), Some(40.0)));
+        // resetsAt em segundos também vale
+        let s = json!({ "fiveHour": { "pct": 50, "resetsAt": 1_000 }, "at": NOW });
+        assert_eq!(with_statusline(claude_summary(None, NOW, Ok(sf())), Some(&s), NOW).pct, Some(0.0));
+    }
+
+    #[test]
+    fn barra_de_status_x_evento() {
+        let ev = |st: &str, at: i64, resets: Option<i64>| {
+            let mut w = json!({ "status": st, "at": at });
+            if let Some(r) = resets { w["resetsAt"] = json!(r); }
+            json!({ "windows": { "five_hour": w } })
+        };
+        let run = |e: &Value, s: &Value| with_statusline(claude_summary(Some(e), NOW, Ok(sf())), Some(s), NOW);
+        // rejected MAIS NOVO que a barra: o estado prevalece; a % da janela vem da barra
+        let c = run(&ev("rejected", NOW - 1000, Some(1_790_884_800)), &sl(Some(98.0), Some(70.0), NOW - 60_000));
+        assert_eq!((c.state, c.window.as_deref(), c.pct), ("blocked", Some("five_hour"), Some(98.0)));
+        assert_eq!(c.resets_at, Some(1_790_884_800_000), "com a hora da volta");
+        assert_eq!(c.seven_day.as_ref().map(|w| w.pct), Some(70.0), "as barras continuam");
+        // rejected MAIS VELHO que a barra, mas a volta ainda no futuro: continua bloqueado (não esconde o bloqueio)
+        let c = run(&ev("rejected", NOW - 600_000, Some(1_790_884_800)), &sl(Some(30.0), Some(20.0), NOW - 60_000));
+        assert_eq!((c.state, c.window.as_deref(), c.pct, c.resets_at), ("blocked", Some("five_hour"), Some(30.0), Some(1_790_884_800_000)));
+        // rejected velho SEM hora de volta (ainda dentro das 5 h): a barra mais nova manda
+        let c = run(&ev("rejected", NOW - 600_000, None), &sl(Some(30.0), Some(20.0), NOW - 60_000));
+        assert_eq!((c.state, c.window.as_deref(), c.pct), ("ok", Some("five_hour"), Some(30.0)));
+        // allowed_warning: fica warn, a menos que a barra mostre aquela janela < 70 %
+        let w = |at: i64, u: Option<f64>| {
+            let mut x = json!({ "status": "allowed_warning", "resetsAt": 1_791_400_000, "at": at });
+            if let Some(u) = u { x["utilization"] = json!(u); }
+            json!({ "windows": { "seven_day": x } })
+        };
+        let c = run(&w(NOW - 1000, Some(0.91)), &sl(Some(20.0), Some(88.0), NOW - 60_000));
+        assert_eq!((c.state, c.window.as_deref(), c.pct), ("warn", Some("seven_day"), Some(91.0)));
+        let c = run(&w(NOW - 600_000, None), &sl(Some(20.0), Some(75.0), NOW - 60_000));
+        assert_eq!((c.state, c.pct), ("warn", Some(75.0)), "evento mais velho, barra ≥ 70 %: continua warn");
+        let c = run(&w(NOW - 1000, Some(0.8)), &sl(Some(20.0), Some(50.0), NOW - 60_000));
+        assert_eq!((c.state, c.window.as_deref(), c.pct), ("ok", Some("seven_day"), Some(50.0)), "barra < 70 % naquela janela: some o aviso");
+        let c = run(&w(NOW - 1000, None), &sl(Some(20.0), None, NOW - 60_000));
+        assert_eq!((c.state, c.window.as_deref()), ("warn", Some("seven_day")), "barra sem aquela janela: fica o aviso");
+        // allowed mais novo: não prevalece (só rejected/allowed_warning)
+        let c = run(&ev("allowed", NOW - 1000, Some(1_790_884_800)), &sl(Some(30.0), None, NOW - 60_000));
+        assert_eq!((c.state, c.pct), ("ok", Some(30.0)));
+    }
+
+    #[test]
+    fn golden_da_barra_igual_ao_ts() {
+        let g: Value = serde_json::from_str(include_str!("../../../tests/fixtures/plan-usage-golden/statusline.json")).unwrap();
+        for c in g["commands"].as_array().unwrap() {
+            assert_eq!(node_of_command(c["command"].as_str().unwrap()).as_deref(), c["node"].as_str());
+        }
+        for c in g["settings"].as_array().unwrap() {
+            let (name, text) = (c["name"].as_str().unwrap(), c["text"].as_str().unwrap());
+            assert_eq!(statusline_installed_in(text), c["installed"].as_bool().unwrap(), "{name}");
+            assert_eq!(statusline_node_in(text).as_deref(), c["node"].as_str(), "{name}");
+        }
+        for c in g["read"].as_array().unwrap() {
+            let name = c["name"].as_str().unwrap();
+            let got = statusline_windows(&c["file"], c["now"].as_i64().unwrap())
+                .map(|(f, s, at)| json!({ "fiveHour": f, "sevenDay": s, "at": at }))
+                .unwrap_or(Value::Null);
+            assert_eq!(got, c["expect"], "{name}");
+        }
+        // o arquivo que o script do TS grava (+ at) é lido
+        let mut f = g["script"]["file"].clone();
+        f["at"] = json!(NOW);
+        let (five, week, _) = statusline_windows(&f, NOW).unwrap();
+        assert_eq!((five.unwrap().pct, week.unwrap().pct), (43.0, 61.4));
+    }
+
+    #[test]
+    fn cli_da_barra_ok_e_erro_humano() {
+        assert_eq!(parse_statusline_cli("{\"ok\":true,\"message\":\"x\",\"installed\":true}\n", "").unwrap()["installed"], json!(true));
+        assert_eq!(parse_statusline_cli("{\"ok\":false,\"message\":\"settings inválido\"}", "").unwrap_err(), "settings inválido");
+        assert_eq!(parse_statusline_cli("", "boom").unwrap_err(), "boom");
+    }
+
+    #[test]
+    fn collect_so_usa_a_barra_quando_instalada() {
+        let d = tmpdir("collect");
+        let (usage, cfg) = (d.join("usage"), d.join("claude"));
+        std::fs::create_dir_all(&usage).unwrap();
+        std::fs::create_dir_all(&cfg).unwrap();
+        let installed = format!(r#"{{"statusLine":{{"type":"command","command":"\"/n/node\" \"{}\""}}}}"#, usage.join("claude-statusline.mjs").display());
+        // instalada, sem dados ainda: "esperando desde" a instalação
+        std::fs::write(cfg.join("settings.json"), &installed).unwrap();
+        std::fs::write(usage.join("statusline-prev.json"), "{}").unwrap();
+        let c = collect_in(&usage, &cfg, None, vec!["claude"], NOW).claude.unwrap();
+        assert!(c.statusline && c.five_hour.is_none());
+        assert!(c.statusline_waiting_since.is_some());
+        // com dados: a %
+        std::fs::write(usage.join("claude-statusline.json"), sl(Some(43.0), Some(61.0), NOW - 1000).to_string()).unwrap();
+        let c = collect_in(&usage, &cfg, None, vec!["claude"], NOW).claude.unwrap();
+        assert_eq!((c.five_hour.map(|w| w.pct), c.statusline_waiting_since), (Some(43.0), None));
+        // desligada: o arquivo velho NÃO conta
+        std::fs::write(cfg.join("settings.json"), r#"{"model":"x"}"#).unwrap();
+        let c = collect_in(&usage, &cfg, None, vec!["claude"], NOW).claude.unwrap();
+        assert!(!c.statusline && c.five_hour.is_none() && c.pct.is_none());
+        assert!(statusline_node_missing(&cfg).is_none());
+        // node sumido → o boot repara
+        std::fs::write(cfg.join("settings.json"), &installed).unwrap();
+        assert_eq!(statusline_node_missing(&cfg).as_deref(), Some("/n/node"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn motor_do_turno_pelo_papel() {
         let roles = r#"[{"role":"builder","name":"Íris","engine":"codex"},{"role":"reviewer","name":"Leo","engine":"claude"}]"#;
@@ -680,7 +991,12 @@ mod tests {
         let u = PlanUsage {
             default_engine: "claude".into(),
             configured: vec!["claude", "codex", "deepseek"],
-            claude: Some(claude_summary(Some(&f), NOW, Ok(StarforkUse { turns: 3, in_tok: 118_000, out_tok: 2_000, ms: 600_000 }))),
+            claude: Some({
+                let sl = json!({ "v": 1, "fiveHour": { "pct": 43, "resetsAt": 1_790_884_800_000_i64 }, "sevenDay": { "pct": 61, "resetsAt": 1_791_400_000_000_i64 }, "at": NOW - 120_000 });
+                let mut c = with_statusline(claude_summary(Some(&f), NOW, Ok(StarforkUse { turns: 3, in_tok: 118_000, out_tok: 2_000, ms: 600_000 })), Some(&sl), NOW);
+                c.statusline = true;
+                c
+            }),
             codex: Some(codex_from_tail(CODEX_LINE, NOW)),
             deepseek: Some(parse_deepseek_balance(r#"{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"4.20"}]}"#).unwrap()),
         };
