@@ -656,7 +656,9 @@ function tailText(file: string, max: number): string {
 
 // ---------- medidor do plano (rate_limit_event) ----------
 /** O que o Claude Code diz da janela do plano (assinatura claude.ai) no evento `rate_limit_event` do stream-json.
- * `utilization` (0–1) só vem perto do limite — nunca inventamos porcentagem. `resetsAt` = epoch em SEGUNDOS. */
+ * `utilization` só vem perto do limite — nunca inventamos porcentagem. `resetsAt` = epoch em SEGUNDOS.
+ * Formato do arquivo fixado por tests/fixtures/plan-usage-golden/claude-rate-limit.json (o mesmo do Rust:
+ * app/src-tauri/src/plan_usage.rs, que grava os eventos dos chats do app e LÊ os arquivos). */
 export interface ClaudeRateLimit {
   status: "allowed" | "allowed_warning" | "rejected";
   rateLimitType: string;
@@ -665,37 +667,42 @@ export interface ClaudeRateLimit {
 }
 const RL_STATUS = new Set(["allowed", "allowed_warning", "rejected"]);
 
-/** Lê uma linha NDJSON e devolve o rate limit (ou null se a linha não for um `rate_limit_event` válido). */
+/** Lê uma linha NDJSON e devolve o rate limit (null se não for um `rate_limit_event` válido COM janela conhecida). */
 export function rateLimitOf(line: string): ClaudeRateLimit | null {
   let o: any;
   try { o = JSON.parse(line.trim()); } catch { return null; }
   if (o?.type !== "rate_limit_event") return null;
   const i = o.rate_limit_info;
   if (!i || !RL_STATUS.has(i.status)) return null;
-  const out: ClaudeRateLimit = { status: i.status, rateLimitType: typeof i.rateLimitType === "string" && i.rateLimitType ? i.rateLimitType : "five_hour" };
+  // sem janela não dá pra saber a qual limite o estado se refere — não chuta five_hour
+  if (typeof i.rateLimitType !== "string" || !/^[a-z0-9_]{1,40}$/.test(i.rateLimitType)) return null;
+  const out: ClaudeRateLimit = { status: i.status, rateLimitType: i.rateLimitType };
   if (typeof i.resetsAt === "number" && Number.isFinite(i.resetsAt) && i.resetsAt > 0) out.resetsAt = i.resetsAt;
   if (typeof i.utilization === "number" && Number.isFinite(i.utilization) && i.utilization >= 0) out.utilization = i.utilization;
   return out;
 }
 
-/** ~/.constellation/usage/claude.json — o último estado POR janela (five_hour, seven_day…), lido pelo app (plan_usage). */
-export function claudeUsageFile(): string {
-  return join(homedir(), ".constellation", "usage", "claude.json");
+/** ~/.constellation/usage — UM arquivo por janela (claude-<rateLimitType>.json): dois processos gravando janelas
+ * diferentes nunca se atropelam; o app (plan_usage) junta todos na leitura. */
+export function claudeUsageDir(): string {
+  return join(homedir(), ".constellation", "usage");
 }
 
-/** Grava o último estado da janela `rateLimitType` (escrita atômica: tmp + rename). Nunca derruba a tarefa. */
-export function recordClaudeRateLimit(rl: ClaudeRateLimit, file = claudeUsageFile(), now = Date.now()): void {
+/** O conteúdo do arquivo da janela (puro — fixado pelo golden compartilhado com o Rust). */
+export function rateLimitRecord(rl: ClaudeRateLimit, now: number): Record<string, unknown> {
+  const w: Record<string, unknown> = { v: 1, rateLimitType: rl.rateLimitType, status: rl.status, at: now };
+  if (rl.resetsAt !== undefined) w.resetsAt = rl.resetsAt;
+  if (rl.utilization !== undefined) w.utilization = rl.utilization;
+  return w;
+}
+
+/** Grava o último estado da janela em `<dir>/claude-<tipo>.json` (escrita atômica: tmp único + rename). Nunca derruba a tarefa. */
+export function recordClaudeRateLimit(rl: ClaudeRateLimit, dir = claudeUsageDir(), now = Date.now()): void {
   try {
-    let cur: any = {};
-    try { cur = JSON.parse(readFileSync(file, "utf8")); } catch { /* primeiro registro */ }
-    const windows = cur && typeof cur.windows === "object" && cur.windows ? cur.windows : {};
-    const w: Record<string, unknown> = { status: rl.status, at: now };
-    if (rl.resetsAt !== undefined) w.resetsAt = rl.resetsAt;
-    if (rl.utilization !== undefined) w.utilization = rl.utilization;
-    windows[rl.rateLimitType] = w;
-    mkdirSync(dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ v: 1, updatedAt: now, last: rl.rateLimitType, windows }, null, 1));
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `claude-${rl.rateLimitType}.json`);
+    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    writeFileSync(tmp, JSON.stringify(rateLimitRecord(rl, now)));
     renameSync(tmp, file);
   } catch { /* medidor é acessório */ }
 }

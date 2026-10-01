@@ -4309,6 +4309,8 @@ fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync:
                     sid = v.get("session_id").and_then(|r| r.as_str()).unwrap_or("").to_string();
                     is_error = v.get("is_error").and_then(|b| b.as_bool()).unwrap_or(false) || v.get("subtype").and_then(|t| t.as_str()).map(|t| t.starts_with("error")).unwrap_or(false);
                 }
+                // medidor do plano: o mesmo registro do motor TS (um arquivo por janela em ~/.constellation/usage)
+                "rate_limit_event" => plan_usage::record_claude_rate_limit(&v, &plan_usage::claude_usage_dir(), now_ms()),
                 _ => {}
             }
         }
@@ -6059,7 +6061,7 @@ fn env_ai_item(pref: &str, av: &ai_once::Avail, codex_login: bool) -> EnvCheck {
 
 /// O app salvou/removeu uma chave (Conta → Chaves de modelo): a disponibilidade dos motores (cache de 30s) vale já.
 #[tauri::command(async)]
-fn ai_avail_refresh() { ai_once::clear_avail_cache(); }
+fn ai_avail_refresh() { ai_once::clear_avail_cache(); plan_usage::clear_caches(); }
 
 /// Painel "Sua IA": estado de CADA motor (pronto · falta instalar · falta login · falta chave) com as correções —
 /// a mesma disponibilidade do ai_once/Ambiente, sem cache (o "verificar de novo" vale na hora).

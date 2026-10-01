@@ -265,8 +265,11 @@
 .planmeter .pm-row{padding:4px 6px;align-items:flex-start}
 .planmeter .pm-row .pm-dot{margin-top:4px}
 .planmeter .pm-row:hover{background:var(--surface-2)}
-.planmeter .pm-name{flex:none;font-weight:600;color:var(--text)}
-.planmeter .pm-txt{flex:1;min-width:0;line-height:1.4;overflow-wrap:anywhere;font-family:var(--code);font-size:10.5px;color:var(--text-2)}
+.planmeter .pm-rows[hidden]{display:none}
+.planmeter .pm-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;line-height:1.4;overflow-wrap:anywhere}
+.planmeter .pm-name{font-weight:600;color:var(--text)}
+.planmeter .pm-txt{font-family:var(--code);font-size:10.5px;color:var(--text-2)}
+.planmeter .pm-det{font-size:10.5px;color:var(--muted)}
 .planmeter .pm-row.pm-warn .pm-txt{color:var(--warn)}
 .planmeter .pm-row.pm-crit .pm-txt{color:var(--crit)}
 .planmeter .pm-dot{flex:none;width:7px;height:7px;border-radius:99px;background:var(--muted)}

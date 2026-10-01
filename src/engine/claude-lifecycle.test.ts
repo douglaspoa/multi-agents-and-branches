@@ -182,7 +182,7 @@ test("custo no --resume: base gravada por nós no state.sqlite; sem base nenhuma
   }
 });
 
-test("medidor do plano: o rate_limit_event do stream vai pra ~/.constellation/usage/claude.json", POSIX, async () => {
+test("medidor do plano: o rate_limit_event do stream vai pra ~/.constellation/usage/claude-five_hour.json", POSIX, async () => {
   const s = setup(`
     out({ type: "system", subtype: "init", session_id: "s1", model: "m" });
     out({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning", resetsAt: 1790884800, rateLimitType: "five_hour", utilization: 0.92 }, uuid: "u", session_id: "s1" });
@@ -190,7 +190,7 @@ test("medidor do plano: o rate_limit_event do stream vai pra ~/.constellation/us
   try {
     const evs: AgentEvent[] = [];
     for await (const ev of new ClaudeEngine({ approval: "auto" }).run(s.input)) evs.push(ev);
-    const o = JSON.parse(readFileSync(join(s.dir, "home", ".constellation", "usage", "claude.json"), "utf8"));
+    const o = { windows: { five_hour: JSON.parse(readFileSync(join(s.dir, "home", ".constellation", "usage", "claude-five_hour.json"), "utf8")) } };
     assert.equal(o.windows.five_hour.status, "allowed_warning");
     assert.equal(o.windows.five_hour.utilization, 0.92);
     assert.equal(o.windows.five_hour.resetsAt, 1790884800);

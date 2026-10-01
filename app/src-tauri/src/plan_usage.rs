@@ -1,13 +1,15 @@
 //! MEDIDOR DO PLANO (widget do menu lateral): quanto já foi usado do plano de cada IA configurada.
 //! Só fontes documentadas ou arquivos locais da própria pessoa — e nada sai desta máquina:
-//! - Claude → `~/.constellation/usage/claude.json` (o último `rate_limit_event` por janela, gravado pelo motor TS
-//!   em src/engine/claude.ts) + o uso que o Starfork registrou nas últimas 5 h (tabela `cost` do projeto ativo).
+//! - Claude → `~/.constellation/usage/claude-<rateLimitType>.json` (o último `rate_limit_event` de CADA janela, um
+//!   arquivo por janela — gravado pelo motor TS (src/engine/claude.ts) e pelos chats stream-json do app
+//!   (run_claude_stream → record_claude_rate_limit), formato fixado por tests/fixtures/plan-usage-golden/) + o uso que
+//!   o Starfork registrou nas últimas 5 h NESTE projeto (tabela `cost`, atribuída pelo motor do papel).
 //!   Porcentagem SÓ quando o evento trouxe `utilization` (o Claude Code manda perto do limite) — nunca inventada.
 //!   NUNCA chama /api/oauth/usage nem lê o token do Keychain.
-//! - Codex → a ÚLTIMA linha `token_count` (rate_limits.primary/secondary) da sessão mais nova em
-//!   `$CODEX_HOME/sessions/AAAA/MM/DD/rollout-*.jsonl` (só a cauda do arquivo). Nunca lê `auth.json`.
+//! - Codex → a última linha `token_count` COM rate_limits das sessões mais novas em
+//!   `$CODEX_HOME/sessions/AAAA/MM/DD/rollout-*.jsonl` (só a cauda; no máximo 2 arquivos). Nunca lê `auth.json`.
 //! - DeepSeek → `GET https://api.deepseek.com/user/balance` com a chave do llm.env (cabeçalho em arquivo 0600,
-//!   nunca no argv), prazo curto e cache de 2 min. O valor da chave nunca sai daqui.
+//!   nunca no argv), prazo curto, cache de 2 min por chave e uma busca por vez. O valor da chave nunca sai daqui.
 //! O comando é async (roda fora da thread da janela) — o front chama no boot, no fim de turno e a cada 2 min.
 use super::*;
 use serde_json::Value;
@@ -33,8 +35,10 @@ pub(crate) struct ClaudeUsage {
     pub pct: Option<f64>,
     /// epoch ms
     pub resets_at: Option<i64>,
-    /// o que o Starfork registrou nas últimas 5 h (projeto ativo)
+    /// o que o Starfork registrou nas últimas 5 h NESTE projeto (projeto ativo)
     pub starfork: StarforkUse,
+    /// não deu pra ler o uso do Starfork (o widget mostra "uso do Starfork indisponível")
+    pub starfork_error: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -92,12 +96,67 @@ fn epoch_ms(v: &Value) -> Option<i64> {
     Some(if n < 1e12 { (n * 1000.0) as i64 } else { n as i64 })
 }
 
-// ---------- Claude ----------
+/// Escrita atômica: tmp único na mesma pasta + rename.
+fn write_atomic(file: &Path, body: &str) -> std::io::Result<()> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = file.with_extension(format!("json.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+    std::fs::write(&tmp, body)?;
+    std::fs::rename(&tmp, file).inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })
+}
 
-/// Monta o resumo do Claude a partir do arquivo do motor (pode faltar) e do uso registrado pelo Starfork.
+// ---------- Claude: registro (mesmo formato do motor TS) ----------
+
+pub(crate) fn claude_usage_dir() -> PathBuf {
+    PathBuf::from(home_dir_s()).join(".constellation").join("usage")
+}
+
+/// `rate_limit_event` → (janela, conteúdo do arquivo). None: não é o evento, status desconhecido ou SEM janela
+/// (não chuta five_hour). Mesma regra do `rateLimitOf`/`rateLimitRecord` do TS (golden compartilhado).
+pub(crate) fn rate_limit_record(v: &Value, now: i64) -> Option<(String, Value)> {
+    if v.get("type")?.as_str()? != "rate_limit_event" { return None; }
+    let i = v.get("rate_limit_info")?;
+    let status = i.get("status")?.as_str()?;
+    if !matches!(status, "allowed" | "allowed_warning" | "rejected") { return None; }
+    let kind = i.get("rateLimitType")?.as_str()?;
+    if kind.is_empty() || kind.len() > 40 || !kind.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') { return None; }
+    let mut r = serde_json::json!({ "v": 1, "rateLimitType": kind, "status": status, "at": now });
+    if let Some(x) = i.get("resetsAt").filter(|x| x.as_f64().is_some_and(|n| n.is_finite() && n > 0.0)) { r["resetsAt"] = x.clone(); }
+    if let Some(x) = i.get("utilization").filter(|x| x.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0)) { r["utilization"] = x.clone(); }
+    Some((kind.to_string(), r))
+}
+
+/// Grava `<dir>/claude-<janela>.json` (um arquivo por janela: processos diferentes não se atropelam). Nunca falha alto.
+pub(crate) fn record_claude_rate_limit(v: &Value, dir: &Path, now: i64) {
+    let Some((kind, rec)) = rate_limit_record(v, now) else { return };
+    let _ = std::fs::create_dir_all(dir);
+    let _ = write_atomic(&dir.join(format!("claude-{kind}.json")), &rec.to_string());
+}
+
+/// Junta os arquivos por janela → `{ "windows": { tipo: registro } }` (a entrada do claude_summary).
+pub(crate) fn read_claude_windows(dir: &Path) -> Value {
+    let mut w = serde_json::Map::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(kind) = name.strip_prefix("claude-").and_then(|n| n.strip_suffix(".json")) else { continue };
+        let Some(rec) = std::fs::read_to_string(e.path()).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) else { continue };
+        if rec.get("rateLimitType").and_then(|t| t.as_str()) != Some(kind) { continue; }
+        w.insert(kind.to_string(), rec);
+    }
+    serde_json::json!({ "windows": w })
+}
+
+// ---------- Claude: resumo ----------
+
+/// `utilization` vem 0–1; se já vier em porcentagem (> 1), usa como está. Sempre 0–100, 1 casa.
+fn util_pct(u: f64) -> f64 {
+    let p = if u <= 1.0 { u * 100.0 } else { u };
+    (p.clamp(0.0, 100.0) * 10.0).round() / 10.0
+}
+
+/// Monta o resumo do Claude a partir das janelas gravadas (pode faltar) e do uso registrado pelo Starfork.
 /// Janelas já reiniciadas (resetsAt no passado) ou velhas (> 5 h sem reinício conhecido) não contam mais.
 /// Prioridade: bloqueado > perto do limite (maior utilization) > janela de 5 h > qualquer outra.
-pub(crate) fn claude_summary(file: Option<&Value>, now: i64, starfork: StarforkUse) -> ClaudeUsage {
+pub(crate) fn claude_summary(file: Option<&Value>, now: i64, starfork: Result<StarforkUse, String>) -> ClaudeUsage {
     struct W { kind: String, status: String, resets: Option<i64>, util: Option<f64> }
     let mut ws: Vec<W> = vec![];
     if let Some(map) = file.and_then(|f| f.get("windows")).and_then(|w| w.as_object()) {
@@ -116,33 +175,62 @@ pub(crate) fn claude_summary(file: Option<&Value>, now: i64, starfork: StarforkU
         .or_else(|| ws.iter().filter(|w| w.status == "allowed_warning").max_by(|a, b| a.util.unwrap_or(0.0).total_cmp(&b.util.unwrap_or(0.0))))
         .or_else(|| ws.iter().find(|w| w.kind == "five_hour"))
         .or_else(|| ws.first());
+    let (sf, sf_err) = match starfork { Ok(s) => (s, None), Err(e) => (StarforkUse::default(), Some(e)) };
     match pick {
-        None => ClaudeUsage { state: "none", window: None, pct: None, resets_at: None, starfork },
+        None => ClaudeUsage { state: "none", window: None, pct: None, resets_at: None, starfork: sf, starfork_error: sf_err },
         Some(w) => ClaudeUsage {
             state: match w.status.as_str() { "rejected" => "blocked", "allowed_warning" => "warn", _ => "ok" },
             window: Some(w.kind.clone()),
-            pct: w.util.map(|u| ((u * 100.0) * 10.0).round() / 10.0),
+            pct: w.util.map(util_pct),
             resets_at: w.resets,
-            starfork,
+            starfork: sf,
+            starfork_error: sf_err,
         },
     }
 }
 
-pub(crate) fn claude_usage_file() -> PathBuf {
-    PathBuf::from(home_dir_s()).join(".constellation").join("usage").join("claude.json")
+/// Motor que rodou um turno: o do PAPEL (roles_json, por nome do agente e depois pelo papel), senão o da tarefa,
+/// senão a IA padrão das configurações.
+pub(crate) fn cost_engine(agent: &str, role: Option<&str>, roles_json: &str, task_engine: &str, default_engine: &str) -> String {
+    let roles: Vec<Value> = serde_json::from_str(roles_json).unwrap_or_default();
+    let by = roles.iter().find(|r| r.get("name").and_then(|n| n.as_str()) == Some(agent))
+        .or_else(|| role.and_then(|ro| roles.iter().find(|r| r.get("role").and_then(|n| n.as_str()) == Some(ro))));
+    by.and_then(|r| r.get("engine")).and_then(|e| e.as_str()).map(str::trim).filter(|s| !s.is_empty())
+        .or_else(|| Some(task_engine.trim()).filter(|s| !s.is_empty()))
+        .unwrap_or(default_engine)
+        .to_string()
 }
 
-/// Turnos das tarefas do CLAUDE gravados no `cost` desde `since` (tarefa apagada conta: o motor padrão é o Claude).
-pub(crate) fn starfork_claude_use(db: &Path, since: i64) -> StarforkUse {
-    let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return StarforkUse::default() };
+/// Turnos do CLAUDE gravados no `cost` desde `since` (só linhas com tarefa; motor atribuído por cost_engine).
+/// Banco antigo sem a coluna `ms` soma sem o tempo; qualquer outro erro sobe.
+pub(crate) fn starfork_claude_use(db: &Path, since: i64, default_engine: &str) -> Result<StarforkUse, String> {
+    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(Duration::from_millis(2000));
-    let q = |ms: &str| format!(
-        "SELECT COUNT(*), COALESCE(SUM(c.in_tok),0), COALESCE(SUM(c.out_tok),0), {ms} FROM cost c LEFT JOIN task t ON t.id = c.task_id \
-         WHERE c.created_at >= ?1 AND (t.engine IS NULL OR t.engine = '' OR t.engine LIKE 'claude%')"
-    );
-    let row = |sql: String| conn.query_row(&sql, [since], |r| Ok(StarforkUse { turns: r.get(0)?, in_tok: r.get(1)?, out_tok: r.get(2)?, ms: r.get(3)? }));
-    // banco antigo sem a coluna `ms`: soma sem o tempo
-    row(q("COALESCE(SUM(c.ms),0)")).or_else(|_| row(q("0"))).unwrap_or_default()
+    let run = |ms: &str| -> rusqlite::Result<StarforkUse> {
+        let sql = format!(
+            "SELECT c.agent, c.role, c.in_tok, c.out_tok, {ms}, t.engine, t.roles_json FROM cost c JOIN task t ON t.id = c.task_id WHERE c.created_at >= ?1"
+        );
+        let mut st = conn.prepare(&sql)?;
+        let mut rows = st.query([since])?;
+        let mut u = StarforkUse::default();
+        while let Some(r) = rows.next()? {
+            let agent: String = r.get::<_, Option<String>>(0)?.unwrap_or_default();
+            let role: Option<String> = r.get(1)?;
+            let eng: String = r.get::<_, Option<String>>(5)?.unwrap_or_default();
+            let roles: String = r.get::<_, Option<String>>(6)?.unwrap_or_default();
+            if ai_once::AiEngine::parse(&cost_engine(&agent, role.as_deref(), &roles, &eng, default_engine)) != Some(ai_once::AiEngine::Claude) { continue; }
+            u.turns += 1;
+            u.in_tok += r.get::<_, Option<i64>>(2)?.unwrap_or(0);
+            u.out_tok += r.get::<_, Option<i64>>(3)?.unwrap_or(0);
+            u.ms += r.get::<_, Option<i64>>(4)?.unwrap_or(0);
+        }
+        Ok(u)
+    };
+    match run("c.ms") {
+        Ok(u) => Ok(u),
+        Err(e) if e.to_string().contains("no such column: c.ms") => run("0").map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 // ---------- Codex ----------
@@ -172,9 +260,10 @@ pub(crate) fn codex_from_line(line: &str, now: i64) -> Option<CodexUsage> {
     Some(CodexUsage { has_data: primary.is_some() || secondary.is_some(), plan, primary, secondary })
 }
 
-/// Cauda do arquivo → a ÚLTIMA linha `token_count` (as anteriores nem são lidas).
+/// Cauda do arquivo → a ÚLTIMA linha `token_count` que TEM rate_limits (sem nenhuma → sem dados).
 pub(crate) fn codex_from_tail(text: &str, now: i64) -> CodexUsage {
-    text.lines().rev().filter(|l| l.contains("\"token_count\"")).find_map(|l| codex_from_line(l, now)).unwrap_or_default()
+    text.lines().rev().filter(|l| l.contains("\"token_count\""))
+        .filter_map(|l| codex_from_line(l, now)).find(|u| u.has_data).unwrap_or_default()
 }
 
 fn codex_home() -> PathBuf {
@@ -192,20 +281,18 @@ fn num_dirs_desc(dir: &Path) -> Vec<PathBuf> {
     v.into_iter().map(|x| x.1).collect()
 }
 
-/// O rollout mais novo: o dia mais recente que tem sessão, e nele o arquivo modificado por último.
-pub(crate) fn codex_newest_rollout(sessions: &Path) -> Option<PathBuf> {
-    for y in num_dirs_desc(sessions) {
-        for m in num_dirs_desc(&y) {
-            for d in num_dirs_desc(&m) {
-                let newest = std::fs::read_dir(&d).into_iter().flatten().flatten()
-                    .filter(|e| e.file_name().to_str().is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl")))
-                    .filter_map(|e| e.metadata().and_then(|m| m.modified()).ok().map(|t| (t, e.path())))
-                    .max_by_key(|x| x.0);
-                if let Some((_, p)) = newest { return Some(p); }
-            }
-        }
-    }
-    None
+/// Rollouts das 3 pastas de dia mais recentes, do modificado por último pro mais velho
+/// (uma sessão aberta ontem e usada hoje continua sendo a mais nova).
+pub(crate) fn codex_recent_rollouts(sessions: &Path) -> Vec<PathBuf> {
+    let days: Vec<PathBuf> = num_dirs_desc(sessions).iter()
+        .flat_map(|y| num_dirs_desc(y)).flat_map(|m| num_dirs_desc(&m)).take(3).collect();
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = days.iter()
+        .flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten())
+        .filter(|e| e.file_name().to_str().is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl")))
+        .filter_map(|e| e.metadata().and_then(|m| m.modified()).ok().map(|t| (t, e.path())))
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.into_iter().map(|x| x.1).collect()
 }
 
 fn read_tail(p: &Path, max: u64) -> String {
@@ -218,12 +305,14 @@ fn read_tail(p: &Path, max: u64) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
-pub(crate) fn codex_usage(now: i64) -> CodexUsage {
-    match codex_newest_rollout(&codex_home().join("sessions")) {
-        Some(p) => codex_from_tail(&read_tail(&p, 512 * 1024), now),
-        None => CodexUsage::default(),
-    }
+/// A sessão mais nova; se ela ainda não tem limites (sessão recém-aberta, rate_limits nulo), a anterior.
+pub(crate) fn codex_usage_in(sessions: &Path, now: i64) -> CodexUsage {
+    codex_recent_rollouts(sessions).iter().take(2)
+        .map(|p| codex_from_tail(&read_tail(p, 512 * 1024), now))
+        .find(|u| u.has_data).unwrap_or_default()
 }
+
+pub(crate) fn codex_usage(now: i64) -> CodexUsage { codex_usage_in(&codex_home().join("sessions"), now) }
 
 // ---------- DeepSeek ----------
 
@@ -239,10 +328,20 @@ pub(crate) fn parse_deepseek_balance(body: &str) -> Result<DeepseekUsage, String
     Ok(DeepseekUsage { ok: true, available: v.get("is_available").and_then(|a| a.as_bool()).unwrap_or(true), balances })
 }
 
-static DS_CACHE: Mutex<Option<(Instant, DeepseekUsage)>> = Mutex::new(None);
+/// (hash da chave, quando, valor) — trocar a chave invalida.
+static DS_CACHE: Mutex<Option<(u64, Instant, DeepseekUsage)>> = Mutex::new(None);
 const DS_TTL: Duration = Duration::from_secs(120);
 
+fn key_hash(k: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    k.hash(&mut h);
+    h.finish()
+}
+
 fn deepseek_fetch(key: &str) -> DeepseekUsage {
+    // CR/LF na chave viraria um cabeçalho extra no arquivo do curl
+    if key.contains('\r') || key.contains('\n') { return DeepseekUsage::default(); }
     let mut files = ai_once::TmpFiles(vec![]);
     let Ok(hdr) = ai_once::tmp_private(&mut files, "dsb", &format!("Authorization: Bearer {key}\nAccept: application/json\n")) else { return DeepseekUsage::default() };
     let mut c = Command::new("curl");
@@ -255,14 +354,21 @@ fn deepseek_fetch(key: &str) -> DeepseekUsage {
     }
 }
 
-/// Saldo com cache de 2 min (erro também fica 2 min — nunca martela a API).
-pub(crate) fn deepseek_usage() -> DeepseekUsage {
-    if let Some((at, v)) = DS_CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        if at.elapsed() < DS_TTL { return v.clone(); }
+/// Saldo com cache de 2 min POR CHAVE (erro também fica 2 min). A trava fica presa durante a busca:
+/// uma busca por vez — chamadas simultâneas esperam e usam o resultado dela.
+pub(crate) fn deepseek_usage_with(key: &str, fetch: impl Fn(&str) -> DeepseekUsage) -> DeepseekUsage {
+    let h = key_hash(key);
+    let mut g = DS_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((kh, at, v)) = g.as_ref() {
+        if *kh == h && at.elapsed() < DS_TTL { return v.clone(); }
     }
-    let v = match ai_once::dsh_key() { Some(k) => deepseek_fetch(&k), None => DeepseekUsage::default() };
-    *DS_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), v.clone()));
+    let v = fetch(key);
+    *g = Some((h, Instant::now(), v.clone()));
     v
+}
+
+pub(crate) fn deepseek_usage() -> DeepseekUsage {
+    match ai_once::dsh_key() { Some(k) => deepseek_usage_with(&k, deepseek_fetch), None => DeepseekUsage::default() }
 }
 
 // ---------- agregador ----------
@@ -281,16 +387,23 @@ fn ready_engines() -> Vec<&'static str> {
     v
 }
 
+/// Config da Sua IA mudou (chave salva/removida, "verificar de novo"): esquece prontas e saldo.
+pub(crate) fn clear_caches() {
+    *READY_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *DS_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 pub(crate) fn collect(db: Option<PathBuf>, configured: Vec<&'static str>, now: i64) -> PlanUsage {
     let has = |id: &str| configured.contains(&id);
+    let default_engine = ai_once::pref_engine();
     let claude = has("claude").then(|| {
-        let file = std::fs::read_to_string(claude_usage_file()).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
-        let used = db.as_deref().map(|d| starfork_claude_use(d, now - FIVE_H_MS)).unwrap_or_default();
-        claude_summary(file.as_ref(), now, used)
+        let windows = read_claude_windows(&claude_usage_dir());
+        let used = match db.as_deref() { Some(d) => starfork_claude_use(d, now - FIVE_H_MS, &default_engine), None => Ok(StarforkUse::default()) };
+        claude_summary(Some(&windows), now, used)
     });
     let codex = has("codex").then(|| codex_usage(now));
     let deepseek = has("deepseek").then(deepseek_usage);
-    PlanUsage { default_engine: ai_once::pref_engine(), configured, claude, codex, deepseek }
+    PlanUsage { default_engine, configured, claude, codex, deepseek }
 }
 
 /// Medidor do plano (widget do menu lateral). Async: nunca segura a janela.
@@ -306,13 +419,62 @@ mod tests {
     use serde_json::json;
 
     const NOW: i64 = 1_790_870_000_000; // 2026-10-01 ~13:13 BRT
+    const CODEX_LINE: &str = r#"{"timestamp":"2026-10-01T16:12:14.817Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":19914}},"rate_limits":{"limit_id":"codex","primary":{"used_percent":9.0,"window_minutes":300,"resets_at":1790884401},"secondary":{"used_percent":1.0,"window_minutes":10080,"resets_at":1791471201},"credits":{"has_credits":false},"plan_type":"plus","rate_limit_reached_type":null}}}"#;
+    const NULL_RL: &str = r#"{"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":null}}"#;
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sf-plan-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn golden_registro_do_claude_igual_ao_ts() {
+        let g: Vec<Value> = serde_json::from_str(include_str!("../../../tests/fixtures/plan-usage-golden/claude-rate-limit.json")).unwrap();
+        for c in g {
+            let name = c["name"].as_str().unwrap();
+            let line: Value = serde_json::from_str(c["line"].as_str().unwrap()).unwrap();
+            let now = c["now"].as_i64().unwrap();
+            let d = tmpdir("golden");
+            record_claude_rate_limit(&line, &d, now);
+            let files: Vec<String> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+            match c["file"].as_str() {
+                None => { assert!(rate_limit_record(&line, now).is_none(), "{name}"); assert!(files.is_empty(), "{name}"); }
+                Some(f) => {
+                    assert_eq!(files, vec![f.to_string()], "{name} (sem .tmp sobrando)");
+                    let got: Value = serde_json::from_str(&std::fs::read_to_string(d.join(f)).unwrap()).unwrap();
+                    assert_eq!(got, c["record"], "{name}");
+                }
+            }
+            let _ = std::fs::remove_dir_all(&d);
+        }
+    }
+
+    #[test]
+    fn leitura_junta_os_arquivos_por_janela() {
+        let d = tmpdir("windows");
+        let ev = |st: &str, kind: &str, u: Option<f64>| {
+            let mut i = json!({ "status": st, "rateLimitType": kind, "resetsAt": 1_791_400_000 });
+            if let Some(u) = u { i["utilization"] = json!(u); }
+            json!({ "type": "rate_limit_event", "rate_limit_info": i })
+        };
+        record_claude_rate_limit(&ev("allowed", "five_hour", None), &d, NOW);
+        record_claude_rate_limit(&ev("allowed_warning", "seven_day", Some(0.8)), &d, NOW);
+        std::fs::write(d.join("claude-lixo.json"), "{quebrado").unwrap();
+        std::fs::write(d.join("claude-x.json"), r#"{"rateLimitType":"outro","status":"rejected"}"#).unwrap();
+        let w = read_claude_windows(&d);
+        let keys: Vec<&String> = w["windows"].as_object().unwrap().keys().collect();
+        assert_eq!(keys, vec!["five_hour", "seven_day"]);
+        let c = claude_summary(Some(&w), NOW, Ok(StarforkUse::default()));
+        assert_eq!((c.state, c.pct), ("warn", Some(80.0)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn codex_token_count_fixture() {
-        // linha real (formato do rollout do Codex 0.13x, plano plus)
-        let line = r#"{"timestamp":"2026-10-01T16:12:14.817Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":19914}},"rate_limits":{"limit_id":"codex","primary":{"used_percent":9.0,"window_minutes":300,"resets_at":1790884401},"secondary":{"used_percent":1.0,"window_minutes":10080,"resets_at":1791471201},"credits":{"has_credits":false},"plan_type":"plus","rate_limit_reached_type":null}}}"#;
         let tail = format!("{{\"type\":\"response_item\"}}\n{}\n{}\n{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"agent_message\"}}}}\n",
-            line.replace("9.0", "50.0"), line);
+            CODEX_LINE.replace("9.0", "50.0"), CODEX_LINE);
         let u = codex_from_tail(&tail, NOW);
         assert!(u.has_data);
         assert_eq!(u.plan.as_deref(), Some("plus"));
@@ -323,61 +485,88 @@ mod tests {
     }
 
     #[test]
-    fn codex_sem_rate_limits_e_janela_reiniciada() {
-        let none = r#"{"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":null}}"#;
-        assert_eq!(codex_from_tail(none, NOW), CodexUsage::default(), "sessão sem rate_limits → sem dados ainda");
+    fn codex_rate_limits_nulo_usa_a_ultima_com_limites() {
+        assert_eq!(codex_from_tail(NULL_RL, NOW), CodexUsage::default(), "sessão sem rate_limits → sem dados ainda");
         assert_eq!(codex_from_tail("{\"type\":\"session_meta\"}\nlixo", NOW), CodexUsage::default());
+        let u = codex_from_tail(&format!("{CODEX_LINE}\n{NULL_RL}\n"), NOW);
+        assert_eq!(u.primary.unwrap().used_percent, 9.0, "a última token_count veio nula: vale a anterior com limites");
         let old = r#"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":80.0,"window_minutes":300,"resets_at":1000}}}}"#;
-        let u = codex_from_tail(old, NOW);
-        let p = u.primary.unwrap();
+        let p = codex_from_tail(old, NOW).primary.unwrap();
         assert!(p.reset);
         assert_eq!(p.used_percent, 0.0, "janela que já reiniciou não mostra o uso velho");
-        assert!(u.secondary.is_none());
+    }
+
+    fn put(s: &Path, rel: &str, body: &str, mtime_s: u64) {
+        let f = s.join(rel);
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(&f, body).unwrap();
+        let t = std::time::UNIX_EPOCH + Duration::from_secs(mtime_s);
+        std::fs::File::options().write(true).open(&f).unwrap().set_modified(t).unwrap();
     }
 
     #[test]
-    fn codex_rollout_mais_novo() {
-        let d = std::env::temp_dir().join(format!("sf-codex-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
+    fn codex_rollout_mais_novo_por_mtime_nas_3_ultimas_pastas() {
+        let d = tmpdir("codex");
         let s = d.join("sessions");
-        for (p, body) in [("2026/09/30/rollout-a.jsonl", "a"), ("2026/10/01/rollout-b.jsonl", "b"), ("2026/10/01/rollout-c.jsonl", "c"), ("2026/10/01/outro.txt", "x")] {
-            let f = s.join(p);
-            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
-            std::fs::write(&f, body).unwrap();
-            std::thread::sleep(Duration::from_millis(15));
-        }
-        std::fs::create_dir_all(s.join("2026/10/02")).unwrap(); // dia vazio: pula
-        assert_eq!(codex_newest_rollout(&s).unwrap().file_name().unwrap(), "rollout-c.jsonl");
-        assert!(codex_newest_rollout(&d.join("nada")).is_none());
-        // cauda: só os últimos bytes
-        let big = s.join("2026/10/01/rollout-c.jsonl");
+        put(&s, "2026/09/28/rollout-velho.jsonl", CODEX_LINE, 9_000); // 4ª pasta: fora
+        put(&s, "2026/09/30/rollout-ontem.jsonl", CODEX_LINE, 5_000); // aberta ontem, usada por último
+        put(&s, "2026/10/01/rollout-b.jsonl", NULL_RL, 3_000);
+        put(&s, "2026/09/29/rollout-a.jsonl", NULL_RL, 1_000);
+        put(&s, "2026/10/01/outro.txt", "x", 9_999);
+        let names: Vec<String> = codex_recent_rollouts(&s).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, vec!["rollout-ontem.jsonl", "rollout-b.jsonl", "rollout-a.jsonl"]);
+        assert!(codex_usage_in(&s, NOW).has_data);
+        // a mais nova ainda sem limites → a anterior
+        put(&s, "2026/10/01/rollout-b.jsonl", NULL_RL, 8_000);
+        assert_eq!(codex_recent_rollouts(&s)[0].file_name().unwrap(), "rollout-b.jsonl");
+        assert_eq!(codex_usage_in(&s, NOW).primary.unwrap().used_percent, 9.0);
+        // nenhuma das 2 mais novas tem limites → sem dados (não varre o resto)
+        put(&s, "2026/09/29/rollout-a.jsonl", NULL_RL, 8_500);
+        put(&s, "2026/09/30/rollout-ontem.jsonl", CODEX_LINE, 100);
+        assert!(!codex_usage_in(&s, NOW).has_data);
+        assert!(codex_recent_rollouts(&d.join("nada")).is_empty());
+        let big = s.join("2026/10/01/rollout-b.jsonl");
         std::fs::write(&big, format!("{}\nfim", "x".repeat(4000))).unwrap();
         assert_eq!(read_tail(&big, 10), "xxxxxx\nfim");
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
-    fn deepseek_saldo() {
+    fn deepseek_saldo_e_cache_por_chave() {
         let ok = r#"{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"4.20","granted_balance":"0.00","topped_up_balance":"4.20"}]}"#;
         assert_eq!(parse_deepseek_balance(ok).unwrap(), DeepseekUsage { ok: true, available: true, balances: vec![Balance { currency: "USD".into(), total: "4.20".into() }] });
         assert!(parse_deepseek_balance(r#"{"error":{"message":"Authentication Fails"}}"#).is_err());
         assert!(parse_deepseek_balance("<html>").is_err());
-        assert_eq!(DeepseekUsage::default().ok, false, "erro de rede → saldo indisponível");
+        assert_eq!(deepseek_fetch("sk-a\r\nX-Evil: 1"), DeepseekUsage::default(), "CR/LF na chave: nem monta o cabeçalho");
+        // cache: mesma chave não busca de novo; chave nova invalida; clear_caches esquece
+        let n = std::sync::atomic::AtomicU32::new(0);
+        let f = |_: &str| { n.fetch_add(1, std::sync::atomic::Ordering::SeqCst); parse_deepseek_balance(ok).unwrap() };
+        clear_caches();
+        deepseek_usage_with("k1", f);
+        deepseek_usage_with("k1", f);
+        assert_eq!(n.load(std::sync::atomic::Ordering::SeqCst), 1);
+        deepseek_usage_with("k2", f);
+        assert_eq!(n.load(std::sync::atomic::Ordering::SeqCst), 2, "trocou a chave → busca de novo");
+        clear_caches();
+        deepseek_usage_with("k2", f);
+        assert_eq!(n.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 
     fn sf() -> StarforkUse { StarforkUse { turns: 3, in_tok: 100_000, out_tok: 20_000, ms: 60_000 } }
 
     #[test]
     fn claude_sem_evento_so_uso_do_starfork() {
-        let c = claude_summary(None, NOW, sf());
+        let c = claude_summary(None, NOW, Ok(sf()));
         assert_eq!((c.state, c.pct, c.resets_at), ("none", None, None));
         assert_eq!(c.starfork.in_tok + c.starfork.out_tok, 120_000);
+        let e = claude_summary(None, NOW, Err("database is locked".into()));
+        assert_eq!(e.starfork_error.as_deref(), Some("database is locked"));
     }
 
     #[test]
     fn claude_normal_sem_utilization_nao_inventa_porcentagem() {
         let f = json!({ "windows": { "five_hour": { "status": "allowed", "resetsAt": 1_790_884_800, "at": NOW - 1000 } } });
-        let c = claude_summary(Some(&f), NOW, sf());
+        let c = claude_summary(Some(&f), NOW, Ok(sf()));
         assert_eq!(c.state, "ok");
         assert_eq!(c.window.as_deref(), Some("five_hour"));
         assert_eq!(c.pct, None);
@@ -389,40 +578,92 @@ mod tests {
         let f = json!({ "windows": {
             "five_hour": { "status": "allowed", "resetsAt": 1_790_884_800 },
             "seven_day": { "status": "allowed_warning", "resetsAt": 1_791_400_000, "utilization": 0.92 } } });
-        let c = claude_summary(Some(&f), NOW, sf());
+        let c = claude_summary(Some(&f), NOW, Ok(sf()));
         assert_eq!((c.state, c.window.as_deref(), c.pct), ("warn", Some("seven_day"), Some(92.0)));
         let f = json!({ "windows": {
             "five_hour": { "status": "rejected", "resetsAt": 1_790_884_800 },
             "seven_day": { "status": "allowed_warning", "resetsAt": 1_791_400_000, "utilization": 0.92 } } });
-        let c = claude_summary(Some(&f), NOW, sf());
+        let c = claude_summary(Some(&f), NOW, Ok(sf()));
         assert_eq!((c.state, c.window.as_deref(), c.pct), ("blocked", Some("five_hour"), None));
+    }
+
+    #[test]
+    fn claude_utilization_em_escala_errada() {
+        let w = |u: f64| json!({ "windows": { "five_hour": { "status": "allowed_warning", "resetsAt": 1_790_884_800, "utilization": u } } });
+        assert_eq!(claude_summary(Some(&w(92.0)), NOW, Ok(sf())).pct, Some(92.0), "já em %: não vira 9200 %");
+        assert_eq!(claude_summary(Some(&w(9200.0)), NOW, Ok(sf())).pct, Some(100.0), "teto 100");
+        assert_eq!(claude_summary(Some(&w(1.0)), NOW, Ok(sf())).pct, Some(100.0));
+        assert_eq!(claude_summary(Some(&w(0.0)), NOW, Ok(sf())).pct, Some(0.0));
     }
 
     #[test]
     fn claude_janela_que_ja_reiniciou_nao_conta() {
         let f = json!({ "windows": { "five_hour": { "status": "rejected", "resetsAt": 1_000 } } });
-        assert_eq!(claude_summary(Some(&f), NOW, sf()).state, "none");
+        assert_eq!(claude_summary(Some(&f), NOW, Ok(sf())).state, "none");
         let f = json!({ "windows": { "five_hour": { "status": "allowed", "at": NOW - FIVE_H_MS - 1 } } });
-        assert_eq!(claude_summary(Some(&f), NOW, sf()).state, "none", "sem reinício conhecido e > 5 h: velho");
+        assert_eq!(claude_summary(Some(&f), NOW, Ok(sf())).state, "none", "sem reinício conhecido e > 5 h: velho");
         let f = json!({ "windows": { "five_hour": { "status": "allowed", "at": NOW - 60_000 } } });
-        assert_eq!(claude_summary(Some(&f), NOW, sf()).state, "ok");
+        assert_eq!(claude_summary(Some(&f), NOW, Ok(sf())).state, "ok");
     }
 
     #[test]
-    fn claude_uso_do_starfork_so_claude_e_so_5h() {
-        let d = std::env::temp_dir().join(format!("sf-plan-{}.sqlite", std::process::id()));
+    fn motor_do_turno_pelo_papel() {
+        let roles = r#"[{"role":"builder","name":"Íris","engine":"codex"},{"role":"reviewer","name":"Leo","engine":"claude"}]"#;
+        assert_eq!(cost_engine("Íris", Some("builder"), roles, "claude", "claude"), "codex", "o papel manda");
+        assert_eq!(cost_engine("Outro", Some("reviewer"), roles, "codex", "claude"), "claude", "sem nome: pelo papel");
+        assert_eq!(cost_engine("Zé", None, roles, "codex", "claude"), "codex", "sem papel: o da tarefa");
+        assert_eq!(cost_engine("Zé", None, "[]", "", "deepseek"), "deepseek", "nada: a IA padrão (não 'claude')");
+        assert_eq!(cost_engine("Zé", None, "lixo", " ", "codex"), "codex");
+    }
+
+    fn mkdb(tag: &str, with_ms: bool) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sf-plan-{tag}-{}.sqlite", std::process::id()));
         let _ = std::fs::remove_file(&d);
         let c = Connection::open(&d).unwrap();
-        c.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, engine TEXT NOT NULL);
-            CREATE TABLE cost (id INTEGER PRIMARY KEY, task_id TEXT, agent TEXT, role TEXT, usd REAL, in_tok INTEGER, out_tok INTEGER, ms INTEGER NOT NULL DEFAULT 0, created_at INTEGER);
-            INSERT INTO task VALUES ('a','claude'),('b','codex');").unwrap();
-        let now = NOW;
-        for (t, i, o, ms, at) in [("a", 1000, 100, 5000, now - 1000), ("a", 2000, 200, 7000, now - 2 * 3600 * 1000), ("b", 9999, 9999, 1, now - 1000), ("a", 5555, 5555, 1, now - 6 * 3600 * 1000), ("apagada", 10, 1, 0, now - 1000)] {
-            c.execute("INSERT INTO cost (task_id, agent, usd, in_tok, out_tok, ms, created_at) VALUES (?1,'x',0,?2,?3,?4,?5)", params![t, i, o, ms, at]).unwrap();
+        let ms = if with_ms { ", ms INTEGER NOT NULL DEFAULT 0" } else { "" };
+        c.execute_batch(&format!("CREATE TABLE task (id TEXT PRIMARY KEY, engine TEXT NOT NULL, roles_json TEXT NOT NULL DEFAULT '[]');
+            CREATE TABLE cost (id INTEGER PRIMARY KEY, task_id TEXT, agent TEXT, role TEXT, usd REAL, in_tok INTEGER, out_tok INTEGER{ms}, created_at INTEGER);
+            INSERT INTO task VALUES ('a','claude','[]'),('b','codex','[]'),('mix','claude','[{{\"role\":\"builder\",\"name\":\"Íris\",\"engine\":\"codex\"}}]'),('vazio','','[]');")).unwrap();
+        d
+    }
+
+    #[test]
+    fn uso_do_starfork_so_claude_so_5h_sem_orfas() {
+        let d = mkdb("use", true);
+        let c = Connection::open(&d).unwrap();
+        for (t, agent, i, o, ms, at) in [
+            ("a", "x", 1000, 100, 5000, NOW - 1000),
+            ("a", "x", 2000, 200, 7000, NOW - 2 * 3600 * 1000),
+            ("b", "x", 9999, 9999, 1, NOW - 1000),           // codex
+            ("a", "x", 5555, 5555, 1, NOW - 6 * 3600 * 1000), // fora das 5 h
+            ("apagada", "x", 10, 1, 0, NOW - 1000),          // órfã: não conta
+            ("mix", "Íris", 777, 7, 0, NOW - 1000),          // papel no codex
+            ("mix", "Leo", 30, 3, 10, NOW - 1000),           // papel sem motor → o da tarefa (claude)
+            ("vazio", "x", 400, 4, 0, NOW - 1000),           // sem motor → a padrão
+        ] {
+            c.execute("INSERT INTO cost (task_id, agent, usd, in_tok, out_tok, ms, created_at) VALUES (?1,?2,0,?3,?4,?5,?6)", params![t, agent, i, o, ms, at]).unwrap();
         }
         drop(c);
-        assert_eq!(starfork_claude_use(&d, now - FIVE_H_MS), StarforkUse { turns: 3, in_tok: 3010, out_tok: 301, ms: 12000 });
-        assert_eq!(starfork_claude_use(Path::new("/nao/existe.sqlite"), 0), StarforkUse::default());
+        let since = NOW - FIVE_H_MS;
+        assert_eq!(starfork_claude_use(&d, since, "claude").unwrap(), StarforkUse { turns: 4, in_tok: 3430, out_tok: 307, ms: 12010 });
+        assert_eq!(starfork_claude_use(&d, since, "codex").unwrap().turns, 3, "tarefa sem motor segue a IA padrão");
+        assert!(starfork_claude_use(Path::new("/nao/existe.sqlite"), 0, "claude").is_err());
+        let _ = std::fs::remove_file(&d);
+    }
+
+    #[test]
+    fn uso_do_starfork_banco_antigo_sem_ms_e_erro_real() {
+        let d = mkdb("old", false);
+        let c = Connection::open(&d).unwrap();
+        c.execute("INSERT INTO cost (task_id, agent, usd, in_tok, out_tok, created_at) VALUES ('a','x',0,10,2,?1)", [NOW]).unwrap();
+        drop(c);
+        assert_eq!(starfork_claude_use(&d, 0, "claude").unwrap(), StarforkUse { turns: 1, in_tok: 10, out_tok: 2, ms: 0 });
+        // outro erro (sem a tabela task) NÃO é escondido
+        let c = Connection::open(&d).unwrap();
+        c.execute_batch("DROP TABLE task;").unwrap();
+        drop(c);
+        let e = starfork_claude_use(&d, 0, "claude").unwrap_err();
+        assert!(e.contains("no such table"), "{e}");
         let _ = std::fs::remove_file(&d);
     }
 
@@ -432,12 +673,26 @@ mod tests {
         assert!(u.claude.is_none() && u.codex.is_none() && u.deepseek.is_none());
     }
 
+    #[test]
+    fn formato_serializado_igual_ao_golden_do_front() {
+        let golden: Value = serde_json::from_str(include_str!("../../../tests/fixtures/plan-usage-golden/payload.json")).unwrap();
+        let f = json!({ "windows": { "five_hour": { "status": "allowed", "resetsAt": 1_790_884_800 } } });
+        let u = PlanUsage {
+            default_engine: "claude".into(),
+            configured: vec!["claude", "codex", "deepseek"],
+            claude: Some(claude_summary(Some(&f), NOW, Ok(StarforkUse { turns: 3, in_tok: 118_000, out_tok: 2_000, ms: 600_000 }))),
+            codex: Some(codex_from_tail(CODEX_LINE, NOW)),
+            deepseek: Some(parse_deepseek_balance(r#"{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"4.20"}]}"#).unwrap()),
+        };
+        assert_eq!(serde_json::to_value(&u).unwrap(), golden);
+    }
+
     /// Conferência manual nesta máquina: `cargo test real_machine -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn real_machine_plan_usage() {
         let u = collect(None, vec!["claude", "codex"], now_ms());
         println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "claude": u.claude, "codex": u.codex })).unwrap());
-        println!("rollout: {:?}", codex_newest_rollout(&codex_home().join("sessions")));
+        println!("rollouts: {:?}", codex_recent_rollouts(&codex_home().join("sessions")).iter().take(2).collect::<Vec<_>>());
     }
 }
