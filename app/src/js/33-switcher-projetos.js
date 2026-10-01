@@ -58,7 +58,7 @@ $id("newTaskBtn").onclick = async()=>{ if(await gitGate()) openNewTask(); };
     document.addEventListener('click',(e)=>{ if(!e.target.closest('#moreWrap')) mm.style.display='none'; });
     mm.addEventListener('click',()=>{ setTimeout(()=>{ mm.style.display='none'; },80); });
     // o aviso de ambiente (envDot) reflete no botão do menu
-    setInterval(()=>{ const d=$id('envDot'), md=$id('moreDot'); if(d&&md) md.style.display=d.style.display; }, 3000);
+    setInterval(()=>{ const d=$id('envDot'), md=$id('moreDot'); if(d&&md) md.style.display=(d.style.display==='block'||(window.memLearnN||0)>0)?'block':'none'; }, 3000); // + aprendizados pra revisar (37-memoria)
   } }
 // publicar release DE DENTRO do app (sessão logada — sem senha em env)
 // modal próprio: prompt() não existe no webview do Tauri (clique morria calado)

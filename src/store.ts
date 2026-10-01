@@ -487,6 +487,13 @@ export class Store {
       .all(taskId) as { id: number; text: string }[];
   }
 
+  /** Todas as instruções do humano nesta tarefa (menos as canceladas) — a retro lê como correções. */
+  instructionsFor(taskId: string): { text: string; created_at: number }[] {
+    return this.db
+      .prepare(`SELECT text, created_at FROM instruction WHERE task_id = ? AND status != 'cancelled' ORDER BY id`)
+      .all(taskId) as { text: string; created_at: number }[];
+  }
+
   /** Cancela uma instrução que ainda não foi entregue. true = estava aberta e foi cancelada. */
   cancelInstruction(id: number): boolean {
     const r = this.db.prepare(`UPDATE instruction SET status = 'cancelled', applied_at = ? WHERE id = ? AND status = 'open'`).run(Date.now(), id);

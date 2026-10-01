@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
 mod epic_context;
+mod learn;
 mod memoria;
 mod mesa;
 #[cfg(target_os = "macos")]
@@ -8908,6 +8909,9 @@ pub fn run() {
             memoria::memory_graph,
             memoria::memory_set_mode,
             memoria::memory_open_obsidian,
+            learn::learn_pending,
+            learn::learn_accept,
+            learn::learn_discard,
             mesa::mesa_ask,
             mesa::mesa_stop,
             mesa::mesa_resume,

@@ -75,7 +75,7 @@ pub fn slugify(s: &str) -> String {
     if t.is_empty() { "nota".into() } else { format!("nota-{}", fnv1a(t)) }
 }
 
-fn norm_type(t: &str) -> String {
+pub(crate) fn norm_type(t: &str) -> String {
     let f = fold(t.trim());
     for x in NOTE_TYPES { if fold(x) == f { return x.to_string(); } }
     if f.starts_with("decis") { return "decisão".into(); }
@@ -468,7 +468,7 @@ pub fn list_notes(repo: &Path, include_team: bool) -> Vec<Note> {
 // ---------------------------------------------------------------------------
 
 /// Data LOCAL (AAAA-MM-DD), como o `today()` do TS.
-fn today() -> String {
+pub(crate) fn today() -> String {
     #[cfg(unix)]
     {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as libc::time_t).unwrap_or(0);
