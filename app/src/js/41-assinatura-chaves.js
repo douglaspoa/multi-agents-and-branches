@@ -132,7 +132,7 @@ async function secretsSync(){
   }catch(_){ }
 }
 // chave nova/removida (ex.: DEEPSEEK_API_KEY) vale JÁ no seletor/Ambiente: zera o cache de 30s da disponibilidade
-function secretsAvailRefresh(){ try{ return Promise.resolve(invoke('ai_avail_refresh')).catch(()=>{}); }catch(_){ return Promise.resolve(); } }
+function secretsAvailRefresh(){ if(typeof suaIaAt!=='undefined') suaIaAt=0; /* painel Sua IA relê na próxima vez */ try{ return Promise.resolve(invoke('ai_avail_refresh')).catch(()=>{}); }catch(_){ return Promise.resolve(); } }
 async function secretSet(name, value){
   await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
     body: JSON.stringify({ user_id:cloudUserId(), name, value }) });
@@ -228,10 +228,12 @@ window.routeAiMount=function(){
 function wireRouteAiCfg(root){
   if(!SB.sess()) return;
   const $=id=>root.querySelector('#'+id);
-  const save=(k,v)=>secretSet(k,v);
+  // gravou/removeu → o painel Sua IA relê o estado (o cartão do gateway sai de "falta configurar")
+  const relSuaIa=r=>{ if(typeof suaIaLoad==='function') suaIaLoad(true).catch(()=>{}); return r; };
+  const save=(k,v)=>secretSet(k,v).then(relSuaIa);
   const rerender=()=>{ const host=$('raHost'); if(host){ host.innerHTML=routeAiCfgHtml(); wireRouteAiCfg(host); } };
   { const b=$('raKeySave'); if(b) b.onclick=async()=>{ const v=($('raKey')||{}).value||''; if(!v.trim()) return; await save('ALT_AI_KEY',v.trim()); rerender(); }; }
-  { const b=$('raKeyEdit'); if(b) b.onclick=async()=>{ await secretDel('ALT_AI_KEY'); rerender(); }; }
+  { const b=$('raKeyEdit'); if(b) b.onclick=async()=>{ await secretDel('ALT_AI_KEY'); relSuaIa(); rerender(); }; }
   { const b=$('raModel'); if(b) b.onchange=e=>save('ALT_AI_MODEL',e.target.value); }
   { const b=$('raBase'); if(b) b.onchange=e=>save('ALT_AI_BASE_URL',e.target.value.trim()); }
   { const b=$('raLabel'); if(b) b.onchange=e=>save('ALT_AI_LABEL',e.target.value.trim()); }

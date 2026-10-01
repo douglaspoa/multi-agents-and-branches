@@ -75,9 +75,9 @@ impl Avail {
     }
 }
 
-pub(crate) const NO_ENGINE_MSG: &str = "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Conta → Chaves de modelo).";
+pub(crate) const NO_ENGINE_MSG: &str = "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Configurações → Sua IA).";
 pub(crate) const DSH_MISSING_MSG: &str = "O DeepSeek Harness (dsh) não está instalado neste computador — instale com npm i -g @deepseek-ai/dsh (veja Mais › Ambiente).";
-pub(crate) const DSH_KEY_MSG: &str = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Conta → Chaves de modelo.";
+pub(crate) const DSH_KEY_MSG: &str = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Configurações → Sua IA.";
 pub(crate) const DSH_TIMEOUT_MSG: &str = "O DeepSeek não respondeu a tempo — tente de novo.";
 pub(crate) const DSH_FAST_MODEL: &str = "deepseek-flash";
 pub(crate) const DSH_CAPABLE_MODEL: &str = "deepseek-v4-pro";
@@ -317,7 +317,7 @@ pub(crate) fn codex_friendly_error(msg: &str) -> String {
     let l = msg.to_lowercase();
     let short: String = msg.chars().take(300).collect();
     if l.contains("401") || l.contains("unauthorized") || l.contains("api key") || l.contains("not logged") || l.contains("login") {
-        return format!("O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Conta → Chaves de modelo.\n\n({short})");
+        return format!("O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Configurações → Sua IA.\n\n({short})");
     }
     if l.contains("429") || l.contains("rate limit") || l.contains("quota") || l.contains("usage limit") {
         return format!("O Codex está sem cota/limite no momento — espere um pouco e tente de novo.\n\n({short})");
@@ -402,15 +402,22 @@ pub(crate) fn codex_exec(bin: &str, prompt: &str, cwd: Option<&Path>, model: Opt
 
 /// Codex com o retry de modelo recusado: a 2ª tentativa (sem -m) usa o TEMPO QUE SOBROU, e a recusa fica
 /// guardada pro resto do processo.
+#[cfg(test)]
 pub(crate) fn codex_run(bin: &str, key: Option<&str>, req: &AiOnce, user_model: Option<&str>) -> Result<String, String> {
-    let deadline = Instant::now() + Duration::from_secs(req.secs.max(120));
+    codex_run_used(bin, key, req, user_model, deadline_for(AiEngine::Codex, req.secs, None)).map(|x| x.0)
+}
+/// Codex com prazo de `secs` (ver deadline_for). Devolve (resposta, modelo USADO — None = padrão do Codex, inclusive
+/// quando o escolhido foi recusado e a 2ª tentativa foi sem -m).
+pub(crate) fn codex_run_used(bin: &str, key: Option<&str>, req: &AiOnce, user_model: Option<&str>, secs: u64) -> Result<(String, Option<String>), String> {
+    let deadline = Instant::now() + Duration::from_secs(secs.max(1));
     let (model, low) = codex_plan(req.tier, user_model);
     match codex_exec(bin, req.prompt, req.cwd, model.as_deref(), low, key, deadline) {
+        Ok(s) => Ok((s, model)),
         Err(f) if model.is_some() && codex_model_refused(&f.raw) => {
             codex_remember_refused(model.as_deref().unwrap_or(""));
-            codex_exec(bin, req.prompt, req.cwd, None, low, key, deadline).map_err(|f| f.friendly)
+            codex_exec(bin, req.prompt, req.cwd, None, low, key, deadline).map(|s| (s, None)).map_err(|f| f.friendly)
         }
-        r => r.map_err(|f| f.friendly),
+        Err(f) => Err(f.friendly),
     }
 }
 
@@ -508,17 +515,32 @@ pub(crate) fn dsh_key() -> Option<String> {
         .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))
 }
 
-/// Pronto pra uso? Err = o que falta, já em mensagem humana (binário → node → chave).
-pub(crate) fn dsh_status() -> Result<(), String> {
-    if !bin_exists(&dsh_bin()) { return Err(DSH_MISSING_MSG.into()); }
+/// O que falta pro dsh rodar — TIPADO (o painel Sua IA decide o estado por aqui, não pelo texto da mensagem).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum DshIssue {
+    Missing,
+    /// Node incompatível/ausente — a mensagem humana já pronta
+    Node(String),
+    Key,
+}
+impl DshIssue {
+    pub(crate) fn msg(&self) -> String {
+        match self { DshIssue::Missing => DSH_MISSING_MSG.into(), DshIssue::Node(m) => m.clone(), DshIssue::Key => DSH_KEY_MSG.into() }
+    }
+}
+/// Pronto pra uso? Err = o que falta (binário → node → chave).
+pub(crate) fn dsh_check() -> Result<(), DshIssue> {
+    if !bin_exists(&dsh_bin()) { return Err(DshIssue::Missing); }
     match node_version(&node_bin()) {
         Some(v) if dsh_node_ok_v(v) => {}
-        Some(v) => return Err(format!("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é {}.{}.{}) — atualize o Node (veja Mais › Ambiente).", v.0, v.1, v.2)),
-        None => return Err("O DeepSeek Harness precisa do Node 22.19+ ou 24+ e não achei o Node (veja Mais › Ambiente).".into()),
+        Some(v) => return Err(DshIssue::Node(format!("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é {}.{}.{}) — atualize o Node (veja Mais › Ambiente).", v.0, v.1, v.2))),
+        None => return Err(DshIssue::Node("O DeepSeek Harness precisa do Node 22.19+ ou 24+ e não achei o Node (veja Mais › Ambiente).".into())),
     }
-    if dsh_key().is_none() { return Err(DSH_KEY_MSG.into()); }
+    if dsh_key().is_none() { return Err(DshIssue::Key); }
     Ok(())
 }
+/// Mesma checagem, já em mensagem humana.
+pub(crate) fn dsh_status() -> Result<(), String> { dsh_check().map_err(|i| i.msg()) }
 
 /// aiModel do usuário vale nos dois níveis — vazio ou alias/id do CLAUDE (opus/sonnet/haiku/claude…) não vale;
 /// sem ele: capaz → deepseek-v4-pro, rápido → deepseek-flash. Mesma regra do TS (dshModelFor).
@@ -690,7 +712,12 @@ pub(crate) fn dsh_version(bin: &str) -> Option<String> {
 }
 
 /// Uma chamada auxiliar no dsh: SÓ-LEITURA, prompt no STDIN, a chave só no env.
+#[cfg(test)]
 pub(crate) fn dsh_run(bin: &str, key: &str, req: &AiOnce, user_model: Option<&str>) -> Result<String, String> {
+    dsh_run_secs(bin, key, req, user_model, deadline_for(AiEngine::Deepseek, req.secs, None))
+}
+/// dsh com prazo de `secs` (ver deadline_for).
+pub(crate) fn dsh_run_secs(bin: &str, key: &str, req: &AiOnce, user_model: Option<&str>, secs: u64) -> Result<String, String> {
     if !bin_exists(bin) { return Err(DSH_MISSING_MSG.into()); }
     let base = dsh_write_base_patch()?;
     let mut files = TmpFiles(vec![]);
@@ -705,7 +732,7 @@ pub(crate) fn dsh_run(bin: &str, key: &str, req: &AiOnce, user_model: Option<&st
     cmd.env("DEEPSEEK_API_KEY", key).env("DSH_PERMISSION_MODE", "read-only")
         .env("DSH_TELEMETRY_MODE", "DISABLED").env("DSH_TELEMETRY_DISABLED", "1").env("DSH_HOME", dsh_home());
     if let Some(p) = dsh_path_env(bin) { cmd.env("PATH", p); }
-    let (out, timed) = match output_stdin(cmd, req.prompt, req.secs.max(120)) {
+    let (out, timed) = match output_stdin(cmd, req.prompt, secs.max(1)) {
         Ok(x) => x,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(DSH_MISSING_MSG.into()),
         Err(e) => return Err(format!("Não consegui rodar o DeepSeek Harness: {e}")),
@@ -744,22 +771,214 @@ pub(crate) fn ai_once(req: AiOnce) -> Result<String, String> {
     let pref = pref_engine();
     let eng = pick_with(&pref, engine_avail).ok_or_else(|| NO_ENGINE_MSG.to_string())?;
     let user_model = user_model_for(&pref, eng, setting_get("aiModel").as_deref());
+    run_on(eng, &req, user_model.as_deref(), None).map(|x| x.0)
+}
+
+/// Prazo (s) de uma chamada: `exact` (o "testar" do painel, curto) vale como veio; sem ele, os pisos de sempre —
+/// codex/dsh 120s, gateway 90s, claude o pedido.
+pub(crate) fn deadline_for(eng: AiEngine, req_secs: u64, exact: Option<u64>) -> u64 {
+    if let Some(s) = exact { return s.max(1); }
     match eng {
-        AiEngine::Claude => run_claude(&req),
+        AiEngine::Codex | AiEngine::Deepseek => req_secs.max(120),
+        AiEngine::Gateway => req_secs.max(90),
+        AiEngine::Claude => req_secs,
+    }
+}
+
+/// Roda a chamada num motor JÁ escolhido → (resposta, modelo USADO; None = padrão do motor).
+fn run_on(eng: AiEngine, req: &AiOnce, user_model: Option<&str>, exact_secs: Option<u64>) -> Result<(String, Option<String>), String> {
+    let secs = deadline_for(eng, req.secs, exact_secs);
+    match eng {
+        AiEngine::Claude => {
+            let r2 = AiOnce { prompt: req.prompt, tier: req.tier, claude_model: req.claude_model, claude_extra: req.claude_extra, cwd: req.cwd, secs };
+            run_claude(&r2).map(|s| (s, req.claude_model.map(String::from)))
+        }
         AiEngine::Codex => {
             let key = llm_env_get("OPENAI_API_KEY").filter(|k| !k.trim().is_empty());
-            codex_run(&codex_bin(), key.as_deref(), &req, user_model.as_deref())
+            codex_run_used(&codex_bin(), key.as_deref(), req, user_model, secs)
         }
         AiEngine::Deepseek => {
             let key = dsh_key().ok_or_else(|| DSH_KEY_MSG.to_string())?;
-            dsh_run(&dsh_bin(), &key, &req, user_model.as_deref())
+            dsh_run_secs(&dsh_bin(), &key, req, user_model, secs).map(|s| (s, Some(dsh_plan(req.tier, user_model))))
         }
         AiEngine::Gateway => {
-            let mut g = gateway_cfg().ok_or("Configure o gateway (URL, chave e modelo) em Configurações → Gateway próprio.")?;
-            if let Some(m) = user_model { g.model = m; }
-            gateway_call(&g, req.prompt, req.secs.max(90))
+            let mut g = gateway_cfg().ok_or(GATEWAY_CFG_MSG)?;
+            if let Some(m) = user_model { g.model = m.to_string(); }
+            gateway_call(&g, req.prompt, secs).map(|s| (s, Some(g.model.clone())))
         }
     }
+}
+pub(crate) const GATEWAY_CFG_MSG: &str = "Configure o gateway (URL, chave e modelo) em Configurações → Gateway próprio.";
+/// UM comando de instalação do Claude Code (painel e mensagem de "não instalado").
+pub(crate) const CLAUDE_INSTALL_CMD: &str = "npm install -g @anthropic-ai/claude-code && claude";
+pub(crate) const CLAUDE_MISSING_MSG: &str = "O Claude Code não está instalado neste computador — rode `npm install -g @anthropic-ai/claude-code && claude` (o `claude` faz o login).";
+
+// ---------- painel "Sua IA" (primeiro acesso e Configurações) ----------
+// Estado de CADA motor com o que falta e a correção — a MESMA disponibilidade do ai_once/Ambiente
+// (binário no lugar, login do Codex, config do gateway, dsh_status), só que por motor em vez de "pelo menos um".
+
+/// O que a máquina tem agora (separado pra testar com disponibilidades simuladas).
+#[derive(Clone, Debug)]
+pub(crate) struct Probe {
+    pub claude_bin: Option<String>,
+    pub codex_bin: Option<String>,
+    pub codex_login: bool,
+    pub openai_key: bool,
+    pub gateway: Option<Gateway>,
+    pub gateway_label: String,
+    pub gateway_models: Vec<String>,
+    pub dsh_bin: Option<String>,
+    pub dsh: Result<(), DshIssue>,
+    pub deepseek_key: bool,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EngineStatus {
+    /// claude | codex | deepseek | gateway (mesmos ids do seletor do app)
+    pub id: &'static str,
+    pub label: String,
+    pub installed: bool,
+    pub ready: bool,
+    /// ready | install | login | key ("key" no gateway = falta configurar)
+    pub state: &'static str,
+    pub reason: String,
+    /// correções, uma por item: comando (o app mostra com "copiar") ou instrução
+    pub fixes: Vec<String>,
+    /// nome da chave que o cartão grava no cofre da conta (a pessoa nunca digita o nome)
+    pub key_name: Option<&'static str>,
+    /// já existe a chave no cofre (o VALOR nunca sai daqui)
+    pub key_saved: bool,
+    /// modelos conhecidos pela máquina (só o gateway: os da config da conta)
+    pub models: Vec<String>,
+    pub detail: String,
+    /// é a IA padrão do usuário (aiEngine)
+    pub is_default: bool,
+    /// é o motor que as chamadas auxiliares usam agora (padrão ou fallback)
+    pub in_use: bool,
+}
+
+pub(crate) fn engines_status_from(pref: &str, p: &Probe) -> Vec<EngineStatus> {
+    let want = AiEngine::parse(pref).unwrap_or(AiEngine::Claude);
+    let mk = |e: AiEngine, id: &'static str, label: String| EngineStatus {
+        id, label, installed: false, ready: false, state: "install", reason: String::new(), fixes: vec![], key_name: None,
+        key_saved: false, models: vec![], detail: String::new(), is_default: want == e, in_use: false,
+    };
+    let mut out = vec![];
+    // Claude Code
+    let mut c = mk(AiEngine::Claude, "claude", "Claude Code".into());
+    match &p.claude_bin {
+        Some(b) => { c.installed = true; c.ready = true; c.state = "ready"; c.reason = "pronto — se a 1ª chamada pedir login, rode `claude` uma vez".into(); c.detail = b.clone(); }
+        None => { c.reason = "não instalado neste computador".into(); c.fixes = vec![CLAUDE_INSTALL_CMD.into()]; }
+    }
+    out.push(c);
+    // Codex: pronto = instalado + (login OU chave OpenAI no cofre) — a regra do Ambiente
+    let mut x = mk(AiEngine::Codex, "codex", "Codex".into());
+    x.key_name = Some("OPENAI_API_KEY");
+    x.key_saved = p.openai_key;
+    match &p.codex_bin {
+        Some(b) if p.codex_login || p.openai_key => { x.installed = true; x.ready = true; x.state = "ready"; x.reason = if p.codex_login { "pronto".into() } else { "pronto — com a chave OpenAI da sua conta".into() }; x.detail = b.clone(); }
+        Some(b) => { x.installed = true; x.state = "login"; x.reason = "instalado, mas sem login — rode `codex login` ou cole a chave OpenAI".into(); x.fixes = vec!["codex login".into()]; x.detail = b.clone(); }
+        None => { x.reason = "não instalado neste computador".into(); x.fixes = vec!["npm install -g @openai/codex && codex login".into()]; }
+    }
+    out.push(x);
+    // DeepSeek Harness (beta): binário → Node compatível → chave (erro TIPADO do dsh_check)
+    let mut d = mk(AiEngine::Deepseek, "deepseek", "DeepSeek Harness (beta)".into());
+    d.key_name = Some("DEEPSEEK_API_KEY");
+    d.key_saved = p.deepseek_key;
+    d.detail = p.dsh_bin.clone().unwrap_or_default();
+    d.installed = p.dsh_bin.is_some();
+    match (&p.dsh_bin, &p.dsh) {
+        (None, _) | (Some(_), Err(DshIssue::Missing)) => { d.installed = false; d.reason = "não instalado neste computador".into(); d.fixes = vec!["npm i -g @deepseek-ai/dsh".into()]; }
+        (Some(_), Ok(())) => { d.ready = true; d.state = "ready"; d.reason = "pronto (beta)".into(); }
+        (Some(_), Err(DshIssue::Node(m))) => { d.state = "node"; d.reason = m.clone(); d.fixes = vec![node_fix_hint()]; }
+        (Some(_), Err(DshIssue::Key)) => { d.state = "key"; d.reason = "instalado, falta a chave da DeepSeek — cole abaixo".into(); }
+    }
+    out.push(d);
+    // gateway da empresa: config "Gateway próprio" (URL + chave + modelo); nome só do ALT_AI_LABEL
+    let label = if p.gateway_label.trim().is_empty() { "Gateway da empresa".to_string() } else { p.gateway_label.trim().to_string() };
+    let mut g = mk(AiEngine::Gateway, "gateway", label);
+    match &p.gateway {
+        Some(gw) => {
+            g.installed = true; g.ready = true; g.state = "ready"; g.reason = "pronto".into(); g.detail = format!("{} · modelo {}", gw.base, gw.model);
+            let mut ms = p.gateway_models.clone();
+            ms.retain(|m| m != &gw.model);
+            ms.insert(0, gw.model.clone());
+            g.models = ms;
+        }
+        None => { g.state = "key"; g.reason = "não configurado — URL, chave e modelo ficam em Gateway próprio".into(); }
+    }
+    out.push(g);
+    // em uso = o que as chamadas usariam entre os PRONTOS de verdade (Codex sem login não conta)
+    let ready = |e: AiEngine| out.iter().any(|s| AiEngine::parse(s.id) == Some(e) && s.ready);
+    let used = pick_with(pref, ready);
+    for s in out.iter_mut() { s.in_use = AiEngine::parse(s.id).is_some() && AiEngine::parse(s.id) == used; }
+    out
+}
+
+/// O estado real desta máquina (sem cache: "verificar de novo" vale na hora).
+pub(crate) fn engines_status() -> Vec<EngineStatus> {
+    clear_avail_cache();
+    let some_bin = |b: String| if bin_exists(&b) { Some(b) } else { None };
+    let codex = some_bin(codex_bin());
+    let openai_key = llm_env_get("OPENAI_API_KEY").is_some_and(|k| !k.trim().is_empty());
+    let codex_login = codex.as_deref().is_some_and(codex_logged_in);
+    let models = llm_env_get("ALT_AI_MODELS").map(|m| m.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default();
+    let p = Probe {
+        claude_bin: some_bin(claude_bin()),
+        codex_bin: codex,
+        codex_login,
+        openai_key,
+        gateway: gateway_cfg(),
+        gateway_label: llm_env_get("ALT_AI_LABEL").unwrap_or_default(),
+        gateway_models: models,
+        dsh_bin: some_bin(dsh_bin()),
+        dsh: dsh_check(),
+        deepseek_key: dsh_key().is_some(),
+    };
+    engines_status_from(&pref_engine(), &p)
+}
+
+/// Resultado do "testar": a resposta curta, quanto demorou e com QUAL modelo respondeu.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AiTestOut {
+    pub engine: String,
+    pub text: String,
+    pub ms: u64,
+    /// modelo que respondeu ("" = padrão do motor)
+    pub model: String,
+    /// o modelo pedido
+    pub requested: String,
+    /// não deu pra usar o pedido (id inválido descartado ou recusado pela conta) — respondeu o padrão
+    pub fallback: bool,
+}
+pub(crate) const AI_TEST_PROMPT: &str = "Responda apenas com a palavra: ok";
+pub(crate) const AI_TEST_SECS: u64 = 45;
+
+/// "testar" do painel: UMA chamada mínima FORÇANDO o motor (sem fallback — testar o Codex nunca responde pelo Claude),
+/// prompt mínimo e prazo curto. Erro = a mensagem humana do próprio motor.
+pub(crate) fn ai_test_run(engine: &str, model: Option<&str>) -> Result<AiTestOut, String> {
+    let eng = AiEngine::parse(engine).ok_or_else(|| format!("Motor desconhecido: {engine}"))?;
+    clear_avail_cache();
+    if !engine_avail(eng) {
+        return Err(match eng {
+            AiEngine::Claude => CLAUDE_MISSING_MSG.to_string(),
+            AiEngine::Codex => CODEX_MISSING_MSG.to_string(),
+            AiEngine::Gateway => GATEWAY_CFG_MSG.to_string(),
+            AiEngine::Deepseek => dsh_status().err().unwrap_or_else(|| DSH_MISSING_MSG.to_string()),
+        });
+    }
+    let requested = model.map(str::trim).unwrap_or("").to_string();
+    let m = model.and_then(safe_model);
+    // no Claude, o modelo do teste vai no --model (o run_claude usa claude_model); nos outros, é o user_model
+    let req = AiOnce { prompt: AI_TEST_PROMPT, tier: Tier::Rapido, claude_model: if eng == AiEngine::Claude { m.as_deref() } else { None }, claude_extra: &[], cwd: None, secs: AI_TEST_SECS };
+    let t0 = Instant::now();
+    let user_model = if eng == AiEngine::Claude { None } else { m.as_deref() };
+    let (text, used) = run_on(eng, &req, user_model, Some(AI_TEST_SECS))?;
+    let used = used.unwrap_or_default();
+    let fallback = !requested.is_empty() && used != requested;
+    Ok(AiTestOut { engine: eng.label().to_string(), text: text.chars().take(200).collect(), ms: t0.elapsed().as_millis() as u64, model: used, requested, fallback })
 }
 
 #[cfg(test)]
@@ -1010,6 +1229,134 @@ echo '{{"type":"item.completed","item":{{"id":"i","type":"agent_message","text":
         fn drop(&mut self) {
             for (k, v) in &self.0 { match v { Some(v) => std::env::set_var(k, v), None => std::env::remove_var(k) } }
             clear_avail_cache();
+        }
+    }
+
+    fn probe() -> Probe {
+        Probe { claude_bin: None, codex_bin: None, codex_login: false, openai_key: false, gateway: None, gateway_label: String::new(),
+            gateway_models: vec![], dsh_bin: None, dsh: Err(DshIssue::Missing), deepseek_key: false }
+    }
+    fn st<'a>(v: &'a [EngineStatus], id: &str) -> &'a EngineStatus { v.iter().find(|s| s.id == id).unwrap() }
+
+    #[test]
+    fn sua_ia_status_disponibilidades_simuladas() {
+        // nada instalado: tudo "falta", com a correção; o gateway pede configuração; nenhum em uso
+        let v = engines_status_from("claude", &probe());
+        assert_eq!(v.iter().map(|s| s.id).collect::<Vec<_>>(), vec!["claude", "codex", "deepseek", "gateway"]);
+        assert!(v.iter().all(|s| !s.ready && !s.in_use));
+        assert_eq!(st(&v, "claude").state, "install");
+        assert!(st(&v, "claude").fixes[0].contains("@anthropic-ai/claude-code"));
+        assert_eq!(st(&v, "codex").state, "install");
+        assert_eq!(st(&v, "deepseek").fixes, vec!["npm i -g @deepseek-ai/dsh".to_string()]);
+        assert_eq!(st(&v, "gateway").state, "key");
+        assert!(st(&v, "claude").is_default);
+        // nomes de chave certos — o app nunca pede o nome da variável
+        assert_eq!(st(&v, "codex").key_name, Some("OPENAI_API_KEY"));
+        assert_eq!(st(&v, "deepseek").key_name, Some("DEEPSEEK_API_KEY"));
+        assert_eq!(st(&v, "claude").key_name, None);
+
+        // Codex instalado SEM login: "falta login" com `codex login`; com a chave OpenAI no cofre → pronto
+        let mut p = probe();
+        p.codex_bin = Some("/x/codex".into());
+        let v = engines_status_from("codex", &p);
+        let x = st(&v, "codex");
+        assert_eq!((x.state, x.installed, x.ready, x.fixes.clone()), ("login", true, false, vec!["codex login".to_string()]));
+        assert!(x.is_default && !x.in_use, "em uso só conta motor PRONTO (sem login não está)");
+        assert!(v.iter().all(|s| !s.in_use));
+        p.openai_key = true;
+        let v = engines_status_from("codex", &p);
+        assert!(st(&v, "codex").ready && st(&v, "codex").key_saved);
+        p.openai_key = false; p.codex_login = true;
+        assert_eq!(st(&engines_status_from("codex", &p), "codex").state, "ready");
+
+        // DeepSeek instalado sem chave → "falta chave"; com chave → pronto; Node velho → correção do Node
+        let mut p = probe();
+        p.dsh_bin = Some("/x/dsh".into());
+        p.dsh = Err(DshIssue::Key);
+        assert_eq!(st(&engines_status_from("deepseek", &p), "deepseek").state, "key");
+        p.dsh = Err(DshIssue::Node("precisa do Node 22.19+".into()));
+        let d = engines_status_from("deepseek", &p);
+        assert_eq!((st(&d, "deepseek").state, st(&d, "deepseek").installed), ("node", true), "instalado, só falta atualizar o Node");
+        assert_eq!(st(&d, "deepseek").fixes, vec![node_fix_hint()]);
+        p.dsh = Ok(()); p.deepseek_key = true;
+        let d = engines_status_from("deepseek", &p);
+        assert!(st(&d, "deepseek").ready && st(&d, "deepseek").in_use && st(&d, "deepseek").key_saved);
+
+        // gateway configurado: pronto, nome e modelos da conta; padrão claude ausente → fallback pro gateway
+        let mut p = probe();
+        p.gateway = Some(Gateway { base: "https://gw/v1".into(), key: "k".into(), model: "m1".into() });
+        p.gateway_label = "LLM interno".into();
+        p.gateway_models = vec!["m2".into(), "m1".into()];
+        let v = engines_status_from("claude", &p);
+        let g = st(&v, "gateway");
+        assert!(g.ready && g.in_use && !g.is_default);
+        assert_eq!((g.label.as_str(), g.models.clone()), ("LLM interno", vec!["m1".to_string(), "m2".to_string()]));
+        assert!(!format!("{v:?}").contains("\"k\""), "a chave do gateway nunca sai no status");
+        assert!(!st(&v, "claude").in_use);
+        p.gateway_label = String::new();
+        assert_eq!(st(&engines_status_from("claude", &p), "gateway").label, "Gateway da empresa");
+        assert_eq!(st(&probe_v(), "claude").fixes, vec![CLAUDE_INSTALL_CMD.to_string()]);
+        assert!(CLAUDE_MISSING_MSG.contains(CLAUDE_INSTALL_CMD));
+    }
+    fn probe_v() -> Vec<EngineStatus> { engines_status_from("claude", &probe()) }
+
+    #[test]
+    fn sua_ia_prazos() {
+        // pisos de sempre nas chamadas normais
+        assert_eq!(deadline_for(AiEngine::Codex, 20, None), 120);
+        assert_eq!(deadline_for(AiEngine::Deepseek, 300, None), 300);
+        assert_eq!(deadline_for(AiEngine::Gateway, 20, None), 90);
+        assert_eq!(deadline_for(AiEngine::Claude, 20, None), 20);
+        // "testar": prazo EXATO e curto, sem piso
+        for e in [AiEngine::Codex, AiEngine::Deepseek, AiEngine::Gateway, AiEngine::Claude] { assert_eq!(deadline_for(e, 20, Some(AI_TEST_SECS)), 45); }
+        assert_eq!(deadline_for(AiEngine::Codex, 20, Some(0)), 1);
+    }
+
+    #[test]
+    fn sua_ia_testar_forca_o_motor_com_codex_falso() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tmpdir("suaia");
+        let d = tmpdir("suaia-codex");
+        let bin = fake_codex(&d, false);
+        let (home_s, bin_s) = (home.display().to_string(), bin.clone());
+        let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_CODEX", bin_s.as_str())]);
+        let r = ai_test_run("codex", Some("o4-mini")).unwrap();
+        assert_eq!((r.engine.as_str(), r.text.as_str()), ("Codex", "resposta falsa"));
+        assert_eq!((r.model.as_str(), r.fallback), ("o4-mini", false));
+        let argv: Vec<String> = std::fs::read_to_string(d.join("argv.txt")).unwrap().lines().map(String::from).collect();
+        assert!(argv.windows(2).any(|w| w[0] == "-m" && w[1] == "o4-mini"), "modelo escolhido no cartão: {argv:?}");
+        assert!(argv.contains(&"model_reasoning_effort=\"low\"".to_string()) && argv.contains(&"sandbox_mode=\"read-only\"".to_string()));
+        assert_eq!(std::fs::read_to_string(d.join("stdin.txt")).unwrap(), AI_TEST_PROMPT);
+        // modelo inseguro não chega no argv
+        let r = ai_test_run("codex", Some("x; rm -rf /")).unwrap();
+        assert!(!std::fs::read_to_string(d.join("argv.txt")).unwrap().lines().any(|l| l == "-m"));
+        assert_eq!((r.model.as_str(), r.fallback), ("", true), "id inválido descartado → respondeu o padrão, sinalizado");
+        // modelo recusado pela conta → 2ª tentativa sem -m, sinalizada
+        let d2 = tmpdir("suaia-refuse");
+        let bin2 = fake_codex(&d2, true);
+        std::env::set_var("CARDUME_CODEX", &bin2);
+        let r = ai_test_run("codex", Some("modelo-recusado-suaia")).unwrap();
+        assert_eq!((r.model.as_str(), r.requested.as_str(), r.fallback), ("", "modelo-recusado-suaia", true));
+        let _ = std::fs::remove_dir_all(&d2);
+        // motor não pronto: erro humano, sem cair noutro motor (HOME vazio = sem gateway)
+        let e = ai_test_run("gateway", None).unwrap_err();
+        assert_eq!(e, GATEWAY_CFG_MSG);
+        assert!(ai_test_run("xyz", None).unwrap_err().contains("desconhecido"));
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Estado REAL desta máquina + "testar" no motor padrão (chamada de verdade, curtinha).
+    /// `cargo test sua_ia_real -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn sua_ia_real() {
+        let v = engines_status();
+        for s in &v { eprintln!("{:<9} {:<8} ready={} default={} inUse={} keySaved={} · {} · {:?}", s.id, s.state, s.ready, s.is_default, s.in_use, s.key_saved, s.reason, s.fixes); }
+        if let Some(s) = v.iter().find(|s| s.ready && s.id == "codex") {
+            let r = ai_test_run(s.id, None);
+            eprintln!("testar {}: {r:?}", s.id);
+            assert!(r.is_ok());
         }
     }
 

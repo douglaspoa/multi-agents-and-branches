@@ -758,3 +758,36 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .au-trial-t>span b{color:var(--text)}
 .au-trialchip{display:inline-block;align-self:flex-start;width:max-content;margin:8px 0 2px;padding:3px 9px;border-radius:999px;font:600 11px var(--code);letter-spacing:.02em;color:var(--on-accent);background:var(--accent)}
 @media (max-width:560px){ .au-trial{gap:12px;padding:12px 14px} .au-trial-n{font-size:34px} }
+/* ---- painel "Sua IA" (30-sua-ia.js): primeiro acesso + Configurações ---- */
+.suaia{margin-top:8px}
+.suaia-list{display:flex;flex-direction:column;gap:8px}
+.suaia-card{border:1px solid var(--border);border-radius:10px;background:var(--card-bg);padding:11px 13px;display:flex;flex-direction:column;gap:7px}
+.suaia-card.def{border-color:var(--accent-line);background:var(--accent-soft)}
+.suaia-card.short{border-color:var(--warn);box-shadow:0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent) inset}
+.suaia-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.suaia-name{font:600 13.5px var(--display)}
+.suaia-st{font:500 11px var(--code);padding:2px 8px;border-radius:999px;border:1px solid var(--border)}
+.suaia-st.ok{color:var(--good);border-color:color-mix(in srgb, var(--good) 40%, transparent)}
+.suaia-st.bad{color:var(--warn);border-color:color-mix(in srgb, var(--warn) 40%, transparent)}
+.suaia-tag{font:500 10.5px var(--code);color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+.suaia-tag.def{color:var(--text);background:var(--accent-soft);border-color:var(--accent-line)}
+.suaia-why{font:400 12px/1.45 var(--display);color:var(--text-3)}
+.suaia-fix,.suaia-key{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+.suaia-fix code{font-size:11px;color:var(--text-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.suaia-key .in{flex:1;min-width:160px;font-size:12px}
+.suaia-ok{color:var(--good);font-size:12px}
+.suaia-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.suaia-model{max-width:240px;font-size:12px;padding-top:4px;padding-bottom:4px}
+.suaia-out{font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.suaia-out.ok{color:var(--good)}
+.suaia-out.bad{color:var(--crit)}
+.suaia-none{font-size:12.5px;line-height:1.5;border:1px dashed var(--warn);border-radius:9px;padding:9px 12px;margin-bottom:8px;color:var(--text-2)}
+.suaia-loading{font-size:12px}
+.suaia-gw{margin-top:-14px}
+#obSuaIa{margin-top:14px;max-height:min(52vh,460px);overflow:auto;padding-right:2px}
+.aist{font:500 10px var(--code);align-self:flex-start;padding:1px 6px;border-radius:999px;border:1px solid var(--border)}
+.aist.ok{color:var(--good)}
+.aist.bad{color:var(--warn)}
+.suaia-key .suaia-lbl{margin:0;text-transform:none;letter-spacing:0;font:400 12px var(--display)}
+.suaia-card.cand{border-color:var(--accent-line)}
+.suaia-card.pick{border-color:var(--accent);background:var(--accent-soft)}

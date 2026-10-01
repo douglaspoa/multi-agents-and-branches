@@ -171,6 +171,7 @@ const ERR_ACTIONS={
   gitinit: ()=>{ if(typeof gitGate==='function') return gitGate(); },
   publish: ()=>{ if(typeof publishGithub==='function') return publishGithub(); },
   conta:   ()=>{ if(window.openTab) window.openTab('conta'); },
+  suaia:   ()=>{ if(window.suaIaOpenCfg) window.suaIaOpenCfg(); else if(window.openTab) window.openTab('cfg'); },
   // wt-gone: abre a conversa da tarefa aberta (mandar uma mensagem recria a cópia) e põe o foco na caixa
   conversa:()=>{ if(typeof fwTask!=='undefined' && fwTask && typeof renderWorkspace==='function'){ fwMode='conversa'; renderWorkspace(); setTimeout(()=>{ const i=document.getElementById('fwInput'); if(i) i.focus(); },60); } },
 };
@@ -190,7 +191,7 @@ const ERR_CATALOG=[
   // DeepSeek Harness (beta) — mensagens do motor/auxiliar (src/engine/dsh.ts, ai_once.rs). A da CHAVE antes de tudo
   // que casaria "api key"/"401" (claude-login) — quem usa DeepSeek não precisa de login no Claude
   { id:'dsh-key', re:/falta a chave da deepseek|DEEPSEEK_API_KEY/i,
-    msg:'Falta a chave da DeepSeek (ou ela foi recusada) — adicione/confira a DEEPSEEK_API_KEY em Conta → Chaves de modelo.', act:'conta', label:'abrir Conta' },
+    msg:'Falta a chave da DeepSeek (ou ela foi recusada) — adicione/confira a DEEPSEEK_API_KEY em Configurações → Sua IA.', act:'suaia', label:'abrir Sua IA' },
   { id:'dsh-missing', re:/deepseek harness \(dsh\) n[aã]o est[aá] instalado|spawn dsh ENOENT|n[aã]o consegui rodar o deepseek harness/i,
     msg:'O DeepSeek Harness (beta) não está instalado — npm i -g @deepseek-ai/dsh.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
   { id:'dsh-node', re:/deepseek harness precisa do node/i,
@@ -217,7 +218,7 @@ const ERR_CATALOG=[
     msg:'O gateway não devolveu resposta — tente de novo; se continuar, confira o modelo em Configurações → Gateway próprio.', act:'env', label:'abrir Ambiente' },
   // só a falha REAL de autenticação do Codex (a mensagem que o ai_once monta), não qualquer menção a "codex login"
   { id:'codex-login', re:/o codex est[aá] sem login\/chave/i,
-    msg:'O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Conta → Chaves de modelo.', act:'env', label:'abrir Ambiente' },
+    msg:'O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Configurações → Sua IA.', act:'suaia', label:'abrir Sua IA' },
   { id:'gateway-key', re:/o gateway recusou a chave/i,
     msg:'O gateway da sua empresa recusou a chave — confira URL, chave e modelo em Configurações → Gateway próprio.', act:'env', label:'abrir Ambiente' },
   { id:'claude-missing', re:/spawn claude ENOENT|claude:?\s*(command )?not found|command not found: claude\b|n[aã]o (encontrei|achei) o (bin[aá]rio do )?claude|claude (code )?n[aã]o (est[aá] )?instalado|claude[^\n]{0,40}ENOENT|falha ao rodar claude:[^\n]{0,120}(os error 2\b|no such file or directory|program not found|cannot find the file)/i,

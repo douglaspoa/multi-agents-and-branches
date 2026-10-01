@@ -199,7 +199,7 @@ function orqRenderBrief(body){
     ${chatComposerHtml({ cls:'orq-briefcc', input:'orqTa', attach:'orqAtt', rows:5, value:orq.briefing,
       placeholder:'ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar',
       extras:'<button class="btn sm" id="orqLastInv">usar a última investigação</button>',
-      right:`<span class="dim mono orq-model" title="IA que monta o plano (troque em Configurações → IA padrão)">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span>`,
+      right:`<span class="dim mono orq-model" title="IA que monta o plano (troque em Configurações → Sua IA)">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span>`,
       send:'orqGo', sendHtml:'Montar o plano' })}
     ${orq.msg?`<div class="orq-msg${orq.msgErr?' err':''}" role="${orq.msgErr?'alert':'status'}"><span>${esc(orq.msg)}</span>${orq.msgErr&&orq.briefing.trim().length>=12?'<button class="btn sm" id="orqRetry">tentar de novo</button>':''}</div>`:''}
     <div class="ndeyebrow" style="margin-top:26px">o orquestrador pode</div>
