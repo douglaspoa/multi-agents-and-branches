@@ -217,7 +217,9 @@ pub(crate) fn resolve_engine() -> Result<AiEngine, String> {
 /// Codex pronto pra uso (só o Ambiente consulta): `codex login status` ok OU OPENAI_API_KEY no cofre.
 pub(crate) fn codex_logged_in(bin: &str) -> bool {
     if llm_env_get("OPENAI_API_KEY").is_some_and(|k| !k.trim().is_empty()) { return true; }
-    let mut c = Command::new(bin);
+    // PATH com a pasta do codex e a do node: aberto pelo Finder/Dock o app tem PATH mínimo e o codex do
+    // npm (`#!/usr/bin/env node`) nem rodava → "falta login" com o login feito (caso do Paulo, 01/10)
+    let mut c = tool_command(bin);
     c.args(["login", "status"]);
     output_timeout(c, 8).map(|o| o.status.success()).unwrap_or(false)
 }
@@ -367,6 +369,26 @@ fn output_stdin(mut cmd: Command, input: &str, secs: u64) -> std::io::Result<(st
 }
 
 /// Command do codex (sem argumentos): cwd, SÓ a OPENAI_API_KEY do cofre e o PATH com a pasta do node.
+/// Comando de uma ferramenta de linha de comando (codex, claude do npm…) com a pasta dela e a do node
+/// escolhido na frente do PATH — o app aberto pelo Finder/Dock herda só /opt/homebrew/bin:/usr/local/bin:…,
+/// e um script `#!/usr/bin/env node` instalado via nvm/fnm/volta não roda sem isso.
+pub(crate) fn tool_command(bin: &str) -> Command {
+    let mut cmd = Command::new(bin);
+    if let Some(p) = tool_path_env(bin) { cmd.env("PATH", p); }
+    cmd
+}
+pub(crate) fn tool_path_env(bin: &str) -> Option<std::ffi::OsString> {
+    let mut dirs: Vec<PathBuf> = vec![];
+    for b in [bin.to_string(), node_bin()] {
+        if let Some(d) = Path::new(&b).parent().filter(|d| !d.as_os_str().is_empty()) {
+            if !dirs.iter().any(|x| x == d) { dirs.push(d.to_path_buf()); }
+        }
+    }
+    let cur = std::env::var_os("PATH").unwrap_or_default();
+    dirs.extend(std::env::split_paths(&cur).filter(|d| !dirs.contains(d)).collect::<Vec<_>>());
+    std::env::join_paths(dirs).ok()
+}
+
 fn codex_command(bin: &str, key: Option<&str>, cwd: Option<&Path>) -> Command {
     let mut cmd = Command::new(bin);
     cmd.current_dir(cwd.map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir));
@@ -2521,5 +2543,31 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         assert!(ia.ok && ia.detail.contains("Codex"));
         assert!(env.iter().any(|c| c.name.starts_with("Claude Code") && !c.ok && c.kind == "opt"));
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Caso do Paulo (01/10): app aberto pelo Finder (PATH mínimo) + codex do npm com `#!/usr/bin/env node`
+    /// vindo do nvm → `codex login status` nem rodava e o cartão dizia "falta login" com o login feito.
+    #[test]
+    #[cfg(unix)]
+    fn codex_login_com_path_minimo_do_finder() {
+        use std::os::unix::fs::PermissionsExt;
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let d = std::env::temp_dir().join(format!("sf-codex-path-{}", std::process::id()));
+        let home = d.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        // "interpretador" que só existe na pasta do codex (como o node do nvm)
+        let interp = d.join("codexinterp");
+        std::fs::write(&interp, "#!/bin/sh\ncase \"$*\" in *\"login status\"*) echo 'Logged in using ChatGPT'; exit 0;; esac\nexit 1\n").unwrap();
+        let codex = d.join("codex");
+        std::fs::write(&codex, "#!/usr/bin/env codexinterp\n").unwrap();
+        for f in [&interp, &codex] { std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o755)).unwrap(); }
+        let home_s = home.display().to_string();
+        let _g = EnvGuard::set(&[("PATH", "/usr/bin:/bin"), ("HOME", home_s.as_str())]);
+        let bin = codex.display().to_string();
+        // sem a pasta no PATH o script não roda (é o que acontecia antes)
+        let cru = std::process::Command::new(&bin).args(["login", "status"]).output().map(|o| o.status.success()).unwrap_or(false);
+        assert!(!cru, "com o PATH do Finder o codex do npm não roda sozinho");
+        assert!(codex_logged_in(&bin), "a checagem põe a pasta do codex no PATH e vê o login");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

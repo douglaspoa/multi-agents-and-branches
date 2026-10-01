@@ -51,3 +51,13 @@ test("chaves da conta vêm de <home>/.constellation/llm.env (homedir, não $HOME
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("codexPath: pasta do node em uso e do codex vão pra frente do PATH mínimo do Finder (codex do npm é #!/usr/bin/env node)", async () => {
+  const { codexPath } = await import("./codex.ts");
+  const { dirname, delimiter } = await import("node:path");
+  const p = codexPath("/u/.nvm/versions/node/v22/bin/codex", "/opt/homebrew/bin:/usr/bin:/bin").split(delimiter);
+  assert.equal(p[0], dirname(process.execPath));
+  assert.ok(p.includes("/u/.nvm/versions/node/v22/bin"));
+  assert.deepEqual(p.slice(-3), ["/opt/homebrew/bin", "/usr/bin", "/bin"]);
+  assert.equal(codexPath("codex", "/usr/bin").split(delimiter).filter((d) => d === dirname(process.execPath)).length, 1);
+});

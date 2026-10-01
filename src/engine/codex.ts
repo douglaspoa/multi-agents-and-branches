@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { exitGraceMs, killProcess } from "./claude.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 
@@ -34,6 +34,15 @@ export function resolveCodex(): string {
 
 /** Chaves de modelo da CONTA (sincronizadas pelo app) → env do processo filho.
  * homedir(), não $HOME: no Windows não existe HOME (é USERPROFILE) e a chave do gateway nunca chegava. */
+/** PATH pro processo do codex: a pasta do node em uso e a do codex NA FRENTE. O codex do npm é
+ * `#!/usr/bin/env node`; com o app aberto pelo Finder/Dock o PATH herdado é mínimo e o node do nvm/fnm/volta
+ * não está nele — a tarefa morria com "env: node: No such file or directory" (caso do Paulo, 01/10). */
+export function codexPath(bin: string, cur: string | undefined): string {
+  const dirs = [dirname(process.execPath), ...(bin.includes("/") || bin.includes("\\") ? [dirname(bin)] : [])];
+  const have = (cur || "").split(delimiter).filter(Boolean);
+  return [...dirs.filter((d) => !have.includes(d)), ...have].join(delimiter);
+}
+
 export function loadLlmEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   try {
@@ -175,8 +184,10 @@ export class CodexEngine implements AgentEngine {
     if (this.model) args.push("-m", this.model);
     args.push(prompt);
 
-    const env = { ...process.env, ...loadLlmEnv() };
-    const child = spawn(resolveCodex(), args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
+    const env: NodeJS.ProcessEnv = { ...process.env, ...loadLlmEnv() };
+    const bin = resolveCodex();
+    env.PATH = codexPath(bin, env.PATH);
+    const child = spawn(bin, args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
 
     const queue: AgentEvent[] = [];
