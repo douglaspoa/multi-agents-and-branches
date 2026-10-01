@@ -13,7 +13,9 @@ const ENV_KIND_TAG={ req:'', rec:'recomendado', opt:'opcional' };
 // pra que serve cada peça, em linguagem de gente (quem não programa não sabe o que é "gh")
 function envWhat(c){ const n=String((c&&c.name)||'');
   // "Motor de IA" ANTES do /motor/ (que é o Motor do Starfork): basta UMA IA — o Claude não é mais obrigatório
-  if(/motor de ia/i.test(n)) return 'A IA que faz o trabalho. Basta uma: Claude Code, Codex ou o gateway da sua empresa.';
+  if(/motor de ia/i.test(n)) return 'A IA que faz o trabalho. Basta uma: Claude Code, Codex, o gateway da sua empresa ou o DeepSeek Harness (beta).';
+  // ANTES do /claude/: o DeepSeek é a opção open source (beta)
+  if(/deepseek/i.test(n)) return 'BETA — DeepSeek Harness (open source): motor pra quem não tem plano da Anthropic nem da OpenAI. Precisa da DEEPSEEK_API_KEY em Conta → Chaves de modelo.';
   if(/node/i.test(n)) return 'Roda o motor que coordena os agentes.';
   if(/motor/i.test(n)) return 'Vem dentro do app — é quem liga os agentes às tarefas.';
   if(/^git\b/i.test(n)) return 'Guarda o histórico e dá a cada tarefa a sua cópia isolada do projeto.';

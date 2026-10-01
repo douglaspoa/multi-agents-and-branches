@@ -43,3 +43,16 @@ test('chats no claude usam a IA padrão só quando o motor padrão é o Claude',
   assert.equal(aiClaudeModel('claude', 'opus'), 'opus');
   assert.equal(aiClaudeModel('claude', ''), null);
 });
+
+test('DeepSeek Harness (beta): motor próprio, rótulo com "beta", modelos do catálogo do dsh', () => {
+  assert.equal(aiEngineOf('deepseek'), 'deepseek');
+  assert.equal(aiEngineOf('dsh'), 'deepseek');
+  assert.equal(aiCanTalk('deepseek'), true);
+  assert.match(aiRunLabel('deepseek', 'deepseek-flash'), /^DeepSeek beta · DeepSeek Flash$/);
+  assert.match(aiRunLabel('deepseek', ''), /^DeepSeek beta$/);
+  const e = ctx.AI_ENGINES ?? vm.runInContext('AI_ENGINES', ctx);
+  const ds = e.find((x) => x.id === 'deepseek');
+  assert.ok(ds && ds.beta && /beta/i.test(ds.vendor) && /BETA/.test(ds.desc));
+  assert.equal(JSON.stringify(ds.models.map((m) => m.id)), JSON.stringify(['', 'deepseek-v4-pro', 'deepseek-flash']));
+  assert.equal(aiClaudeModel('deepseek', 'deepseek-flash'), null, 'id do DeepSeek nunca vai pro --model do claude');
+});

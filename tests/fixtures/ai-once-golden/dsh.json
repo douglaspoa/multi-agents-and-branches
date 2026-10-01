@@ -1,0 +1,84 @@
+[
+ {
+  "name": "ok (dsh 0.2.0-rc.2 real)",
+  "jsonl": "{\"type\": \"session\", \"sessionId\": \"s1\", \"cwd\": \"/tmp\"}\n{\"type\": \"status\", \"phase\": \"turn_start\", \"turn\": 1}\n{\"type\": \"thinking\", \"text\": \"hm\"}\n{\"type\": \"text\", \"text\": \"rascunho\"}\n{\"type\": \"status\", \"phase\": \"step_end\", \"turn\": 1, \"step\": 1, \"usage\": {\"inputTokens\": 3, \"outputTokens\": 1}}\n{\"type\": \"status\", \"phase\": \"turn_end\", \"turn\": 1, \"reason\": {\"kind\": \"completed\"}}\n{\"type\": \"final\", \"text\": \"  Adicionar filtro por data \\n\"}",
+  "text": "Adicionar filtro por data"
+ },
+ {
+  "name": "erro no turno: final vazio e turn_end error",
+  "jsonl": "{\"type\": \"session\", \"sessionId\": \"s1\"}\n{\"type\": \"status\", \"phase\": \"turn_end\", \"turn\": 1, \"reason\": {\"kind\": \"error\", \"error\": {\"code\": \"MISSING_CREDENTIAL\", \"message\": \"DEEPSEEK_API_KEY is not set\"}}}\n{\"type\": \"final\", \"text\": \"\"}",
+  "rawError": "MISSING_CREDENTIAL",
+  "friendly": "DEEPSEEK_API_KEY"
+ },
+ {
+  "name": "erro fora do turno (sem final)",
+  "jsonl": "{\"type\": \"error\", \"message\": \"session \\\"x\\\" does not exist; omit --session-id to start a new Session\"}",
+  "rawError": "does not exist",
+  "friendly": "O DeepSeek falhou"
+ },
+ {
+  "name": "cota",
+  "jsonl": "{\"type\": \"status\", \"phase\": \"turn_end\", \"reason\": {\"kind\": \"error\", \"error\": {\"code\": \"RATE_LIMITED\", \"message\": \"429 Too Many Requests\"}}}\n{\"type\": \"final\", \"text\": \"\"}",
+  "rawError": "429",
+  "friendly": "sem saldo/limite"
+ },
+ {
+  "name": "vazio",
+  "jsonl": "",
+  "friendly": "sem resposta"
+ },
+ {
+  "name": "abortado",
+  "jsonl": "{\"type\": \"status\", \"phase\": \"turn_end\", \"reason\": {\"kind\": \"aborted\"}}\n{\"type\": \"final\", \"text\": \"meia resposta\"}",
+  "rawError": "aborted",
+  "friendly": "O DeepSeek falhou"
+ },
+ {
+  "name": "insufficient permissions NÃO é saldo",
+  "jsonl": "{\"type\":\"error\",\"message\":\"insufficient permissions to access model\"}",
+  "rawError": "insufficient permissions",
+  "friendly": "O DeepSeek falhou"
+ },
+ {
+  "name": "4010 tokens NÃO é 401",
+  "jsonl": "{\"type\":\"error\",\"message\":\"prompt is 4010 tokens over the limit\"}",
+  "rawError": "4010",
+  "friendly": "O DeepSeek falhou"
+ },
+ {
+  "name": "rate-limit com hífen",
+  "jsonl": "{\"type\":\"error\",\"message\":\"rate-limit reached\"}",
+  "rawError": "rate-limit",
+  "friendly": "sem saldo/limite"
+ },
+ {
+  "name": "Insufficient Balance",
+  "jsonl": "{\"type\":\"error\",\"message\":\"Insufficient Balance\"}",
+  "rawError": "Insufficient",
+  "friendly": "sem saldo/limite"
+ },
+ {
+  "name": "402",
+  "jsonl": "{\"type\":\"error\",\"message\":\"402 Payment Required\"}",
+  "rawError": "402",
+  "friendly": "sem saldo/limite"
+ },
+ {
+  "name": "401",
+  "jsonl": "{\"type\":\"error\",\"message\":\"401 Unauthorized\"}",
+  "rawError": "401",
+  "friendly": "DEEPSEEK_API_KEY"
+ },
+ {
+  "name": "connection reset",
+  "jsonl": "{\"type\":\"error\",\"message\":\"connection reset by peer\"}",
+  "rawError": "connection",
+  "friendly": "não conseguiu falar com a API"
+ },
+ {
+  "name": "disconnection (palavra inteira) NÃO é rede",
+  "jsonl": "{\"type\":\"error\",\"message\":\"disconnection notice\"}",
+  "rawError": "disconnection",
+  "friendly": "O DeepSeek falhou"
+ }
+]

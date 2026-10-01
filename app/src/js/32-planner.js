@@ -251,6 +251,7 @@ function plHumanModel(engine, model){
   const e=String(engine||'claude').toLowerCase(), m=String(model||'').toLowerCase();
   if(e==='mock') return 'simulada (sem IA)';
   if(e.startsWith('codex')) return 'Codex';
+  if(e.startsWith('deepseek')||/^dsh\b/.test(e)) return 'DeepSeek (beta)';
   if(e.startsWith('gateway')||e.startsWith('logcomex')) return 'a da empresa';
   if(/opus|fable/.test(m)) return 'caprichada';
   if(/haiku/.test(m)) return 'rápida';
@@ -284,7 +285,7 @@ function plPreviewHtml(f){
 function plModelNow(){ return { eng:String(plFields.engine||'claude'), model:plFields.model||aiDefaults().model||'' }; }
 // tipo que a criação usa: o escolhido no chip, senão o palpite pelo que a IA já montou (o mesmo que a prévia mostra)
 function plEffKind(){ return plFields.kind || ndGuessType(plGuessText()) || 'build'; }
-function plEngineNorm(e){ e=String(e||'claude').toLowerCase(); return ['claude','codex','gateway','logcomex','mock'].includes(e)?e:(e.includes('codex')?'codex':e.includes('gateway')?'gateway':'claude'); }
+function plEngineNorm(e){ e=String(e||'claude').toLowerCase(); return ['claude','codex','gateway','logcomex','deepseek','mock'].includes(e)?e:(e.includes('codex')?'codex':(e.includes('deepseek')||/^dsh\b/.test(e))?'deepseek':e.includes('gateway')?'gateway':'claude'); }
 function plTier(model){ return String(model||'').toLowerCase().replace(/.*(opus|sonnet|haiku).*/,'$1'); }
 function plPreviewFields(){
   const P=(!plPlanCtx.origin && plPlan)?plPlan:null, on=P?P.tasks.filter(t=>t.on):null;

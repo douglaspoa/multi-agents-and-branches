@@ -6050,9 +6050,40 @@ fn env_ai_item(pref: &str, av: &ai_once::Avail, codex_login: bool) -> EnvCheck {
         }
         None => EnvCheck {
             kind: "req".into(), name, ok: false,
-            detail: "nenhum encontrado — instale o Claude Code OU o Codex, ou configure um gateway da sua empresa".into(),
-            fix: "npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Configurações → Gateway próprio".into(),
+            detail: "nenhum encontrado — instale o Claude Code OU o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta, open source — só a DEEPSEEK_API_KEY)".into(),
+            fix: "npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Configurações → Gateway próprio\nnpm i -g @deepseek-ai/dsh\nconfigure a DEEPSEEK_API_KEY em Conta → Chaves de modelo (DeepSeek, beta)".into(),
         },
+    }
+}
+
+/// O app salvou/removeu uma chave (Conta → Chaves de modelo): a disponibilidade dos motores (cache de 30s) vale já.
+#[tauri::command(async)]
+fn ai_avail_refresh() { ai_once::clear_avail_cache(); }
+
+/// Item opcional "DeepSeek Harness (beta)": binário + Node compatível (^22.19 ou ≥24) + DEEPSEEK_API_KEY.
+fn env_dsh_item() -> EnvCheck {
+    let name = "DeepSeek Harness (opcional · beta)".to_string();
+    let db = ai_once::dsh_bin();
+    if !ai_once::bin_exists(&db) {
+        return EnvCheck { kind: "opt".into(), name, ok: false, detail: "não encontrado — opção open source pra quem não tem plano da Anthropic nem da OpenAI".into(), fix: "npm i -g @deepseek-ai/dsh".into() };
+    }
+    let v = ai_once::dsh_version(&db).unwrap_or_default();
+    let shown = if v.is_empty() { "versão ?".to_string() } else { v.clone() };
+    env_dsh_status_item(name, &format!("{shown} · {db}"), &v, ai_once::dsh_status())
+}
+/// Monta o item a partir do status (puro — testável): node antigo → indisponível com a correção do node;
+/// versão anterior à faixa testada (≥ DSH_MIN_VERSION) → aviso (os ids dos patches de privacidade vêm dela).
+fn env_dsh_status_item(name: String, found: &str, version: &str, st: Result<(), String>) -> EnvCheck {
+    match st {
+        Ok(()) if !version.is_empty() && !ai_once::dsh_version_ok(version) => EnvCheck {
+            kind: "opt".into(), name, ok: false,
+            detail: format!("{found} — aviso: versão anterior à testada (≥ {}); os ajustes de privacidade podem não valer", ai_once::DSH_MIN_VERSION),
+            fix: "npm i -g @deepseek-ai/dsh@latest".into(),
+        },
+        Ok(()) => EnvCheck { kind: "opt".into(), name, ok: true, detail: format!("{found} — beta (developer preview)"), fix: String::new() },
+        Err(e) if e.contains("Node") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — indisponível: {e}"), fix: node_fix_hint() },
+        Err(e) if e.contains("DEEPSEEK_API_KEY") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — instalado, mas SEM a chave da DeepSeek"), fix: "configure a DEEPSEEK_API_KEY em Conta → Chaves de modelo".into() },
+        Err(e) => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — {e}"), fix: "npm i -g @deepseek-ai/dsh".into() },
     }
 }
 
@@ -6113,6 +6144,7 @@ fn env_check() -> Vec<EnvCheck> {
         Some(g) => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: true, detail: format!("{} · modelo {}", g.base, g.model), fix: String::new() },
         None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Configurações → Gateway próprio (URL, chave e modelo)".into() },
     });
+    out.push(env_dsh_item());
     // gh autenticado
     let gb = gh_bin();
     let mut ghc = Command::new(&gb);
@@ -9023,6 +9055,7 @@ pub fn run() {
             reveal_artifact,
             push_task,
             env_check,
+            ai_avail_refresh,
             read_artifact_raw,
             ai_decompose,
             daily_digest,
@@ -9293,7 +9326,7 @@ mod motor_r7_tests {
 #[cfg(test)]
 mod env_ai_tests {
     use super::*;
-    fn av(c: bool, x: bool, g: bool) -> ai_once::Avail { ai_once::Avail { claude: c, codex: x, gateway: g } }
+    fn av(c: bool, x: bool, g: bool) -> ai_once::Avail { ai_once::Avail { claude: c, codex: x, gateway: g, deepseek: false } }
     #[test]
     fn ai_once_env_so_codex_ok_e_sem_nenhum_falha() {
         let so_codex = env_ai_item("codex", &av(false, true, false), true);
@@ -9302,10 +9335,50 @@ mod env_ai_tests {
         assert!(fallback.ok && fallback.detail.contains("Claude Code") && fallback.detail.contains("não está disponível"));
         let nada = env_ai_item("claude", &av(false, false, false), false);
         assert!(!nada.ok && nada.kind == "req");
-        assert_eq!(nada.fix.lines().count(), 3);
-        assert!(nada.fix.contains("claude-code") && nada.fix.contains("@openai/codex") && nada.fix.contains("Gateway"));
+        assert_eq!(nada.fix.lines().count(), 5);
+        assert!(nada.fix.contains("claude-code") && nada.fix.contains("@openai/codex") && nada.fix.contains("Gateway") && nada.fix.contains("@deepseek-ai/dsh"));
+        // só o DeepSeek: é uma opção do "Motor de IA" (beta)
+        let so_ds = env_ai_item("deepseek", &ai_once::Avail { claude: false, codex: false, gateway: false, deepseek: true }, false);
+        assert!(so_ds.ok && so_ds.detail.contains("DeepSeek (beta)") && so_ds.detail.contains("sua IA padrão"), "{}", so_ds.detail);
         // Codex em uso sem login: não está pronto, correção = codex login
         let sem_login = env_ai_item("codex", &av(false, true, false), false);
         assert!(!sem_login.ok && sem_login.fix == "codex login");
+    }
+    #[test]
+    fn env_dsh_item_node_antigo_e_sem_chave() {
+        let n = || "DeepSeek Harness (opcional · beta)".to_string();
+        let ok = env_dsh_status_item(n(), "0.2.0 · /x/dsh", "0.2.0", Ok(()));
+        assert!(ok.ok && ok.kind == "opt" && ok.detail.contains("beta"));
+        let antiga = env_dsh_status_item(n(), "0.1.9 · /x/dsh", "0.1.9", Ok(()));
+        assert!(!antiga.ok && antiga.detail.contains("aviso") && antiga.detail.contains("0.2.0-rc.2") && antiga.fix.contains("@latest"));
+        assert!(env_dsh_status_item(n(), "versão ? · /x/dsh", "", Ok(())).ok, "versão ilegível não vira aviso");
+        let velho = env_dsh_status_item(n(), "0.2.0 · /x/dsh", "0.2.0", Err("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é 22.12.0)".into()));
+        assert!(!velho.ok && velho.detail.contains("indisponível") && velho.detail.contains("22.19") && velho.fix == node_fix_hint());
+        let sem_chave = env_dsh_status_item(n(), "0.2.0 · /x/dsh", "0.2.0", Err(ai_once::DSH_KEY_MSG.into()));
+        assert!(!sem_chave.ok && sem_chave.fix.contains("Conta → Chaves de modelo"));
+    }
+    /// dsh_status() DE VERDADE (HOME temporário sem chave, dsh falso) alimentando o item do Ambiente.
+    #[cfg(unix)]
+    #[test]
+    fn env_dsh_status_real_sem_chave() {
+        let _lock = ai_once::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("starfork-envdsh-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".constellation")).unwrap();
+        std::fs::write(dir.join(".constellation/llm.env"), "OPENAI_API_KEY=x\n").unwrap();
+        let fake = dir.join("dsh");
+        std::fs::write(&fake, "#!/bin/sh\necho 0.2.0-rc.2\n").unwrap();
+        { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap(); }
+        let saved: Vec<(&str, Option<std::ffi::OsString>)> = ["HOME", "CARDUME_DSH", "DEEPSEEK_API_KEY"].iter().map(|k| (*k, std::env::var_os(k))).collect();
+        std::env::set_var("HOME", &dir);
+        std::env::set_var("CARDUME_DSH", &fake);
+        std::env::remove_var("DEEPSEEK_API_KEY");
+        let st = ai_once::dsh_status();
+        for (k, v) in saved { match v { Some(v) => std::env::set_var(k, v), None => std::env::remove_var(k) } }
+        let err = st.clone().unwrap_err();
+        let item = env_dsh_status_item("DeepSeek Harness (opcional · beta)".into(), "0.2.0-rc.2 · dsh", "0.2.0-rc.2", st);
+        assert!(!item.ok);
+        if err.contains("Node") { assert_eq!(item.fix, node_fix_hint(), "node do teste < 22.19: {err}"); }
+        else { assert_eq!(err, ai_once::DSH_KEY_MSG); assert!(item.fix.contains("Conta → Chaves de modelo"), "{}", item.fix); }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,10 +1,15 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { run } from "./util/run.ts";
 import { claudeEnv, claudeErrText, resolveClaude } from "./engine/claude.ts";
 import { loadLlmEnv, resolveCodex } from "./engine/codex.ts";
+import {
+  DSH_ERR_KEY, DSH_ERR_NET, DSH_ERR_QUOTA, DSH_KEY_MSG, DSH_MIN_VERSION, DSH_MISSING_MSG, DSH_TIMEOUT_MSG, dshArgs, dshBinExists, dshEnv, dshKey,
+  dshModelFor, dshNodeOk, dshNodeMsg, dshSpawnSpec, dshVersion, dshVersionOk, isDshLabel,
+  extraPatch, resolveDsh, runPatchYaml, writeBasePatch,
+} from "./engine/dsh.ts";
 
 /**
  * IA AUXILIAR "de uma vez" do motor (destilador de memória, retro, resumo de commit) — o MESMO
@@ -14,23 +19,27 @@ import { loadLlmEnv, resolveCodex } from "./engine/codex.ts";
  *  - codex   → `codex exec --json ... -` SÓ-LEITURA, prompt no STDIN, só a OPENAI_API_KEY do cofre no env;
  *              texto = último agent_message;
  *  - gateway → HTTP chat/completions OpenAI-compatível com aiModel (se for do gateway) ou ALT_AI_MODEL.
- * Escolhido indisponível → primeiro disponível (claude, codex, gateway); nenhum → erro humano.
+ *  - deepseek (beta) → `dsh --patch … --profile headless --json` SÓ-LEITURA, prompt no STDIN, só a DEEPSEEK_API_KEY
+ *              no env; texto = evento `final` (deepseek-flash no rápido, deepseek-v4-pro no capaz, ou o aiModel).
+ * Escolhido indisponível → primeiro disponível (claude, codex, gateway); nenhum → erro humano. O DeepSeek (beta, terceiro)
+ * NUNCA entra como fallback automático: só roda quando é a IA escolhida (aiEngine=deepseek).
  */
-export type AiEngineKind = "claude" | "codex" | "gateway";
+export type AiEngineKind = "claude" | "codex" | "gateway" | "deepseek";
 export type AiTier = "rapido" | "capaz";
-export interface AiAvail { claude: boolean; codex: boolean; gateway: boolean }
+export interface AiAvail { claude: boolean; codex: boolean; gateway: boolean; deepseek?: boolean }
 
 export const NO_ENGINE_MSG =
-  "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), ou configure um gateway em Configurações → Gateway próprio.";
+  "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Conta → Chaves de modelo).";
 export const CODEX_TIMEOUT_MSG = "O Codex não respondeu a tempo — tente de novo.";
 export const CODEX_MISSING_MSG = "O Codex não está instalado neste computador — npm install -g @openai/codex (veja Mais › Ambiente).";
 export const GATEWAY_CUT_MSG = "a resposta do gateway foi cortada (limite de tokens) — peça algo menor ou aumente o limite no gateway.";
 
-const ORDER: AiEngineKind[] = ["claude", "codex", "gateway"];
+const ORDER: AiEngineKind[] = ["claude", "codex", "gateway"]; // sem deepseek: beta não é fallback silencioso
 
 export function engineOf(pref: string): AiEngineKind | null {
   const n = String(pref ?? "").trim().toLowerCase();
   if (n.startsWith("codex")) return "codex";
+  if (isDshLabel(n)) return "deepseek";
   if (n.startsWith("gateway") || n.startsWith("logcomex")) return "gateway";
   if (n.startsWith("claude")) return "claude";
   return null;
@@ -43,7 +52,7 @@ export function pickWith(pref: string, has: (e: AiEngineKind) => boolean): AiEng
   return ORDER.find((e) => has(e)) ?? null;
 }
 export function pickEngine(pref: string, av: AiAvail): AiEngineKind | null {
-  return pickWith(pref, (e) => av[e]);
+  return pickWith(pref, (e) => !!av[e]);
 }
 
 /** IA padrão espelhada pelo app (settings.json). Sem valor → claude (comportamento de antes). */
@@ -87,7 +96,7 @@ export function clearAvailCache(): void { availCache.clear(); }
 export function engineAvail(e: AiEngineKind): boolean {
   const c = availCache.get(e);
   if (c && Date.now() - c.at < 30_000) return c.v;
-  const v = e === "claude" ? binExists(resolveClaude()) : e === "codex" ? binExists(resolveCodex()) : !!gatewayCfg();
+  const v = e === "claude" ? binExists(resolveClaude()) : e === "codex" ? binExists(resolveCodex()) : e === "deepseek" ? dshAvail().ok : !!gatewayCfg();
   availCache.set(e, { v, at: Date.now() });
   return v;
 }
@@ -188,6 +197,91 @@ export function parseGateway(body: string): { text?: string; error?: string } {
   return { error: `Sem resposta do gateway (${String(body).slice(0, 120)})` };
 }
 
+// ---------- DeepSeek Harness (beta) ----------
+
+/**
+ * Pronto pra uso? binário → node compatível → chave (mesma ordem do Rust dsh_status e do DshEngine.run).
+ * `why` = o que falta (mensagem humana). `warn` = versão fora da faixa testada (≥ DSH_MIN_VERSION) — não bloqueia.
+ */
+export function dshAvail(bin = resolveDsh()): { ok: boolean; why?: string; warn?: string } {
+  if (!dshBinExists(bin)) return { ok: false, why: DSH_MISSING_MSG };
+  if (!dshNodeOk()) return { ok: false, why: dshNodeMsg(process.versions.node) };
+  if (!dshKey()) return { ok: false, why: DSH_KEY_MSG };
+  const v = dshVersion(bin);
+  return v && !dshVersionOk(v) ? { ok: true, warn: `dsh ${v} é anterior à versão testada (${DSH_MIN_VERSION}) — atualize: npm i -g @deepseek-ai/dsh@latest` } : { ok: true };
+}
+
+/** aiModel do usuário vale nos dois níveis (alias do Claude não vale); sem ele: capaz → deepseek-v4-pro, rápido → deepseek-flash. */
+export function dshPlan(tier: AiTier, userModel?: string): string {
+  return dshModelFor(userModel, tier);
+}
+
+/** JSONL do `dsh --json` → texto do `final` (se o turno CONCLUIU) e o erro CRU (evento error / turn_end com erro). */
+export function dshOutcome(stdout: string): { text?: string; raw?: string } {
+  let final: string | undefined, err = "";
+  for (const line of String(stdout ?? "").split("\n")) {
+    let o: any;
+    try { o = JSON.parse(line.trim()); } catch { continue; }
+    const t = String(o?.type ?? "");
+    if (t === "final") final = String(o.text ?? "");
+    else if (t === "error") err = unwrapJsonMsg(String(o.message ?? "")) || err || "erro";
+    else if (t === "status" && o.phase === "turn_end") {
+      const kind = String(o?.reason?.kind ?? "");
+      if (kind && kind !== "completed") {
+        const e = o.reason.error ?? {};
+        err = [e.code, unwrapJsonMsg(String(e.message ?? ""))].filter(Boolean).join(": ") || `turno ${kind}`;
+      }
+    }
+  }
+  if (!err && final !== undefined && final.trim()) return { text: final.trim() };
+  return err ? { raw: err } : {};
+}
+
+/** Mesma leitura com o erro já humano (golden compartilhado com o Rust). */
+export function parseDshJsonl(stdout: string): { text?: string; error?: string } {
+  const r = dshOutcome(stdout);
+  if (r.text) return { text: r.text };
+  return { error: r.raw ? dshFriendlyError(r.raw) : "O DeepSeek terminou sem resposta — tente de novo." };
+}
+
+export function dshFriendlyError(msg: string): string {
+  const l = msg.toLowerCase();
+  const short = msg.slice(0, 300);
+  if (DSH_ERR_KEY.test(l)) return `${DSH_KEY_MSG.replace(/\.$/, "")} e confira se ela é válida.\n\n(${short})`;
+  if (DSH_ERR_QUOTA.test(l)) return `O DeepSeek está sem saldo/limite no momento — confira a conta na DeepSeek e tente de novo.\n\n(${short})`;
+  if (DSH_ERR_NET.test(l)) return `O DeepSeek não conseguiu falar com a API — cheque a internet/VPN e tente de novo.\n\n(${short})`;
+  return `O DeepSeek falhou: ${short}`;
+}
+
+let dshSeq = 0;
+/** Uma chamada auxiliar no dsh: SÓ-LEITURA, prompt no STDIN, só a DEEPSEEK_API_KEY no env (nunca no argv). */
+export async function dshRun(bin: string, prompt: string, o: AiOnceOpts, userModel?: string): Promise<string> {
+  // binário → node → chave (mesma ordem do dshAvail/DshEngine.run); nada é gravado antes
+  if (!dshBinExists(bin)) throw new Error(DSH_MISSING_MSG);
+  if (!dshNodeOk()) throw new Error(dshNodeMsg(process.versions.node));
+  const llm = loadLlmEnv();
+  const key = dshKey(llm);
+  if (!key) throw new Error(DSH_KEY_MSG);
+  const base = writeBasePatch();
+  const runPatch = join(dirname(base), `aux-${process.pid}-${++dshSeq}.patch.yml`);
+  writeFileSync(runPatch, runPatchYaml({ model: dshPlan(o.tier, userModel) }), { encoding: "utf8", mode: 0o600 });
+  try {
+    const sp = dshSpawnSpec(bin, dshArgs([base, runPatch, ...extraPatch()]));
+    const r = await runStdin(sp.cmd, sp.args, prompt, {
+      cwd: o.cwd || tmpdir(), env: dshEnv(bin, key, "read-only", process.env, llm), ms: Math.max(o.timeout, 120_000), verbatim: sp.verbatim,
+    });
+    if (r.spawnErr) throw new Error(r.spawnErr.code === "ENOENT" ? DSH_MISSING_MSG : `Não consegui rodar o DeepSeek Harness: ${r.spawnErr.message}`);
+    if (r.timedOut) throw new Error(DSH_TIMEOUT_MSG);
+    const out = dshOutcome(r.stdout);
+    if (out.text) return out.text;
+    if (out.raw) throw new Error(dshFriendlyError(out.raw));
+    const err = r.stderr.replace(/^dsh: /gm, "").trim().slice(0, 400);
+    throw new Error(err ? dshFriendlyError(err) : "O DeepSeek terminou sem resposta — tente de novo.");
+  } finally {
+    try { rmSync(runPatch, { force: true }); } catch { /* best-effort */ }
+  }
+}
+
 export interface AiOnceOpts {
   tier: AiTier;
   /** o `--model` que a chamada usava antes no claude (undefined = sem flag) */
@@ -196,13 +290,13 @@ export interface AiOnceOpts {
   timeout: number;
 }
 /** Ganchos de teste: disponibilidade e binário do codex forçados. */
-export interface AiOnceDeps { avail?: Partial<AiAvail>; codexBin?: string }
+export interface AiOnceDeps { avail?: Partial<AiAvail>; codexBin?: string; dshBin?: string }
 
 /** Roda com `input` no stdin até `ms`; estourou → mata e marca timedOut. */
-function runStdin(bin: string, args: string[], input: string, o: { cwd?: string; env?: NodeJS.ProcessEnv; ms: number }): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean; spawnErr?: NodeJS.ErrnoException }> {
+function runStdin(bin: string, args: string[], input: string, o: { cwd?: string; env?: NodeJS.ProcessEnv; ms: number; verbatim?: boolean }): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean; spawnErr?: NodeJS.ErrnoException }> {
   return new Promise((resolve) => {
     let stdout = "", stderr = "", timedOut = false, settled = false;
-    const child = spawn(bin, args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(bin, args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], windowsVerbatimArguments: !!o.verbatim });
     const done = (r: { code: number | null; spawnErr?: NodeJS.ErrnoException }) => {
       if (settled) return;
       settled = true;
@@ -299,6 +393,7 @@ export async function aiOnce(prompt: string, o: AiOnceOpts, deps: AiOnceDeps = {
     }
   }
   if (engine === "codex") return codexRun(deps.codexBin ?? resolveCodex(), prompt, o, userModel);
+  if (engine === "deepseek") return dshRun(deps.dshBin ?? resolveDsh(), prompt, o, userModel);
   const g = gatewayCfg();
   if (!g) throw new Error("Configure o gateway (URL, chave e modelo) em Configurações → Gateway próprio.");
   return gatewayCall(userModel ? { ...g, model: userModel } : g, prompt, Math.max(o.timeout, 90_000));
