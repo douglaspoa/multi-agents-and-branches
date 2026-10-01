@@ -26,7 +26,7 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
  */
 export const DSH_INSTALL = "npm i -g @deepseek-ai/dsh";
 export const DSH_MISSING_MSG = `O DeepSeek Harness (dsh) não está instalado neste computador — instale com ${DSH_INSTALL} (veja Mais › Ambiente).`;
-export const DSH_KEY_MSG = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Conta → Chaves de modelo.";
+export const DSH_KEY_MSG = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Configurações → Sua IA.";
 export const DSH_TIMEOUT_MSG = "O DeepSeek não respondeu a tempo — tente de novo.";
 export const dshNodeMsg = (v: string) =>
   `O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o deste computador é ${v}) — atualize o Node (veja Mais › Ambiente).`;

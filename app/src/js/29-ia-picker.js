@@ -16,7 +16,7 @@ const AI_ENGINES=[
     models:AI_CLAUDE_MODELS },
   { id:'codex', name:'Codex', vendor:'OpenAI', color:'#10a37f', custom:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4v11.2M3.15 5.2l9.7 5.6M3.15 10.8l9.7-5.6" stroke-linecap="round"/></svg>',
-    desc:'Codex CLI com a chave OpenAI da sua conta (Conta → Chaves de modelo).',
+    desc:'Codex CLI com o seu login (codex login) ou a chave OpenAI da sua conta — configure em Configurações → Sua IA.',
     models:[ {id:'',name:'Padrão do Codex',tag:'auto'}, {id:'gpt-5-codex',name:'GPT-5 Codex',tag:'código'}, {id:'gpt-5',name:'GPT-5',tag:'geral'}, {id:'o4-mini',name:'o4-mini',tag:'rápido'} ] },
   { id:'gateway', name:'Gateway próprio', vendor:'OpenAI-compatível', color:'#5b9df9', custom:true, dynamic:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1.2"/><rect x="2.5" y="9" width="11" height="4" rx="1.2"/><path d="M5 5h.01M5 11h.01" stroke-width="2" stroke-linecap="round"/></svg>',
@@ -25,7 +25,7 @@ const AI_ENGINES=[
   // BETA: DeepSeek Harness (dsh, MIT) — open source, pra quem não tem plano da Anthropic nem da OpenAI (ex.: alunos)
   { id:'deepseek', name:'DeepSeek beta', vendor:'open source · beta', color:'#4d6bfe', custom:true, beta:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 9.2c1.6 2.9 5 4.1 8 2.7 2-.9 3.3-2.9 3.5-5-1 .9-2.2 1.2-3.4.9"/><path d="M2.2 9.2C2 6.4 4 4 6.8 3.6c1.6-.2 3.1.4 4.1 1.5"/><circle cx="10.6" cy="6.3" r=".6" fill="currentColor"/></svg>',
-    desc:'BETA — DeepSeek Harness (open source, dsh) com a DEEPSEEK_API_KEY da sua conta (Conta → Chaves de modelo). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
+    desc:'BETA — DeepSeek Harness (open source, dsh) com a chave da DeepSeek da sua conta (Configurações → Sua IA). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
     models:[ {id:'',name:'Padrão (capaz)',tag:'auto · v4-pro'}, {id:'deepseek-v4-pro',name:'DeepSeek V4 Pro',tag:'mais capaz'}, {id:'deepseek-flash',name:'DeepSeek Flash',tag:'mais veloz'} ] },
   { id:'mock', name:'Mock', vendor:'sem IA', color:'#8b959b',
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4" stroke-dasharray="2.6 2.2"/></svg>',
@@ -71,7 +71,7 @@ function aiRecommend(s){
   return { engine:'claude', model:tier, label:AI_TIER_LABEL[tier], reason:why };
 }
 function setSelValue(sel, v){ if(!sel) return; v=v||''; if(![...sel.options].some(o=>o.value===v)) sel.add(new Option(v, v)); sel.value=v; }
-// ---- padrão do USUÁRIO (Configurações → IA padrão): vale pra toda demanda nova, do formulário ou do chat ----
+// ---- padrão do USUÁRIO (Configurações → Sua IA): vale pra toda demanda nova, do formulário ou do chat ----
 function aiDefaults(){ return { eng:lsGet('defaultEngine')||'claude', model:lsGet('defaultModel')||'' }; }
 // ESPELHA a IA padrão em ~/.constellation/settings.json (aiEngine/aiModel): é dali que o Rust e o motor TS
 // tiram a IA das chamadas auxiliares (spec com IA, título, previsão, relatórios, retro…) — sem isso,
@@ -117,14 +117,29 @@ function aiRunLabel(engine, model){
 // modelo pros chats que rodam no CLAUDE (planner, chat do projeto, issues, orquestrador): o padrão do usuário
 // só vale se o motor padrão for o Claude — um id do Codex/gateway no --model do claude derrubava a chamada.
 function aiClaudeModel(eng, model){ const d=aiDefaults(); if(eng===undefined){ eng=d.eng; model=d.model; } return aiEngineOf(eng)==='claude' && model ? model : null; }
-// alvo do seletor: o FORMULÁRIO (selects escondidos) ou as CONFIGURAÇÕES (localStorage)
-const AI_TARGET_FORM={ sel:'.aipick:not(.aipick-cfg)', get:()=>({ eng:($id('ntEngine')||{}).value||'claude', model:($id('ntModel')||{}).value||'' }), set:(e,m)=>{ setSelValue($id('ntEngine'), e); setSelValue($id('ntModel'), m); const hm=$id('howModel'); if(hm) setSelValue(hm, m); } };
-const AI_TARGET_CFG={ sel:'.aipick-cfg', cfg:true, get:aiDefaults, set:(e,m)=>aiSaveDefaults(e, m) };
+// alvo do seletor: o FORMULÁRIO/planner (selects escondidos). A IA padrão é escolhida no painel Sua IA (30-sua-ia.js).
+const AI_TARGET_FORM={ sel:'.aipick', get:()=>({ eng:($id('ntEngine')||{}).value||'claude', model:($id('ntModel')||{}).value||'' }), set:(e,m)=>{ setSelValue($id('ntEngine'), e); setSelValue($id('ntModel'), m); const hm=$id('howModel'); if(hm) setSelValue(hm, m); } };
 function aiPickApply(eng, model, target){
   target=target||AI_TARGET_FORM; target.set(eng, model);
   aiPickRender(target);
 }
 let _aiCustomOpen=false;
+// estado de cada motor no cartão do seletor (painel Sua IA, 30-sua-ia.js) — pronto · falta instalar · falta login · falta chave
+function aiPickStateHtml(id){
+  if(id==='mock' || typeof suaIaOf!=='function') return '';
+  // sem estado, estado vazio (falhou) ou velho (>20s, ou zerado por uma chave nova) → relê em segundo plano;
+  // quando chegar, o painel redesenha os seletores (suaIaRefresh)
+  if(typeof suaIaStale==='function' && suaIaStale()) suaIaLoad().catch(()=>{});
+  const s=suaIaOf(id); if(!s) return '';
+  return `<span class="aist ${s.ready?'ok':'bad'}">${esc(suaIaStateText(s))}</span>`;
+}
+// "configurar" (formulário/planner) leva ao painel Sua IA nas Configurações; "configurar agora" quando o motor não está pronto
+function aiPickCfgLink(id, gw){
+  if(id==='mock') return '';
+  const s=typeof suaIaOf==='function'?suaIaOf(id):null;
+  const pend=s?!s.ready:(id==='gateway'&&!(gw&&gw.configured));
+  return ` <a data-aicfg>${pend?'configurar agora':'configurar'}</a>`;
+}
 function aiPickRender(target){
   target=target||AI_TARGET_FORM;
   const hosts=[...document.querySelectorAll(target.sel)]; if(!hosts.length) return;
@@ -140,12 +155,12 @@ function aiPickRender(target){
   const models=e.models||[];
   const known=models.some(m=>m.id===model);
   const isRecSel=rec.engine===eng&&rec.model===model;
-  const html=`<div class="aieng">${AI_ENGINES.map(x=>`<button type="button" class="aicard${x.id===eng?' on':''}${x.dynamic&&!gw.configured?' off':''}" data-aieng="${x.id}"><span class="aiic" style="color:${x.color}">${x.icon}</span><span class="ain">${esc(x.name)}</span><span class="aiv">${esc(x.vendor)}</span></button>`).join('')}</div>`+
-    `<div class="aidesc">${esc(e.desc)}${e.id==='gateway'&&!gw.configured?` <a data-aicfg>configurar agora</a>`:''}</div>`+
+  const html=`<div class="aieng">${AI_ENGINES.map(x=>`<button type="button" class="aicard${x.id===eng?' on':''}${x.dynamic&&!gw.configured?' off':''}" data-aieng="${x.id}"><span class="aiic" style="color:${x.color}">${x.icon}</span><span class="ain">${esc(x.name)}</span><span class="aiv">${esc(x.vendor)}</span>${aiPickStateHtml(x.id)}</button>`).join('')}</div>`+
+    `<div class="aidesc">${esc(e.desc)}${aiPickCfgLink(e.id, gw)}</div>`+
     (models.length||e.custom?`<div class="aimodels">${models.map(m=>{ const r=rec.engine===e.id&&rec.model===m.id; return `<button type="button" class="aimodel${m.id===model?' on':''}${r?' rec':''}" data-aimodel="${escA(m.id)}"><b>${esc(m.name)}</b>${m.tag?`<span>${esc(m.tag)}</span>`:''}${r?'<i>recomendado</i>':''}</button>`; }).join('')}`+
       (e.custom?`<button type="button" class="aimodel${(!known&&model)?' on':''}" data-aicustom><b>${(!known&&model)?esc(model):'outro id…'}</b><span>${(!known&&model)?'id digitado':'digite o id exato'}</span></button>`:'')+`</div>`:'')+
     (_aiCustomOpen?`<div class="aicustom"><input class="in mono" id="aiCustomId" placeholder="${e.id==='claude'?'ex.: claude-opus-5-5':e.id==='codex'?'ex.: gpt-5-codex':e.id==='deepseek'?'ex.: deepseek-v4-pro':'id do modelo no gateway'}" value="${escA((!known&&model)?model:'')}"><button type="button" class="btn sm" data-aicustomok>usar</button></div>`:'')+
-    (target.cfg?`<div class="airec">✓ padrão pra toda demanda nova — pelo formulário ou pelo chat. A recomendação por demanda continua sendo só uma sugestão.</div>`:`<div class="airec">${isRecSel?'✓ ':IC.starforkEm+' '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`);
+    `<div class="airec">${isRecSel?'✓ ':IC.starforkEm+' '}${esc(rec.reason)}${isRecSel?'':` — <a data-airec>usar ${esc(rec.label)}</a>`}</div>`;
   hosts.forEach(h=>{
     h.innerHTML=html;
     h.querySelectorAll('[data-aieng]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=false; aiPickApply(b.dataset.aieng, '', target); });
@@ -154,7 +169,7 @@ function aiPickRender(target){
     h.querySelectorAll('[data-aicustom]').forEach(b=>b.onclick=()=>{ _aiCustomOpen=true; aiPickRender(target); const i=h.querySelector('#aiCustomId'); if(i) i.focus(); });
     h.querySelectorAll('[data-aicustomok]').forEach(b=>b.onclick=()=>{ const i=h.querySelector('#aiCustomId'); const v=(i&&i.value.trim())||''; _aiCustomOpen=false; aiPickApply(eng, v, target); });
     { const i=h.querySelector('#aiCustomId'); if(i) i.onkeydown=ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); _aiCustomOpen=false; aiPickApply(eng, i.value.trim(), target); } }; }
-    h.querySelectorAll('[data-aicfg]').forEach(a=>a.onclick=()=>{ if(typeof openCfg==='function') openCfg(); });
+    h.querySelectorAll('[data-aicfg]').forEach(a=>a.onclick=()=>{ if(typeof suaIaOpenCfg==='function') suaIaOpenCfg(); else if(typeof openCfg==='function') openCfg(); });
   });
 }
 // ---- trocar o modelo de uma demanda JÁ criada (menu ⋯ e cabeçalho da tarefa) ----

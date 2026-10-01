@@ -29,7 +29,7 @@ export type AiTier = "rapido" | "capaz";
 export interface AiAvail { claude: boolean; codex: boolean; gateway: boolean; deepseek?: boolean }
 
 export const NO_ENGINE_MSG =
-  "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Conta → Chaves de modelo).";
+  "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Configurações → Sua IA).";
 export const CODEX_TIMEOUT_MSG = "O Codex não respondeu a tempo — tente de novo.";
 export const CODEX_MISSING_MSG = "O Codex não está instalado neste computador — npm install -g @openai/codex (veja Mais › Ambiente).";
 export const GATEWAY_CUT_MSG = "a resposta do gateway foi cortada (limite de tokens) — peça algo menor ou aumente o limite no gateway.";
@@ -135,7 +135,7 @@ function unwrapJsonMsg(m: string): string {
 export function codexFriendlyError(msg: string): string {
   const l = msg.toLowerCase();
   const short = msg.slice(0, 300);
-  if (/401|unauthorized|api key|not logged|login/.test(l)) return `O Codex está sem login/chave — rode \`codex login\` num terminal ou configure a chave OpenAI em Conta → Chaves de modelo.\n\n(${short})`;
+  if (/401|unauthorized|api key|not logged|login/.test(l)) return `O Codex está sem login/chave — rode \`codex login\` num terminal ou configure a chave OpenAI em Configurações → Sua IA.\n\n(${short})`;
   if (/429|rate limit|quota|usage limit/.test(l)) return `O Codex está sem cota/limite no momento — espere um pouco e tente de novo.\n\n(${short})`;
   if (/stream disconnected|network|timed out|connection/.test(l)) return `O Codex não conseguiu falar com a OpenAI — cheque a internet/VPN e tente de novo.\n\n(${short})`;
   return `O Codex falhou: ${short}`;

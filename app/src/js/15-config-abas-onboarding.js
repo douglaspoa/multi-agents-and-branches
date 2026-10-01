@@ -49,8 +49,8 @@ function openCfg(){
     <div class="cfgf"><label for="cfgIssueBase">Endereço base das issues</label>
       <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/sua-empresa/issue" value="${escA(lsGet('issueBase')||'')}" style="max-width:560px">
       <p class="cfghint">Com ele, um código como FND-853 na tarefa vira link pra base/FND-853.</p></div>
-    <div class="seclbl2" style="margin-top:20px">IA padrão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· motor e versão de modelo pra toda demanda nova</span></div>
-    <div class="aipick aipick-cfg" id="aiPickCfg" style="margin-top:8px"></div>
+    <div class="seclbl2" style="margin-top:20px">Sua IA <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· qual IA roda as demandas novas — estado, configuração, teste e modelo de cada uma</span></div>
+    <div id="suaIaCfg"></div>
     <div id="raHost"></div>
     <div class="seclbl2" style="margin-top:20px">GitHub <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· a conta ativa abre os PRs e faz o push — troque ao mudar de empresa/conta</span></div>
     <div id="ghHost" style="margin-top:8px"></div>
@@ -87,7 +87,7 @@ function openCfg(){
     cap.oninput=upd; brl.oninput=upd; upd(); }
   // "alterações não salvas" só pros campos que dependem do botão salvar: IA padrão, gateway, GitHub, versão e
   // disco se salvam sozinhos — antes mexer neles acendia o aviso (e o salvar não fazia nada com eles)
-  { const SELF='#aiPickCfg,#raHost,#ghHost,#updHost,#wsHost,#notifHost';
+  { const SELF='#suaIaCfg,#raHost,#ghHost,#updHost,#wsHost,#notifHost';
     const mark=e=>{ if(e && e.target && e.target.closest && e.target.closest(SELF)) return; const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; };
     body.oninput=mark; body.onchange=mark; }
   $id('cfgSave').onclick=async()=>{
@@ -120,8 +120,8 @@ function openCfg(){
   if(typeof updRenderCfg==='function') updRenderCfg();
   wsMount();
   if(typeof notifCfgMount==='function') notifCfgMount();
-  if(typeof aiPickRender==='function' && typeof AI_TARGET_CFG!=='undefined') aiPickRender(AI_TARGET_CFG);
-  aiPlainWatch($id('aiPickCfg'));
+  // painel "Sua IA" (30-sua-ia.js) — o MESMO componente do passo de IA do primeiro acesso
+  if(typeof suaIaMount==='function') suaIaMount($id('suaIaCfg'), { ctx:'cfg', fresh:true });
   $id('cfgOverlay').style.display='flex';
 }
 $id('cfgBtn').onclick=openCfg;
@@ -479,7 +479,8 @@ function obEnvFixHtml(fix, soft){
 const OB_STEPS=[
   { t:'Bem-vindo ao Starfork', b:'Você conta o que precisa em português normal e <b>agentes de IA</b> fazem o trabalho — cada tarefa numa <b>cópia separada do seu projeto</b>, então uma não atrapalha a outra. No fim, cada entrega vem com <b>provas de verdade</b> (prints, testes, documentos) pra você revisar antes de aprovar.' },
   { t:'Seu time vê o essencial', b:'Com a conta num time (<b>Conta e time</b>, no rodapé da barra lateral), o time vê o <b>andamento de cada tarefa</b>: título, status e custo sincronizam sozinhos. A <b>conversa com o agente fica só no seu computador</b>, e as provas só sobem quando você publicar.' },
-  { t:'O que o computador precisa', b:'Os agentes usam o <b>Git</b> (guarda o histórico) e <b>uma IA</b> — o <b>Claude Code</b>, o <b>Codex</b> (OpenAI) ou o gateway da sua empresa; basta uma, com login feito. O <b>GitHub</b> é recomendado — só serve pra publicar. Outros extras são opcionais. Estamos conferindo agora; o que faltar vem com o comando pronto pra copiar.', env:true },
+  { t:'Qual IA você vai usar?', b:'Os agentes trabalham com <b>uma IA</b> — escolha a sua: o <b>Claude Code</b>, o <b>Codex</b> (OpenAI), o <b>DeepSeek</b> (beta, open source) ou o gateway da sua empresa. Cada uma mostra se já está pronta e o que falta; dá pra <b>testar</b> e deixar como padrão aqui mesmo.', ia:true },
+  { t:'O que o computador precisa', b:'Os agentes usam o <b>Git</b> (guarda o histórico) e <b>uma IA</b> — o <b>Claude Code</b>, o <b>Codex</b> (OpenAI), o <b>DeepSeek</b> (beta) ou o gateway da sua empresa; basta uma, com login feito. O <b>GitHub</b> é recomendado — só serve pra publicar. Outros extras são opcionais. Estamos conferindo agora; o que faltar vem com o comando pronto pra copiar.', env:true },
   { t:'Agora é com você', b:'Diga o que você quer fazer — um app, um site, um relatório, uma planilha — e o Starfork cria a pasta do projeto e a IA monta o plano com você. Se já tem uma pasta, é só abrir.', proj:true },
 ];
 let obStep=0;
@@ -497,7 +498,7 @@ document.addEventListener('keydown', e=>{
     else if(!e.shiftKey && (i===-1 || i===f.length-1)){ e.preventDefault(); f[0].focus(); }
     return; }
   if(e.key==='Escape'){ e.preventDefault(); finishOb(); }
-  else if(e.key==='ArrowRight' && !/INPUT|TEXTAREA/.test((document.activeElement||{}).tagName||'')){ e.preventDefault(); const b=$id('obNext'); if(b) b.click(); }
+  else if(e.key==='ArrowRight' && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'')){ e.preventDefault(); const b=$id('obNext'); if(b) b.click(); }
 });
 // só no 1º uso, com sessão aberta e sem a tela de entrada/planos por cima
 function obMaybeStart(){
@@ -516,21 +517,31 @@ function renderOb(){
     <div style="display:flex;gap:6px;margin-bottom:18px;align-items:center" role="progressbar" aria-valuemin="1" aria-valuemax="${OB_STEPS.length}" aria-valuenow="${obStep+1}" aria-label="passo ${obStep+1} de ${OB_STEPS.length}">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}<span class="dim mono" style="font-size:10.5px;margin-left:6px">${obStep+1}/${OB_STEPS.length}</span></div>
     <h2 style="font-size:20px;margin:0 0 10px" id="obTitle">${s.t}</h2>
     <p style="color:var(--text-2);font-size:14px;line-height:1.65;margin:0">${s.b}</p>
+    ${s.ia?'<div id="obSuaIa"></div>':''}
     ${s.env?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:12px">verificando o ambiente…</div></div>':''}
     ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center">${hasRepo?`<span class="dim" style="font-size:12.5px">✓ projeto aberto: <b style="color:var(--text)">${esc(pathBase(state.repo))}</b></span><span style="flex:1"></span>`:''}<button class="btn sm" id="obOpenDir">${ic('folder')}${hasRepo?'Abrir outra pasta':'Já tenho uma pasta'}</button></div>`:''}
     <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
       <button class="btn sm" id="obSkip" title="Esc">pular</button><span style="flex:1"></span>
       ${obStep>0?'<button class="btn sm" id="obBack">voltar</button>':''}
+      ${s.ia?'<span class="dim" id="obIaWill" style="font-size:12px" aria-live="polite"></span><button class="btn sm" id="obIaLater" title="a IA padrão continua como está — troque quando quiser em Configurações → Sua IA">decido depois</button>':''}
       <button class="btn primary" id="obNext">${last?(hasRepo?'Começar':'Dizer o que eu quero fazer'):'continuar'}</button>
     </div>`;
   $id('obSkip').onclick=()=>{ finishOb(); };
-  $id('obNext').onclick=()=>{ if(!last){ obStep++; renderOb(); const b=$id('obNext'); if(b) b.focus(); return; }
+  $id('obNext').onclick=()=>{
+    // passo de IA: o "continuar" APLICA a IA pronta escolhida/sugerida quando o padrão atual não está pronto
+    // (quem só tem Codex/gateway não fica com o Claude de padrão); "decido depois" (obIaLater) não aplica nada
+    if(s.ia && typeof suaIaObApply==='function') suaIaObApply();
+    if(!last){ obStep++; renderOb(); const b=$id('obNext'); if(b) b.focus(); return; }
     finishOb();
     // sem projeto: vai direto pra caixa "O que você quer fazer?" (Começar sem portões) — antes o botão dizia "depois"
     // as dicas de primeira vez ficam pra quando o projeto abrir (36-comecar/noProjSync chama o coachStart)
     if(!(state&&state.repo)){ lsSet('coachPending','1'); if(window.openTab) window.openTab('flow'); setTimeout(()=>{ const t=$id('emWhat'); if(t) t.focus(); },120); return; }
     coachStart(); };
   bindClick('obBack', ()=>{ if(obStep>0){ obStep--; renderOb(); } });
+  // passo de IA: pulável ("decido depois" segue o tour sem mudar nada) e com o painel único (30-sua-ia.js)
+  bindClick('obIaLater', ()=>{ obStep++; renderOb(); const b=$id('obNext'); if(b) b.focus(); });
+  if(s.ia && typeof suaIaMount==='function') suaIaMount($id('obSuaIa'), { ctx:'onboarding', fresh:true,
+    onPick:(id, nome)=>{ const w=$id('obIaWill'); if(w) w.textContent=id?'vai usar: '+nome:''; } });
   bindClick('obOpenDir', async()=>{ try{ if(window.pickFolder) await window.pickFolder(); }catch(_){ } if(state&&state.repo){ finishOb(); coachStart(); } else renderOb(); });
   // check de ambiente INTEGRADO no onboarding (redesign p16): fix inline com botão de copiar, sem bloquear a entrada
   if(s.env) runEnvCheck().then(()=>{
