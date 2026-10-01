@@ -1,0 +1,44 @@
+[
+  {
+    "name": "normal: allowed sem utilization (sem porcentagem)",
+    "line": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":1790884800,\"rateLimitType\":\"five_hour\",\"isUsingOverage\":false},\"uuid\":\"u\",\"session_id\":\"s\"}",
+    "now": 1790870000000,
+    "file": "claude-five_hour.json",
+    "record": { "v": 1, "rateLimitType": "five_hour", "status": "allowed", "at": 1790870000000, "resetsAt": 1790884800 }
+  },
+  {
+    "name": "perto do limite: allowed_warning com utilization",
+    "line": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed_warning\",\"resetsAt\":1791400000,\"rateLimitType\":\"seven_day\",\"utilization\":0.92},\"uuid\":\"u\",\"session_id\":\"s\"}",
+    "now": 1790870000001,
+    "file": "claude-seven_day.json",
+    "record": { "v": 1, "rateLimitType": "seven_day", "status": "allowed_warning", "at": 1790870000001, "resetsAt": 1791400000, "utilization": 0.92 }
+  },
+  {
+    "name": "bloqueado sem reinício",
+    "line": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"rateLimitType\":\"five_hour\"}}",
+    "now": 5,
+    "file": "claude-five_hour.json",
+    "record": { "v": 1, "rateLimitType": "five_hour", "status": "rejected", "at": 5 }
+  },
+  {
+    "name": "sem rateLimitType: não grava (não chuta five_hour)",
+    "line": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790884800}}",
+    "now": 5,
+    "file": null,
+    "record": null
+  },
+  {
+    "name": "status desconhecido: não grava",
+    "line": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"qualquer\",\"rateLimitType\":\"five_hour\"}}",
+    "now": 5,
+    "file": null,
+    "record": null
+  },
+  {
+    "name": "tipo com caractere de caminho: não grava",
+    "line": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"rateLimitType\":\"../x\"}}",
+    "now": 5,
+    "file": null,
+    "record": null
+  }
+]

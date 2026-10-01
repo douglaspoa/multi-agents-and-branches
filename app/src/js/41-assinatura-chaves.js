@@ -132,7 +132,8 @@ async function secretsSync(){
   }catch(_){ }
 }
 // chave nova/removida (ex.: DEEPSEEK_API_KEY) vale JÁ no seletor/Ambiente: zera o cache de 30s da disponibilidade
-function secretsAvailRefresh(){ if(typeof suaIaAt!=='undefined') suaIaAt=0; /* painel Sua IA relê na próxima vez */ try{ return Promise.resolve(invoke('ai_avail_refresh')).catch(()=>{}); }catch(_){ return Promise.resolve(); } }
+// (o Rust também esquece as prontas/saldo do medidor do plano — e o medidor relê na hora)
+function secretsAvailRefresh(){ if(typeof suaIaAt!=='undefined') suaIaAt=0; /* painel Sua IA relê na próxima vez */ try{ return Promise.resolve(invoke('ai_avail_refresh')).catch(()=>{}).then(()=>{ if(typeof planMeterReset==='function') planMeterReset(); }); }catch(_){ return Promise.resolve(); } }
 async function secretSet(name, value){
   await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
     body: JSON.stringify({ user_id:cloudUserId(), name, value }) });

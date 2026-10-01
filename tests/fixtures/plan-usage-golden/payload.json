@@ -1,0 +1,23 @@
+{
+  "defaultEngine": "claude",
+  "configured": ["claude", "codex", "deepseek"],
+  "claude": {
+    "state": "ok",
+    "window": "five_hour",
+    "pct": null,
+    "resetsAt": 1790884800000,
+    "starfork": { "turns": 3, "inTok": 118000, "outTok": 2000, "ms": 600000 },
+    "starforkError": null
+  },
+  "codex": {
+    "hasData": true,
+    "plan": "plus",
+    "primary": { "usedPercent": 9.0, "windowMinutes": 300, "resetsAt": 1790884401000, "reset": false },
+    "secondary": { "usedPercent": 1.0, "windowMinutes": 10080, "resetsAt": 1791471201000, "reset": false }
+  },
+  "deepseek": {
+    "ok": true,
+    "available": true,
+    "balances": [{ "currency": "USD", "total": "4.20" }]
+  }
+}

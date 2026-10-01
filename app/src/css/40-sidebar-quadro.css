@@ -248,3 +248,32 @@
 .tabbar.crowded .tab:not(.on):not(:hover):not(:focus-visible) .x{display:none}
 .tabbar .tablist{display:contents}
 .tab.dropafter{box-shadow:inset -2px 0 0 var(--accent)}
+
+/* ---- medidor do plano (28-medidor-plano): fixo acima da navegação de baixo, minimizável ---- */
+.planmeter{flex:none;border-top:1px solid var(--border);padding:6px 10px 4px;font-size:var(--fs-xs);color:var(--text-2)}
+.planmeter:empty{display:none}
+.planmeter button{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;border-radius:var(--r-xs);min-width:0}
+.planmeter button:focus-visible{box-shadow:var(--ring)}
+.planmeter .pm-head{padding:5px 6px;color:var(--muted)}
+.planmeter .pm-head:hover{background:var(--surface-2);color:var(--text-2)}
+.planmeter .pm-title{flex:none;font-weight:600;letter-spacing:.02em}
+.planmeter .pm-sum{flex:1;min-width:0;display:flex;align-items:center;gap:6px;justify-content:flex-end;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-2)}
+.planmeter .pm-chev{flex:none;width:12px;height:12px;transition:transform .15s}
+.planmeter.min .pm-chev{transform:rotate(180deg)}
+.planmeter .pm-empty .pm-title{color:var(--text-2);font-weight:500}
+.planmeter .pm-rows{display:flex;flex-direction:column;gap:1px;padding:2px 0 4px}
+.planmeter .pm-row{padding:4px 6px;align-items:flex-start}
+.planmeter .pm-row .pm-dot{margin-top:4px}
+.planmeter .pm-row:hover{background:var(--surface-2)}
+.planmeter .pm-rows[hidden]{display:none}
+.planmeter .pm-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;line-height:1.4;overflow-wrap:anywhere}
+.planmeter .pm-name{font-weight:600;color:var(--text)}
+.planmeter .pm-txt{font-family:var(--code);font-size:10.5px;color:var(--text-2)}
+.planmeter .pm-det{font-size:10.5px;color:var(--muted)}
+.planmeter .pm-row.pm-warn .pm-txt{color:var(--warn)}
+.planmeter .pm-row.pm-crit .pm-txt{color:var(--crit)}
+.planmeter .pm-dot{flex:none;width:7px;height:7px;border-radius:99px;background:var(--muted)}
+.planmeter .pm-dot.pm-ok{background:var(--good)}
+.planmeter .pm-dot.pm-warn{background:var(--warn)}
+.planmeter .pm-dot.pm-crit{background:var(--crit)}
+.planmeter .pm-dot.pm-idle{opacity:.6}

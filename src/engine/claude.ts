@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -495,6 +495,11 @@ export class ClaudeEngine implements AgentEngine {
           if (o?.type === "result" && typeof o.total_cost_usd === "number" && sessionId) saveSessionCost(input.dbFile, sessionId, o.total_cost_usd);
         } catch { /* linha que não é JSON */ }
       }
+      // medidor do plano: o estado/limite/reinício que o próprio Claude Code emite (nada de API de uso)
+      if (line.includes('"rate_limit_event"')) {
+        const rl = rateLimitOf(line);
+        if (rl) recordClaudeRateLimit(rl);
+      }
       for (const ev of mapLine(line, costBase)) {
         if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
         queue.push(ev);
@@ -649,6 +654,59 @@ function tailText(file: string, max: number): string {
   }
 }
 
+// ---------- medidor do plano (rate_limit_event) ----------
+/** O que o Claude Code diz da janela do plano (assinatura claude.ai) no evento `rate_limit_event` do stream-json.
+ * `utilization` só vem perto do limite — nunca inventamos porcentagem. `resetsAt` = epoch em SEGUNDOS.
+ * Formato do arquivo fixado por tests/fixtures/plan-usage-golden/claude-rate-limit.json (o mesmo do Rust:
+ * app/src-tauri/src/plan_usage.rs, que grava os eventos dos chats do app e LÊ os arquivos). */
+export interface ClaudeRateLimit {
+  status: "allowed" | "allowed_warning" | "rejected";
+  rateLimitType: string;
+  resetsAt?: number;
+  utilization?: number;
+}
+const RL_STATUS = new Set(["allowed", "allowed_warning", "rejected"]);
+
+/** Lê uma linha NDJSON e devolve o rate limit (null se não for um `rate_limit_event` válido COM janela conhecida). */
+export function rateLimitOf(line: string): ClaudeRateLimit | null {
+  let o: any;
+  try { o = JSON.parse(line.trim()); } catch { return null; }
+  if (o?.type !== "rate_limit_event") return null;
+  const i = o.rate_limit_info;
+  if (!i || !RL_STATUS.has(i.status)) return null;
+  // sem janela não dá pra saber a qual limite o estado se refere — não chuta five_hour
+  if (typeof i.rateLimitType !== "string" || !/^[a-z0-9_]{1,40}$/.test(i.rateLimitType)) return null;
+  const out: ClaudeRateLimit = { status: i.status, rateLimitType: i.rateLimitType };
+  if (typeof i.resetsAt === "number" && Number.isFinite(i.resetsAt) && i.resetsAt > 0) out.resetsAt = i.resetsAt;
+  if (typeof i.utilization === "number" && Number.isFinite(i.utilization) && i.utilization >= 0) out.utilization = i.utilization;
+  return out;
+}
+
+/** ~/.constellation/usage — UM arquivo por janela (claude-<rateLimitType>.json): dois processos gravando janelas
+ * diferentes nunca se atropelam; o app (plan_usage) junta todos na leitura. */
+export function claudeUsageDir(): string {
+  return join(homedir(), ".constellation", "usage");
+}
+
+/** O conteúdo do arquivo da janela (puro — fixado pelo golden compartilhado com o Rust). */
+export function rateLimitRecord(rl: ClaudeRateLimit, now: number): Record<string, unknown> {
+  const w: Record<string, unknown> = { v: 1, rateLimitType: rl.rateLimitType, status: rl.status, at: now };
+  if (rl.resetsAt !== undefined) w.resetsAt = rl.resetsAt;
+  if (rl.utilization !== undefined) w.utilization = rl.utilization;
+  return w;
+}
+
+/** Grava o último estado da janela em `<dir>/claude-<tipo>.json` (escrita atômica: tmp único + rename). Nunca derruba a tarefa. */
+export function recordClaudeRateLimit(rl: ClaudeRateLimit, dir = claudeUsageDir(), now = Date.now()): void {
+  try {
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `claude-${rl.rateLimitType}.json`);
+    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    writeFileSync(tmp, JSON.stringify(rateLimitRecord(rl, now)));
+    renameSync(tmp, file);
+  } catch { /* medidor é acessório */ }
+}
+
 /** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[].
  * `costBase`: custo acumulado da sessão ANTES deste turno (só no --resume) — é descontado do total. */
 export function mapLine(line: string, costBase = 0): AgentEvent[] {
@@ -673,6 +731,9 @@ export function mapLine(line: string, costBase = 0): AgentEvent[] {
     }
     return [];
   }
+
+  // estado do plano: não vira evento da tarefa — o laço de leitura grava em ~/.constellation/usage (recordClaudeRateLimit)
+  if (o.type === "rate_limit_event") return [];
 
   if (o.type === "assistant" && o.message?.content) {
     const out: AgentEvent[] = [];
