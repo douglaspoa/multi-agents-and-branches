@@ -753,7 +753,10 @@ function renderWorkspace(){
   const keepInput=!!(ai&&ai===inEl&&inEl.dataset.tk===t.id), inCaret=(keepInput&&inEl.selectionStart!=null)?inEl.selectionStart:null;
   { const ar=$id('fwAsReq'); if(ar&&ar.dataset.tk) fwAsReqOn[ar.dataset.tk]=ar.checked; }
   const th0=$id('fwThread');
-  const thMem=(th0 && chat.dataset.tk===t.id) ? { top:th0.scrollTop, bottom:(th0.scrollHeight-th0.scrollTop-th0.clientHeight<80) } : null;
+  // "preso no fim" é INTENÇÃO, não posição medida: a 1ª pintura acontece com a coluna escondida (scrollTop
+  // ignorado → 0) e a 2ª lia esse 0 como "a pessoa rolou pra cima" — a conversa abria no topo. Só um scroll
+  // de verdade (com layout) muda a intenção (fwThreadPinned, atualizado no listener abaixo).
+  const thMem=(th0 && chat.dataset.tk===t.id) ? { top:th0.scrollTop, bottom:fwThreadPinned[t.id]!==false } : null;
   const nowBox = `<div class="fwnow${ACTIVE_ST.has(t.status)?'':' done'}" id="fwNow">${fwNowHtml(t)}</div>`;
   const askingW=pendingOf(t.id);
   const workingW=fwIsWorking(t);
@@ -806,7 +809,16 @@ function renderWorkspace(){
     i.value=fwDraft[t.id]||'';
     if(keepInput){ i.focus(); if(inCaret!=null){ try{ i.setSelectionRange(inCaret,inCaret); }catch(_){} } } } }
   // conversa: só gruda no fim se você JÁ estava no fim (lendo lá em cima, a rolagem fica onde está)
-  const th=$id('fwThread'); if(th){ if(!thMem||thMem.bottom) th.scrollTop=th.scrollHeight; else th.scrollTop=thMem.top; }
+  const th=$id('fwThread'); if(th){
+    if(!thMem||thMem.bottom){
+      th.scrollTop=th.scrollHeight;
+      // abrir a atividade / trocar pra "Código": a coluna do chat ainda pode estar escondida neste instante
+      // (o navegador ignora scrollTop de elemento sem altura) e a conversa abria no TOPO. Reaplica o "fim"
+      // quando ela já tem layout — só se ninguém rolou pra cima no meio tempo.
+      fwStickBottom(th);
+    } else th.scrollTop=thMem.top;
+    th.addEventListener('scroll', ()=>{ if(th.clientHeight>0) fwThreadPinned[t.id]=(th.scrollHeight-th.scrollTop-th.clientHeight<80); }, { passive:true });
+  }
   // abrir/recolher a árvore (« no cabeçalho dela, » na coluna ao lado)
   document.querySelectorAll('#fwOverlay [data-fwtree]').forEach(b=>b.onclick=()=>fwToggleTree());
 }
@@ -1200,6 +1212,16 @@ function fwOptimHtml(o){
   return `<div class="cmsg you optim${bad?' bad':''}"><div class="cbub">${chatMd(o.text)}<div class="optim-st">${spin?'<span class="spin"></span> ':o.st==='comecou'?'<span class="pulse" style="--pc:var(--good)"></span> ':''}${esc(fwOptimCap(o))}</div>${act}</div></div>`;
 }
 // repinta SÓ a conversa (não mexe no campo de texto) e desce pro fim
+const fwThreadPinned={}; // tarefa → a conversa está presa no fim? (ausente = sim)
+// gruda a conversa no fim assim que ela tiver altura (até ~10 quadros); para se a pessoa rolar pra cima
+function fwStickBottom(th){
+  let n=0; th.__fwStick=(th.__fwStick||0)+1; const id=th.__fwStick;
+  const tick=()=>{ if(id!==th.__fwStick || !th.isConnected) return;
+    if(th.clientHeight>0){ if(th.scrollHeight-th.scrollTop-th.clientHeight>2) th.scrollTop=th.scrollHeight; return; }
+    if(++n<10) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  th.addEventListener('wheel', ()=>{ th.__fwStick=(th.__fwStick||0)+1; }, { once:true, passive:true }); // rolou: não puxa mais
+}
 function fwPaintThread(t){ const th=$id('fwThread'); if(!th||!t) return; th.innerHTML=fwThreadHtml(t); th.scrollTop=th.scrollHeight; }
 async function fwSendMsg(queueOnly){
   const t=fwTaskObj(); if(!t) return;
