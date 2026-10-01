@@ -6282,7 +6282,7 @@ fn env_dsh_status_item(name: String, found: &str, version: &str, st: Result<(), 
 fn env_check() -> Vec<EnvCheck> {
     let mut out = Vec::new();
     let ver = |bin: &str, args: &[&str]| -> Option<String> {
-        let mut c = Command::new(bin);
+        let mut c = ai_once::tool_command(bin); // pasta da ferramenta + do node no PATH (app aberto pelo Finder)
         c.args(args);
         output_timeout(c, 8).ok().filter(|o| o.status.success()).map(|o| {
             let s = String::from_utf8_lossy(&o.stdout);
