@@ -398,6 +398,7 @@ dependencies = [
  "objc2",
  "objc2-foundation",
  "objc2-user-notifications",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

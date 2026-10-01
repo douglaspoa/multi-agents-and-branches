@@ -13,6 +13,7 @@ import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
+import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLearnSettings, readPending, rejectReason, retroPrompt, type PendingItem } from "./learn.ts";
 import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine, claudeEnv, claudeErrText, resolveClaude } from "./engine/claude.ts";
@@ -78,6 +79,9 @@ export function processStartMs(pid: number): number | null {
     return null;
   }
 }
+
+/** Instruções que AGENTES gravam ao editar a spec de outra tarefa (src/agent-edits.ts) — não são correção do humano. */
+const AGENT_INSTRUCTION = /\b(ATUALIZOU a spec desta tarefa|APROVOU remover da spec|RECUSOU sua proposta|DESFEZ uma edição anterior da spec)\b/;
 
 /** Teto das chamadas AUXILIARES ao claude (resumo de commit, destiladores) — CARDUME_AUX_TIMEOUT_MS. */
 export function auxTimeoutMs(): number {
@@ -484,11 +488,11 @@ export class Orchestrator {
     } catch { return ""; }
   }
 
-  /** Roda o Haiku headless (destiladores). "" em qualquer falha. */
-  private async haiku(prompt: string): Promise<string> {
+  /** Roda um modelo headless (destiladores, retro). Padrão: Haiku. "" em qualquer falha. */
+  private async aux(prompt: string, model = "claude-haiku-4-5-20251001", timeout = auxTimeoutMs()): Promise<string> {
     try {
       // teto: sem ele um claude pendurado deixava o processo do motor vivo pra sempre (fire-and-forget)
-      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", "claude-haiku-4-5-20251001"], { env: claudeEnv(), timeout: auxTimeoutMs() });
+      const { stdout } = await run(resolveClaude(), ["-p", prompt, "--model", model], { env: claudeEnv(), timeout });
       return stdout.trim();
     } catch { return ""; }
   }
@@ -525,7 +529,7 @@ export class Orchestrator {
         `responda SÓ um JSON {"title":"título curto e geral","type":"regra|decisão|gotcha|contexto|glossário|pessoa","tags":["tema"],"body":"1-3 frases em português, imperativas e gerais (sem citar a tarefa), com [[slug]] pras notas existentes relacionadas e/ou [[tema]] pro assunto (ex.: [[ferramentas]])"}. ` +
         `Se já existe nota sobre o MESMO assunto, use exatamente o título dela. NUNCA inclua segredos, chaves, senhas ou valores de .env. ` +
         `Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
-      const out = await this.haiku(prompt);
+      const out = await this.aux(prompt);
       if (!out || /^skip\b/i.test(out.split("\n").pop()?.trim() ?? "")) return;
       const who = this.humanName();
       const note = this.noteFromJson(extractJson(out), `destilador · correção de ${who}${taskTitle ? ` no chat da tarefa "${taskTitle.slice(0, 60)}"` : ""}`);
@@ -536,37 +540,100 @@ export class Orchestrator {
   }
 
   /**
-   * FIM DA TAREFA: destila decisões e gotchas do que aconteceu (resumo + notas do
-   * agente) em 0-3 notas do cérebro. Melhor-esforço, fire-and-forget.
+   * FIM DA TAREFA — RETRO (aprendizado contínuo): relê o que aconteceu (correções do humano,
+   * retrabalho, review, eventos) e propõe NOTAS (fatos) e SKILLS aprendidas (procedimentos).
+   * learnMode "sugerir" (padrão) → fila .cardume/aprendizado/pendentes.json (o humano aceita na
+   * aba Memória); "auto" → aplica direto; "desligado" → nenhuma chamada de IA.
+   * Fire-and-forget: nunca quebra a tarefa.
    */
-  private async distillTask(taskId: string): Promise<void> {
+  private async retroTask(taskId: string): Promise<void> {
     try {
+      const { mode, model } = readLearnSettings();
+      if (mode === "desligado") return;
       const t = this.store.getTask(taskId);
       if (!t) return;
       const spec = JSON.parse(t.spec_json) as TaskSpec;
-      const evs = this.store
-        .eventsForTask(taskId)
-        .filter((e) => e.type === "done" || e.type === "note")
+      const all = this.store.eventsForTask(taskId);
+      // correções do humano, em ordem: mensagens do chat ("Você: …", gravadas como "Você"/nome dele) +
+      // instruções de ajuste não canceladas (as geradas por agentes editando a spec ficam de fora).
+      // Eventos do sistema ("requisito adicionado: …", "instrução enviada: …") NÃO contam.
+      const me = this.humanName();
+      const chat = all
+        .filter((e) => e.type === "note" && (e.agent === "Você" || e.agent === me) && /^Você:\s*/.test(String(e.text)))
+        .map((e) => ({ at: Number(e.ts) || 0, text: String(e.text).replace(/^Você:\s*/, "") }));
+      const instr = this.store.instructionsFor(taskId).filter((i) => !AGENT_INSTRUCTION.test(i.text)).map((i) => ({ at: i.created_at, text: i.text }));
+      const seen = new Set<string>();
+      const corrections = [...chat, ...instr]
+        .sort((a, b) => a.at - b.at)
+        .map((c) => c.text.trim())
+        .filter((x) => x && !seen.has(x) && !!seen.add(x))
+        .slice(-20); // as mais recentes
+      // rodadas de retrabalho = o que o reworkTaskInner registra (o work_queue só existe com a tarefa ocupada)
+      const reworks = all.filter((e) => e.type === "note" && /^rework: aplicando ajuste/.test(String(e.text))).length;
+      const events = all
+        .filter((e) => (e.type === "done" || e.type === "note") && e.agent !== "Você" && e.agent !== "Sistema")
         .slice(-25)
-        .map((e) => `- ${e.agent}: ${String(e.text).replace(/\s+/g, " ").slice(0, 300)}`)
-        .join("\n");
-      if (!evs) return;
-      const prompt =
-        `Tarefa concluída por agentes de IA num projeto de software.\nTítulo: ${spec.title}\nObjetivo: ${String(spec.objective ?? "").slice(0, 600)}\n` +
-        `O que aconteceu (eventos):\n${evs.slice(0, 5000)}\n\n` +
-        `Notas que já existem no cérebro do projeto (slug: título):\n${this.brainCatalog() || "(nenhuma)"}\n\n` +
-        `Extraia de 0 a 3 APRENDIZADOS DURADOUROS que valem pra tarefas FUTURAS deste projeto: decisões de arquitetura/produto tomadas, gotchas (armadilhas descobertas, com a causa), regras de trabalho. ` +
-        `Nada pontual da tarefa, nada óbvio, NUNCA segredos/chaves/valores de .env. Responda SÓ um JSON array: ` +
-        `[{"title":"título curto","type":"decisão|gotcha|regra|contexto|glossário","tags":["tema"],"body":"1-4 frases em português com [[slug]] pras notas relacionadas"}] — ou [] se não houver nada que valha.`;
-      const out = await this.haiku(prompt);
-      const arr = extractJson(out);
-      if (!Array.isArray(arr)) return;
-      const brain = this.brain();
-      for (const o of arr.slice(0, 3)) {
-        const note = this.noteFromJson(o, `agente · fim da tarefa "${String(spec.title).slice(0, 60)}" (${taskId})`);
-        if (note && brain.write(note)?.action === "secret") this.noteSecretDropped(taskId, "um aprendizado do fim da tarefa");
+        .map((e) => `- ${e.agent}: ${String(e.text).replace(/\s+/g, " ").slice(0, 300)}`);
+      if (!events.length && !corrections.length) return;
+      const learned = learnedSkills(this.ws.repo);
+      const out = await this.aux(retroPrompt({
+        title: spec.title,
+        objective: String(spec.objective ?? ""),
+        requirements: Array.isArray(spec.requirements) ? spec.requirements.map(String) : [],
+        corrections,
+        reworks,
+        reviewSummary: this.store.getReview(taskId)?.summary ?? "",
+        events,
+        brainCatalog: this.brainCatalog(),
+        learnedSkills: learned,
+        alreadySuggested: readPending(this.ws.dir).filter((p) => p.taskId === taskId).map((p) => p.nota ? `nota: ${p.nota.title}` : `skill: ${p.skill?.nome ?? ""}`),
+      }), model, Math.max(auxTimeoutMs(), 180_000)); // Sonnet com ~10k chars: teto próprio, maior que o dos destiladores
+      if (!out) return;
+      const { notas, skills } = parseRetro(out);
+      const learnedNames = new Set(learned.map((s) => s.name));
+      const items: Omit<PendingItem, "id" | "createdAt">[] = [];
+      const base = { taskId, taskTitle: String(spec.title ?? "").slice(0, 140) };
+      for (const n of notas) items.push({ ...base, kind: "nota", nota: n });
+      // "atualizar" só vale pra skill APRENDIDA que existe; o resto vira "criar" (colisão → nome-2 ao aplicar)
+      for (const s of skills) items.push({ ...base, kind: "skill", skill: { ...s, acao: s.acao === "atualizar" && learnedNames.has(s.nome) ? "atualizar" : "criar" } });
+      const ok = items.filter((it) => {
+        const why = rejectReason(itemText(it));
+        if (!why) return true;
+        const what = it.nota ? `a nota proposta "${it.nota.title.slice(0, 60)}"` : `a skill proposta "${it.skill!.nome}"`;
+        if (why === "segredo") this.noteSecretDropped(taskId, `${what} da retro`);
+        else this.learnDropped(taskId, `aprendizado: descartei ${what} da retro — parecia conter instruções pro agente (injeção); nada foi gravado`);
+        return false;
+      });
+      if (!ok.length) return;
+      if (mode === "sugerir") {
+        const added = appendPending(this.ws.dir, ok);
+        if (added.length) this.learnDropped(taskId, `aprendizado: ${added.length} sugest${added.length === 1 ? "ão" : "ões"} da retro pra revisar na aba Memória`);
+        return;
       }
-    } catch { /* melhor-esforço */ }
+      // modo automático: aplica direto o que iria pra fila
+      const brain = this.brain();
+      const by = `agente · retro da tarefa "${String(spec.title).slice(0, 60)}" (${taskId})`;
+      const done: string[] = [];
+      for (const it of ok) {
+        try {
+          if (it.nota) {
+            const r = brain.write({ ...it.nota, by, origem: "agente" });
+            if (r?.action === "secret") this.noteSecretDropped(taskId, "um aprendizado da retro");
+            else if (r) done.push(`nota "${it.nota.title.slice(0, 60)}"`);
+          } else if (it.skill) {
+            const r = applySkill(this.ws.repo, this.ws.dir, it.skill, taskId);
+            done.push(`skill ${r.name} (${r.action === "updated" ? "atualizada" : "nova"})`);
+          }
+        } catch { /* um item ruim não derruba os outros */ }
+      }
+      if (done.length) this.learnDropped(taskId, `aprendizado automático: ${done.join(", ")}`);
+    } catch { /* melhor-esforço — nunca quebra a tarefa */ }
+  }
+
+  /** Aviso do aprendizado no chat da tarefa (e no log do motor). */
+  private learnDropped(taskId: string, msg: string): void {
+    console.warn(`[aprendizado] ${msg}`);
+    try { this.store.addEvent(taskId, "Sistema", "note", msg, false); } catch { /* sem store */ }
   }
 
   /** Nota descartada por parecer segredo: avisa no chat da tarefa (nunca some calada). */
@@ -1086,7 +1153,7 @@ export class Orchestrator {
     this.appendHistory(taskId);      // memória de issues: entra no índice pesquisável
     this.harvestRunbook(task.worktree); // aprendizado de ambiente volta pro repo
     this.harvestBrain(task.worktree, taskId, task.title); // notas que o agente escreveu → cérebro
-    void this.distillTask(taskId);   // decisões/gotchas da tarefa viram notas (fire-and-forget)
+    void this.retroTask(taskId);     // retro: notas + skills aprendidas (fila ou auto, fire-and-forget)
     await this.maybeOpenPr(taskId, task, spec);
   }
 

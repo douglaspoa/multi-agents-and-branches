@@ -95,7 +95,7 @@ test("claude auxiliar (destilador/resumo) pendurado: desiste no teto em vez de p
     writeFileSync(fake, "#!/bin/sh\nsleep 30\n");
     chmodSync(fake, 0o755);
     const t0 = Date.now();
-    const out = await withEnv({ CARDUME_CLAUDE: fake, CARDUME_AUX_TIMEOUT_MS: "500" }, () => (orch as unknown as { haiku(p: string): Promise<string> }).haiku("oi"));
+    const out = await withEnv({ CARDUME_CLAUDE: fake, CARDUME_AUX_TIMEOUT_MS: "500" }, () => (orch as unknown as { aux(p: string): Promise<string> }).aux("oi"));
     assert.equal(out, "");
     assert.ok(Date.now() - t0 < 8000, `demorou ${Date.now() - t0}ms`);
     // o resumo do commit (dentro do pipeline, com o lock da tarefa) também tem teto e registra a falha

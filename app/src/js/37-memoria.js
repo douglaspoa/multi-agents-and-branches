@@ -177,6 +177,34 @@ function memErr(e){
   if(/access is denied|os error 5\b/i.test(raw)) return { message:'Permission denied — '+raw, raw };
   const t=memErrText(e); return t===raw ? e : { message:t, raw };
 }
+// ---- aprendizados para revisar (fila da retro do fim da tarefa: .cardume/aprendizado/pendentes.json) ----
+function memLEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// rótulo do tipo: nota (com o tipo dela), skill nova ou atualização de uma skill aprendida que já existe
+function memLearnLabel(it){
+  if(it && it.kind==='skill'){ const s=it.skill||{}; return s.acao==='atualizar'?'atualiza a skill '+(s.nome||''):'skill nova'; }
+  return 'nota · '+((it&&it.nota&&it.nota.type)||'contexto');
+}
+function memLearnCard(it){
+  const sk=it.kind==='skill', d=sk?(it.skill||{}):(it.nota||{});
+  const title=sk?(d.nome||''):(d.title||''), body=sk?(d.corpo||''):(d.body||'');
+  const id=memLEsc(it.id);
+  return '<article class="memlcard" data-lid="'+id+'">'+
+    '<div class="memlhd"><span class="membadge '+(sk?'skill':'nota')+'">'+memLEsc(memLearnLabel(it))+'</span><b>'+memLEsc(title)+'</b></div>'+
+    (sk&&d.descricao?'<div class="memldesc">'+memLEsc(d.descricao)+'</div>':'')+
+    '<div class="memlsrc dim">da tarefa '+(it.taskTitle?'"'+memLEsc(it.taskTitle)+'"':memLEsc(it.taskId||''))+'</div>'+
+    '<pre class="memlbody">'+memLEsc(body)+'</pre>'+
+    (sk&&d.porque?'<div class="memlwhy dim">por quê: '+memLEsc(d.porque)+'</div>':'')+
+    (sk&&d.acao==='atualizar'&&it.atual!=null?'<details class="memlcur"><summary>versão atual (aceitar substitui o corpo inteiro)</summary><pre class="memlbody">'+memLEsc(it.atual)+'</pre></details>':'')+
+    '<div class="memlacts"><button class="btn sm" data-ldiscard="'+id+'">Descartar</button><button class="btn sm primary" data-laccept="'+id+'">Aceitar</button></div>'+
+  '</article>';
+}
+function memLearnHtml(items){
+  const n=(items||[]).length; if(!n) return '';
+  return '<details class="memlearn" open><summary>Aprendizados para revisar ('+n+') <span class="dim">· o que a retro do fim das tarefas propôs — nada entra no cérebro nem vira skill sem o seu aceite</span></summary>'+
+    '<div class="memlgrid">'+items.map(memLearnCard).join('')+'</div></details>';
+}
+// o que muda a contagem da fila: troca de projeto ou evento novo "aprendizado…" que o motor grava ao enfileirar
+function memLearnSigOf(snap){ return (snap&&snap.repo||'')+'|'+((snap&&snap.events)||[]).filter(e=>/^aprendizado/.test(String(e&&e.text||''))).map(e=>e.id).join(','); }
 // @puro-fim
 
 const MEM_COLORS={ 'decisão':'var(--info)', regra:'var(--accent)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
@@ -195,7 +223,7 @@ const MEM_IC={
 function memIc(n,sz){ sz=sz||13; return '<svg viewBox="0 0 16 16" width="'+sz+'" height="'+sz+'" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" aria-hidden="true">'+(MEM_IC[n]||'')+'</svg>'; }
 function memEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-const MEM={ notes:[], mode:'local', explicit:false, root:'', hasTeam:false, sel:null, q:'', type:'', view:'lista', edit:null, repo:'', syncMsg:'' };
+const MEM={ notes:[], learn:[], mode:'local', explicit:false, root:'', hasTeam:false, sel:null, q:'', type:'', view:'lista', edit:null, repo:'', syncMsg:'' };
 function memSeenKey(){ return 'memSeen:'+(MEM.repo||state.repo||''); }
 function memSeen(){ try{ return JSON.parse(lsGet(memSeenKey())||'{}')||{}; }catch(_){ return {}; } }
 function memIsNew(n){ return n.origem==='agente' && (memSeen()[n.scope+':'+n.slug]||0) < n.mtimeMs; }
@@ -213,7 +241,27 @@ async function memLoad(repo){
   try{ r=await invoke('memory_list',{ repo, withBody:true })||{}; }
   catch(e){ const t=memErrText(e); if(t===String((e&&e.message)||e||'').trim()) throw e; const x=new Error('Não consegui ler a memória — '+t); x.ldHuman=true; throw x; }
   MEM.notes=r.notes||[]; MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; MEM.root=r.root||''; MEM.repo=repo;
+  try{ MEM.learn=await invoke('learn_pending',{ repo })||[]; }catch(_){ MEM.learn=[]; } // fila é extra: falhar não esconde as notas
+  if(repo===state.repo) memLearnBadge(MEM.learn.length);
 }
+// selo "N aprendizados pra revisar" no item Memória do menu (e o ponto no botão "mais") — sem poll próprio:
+// refresh() chama memLearnTick a cada snapshot e ele só lê a fila quando a assinatura muda
+let memLearnSig=null;
+function memLearnBadge(n){
+  window.memLearnN=n;
+  const b=$id('memBtn'); if(!b) return;
+  let el=b.querySelector('.memlbadge');
+  if(!el){ el=document.createElement('span'); el.className='memlbadge'; b.appendChild(el); }
+  el.textContent=n>99?'99+':String(n); el.style.display=n>0?'':'none';
+  el.title=n+' aprendizado'+(n===1?'':'s')+' pra revisar';
+  const md=$id('moreDot'); if(md && n>0) md.style.display='block';
+}
+async function memLearnTick(snap){
+  const sig=memLearnSigOf(snap); if(sig===memLearnSig) return; memLearnSig=sig;
+  if(!snap||!snap.repo){ memLearnBadge(0); return; }
+  try{ const l=await invoke('learn_pending',{ repo:snap.repo })||[]; if(state.repo===snap.repo) memLearnBadge(l.length); }catch(_){ }
+}
+window.memLearnTick=memLearnTick;
 async function memTeamAvailable(){ try{ return !!(SB.configured() && SB.sess() && cloudData && cloudData.org && await prefsKey()); }catch(_){ return false; } }
 
 async function openMemoria(){
@@ -269,6 +317,7 @@ function memRender(){
         '<button class="btn primary" id="memNew">'+memIc('plus')+'Nova nota</button>'+
       '</div>'+
     '</div>'+
+    memLearnHtml(MEM.learn)+
     '<div class="memgrid'+(MEM.view==='grafo'?' isgraph':'')+'">'+
       '<aside class="memside">'+
         '<input class="in" id="memQ" placeholder="buscar nas notas…" value="'+memEsc(MEM.q)+'" spellcheck="false" aria-label="Buscar nas notas">'+
@@ -326,6 +375,7 @@ function memWire(body){
   body.querySelectorAll('[data-mtype]').forEach(b=>b.onclick=()=>{ MEM.type=b.dataset.mtype; memRender(); });
   const q=body.querySelector('#memQ'); if(q){ q.oninput=()=>{ MEM.q=q.value; const l=$id('memList'); const sel=memSelNote(); const f=memFilter(MEM.notes,MEM.q,MEM.type); if(l){ l.innerHTML=f.length?f.map(n=>memRow(n,sel)).join(''):'<div class="memempty">Nada bate com a busca.</div>'; memWireLinks(l); } }; }
   memWireLinks(body);
+  memWireLearn(body);
   bindClick('memNew', ()=>memStartEdit(null));
   bindClick('memObs', async()=>{ try{ const how=await invoke('memory_open_obsidian',{ repo:MEM.repo }); if(how==='pasta') toast('Abri a pasta da memória. No Obsidian: "Abrir pasta como cofre" → escolha .cardume/memoria (depois disso este botão abre direto no Obsidian).','warn'); }catch(e){ showErr(memErr(e),'Não consegui abrir no Obsidian'); } });
   bindClick('memSync', async()=>{ MEM.syncMsg='sincronizando…'; memRender(); const r=await memTeamSync(); MEM.syncMsg=r===false&&memLastSyncErr?'não sincronizou':'sincronizado'; await memRefresh(); });
@@ -337,6 +387,31 @@ function memWire(body){
     bindClick('meCancel', ()=>{ MEM.edit=null; memRender(); });
     bindClick('meSave', memSaveEdit);
     const t=$id('meTitle'); if(t && !MEM.edit.slug && !MEM.edit.focused){ MEM.edit.focused=true; setTimeout(()=>t.focus(),30); }
+  }
+}
+function memWireLearn(root){
+  root.querySelectorAll('[data-laccept]').forEach(b=>b.onclick=()=>memLearnAct(b.dataset.laccept, true, b));
+  root.querySelectorAll('[data-ldiscard]').forEach(b=>b.onclick=()=>memLearnAct(b.dataset.ldiscard, false, b));
+}
+// aceitar: nota → cérebro (dedup pelo título); skill → .claude/skills/<nome>/SKILL.md do repo + ligada pras próximas tarefas
+async function memLearnAct(id, accept, btn){
+  if(memRepoChanged()) return;
+  const repo=MEM.repo; const card=btn&&btn.closest('.memlcard');
+  if(card) card.querySelectorAll('button').forEach(x=>x.disabled=true);
+  try{
+    if(accept){
+      const r=await invoke('learn_accept',{ repo, id });
+      if(r && r.kind==='skill') toast('Skill '+r.name+(r.action==='updated'?' atualizada':' criada')+' e ligada — as próximas tarefas deste projeto usam.','ok');
+      else { toast(r&&r.action==='unchanged'?'O cérebro já tinha isso — nada mudou.':'Nota gravada no cérebro'+(r&&r.action==='updated'?' (juntei com a nota de mesmo título)':'')+'.','ok'); if(r&&r.slug) MEM.sel={ scope:r.scope, slug:r.slug }; }
+      await memLoad(repo); memRender();
+      if(r && r.scope==='time') memTeamSync().then(ch=>{ if(ch) memRefresh(); });
+    } else {
+      await invoke('learn_discard',{ repo, id });
+      await memLoad(repo); memRender();
+    }
+  }catch(e){
+    showErr(memErr(e), accept?'Não consegui aplicar o aprendizado':'Não consegui descartar o aprendizado');
+    if(card) card.querySelectorAll('button').forEach(x=>x.disabled=false);
   }
 }
 function memWireLinks(root){
