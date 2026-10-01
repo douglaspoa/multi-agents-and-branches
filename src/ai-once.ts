@@ -123,11 +123,20 @@ export const CLAUDE_NO_ANSWER = "O Claude Code terminou sem resposta — tente d
  * acumulador (≡ Rust claude_once_text). Envelope = ÚLTIMA linha que começa com `{`; erro nele → mensagem humana;
  * envelope sem `result` ou JSON que não é o envelope → erro humano (nunca o JSON cru como resposta). Texto puro
  * (claude antigo, falso de teste) passa como veio. */
+/** Linha que é um objeto do PROTOCOLO do Claude Code (envelope cortado, evento system/assistant/user) — nunca uma
+ * resposta da IA. Uma resposta que é JSON (ex.: a retro devolve {"notas":…}) não tem esse `type`. ≡ Rust. */
+export function isClaudeProtocolLine(l: string): boolean {
+  const s = l.trim();
+  if (!s.startsWith("{")) return false;
+  if (/^\{\s*"type"\s*:\s*"(result|system|assistant|user)"/.test(s)) return true; // inclusive cortada
+  try { const o = JSON.parse(s); return !!o && typeof o === "object" && ["result", "system", "assistant", "user"].includes(o.type); } catch { return false; }
+}
 export function claudeOnceText(stdout: string, acc?: UsageAcc): string {
   const t = String(stdout ?? "").trim();
   const o = claudeEnvelope(t);
   if (!o) {
-    if (t.split("\n").some((l) => l.trimStart().startsWith("{"))) throw new Error(`${CLAUDE_NO_ANSWER} (resposta inesperada do Claude Code)`);
+    if (t.split("\n").some(isClaudeProtocolLine)) throw new Error(`${CLAUDE_NO_ANSWER} (resposta inesperada do Claude Code)`); // envelope cortado / evento do protocolo
+    // texto puro (claude antigo / falso de teste), mesmo que a RESPOSTA seja um JSON (ex.: a retro) — passa como veio
     return t;
   }
   const n = claudeNumbers(o);

@@ -157,6 +157,8 @@ test("claudeOnceText: mesmo texto do -p puro; envelope = última linha com {; er
   assert.equal(claudeOnceText(`aviso\n{"type":"result","is_error":false,"result":" ok \\n","total_cost_usd":0.01,"usage":{"input_tokens":3,"cache_read_input_tokens":7,"output_tokens":2},"modelUsage":{"claude-haiku-4-5":{"costUSD":0.01}}}`, acc), "ok");
   assert.deepEqual(acc, { inTok: 10, cachedTok: 7, outTok: 2, usd: 0.01, model: "claude-haiku-4-5" });
   assert.equal(claudeOnceText("texto puro\n"), "texto puro");
+  // resposta da IA que É um JSON em texto (a retro) passa como veio — não é envelope nem evento do protocolo
+  assert.equal(claudeOnceText('{"notas":[{"title":"x"}],"skills":[]}\n'), '{"notas":[{"title":"x"}],"skills":[]}');
   assert.throws(() => claudeOnceText(`{"is_error":true,"result":"Failed to authenticate. API Error: 401"}`), (e: Error) => e.message.startsWith("Login do Claude Code expirou") && e.message.includes("401"));
   assert.throws(() => claudeOnceText(`{"is_error":true,"result":"API Error: 429 rate limit"}`), /sem cota\/limite/);
   assert.throws(() => claudeOnceText(`{"type":"result","is_error":false,"session_id":"s"}`), (e: Error) => e.message.startsWith("O Claude Code terminou sem resposta") && !e.message.includes("session_id"));

@@ -234,7 +234,7 @@ export function claudeEnvelope(stdout: string): any | undefined {
   for (const l of lines) {
     try {
       const o = JSON.parse(l);
-      if (o && typeof o === "object" && !Array.isArray(o) && (o.type === "result" || "result" in o || "is_error" in o)) return o;
+      if (o && typeof o === "object" && !Array.isArray(o) && (o.type === "result" || ("result" in o && "is_error" in o))) return o;
     } catch { /* linha que não é JSON */ }
   }
   return undefined;

@@ -829,10 +829,21 @@ const CLAUDE_NO_ANSWER: &str = "O Claude Code terminou sem resposta — tente de
 /// tokens no acumulador. O envelope é a ÚLTIMA linha que começa com `{` (usage_ledger::claude_envelope); erro dentro
 /// dele vira a mensagem humana de sempre; envelope sem `result` (ou JSON que não é o envelope) vira erro humano —
 /// nunca devolvemos o JSON cru como resposta. Saída de texto puro (claude antigo, falso de teste) passa como veio.
+/// Linha que é objeto do PROTOCOLO do Claude Code (envelope cortado, evento system/assistant/user) — nunca uma
+/// resposta da IA (a retro devolve um JSON {"notas":…} em texto, sem esse `type`). ≡ TS isClaudeProtocolLine.
+pub(crate) fn is_claude_protocol_line(l: &str) -> bool {
+    let s = l.trim();
+    if !s.starts_with('{') { return false; }
+    const TYPES: [&str; 4] = ["result", "system", "assistant", "user"];
+    let head = s.trim_start_matches('{').trim_start();
+    if TYPES.iter().any(|t| head.starts_with(&format!("\"type\":\"{t}\"")) || head.starts_with(&format!("\"type\": \"{t}\""))) { return true; }
+    serde_json::from_str::<serde_json::Value>(s).ok().and_then(|v| v["type"].as_str().map(|t| TYPES.contains(&t))).unwrap_or(false)
+}
 pub(crate) fn claude_once_text(stdout: &str) -> Result<String, String> {
     let t = stdout.trim();
     let Some(v) = usage_ledger::claude_envelope(t) else {
-        if t.lines().any(|l| l.trim_start().starts_with('{')) { return Err(format!("{CLAUDE_NO_ANSWER} (resposta inesperada do Claude Code)")); }
+        // só um envelope do Claude CORTADO vira erro; resposta em texto que é um JSON (ex.: a retro) passa como veio
+        if t.lines().any(is_claude_protocol_line) { return Err(format!("{CLAUDE_NO_ANSWER} (resposta inesperada do Claude Code)")); }
         return Ok(t.to_string());
     };
     let (i, c, o, usd, _) = usage_ledger::claude_numbers(&v);
@@ -2711,6 +2722,8 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         assert_eq!(t, "ok");
         // texto puro (claude antigo / falso) passa igual
         assert_eq!(claude_once_text("  texto puro \n").unwrap(), "texto puro");
+        // resposta que É um JSON em texto (a retro) passa como veio
+        assert_eq!(claude_once_text("{\"notas\":[],\"skills\":[]}\n").unwrap(), "{\"notas\":[],\"skills\":[]}");
         // JSON que não é o envelope, ou envelope sem `result`: erro humano, nunca o JSON cru como resposta
         let e = claude_once_text(r#"{"type":"system","subtype":"init"}"#).unwrap_err();
         assert!(e.starts_with("O Claude Code terminou sem resposta") && !e.contains("subtype"), "{e}");

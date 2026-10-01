@@ -235,7 +235,7 @@ pub(crate) fn record(e: Entry) {
 pub(crate) fn claude_envelope(stdout: &str) -> Option<Value> {
     stdout.lines().rev().map(str::trim).filter(|l| l.starts_with('{')).find_map(|l| {
         let v: Value = serde_json::from_str(l).ok()?;
-        (v.is_object() && (v["type"] == "result" || v.get("result").is_some() || v.get("is_error").is_some())).then_some(v)
+        (v.is_object() && (v["type"] == "result" || (v.get("result").is_some() && v.get("is_error").is_some()))).then_some(v)
     })
 }
 
