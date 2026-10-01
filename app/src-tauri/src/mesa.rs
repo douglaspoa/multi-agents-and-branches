@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::State;
 
-use super::{claude_bin, claude_cmd, claude_json, detach_new_group, memoria, procsig, protect_args, protect_on, repo_or, signal_group, AppState};
+use super::{ai_once, claude_bin, claude_cmd, claude_json, detach_new_group, memoria, procsig, protect_args, protect_on, repo_or, signal_group, AppState};
 
 /// Resposta máxima de uma persona (s). Uma persona só lê e opina — 5 min é folga.
 const ASK_SECS: u64 = 300;
@@ -181,6 +181,8 @@ pub fn mesa_ask(
     if json.unwrap_or(false) { sys.push_str("\n\nFORMATO: responda SOMENTE com o bloco ```json pedido — nada de texto fora dele."); }
     let query: String = prompt.chars().take(1200).collect();
     let sys = cap_sys(memoria::with_memory(&sys, &repo, &query));
+    let eng = ai_once::chat_engine()?;
+    if eng != ai_once::AiEngine::Claude { return ask_other(eng, &id, &sys, &prompt, &repo); }
     // prompt pelo stdin (`claude -p` sem prompt posicional lê o stdin)
     let mut args: Vec<String> = vec![
         "-p".into(),
@@ -199,6 +201,23 @@ pub fn mesa_ask(
         Err(e) if cost > 0.0 => Ok(serde_json::json!({ "error": e, "costUsd": cost })),
         Err(e) => Err(e),
     }
+}
+
+/// A persona num motor que NÃO é o Claude (Codex/DeepSeek/gateway, ai_once::chat_turn): sem sessão, só-leitura,
+/// parável pela mesa como o claude. Custo US$ 0 (como nas tarefas), com os tokens quando o motor informa.
+pub(crate) fn ask_other(eng: ai_once::AiEngine, id: &str, sys: &str, prompt: &str, repo: &Path) -> Result<serde_json::Value, String> {
+    if is_stopped(id) { return Err(STOPPED.to_string()); }
+    let killed: Killed = Arc::new(AtomicBool::new(false));
+    let on_start = |pid: i32| {
+        pids().lock().unwrap_or_else(|e| e.into_inner()).entry(id.to_string()).or_default().push((pid, killed.clone()));
+        if is_stopped(id) { kill_list(&[(pid, killed.clone())]); } // o "parar" chegou entre a checagem e o registro
+    };
+    let on_end = |pid: i32| pid_del(id, pid);
+    let stopped = |_pid: i32| killed.load(Ordering::SeqCst);
+    let t = ai_once::ChatTurn { sys, prompt, session_id: None, cwd: repo, secs: ASK_SECS };
+    let h = ai_once::ChatHooks { activity: &|_| {}, on_start: &on_start, on_end: &on_end, stopped: &stopped, stop_marker: STOPPED };
+    let out = ai_once::chat_turn(eng, &t, &h)?;
+    Ok(serde_json::json!({ "text": out.text, "costUsd": 0.0, "inTok": out.in_tok, "outTok": out.out_tok }))
 }
 
 /// Para TODAS as personas desta mesa — as que estão rodando e as que ainda iam começar.

@@ -80,18 +80,29 @@ window.ic=ic; // pro bloco 1 (script separado) também usar
 // sessão limpa, cwd diferente), refaz UMA vez sem sessão, com o histórico resumido dentro do
 // prompt — a conversa continua e o usuário nunca vê "sessão expirou". `fn(prompt, sid)` faz o invoke.
 // Devolve { ...resposta, recovered:true } quando teve que recomeçar (pra quem chama trocar o sid).
+// Vale pra QUALQUER motor (Rust ai_once::chat_turn): Codex/DeepSeek devolvem o erro padrão "session not found…" quando
+// a sessão some ou é de outro motor (a IA padrão mudou no meio). O GATEWAY não guarda sessão (sid "gateway:…"): toda
+// rodada já vai com o histórico, sem tentar retomar e sem o aviso de "sessão perdida".
+// @resume-inicio
+const AI_SESSION_LOST_RE=/No conversation found|sessão da conversa expirou|session.*not found|no rollout found|session "[^"]*" does not exist/i;
+function aiHistoryPrompt(prompt, history, lost){
+  const hist=(history||[]).filter(m=>m&&(m.text||'')).slice(-14).map(m=>{ const who=(m.who||m.role||''); const tag=who==='you'||who==='user'?'USUÁRIO':who==='bot'||who==='assistant'?'VOCÊ':'SISTEMA'; return tag+': '+String(m.text).replace(/\n*\[ANEXOS\][\s\S]*?\[\/ANEXOS\]/g,'').slice(0,1500); }).join('\n\n');
+  if(!hist) return prompt;
+  return (lost?'[CONTEXTO — a sessão anterior desta conversa foi perdida; abaixo o histórico resumido pra você CONTINUAR de onde parou, sem recomeçar nem repetir o que já foi dito.]\n'
+    :'[CONTEXTO — histórico desta conversa até aqui; CONTINUE de onde parou, sem recomeçar nem repetir o que já foi dito.]\n')+hist+'\n[/CONTEXTO]\n\n'+prompt;
+}
 async function aiCallResumeSafe(fn, sid, prompt, history){
+  if(sid && /^gateway:/.test(String(sid))) return await fn(aiHistoryPrompt(prompt, history, false), null);
   try{ return await fn(prompt, sid||null); }
   catch(e){
     const msg=String(e&&e.message||e);
-    if(!sid || !/No conversation found|sessão da conversa expirou|session.*not found/i.test(msg)) throw e;
+    if(!sid || !AI_SESSION_LOST_RE.test(msg)) throw e;
     console.error('sessão perdida — recomeçando com histórico:', msg.slice(0,120));
-    const hist=(history||[]).filter(m=>m&&(m.text||'')).slice(-14).map(m=>{ const who=(m.who||m.role||''); const tag=who==='you'||who==='user'?'USUÁRIO':who==='bot'||who==='assistant'?'VOCÊ':'SISTEMA'; return tag+': '+String(m.text).replace(/\n*\[ANEXOS\][\s\S]*?\[\/ANEXOS\]/g,'').slice(0,1500); }).join('\n\n');
-    const p2=(hist?'[CONTEXTO — a sessão anterior desta conversa foi perdida; abaixo o histórico resumido pra você CONTINUAR de onde parou, sem recomeçar nem repetir o que já foi dito.]\n'+hist+'\n[/CONTEXTO]\n\n':'')+prompt;
-    const r=await fn(p2, null);
+    const r=await fn(aiHistoryPrompt(prompt, history, true), null);
     return Object.assign({}, r||{}, { recovered:true });
   }
 }
+// @resume-fim
 // console.error e erros não tratados vão pro /tmp/constellation-web.log —
 // bug silencioso em tick não existe mais.
 setTimeout(()=>{ try{ invoke('web_log',{ line:'[boot] webview vivo · sess='+(!!localStorage.getItem('sb:sess'))+' · team='+(localStorage.getItem('sb:team')||'—') }); }catch(_){ } }, 3000);

@@ -187,7 +187,7 @@ const ERR_CATALOG=[
   // IA auxiliar plural (Claude, Codex ou gateway — app/src-tauri/src/ai_once.rs): ANTES do claude-login, que casaria
   // no "invalid api key" entre parênteses e mandaria quem usa Codex/gateway fazer login no Claude
   { id:'ai-none', re:/nenhuma ia dispon[ií]vel/i,
-    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta).', act:'env', label:'ver como resolver (Mais › Ambiente)' },
+    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta).', act:'suaia', label:'escolher a IA (Sua IA)' },
   // DeepSeek Harness (beta) — mensagens do motor/auxiliar (src/engine/dsh.ts, ai_once.rs). A da CHAVE antes de tudo
   // que casaria "api key"/"401" (claude-login) — quem usa DeepSeek não precisa de login no Claude
   { id:'dsh-key', re:/falta a chave da deepseek|DEEPSEEK_API_KEY/i,
