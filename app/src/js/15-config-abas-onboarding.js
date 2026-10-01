@@ -49,6 +49,8 @@ function openCfg(){
     <div id="ghHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Navegador dos agentes</div>
     <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
+    <div class="seclbl2" style="margin-top:20px">Previsão</div>
+    <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgEstimate" checked style="margin-top:3px"><span>Previsão de tempo e tokens antes de rodar <span class="dim">— no "montar conversando", a IA dimensiona cada requisito e o histórico do repo converte em minutos, tokens e custo. Desligado: nenhuma chamada extra de IA.</span></span></label>
     <div class="seclbl2" style="margin-top:20px">Notificações <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· avisos de tarefa pronta, plano pra aprovar, falha — clicar abre a tarefa</span></div>
     <div id="notifHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app procura versão nova sozinho a cada 2 min (e quando você volta pra janela) — ou agora, aqui</span></div>
@@ -63,7 +65,7 @@ function openCfg(){
     </div>
     <div class="cfgsavebar"><span class="dim" id="cfgDirty"></span><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
-  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); }catch(_){} }).catch(()=>{});
+  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); }catch(_){} }).catch(()=>{});
   { const cap=$id('cfgCap'), brl=$id('cfgBrl'), out=$id('cfgCapBrl');
     const upd=()=>{ const v=Math.max(0, parseFloat(cap.value)||0), r=parseFloat(brl.value)||usdBrlRate(); out.textContent=v>0?'≈ R$ '+fmtNumBR(v*r,true):'sem teto'; };
     cap.oninput=upd; brl.oninput=upd; upd(); }
@@ -87,6 +89,7 @@ function openCfg(){
     const w=async(key, value, nome)=>{ try{ await invoke('write_setting',{ key, value }); }catch(e){ fails.push({ nome, e }); } };
     await w('limitRetryMin', String(N(v.retry)), 'retomar depois do limite da IA');
     if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
+    { const es=$id('cfgEstimate'); if(es){ await w('estimateEnabled', es.checked?'1':'0', 'previsão de tempo e tokens'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); } }
     btn.disabled=false; btn.textContent='salvar';
     if(fails.length){ const d=$id('cfgDirty'); if(d) d.textContent='não salvou: '+fails.map(f=>f.nome).join(' e ');
       showErr(fails[0].e,'Não consegui gravar "'+fails.map(f=>f.nome).join('" e "')+'" — o resto foi salvo'); return; }

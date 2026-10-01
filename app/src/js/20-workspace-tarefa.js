@@ -623,7 +623,7 @@ function renderWorkspace(){
     : fwFilesErr ? '<div class="fwfileserr">'+(fwFilesErrOwnAction(fwFilesErr) ? errorHtml(fwFilesErr, 'fwFilesRetry', FW_FILES_CTX) : errorHtml(humanErr(fwFilesErr, FW_FILES_CTX).msg, 'fwFilesRetry', null, { human:true }))+'</div>'
     : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const cost=taskCost(t.id);
-  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div></div>`;
+  const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div>${typeof estChipHtml==='function'?`<div class="r"><span>previsto × real</span>${estChipHtml(t)}</div>`:''}</div>`;
   // Entregas & provas (artefatos) — sempre à mão (1 carga em voo por tarefa: antes cada render disparava outra)
   const artC=artifactsCache[t.id];
   fwArtsEnsure(t);

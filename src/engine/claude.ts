@@ -695,13 +695,14 @@ export function mapLine(line: string, costBase = 0): AgentEvent[] {
     const u = o.usage || {};
     const inTok = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0);
     const outTok = Number(u.output_tokens) || 0;
+    const ms = Number(o.duration_ms) || 0;
     return [
       {
         type: "done",
         text: (o.result ? String(o.result).slice(0, 4000) : "concluído") + cost + denials,
         status: ok ? "review" : "error",
         ok,
-        cost: { usd, inTok, outTok },
+        cost: { usd, inTok, outTok, ...(ms ? { ms } : {}) },
       },
     ];
   }

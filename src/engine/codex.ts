@@ -151,6 +151,7 @@ export class CodexEngine implements AgentEngine {
   }
 
   async *run(input: RunInput): AsyncIterable<AgentEvent> {
+    const t0 = Date.now(); // o codex não informa duração — medimos o relógio do turno
     const prompt = buildPrompt(input);
     const args: string[] = ["exec"];
     if (input.resume?.sessionId) args.push("resume", input.resume.sessionId);
@@ -278,7 +279,9 @@ export class CodexEngine implements AgentEngine {
           await new Promise<void>((r) => { notify = r; });
           continue;
         }
-        yield queue.shift()!;
+        const ev = queue.shift()!;
+        if (ev.cost && !ev.cost.ms) ev.cost.ms = Date.now() - t0;
+        yield ev;
       }
     } finally {
       clearTimeout(killTimer);

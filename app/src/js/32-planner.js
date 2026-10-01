@@ -234,12 +234,13 @@ function renderPlanner(){
     human.map(fieldHtml).join('')+
     `<details class="pltech" id="plRaw"${plRawOpen?' open':''}><summary><svg class="pltech-car" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4.5l3.5 3.5L6 11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="pltech-t">Detalhes técnicos</span><span class="pltech-d">identificador, pastas, arquivo da tarefa</span></summary>`+
       `<div class="pltech-b">${tech.map(fieldHtml).join('')}<div class="pltech-yh">o arquivo que o agente recebe <span class="mono">TASK.yaml</span></div><pre class="mono">${esc(plYaml())}</pre></div></details>`+
-    `<div class="plmeshfoot">${plPlan?'':plPreviewHtml(plPreviewFields())+`<button class="btn${createPrimary?' primary':''}" id="plCreate"${plReady()&&!plBusy?'':' disabled'}>${IC.cright} criar e rodar</button>`}<div class="dim plcreatehint">${plCreateHint()}</div></div>`; // com épico proposto, o único CTA é o "Aprovar" do card (antes o "criar e rodar" criava UMA tarefa ignorando o épico)
+    `<div class="plmeshfoot">${plPlan?'':(typeof estPlannerHtml==='function'?estPlannerHtml():'')+plPreviewHtml(plPreviewFields())+`<button class="btn${createPrimary?' primary':''}" id="plCreate"${plReady()&&!plBusy?'':' disabled'}>${IC.cright} criar e rodar</button>`}<div class="dim plcreatehint">${plCreateHint()}</div></div>`; // com épico proposto, o único CTA é o "Aprovar" do card (antes o "criar e rodar" criava UMA tarefa ignorando o épico)
   mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
   // R8: listas do resumo crescem com o conteúdo (antes o 3º requisito ficava cortado numa caixa de 2 linhas)
   mesh.querySelectorAll('textarea.plfv').forEach(t=>{ chatGrow(t); t.addEventListener('input',()=>chatGrow(t)); });
-  mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); }));
+  mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); if(typeof estSchedule==='function') estSchedule(); }));
   bindClick('plCreate', plCreate);
+  if(!plPlan && typeof estSchedule==='function'){ estPaint(); estSchedule(); } // previsão: recalcula com debounce (cache pelo conteúdo)
   if(!plPlan) plWirePreview(mesh.querySelector('.plmeshfoot'));
   { const d=$id('plRaw'); if(d) d.ontoggle=()=>{ plRawOpen=d.open; }; }
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
@@ -289,7 +290,8 @@ function plPreviewFields(){
   const P=(!plPlanCtx.origin && plPlan)?plPlan:null, on=P?P.tasks.filter(t=>t.on):null;
   const { eng, model }=plModelNow();
   const n=Math.max(1, (((typeof state!=='undefined'&&state.config&&state.config.workflows)||[])[0]||{steps:[1,2,3,4]}).steps.length||4);
-  const [lo,hi]=typeof roughEstimate==='function'?roughEstimate(n, plTier(model)):[0,0], tasks=on?on.length:1;
+  const est=(!P && typeof estLast!=='undefined' && estLast && estEnabled!==false)?estLast:null; // previsão calibrada (33-previsao) vence a conta fixa
+  const [lo,hi]=est?[est.total.usd*EST_LO, est.total.usd*EST_HI]:typeof roughEstimate==='function'?roughEstimate(n, plTier(model)):[0,0], tasks=on?on.length:1;
   const owns=on?[...new Set(on.flatMap(t=>String(t.owns||'').split(/[,\s]+/).map(x=>x.trim()).filter(Boolean)))]:(plFields.owns||[]);
   return { kind:plFields.kind||'', guess:ndGuessType(plGuessText()), engine:eng, model, owns, tasks, costLo:lo*Math.max(1,tasks), costHi:hi*Math.max(1,tasks), rate:typeof usdBrlRate==='function'?usdBrlRate():5.5, nAgents:n };
 }
@@ -687,7 +689,7 @@ async function plCreate(){
     refs:plRefs.slice(), branchType:cr.branchType, issue:null, issueUrl: plFields.issueUrl || undefined }; // BUG-8: não lê o campo de issue do FORMULÁRIO (outra aba)
   // tarefas referenciadas com "/" em qualquer mensagem sua viram contexto da tarefa criada
   if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n'));
-  try{ const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof budgetApply==='function') await budgetApply(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
+  try{ const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof budgetApply==='function') await budgetApply(nid); if(typeof estSaveFor==='function') await estSaveFor(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
   await refresh(); }
   catch(e){ showErr(e, 'Falha ao criar'); const b2=$id('plCreate')||b; if(b2){ b2.disabled=false; b2.innerHTML=bHtml||(IC.cright+' criar e rodar'); } }
 }
