@@ -361,3 +361,14 @@ test('interruptor do Claude: ocupado = desabilitado ("ativando…"); Pro/Max na 
   setList(P, [{ ...claudeOn, statuslineInstalled: false, statuslineRepair: true }, ST.codexOk, ST.dsKey, ST.gwNo]);
   assert.ok(!/precisa ser reparada|data-sasl-over/.test(card()));
 });
+
+test('Codex pronto pelo login do ChatGPT: chave da OpenAI vira só um link (não um campo que parece obrigatório)', () => {
+  const P = load();
+  const pronto = { id: 'codex', ready: true, keyName: 'OPENAI_API_KEY', keySaved: false };
+  const h1 = P.ctx.suaIaKeyHtml(pronto, 'h1');
+  assert.match(h1, /usar uma chave da OpenAI em vez do login do ChatGPT/);
+  assert.doesNotMatch(h1, /data-sakey=/, 'sem campo de chave');
+  const semLogin = { id: 'codex', ready: false, keyName: 'OPENAI_API_KEY', keySaved: false };
+  assert.match(P.ctx.suaIaKeyHtml(semLogin, 'h1'), /sem plano do ChatGPT\? cole uma chave da OpenAI \(opcional\)/);
+  assert.match(P.ctx.suaIaKeyHtml(semLogin, 'h1'), /data-sakey="codex"/, 'sem login: o campo aparece como alternativa');
+});

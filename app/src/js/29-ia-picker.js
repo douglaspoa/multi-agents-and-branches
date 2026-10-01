@@ -16,7 +16,7 @@ const AI_ENGINES=[
     models:AI_CLAUDE_MODELS },
   { id:'codex', name:'Codex', vendor:'OpenAI', color:'#10a37f', custom:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4v11.2M3.15 5.2l9.7 5.6M3.15 10.8l9.7-5.6" stroke-linecap="round"/></svg>',
-    desc:'Codex CLI com o seu login (codex login) ou a chave OpenAI da sua conta — configure em Configurações → Sua IA.',
+    desc:'Codex CLI com o login da sua conta do ChatGPT (Plus/Pro/Team — igual ao Claude Code com o plano Claude). Sem plano do ChatGPT, dá pra usar uma chave da OpenAI. Configure em Configurações → Sua IA.',
     models:[ {id:'',name:'Padrão do Codex',tag:'auto'}, {id:'gpt-5-codex',name:'GPT-5 Codex',tag:'código'}, {id:'gpt-5',name:'GPT-5',tag:'geral'}, {id:'o4-mini',name:'o4-mini',tag:'rápido'} ] },
   { id:'gateway', name:'Gateway próprio', vendor:'OpenAI-compatível', color:'#5b9df9', custom:true, dynamic:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1.2"/><rect x="2.5" y="9" width="11" height="4" rx="1.2"/><path d="M5 5h.01M5 11h.01" stroke-width="2" stroke-linecap="round"/></svg>',

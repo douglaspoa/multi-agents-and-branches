@@ -794,3 +794,11 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .suaia-key .suaia-lbl{margin:0;text-transform:none;letter-spacing:0;font:400 12px var(--display)}
 .suaia-card.cand{border-color:var(--accent-line)}
 .suaia-card.pick{border-color:var(--accent);background:var(--accent-soft)}
+/* Sua IA: chave opcional do Codex como link discreto; privacidade recolhida (não alarma em todo cartão) */
+.suaia-key .linkbtn{background:none;border:0;padding:0;font:inherit;font-size:12px;color:var(--muted);text-decoration:underline;cursor:pointer}
+.suaia-key .linkbtn:hover{color:var(--text)}
+details.suaia-secret{font-size:12px;margin:4px 0}
+details.suaia-secret summary{cursor:pointer;color:var(--muted);list-style:none}
+details.suaia-secret summary::-webkit-details-marker{display:none}
+details.suaia-secret summary::before{content:'ⓘ '}
+details.suaia-secret[open] summary{margin-bottom:4px}
