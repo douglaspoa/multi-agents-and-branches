@@ -426,8 +426,11 @@ async function cloudPubList(cid, force){
 }
 async function cloudPublishProofs(t, btn){
   const cid=tmap()[t.id]; if(!cid){ toast('Esta tarefa não está sincronizada com o time.','warn'); return; }
-  const arts=await loadArtifacts(t.id, t.status)||[];
-  if(!arts.length){ toast('Sem artefatos ainda — peça as provas/entregáveis primeiro.','warn'); return; }
+  const all=await loadArtifacts(t.id, t.status)||[];
+  // vídeo NÃO sobe (nada de base64 de vídeo inteiro no front): fica no computador e toca pela Entrega
+  const arts=all.filter(a=>a.kind!=='video' && !/\.(mp4|m4v|mov|webm)$/i.test(a.name||''));
+  if(!arts.length){ toast(all.length?'Só há vídeos — eles ficam no seu computador (veja na Entrega).':'Sem artefatos ainda — peça as provas/entregáveis primeiro.','warn'); return; }
+  if(all.length>arts.length) toast(`${all.length-arts.length} vídeo(s) ficam só no seu computador — o time vê os prints e documentos`);
   if(btn){ btn.disabled=true; }
   let sent=0;
   try{

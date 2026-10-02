@@ -53,7 +53,7 @@ function flowDemandCard(t){
   const artC=artifactsCache[t.id];
   if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
   const arts=(artC&&artC.list||[]).filter(a=>a.name!=='requirements.json');
-  const nImg=arts.filter(a=>a.kind==='image').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
+  const nImg=arts.filter(a=>a.kind==='image'||a.kind==='video').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
   const artOnly=['invest','design'].includes(ty)||entregaNonCode(t); // FT-6: entrega só de documentos também não abre PR
   const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra">${IC.bolt} resolver conflito</button>`
@@ -215,15 +215,15 @@ function enPvHtml(t, files){
   const k=t.id+'|'+a.name; const c=enPvCache[k];
   if(c===undefined){ enPvCache[k]=null; invoke('read_artifact',{ taskId:t.id, name:a.name }).then(v=>{ enPvCache[k]=v||{ err:'vazio' }; }).catch(e=>{ enPvCache[k]={ err:String(e&&e.message||e) }; }).finally(()=>{ if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); }); }
   const kind=pvKind(a.name);
-  const tag={ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[kind]||'ARQ';
+  const tag={ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[kind]||'ARQ';
   return `<section class="en-sec en-prev" id="enPv">
     <div class="seclbl2">Prévia <span class="dim">· o arquivo de verdade, sem sair daqui</span></div>
-    ${files.length>1?`<div class="pv-tabs">${files.map(f=>`<button class="pv-tab${f.name===a.name?' on':''}" data-pvsel="${escA(f.name)}" title="${escA(f.name)}"><i>${({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[pvKind(f.name)]||'ARQ')}</i>${esc(f.name.split('/').pop())}</button>`).join('')}</div>`:''}
+    ${files.length>1?`<div class="pv-tabs">${files.map(f=>`<button class="pv-tab${f.name===a.name?' on':''}" data-pvsel="${escA(f.name)}" title="${escA(f.name)}"><i>${({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(f.name)]||'ARQ')}</i>${esc(f.name.split('/').pop())}</button>`).join('')}</div>`:''}
     <div class="pv-bar"><span class="en-dic">${tag}</span><b class="pv-name">${esc(a.name)}</b><span class="dim pv-meta">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span><span style="flex:1"></span>
       ${kind==='md'?`<button class="btn sm ghost" id="pvPdf" title="gera um PDF formatado deste documento">${ic('doc')}exportar PDF</button>`:''}
       <button class="btn sm" id="pvOpen" title="abre no programa padrão do computador (Preview, Excel, Word, navegador…)">${IC.extlink||'↗'} abrir no app padrão</button>
       <button class="btn sm" id="pvReveal" title="mostra o arquivo na pasta">${ic('folder')}mostrar na pasta</button></div>
-    <div class="pv-body pv-${kind}">${artPreviewHtml(a.name, c)}</div>
+    <div class="pv-body pv-${kind}">${artPreviewHtml(a.name, c, t.id)}</div>
   </section>`;
 }
 function enWirePv(t, main){
@@ -405,14 +405,16 @@ function fwRenderEntrega(t, main){
   const arts=entregaArts(t);
   const nonCode=entregaNonCode(t);
   const imgs=arts.filter(a=>a.kind==='image');
-  const docs=arts.filter(a=>!/\.(png|jpe?g|gif|webp|svg)$/i.test(a.name));
+  const vids=arts.filter(a=>pvKind(a.name)==='video');
+  const docs=arts.filter(a=>!/\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm)$/i.test(a.name));
   const rows=reqRows(t); const okN=rows.filter(r=>r.st==='ok').length;
   const prN=prNumOf(t); const cost=taskCost(t.id); const d=diffOf(t.id); const rev=reviewOf(t.id);
   const c=commitsCache[t.id]||[];
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
-  const proofsHtml = imgs.length ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${th}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evidenceNames.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}</div>` : `<div class="en-empty">nenhum print de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
-  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
-  const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[pvKind(n)]||'ARQ');
+  const evNorm=new Set([...evidenceNames].map(e=>enEvName(t.id, e)));
+  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${th}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
+  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
+  const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
   const pvSel=enPvPick(t, nonCode?arts:docs);
   const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
@@ -439,7 +441,7 @@ function fwRenderEntrega(t, main){
     ${nonCode?enSaveBarHtml(t, arts)+pvSec:enVerifHtml(t)}
     <div class="en-grid">
       <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${esc(x)}</div>`).join('')}`:''}${rev&&rev.howToTest?`<div class="seclbl2" style="margin-top:14px">Como testar</div><div class="en-how">${esc(rev.howToTest)}</div>`:''}</section>
-      <section class="en-sec">${nonCode?'':`<div class="seclbl2">Provas <span class="dim">· prints anexados pelo agente</span></div>${proofsHtml}`}
+      <section class="en-sec">${nonCode?'':`<div class="seclbl2">Provas <span class="dim">· prints e vídeos anexados pelo agente</span></div>${proofsHtml}`}
         <div class="seclbl2"${nonCode?'':' style="margin-top:16px"'}>${nonCode?'Arquivos entregues':'Documentos'} <span style="flex:1"></span><button class="btn sm primary" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
         <div id="enGenOut"></div>${docsHtml}</section>
     </div>
@@ -467,6 +469,22 @@ function fwRenderEntrega(t, main){
   enWireLive(t);
   if(!nonCode) enWireVerif(t, main);
   enWirePv(t, main);
+}
+// ---- provas DENTRO de cada requisito: miniaturas dos prints e o player dos vídeos citados como evidência ----
+// nome citado no requirements.json ("./.cardume/artifacts/mobile-ios-1.png", "<tarefa>/x.mp4") → nome do artefato
+function enEvName(taskId, e){ let n=String(e||'').trim().replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,''); if(taskId && n.startsWith(taskId+'/')) n=n.slice(taskId.length+1); return n; }
+function enEvMediaHtml(t, evidence, arts, imgs){
+  const names=new Set((arts||[]).map(a=>a.name));
+  const seen=new Set(); const items=[];
+  for(const e of (evidence||[])){
+    let n=enEvName(t.id, e);
+    if(!names.has(n)){ const b=n.split('/').pop(); const hit=(arts||[]).find(a=>a.name.split('/').pop()===b); if(!hit) continue; n=hit.name; }
+    if(seen.has(n)) continue; seen.add(n);
+    const k=pvKind(n);
+    if(k==='video') items.push(`<div class="en-evv">${artVideoHtml(t.id, n, 'en-evvid')}<span class="en-evn">${IC.play} ${esc(n)}</span></div>`);
+    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); const th=artThumb(t.id, n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${th?`<img src="${th}" alt="${escA('print: '+n)}">`:`<span class="en-ph">${IC.image}</span>`}</button>`); }
+  }
+  return items.length?`<div class="en-evm">${items.join('')}</div>`:'';
 }
 // ---- lightbox das provas ----
 let lbList=[], lbIdx=0, lbTask='';

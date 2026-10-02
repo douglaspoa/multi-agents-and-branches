@@ -11,6 +11,7 @@ import { ghBin, netEnv, netTimeoutMs, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
+import { hasMobileState, mobileCleanup } from "./mobile.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLearnSettings, readPending, rejectReason, retroPrompt, type PendingItem } from "./learn.ts";
@@ -740,10 +741,7 @@ export class Orchestrator {
       if (r.status === "deferred") continue; // o humano decidiu adiar/dispensar
       if (r.status !== "done") { reasons.push(`requisito não provado (${r.status ?? "?"}): ${label}`); continue; }
       const ev = Array.isArray(r.evidence) ? r.evidence : [];
-      const hasReal = ev.some((e) => {
-        const name = String(e).replace(/^\.?\/?(\.cardume\/artifacts\/)?/, "");
-        return existsSync(join(artDir, name)) || existsSync(String(e));
-      });
+      const hasReal = ev.some((e) => evidenceExists(artDir, task.worktree, String(e)));
       if (!hasReal) reasons.push(`requisito "done" sem evidência real no disco: ${label}`);
     }
     const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
@@ -859,6 +857,7 @@ export class Orchestrator {
         } finally {
           this.releaseTurn(taskId);
           await this.drainQueue(taskId);
+          await this.mobileTurnEnd(taskId);
         }
         return;
       }
@@ -877,6 +876,7 @@ export class Orchestrator {
     } finally {
       this.releaseTurn(taskId);
       await this.drainQueue(taskId);
+      await this.mobileTurnEnd(taskId);
     }
   }
 
@@ -940,7 +940,23 @@ export class Orchestrator {
     } finally {
       this.releaseTurn(taskId);
       await this.drainQueue(taskId);
+      await this.mobileTurnEnd(taskId);
     }
+  }
+
+  /** Fim do turno (e da fila): desliga/apaga o simulador iOS dedicado e libera o emulador Android que a tarefa
+   * subiu com `cardume mobile` (src/mobile.ts). Só se ninguém pegou o turno de novo; sem estado mobile é instantâneo. */
+  private async mobileTurnEnd(taskId: string): Promise<void> {
+    if (!hasMobileState(taskId)) return;
+    try {
+      const wt = this.store.getTask(taskId)?.worktree ?? "";
+      if (!this.tryLock(taskId)) return; // outro turno já começou — ele limpa no fim
+      try {
+        await mobileCleanup(taskId, wt);
+      } finally {
+        this.store.setBusyPid(taskId, null);
+      }
+    } catch { /* limpeza nunca derruba o fim do turno */ }
   }
 
   /** Qualquer exceção que ESCAPE do pipeline (banco ocupado além do retry, spec corrompido, git) deixava
@@ -1859,4 +1875,14 @@ export class Orchestrator {
   close(): void {
     this.store.close();
   }
+}
+
+/** Evidência citada no requirements.json existe no disco? Aceita "x.png", "./x.png", ".cardume/artifacts/x.png"
+ * (antes o "." de ".cardume" era comido e a prova citada assim — o jeito que o roteiro mobile ensina — reprovava)
+ * e caminho do próprio repo relativo à worktree ("tests/login.test.ts"). */
+export function evidenceExists(artDir: string, worktree: string, e: string): boolean {
+  const raw = e.trim();
+  if (!raw) return false;
+  const name = raw.replace(/^(\.\/)?(\.cardume\/artifacts\/)?/, "");
+  return existsSync(join(artDir, name)) || existsSync(join(worktree, raw)) || existsSync(raw);
 }

@@ -11,6 +11,7 @@ mod agent_edits;
 mod ai_once;
 mod epic_context;
 mod learn;
+mod media_proto;
 mod memoria;
 mod mesa;
 mod plan_usage;
@@ -2252,7 +2253,7 @@ fn reveal_project(path: String) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 struct Artifact {
     name: String,
-    kind: String, // "doc" | "image" | "file"
+    kind: String, // "doc" | "image" | "pdf" | "video" | "file"
     size: u64,
     /// mtime em ms — pra ordenar por data de criação na UI.
     created: i64,
@@ -2266,6 +2267,8 @@ fn artifact_kind(name: &str) -> &'static str {
         "image"
     } else if l.ends_with(".pdf") {
         "pdf"
+    } else if media_proto::is_video(&l) {
+        "video" // servido pelo protocolo sfart:// (sem base64) — ver media_proto.rs
     } else {
         "file"
     }
@@ -2363,6 +2366,10 @@ fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
         }
     };
     let kind = artifact_kind(&name);
+    if kind == "video" {
+        // vídeo NUNCA vira base64: o front toca via sfart://<tarefa>/<nome> (Range, pedaço por pedaço)
+        return Ok(ArtifactContent { kind: "video".into(), text: None, data_url: None });
+    }
     if kind == "image" {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
         let l = name.to_lowercase();
@@ -6325,6 +6332,32 @@ fn env_dsh_status_item(name: String, found: &str, version: &str, st: Result<(), 
     }
 }
 
+/// Itens opcionais "Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)" — a MESMA
+/// checagem que o agente vê (`cardume mobile doctor --json`, src/mobile.ts). Motor fora do ar → sem os itens.
+fn env_mobile_items(cli: &str) -> Vec<EnvCheck> {
+    let mut c = node_cmd();
+    c.args(["--disable-warning=ExperimentalWarning", cli, "mobile", "doctor", "--json"]);
+    match output_timeout(c, 40) {
+        Ok(o) => env_mobile_parse(&String::from_utf8_lossy(&o.stdout), cfg!(target_os = "macos")),
+        Err(_) => Vec::new(),
+    }
+}
+/// JSON do doctor → itens do Ambiente (puro — testável). Fora do macOS o item do iOS não aparece (não tem correção).
+fn env_mobile_parse(stdout: &str, macos: bool) -> Vec<EnvCheck> {
+    let Some(line) = stdout.lines().rev().find(|l| l.trim_start().starts_with('{')) else { return Vec::new() };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else { return Vec::new() };
+    let items = v.get("items").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    items
+        .iter()
+        .filter(|it| macos || it.get("id").and_then(|x| x.as_str()) != Some("ios"))
+        .filter_map(|it| {
+            let name = it.get("name")?.as_str()?.to_string();
+            let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            Some(EnvCheck { kind: "opt".into(), name, ok: it.get("ok").and_then(|x| x.as_bool()).unwrap_or(false), detail: s("detail"), fix: s("fix") })
+        })
+        .collect()
+}
+
 /// Preflight do ambiente: tudo que o app precisa pra rodar tarefas, com o
 /// comando de correção pronto — mata a classe "cliquei e nada" pra novatos.
 #[tauri::command(async)]
@@ -6383,6 +6416,8 @@ fn env_check() -> Vec<EnvCheck> {
         None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Configurações → Gateway próprio (URL, chave e modelo)".into() },
     });
     out.push(env_dsh_item());
+    // provas mobile (opcionais): Simulador iOS, Emulador Android, Maestro — fonte única no motor (src/mobile.ts)
+    if cli_ok { out.extend(env_mobile_items(&cli)); }
     // gh autenticado
     let gb = gh_bin();
     let mut ghc = Command::new(&gb);
@@ -6422,6 +6457,9 @@ struct ArtifactRaw {
 /// Bytes de um artefato (base64) — pro upload de provas pro time (Storage).
 #[tauri::command(async)]
 fn read_artifact_raw(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactRaw, String> {
+    if media_proto::is_video(&name) {
+        return Err("vídeo não é enviado em base64 — ele fica no computador (toque pela Entrega)".into());
+    }
     let path = artifact_path(&state, &task_id, &name)?;
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let l = name.to_lowercase();
@@ -9138,6 +9176,26 @@ pub fn run() {
             Ok(())
         })
         .manage(AppState::from_env())
+        // VÍDEOS das provas (mobile) sem base64: sfart://<tarefa>/<artefato>, com Range e escopo nas pastas de artefatos
+        .register_asynchronous_uri_scheme_protocol("sfart", |ctx, request, responder| {
+            use tauri::Manager;
+            let app = ctx.app_handle().clone();
+            let path = request.uri().path().to_string();
+            let range = request.headers().get("range").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+            std::thread::spawn(move || {
+                let (status, headers, body) = match media_proto::parse_target(&path) {
+                    None => (403u16, vec![("Content-Type", "text/plain".to_string())], b"fora do escopo".to_vec()),
+                    Some((task, name)) => {
+                        let st = app.state::<AppState>();
+                        let file = artifact_path(&st, &task, &name).ok();
+                        media_proto::respond(file.as_deref(), &name, range.as_deref())
+                    }
+                };
+                let mut b = tauri::http::Response::builder().status(status).header("Access-Control-Allow-Origin", "*");
+                for (k, v) in headers { b = b.header(k, v); }
+                responder.respond(b.body(body).unwrap_or_else(|_| tauri::http::Response::new(Vec::new())));
+            });
+        })
         .invoke_handler(tauri::generate_handler![
             set_repo,
             plan_usage::plan_usage,
@@ -9570,6 +9628,28 @@ mod motor_r7_tests {
     }
 }
 
+#[cfg(test)]
+mod env_mobile_tests {
+    use super::*;
+    #[test]
+    fn itens_mobile_do_doctor() {
+        let out = "aviso qualquer\n{\"items\":[{\"id\":\"ios\",\"name\":\"Simulador iOS (Xcode)\",\"ok\":true,\"detail\":\"iOS 26.5 · iPhone 17\",\"fix\":\"\"},{\"id\":\"android\",\"name\":\"Emulador Android (SDK + AVD)\",\"ok\":false,\"detail\":\"Android SDK não encontrado\",\"fix\":\"instale o Android Studio\"},{\"id\":\"maestro\",\"name\":\"Maestro (fluxos de toque)\",\"ok\":false,\"detail\":\"não instalado\",\"fix\":\"curl x | bash\"}],\"project\":{}}\n";
+        let v = env_mobile_parse(out, true);
+        assert_eq!(v.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)"]);
+        assert!(v.iter().all(|c| c.kind == "opt"), "opcionais: não acendem pendência");
+        assert!(v[0].ok && !v[1].ok && v[1].fix.contains("Android Studio"));
+        assert_eq!(env_mobile_parse(out, false).len(), 2, "fora do macOS o iOS some");
+        assert!(env_mobile_parse("lixo", true).is_empty());
+    }
+    #[test]
+    fn artifact_kind_video() {
+        assert_eq!(artifact_kind("mobile-ios-1.mp4"), "video");
+        assert_eq!(artifact_kind("demo.MOV"), "video");
+        assert_eq!(artifact_kind("x.webm"), "video");
+        assert_eq!(artifact_kind("mobile-ios-1.png"), "image");
+        assert_eq!(artifact_kind("x.zip"), "file");
+    }
+}
 #[cfg(test)]
 mod env_ai_tests {
     use super::*;

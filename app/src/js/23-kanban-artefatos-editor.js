@@ -125,7 +125,7 @@ function matchReqProofs(reqs, list){
 }
 function artCategory(name){
   const n=name.toLowerCase();
-  if(n.startsWith('proof')||n.includes('screenshot')||n.includes('print')) return 'Provas';
+  if(n.startsWith('proof')||n.startsWith('mobile-')||n.includes('screenshot')||n.includes('print')||/\.(mp4|m4v|mov|webm)$/.test(n)) return 'Provas';
   if(n.startsWith('test')||n.includes('spec')) return 'Testes';
   if(n.endsWith('.md')||n.endsWith('.txt')||n.startsWith('architecture')) return 'Docs';
   return 'Outros';
@@ -134,7 +134,7 @@ function artDate(ms){ if(!ms) return ''; const d=new Date(ms); const today=new D
 function artItemHtml(x){
   const vm=(x.name||'').match(/-v(\d+)(\.[a-z0-9]+)?$/i);
   const ver=vm?`<span class="artver">v${vm[1]}</span>`:'';
-  return `<button class="artitem" data-art="${escA(x.name)}"><span class="artic">${x.kind==='image'?IC.image:IC.doc}</span><span class="artnm">${esc(x.name)}${ver}</span><span class="artdate">${artDate(x.created)}</span><span class="artkb">${x.size<1024?x.size+' B':(x.size/1024).toFixed(x.size<10240?1:0)+' KB'}</span></button>`;
+  return `<button class="artitem" data-art="${escA(x.name)}"><span class="artic">${x.kind==='image'?IC.image:x.kind==='video'?IC.play:IC.doc}</span><span class="artnm">${esc(x.name)}${ver}</span><span class="artdate">${artDate(x.created)}</span><span class="artkb">${x.size<1024?x.size+' B':(x.size/1024).toFixed(x.size<10240?1:0)+' KB'}</span></button>`;
 }
 function artListHtml(a){
   a=(a||[]).filter(x=>x.name!=='requirements.json'); // meta: vira as provas por requisito
@@ -154,7 +154,9 @@ async function openArtifact(taskId, name){
   const isPdf=c.kind==='pdf';
   const modal=document.querySelector('#artOverlay .modal'); if(modal) modal.classList.toggle('pdfmode', isPdf);
   const extBtn = isHtml ? `<div style="display:flex;margin-bottom:10px"><button class="btn primary sm" id="artExt">${IC.extlink||'↗'} abrir no navegador</button><span class="dim" style="margin-left:10px;font-size:11px;align-self:center">mockup navegável — abre com as telas clicáveis</span></div>` : '';
-  const body = c.kind==='image'
+  const body = c.kind==='video'
+    ? `<div class="pvvideo">${artVideoHtml(taskId, name, 'artvid')}</div>`
+    : c.kind==='image'
     ? `<img class="artimg" src="${c.dataUrl}" alt="${escA(name)}">`
     : isPdf
       ? `<iframe class="pdfview" src="${c.dataUrl}#zoom=page-width" title="${escA(name)}"></iframe>`
@@ -180,7 +182,7 @@ async function openArtifact(taskId, name){
   bindClick('artExt', ()=>{ invoke('open_artifact',{ taskId, name }).catch(e=>showErr(e, 'Falha ao abrir')); });
   $id("artOverlay").style.display = "flex";
 }
-function closeArtifact(){ $id("artOverlay").style.display="none"; $id("artBody").innerHTML=""; const m=document.querySelector('#artOverlay .modal'); if(m) m.classList.remove('pdfmode'); ['artOpenExt','artSlack','artMdPdf'].forEach(id=>{ const e=$id(id); if(e) e.remove(); }); }
+function closeArtifact(){ $id("artOverlay").style.display="none"; $id("artBody").innerHTML=""; /* tira o <video> do DOM: para o som */ const m=document.querySelector('#artOverlay .modal'); if(m) m.classList.remove('pdfmode'); ['artOpenExt','artSlack','artMdPdf'].forEach(id=>{ const e=$id(id); if(e) e.remove(); }); }
 // envia um artefato pro Slack (bot token no cofre da conta; canal salvo local)
 async function sendArtifactSlack(taskId, name){
   try{
@@ -327,11 +329,22 @@ function csvTableHtml(text, name){
     `<div class="pvnote">${rows.length-1} linha${rows.length-1===1?'':'s'} · ${head.length} coluna${head.length===1?'':'s'}${more>0?` · mostrando as primeiras ${PV_MAX_ROWS} — abra no app padrão pra ver tudo`:''}</div>`;
 }
 function pvKind(name){ const n=String(name||'').toLowerCase();
-  return /\.(png|jpe?g|gif|webp|svg)$/.test(n)?'image' : /\.pdf$/.test(n)?'pdf' : /\.(md|markdown)$/.test(n)?'md' : /\.(csv|tsv)$/.test(n)?'csv'
+  return /\.(png|jpe?g|gif|webp|svg)$/.test(n)?'image' : /\.(mp4|m4v|mov|webm)$/.test(n)?'video' : /\.pdf$/.test(n)?'pdf' : /\.(md|markdown)$/.test(n)?'md' : /\.(csv|tsv)$/.test(n)?'csv'
     : /\.html?$/.test(n)?'html' : /\.(txt|log|json|ya?ml|xml|js|ts|py|sql|sh|toml|ini)$/.test(n)?'text' : 'other'; }
+// VÍDEO das provas (mobile): toca DIRETO do disco pelo protocolo sfart:// (lib.rs → media_proto.rs) — nada de
+// base64; o WebKit pede em pedaços (Range), então um mp4 grande não trava a UI. Escopo: só as pastas de artefatos.
+function artMediaUrl(taskId, name){
+  const rel=String(taskId||'')+'/'+String(name||'').replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,'');
+  const cv=window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.convertFileSrc;
+  return cv ? cv(rel, 'sfart') : 'sfart://localhost/'+encodeURIComponent(rel);
+}
+function artVideoHtml(taskId, name, cls){
+  return `<video class="${cls||'pvvid'}" controls preload="metadata" playsinline src="${escA(artMediaUrl(taskId, name))}" aria-label="${escA('vídeo: '+name)}"></video>`;
+}
 // conteúdo já lido (read_artifact) → HTML da prévia
-function artPreviewHtml(name, c){
+function artPreviewHtml(name, c, taskId){
   const k=pvKind(name);
+  if(k==='video' && taskId) return `<div class="pvvideo">${artVideoHtml(taskId, name)}</div>`; // não precisa ler o arquivo
   if(!c) return skeletonHtml('lista',{ n:6, compact:true, inline:true, label:'carregando a prévia' });
   if(c.err) return `<div class="en-empty" style="color:var(--warn)">não consegui ler o arquivo: ${esc(c.err)}</div>`;
   if(k==='image' && c.dataUrl) return `<div class="pvimg"><img src="${c.dataUrl}" alt="${escA(name)}"></div>`;
