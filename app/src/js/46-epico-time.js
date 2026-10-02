@@ -142,7 +142,7 @@ function epicPageRender(){
       : bad ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a tarefa pra ver o erro">ver o problema</button>` : '';
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
     return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:stIcon(est)}</span><div class="en-rt">
-      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:11px">· ${stTx}${(()=>{ const me=cloudUserId(), w=[ctWhoLabel(t, me, tmName), t.assignee&&t.assignee===me?'com você':''].filter(Boolean).join(' · '); return w?' · '+esc(w):''; })()}</span></div>
+      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:var(--fs-xs)">· ${stTx}${(()=>{ const me=cloudUserId(), w=[ctWhoLabel(t, me, tmName), t.assignee&&t.assignee===me?'com você':''].filter(Boolean).join(' · '); return w?' · '+esc(w):''; })()}</span></div>
       ${vtx||cov.length?`<div class="ep-verify">${vtx?IC.ok+' prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
@@ -167,7 +167,7 @@ function epicPageRender(){
         <span class="ndeyebrow">épico do time · <span class="ep-st ep-st-${escA(ep.status||'open')}">${esc(EP_ST_PT[ep.status]||ep.status||'')}</span></span>
         <h2 class="en-h1">◆ ${esc(ep.name||'Épico')}</h2>${typeof aeEpicBadge==='function'?aeEpicBadge(sp):''}
         ${sp.outcome?`<p class="en-obj">${esc(sp.outcome)}</p>`:''}
-        ${sp.description?`<p class="en-obj dim" style="font-size:12px">${esc(sp.description)}</p>`:''}
+        ${sp.description?`<p class="en-obj dim" style="font-size:var(--fs-sm)">${esc(sp.description)}</p>`:''}
         <div class="en-kpis ep-kpis">
           ${sp.issue&&sp.issue.code?`<button class="en-kpi" ${sp.issue.url?`data-lk="${escA(sp.issue.url)}" title="abrir a issue do épico no painel"`:'disabled'}><b>${esc(sp.issue.code)}</b><span>issue${sp.issue.url?' ↗':''}</span></button>`:''}
           ${dw.length?`<div class="en-kpi" title="${escA(okN+' de '+dw.length+' critérios de pronto marcados — o épico fecha com todos')}"><b>${okN}/${dw.length}</b><span>pronto quando</span></div>`:''}

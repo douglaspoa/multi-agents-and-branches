@@ -93,12 +93,12 @@ $id('pubGo').onclick=async()=>{
     if(!s||!s.access_token) throw new Error('Sua sessão expirou — entre de novo na sua conta (botão Entrar, no rodapé da barra lateral) e publique outra vez.');
     const msg=await invoke('publish_release',{ url:SB.url(), anon:SB.key(), token:s.access_token, notes });
     clearInterval(tick);
-    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--accent);font-size:20px;line-height:1">✓</span><div><b style="font-size:13px">Release publicada!</b><div class="dim" style="font-size:12px;margin-top:4px">${esc(msg)}</div></div></div><div style="display:flex;margin-top:14px"><span style="flex:1"></span><button class="btn primary" id="pubOk">fechar</button></div>`);
+    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--accent);font-size:20px;line-height:1">✓</span><div><b style="font-size:var(--fs-base)">Release publicada!</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px">${esc(msg)}</div></div></div><div style="display:flex;margin-top:14px"><span style="flex:1"></span><button class="btn primary" id="pubOk">fechar</button></div>`);
     bindClick('pubOk', closePub);
   }catch(e){
     clearInterval(tick);
     const ph=humanErr(e,'Não consegui publicar a versão');
-    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:13px">Não deu</b><div class="dim" style="font-size:12px;margin-top:4px" title="${escA(errText(e))}">${esc(ph.msg)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
+    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:var(--fs-base)">Não deu</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px" title="${escA(errText(e))}">${esc(ph.msg)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
     bindClick('pubBack', ()=>pubSetState('form'));
     if(ph.action) bindClick('pubFix', ()=>{ closePub(); ph.action.fn(); });
   }
@@ -241,7 +241,7 @@ function agEditor(i){
   return `<div class="ageditor">
     <div class="aged-top">
       <div class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</div>
-      <input class="in" data-i="${i}" data-k="name" value="${escA(a.name||'')}" placeholder="Nome do agente" style="flex:1;font-weight:700;font-size:14px">
+      <input class="in" data-i="${i}" data-k="name" value="${escA(a.name||'')}" placeholder="Nome do agente" style="flex:1;font-weight:700;font-size:var(--fs-md)">
       <button class="iconbtn" data-del="${i}" title="remover agente">${IC.trash}</button>
     </div>
     <div class="two">
@@ -301,9 +301,9 @@ function renderWf(){
   const el=$id("wfList");
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
   el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow" data-drop="${i}">
-    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome da equipe (ex.: planejar → construir → revisar)"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:10px">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
+    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome da equipe (ex.: planejar → construir → revisar)"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:var(--fs-xs)">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
     <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span>${byId[sid]?`<b>${esc(byId[sid].name)}</b>`:`<b class="stepgone" title="${escA('o agente '+sid+' não existe mais no catálogo — tire esta etapa')}">agente removido</b>`}<button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente pra cá, ou escolha ao lado →</span>'}${cfgEdit.agents.length?`<select class="sel wfaddsel" data-wadd="${i}" aria-label="adicionar etapa nesta equipe"><option value="">+ etapa…</option>${cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name||a.id||'agente')}</option>`).join('')}</select>`:''}</div>
-  </div>`).join("") || '<div class="dim" style="font-size:12px;padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
+  </div>`).join("") || '<div class="dim" style="font-size:var(--fs-sm);padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
   el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
   // compartilhar UMA equipe com o time (redesign p18) — publica o workflow + os agentes dele

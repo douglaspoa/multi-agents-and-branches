@@ -38,11 +38,11 @@ function payShow(){
     const p=billingPlans.find(x=>x.plan===plan&&x.interval===iv); if(!p) return '';
     const per=iv==='year'?'/ano':'/mês';
     return `<div style="border:1px solid var(--border);border-radius:14px;padding:18px 18px 16px;display:flex;flex-direction:column;gap:8px${plan==='team'?';border-color:var(--accent)':''}">
-      <div style="display:flex;align-items:center"><b style="font-size:14px">${titulo}</b><span style="flex:1"></span>${plan==='team'?'<span class="mono" style="font-size:9px;letter-spacing:.08em;color:var(--accent)">PRO TIME</span>':''}</div>
-      <div><span style="font-size:23px;font-weight:700">${fmtBRL(p.amount_cents)}</span><span class="dim" style="font-size:12px"> ${per}</span></div>
-      <div class="dim" style="font-size:11.5px;flex:1">${desc}</div>
+      <div style="display:flex;align-items:center"><b style="font-size:var(--fs-md)">${titulo}</b><span style="flex:1"></span>${plan==='team'?'<span class="mono" style="font-size:var(--fs-xs);letter-spacing:.08em;color:var(--accent)">PRO TIME</span>':''}</div>
+      <div><span style="font-size:23px;font-weight:700">${fmtBRL(p.amount_cents)}</span><span class="dim" style="font-size:var(--fs-sm)"> ${per}</span></div>
+      <div class="dim" style="font-size:var(--fs-xs);flex:1">${desc}</div>
       <span class="au-trialchip" style="align-self:flex-start">${p.trial_days>0?p.trial_days:7} dias grátis</span>
-      <div class="dim" style="font-size:11px">Cadastre o cartão e nada é cobrado hoje. Cancelou antes do fim do teste, não paga nada.</div>
+      <div class="dim" style="font-size:var(--fs-xs)">Cadastre o cartão e nada é cobrado hoje. Cancelou antes do fim do teste, não paga nada.</div>
       <button class="btn primary" data-pay="${plan}" style="justify-content:center">Começar ${p.trial_days>0?p.trial_days:7} dias grátis</button>
     </div>`;
   };
@@ -103,7 +103,7 @@ function billingRenderCloud(){
       (b.cancel_at_period_end?' · <span style="color:var(--warn)">cancela no fim do período</span>':'');
   } else linha='<span style="color:var(--warn)">sem assinatura ativa</span>';
   el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Assinatura</div>
-    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px"><span style="flex:1">${linha}</span>
+    <div style="display:flex;align-items:center;gap:10px;font-size:var(--fs-sm)"><span style="flex:1">${linha}</span>
     ${(b&&b.user_id===cloudUserId()&&b.stripe_customer_id)?'<button class="btn sm" id="sbBillPortal">gerenciar</button>':''}
     ${billingActive()?'':'<button class="btn primary sm" id="sbBillGo">assinar</button>'}</div>`;
   body.appendChild(el);
@@ -151,7 +151,7 @@ function secretsRenderCloud(){
   const el=document.createElement('div');
   const rows=secretsCache||[];
   el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Chaves de modelo <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· seguem a sua conta (ex.: LGCX_API_KEY do LLM da Logcomex)</span></div>
-    <div id="sbSecrets">${rows.length?rows.map(r=>`<div style="display:flex;align-items:center;gap:9px;font-size:12px;margin-top:6px"><span class="mono">${esc(r.name)}</span><span class="dim mono" style="font-size:10.5px">••••${esc(String(r.value).slice(-4))}</span><span style="flex:1"></span><button class="btn sm" data-sedit="${escA(r.name)}" style="padding:2px 8px;font-size:10.5px">editar</button><button class="btn sm" data-sdel="${escA(r.name)}" style="padding:2px 8px;font-size:10.5px">✕</button></div>`).join(''):'<div class="dim" style="font-size:11.5px;margin-top:4px">nenhuma chave ainda</div>'}</div>
+    <div id="sbSecrets">${rows.length?rows.map(r=>`<div style="display:flex;align-items:center;gap:9px;font-size:var(--fs-sm);margin-top:6px"><span class="mono">${esc(r.name)}</span><span class="dim mono" style="font-size:var(--fs-xs)">••••${esc(String(r.value).slice(-4))}</span><span style="flex:1"></span><button class="btn sm" data-sedit="${escA(r.name)}" style="padding:2px 8px;font-size:var(--fs-xs)">editar</button><button class="btn sm" data-sdel="${escA(r.name)}" style="padding:2px 8px;font-size:var(--fs-xs)">✕</button></div>`).join(''):'<div class="dim" style="font-size:var(--fs-xs);margin-top:4px">nenhuma chave ainda</div>'}</div>
     <button class="btn sm" id="sbSecretAdd" style="margin-top:8px">+ adicionar chave</button>${rows.some(r=>r.name==='DEEPSEEK_API_KEY')?'':` <button class="btn sm" id="sbSecretDs" style="margin-top:8px" title="Motor DeepSeek Harness (beta, open source) — pra quem não tem plano da Anthropic nem da OpenAI">+ DEEPSEEK_API_KEY <span class="dim">· DeepSeek beta</span></button>`}`;
   body.appendChild(el);
   el.querySelectorAll('[data-sedit]').forEach(b=>b.onclick=async()=>{
@@ -194,15 +194,15 @@ function routeAiCfgHtml(){
     <div id="raPanel" style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r-sm);padding:13px 14px;background:var(--surface-2)">
       <label style="margin:0">Chave do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(fica só no seu cofre)</span></label>
       ${hasKey
-        ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="color:var(--ok,#3fb950)">✓ configurada</span><span class="dim mono" style="font-size:11px">••••${esc(key.slice(-4))}</span><span style="flex:1"></span><button class="btn sm" id="raKeyEdit">trocar</button></div>`
+        ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="color:var(--ok,#3fb950)">✓ configurada</span><span class="dim mono" style="font-size:var(--fs-xs)">••••${esc(key.slice(-4))}</span><span style="flex:1"></span><button class="btn sm" id="raKeyEdit">trocar</button></div>`
         : `<div style="display:flex;gap:8px;margin-top:6px"><input class="in mono" id="raKey" type="password" placeholder="cole a chave do gateway" style="flex:1"><button class="btn sm" id="raKeySave">salvar</button></div>`}
       <label style="margin-top:14px">Modelo</label>
       <select class="sel" id="raModel" aria-label="modelo do gateway" style="width:100%;margin-top:6px"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
       <label style="margin-top:14px">Endpoint <span class="dim" style="text-transform:none;letter-spacing:0">(OpenAI-compatible)</span></label>
-      <input class="in mono" id="raBase" value="${escA(baseUrl)}" placeholder="https://.../v1" style="margin-top:6px;font-size:12px"${hasKey?'':' disabled'}>
+      <input class="in mono" id="raBase" value="${escA(baseUrl)}" placeholder="https://.../v1" style="margin-top:6px;font-size:var(--fs-sm)"${hasKey?'':' disabled'}>
       <div class="two" style="margin-top:14px">
         <div><label style="margin:0">Nome do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(como aparece no app)</span></label><input class="in" id="raLabel" value="${escA(label)}" placeholder="ex.: Logcomex AI, LLM interno…" style="margin-top:6px"${hasKey?'':' disabled'}></div>
-        <div><label style="margin:0">Modelos disponíveis <span class="dim" style="text-transform:none;letter-spacing:0">(ids, separados por vírgula)</span></label><input class="in mono" id="raModels" value="${escA(models)}" placeholder="ex.: logcomex-v2, qwen3.8-27b" style="margin-top:6px;font-size:12px"${hasKey?'':' disabled'}></div>
+        <div><label style="margin:0">Modelos disponíveis <span class="dim" style="text-transform:none;letter-spacing:0">(ids, separados por vírgula)</span></label><input class="in mono" id="raModels" value="${escA(models)}" placeholder="ex.: logcomex-v2, qwen3.8-27b" style="margin-top:6px;font-size:var(--fs-sm)"${hasKey?'':' disabled'}></div>
       </div>
       <div class="raopt${hasKey?'':' off'}" style="margin-top:14px">
         <div class="rin"><b>Fallback automático</b><div class="dim" style="margin-top:2px">Claude bateu limite → roteia pra cá e <b>continua na hora</b>.</div></div>
@@ -215,7 +215,7 @@ function routeAiCfgHtml(){
       ${always?'<div class="rawarn" style="margin-top:10px;border-color:var(--warn,#9e6a03);color:var(--warn,#d29922)">${IC.warn} Modo teste ligado — tudo está rodando na alternativa, não no Claude.</div>':''}
       <div style="display:flex;gap:9px;align-items:center;margin-top:13px">
         <button class="btn sm" id="raTest"${hasKey?'':' disabled'}>testar conexão</button>
-        <span class="dim" id="raTestMsg" style="font-size:11.5px"></span>
+        <span class="dim" id="raTestMsg" style="font-size:var(--fs-xs)"></span>
       </div>
     </div>`}`;
 }

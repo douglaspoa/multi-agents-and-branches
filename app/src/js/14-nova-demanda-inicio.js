@@ -150,12 +150,12 @@ function ndRenderStart(){
   const projSel=`<select class="nd-projsel" id="ndProj" title="trocar o projeto onde a demanda vai abrir">${projs.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('')}</select>`;
   const more=ndMoreOpen();
   body.innerHTML=`<div class="ndwrap"><div class="ndinner">
-    <div class="nd-projrow"><span class="ndeyebrow">no projeto</span>${projs.length?projSel:`<span class="as-mono" style="color:var(--accent);font-size:12px">${esc(projShort(state.repo)||'—')}</span>`}</div>
+    <div class="nd-projrow"><span class="ndeyebrow">no projeto</span>${projs.length?projSel:`<span class="as-mono" style="color:var(--accent);font-size:var(--fs-sm)">${esc(projShort(state.repo)||'—')}</span>`}</div>
     <h1 class="ndh1">O que precisa ser feito?</h1>
     <p class="ndsub">Descreva do seu jeito. A IA faz só as perguntas que faltarem e decide se é uma tarefa ou um épico com várias frentes. Você revisa antes de qualquer coisa rodar.</p>
     <div class="ndintent">
       <textarea id="ndIntent" class="ndintent-ta" rows="4" placeholder="Descreva o que você quer (em português normal). Ex.: o botão de pagar some no celular; ou: criar uma página de contato com formulário">${esc(ndIntent)}</textarea>
-      <div class="ndintent-foot"><span class="dim" style="font-size:12px">⌘↵ pra continuar · abre o “Montar conversando” nesta mesma aba</span><span style="flex:1"></span><button class="as-btn primary big" id="ndIntentGo">Continuar →</button></div>
+      <div class="ndintent-foot"><span class="dim" style="font-size:var(--fs-sm)">⌘↵ pra continuar · abre o “Montar conversando” nesta mesma aba</span><span style="flex:1"></span><button class="as-btn primary big" id="ndIntentGo">Continuar →</button></div>
     </div>
     <details class="ndmore" id="ndMore"${more?' open':''}><summary>Mais opções <span class="dim">(tipo de demanda, formulário, dividir entre agentes)</span></summary>
     <div class="ndstep2" style="margin-top:18px"><span class="ndeyebrow">tipo de demanda</span><span class="ndline"></span></div>
@@ -166,7 +166,7 @@ function ndRenderStart(){
       <button class="ndm${ndMethod==='form'?' on':''}" id="ndForm" data-ndm="form"><span class="ndmt2">Preencher eu mesmo</span><span class="ndmd">Formulário com todos os campos da demanda. Controle total, sem conversa.</span><span class="ndmeta">~10 campos, um de cada vez</span></button>
       <button class="ndm ndm-orq${ndMethod==='orq'?' on':''}" id="ndOrq" data-ndm="orq"><span class="ndmtop"><span class="ndmt2">Dividir entre vários agentes</span><span class="ndmbadge" style="background:rgba(180,124,224,.2);color:#d9b8f2">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente coordenador divide em etapas, abre uma tarefa por etapa e acompanha a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano visual das etapas</span></button>
     </div>
-    <div class="ndcta"><button class="as-btn primary big" id="ndGo">Continuar${ndMethod==='chat'?' · montar conversando':ndMethod==='form'?' · preencher eu mesmo':' · dividir entre vários agentes'} →</button><span class="dim" style="font-size:12.5px">tipo <b style="color:var(--text)">${esc(cur.name)}</b> · o caminho escolhido abre nesta mesma aba</span></div>
+    <div class="ndcta"><button class="as-btn primary big" id="ndGo">Continuar${ndMethod==='chat'?' · montar conversando':ndMethod==='form'?' · preencher eu mesmo':' · dividir entre vários agentes'} →</button><span class="dim" style="font-size:var(--fs-sm)">tipo <b style="color:var(--text)">${esc(cur.name)}</b> · o caminho escolhido abre nesta mesma aba</span></div>
     <div class="ndfoot"><div class="ndfl">já tem um .md? <a id="ndImport">importar</a> · guia de demanda deste repo: <span class="mono" title="arquivo SPEC.md na pasta de trabalho do Starfork (.cardume/)">SPEC.md</span></div></div>
     </details>
   </div></div>`;

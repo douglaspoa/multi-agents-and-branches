@@ -195,7 +195,7 @@ function openModelMenu(taskId, anchor){
   // lista do MOTOR desta tarefa (antes: sempre a do Claude — numa tarefa Codex dava pra pôr "opus" no codex)
   const ek=aiEngineOf(t.engine), eng=AI_ENGINES.find(x=>x.id===ek)||AI_ENGINES[0];
   const list=(ek==='gateway'&&_aiGw&&_aiGw.configured)?[{id:'',name:_aiGw.model||'padrão do gateway',tag:'padrão'},..._aiGw.models.filter(m=>m!==_aiGw.model).map(m=>({id:m,name:m,tag:''}))]:(eng.models||[]);
-  const head=document.createElement('div'); head.className='mono'; head.style.cssText='font-size:10px;letter-spacing:.08em;color:var(--muted);padding:6px 10px 4px;text-transform:uppercase'; head.textContent='modelo desta demanda · '+(ek==='gateway'?((_aiGw&&_aiGw.label)||'Gateway'):eng.name); pop.appendChild(head);
+  const head=document.createElement('div'); head.className='mono'; head.style.cssText='font-size:var(--fs-xs);letter-spacing:.08em;color:var(--muted);padding:6px 10px 4px;text-transform:uppercase'; head.textContent='modelo desta demanda · '+(ek==='gateway'?((_aiGw&&_aiGw.label)||'Gateway'):eng.name); pop.appendChild(head);
   // quem abriu pode ter sido recriado (re-render do chat) — o foco volta pro elemento VIVO com o mesmo id
   const back=()=>{ const a=(anchor&&anchor.id&&$id(anchor.id))||anchor; if(a&&a.isConnected&&a.focus) a.focus({preventScroll:true}); };
   const onOut=(e)=>{ if(!pop.contains(e.target) && !(anchor&&anchor.contains&&anchor.contains(e.target))) close(false); };
@@ -205,11 +205,11 @@ function openModelMenu(taskId, anchor){
   pop.__close=close;
   const apply=async(id)=>{ close(false); try{ await invoke('set_task_model',{ taskId, model:id }); lastSig=''; await refresh(); if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===taskId) renderWorkspace(); }catch(e){ showErr(e, 'Falhou'); } back(); };
   const item=(label, id, on, fn)=>{ const b=document.createElement('button'); b.type='button'; b.setAttribute('role','menuitemradio'); b.setAttribute('aria-checked', on?'true':'false');
-    b.innerHTML=`${on?'<span style="color:var(--accent)" aria-hidden="true">✓</span> ':'<span style="opacity:0" aria-hidden="true">✓</span> '}${esc(label)}`; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=fn||(()=>apply(id)); pop.appendChild(b); return b; };
+    b.innerHTML=`${on?'<span style="color:var(--accent)" aria-hidden="true">✓</span> ':'<span style="opacity:0" aria-hidden="true">✓</span> '}${esc(label)}`; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);padding:7px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=fn||(()=>apply(id)); pop.appendChild(b); return b; };
   list.forEach(m=>item(m.name+(m.tag?'  · '+m.tag:''), m.id, m.id===cur));
   if(cur && !list.some(m=>m.id===cur)) item(cur+'  · id atual', cur, true);
   item('outro id…', '__custom', false, async()=>{ close(false); const v=await askText('Id do modelo','ex.: claude-opus-5-5', cur); if(v!=null && v.trim()) apply(v.trim()); else back(); }).setAttribute('role','menuitem');
-  const note=document.createElement('div'); note.className='dim'; note.style.cssText='font-size:10.5px;padding:6px 10px 4px;line-height:1.4'; note.textContent='vale a partir do próximo turno do agente'; pop.appendChild(note);
+  const note=document.createElement('div'); note.className='dim'; note.style.cssText='font-size:var(--fs-xs);padding:6px 10px 4px;line-height:1.4'; note.textContent='vale a partir do próximo turno do agente'; pop.appendChild(note);
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect(), h=pop.offsetHeight, room=window.innerHeight-r.bottom-6-8;
   // embaixo se cabe; senão pra cima (pílula no rodapé); sem espaço nenhum → encostado na borda de baixo

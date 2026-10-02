@@ -181,7 +181,7 @@ async function openArtifact(taskId, name){
   const isHtml=/\.html?$/i.test(name);
   const isPdf=c.kind==='pdf';
   const modal=document.querySelector('#artOverlay .modal'); if(modal) modal.classList.toggle('pdfmode', isPdf);
-  const extBtn = isHtml ? `<div style="display:flex;margin-bottom:10px"><button class="btn primary sm" id="artExt">${IC.extlink||'↗'} abrir no navegador</button><span class="dim" style="margin-left:10px;font-size:11px;align-self:center">mockup navegável — abre com as telas clicáveis</span></div>` : '';
+  const extBtn = isHtml ? `<div style="display:flex;margin-bottom:10px"><button class="btn primary sm" id="artExt">${IC.extlink||'↗'} abrir no navegador</button><span class="dim" style="margin-left:10px;font-size:var(--fs-xs);align-self:center">mockup navegável — abre com as telas clicáveis</span></div>` : '';
   const body = c.kind==='video'
     ? `<div class="pvvideo">${artVideoHtml(taskId, name, 'artvid')}</div>`
     : c.kind==='image'

@@ -17,27 +17,27 @@ function skAddPanelHtml(){
         ? `<div class="found"><div class="foundh">✓ ${skGitFound.length} skill(s) no repo — escolha</div>${skGitFound.map((s,i)=>`<label class="foundit"><input type="checkbox" data-gk="${escA(s.name)}" checked><b>${esc(s.name)}</b><span class="dim">${esc(String(s.description||'').slice(0,90))}</span></label>`).join('')}</div>`
         : `<div class="rawarn" style="margin-top:10px">Nenhum SKILL.md achado nesse repo/subpasta.</div>`) : '';
     b=`<label>URL do repositório Git <span class="dim" style="font-weight:400">(muita skill vem como repo)</span></label>
-      <input class="in mono" id="skGitUrl" placeholder="https://github.com/org/repo.git" style="font-size:12px">
-      <div style="display:flex;gap:8px;margin-top:8px"><input class="in mono" id="skGitBranch" placeholder="branch (opcional)" style="font-size:11.5px;flex:1"><input class="in mono" id="skGitSub" placeholder="subpasta (opcional)" style="font-size:11.5px;flex:1"></div>
+      <input class="in mono" id="skGitUrl" placeholder="https://github.com/org/repo.git" style="font-size:var(--fs-sm)">
+      <div style="display:flex;gap:8px;margin-top:8px"><input class="in mono" id="skGitBranch" placeholder="branch (opcional)" style="font-size:var(--fs-xs);flex:1"><input class="in mono" id="skGitSub" placeholder="subpasta (opcional)" style="font-size:var(--fs-xs);flex:1"></div>
       ${found}
       <div style="display:flex;gap:8px;margin-top:12px;align-items:center">${skGitFound&&skGitFound.length?`<button class="btn primary" id="skGitImport">importar selecionadas</button>`:`<button class="btn primary" id="skGitDetect">detectar skills</button>`}<button class="btn" id="skAddCancel">cancelar</button></div>`;
   } else if(skAddMode==='criar'){
-    b=`<label>Nome</label><input class="in mono" id="skNewName" placeholder="ex.: revisar-pr-do-time" style="font-size:12px">
+    b=`<label>Nome</label><input class="in mono" id="skNewName" placeholder="ex.: revisar-pr-do-time" style="font-size:var(--fs-sm)">
       <label>Quando usar <span class="dim" style="font-weight:400">(o gatilho — a IA lê isso pra saber quando disparar)</span></label>
       <textarea class="in" id="skNewDesc" rows="2" placeholder="Use SEMPRE que for revisar um PR nos repos X… dispara mesmo sem pedir"></textarea>
       <label>Instruções</label><textarea class="in" id="skNewBody" rows="5" placeholder="o passo a passo / regras da skill (markdown)"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skDoCreate">salvar na biblioteca</button><button class="btn" id="skAddCancel">cancelar</button></div>`;
   } else if(skAddMode==='importar'){
     b=`<label>Cole o conteúdo do SKILL.md <span class="dim" style="font-weight:400">(o nome vem do cabeçalho do arquivo, o bloco entre as linhas ---)</span></label>
-      <textarea class="in mono" id="skImpMd" rows="8" style="font-size:11.5px" placeholder="---\nname: minha-skill\ndescription: quando usar…\n---\n\n# Instruções\n…"></textarea>
+      <textarea class="in mono" id="skImpMd" rows="8" style="font-size:var(--fs-xs)" placeholder="---\nname: minha-skill\ndescription: quando usar…\n---\n\n# Instruções\n…"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skDoImport">importar</button><button class="btn" id="skAddCancel">cancelar</button></div>`;
   } else {
     b=`<label>O que a skill deve fazer? <span class="dim" style="font-weight:400">(a IA monta a skill conversando com você)</span></label>
       <textarea class="in" id="skAiIdea" rows="2" placeholder="ex.: padronizar como eu abro PR — título, descrição e checklist"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skAiGo">${ic('spark')}montar com IA</button><button class="btn" id="skAddCancel">cancelar</button></div>
-      <div class="dim" style="font-size:11px;margin-top:8px;line-height:1.5">Abre o <b>Montar conversando</b> com o pedido pronto. Quando a tarefa terminar, a skill aparece aqui na biblioteca.</div>`;
+      <div class="dim" style="font-size:var(--fs-xs);margin-top:8px;line-height:1.5">Abre o <b>Montar conversando</b> com o pedido pronto. Quando a tarefa terminar, a skill aparece aqui na biblioteca.</div>`;
   }
-  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia',IC.starforkEm+' Com IA')}</div>${b}<div class="dim" style="font-size:11px;margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
+  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia',IC.starforkEm+' Com IA')}</div>${b}<div class="dim" style="font-size:var(--fs-xs);margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
 }
 function skRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
@@ -204,22 +204,22 @@ function projetosRender(ov){
 let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:false, ghTouched:false, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='', projNewGhFail=''; // projNewGhFail: pasta criada cujo GitHub falhou (BUG-10)
 function projNewHtml(){
   const owners=ghOwnersCache||[];
-  const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:160px">${owners.map(o=>`<option value="${escA(o)}"${(projNew.owner||owners[0])===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`:`<span class="dim" style="font-size:12px">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
+  const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:160px">${owners.map(o=>`<option value="${escA(o)}"${(projNew.owner||owners[0])===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`:`<span class="dim" style="font-size:var(--fs-sm)">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
   return `<div class="as-card" id="projNewCard" style="margin-bottom:18px">
     <div class="seclbl2" style="margin:0 0 12px">novo projeto <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· cria a pasta, já pronta pros agentes trabalharem — e, se quiser, guarda uma cópia no GitHub</span></div>
     <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:12px">
-      <label style="display:block"><span class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">nome</span><input class="in" id="pnName" placeholder="ex.: painel-financeiro" value="${escA(projNew.name)}" style="margin-top:5px"></label>
-      <label style="display:block"><span class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">pasta onde vai morar</span><div style="display:flex;gap:8px;margin-top:5px"><input class="in mono" id="pnParent" readonly placeholder="escolha uma pasta (ex.: ~/Documents/GitHub)" value="${escA(projNew.parent)}" style="flex:1;font-size:12px"><button class="btn sm" id="pnPick">escolher…</button></div></label>
+      <label style="display:block"><span class="dim" style="font-size:var(--fs-xs);letter-spacing:.08em;text-transform:uppercase">nome</span><input class="in" id="pnName" placeholder="ex.: painel-financeiro" value="${escA(projNew.name)}" style="margin-top:5px"></label>
+      <label style="display:block"><span class="dim" style="font-size:var(--fs-xs);letter-spacing:.08em;text-transform:uppercase">pasta onde vai morar</span><div style="display:flex;gap:8px;margin-top:5px"><input class="in mono" id="pnParent" readonly placeholder="escolha uma pasta (ex.: ~/Documents/GitHub)" value="${escA(projNew.parent)}" style="flex:1;font-size:var(--fs-sm)"><button class="btn sm" id="pnPick">escolher…</button></div></label>
     </div>
-    <label class="pn-opt" style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="pnGh"${projNew.github?' checked':''}> guardar também no GitHub <span class="dim" style="font-size:12px">(cópia na nuvem — e o time consegue revisar e aprovar as mudanças)</span></label>
-    ${(ghOwnersCache&&!ghOwnersCache.length)?`<div class="dim" id="pnGhHint" style="font-size:12px;margin:6px 0 0 24px">GitHub não conectado — o projeto fica só no seu computador (dá pra publicar depois, aqui mesmo em Projetos). <a id="pnGhEnv" style="cursor:pointer;text-decoration:underline">conectar o GitHub</a></div>`:''}
+    <label class="pn-opt" style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:var(--fs-base)"><input type="checkbox" id="pnGh"${projNew.github?' checked':''}> guardar também no GitHub <span class="dim" style="font-size:var(--fs-sm)">(cópia na nuvem — e o time consegue revisar e aprovar as mudanças)</span></label>
+    ${(ghOwnersCache&&!ghOwnersCache.length)?`<div class="dim" id="pnGhHint" style="font-size:var(--fs-sm);margin:6px 0 0 24px">GitHub não conectado — o projeto fica só no seu computador (dá pra publicar depois, aqui mesmo em Projetos). <a id="pnGhEnv" style="cursor:pointer;text-decoration:underline">conectar o GitHub</a></div>`:''}
     <div id="pnGhOpts" style="display:${projNew.github?'flex':'none'};gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0 0 24px">
-      <span class="dim" style="font-size:12px">dono:</span>${ownerSel}
-      <label class="pn-opt" style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="private"${projNew.private?' checked':''}> privado <span class="dim">(só quem você convidar)</span></label>
-      <label class="pn-opt" style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="public"${projNew.private?'':' checked'}> público</label>
-      <a class="dim" id="pnGhCfg" style="font-size:12px;cursor:pointer;text-decoration:underline">outra conta do GitHub?</a>
+      <span class="dim" style="font-size:var(--fs-sm)">dono:</span>${ownerSel}
+      <label class="pn-opt" style="font-size:var(--fs-sm);display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="private"${projNew.private?' checked':''}> privado <span class="dim">(só quem você convidar)</span></label>
+      <label class="pn-opt" style="font-size:var(--fs-sm);display:flex;gap:5px;align-items:center"><input type="radio" name="pnVis" value="public"${projNew.private?'':' checked'}> público</label>
+      <a class="dim" id="pnGhCfg" style="font-size:var(--fs-sm);cursor:pointer;text-decoration:underline">outra conta do GitHub?</a>
     </div>
-    ${projNewMsg?`<div style="margin-top:12px;font-size:12.5px;color:var(--warn);white-space:pre-wrap">${esc(projNewMsg)}</div>`:''}
+    ${projNewMsg?`<div style="margin-top:12px;font-size:var(--fs-sm);color:var(--warn);white-space:pre-wrap">${esc(projNewMsg)}</div>`:''}
     ${projNewGhFail?`<div style="margin-top:10px"><button class="as-btn" id="pnOpenLocal">abrir mesmo assim, sem GitHub</button></div>`:''}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="as-btn" id="pnCancel">cancelar</button><button class="as-btn primary" id="pnCreate"${projNewBusy?' disabled':''}>${projNewBusy?'criando…':'criar projeto'}</button></div>
   </div>`;

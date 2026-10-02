@@ -59,7 +59,7 @@
       hint = document.createElement("div");
       hint.id = "coordOverlapHint";
       hint.className = "mono";
-      hint.style.cssText = "font-size:11px;margin-top:4px;color:var(--warn);display:none;line-height:1.4";
+      hint.style.cssText = "font-size:var(--fs-xs);margin-top:4px;color:var(--warn);display:none;line-height:1.4";
       (inp.parentElement || inp).appendChild(hint);
     }
     let timer = null;

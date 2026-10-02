@@ -163,7 +163,7 @@ function wizRender(){
   const last=wizN===steps[steps.length-1].n;
   if(footL) footL.innerHTML=(wizN>1?`<button class="btn nf-ghost" id="wizBack">← voltar</button>`:'');
   foot.innerHTML=
-    `<span class="dim" id="wizMiss" style="font-size:11.5px;color:var(--warn)"></span>`+
+    `<span class="dim" id="wizMiss" style="font-size:var(--fs-xs);color:var(--warn)"></span>`+
     (st.opt?`<button class="btn nf-ghost" id="wizSkip">pular</button>`:'')+
     `<button class="btn primary" id="wizNext">${last?'Iniciar execução':'próximo →'}</button>`;
   bindClick('wizBack', ()=>{ wizN=steps[Math.max(0,steps.findIndex(s=>s.n===wizN)-1)].n; wizRender(); });
@@ -208,7 +208,7 @@ function goRender(nReq){
     const s=goState[k]||'wait';
     const ic=s==='ok'?'✓':s==='run'?'◌':s==='err'?'✕':'·';
     const col=s==='ok'?'var(--accent)':s==='err'?'var(--warn)':s==='run'?'var(--text)':'var(--muted)';
-    return `<div style="display:flex;gap:9px;align-items:center;font-size:12.5px;color:${col}"><span class="mono" style="width:14px">${ic}</span>${k==='req'?`${l} (${nReq})`:l}${s==='run'?'…':''}</div>`;
+    return `<div style="display:flex;gap:9px;align-items:center;font-size:var(--fs-sm);color:${col}"><span class="mono" style="width:14px">${ic}</span>${k==='req'?`${l} (${nReq})`:l}${s==='run'?'…':''}</div>`;
   }).join('');
 }
 function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; ldPaint($id('goSky'), brandLoaderHtml('colocando no ar', { now:true })); }
@@ -251,7 +251,7 @@ function howPopulate(){
   const chainOf=(wid)=>{
     const w=wfs.find(x=>x.id===wid); if(!w) return '';
     const team=(w.steps||[]).map(s=>byId[s]).filter(Boolean);
-    return team.length?`<span class="howchain">${team.map(a=>`<span class="fwav" style="background:${agentColor(a.name)};width:17px;height:17px;font-size:8px" title="${escA(a.name)}">${esc((a.name||'?').slice(0,1).toUpperCase())}</span>`).join('<span style="color:var(--muted);font-size:9px">→</span>')}</span>`:'';
+    return team.length?`<span class="howchain">${team.map(a=>`<span class="fwav" aria-hidden="true" style="background:${agentColor(a.name)};width:17px;height:17px;font-size:var(--fs-ini)" title="${escA(a.name)}">${esc((a.name||'?').slice(0,1).toUpperCase())}</span>`).join('<span style="color:var(--muted);font-size:var(--fs-xs)">→</span>')}</span>`:'';
   };
   const items=[
     { v:'', t:'Entrega simples', d:'só o builder, direto ao ponto — sem revisão adicional', rec:false, chain:'' },
@@ -262,7 +262,7 @@ function howPopulate(){
   const optHtml=(it)=>`<label class="howopt${(cur?it.v===cur:it.rec)?' on':''}"><input type="radio" name="howflow" value="${escA(it.v)}" ${(cur?it.v===cur:it.rec)?'checked':''}><span><span class="ht">${esc(it.t)}</span>${it.chain?`<div style="margin:4px 0 2px;display:flex;align-items:center;gap:4px">${it.chain}</div>`:''}<div class="hd">${esc(it.d)}</div></span>${it.rec?'<span class="rec">RECOMENDADO</span>':''}</label>`;
   const main2=items.filter(it=>!it.team), team2=items.filter(it=>it.team);
   box.innerHTML=main2.map(optHtml).join('')+
-    (team2.length?`<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px"><span class="mono" style="font-size:10px;letter-spacing:.08em;color:var(--muted)">FLUXOS DO TIME</span><span style="flex:1"></span><button class="btn sm" id="howManage" style="padding:2px 8px;font-size:10.5px">gerenciar</button></div>`+team2.map(optHtml).join(''):'');
+    (team2.length?`<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px"><span class="mono" style="font-size:var(--fs-xs);letter-spacing:.08em;color:var(--muted)">FLUXOS DO TIME</span><span style="flex:1"></span><button class="btn sm" id="howManage" style="padding:2px 8px;font-size:var(--fs-xs)">gerenciar</button></div>`+team2.map(optHtml).join(''):'');
   bindClick('howManage', ()=>{ closeHow(); openAgents(); });
   box.querySelectorAll('.howopt').forEach(l=>l.onclick=()=>{ box.querySelectorAll('.howopt').forEach(x=>x.classList.remove('on')); l.classList.add('on'); l.querySelector('input').checked=true; howAgentsRender(); });
   setSelValue($id('howModel'), ($id('ntModel')||{}).value||''); // id completo (ex.: claude-opus-5-5) não some
@@ -301,7 +301,7 @@ function howAgentsRender(){
   const team=w?(w.steps||[]).map(s=>byId[s]).filter(Boolean):[];
   if(team.length<2){ el.innerHTML=''; return; }
   el.innerHTML=`<label>Modelo por agente <span class="dim" style="text-transform:none;letter-spacing:0">(sobrepõe o modelo geral)</span></label>`+
-    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" style="background:${agentColor(a.name)}">${agentBadge(a.name)}</span><span style="flex:1;font-size:12.5px">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
+    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" aria-hidden="true" style="background:${agentColor(a.name)}">${agentBadge(a.name)}</span><span style="flex:1;font-size:var(--fs-sm)">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
 }
 $id('howGo').onclick=()=>{
   const pick=document.querySelector('input[name="howflow"]:checked');

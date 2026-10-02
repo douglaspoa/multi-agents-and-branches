@@ -81,12 +81,12 @@ function tsCardHtml(t, me, isAdmin){
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
     ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i>${esc(r)}</span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
-    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="tslk" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" title="abrir a issue"><span class="mono">${esc(c[1])}</span> ${icEm(IC.extlink)}</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:9px">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
+    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="tslk" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" title="abrir a issue"><span class="mono">${esc(c[1])}</span> ${icEm(IC.extlink)}</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono">${esc(t.branch.split('/').pop().slice(0,18))}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:var(--fs-xs)">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
     ${whoTx?`<div class="tswho" title="${escA(whoTx)}">${esc(whoTx)}</div>`:''}
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:${stColor(st)};border:1px solid currentColor">${esc(stLabel(st))}</span>`:running?`<span class="tstag run">${esc(stLabel(st))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
-      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" title="assumir e iniciar nesta máquina — a tarefa passa pra sua Execução" style="padding:3px 9px;font-size:10.5px">${IC.play} assumir</button>`:isLocal?`<button class="btn sm" data-act="openproj" title="${escA('a tarefa é do projeto '+(proj.name||proj.repo_remote||'')+' — abrir ele aqui pra assumir')}" style="padding:3px 9px;font-size:10.5px">abrir ${esc(proj.name||'o projeto')}</button>`:''):''}
-      ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:10.5px">${IC.x}</button>`:''}
+      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" title="assumir e iniciar nesta máquina — a tarefa passa pra sua Execução" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.play} assumir</button>`:isLocal?`<button class="btn sm" data-act="openproj" title="${escA('a tarefa é do projeto '+(proj.name||proj.repo_remote||'')+' — abrir ele aqui pra assumir')}" style="padding:3px 9px;font-size:var(--fs-xs)">abrir ${esc(proj.name||'o projeto')}</button>`:''):''}
+      ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:var(--fs-xs)">${IC.x}</button>`:''}
     </div></div>`;
 }
 function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
@@ -142,8 +142,8 @@ function renderTeamBoard(){
   const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['prs','PRs pra revisar',prs.length?String(prs.length):''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
-    NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:10px;opacity:.8">${n}</span>`:''}</button>`).join('')+
-    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono tsnavlbl" style="font-size:10.5px;align-self:center;white-space:nowrap">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
+    NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:var(--fs-xs);opacity:.8">${n}</span>`:''}</button>`).join('')+
+    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono tsnavlbl" style="font-size:var(--fs-xs);align-self:center;white-space:nowrap">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   const epicChips=(teamEpics.length?teamEpics.map(e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(epDelivered).length;
@@ -180,18 +180,18 @@ function renderTeamBoard(){
       <div class="tskpi"><div class="v">${fmtCost(custo,{usdOnly:true})}</div><div class="l">custo no período · ≈ R$ ${fmtNumBR(custo*usdBrlRate(),true)}</div><div class="d">${inP.length?fmtCost(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
     </div>
     <div class="tscols"><div>
-      <div class="tspanel"><div class="tsph">Agora no time <span style="flex:1"></span><span style="color:var(--accent);font-size:10px">● ao vivo</span></div>
-        ${doing.length?doing.slice(0,6).map(t=>{ const who=t.assignee||t.created_by; return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(stLabel(tsSt(t)))}</span></div>`; }).join(''):'<div class="dim" style="font-size:12px">nenhuma tarefa em andamento agora</div>'}
+      <div class="tspanel"><div class="tsph">Agora no time <span style="flex:1"></span><span style="color:var(--accent);font-size:var(--fs-xs)">● ao vivo</span></div>
+        ${doing.length?doing.slice(0,6).map(t=>{ const who=t.assignee||t.created_by; return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(stLabel(tsSt(t)))}</span></div>`; }).join(''):'<div class="dim" style="font-size:var(--fs-sm)">nenhuma tarefa em andamento agora</div>'}
       </div>
       <div class="tspanel"><div class="tsph">PRs esperando gente</div>
-        ${prs.length?prs.slice(0,5).map(t=>`<div class="tslive"><span class="mono" style="color:var(--accent);font-size:11px">${esc((t.pr_url.match(/\/pull\/(\d+)/)||[])[1]?'#'+(t.pr_url.match(/\/pull\/(\d+)/)||[])[1]:'PR')}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer">${esc(t.title)}</span>${tsAv(t.assignee||t.created_by,false)}${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}" style="padding:3px 8px;font-size:10.5px">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}" style="padding:3px 8px;font-size:10.5px">revisar com agente</button></div>`).join(''):'<div class="dim" style="font-size:12px">nenhum PR aberto — em dia ✓</div>'}
+        ${prs.length?prs.slice(0,5).map(t=>`<div class="tslive"><span class="mono" style="color:var(--accent);font-size:var(--fs-xs)">${esc((t.pr_url.match(/\/pull\/(\d+)/)||[])[1]?'#'+(t.pr_url.match(/\/pull\/(\d+)/)||[])[1]:'PR')}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer">${esc(t.title)}</span>${tsAv(t.assignee||t.created_by,false)}${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}" style="padding:3px 8px;font-size:var(--fs-xs)">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}" style="padding:3px 8px;font-size:var(--fs-xs)">revisar com agente</button></div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">nenhum PR aberto — em dia ✓</div>'}
       </div>
     </div><div>
       <div class="tspanel"><div class="tsph">Entregas por dia</div><div class="tsspark">${perDay.map((n,i)=>`<div class="c"><div class="b" style="height:${Math.round(n/mx*100)}%"></div><span class="dl">${DL[days[i].getDay()]}</span></div>`).join('')}</div></div>
       <div class="tspanel"><div class="tsph">Entregas por membro</div>
         ${(()=>{ const per={}; for(const t of inP){ const w=t.assignee||t.created_by; const b=per[w]||(per[w]={d:0,r:0,u:0}); if(B.done(t)||B.review(t)) b.d++; else if(tsBucket(t)==='andamento') b.r++; b.u+=(+t.cost_usd||0); }
           const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
-          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entrega')} · ${v.r} em andamento</span><span class="dim tscost" style="font-size:11px">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:12px">sem atividade no período</div>'; })()}
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entrega')} · ${v.r} em andamento</span><span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
       </div>
     </div></div>`;
   } else if(tmView==='board'){
@@ -201,11 +201,11 @@ function renderTeamBoard(){
     const inB=(...ks)=>t=>ks.includes(tsBucket(t));
     const cols=[['Na fila',stColor('backlog'),vis.filter(inB('fila','rascunho')),0],['Aguardando alguém',stColor('asking'),vis.filter(inB('aguardando')),0],['Em andamento',stColor('running'),vis.filter(inB('andamento')),0],['Prontas / PR aberto',stColor('review'),vis.filter(inB('prontas','praberto')),0],['Concluídas',stColor('done'),vis.filter(inB('hoje','anteriores')),8]];
     main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>
-    <div class="tsboard ts5">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:11px;padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:11px;padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
+    <div class="tsboard ts5">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:var(--fs-xs);padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:var(--fs-xs);padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
   } else if(tmView==='prs'){
     main=`<h1>PRs pra revisar</h1><div class="tssub">todo cartão do time com PR aberto</div>`+
       (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
-        return `<div class="tspanel" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--accent)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:13px">${esc(t.title)}</b><div class="dim" style="font-size:11px">de ${esc(tmName(t.assignee||t.created_by))} · ${esc(stLabel(tsSt(t)))} · ${agoTx(t.updated_at)}</div></div>${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}">revisar com agente</button></div>`; }).join('')
+        return `<div class="tspanel" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--accent)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:var(--fs-base)">${esc(t.title)}</b><div class="dim" style="font-size:var(--fs-xs)">de ${esc(tmName(t.assignee||t.created_by))} · ${esc(stLabel(tsSt(t)))} · ${agoTx(t.updated_at)}</div></div>${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}">revisar com agente</button></div>`; }).join('')
       :'<div class="emptyrepo" style="display:flex"><div class="big">Em dia ✓</div><div>nenhum PR do time esperando review.</div></div>');
   } else if(tmView==='people'){
     const inP=tsPeriodTasks();
@@ -215,7 +215,7 @@ function renderTeamBoard(){
         const d=mine.filter(t=>B.done(t)||B.review(t)).length, u=mine.reduce((s,t)=>s+(+t.cost_usd||0),0);
         const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
         const teamTags=orgScope?teamsOf(uid).map(tid=>`<span class="tsteamtag">${esc(tsTeamName(tid))}</span>`).join(''):'';
-        return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:13.5px">${esc(tmName(uid))}</b><div class="dim" style="font-size:10.5px">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
+        return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:var(--fs-base)">${esc(tmName(uid))}</b><div class="dim" style="font-size:var(--fs-xs)">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
           <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div></div>
           <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div>
           ${(()=>{ // tarefas da pessoa com badge de TIPO + progresso (redesign p7)
@@ -226,14 +226,14 @@ function renderTeamBoard(){
             const pctOf=s=>({backlog:5,requested:10,queued:15,running:45,thinking:45,'plan-review':30,review:80,delivered:85,error:45,conflict:45}[s]??20);
             return act.map(t=>{ const k=(t.spec||{}).kind|| ((t.branch||'').startsWith('fix/')?'fix':(t.branch||'').startsWith('invest/')?'invest':(t.branch||'').startsWith('design/')?'design':'build');
               return `<div data-ct="${escA(t.id)}" style="cursor:pointer;margin-top:7px;padding-top:7px;border-top:1px dashed var(--border)">
-                <div style="display:flex;gap:7px;align-items:center;font-size:11.5px"><span class="mono" style="font-size:9px;font-weight:700;letter-spacing:.5px;color:${KIND_CO[k]||'var(--muted)'};border:1px solid currentColor;border-radius:4px;padding:1px 5px">${KIND_PT[k]||'TAREFA'}</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title)}</span></div>
+                <div style="display:flex;gap:7px;align-items:center;font-size:var(--fs-xs)"><span class="mono" style="font-size:var(--fs-xs);font-weight:700;letter-spacing:.5px;color:${KIND_CO[k]||'var(--muted)'};border:1px solid currentColor;border-radius:4px;padding:1px 5px">${KIND_PT[k]||'TAREFA'}</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title)}</span></div>
                 <div class="tsbar" style="margin-top:5px"><i style="width:${pctOf(t.status)}%"></i></div></div>`; }).join('');
           })()}</div>`; }).join('')+`</div>`;
   } else if(tmView==='feed'){
     main=`<h1>Atividade do time</h1><div class="tssub">mais recente primeiro</div><div class="tspanel tsfeed">`+
       ((teamActivity||[]).length?(teamActivity||[]).slice(0,40).map(a=>{ const t=all.find(x=>x.id===a.task_id);
         return `<div class="fi">${tsAv(a.user_id,false)}<span class="tx"><b>${esc(tmName(a.user_id))}</b> ${tsK(a.kind)} <b data-ct="${escA(a.task_id)}" style="cursor:pointer">${esc((t||{}).title||'tarefa')}</b>${a.body?` — ${esc(a.body.slice(0,80))}`:''}</span><span class="tm">${agoTx(a.at)}</span></div>`; }).join('')
-      :'<div class="dim" style="font-size:12px">sem atividade ainda</div>')+`</div>`;
+      :'<div class="dim" style="font-size:var(--fs-sm)">sem atividade ainda</div>')+`</div>`;
   }
   void side;
   const html=`<div class="tspace"><div class="tmain">${subTabs}${main}</div></div>`;
@@ -310,19 +310,19 @@ function openCloudTask(ct){
     <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
     <label style="margin-top:12px">Requisitos <span class="dim" style="text-transform:none;letter-spacing:0">(um por linha — o agente é cobrado por cada um)</span></label>
     <textarea class="in ta" id="ctReqs" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
-    ${(sp.deliverables||[]).length?`<label style="margin-top:12px">Entregáveis</label><div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px">${(sp.deliverables||[]).map(d=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:3px 0"><span style="color:var(--accent)">◆</span><span>${esc(d)}</span></div>`).join('')}</div>`:''}
+    ${(sp.deliverables||[]).length?`<label style="margin-top:12px">Entregáveis</label><div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px">${(sp.deliverables||[]).map(d=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:3px 0"><span style="color:var(--accent)">◆</span><span>${esc(d)}</span></div>`).join('')}</div>`:''}
     <label style="margin-top:12px">Épico</label>
     <select class="sel" id="ctEpic" style="width:100%"><option value="">— sem épico —</option>${teamEpics.map(e=>`<option value="${escA(e.id)}"${ct.epic_id===e.id?' selected':''}>${esc(e.name)}</option>`).join('')}</select>
     <div id="ctReqProof"></div>
     <div id="ctProofs"></div>
-    <div id="ctAct" class="dim" style="font-size:11px;margin-top:12px">${skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'carregando a atividade' })}</div>
+    <div id="ctAct" class="dim" style="font-size:var(--fs-xs);margin-top:12px">${skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'carregando a atividade' })}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${canEdit?'<button class="btn primary" id="ctSave">salvar alterações</button>':''}</div>`;
   // requisitos com prova (sincronizados do requirements.json do dev)
   { const rp=ct.requirements_proof; const el=$id('ctReqProof');
     if(el && rp && Array.isArray(rp.list||rp) ){
       const list=Array.isArray(rp.list)?rp.list:rp;
       if(list.length) el.innerHTML=`<div class="seclbl2" style="margin-top:14px">Requisitos provados <span class="n">${list.filter(x=>x.status==='done').length}/${list.length}</span></div>`+
-        list.map(x=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:5px 2px;border-bottom:1px dashed var(--border)"><span style="color:${x.status==='done'?'var(--good)':'var(--warn)'}">${x.status==='done'?'✓':'○'}</span><span style="flex:1">${esc(x.req||'')}${ctVideoNote(x)}</span></div>`).join('');
+        list.map(x=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:5px 2px;border-bottom:1px dashed var(--border)"><span style="color:${x.status==='done'?'var(--good)':'var(--warn)'}">${x.status==='done'?'✓':'○'}</span><span style="flex:1">${esc(x.req||'')}${ctVideoNote(x)}</span></div>`).join('');
     }
   }
   // galeria de provas publicadas (o que o dev ESCOLHEU subir)
@@ -425,7 +425,7 @@ async function cloudPubList(cid, force){
   return cloudPubCache[cid];
 }
 // requisito provado com VÍDEO: o vídeo não sobe pra nuvem (só prints/documentos) — o time sabe onde ele está
-function ctVideoNote(x){ const ev=Array.isArray(x&&x.evidence)?x.evidence:[]; return ev.some(e=>/\.(mp4|m4v|mov|webm)$/i.test(String(e)))?' <span class="dim" style="font-size:11px">· vídeo fica na máquina de quem fez</span>':''; }
+function ctVideoNote(x){ const ev=Array.isArray(x&&x.evidence)?x.evidence:[]; return ev.some(e=>/\.(mp4|m4v|mov|webm)$/i.test(String(e)))?' <span class="dim" style="font-size:var(--fs-xs)">· vídeo fica na máquina de quem fez</span>':''; }
 async function cloudPublishProofs(t, btn){
   const cid=tmap()[t.id]; if(!cid){ toast('Esta tarefa não está sincronizada com o time.','warn'); return; }
   const all=await loadArtifacts(t.id, t.status)||[];
@@ -470,7 +470,7 @@ async function cloudCatalog(orgId, isAdmin){
     ]);
     el.innerHTML = (ags.length||wfs.length)
       ? `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:2px 0">${ags.map(a=>`<span class="tmbadge" style="color:${escA(a.color||'var(--text-2)')};border-color:${escA(a.color||'var(--border)')}">${esc(a.name)} · ${esc(a.role)}</span>`).join('')}</div>`
-        +(wfs.length?`<div class="dim" style="font-size:11px;margin-top:6px">equipes: ${wfs.map(w=>esc(w.name)+' ('+(w.steps||[]).length+')').join(' · ')}</div>`:'')
+        +(wfs.length?`<div class="dim" style="font-size:var(--fs-xs);margin-top:6px">equipes: ${wfs.map(w=>esc(w.name)+' ('+(w.steps||[]).length+')').join(' · ')}</div>`:'')
       : 'nenhum agente publicado ainda — use “enviar os deste projeto”';
     { const b=$id('sbCatPull'); if(b) b.onclick=async()=>{
         b.disabled=true; b.textContent='aplicando…';

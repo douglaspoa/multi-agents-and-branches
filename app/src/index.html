@@ -27,6 +27,7 @@
 <link rel="stylesheet" href="css/91-navegador.css">
 <link rel="stylesheet" href="css/91-dispositivo.css">
 <link rel="stylesheet" href="css/92-canvas.css">
+<link rel="stylesheet" href="css/93-critica.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -131,25 +132,25 @@
     <div class="mhead nf-head" data-tauri-drag-region><span class="ndeyebrow" data-tauri-drag-region>nova demanda</span><select class="nd-projsel" id="ntProj" title="projeto onde a demanda vai abrir"></select><span class="nf-typechip" id="ntTypeChip" title="tipo da demanda"><span class="nf-typedot"></span><span id="ntTypeName">Feature</span><a id="ntTypeSwap" title="trocar o tipo da demanda">trocar</a></span><span style="flex:1" data-tauri-drag-region></span><div class="orq-seg ndseg ndseg-sm" role="tablist" aria-label="como montar a demanda"><button type="button" role="tab" id="ntAI" class="" data-ndseg="planner" title="a IA pergunta só o essencial e monta a demanda">Conversar</button><button type="button" role="tab" class="on" data-ndseg="form" title="formulário com todos os campos, sem conversa">Formulário</button><button type="button" role="tab" class="" data-ndseg="orq" title="um agente coordenador divide o problema em etapas e abre uma tarefa por etapa">Dividir</button></div><button class="as-btn" id="ntImport" title="importar uma spec .md pronta"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <div id="ntRight">
-      <div class="ntviewbar"><span class="dim" style="font-size:11px">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
+      <div class="ntviewbar"><span class="dim" style="font-size:var(--fs-xs)">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
       <!-- wizard por etapas (Entrega/Fix): uma pergunta por vez, sem scroll -->
       <div id="wizHead" style="display:none">
         <div class="nf-progrow"><span class="ndeyebrow" id="wizStep"></span><div id="wizProg" class="nf-prog"></div></div>
         <h2 id="wizT" class="ndh1"></h2>
         <div id="wizH" class="ndsub"></div>
-        <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:11.5px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/></svg>guia de demanda deste repo <span class="mono" style="font-size:10.5px;opacity:.75">.cardume/SPEC.md</span></summary><div id="wizGuideTx" class="mdview" style="font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
+        <details id="wizGuide" style="display:none;margin-bottom:12px"><summary class="dim" style="cursor:pointer;font-size:var(--fs-xs)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 4.5C6.7 3.7 5 3.5 3.4 3.9v7.9c1.6-.4 3.3-.2 4.6.6m0-9c1.3-.8 3-1 4.6-.6v7.9c-1.6-.4-3.3-.2-4.6.6m0-8.9v8.9"/></svg>guia de demanda deste repo <span class="mono" style="font-size:var(--fs-xs);opacity:.75">.cardume/SPEC.md</span></summary><div id="wizGuideTx" class="mdview" style="font-size:var(--fs-sm);max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px"></div></details>
       </div>
       <div id="ntMdPrev" style="display:none"></div>
       <!-- Como executar? — etapa da MESMA página (sem modal) -->
       <div id="ntHowPane" style="display:none">
-        <div id="howHead"><h2 style="font-size:17px;margin:2px 0 4px">Como executar?</h2>
-        <div class="dim" style="font-size:12px;margin-bottom:14px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div></div>
+        <div id="howHead"><h2 style="font-size:var(--fs-lg);margin:2px 0 4px">Como executar?</h2>
+        <div class="dim" style="font-size:var(--fs-sm);margin-bottom:14px">A spec está pronta. Escolha o fluxo — o recomendado já vem selecionado.</div></div>
         <div id="howOpts"></div>
         <div class="seclbl2" style="margin-top:22px">Com qual IA? <span class="dim">· motor e versão do modelo — a recomendação olha a sua demanda</span></div>
         <div class="aipick" id="aiPickHow"></div>
-        <div id="howEstimate" class="dim" style="font-size:12px;margin-top:10px"></div>
+        <div id="howEstimate" class="dim" style="font-size:var(--fs-sm);margin-top:10px"></div>
         <div id="howBudgetHost" style="margin-top:6px"></div>
-        <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:12px">Avançado — modelo por agente e limites</summary>
+        <details style="margin-top:10px"><summary class="dim" style="cursor:pointer;font-size:var(--fs-sm)">Avançado — modelo por agente e limites</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
             <div style="display:none"><label>Modelo dos agentes</label><select class="sel" id="howModel" style="width:100%"><option value="">Padrão da assinatura</option><option value="opus">Opus — o mais capaz</option><option value="sonnet">Sonnet — equilíbrio</option><option value="haiku">Haiku — o mais veloz</option></select></div>
             <div><label>Tarefas em paralelo</label><input class="in" id="howSlots" type="number" min="1" max="12" style="width:100%"></div>
@@ -318,9 +319,9 @@
   <div class="modal" style="width:min(680px,100%)">
     <div class="mhead"><b>Padrões de demanda da organização</b><span style="flex:1"></span><button class="x" id="orgTplClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <div class="imhint" style="border-left:2px solid var(--accent)">Vale pra <b>toda a organização</b>: o wizard mostra este guia e a IA o segue ao completar specs e desdobrar épicos. Um repo ainda pode refinar com o próprio guia e política na pasta de trabalho do Starfork <span class="mono dim" style="font-size:10.5px">(.cardume/SPEC.md · policy.json)</span> — o repo vence.</div>
+      <div class="imhint" style="border-left:2px solid var(--accent)">Vale pra <b>toda a organização</b>: o wizard mostra este guia e a IA o segue ao completar specs e desdobrar épicos. Um repo ainda pode refinar com o próprio guia e política na pasta de trabalho do Starfork <span class="mono dim" style="font-size:var(--fs-xs)">(.cardume/SPEC.md · policy.json)</span> — o repo vence.</div>
       <label style="margin-top:12px">Guia de spec <span class="dim" style="text-transform:none;letter-spacing:0">(markdown — apagar tudo volta ao template padrão do produto)</span></label>
-      <textarea class="in ta mono" id="orgTplText" rows="12" style="font-size:11.5px"></textarea>
+      <textarea class="in ta mono" id="orgTplText" rows="12" style="font-size:var(--fs-xs)"></textarea>
       <div class="seclbl2" style="margin-top:14px">Política de obrigatoriedade</div>
       <div class="two">
         <div><label>Mínimo de requisitos por demanda</label><input class="in" id="orgPolMin" type="number" min="1" max="10"></div>
@@ -340,13 +341,13 @@
     <div style="text-align:center">
       <div style="font-size:34px;line-height:1;color:var(--accent)">✦</div>
       <h2 style="margin:12px 0 4px;font-size:22px">Assine o Starfork</h2>
-      <div class="dim" style="font-size:12.5px" id="payHint">7 dias grátis — a cobrança só começa depois do teste, e dá pra cancelar em 2 cliques.</div>
+      <div class="dim" style="font-size:var(--fs-sm)" id="payHint">7 dias grátis — a cobrança só começa depois do teste, e dá pra cancelar em 2 cliques.</div>
     </div>
     <div style="display:flex;justify-content:center;margin:16px 0 14px">
       <div class="seg2"><button id="payMon" class="on">Mensal</button><button id="payYr">Anual · 2 meses grátis</button></div>
     </div>
     <div id="payCards" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
-    <div id="payWait" style="display:none;margin-top:16px;align-items:center;gap:10px;justify-content:center"><span class="pubspin"></span><span class="dim" style="font-size:12.5px">esperando a confirmação do pagamento… (termine no navegador)</span></div>
+    <div id="payWait" style="display:none;margin-top:16px;align-items:center;gap:10px;justify-content:center"><span class="pubspin"></span><span class="dim" style="font-size:var(--fs-sm)">esperando a confirmação do pagamento… (termine no navegador)</span></div>
     <div style="display:flex;align-items:center;margin-top:18px">
       <button class="btn sm" id="payLogout">sair da conta</button>
       <span style="flex:1"></span>
@@ -358,15 +359,15 @@
 <!-- Publicar release: notas + progresso + sucesso (prompt() não existe no webview) -->
 <div class="overlay" id="pubOverlay" style="display:none;z-index:120">
   <div class="modal" style="max-width:440px;padding:20px 22px">
-    <div style="display:flex;align-items:center;gap:8px"><b style="font-size:14px">⇡ Publicar release pro time</b><span style="flex:1"></span><button class="x" id="pubClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div style="display:flex;align-items:center;gap:8px"><b style="font-size:var(--fs-md)">⇡ Publicar release pro time</b><span style="flex:1"></span><button class="x" id="pubClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div id="pubForm" style="margin-top:12px">
       <label>Notas da versão <span class="dim" style="text-transform:none;letter-spacing:0">(o time vê no aviso de atualização)</span></label>
       <textarea class="in ta" id="pubNotes" rows="3">Melhorias e correções.</textarea>
-      <div class="dim" style="font-size:11.5px;margin-top:8px">Sobe o zip empacotado (dist/) + o aviso de versão usando a sua sessão — os Macs do time recebem o aviso de <b>atualizar</b> em até ~2 min.</div>
+      <div class="dim" style="font-size:var(--fs-sm);margin-top:8px">Sobe o zip empacotado (dist/) + o aviso de versão usando a sua sessão — os Macs do time recebem o aviso de <b>atualizar</b> em até ~2 min.</div>
       <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="pubCancel">cancelar</button><button class="btn primary" id="pubGo">Publicar</button></div>
     </div>
     <div id="pubProg" style="display:none;margin-top:16px;align-items:center;gap:10px">
-      <span class="pubspin"></span><span id="pubStatus" style="font-size:12.5px">enviando o pacote…</span>
+      <span class="pubspin"></span><span id="pubStatus" style="font-size:var(--fs-sm)">enviando o pacote…</span>
     </div>
     <div id="pubDone" style="display:none;margin-top:16px"></div>
   </div>
@@ -408,14 +409,14 @@
 <!-- Preferências do projeto: 1 arquivo por projeto, o time escreve, os agentes seguem -->
 <div class="overlay" id="prefsOverlay" style="display:none;z-index:95">
   <div class="modal" style="width:min(720px,100%)">
-    <div class="mhead"><b>Preferências do projeto</b><span class="dim" id="prefsRepo" style="font-size:11px;margin-left:8px"></span><span style="flex:1"></span><button class="x" id="prefsClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><b>Preferências do projeto</b><span class="dim" id="prefsRepo" style="font-size:var(--fs-xs);margin-left:8px"></span><span style="flex:1"></span><button class="x" id="prefsClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <div class="imhint" style="border-left:2px solid var(--accent)">Um documento por projeto, escrito pelo <b>time</b> — convenções, padrões, o que evitar, decisões acordadas. <b>Todo agente</b> deste projeto lê e segue à risca (fica salvo na pasta de trabalho do Starfork, <span class="mono dim" style="font-size:10.5px">.cardume/PREFS.md</span>). Sincroniza pra todos do time.</div>
-      <textarea class="in ta mono" id="prefsText" rows="16" style="font-size:12px;margin-top:10px" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea>
+      <div class="imhint" style="border-left:2px solid var(--accent)">Um documento por projeto, escrito pelo <b>time</b> — convenções, padrões, o que evitar, decisões acordadas. <b>Todo agente</b> deste projeto lê e segue à risca (fica salvo na pasta de trabalho do Starfork, <span class="mono dim" style="font-size:var(--fs-xs)">.cardume/PREFS.md</span>). Sincroniza pra todos do time.</div>
+      <textarea class="in ta mono" id="prefsText" rows="16" style="font-size:var(--fs-sm);margin-top:10px" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea>
       <div id="prefsProtHost"></div>
       <div id="prefsMemHost"></div>
     </div>
-    <div class="mfoot"><span class="dim" id="prefsMeta" style="font-size:11px"></span><span style="flex:1"></span><button class="btn" id="prefsCancel">fechar</button><button class="btn primary" id="prefsSave">salvar pro time</button></div>
+    <div class="mfoot"><span class="dim" id="prefsMeta" style="font-size:var(--fs-xs)"></span><span style="flex:1"></span><button class="btn" id="prefsCancel">fechar</button><button class="btn primary" id="prefsSave">salvar pro time</button></div>
   </div>
 </div>
 <!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
@@ -487,7 +488,7 @@
       <span class="fwmodes" id="fwModes"></span>
       <span style="flex:1"></span>
       <span id="fwReviewBar" style="display:flex;gap:8px;align-items:center"></span>
-      <button class="btn sm fwdevbtn" id="fwDevBtn" style="display:none" title="Dispositivo: o simulador/emulador desta tarefa ao vivo, ao lado do chat" aria-label="Dispositivo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="4.6" y="1.8" width="6.8" height="12.4" rx="1.6"/><path d="M7 12.3h2" stroke-linecap="round"/></svg> Dispositivo</button>
+      <!-- Dispositivo: saiu daqui (crítica Impeccable) — ⋯ → "mostrar o Dispositivo ao lado" e "+ → Simulador" no topo -->
       <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, custo, preview no celular…"></button>
       <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
@@ -568,7 +569,7 @@
 <!-- chat do PROJETO: conversa livre sobre o repo, que pode virar tarefa -->
 <div class="overlay" id="pcOverlay" style="display:none">
   <div class="modal chatmodal" style="width:min(760px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:10.5px" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/></svg>virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg><div><b>Chat do projeto</b><div class="dim" style="font-size:var(--fs-xs)" id="pcSub">ele lê o código de verdade antes de responder — e não edita nada</div></div><span style="flex:1"></span><button class="btn sm" id="pcTask" title="a conversa vira a spec de uma tarefa"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><circle cx="8" cy="8" r="5.7"/><path d="M10.7 5.3 8.7 8.7 5.3 10.7 7.3 7.3z" stroke-linejoin="round"/></svg>virar tarefa</button><button class="btn sm" id="pcClear" title="começar conversa nova">limpar</button><button class="x" id="pcClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="chatthread" id="pcThread" style="min-height:340px;max-height:56vh"></div>
     <div class="attrow attpend pcpend" id="pcPend" style="display:none"></div>
     <div class="chatinput cc"><textarea class="in cc-ta" id="pcInput" rows="2" placeholder="pergunte sobre o projeto…"></textarea><div class="cc-row"><button class="btn sm cc-clip" id="pcAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span class="cc-sp"></span><button class="btn sm trk-stop" id="pcStop" style="display:none" title="interrompe a IA agora">■ parar</button><button class="btn primary sm cc-send" id="pcSend">enviar</button></div></div>
@@ -587,7 +588,7 @@
 <!-- Skills: escolher quais skills do Claude Code os agentes deste repo seguem -->
 <div class="overlay" id="skOverlay" style="display:none">
   <div class="modal" style="width:min(640px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1" stroke-linecap="round"/></svg><div><b>Skills</b><div class="dim" style="font-size:10.5px">as ligadas viram instrução pros agentes deste projeto usarem quando o gatilho bater</div></div><span style="flex:1"></span><button class="x" id="skClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1" stroke-linecap="round"/></svg><div><b>Skills</b><div class="dim" style="font-size:var(--fs-xs)">as ligadas viram instrução pros agentes deste projeto usarem quando o gatilho bater</div></div><span style="flex:1"></span><button class="x" id="skClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="skBody"></div>
   </div>
 </div>
@@ -597,7 +598,7 @@
 </div>
 <div class="overlay" id="issuesOverlay" style="display:none">
   <div class="modal" style="width:min(1100px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg><div><b>Issues</b><div class="dim" style="font-size:10.5px">o painel de issues do time — conexão, projetos e quadro</div></div><span style="flex:1"></span><button class="x" id="issuesClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg><div><b>Issues</b><div class="dim" style="font-size:var(--fs-xs)">o painel de issues do time — conexão, projetos e quadro</div></div><span style="flex:1"></span><button class="x" id="issuesClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="issuesBody"></div>
   </div>
 </div>
@@ -614,7 +615,7 @@
 <!-- Projetos: hub de todos os projetos (tudo aparece junto no board; aqui gerencia) -->
 <div class="overlay" id="projetosOverlay" style="display:none">
   <div class="modal" style="width:min(760px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg><div><b>Projetos</b><div class="dim" style="font-size:10.5px">tudo aparece junto no quadro — aqui você gerencia cada um</div></div><span style="flex:1"></span><button class="x" id="projetosClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="width:15px;height:15px;color:var(--accent)"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg><div><b>Projetos</b><div class="dim" style="font-size:var(--fs-xs)">tudo aparece junto no quadro — aqui você gerencia cada um</div></div><span style="flex:1"></span><button class="x" id="projetosClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="projetosBody"></div>
   </div>
 </div>

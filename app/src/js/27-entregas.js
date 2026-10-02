@@ -59,7 +59,10 @@ function flowDemandCard(t){
   const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra">${IC.bolt} resolver conflito</button>`
     : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.play} iniciar</button>`
     : asking.length ? `<button class="btn primary sm" data-dcopen="${escA(t.id)}">responder</button>`
-    : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">${IC.ok} ver e salvar</button>`:`<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
+    : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">${IC.ok} ver e salvar</button>`
+      // portão de prova (21): requisito sem prova → o verde pede a prova; aprovar vira o secundário com motivo
+      : proofGate(t).st==='unproven' ? `<button class="btn sm ghost" data-rownoproof="${escA(t.id)}" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button><button class="btn primary sm" data-rowproof="${escA(t.id)}" title="${escA(proofMissingTip(proofGate(t)))}">${IC.ai} pedir a prova ao agente</button>`
+      : `<button class="btn primary sm" data-rowpr="${escA(t.id)}">${IC.merge} aprovar e abrir PR</button>`)
     : (done ? `<button class="btn sm" data-dcopen="${escA(t.id)}">ver entrega</button>` : '');
   const segs=[1,2,3,4,5].map(i=>`<i class="${i<=ph?((asking.length&&i===ph)?'on warn':'on'):''}"></i>`).join('');
   const foot = done
@@ -74,7 +77,7 @@ function flowDemandCard(t){
     <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}${typeof taskOriginHtml==='function'?taskOriginHtml(t):''}<span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span>${t.orchestration?`<span class="dc-orq" data-orq="${escA(t.orchestration.id)}" data-orq-task="${escA(t.id)}" title="fase ${escA(t.orchestration.phase||'')} do plano — abrir o grafo">${IC.orq} ${esc(String(t.orchestration.title||'plano').slice(0,28))}</span>`:''}<span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar" aria-label="mais ações">${IC.more}</button></div>
     ${t.objective?`<div class="dc-obj">${esc(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].replace(/\s+/g,' ').slice(0,220))}</div>`:''}
     ${reqsHtml}
-    <div class="dc-foot"><span class="ini2" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${mName?` <span class="dc-model" title="${escA(t.model)}">· ${esc(mName)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):taskTs(t))}</span></div>
+    <div class="dc-foot"><span class="ini2" aria-hidden="true" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${mName?` <span class="dc-model" title="${escA(t.model)}">· ${esc(mName)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):taskTs(t))}</span></div>
   </div>`;
 }
 // ---- ABA ENTREGA (dentro da demanda) ----
@@ -91,7 +94,30 @@ function artThumb(taskId, name){
   invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; if(fwTask===taskId&&fwMode==='entrega') renderWorkspace(); }).catch(()=>{});
   return null;
 }
-function fwModesList(t){ const M=[['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão'],['previa','Prévia']]; if(t&&t.prUrl) M.push(['pr','PR']); return M; } // Prévia: 57-navegador
+// modos escondidos PELO TIPO (dono, 02/10: "esconder pelo tipo" — modo simples global vetado): entrega que não é
+// código (investigação, design, pesquisa, relatório, docs sem mudança de código, ou o que entregaNonCode já trata
+// como só-documentos) não mostra Código, Revisão nem PR. Os 6 modos continuam pra quem entrega código.
+// @modos-tipo-inicio (testado em app/tests/critica-impeccable.test.mjs)
+const FW_NONCODE_TYPES=['invest','design','research','report'];
+function fwModesNonCodeOf(o){
+  if(!o || o.prUrl) return false; // PR aberto: é código, mostra tudo
+  if(FW_NONCODE_TYPES.includes(o.type) || FW_NONCODE_TYPES.includes(o.kind)) return true;
+  if(/^(research|report|relatorio)\//.test(o.branch||'')) return true;
+  if(o.type==='docs' && !(o.diffFiles>0)) return true; // docs que não mexeu em arquivo do repo = documento entregue
+  return !!o.nonCode;
+}
+function fwModesListOf(nonCode, prUrl){
+  const M=nonCode ? [['entrega','Entrega'],['conversa','Conversa'],['previa','Prévia']]
+    : [['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão'],['previa','Prévia']];
+  if(prUrl && !nonCode) M.push(['pr','PR']); return M;
+}
+// @modos-tipo-fim
+function fwModesNonCode(t){
+  if(!t) return false; const d=diffOf(t.id);
+  return fwModesNonCodeOf({ prUrl:t.prUrl, type:(typeof taskType==='function')?taskType(t):'', kind:String(t.kind||'').toLowerCase(), branch:t.branch||'',
+    diffFiles:d?diffFiles(d):0, nonCode:entregaNonCode(t) });
+}
+function fwModesList(t){ return fwModesListOf(fwModesNonCode(t), !!(t&&t.prUrl)); } // Prévia: 57-navegador
 function fwModesHtml(t){
   return fwModesList(t).map(([k,l])=>`<button class="fwmode${fwMode===k?' on':''}" data-fwmode="${k}">${l}</button>`).join('');
 }
@@ -180,11 +206,16 @@ function enVerifHtml(t){
   const runBtn = g.st==='running' ? `<button class="btn sm" id="vfStop">■ parar</button>`
     : canRun ? `<button class="btn sm${['notrun','stale'].includes(g.st)?' primary':''}" id="vfRun" title="roda as checagens do projeto na cópia desta tarefa (cada uma com até 10 min)">▶ ${g.st==='pass'||g.st==='fail'?'rodar de novo':'rodar checagens'}</button>` : '';
   const ok=chkCanApprove(g);
+  // portão de prova (21: proofGate) antes da verificação. O verde da tela é o do cabeçalho (mesma ação) — aqui os
+  // botões são neutros: um verde por tela.
+  const pg=proofGate(t), unproven=pg.st==='unproven';
   const approve = pre ? `<div class="vf-approve">
       ${g.st==='fail'?`<button class="btn sm" id="vfFix" title="manda o log da falha pro agente corrigir">${IC.ai} pedir pro agente corrigir</button>`:''}
+      ${unproven?`<span class="vf-proofmiss" role="status">${IC.warn} ${esc(nPl(pg.missing.length,'requisito'))} sem prova</span>`:''}
       <span style="flex:1"></span>
-      ${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
-      <button class="btn primary" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button></div>` : '';
+      ${unproven ? `<button class="btn sm ghost" id="vfNoProof" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button><button class="btn" id="vfAskProof" title="${escA(proofMissingTip(pg))}">${IC.ai} pedir a prova ao agente</button>`
+        : `${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
+      <button class="btn" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button>`}</div>` : '';
   // concluída: sem o tom de alerta (amarelo) de "falta rodar" — é só informação
   const pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
   return `<section class="en-sec en-verif vf-${done&&['notrun','stale'].includes(g.st)?'done':g.st}" id="enVerif">
@@ -201,8 +232,10 @@ function enWireVerif(t, main){
   main.querySelectorAll('[data-encfg]').forEach(b=>b.onclick=()=>{ enCfgOpen[t.id]=!enCfgOpen[t.id]; renderWorkspace(); });
   bindClick('vfRun', ()=>chkRun(t));
   bindClick('vfStop', ()=>chkStop(t));
-  bindClick('vfApprove', ()=>{ const g=chkGate(t); if(chkCanApprove(g)) prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
-  bindClick('vfOverride', async()=>{ const g=chkGate(t); if(await chkOverride(t, g)){ renderWorkspace(); prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); } });
+  bindClick('vfApprove', ()=>{ const g=chkGate(t); if(chkCanApprove(g)) approveGate(t); });
+  bindClick('vfOverride', async()=>{ const g=chkGate(t); if(await chkOverride(t, g)){ renderWorkspace(); approveGate(t); } });
+  bindClick('vfAskProof', (e)=>proofAsk(t, e.currentTarget));
+  bindClick('vfNoProof', ()=>approveNoProof(t));
   bindClick('vfFix', async()=>{ const g=chkGate(t); if(g.st!=='fail') return;
     const msg='A verificação do projeto falhou na sua cópia. Corrija e rode de novo antes de entregar:\n\n'+g.bad.map(b=>`### ${b.label} — \`${b.cmd}\` (${b.timedOut?'passou do tempo-limite':'exit '+b.exitCode})\n\`\`\`\n${String(b.log||'').split('\n').slice(-40).join('\n')}\n\`\`\``).join('\n\n');
     if(typeof fwSendText==='function' && await fwSendText(t.id, msg)) toast('log enviado ao agente','ok'); }); // falhou: o showErr do envio já disse
@@ -447,7 +480,7 @@ function fwRenderEntrega(t, main){
     <div class="en-grid">
       <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${esc(x)}</div>`).join('')}`:''}${rev&&rev.howToTest?`<div class="seclbl2" style="margin-top:14px">Como testar</div><div class="en-how">${esc(rev.howToTest)}</div>`:''}</section>
       <section class="en-sec">${nonCode?'':`<div class="seclbl2">Provas <span class="dim">· prints e vídeos anexados pelo agente</span></div>${proofsHtml}`}
-        <div class="seclbl2"${nonCode?'':' style="margin-top:16px"'}>${nonCode?'Arquivos entregues':'Documentos'} <span style="flex:1"></span><button class="btn sm primary" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
+        <div class="seclbl2"${nonCode?'':' style="margin-top:16px"'}>${nonCode?'Arquivos entregues':'Documentos'} <span style="flex:1"></span><button class="btn sm${(typeof fwPrimaryAction==='function'&&fwPrimaryAction(t))?'':' primary'}" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
         <div id="enGenOut"></div>${docsHtml}</section>
     </div>
     ${nonCode?'':pvSec}
@@ -555,8 +588,8 @@ async function entregaDocPdf(t, name, btn){
 // ---- modal do relatório (entrega ou período): ler · copiar · salvar .md · PDF ----
 function repShow(title, md, fileBase){
   $id('repTitle').textContent=title;
-  $id('repBody').innerHTML=`<div class="mdview" style="font-size:13.5px;line-height:1.65">${mdToHtml(md)}</div>`;
-  $id('repFoot').innerHTML=`<span class="dim" id="repMsg" style="font-size:11px"></span><span style="flex:1"></span><button class="btn sm" id="repCopy">copiar</button><button class="btn sm" id="repMd">${ic('save')}salvar .md</button><button class="btn primary sm" id="repPdf">${ic('doc')}PDF</button>`;
+  $id('repBody').innerHTML=`<div class="mdview" style="font-size:var(--fs-base);line-height:1.65">${mdToHtml(md)}</div>`;
+  $id('repFoot').innerHTML=`<span class="dim" id="repMsg" style="font-size:var(--fs-xs)"></span><span style="flex:1"></span><button class="btn sm" id="repCopy">copiar</button><button class="btn sm" id="repMd">${ic('save')}salvar .md</button><button class="btn primary sm" id="repPdf">${ic('doc')}PDF</button>`;
   const msg=v=>{ const m=$id('repMsg'); if(m) m.textContent=v; };
   bindClick('repCopy', function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; });
   bindClick('repMd', async function(){ this.disabled=true; try{ const p=await invoke('save_doc',{ name:fileBase+'.md', content:md }); msg('salvo em '+p); }catch(e){ msg(humanErr(e,'Não consegui salvar o .md').msg); } this.disabled=false; });

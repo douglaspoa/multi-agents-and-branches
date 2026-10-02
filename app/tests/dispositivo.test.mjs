@@ -106,9 +106,12 @@ test('marcação → mensagem do chat: plataforma, aparelho, instrução, área 
   assert.equal(F.dvDeviceLabel(INFO, 'android'), 'starfork-pixel');
 });
 
-test('fonte: painel DOCADO ao lado das colunas (não modal), botão no cabeçalho, script/CSS carregados, comandos registrados', () => {
+test('fonte: painel DOCADO ao lado das colunas (não modal), abre pelo ⋯ do cabeçalho, script/CSS carregados, comandos registrados', () => {
   assert.match(html, /<div class="fwrow" id="fwRow">\s*<div class="fwcols" id="fwCols">[\s\S]*?<\/div>\s*<aside class="fwdev" id="fwDev" hidden/);
-  assert.match(html, /id="fwDevBtn"[^>]*>[\s\S]*?Dispositivo<\/button>/);
+  // crítica Impeccable (02/10): o botão "Dispositivo" saiu do cabeçalho — vive no ⋯ (o "+ → Simulador" do topo também abre)
+  assert.ok(!/id="fwDevBtn"/.test(html), 'sem botão Dispositivo no cabeçalho');
+  assert.match(ws, /k:'dev', label:\(typeof dvIsOpen==='function'&&dvIsOpen\(t\.id\)\)\?'esconder o Dispositivo':'mostrar o Dispositivo ao lado'/);
+  assert.match(ws, /else if\(k==='dev'\) dvToggle\(\);/);
   assert.match(html, /<script src="js\/56-piloto\.js"><\/script>[\s\S]*<script src="js\/57-dispositivo\.js"><\/script>/);
   assert.match(html, /href="css\/91-dispositivo\.css"/);
   assert.match(css, /\.fwdev\{--dvw:360px;width:var\(--dvw\)/); assert.match(css, /\.dvresize\{[^}]*cursor:col-resize/);

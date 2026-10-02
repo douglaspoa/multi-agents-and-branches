@@ -27,7 +27,7 @@ function pcActsHtml(){
   const s=pcStartedAt?Math.max(0,Math.round((Date.now()-pcStartedAt)/1000)):0;
   const tempo=s<60?s+'s':Math.floor(s/60)+'min '+String(s%60).padStart(2,'0')+'s';
   const acts=pcActs.slice(-6).map((l,i,a)=>`<div class="${i===a.length-1?'cur':''}">${esc(l)}</div>`).join('');
-  return `<div class="dim" style="font-size:11px;margin-bottom:3px">lendo o projeto · ${tempo}${pcActs.length?' · '+nPl(pcActs.length,'ação','ações'):''}</div>`+(acts||'<div class="cur">abrindo a sessão da IA…</div>');
+  return `<div class="dim" style="font-size:var(--fs-xs);margin-bottom:3px">lendo o projeto · ${tempo}${pcActs.length?' · '+nPl(pcActs.length,'ação','ações'):''}</div>`+(acts||'<div class="cur">abrindo a sessão da IA…</div>');
 }
 function pcActsPaint(){ const el=$id('pcActs'); if(el) el.innerHTML=pcActsHtml(); }
 try{ window.__TAURI__.event.listen('project-chat-activity', ev=>{ if(!pcBusy) return; const l=String((ev&&ev.payload&&ev.payload.line)||'').trim(); if(!l) return; pcActs.push(l); if(pcActs.length>60) pcActs.shift(); pcActsPaint(); }); }catch(_){ }
@@ -200,10 +200,10 @@ async function chkCfgEditor(box, taskId, onSaved){
   const key=(taskId||'repo')+'@'+(state.repo||'');
   let d=chkDraft[key];
   if(!d){
-    box.innerHTML='<div class="dim" style="font-size:12px">lendo as checagens do projeto…</div>';
+    box.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">lendo as checagens do projeto…</div>';
     try{ const c=await invoke('checks_config',{ taskId:taskId||null });
       d=chkDraft[key]={ detected:(c&&c.detected)||[], file:(c&&c.file)||'', cfg:JSON.parse(JSON.stringify((c&&c.cfg)||{})) }; }
-    catch(e){ box.innerHTML=`<div class="dim" style="font-size:12px">${esc(humanErr(e,'Não consegui ler as checagens').msg)}</div>`; return; }
+    catch(e){ box.innerHTML=`<div class="dim" style="font-size:var(--fs-sm)">${esc(humanErr(e,'Não consegui ler as checagens').msg)}</div>`; return; }
   }
   const cfg=d.cfg; cfg.enabled=cfg.enabled||{}; cfg.custom=Array.isArray(cfg.custom)?cfg.custom:[];
   const paint=()=>{
@@ -290,15 +290,15 @@ function renderDaily(){
   const totCommits=Object.values(dailyCommits).reduce((s,c)=>s+c.length,0);
   const merged=dailyData.filter(t=>['merged','done'].includes(t.status)).length, rev=dailyData.filter(t=>['review','delivered'].includes(t.status)).length;
   const kpis=[[dailyData.length,dailyData.length===1?'tarefa tocada':'tarefas tocadas',''],[totCommits,totCommits===1?'commit':'commits',''],[rev+merged,'prontas ou mergeadas','var(--accent)'],[fmtUsd(totUsd),'custo do dia','']];
-  const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 28px/1 var(--display);color:${k[2]||'var(--text)'}">${k[0]}</div><div style="margin-top:8px;font:500 10px var(--code);letter-spacing:.12em;color:var(--text-3)">${esc(k[1])}</div></div>`).join('')}</div>`;
+  const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 var(--fs-xl)/1 var(--display);color:${k[2]||'var(--text)'}">${k[0]}</div><div style="margin-top:8px;font:500 var(--fs-xs) var(--code);letter-spacing:.12em;color:var(--text-3)">${esc(k[1])}</div></div>`).join('')}</div>`;
   const cards=dailyData.map(t=>{
     const cs=dailyCommits[t.id]||[];
-    const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 12.5px/1.45 var(--code);min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:rgba(234,242,238,.62);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 12px var(--display);color:var(--text-3)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:12px">sem commits</div>';
-    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 12px/1.45 var(--display);color:rgba(234,242,238,.5)"><span aria-hidden="true" style="color:var(--text-3)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:12px">—</div>';
+    const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 var(--fs-sm)/1.45 var(--code);min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:rgba(234,242,238,.62);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 var(--fs-sm) var(--display);color:var(--text-3)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:var(--fs-sm)">sem commits</div>';
+    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 var(--fs-sm)/1.45 var(--display);color:rgba(234,242,238,.5)"><span aria-hidden="true" style="color:var(--text-3)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:var(--fs-sm)">—</div>';
     return `<div class="as-card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
-        <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 11.5px var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>
-        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 12px var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtCost(t.usd):''}</span></div>
+        <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 var(--fs-xs) var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>
+        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 var(--fs-sm) var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtCost(t.usd):''}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
         <div style="padding:14px 18px;border-right:1px solid rgba(255,255,255,.06)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>
@@ -348,7 +348,7 @@ async function dailyAISummary(){
   try{
     const md=await invoke('ai_daily',{ text: facts });
     if(gen!==dailyGen) return; // trocou a data no meio: o resumo é do dia anterior — descarta
-    dailyOut(`<div class="prbox" style="margin:6px 0 12px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="dailyCopy">copiar pra daily</button></div></div>`);
+    dailyOut(`<div class="prbox" style="margin:6px 0 12px"><div class="mdview" style="font-size:var(--fs-base)">${mdToHtml(md)}</div><div class="prrow" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="dailyCopy">copiar pra daily</button></div></div>`);
     $id('dailyCopy').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
   }catch(e){ if(gen===dailyGen) showErr(e, 'Não consegui escrever o resumo'); }
   finally{ dailyBusy.ai=false; dailyBtnsPaint(); }
@@ -372,14 +372,14 @@ function dailyReportFacts(){
 function dailyPdfHtml(md, date){
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     @page{margin:2cm}
-    body{font:14px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;color:#1b1f23}
+    body{font:var(--fs-md)/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;color:#1b1f23}
     h1{font-size:23px;border-bottom:2px solid #16a34a;padding-bottom:8px;margin:0 0 6px}
     h2{font-size:16px;color:#0f172a;margin:22px 0 6px;border-left:3px solid #16a34a;padding-left:9px}
-    h3{font-size:14px;margin:14px 0 4px}
-    code{background:#f1f3f5;padding:1px 5px;border-radius:4px;font:12.5px ui-monospace,Menlo,monospace}
+    h3{font-size:var(--fs-md);margin:14px 0 4px}
+    code{background:#f1f3f5;padding:1px 5px;border-radius:4px;font:var(--fs-sm) ui-monospace,Menlo,monospace}
     pre{background:#f6f8fa;padding:12px 14px;border-radius:8px;overflow:auto} pre code{background:none;padding:0}
     strong{color:#0f172a} ul{margin:6px 0;padding-left:22px} li{margin:3px 0} a{color:#16a34a}
-    .foot{margin-top:34px;padding-top:10px;border-top:1px solid #e5e7eb;color:#94a3b8;font-size:11px}
+    .foot{margin-top:34px;padding-top:10px;border-top:1px solid #e5e7eb;color:#94a3b8;font-size:var(--fs-xs)}
   </style></head><body>${mdToHtml(md)}<div class="foot">Gerado pelo Starfork · ${esc(date||'')}</div></body></html>`;
 }
 function dailyOut(html){ const el=$id('dailyAIOut'); if(el) el.innerHTML=html; }
@@ -389,12 +389,12 @@ async function dailyGenDoc(){
   if(dailyBusy.doc) return;
   dailyBusy.doc=true; dailyBtnsPaint();
   const iso=dailyIso, gen=dailyGen; // a data DOS DADOS (não a do seletor, que pode ter mudado sem carregar)
-  dailyOut('<div class="prbox" style="margin:6px 0 14px;display:flex;align-items:center;gap:10px"><span class="pubspin"></span><span class="dim" style="font-size:12.5px">a IA está redigindo o relatório técnico do dia (o quê · por quê · arquitetura · como validar)… pode levar até 1 min</span></div>');
+  dailyOut('<div class="prbox" style="margin:6px 0 14px;display:flex;align-items:center;gap:10px"><span class="pubspin"></span><span class="dim" style="font-size:var(--fs-sm)">a IA está redigindo o relatório técnico do dia (o quê · por quê · arquitetura · como validar)… pode levar até 1 min</span></div>');
   try{
     const md=await invoke('ai_daily_report',{ text: dailyReportFacts(), date: iso });
     if(gen!==dailyGen) return; // o dia mudou durante a escrita: não salva/mostra relatório com a data errada
     lastDailyMd=md; lastDailyDate=iso;
-    dailyOut(`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:13px">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">${ic('save')}salvar .md</button><button class="btn primary sm" id="dailyPdf">${ic('doc')}gerar PDF</button><span class="grow" style="flex:1"></span></div><div class="dim" id="dailyDocMsg" style="font-size:11px;margin-top:6px"></div></div>`);
+    dailyOut(`<div class="prbox" style="margin:6px 0 14px"><div class="mdview" style="font-size:var(--fs-base)">${mdToHtml(md)}</div><div class="prrow" style="margin-top:10px;gap:8px;display:flex"><button class="btn sm" id="dailyCopy2">copiar</button><button class="btn sm" id="dailySaveMd">${ic('save')}salvar .md</button><button class="btn primary sm" id="dailyPdf">${ic('doc')}gerar PDF</button><span class="grow" style="flex:1"></span></div><div class="dim" id="dailyDocMsg" style="font-size:var(--fs-xs);margin-top:6px"></div></div>`);
     $id('dailyCopy2').onclick=function(){ navigator.clipboard.writeText(md); this.textContent='copiado ✓'; };
     $id('dailySaveMd').onclick=async function(){ this.disabled=true; try{ const p=await invoke('save_doc',{ name:`relatorio-${iso}.md`, content:md }); this.textContent='salvo ✓'; const m=$id('dailyDocMsg'); if(m) m.textContent='DOC salvo em '+p; }catch(e){ const m=$id('dailyDocMsg'); if(m) m.textContent=humanErr(e,'Não consegui salvar o .md').msg; this.disabled=false; } };
     $id('dailyPdf').onclick=dailyGenPdf;
@@ -420,14 +420,35 @@ function openDaily(){
 $id('dailyBtn').onclick=openDaily;
 // barra lateral colapsável (⌘B) — o overlay de tarefa lê --rail-w e reflui sozinho
 function railIsCol(){ return document.querySelector('.app').classList.contains('railcol'); }
-function setRailCollapsed(v){
+function railPaint(v){
   document.querySelector('.app').classList.toggle('railcol', !!v);
   // aberta: tira o valor inline e deixa o CSS decidir (83-responsivo estreita a barra em janela pequena)
   if(v) document.documentElement.style.setProperty('--rail-w','0px'); else document.documentElement.style.removeProperty('--rail-w');
-  lsSet('railCollapsed', v?'1':'0');
   const b=$id('railToggle'); if(b) b.setAttribute('aria-pressed', v?'true':'false');
   requestAnimationFrame(syncChromeH); setTimeout(syncChromeH, 320); // o topo muda de altura ao recolher (com transição) — a view-aba desce junto
 }
+// JANELA ESTREITA (crítica Impeccable P2): abaixo de ~760 px — ou com menos de ~600 px pro conteúdo — a barra
+// lateral recolhe SOZINHA (o mesmo modo recolhido do ⌘B), sem gravar a escolha: alargou, volta como você deixou.
+// Recolhida automática, o botão de expandir abre só desta vez (não grava). ResizeObserver (sem laço, sem polling).
+// @rail-auto-inicio (testado em app/tests/critica-impeccable.test.mjs)
+const RAIL_AUTO_WIN=760, RAIL_AUTO_CONTENT=600;
+function railAutoNarrow(winW){ const railW=winW<1100?220:250; return winW<RAIL_AUTO_WIN || (winW-railW)<RAIL_AUTO_CONTENT; }
+// @rail-auto-fim
+const RAIL_AUTO={ on:false, open:false };
+function setRailCollapsed(v){
+  if(RAIL_AUTO.on){ RAIL_AUTO.open=!v; railPaint(!!v); return; } // estreita: não mexe na preferência salva
+  lsSet('railCollapsed', v?'1':'0'); railPaint(!!v);
+}
+function railAutoFit(){
+  const narrow=railAutoNarrow(window.innerWidth);
+  if(narrow===RAIL_AUTO.on) return;
+  RAIL_AUTO.on=narrow; RAIL_AUTO.open=false;
+  railPaint(narrow || lsGet('railCollapsed')==='1');
+}
 $id('railToggle').onclick=()=>setRailCollapsed(!railIsCol());
 { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); } // botão de expandir (aparece só recolhido)
-setRailCollapsed(lsGet('railCollapsed')==='1');
+railPaint(lsGet('railCollapsed')==='1');
+if(!(typeof SF_PANE!=='undefined' && SF_PANE)){
+  railAutoFit();
+  if(typeof ResizeObserver==='function') new ResizeObserver(()=>requestAnimationFrame(railAutoFit)).observe(document.documentElement);
+}

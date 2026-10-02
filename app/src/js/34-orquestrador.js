@@ -310,19 +310,19 @@ function orqRenderPlan(body){
     </div>`; }).join('');
   const o=pos.__orq; const par=p.phases.filter(x=>!(x.dependsOn||[]).length).length;
   const orqNode=`<div class="orq-node orq-master${orq.sel==='__orq'?' sel':''}" data-orqsel="__orq" style="left:${o.x}px;top:${o.y}px;width:${o.w}px;height:${o.h}px">
-      <div class="orq-nh"><i class="orq-ring"></i><span class="orq-nn">Orquestrador</span></div><div class="mono" style="font-size:10px;color:var(--accent);margin:-4px 0 6px 24px">${running?'comandando':'propôs o plano'}</div>
-      <div class="orq-nd">${esc(p.summary||'')}</div><div class="mono dim" style="font-size:10px;margin-top:8px">${p.phases.length} subagentes · ${par} podem rodar juntos</div></div>`;
+      <div class="orq-nh"><i class="orq-ring"></i><span class="orq-nn">Orquestrador</span></div><div class="mono" style="font-size:var(--fs-xs);color:var(--accent);margin:-4px 0 6px 24px">${running?'comandando':'propôs o plano'}</div>
+      <div class="orq-nd">${esc(p.summary||'')}</div><div class="mono dim" style="font-size:var(--fs-xs);margin-top:8px">${p.phases.length} subagentes · ${par} podem rodar juntos</div></div>`;
   const nObj=p.phases.reduce((a,x)=>a+(x.objectives||[]).length,0);
   const stKeys=p.phases.map(x=>orqPhaseState(x).key);
   const runN=stKeys.filter(k=>k==='running'||k==='queued').length, doneN=stKeys.filter(k=>k==='done').length, askN=stKeys.filter(k=>k==='asking').length, revN=stKeys.filter(k=>k==='review').length, errN=stKeys.filter(k=>k==='error').length;
   const footTx=[runN?`<span style="color:${ORQ_ST.running}">${runN} rodando</span>`:'', askN?`<span style="color:${ORQ_ST.asking}">${askN} esperando sua resposta</span>`:'', revN?`<span style="color:${ORQ_ST.review}">${revN} pra revisar</span>`:'', errN?`<span style="color:${ORQ_ST.error}">${errN} com erro</span>`:'', `<span style="color:${ORQ_ST.done}">${doneN}/${p.phases.length} prontas</span>`].filter(Boolean).join(' <span class="dim">·</span> ');
   const otherRepo=p.repo&&state.repo&&p.repo!==state.repo;
-  const html=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${otherRepo?`<span class="mono" style="font-size:11px;color:var(--warn);margin-right:12px" title="${escA(p.repo)}">plano do projeto ${esc(pathBase(p.repo))}</span>`:''}${orqStatusPill()}</div>
+  const html=`<div class="orq-top">${orqSeg('orq')}<span style="flex:1"></span>${otherRepo?`<span class="mono" style="font-size:var(--fs-xs);color:var(--warn);margin-right:12px" title="${escA(p.repo)}">plano do projeto ${esc(pathBase(p.repo))}</span>`:''}${orqStatusPill()}</div>
   <div class="orq-main">
     <div class="orq-canvaswrap">
       <div class="orq-tools"><button class="as-btn" id="orqAdd">+ subagente</button>
         <span class="orq-leg"><i style="background:${ORQ_ST.running}"></i>rodando <i style="background:${ORQ_ST.asking}"></i>perguntou · responda <i style="background:${ORQ_ST.review}"></i>entregou · revise <i style="background:${ORQ_ST.done}"></i>pronto <i style="background:${ORQ_ST.error}"></i>erro <i style="background:rgba(255,255,255,.35)"></i>esperando</span>
-        <span style="flex:1"></span><span class="mono dim" style="font-size:11px">arraste o fundo</span>
+        <span style="flex:1"></span><span class="mono dim" style="font-size:var(--fs-xs)">arraste o fundo</span>
         <span class="orq-zoom"><button data-orqz="-">−</button><button data-orqz="fit">ajustado</button><button data-orqz="+">+</button></span></div>
       <div class="orq-canvas" id="orqCanvas">
         <div class="orq-world" id="orqWorld" style="transform:translate(${orq.pan.x}px,${orq.pan.y}px) scale(${orq.zoom})"><svg class="orq-svg" width="${pos.__size.w}" height="${pos.__size.h}">${edges}</svg>${orqNode}${nodes}</div></div>
@@ -454,7 +454,7 @@ async function orqChatSend(){
   if(orq===o){ orqRender(); const ta=$id('orqChatTa'); if(ta) ta.focus(); }
 }
 function orqInspHtml(){
-  const p=orq.plan; if(orq.sel==='__orq'||!orq.sel) return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">◉</span><div><b>Orquestrador</b><div class="mono dim" style="font-size:10.5px">${p.status==='planned'?'propôs o plano':'comandando'}${p.model?` · <span title="${escA(p.model)}">${esc(boardModelName(p.model)||p.model)}</span>`:''}</div></div></div>
+  const p=orq.plan; if(orq.sel==='__orq'||!orq.sel) return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">◉</span><div><b>Orquestrador</b><div class="mono dim" style="font-size:var(--fs-xs)">${p.status==='planned'?'propôs o plano':'comandando'}${p.model?` · <span title="${escA(p.model)}">${esc(boardModelName(p.model)||p.model)}</span>`:''}</div></div></div>
     <p class="orq-p">${esc(p.summary||'')}</p>
     <details class="orq-more"${orq.moreOpen?' open':''}><summary>regras · briefing</summary>
       <div class="ndeyebrow">regras</div><ul class="orq-rules"><li>Nunca mexe em código — planeja, abre tarefa, coordena e para pra perguntar.</li><li>Nada roda sem a sua aprovação do plano.</li><li>Uma fase só começa quando as anteriores PROVAREM o resultado (requisitos com evidência).</li><li>Fases sem dependência rodam em paralelo, cada uma numa cópia isolada do projeto.</li></ul>
@@ -489,7 +489,7 @@ function orqInspHtml(){
 }
 function orqAddHtml(){
   const p=orq.plan;
-  return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">+</span><div><b>Novo subagente</b><div class="mono dim" style="font-size:10.5px">entra no grafo já na coluna certa</div></div></div>
+  return `<div class="orq-ih"><span class="orq-badge" style="--c:var(--accent)">+</span><div><b>Novo subagente</b><div class="mono dim" style="font-size:var(--fs-xs)">entra no grafo já na coluna certa</div></div></div>
     <div class="ndeyebrow">nome da fase</div><input class="orq-namein" id="orqAddName" placeholder="ex.: Escrever testes de carga">
     <div class="ndeyebrow" style="margin-top:12px">o que ela entrega</div><textarea class="orq-objta" id="orqAddObj" placeholder="1-2 frases"></textarea>
     <div class="ndeyebrow" style="margin-top:12px">tipo / agente</div><div class="orq-kindrow" id="orqAddKinds">${Object.entries(ORQ_KINDS).map(([k,v])=>`<button class="orq-kind${k==='build'?' on':''}" data-k="${k}" style="--c:${v.color}">${v.label}</button>`).join('')}</div>
@@ -653,8 +653,8 @@ function orqTaskChips(t){
   const waits=(state.tasks||[]).filter(x=>(x.dependsOn||[]).includes(t.id));
   el.style.display='flex';
   el.innerHTML=`<button class="btn sm orq-chipbtn" data-orqgraph="${escA(o.id)}" title="ver o grafo do plano">◉ ${esc(o.title||'orquestrador')} · ${esc(o.phase||'')}</button>`
-    +(deps.length?`<span class="mono dim" style="font-size:10.5px">depende de</span>${deps.map(d=>`<button class="btn sm orq-chipbtn" data-orqt="${escA(d.id)}" title="${escA(d.title)}">${esc(d.title.slice(0,22))} ${orqProved(d)?'✓':'…'}</button>`).join('')}`:'')
-    +(waits.length?`<span class="mono dim" style="font-size:10.5px">esperam por ela</span>${waits.map(d=>`<button class="btn sm orq-chipbtn" data-orqt="${escA(d.id)}" title="${escA(d.title)}">${esc(d.title.slice(0,22))}</button>`).join('')}`:'');
+    +(deps.length?`<span class="mono dim" style="font-size:var(--fs-xs)">depende de</span>${deps.map(d=>`<button class="btn sm orq-chipbtn" data-orqt="${escA(d.id)}" title="${escA(d.title)}">${esc(d.title.slice(0,22))} ${orqProved(d)?'✓':'…'}</button>`).join('')}`:'')
+    +(waits.length?`<span class="mono dim" style="font-size:var(--fs-xs)">esperam por ela</span>${waits.map(d=>`<button class="btn sm orq-chipbtn" data-orqt="${escA(d.id)}" title="${escA(d.title)}">${esc(d.title.slice(0,22))}</button>`).join('')}`:'');
   el.querySelectorAll('[data-orqt]').forEach(b=>b.onclick=()=>openWorkspace(b.dataset.orqt));
   el.querySelectorAll('[data-orqgraph]').forEach(b=>b.onclick=async()=>{ if(!orq.list) await orqLoadList(); const p=(orq.list||[]).find(x=>x.id===b.dataset.orqgraph); if(p){ orq.plan=p; orq.step='plan'; orq.sel=(p.phases.find(x=>x.taskId===t.id)||{}).key||'__orq'; } if(window.openTab) window.openTab('orq'); });
 }

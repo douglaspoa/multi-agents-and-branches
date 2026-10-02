@@ -386,7 +386,7 @@ async function renderCloud(){
     ${seatsFull?`<div class="imhint" style="border-left:2px solid var(--warn)">${IC.warn} Todos os <b>${d.org.seats} assentos</b> em uso — convites novos serão recusados até liberar assento ou ampliar o plano.</div>`:''}
     <div class="imhint">Plano <b>${esc(d.org.plan)}</b> · ${seatsUsed}/${d.org.seats} assentos · seu papel na org: <b>${esc(d.meRole)}</b>${isAdmin?' — você vê e administra todos os times':''}</div>
     <div class="seclbl2" style="margin-top:16px">Times da organização <span class="n">${d.teams.length}</span><span style="flex:1"></span>${isAdmin?'<button class="btn sm" id="sbTeamAdd">+ novo time</button>':''}</div>
-    ${teamsHtml||'<div class="dim" style="font-size:12px">nenhum time ainda</div>'}
+    ${teamsHtml||'<div class="dim" style="font-size:var(--fs-sm)">nenhum time ainda</div>'}
     ${(isAdmin||meLead)?`
     <div class="seclbl2" style="margin-top:18px">Convidar gente nova <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pra quem ainda não tem conta — quem já tem, use "+ adicionar ao time"</span></div>
     <div style="display:flex;gap:8px;margin-top:6px"><input class="in" id="sbInvEmail" aria-label="e-mail do convidado" placeholder="email@empresa.com" style="flex:1"><select class="sel" id="sbInvTeam" aria-label="time do convite" style="width:150px">${invTeams.map(t=>`<option value="${escA(t.id)}"${t.id===teamId?' selected':''}>${esc(t.name)}</option>`).join('')}</select><select class="sel" id="sbInvRole" aria-label="papel do convidado" style="width:100px"><option value="member">membro</option><option value="lead">lead</option></select><button class="btn primary sm" id="sbInvite">gerar convite</button></div>
@@ -395,11 +395,11 @@ async function renderCloud(){
     ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Membros da organização <span class="n">${seatsUsed}</span></div>
     <div class="mlist tm2">${(d.orgMembers||[]).map(om=>`<div class="mrow"><span class="mav" style="background:${agentColor(pName(om.user_id))}">${esc(pName(om.user_id).slice(0,2).toUpperCase())}</span><span class="mnm">${esc(pName(om.user_id))}${om.user_id===cloudUserId()?' <span class="mme">você</span>':''}</span><span class="mrole${om.role==='owner'||om.role==='admin'?' lead':''}">${esc(om.role)}</span>${(om.role!=='owner'&&om.user_id!==cloudUserId())?`<span class="macts"><button class="btn sm ghost" data-orgrm="${escA(om.user_id)}" title="remove da organização e de todos os times — libera o assento">remover da org</button></span>`:''}</div>`).join('')}</div>`:''}
     <div class="seclbl2" style="margin-top:18px">Agentes &amp; equipes da organização</div>
-    <div id="sbCat" class="dim" style="font-size:12px;padding:4px 2px">${skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando o catálogo' })}</div>
+    <div id="sbCat" class="dim" style="font-size:var(--fs-sm);padding:4px 2px">${skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando o catálogo' })}</div>
     <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" id="sbCatPull" title="copia os agentes e equipes da organização pras configurações do projeto aberto">aplicar neste projeto</button>${isAdmin?`<button class="btn sm" id="sbCatPush" title="publica os agentes/workflows do projeto aberto pra org inteira">enviar os deste projeto</button>`:''}</div>
-    ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:12px;padding:4px 2px">${skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando a visão da organização' })}</div>`:''}
-    ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:11px;flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
-    <div style="display:flex;margin-top:22px;align-items:center;gap:8px"><span class="dim" style="font-size:11px">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbPassChange" title="define uma senha nova pra sua conta">trocar senha</button><button class="btn sm" id="sbLogout">sair</button></div>
+    ${isAdmin?`<div class="seclbl2" style="margin-top:18px">Visão da organização</div><div id="sbOrgView" class="dim" style="font-size:var(--fs-sm);padding:4px 2px">${skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando a visão da organização' })}</div>`:''}
+    ${d.meRole==='owner'?`<div class="seclbl2" style="margin-top:18px">Licença</div><div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span class="mono dim" style="font-size:var(--fs-xs);flex:1;word-break:break-all">${esc(d.org.license_key||'sem chave — plano de avaliação')}</span><button class="btn sm" id="sbLicSet">definir chave</button></div>`:''}
+    <div style="display:flex;margin-top:22px;align-items:center;gap:8px"><span class="dim" style="font-size:var(--fs-xs)">${esc((SB.sess().user||{}).email||'')}</span><span style="flex:1"></span><button class="btn sm" id="sbPassChange" title="define uma senha nova pra sua conta">trocar senha</button><button class="btn sm" id="sbLogout">sair</button></div>
     <div class="imhint" style="margin-top:12px">O backlog compartilhado fica na aba <b>Time</b> da tela principal — crie tarefas com “Compartilhar com o time”.</div>`;
   bindClick('sbTeamAdd', async()=>{ const n=await askText('Novo time','ex.: Data'); if(!n) return; cloudMsg=''; try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:cloudUserId(), role:'lead' }); lsSet('sb:team',rows[0].id); cloudData=null; cloudMsg='✓ time criado'; }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui criar o time'); } renderCloud(); });
   // ações nos times: usar / promover-rebaixar / remover / adicionar membro
@@ -462,7 +462,7 @@ async function renderCloud(){
       finally{ b.disabled=false; }
     }; }
   if(cloudInvLast){ const { mail, msg }=cloudInvLast; cloudInvLast=null; const o=$id('sbInvOut');
-    if(o){ o.innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:11px">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
+    if(o){ o.innerHTML=`<div class="imhint" style="margin-top:10px;border-left:2px solid var(--good)">✓ convite gerado pra <b>${esc(mail)}</b> — o token <b>só funciona logado com esse e-mail</b>. Mande a mensagem pronta:<div class="mono" style="margin-top:6px;user-select:all;word-break:break-all;white-space:pre-wrap;font-size:var(--fs-xs)">${esc(msg)}</div><button class="btn sm" id="sbInvCopy" style="margin-top:8px">copiar mensagem</button></div>`;
       $id('sbInvCopy').onclick=function(){ cloudCopy(msg, this); }; } }
   $id('sbLogout').onclick=()=>sbLogout();
   bindClick('sbPassChange', ()=>auShow('newpass', { backTo: ()=>{ if(window.openTab) window.openTab('conta'); } }));
@@ -470,7 +470,7 @@ async function renderCloud(){
   if(isAdmin){
     cloudOrgView().then(rows=>{
       const el=$id('sbOrgView'); if(!el) return;
-      el.innerHTML = rows.length ? `<div class="costlist">`+rows.map(r=>`<div class="costrow"><span class="cnm">${esc(r.name)}</span><span class="dim" style="font-size:11px">${r.n} tarefas · ${r.run} em andamento · ${r.done} entregues</span><span class="cusd">${fmtUsd(r.usd)}</span></div>`).join('')+`</div>` : 'nenhum time ainda';
+      el.innerHTML = rows.length ? `<div class="costlist">`+rows.map(r=>`<div class="costrow"><span class="cnm">${esc(r.name)}</span><span class="dim" style="font-size:var(--fs-xs)">${r.n} tarefas · ${r.run} em andamento · ${r.done} entregues</span><span class="cusd">${fmtUsd(r.usd)}</span></div>`).join('')+`</div>` : 'nenhum time ainda';
     }).catch(e=>{ const el=$id('sbOrgView'); if(el) el.textContent=cloudErrMsg(e,'Não consegui carregar a organização'); });
   }
   { const b=$id('sbLicSet'); if(b) b.onclick=async()=>{
@@ -492,7 +492,7 @@ function orgDefaultsRenderCloud(isAdmin){
   const body=$id('cloudBody'); if(!body||!SB.sess()) return;
   const el=document.createElement('div');
   el.innerHTML=`<div class="seclbl2" style="margin-top:16px">Padrões de demanda</div>
-    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px">
+    <div style="display:flex;align-items:center;gap:10px;font-size:var(--fs-sm)">
       <span style="flex:1" class="dim">guia de spec + política valem pra org inteira; cada repo pode refinar na própria pasta de trabalho do Starfork</span>
       ${isAdmin?'<button class="btn sm" id="sbOrgTpl">editar padrões</button>':''}
     </div>`;

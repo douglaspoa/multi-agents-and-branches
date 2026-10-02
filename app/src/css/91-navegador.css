@@ -4,12 +4,12 @@
 .fwcols.m-previa.notree{grid-template-columns:1fr 348px}
 .nvwrap{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
 .nvbar{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--surface);flex:none;min-width:0}
-.nvbar .nvic{padding:3px 7px;min-width:26px;justify-content:center;font-size:14px;line-height:1}
+.nvbar .nvic{padding:3px 7px;min-width:26px;justify-content:center;font-size:var(--fs-md);line-height:1}
 .nvbar .nvic svg{width:14px;height:14px}
 .nvaddr{flex:1;min-width:120px;display:flex}
-.nvaddr .in{flex:1;min-width:0;height:28px;padding:3px 10px;font-size:12px;border-radius:var(--r-pill)}
+.nvaddr .in{flex:1;min-width:0;height:28px;padding:3px 10px;font-size:var(--fs-sm);border-radius:var(--r-pill)}
 .nvvp{display:inline-flex;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden;flex:none}
-.nvvp button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:4px 8px;cursor:pointer}
+.nvvp button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:var(--fs-xs);padding:4px 8px;cursor:pointer}
 .nvvp button+button{border-left:1px solid var(--border)}
 .nvvp button.on{background:var(--accent-soft);color:var(--text)}
 .nvpick.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
@@ -17,27 +17,27 @@
 .nvframewrap{position:relative;height:100%;max-width:100%;background:#fff;box-shadow:var(--shadow-sm);flex:none}
 .nvframe{display:block;width:100%;height:100%;border:0;background:#fff}
 .nvmsg{position:absolute;inset:0;display:none;background:var(--surface-2)}
-.nvempty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5}
-.nvempty b{color:var(--text);font-size:14px}
+.nvempty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;color:var(--muted);font-size:var(--fs-base);line-height:1.5}
+.nvempty b{color:var(--text);font-size:var(--fs-md)}
 .nvempty span{max-width:440px}
 .nvpanel{flex:none;border-top:1px solid var(--border);background:var(--surface);padding:8px 10px;display:flex;flex-direction:column;gap:8px;max-height:44%;overflow:auto}
 .nvpicks{display:flex;flex-direction:column;gap:5px}
-.nvhint{font-size:12px;color:var(--muted)}
+.nvhint{font-size:var(--fs-sm);color:var(--muted)}
 .nvpk{display:flex;align-items:center;gap:8px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);min-width:0}
-.nvpk-n{flex:none;width:18px;height:18px;border-radius:5px;background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:700;display:grid;place-items:center}
+.nvpk-n{flex:none;width:18px;height:18px;border-radius:5px;background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);font-weight:700;display:grid;place-items:center}
 .nvth{flex:none;width:56px;height:34px;border-radius:4px;overflow:hidden;background:var(--surface-3);display:grid;place-items:center}
 .nvth img{max-width:100%;max-height:100%;object-fit:contain}
-.nvth-st{font-size:10px;color:var(--muted)}
+.nvth-st{font-size:var(--fs-xs);color:var(--muted)}
 .nvpk-t{flex:1;min-width:0;display:flex;flex-direction:column}
-.nvpk-t code{font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nvpk-tx{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nvpk-t code{font-family:var(--mono);font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nvpk-tx{font-size:var(--fs-xs);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nvpk-x{flex:none;border:0;background:transparent;color:var(--muted);cursor:pointer;padding:2px;width:22px;height:22px}
 .nvpk-x:hover{color:var(--text)}
 .nvpk-x svg{width:12px;height:12px}
 .nvsend{display:flex;gap:8px;align-items:flex-end}
-.nvsend .in{flex:1;min-width:0;resize:vertical;font-size:12.5px}
+.nvsend .in{flex:1;min-width:0;resize:vertical;font-size:var(--fs-sm)}
 /* bolha do chat: o bloco estruturado vira um resumo */
-.nvsum{margin-top:6px;font-size:11.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-.nvsum code{font-family:var(--mono);font-size:10.5px;background:var(--surface-3);padding:1px 5px;border-radius:4px}
+.nvsum{margin-top:6px;font-size:var(--fs-xs);color:var(--muted);display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.nvsum code{font-family:var(--mono);font-size:var(--fs-xs);background:var(--surface-3);padding:1px 5px;border-radius:4px}
 .nvsum-ic{color:var(--accent);font-weight:700}
 @media (max-width:1100px){ .fwcols.m-previa,.fwcols.m-previa.notree{grid-template-columns:1fr 300px} .nvvp button{padding:4px 6px} }

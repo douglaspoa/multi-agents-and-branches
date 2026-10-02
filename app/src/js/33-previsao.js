@@ -162,7 +162,7 @@ function estChipInner(t, e){
   const names=[...new Set([...(e.roles||[]).map(r=>r.role), ...Object.keys(byRole)])];
   const tip=['previsto × real'].concat(names.map(n=>{ const p=(e.roles||[]).find(r=>r.role===n)||{ tok:0, usd:0, min:0 }; const r=byRole[n]||{ tok:0, usd:0, ms:0 };
     return `${n}: ${estFmtTok(p.tok)} tok ${estMoney(p.usd)} ${estFmtMin(p.min)} min × ${estFmtTok(r.tok)} tok ${estMoney(r.usd)} ${estFmtMin(r.ms/60000)} min`; })).join('\n');
-  return `<span class="mono dim" style="font-size:11px" title="${escA(tip)}">prev ${estFmtMin(e.total.minLo)}–${estFmtMin(e.total.minHi)} min · ~${estFmtTok(e.total.tok||0)} tok · ${real}</span>`;
+  return `<span class="mono dim" style="font-size:var(--fs-xs)" title="${escA(tip)}">prev ${estFmtMin(e.total.minLo)}–${estFmtMin(e.total.minHi)} min · ~${estFmtTok(e.total.tok||0)} tok · ${real}</span>`;
 }
 function estChipHtml(t){
   if(!t) return '';

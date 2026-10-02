@@ -97,7 +97,7 @@
 
 /* Configurações: o "salvar" fica SEMPRE à vista (barra fixa no rodapé da tela) — antes era preciso rolar até o fim */
 .cfgsavebar{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:10px;margin:20px calc(-1 * var(--page-pad, 34px)) 0;padding:12px var(--page-pad, 34px);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-top:1px solid var(--border)}
-.cfgsavebar .dim{font-size:11.5px}
+.cfgsavebar .dim{font-size:var(--fs-xs)}
 #cfgOverlay #cfgBody{padding-bottom:0} /* a área rolável tinha 44px de padding embaixo: a barra fixa parava 44px antes do fim da janela */
 /* R8: faixa do preview (subir de novo / pedir pro agente) quebra linha no estreito */
 @media (max-width:1100px){ .en-live{flex-wrap:wrap} .en-live>span[style*="flex:1"]{display:none} }
@@ -106,7 +106,7 @@
    barra lateral: 250px em janela larga, 220px até 1100px (a coluna principal ganha 30px onde mais falta).
    O JS só põe --rail-w inline quando RECOLHE (0px); aberta, vale este valor. */
 :root{--rail-w:250px}
-@media (max-width:1100px){ :root{--rail-w:220px} .sbnew .sbitem{font-size:12.5px} }
+@media (max-width:1100px){ :root{--rail-w:220px} .sbnew .sbitem{font-size:var(--fs-sm)} }
 /* rodapé "Agora": o relógio não quebra em 2 linhas ("sincronizado ·" / "23:15:03"); o resumo cede com … */
 .bus{min-width:0}
 .bus #clock{white-space:nowrap;flex:none}

@@ -197,7 +197,7 @@ function refIcon(name){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(name||'')?
 // lista de anexos genérica: prints/PDFs/docs em qualquer modo da Nova tarefa
 function renderRefsInto(elId, arr, emptyMsg){
   const el=$id(elId); if(!el) return;
-  el.innerHTML = arr.length ? arr.map((p,i)=>{ const name=pathBase(p); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">${IC.x}</button></div>`; }).join('') : `<div class="dim" style="font-size:12px;padding:2px">${emptyMsg}</div>`;
+  el.innerHTML = arr.length ? arr.map((p,i)=>{ const name=pathBase(p); return `<div class="refchip"><span class="refic">${refIcon(name)}</span><span class="refnm mono">${esc(name)}</span><button class="refrm" data-r="${i}" title="remover">${IC.x}</button></div>`; }).join('') : `<div class="dim" style="font-size:var(--fs-sm);padding:2px">${emptyMsg}</div>`;
   el.querySelectorAll('.refrm').forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.r,1); renderRefsInto(elId, arr, emptyMsg); });
 }
 function renderNtRefs(){ renderRefsInto('ntRefs', ntRefs, 'nenhum — anexe specs, PDFs ou um print do bug'); }

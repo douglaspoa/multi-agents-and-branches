@@ -215,11 +215,11 @@ function renderFlowFilters(){
   const tabsHtml=`<div class="ftabs">`+
     TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}"${k==='team'&&nTeamQ?` title="${escA(nPl(nTeamQ,'tarefa','tarefas')+' do time na fila (de outras pessoas ou de projetos que você não tem aqui) — assuma lá pra trazer pra sua Execução')}"`:''}>${l}${k==='team'&&nTeamQ?`<span class="n">${nTeamQ}</span>`:''}</button>`).join('')+
     `<span class="grow"></span>`+resetBtn+
-    `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados" aria-label="filtros avançados" aria-expanded="${ffAdvOpen?'true':'false'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
     `<span class="fvsep"></span>`+
-    `<button class="fvic${flowView==='list'?' on':''}" data-fv="list" title="Fluxo em lista"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
-    `<button class="fvic${flowView==='grid'?' on':''}" data-fv="grid" title="Fluxo em grade"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button>`+
-    `<button class="fvic" data-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
+    `<button class="fvic${flowView==='list'?' on':''}" data-fv="list" title="Fluxo em lista" aria-label="ver em lista" aria-pressed="${flowView==='list'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic${flowView==='grid'?' on':''}" data-fv="grid" title="Fluxo em grade" aria-label="ver em grade" aria-pressed="${flowView==='grid'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button>`+
+    `<button class="fvic" data-view="kanban" title="Kanban" aria-label="ver no Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
     `</div>`;
   // PROJETO e ÉPICO viram dois selects compactos (antes eram 2 linhas de chips acima dos chips de status).
   // Mesmas chaves persistidas (projFilter / flowEpic).
@@ -331,8 +331,8 @@ function renderNavTabs(v){
     <button class="ft" data-nv-scope="done">Concluídas</button>
     <button class="ft${v==='team'?' on':''}" data-nv-team>Time</button>
     <span class="grow"></span>
-    <button class="fvic${v==='flow'?' on':''}" data-nv-view="flow" title="Fluxo (lista)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>
-    <button class="fvic${v==='kanban'?' on':''}" data-nv-view="kanban" title="Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>
+    <button class="fvic${v==='flow'?' on':''}" data-nv-view="flow" title="Fluxo (lista)" aria-label="ver em lista" aria-pressed="${v==='flow'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>
+    <button class="fvic${v==='kanban'?' on':''}" data-nv-view="kanban" title="Kanban" aria-label="ver no Kanban" aria-pressed="${v==='kanban'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>
   </div>`;
   el.querySelectorAll('[data-nv-scope]').forEach(b=>b.onclick=()=>{ flowScope=b.dataset.nvScope; lsSet('flowScope',flowScope); lastSig=''; setView('flow'); });
   { const b=el.querySelector('[data-nv-team]'); if(b) b.onclick=()=>{ if(v==='team') return; tmView='people'; lsSet('tmView','people'); teamPaintSig=''; setView('team'); }; }
@@ -476,15 +476,15 @@ function pvChips(t, withLabel){
   if(t.flag==='closed'||['merged','done'].includes(t.status)) return '';
   const pv=taskPreviewUrl(t.id); if(!pv) return '';
   const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
-  return `<button class="btn sm" data-pvrow="${escA(pv)}" title="abrir o site local que o agente subiu — ${escA(pv)}" style="padding:3px 8px;font-size:10.5px;color:var(--accent);flex:none">${IC.globe}${withLabel?' preview':''}</button>`+
-    `<button class="btn sm" data-pvmob="${escA(t.id)}" data-url="${escA(pv)}" title="${tun?('túnel aberto ('+escA(tun)+') — clique pra FECHAR o acesso do celular'):'abrir este site no seu CELULAR (túnel criptografado)'}" style="padding:3px 8px;font-size:10.5px;color:${tun?'var(--warn)':'var(--muted)'};flex:none">${IC.phone}</button>`;
+  return `<button class="btn sm" data-pvrow="${escA(pv)}" title="abrir o site local que o agente subiu — ${escA(pv)}" style="padding:3px 8px;font-size:var(--fs-xs);color:var(--accent);flex:none">${IC.globe}${withLabel?' preview':''}</button>`+
+    `<button class="btn sm" data-pvmob="${escA(t.id)}" data-url="${escA(pv)}" title="${tun?('túnel aberto ('+escA(tun)+') — clique pra FECHAR o acesso do celular'):'abrir este site no seu CELULAR (túnel criptografado)'}" style="padding:3px 8px;font-size:var(--fs-xs);color:${tun?'var(--warn)':'var(--muted)'};flex:none">${IC.phone}</button>`;
 }
 // ---- Resumo da tarefa: tudo que já foi feito + o que falta ----
 async function openTaskSummary(taskId){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
   $id('sumOverlay').style.display='flex';
   $id('sumTitle').textContent=t.title;
-  $id('sumBody').innerHTML='<div class="dim" style="font-size:12px">montando o resumo…</div>';
+  $id('sumBody').innerHTML='<div class="dim" style="font-size:var(--fs-sm)">montando o resumo…</div>';
   $id('sumClose').onclick=()=>{ $id('sumOverlay').style.display='none'; };
   if(reqProofCache[t.id]===undefined) await loadReqProofs(t.id).catch(()=>{});
   if(commitsCache[t.id]===undefined) await loadCommits(t.id).catch(()=>{});
@@ -510,29 +510,29 @@ function renderTaskSummary(t){
   if(t.prUrl && t.status!=='merged') falta.push('review do time e merge do PR #'+(prN||''));
   // últimas falas relevantes (o "diário" do que foi feito)
   const notas=eventsOf(t.id).filter(e=>['done','note'].includes(e.type)&&(e.text||'').length>30&&!/^(Você:|perguntou ao humano|humano respondeu)/.test(e.text||'')).slice(-5);
-  const li=(arr,ic,co)=>arr.map(x=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${co};flex:none">${ic}</span><span>${esc(x)}</span></div>`).join('');
+  const li=(arr,ic,co)=>arr.map(x=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:4px 0"><span style="color:${co};flex:none">${ic}</span><span>${esc(x)}</span></div>`).join('');
   $id('sumBody').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
       <div style="flex:1;height:8px;border-radius:99px;background:var(--border-strong);overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--good);border-radius:99px"></i></div>
       <b style="font-size:15px;font-variant-numeric:tabular-nums">${pct}%</b>
     </div>
-    <div class="dim" style="font-size:11.5px;margin-bottom:12px">fase atual: <b>${esc(PHASES[ph-1])}</b> · ${esc(t.branch||'')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</div>
-    ${t.objective?`<div class="seclbl2">Objetivo</div><div style="font-size:12.5px;margin-bottom:12px">${esc(t.objective)}</div>`:''}
+    <div class="dim" style="font-size:var(--fs-xs);margin-bottom:12px">fase atual: <b>${esc(PHASES[ph-1])}</b> · ${esc(t.branch||'')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</div>
+    ${t.objective?`<div class="seclbl2">Objetivo</div><div style="font-size:var(--fs-sm);margin-bottom:12px">${esc(t.objective)}</div>`:''}
     <div class="seclbl2">O que já foi feito</div>
-    ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:12.5px;padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?IC.ok:IC.stQueue}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:10px;align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
+    ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?IC.ok:IC.stQueue}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:var(--fs-xs);align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
     ${dels.length?`<div style="margin-top:6px">${li(dels,icEm(IC.doc),'var(--info)')}</div>`:''}
-    <div class="dim" style="font-size:11.5px;margin:8px 0 12px">${d?`${nPl(diffFiles(d),'arquivo alterado','arquivos alterados')} · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${nPl(c.length,'commit')}${rev?' · revisão interna '+IC.ok:''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
-    ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;color:var(--text-2)"><span class="dim" style="flex:none;font-weight:600">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
-    ${rev?`<div class="seclbl2" style="margin-top:10px">Como testar</div><div style="font-size:12.5px">${esc(rev.howToTest||'')}</div>`:''}
+    <div class="dim" style="font-size:var(--fs-xs);margin:8px 0 12px">${d?`${nPl(diffFiles(d),'arquivo alterado','arquivos alterados')} · +${d.additions||0} −${d.deletions||0}`:'sem diff ainda'} · ${nPl(c.length,'commit')}${rev?' · revisão interna '+IC.ok:''}${t.prUrl?` · PR ${prN?'#'+prN:''} aberto`:''}</div>
+    ${notas.length?`<div class="seclbl2">Diário do agente</div>${notas.map(e=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:3px 0;color:var(--text-2)"><span class="dim" style="flex:none;font-weight:600">${esc((e.agent||'').slice(0,8))}</span><span>${esc(String(e.text).slice(0,140))}</span></div>`).join('')}`:''}
+    ${rev?`<div class="seclbl2" style="margin-top:10px">Como testar</div><div style="font-size:var(--fs-sm)">${esc(rev.howToTest||'')}</div>`:''}
     <div class="seclbl2" style="margin-top:14px">O que falta pra finalizar</div>
-    ${falta.length?li(falta,IC.chevR,'var(--warn)'):'<div style="font-size:12.5px;color:var(--good)">nada — pronta pra fechar '+IC.ok+'</div>'}
+    ${falta.length?li(falta,IC.chevR,'var(--warn)'):'<div style="font-size:var(--fs-sm);color:var(--good)">nada — pronta pra fechar '+IC.ok+'</div>'}
     <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span>
       ${['review','delivered'].includes(t.status)&&!t.prUrl&&t.flag!=='closed'?(sumArtOnly
         ?`<button class="btn primary sm" id="sumArch" title="investigação/design não abrem PR — o fim é salvar os entregáveis e concluir">${IC.check} concluir</button>`
         :`<button class="btn primary sm" id="sumPr">${IC.check} aprovar e abrir PR</button>`):''}
       <button class="btn sm" id="sumOpen">abrir a tarefa</button></div>`;
   bindClick('sumOpen', ()=>{ $id('sumOverlay').style.display='none'; selected=t.id; render(); openWorkspace(t.id); });
-  bindClick('sumPr', ()=>{ $id('sumOverlay').style.display='none'; prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
+  bindClick('sumPr', ()=>{ $id('sumOverlay').style.display='none'; approveGate(t); });
   // E11b: investigação/design → o "concluir" leva pra Entrega (salvar entregáveis na pasta), igual ao cabeçalho da tarefa
   bindClick('sumArch', ()=>{ $id('sumOverlay').style.display='none'; selected=t.id; render(); openWorkspace(t.id); setTimeout(()=>{ try{ fwMode='entrega'; renderWorkspace(); }catch(_){ } }, 50); });
 }
@@ -574,7 +574,7 @@ function openTaskMenu(taskId, anchor){
   // o.stay: o item abre outro menu (trocar modelo) — fecha este e não recarrega o quadro
   const item=(label,fn,danger,icon,o)=>{ const b=document.createElement('button'); o=o||{};
     b.innerHTML='<span class="mnic">'+(icon||'')+'</span>'; b.appendChild(document.createTextNode(label)); if(o.title) b.title=o.title;
-    b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
+    b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;color:'+(danger?'var(--crit)':'var(--text)')+';font:inherit;font-size:var(--fs-sm);padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
     b.onclick=async(e)=>{ if(o.stay){ e.stopPropagation(); menuClose(pop); fn(); return; }
       menuClose(pop); try{ await fn(); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Não deu pra mudar a tarefa'); } };
@@ -660,14 +660,14 @@ function openStatusMenu(taskId, anchor){
     const on=(o.key===cur);
     b.setAttribute('role','menuitemradio'); b.setAttribute('aria-checked', on?'true':'false');
     b.innerHTML=`<span class="mnic" style="color:${o.col}">${o.ic}</span><span>${o.label}</span>${on?`<span style="margin-left:auto;opacity:.7">${IC.ok}</span>`:''}`;
-    b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer';
+    b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:'+(on?'var(--surface-2)':'none')+';color:var(--text);font:inherit;font-size:var(--fs-sm);padding:8px 10px;border-radius:7px;cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background=(on?'var(--surface-2)':'none');
     b.onclick=async()=>{ menuClose(pop); if(o.key===cur) return; try{ await ensureProj(); await o.act(); if(closed && o.key!=='finished' && o.key!=='cancelled'){ await invoke('set_task_flag',{taskId,flag:null}); } lastSig=''; await refresh(); }catch(e){ if(e!==null) showErr(e, 'Não deu pra mudar o status'); } };
     pop.appendChild(b); });
   // encerrada: oferece reabrir explicitamente no rodapé
   if(closed){ const b=document.createElement('button');
     b.textContent='reabrir (volta pra fila)';
-    b.style.cssText='display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--border);margin-top:4px;padding:8px 10px;background:none;color:var(--text);font:inherit;font-size:12px;cursor:pointer';
+    b.style.cssText='display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--border);margin-top:4px;padding:8px 10px;background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);cursor:pointer';
     b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none';
     b.onclick=async()=>{ menuClose(pop); try{ await ensureProj(); await invoke('set_task_flag',{taskId,flag:null}); lastSig=''; await refresh(); }catch(e){ showErr(e, 'Falhou'); } };
     pop.appendChild(b); }
@@ -716,7 +716,7 @@ function renderFlow(){
   const el=$id("flow");
   el.classList.toggle('gridview', flowView==='grid');
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); } // integrado por padrão; fallback pro repo ativo se algo falhar
-  const ghost='<div class="fcard ghost" id="ghostNew"><span class="gplus">＋</span><b>Nova demanda</b><span style="font-size:12px">descreva o que precisa ser feito — o time de agentes cuida do resto</span></div>';
+  const ghost='<div class="fcard ghost" id="ghostNew"><span class="gplus">＋</span><b>Nova demanda</b><span style="font-size:var(--fs-sm)">descreva o que precisa ser feito — o time de agentes cuida do resto</span></div>';
   // monta o HTML numa string (não escreve direto no DOM) pra poder pular o rebuild
   // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
   // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
@@ -807,12 +807,19 @@ function renderFlow(){
   // R7: cartões pelo teclado — Tab chega neles, Enter/Espaço abre, a tecla de menu (ou Shift+F10) abre o ⋯
   el.querySelectorAll('.frow,.dcard,.fcard').forEach(r=>{
     if(!r.hasAttribute('tabindex')) r.tabIndex=0;
+    // focável e clicável → leitor de tela anuncia como botão, com nome curto (o cartão inteiro como nome era um parágrafo)
+    if(!r.hasAttribute('role')){ r.setAttribute('role','button');
+      const tt=r.querySelector('.dc-title,.ti,.ftitle,b'); if(tt && !r.hasAttribute('aria-label')) r.setAttribute('aria-label', (r.id==='ghostNew'?'':'abrir a demanda: ')+tt.textContent.trim()); }
     r.onkeydown=(e)=>{ if(e.target!==r) return;
       if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); }
       else if(r.dataset.id && (e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))){ e.preventDefault(); openTaskMenu(r.dataset.id, r); } };
   });
   el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
-  el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowpr; crossRun(id, ()=>prPrepOpen(id, lsGet('prBase:'+id)||'main')); });
+  // aprovar pelo card passa pelo MESMO portão do cabeçalho (prova → verificação → PR) — antes pulava direto pro PR
+  const taskOfId=(id)=>(state.tasks||[]).find(x=>x.id===id);
+  el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowpr; crossRun(id, ()=>approveGate(taskOfId(id))); });
+  el.querySelectorAll('[data-rowproof]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowproof; crossRun(id, ()=>proofAsk(taskOfId(id), b)); });
+  el.querySelectorAll('[data-rownoproof]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rownoproof; crossRun(id, ()=>approveNoProof(taskOfId(id))); });
   el.querySelectorAll('[data-resolveconf]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return; b.disabled=true; b.textContent='resolvendo…'; try{ await invoke('resolve_conflict',{ taskId:b.dataset.resolveconf }); lastSig=''; await refresh(); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } });
   // "✓ concluir" grava a flag no banco do projeto DONO da tarefa (crossRun troca antes, se for de outro projeto)
   el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.arch; crossRun(id, async()=>{ try{ await invoke('set_task_flag',{taskId:id,flag:'closed'}); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Não deu pra concluir'); } }); });

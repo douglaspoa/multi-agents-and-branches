@@ -29,25 +29,25 @@ function renderGraph(){
       g+=`<circle class="gdot" data-hash="${escA(c.hash)}" cx="${x}" cy="20" r="5" fill="var(--surface)" stroke="${col}" stroke-width="2" style="cursor:pointer"><title>${escA((c.subject||'').slice(0,90))}</title></circle>`; });
     const tip=`<g style="cursor:pointer" data-tsel="${escA(t.id)}"><circle cx="${xTip}" cy="20" r="11" fill="var(--surface)" stroke="${col}" stroke-width="2"${ACTIVE_ST.has(t.status)?' class="gtipping"':''}/><text x="${xTip}" y="23" text-anchor="middle" font-size="8" font-weight="700" fill="${col}">${esc((t.agent||'?').slice(0,2).toUpperCase())}</text></g>`;
     const merge=t.status==='merged'?`<path d="M${xTip+11} 20 C ${xTip+24} 20 ${xTip+24} 6 ${xTip+34} 6" fill="none" stroke="${col}" stroke-width="2" opacity=".7"/><text x="${xTip+38}" y="9" font-size="8" fill="${col}">main</text>`:'';
-    return `<svg width="${railW+70}" height="40" viewBox="0 0 ${railW+70} 40">${g}${tip}${merge}</svg>`+(n>24?`<span class="dim" style="font-size:10px">+${n-24}</span>`:'');
+    return `<svg width="${railW+70}" height="40" viewBox="0 0 ${railW+70} 40">${g}${tip}${merge}</svg>`+(n>24?`<span class="dim" style="font-size:var(--fs-xs)">+${n-24}</span>`:'');
   };
   const rows=tasks.map(t=>{
     const col=stColor(taskSt(t));
     const cs=commitsCache[t.id];
     return `<div class="grow2${t.id===selected?' sel':''}" data-tsel="${escA(t.id)}" tabindex="0" title="abrir a tarefa">
       <div class="grh">
-        <span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
+        <span class="cav" aria-hidden="true" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span>
         <b class="grt">${esc(t.title)}</b>
         ${typeof epTaskBadge==='function'?epTaskBadge(t):''}
         ${linkChips(t)}
         <span style="flex:1"></span>
-        <span class="mono dim" style="font-size:10px">${esc(t.base||'main')} → ${esc(t.branch)}</span>
+        <span class="mono dim" style="font-size:var(--fs-xs)">${esc(t.base||'main')} → ${esc(t.branch)}</span>
         ${stBadge(taskSt(t))}${t.flag==='blocked'?' <span class="flagbadge blk">bloqueada</span>':''}
       </div>
-      <div class="grrail">${cs===undefined?'<div style="padding:8px 16px">'+skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando os commits' })+'</div>':(cs.length?rail(t):'<span class="dim" style="font-size:11px;padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
+      <div class="grrail">${cs===undefined?'<div style="padding:8px 16px">'+skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando os commits' })+'</div>':(cs.length?rail(t):'<span class="dim" style="font-size:var(--fs-xs);padding:8px 16px;display:inline-block">sem commits ainda</span>')}</div>
     </div>`;
   }).join('');
-  const mainRow=mainCommits.length?`<div class="grmain"><span class="mono" style="color:var(--text-2);font-size:11px;font-weight:700">main</span><div class="grmc">${mainCommits.slice(0,12).map(c=>`<span class="gmdot" data-hash="${escA(c.hash)}" title="${escA((c.subject||'').slice(0,90))}"></span>`).join('')}</div><span class="dim" style="font-size:10.5px">últimos ${Math.min(12,mainCommits.length)} commits · clique num ponto pra ver o diff</span></div>`:'';
+  const mainRow=mainCommits.length?`<div class="grmain"><span class="mono" style="color:var(--text-2);font-size:var(--fs-xs);font-weight:700">main</span><div class="grmc">${mainCommits.slice(0,12).map(c=>`<span class="gmdot" data-hash="${escA(c.hash)}" title="${escA((c.subject||'').slice(0,90))}"></span>`).join('')}</div><span class="dim" style="font-size:var(--fs-xs)">últimos ${Math.min(12,mainCommits.length)} commits · clique num ponto pra ver o diff</span></div>`:'';
   // R7: vazio padrão (com saída) e guarda de innerHTML — o render roda a cada tick do snapshot e antes
   // reescrevia o grafo inteiro sempre (piscava e engolia o clique no meio); agora só quando o HTML mudou
   const empty=emptyHtml({ icon:'route', title:'Nenhuma tarefa com branch ainda', help:'Cada demanda iniciada ganha um trilho aqui, com os commits do agente e a ponta na cor do status.', action:{ id:'gtlNew', label:'Nova demanda' } });
@@ -109,8 +109,8 @@ function renderDiff(files){
     out+=`<div class="difffile"><div class="fh"><span class="p mono">${esc(f.path)}</span></div><div class="dlines">${rows}</div></div>`;
     if(truncated) break;
   }
-  if(truncated) out+='<div class="dim" style="font-size:11.5px;margin-top:6px">…diff grande, truncado.</div>';
-  return out || '<div class="dim" style="font-size:12px">sem alterações de linha (ex.: merge)</div>';
+  if(truncated) out+='<div class="dim" style="font-size:var(--fs-xs);margin-top:6px">…diff grande, truncado.</div>';
+  return out || '<div class="dim" style="font-size:var(--fs-sm)">sem alterações de linha (ex.: merge)</div>';
 }
 let curCommit=null;
 async function openCommit(hash){
@@ -157,7 +157,7 @@ async function openCommit(hash){
   if(curCommit!==h) return;
   if(cached){ aiEl.textContent=cached; }
   else{
-    aiEl.innerHTML=`<button class="btn sm" id="cmAIbtn">${IC.ai} Explicar com IA</button> <span class="dim" style="font-size:11px">gera um resumo do que foi feito e por quê (usa Claude · fica em cache)</span>`;
+    aiEl.innerHTML=`<button class="btn sm" id="cmAIbtn">${IC.ai} Explicar com IA</button> <span class="dim" style="font-size:var(--fs-xs)">gera um resumo do que foi feito e por quê (usa Claude · fica em cache)</span>`;
     const b=$id("cmAIbtn"); if(b) b.onclick=()=>genAI(h);
   }
 }
@@ -175,6 +175,23 @@ let slotMax = (()=>{ const v=parseInt(lsGet('slotMax')||'4',10); return (v>=1&&v
 function setSlotMax(n){ slotMax=Math.max(1,Math.min(12,n)); lsSet('slotMax',String(slotMax)); renderRail(); }
 function lastEventOf(taskId){ const es=eventsOf(taskId); return es.length?es[es.length-1]:null; }
 // Rail = monitor de EXECUÇÃO AO VIVO (não duplica o Fluxo): só o que acontece agora.
+// destaque da barra lateral = o que está NA TELA (crítica Impeccable P1, 02/10): a demanda da aba ativa e, com a
+// tela dividida, TODAS as demandas visíveis nos painéis; aria-current na do painel em foco. Antes vinha de
+// `selected` (última tarefa clicada), que nem ⌘1–9 nem o clique na aba atualizavam — o destaque mentia.
+// @rail-hi-inicio (testado em app/tests/critica-impeccable.test.mjs)
+function railHiOf(tab, splitIds, focusIdx, tabOf){
+  const ids=[]; const add=(tb)=>{ const id=tb&&tb.taskId; if(id && !ids.includes(id)) ids.push(id); };
+  if(!tab) return { ids, cur:null };
+  const inSplit=!!(splitIds && splitIds.includes(tab.id));
+  if(inSplit) splitIds.forEach(id=>add(tabOf(id))); else add(tab);
+  const ft=inSplit ? tabOf(splitIds[focusIdx|0]||tab.id) : tab;
+  return { ids, cur:(ft&&ft.taskId)||null };
+}
+// @rail-hi-fim
+function railHi(){
+  try{ const spl=(typeof SPL!=='undefined')?SPL:null;
+    return railHiOf(tabById(activeTab), spl&&spl.ids, spl?spl.focus:0, tabById); }catch(_){ return { ids:[], cur:null }; }
+}
 function renderRail(){
   // sidebar por PROJETO (redesign p2/p6): projeto atual com as sessões vivas,
   // depois os outros repos salvos, e o total no rodapé.
@@ -189,6 +206,7 @@ function renderRail(){
   const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&t.flag!=='blocked'&&!['merged','done'].includes(t.status));
   const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
   const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| taskTs(b)-taskTs(a)).slice(0,12);
+  const hi=railHi();
   const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
   // rank de tarefa de OUTRO projeto (sem pendingOf): review/entregue e ativas em cima
   const rankOther=(t)=> (t.status==='review'||t.status==='delivered')?3 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : t.status==='plan-review'?1 : 0;
@@ -201,11 +219,11 @@ function renderRail(){
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
     html+=rows.map(t=>{ const [tg,tc,tl]=tagOf(t);
-      return `<div class="prow2${t.id===selected?' sel':''}" data-id="${t.id}" tabindex="0"><span class="d" style="background:${dotOf(t)}"></span><span class="tt" title="${escA(t.title)}">${esc(t.title)}</span>${sbEpDot(t)}<span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
+      return `<div class="prow2${hi.ids.includes(t.id)?' sel':''}" data-id="${t.id}" role="button" tabindex="0"${hi.cur===t.id?' aria-current="page"':''}><span class="d" style="background:${dotOf(t)}"></span><span class="tt" title="${escA(t.title)}">${esc(t.title)}</span>${sbEpDot(t)}<span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
     }).join('');
-    if(mine.length>rows.length) html+=`<div class="prow2 more" data-more="1" tabindex="0" title="ver todas as demandas deste projeto na Central"><span class="tt dim">+${mine.length-rows.length} na Central</span></div>`;
+    if(mine.length>rows.length) html+=`<div class="prow2 more" data-more="1" role="button" tabindex="0" title="ver todas as demandas deste projeto na Central"><span class="tt dim">+${mine.length-rows.length} na Central</span></div>`;
   } else if(!(window.orqRailRows&&window.orqRailRows())){
-    html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:11px">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
+    html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:var(--fs-xs)">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
   }
 
   // ---- TODOS os OUTROS projetos com as últimas demandas (ativos primeiro; exec/review em cima) ----
@@ -217,9 +235,9 @@ function renderRail(){
     const ptasks=(p.tasks||[]).slice().sort((x,y)=>rankOther(y)-rankOther(x)).slice(0,3);
     if(ptasks.length){
       // ponto na cor do STATUS_META (stColor) — antes um vocabulário próprio (review = amarelo "warn", resto cinza)
-      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''} tabindex="0"><span class="d" style="background:${stColor(t.status)}" title="${escA(stLabel(t.status))}"></span><span class="tt" title="${escA(t.title+' · '+p.name)}">${esc(t.title)}</span></div>`).join('');
+      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''} role="button" tabindex="0"><span class="d" style="background:${stColor(t.status)}" title="${escA(stLabel(t.status))}"></span><span class="tt" title="${escA(t.title+' · '+p.name)}">${esc(t.title)}</span></div>`).join('');
     } else {
-      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}" tabindex="0"><span class="tt dim" style="font-size:11px">abrir projeto</span></div>`;
+      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}" role="button" tabindex="0"><span class="tt dim" style="font-size:var(--fs-xs)">abrir projeto</span></div>`;
     }
   }
 

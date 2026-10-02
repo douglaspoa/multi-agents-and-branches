@@ -13,24 +13,24 @@
 .dvresize:hover,.dvresize:active{background:var(--accent-soft)}
 .fwrow.dvexp .dvresize{display:none}
 .dvhead{display:flex;align-items:center;gap:6px;padding:8px 10px 6px 14px;border-bottom:1px solid var(--border)}
-.dvtitle{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12.5px}
+.dvtitle{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:var(--fs-sm)}
 .dvtitle svg{width:15px;height:15px}
 .dvplats{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r-pill);overflow:hidden;margin-left:6px}
-.dvplat{border:0;background:transparent;color:var(--text-2);font:inherit;font-size:11px;font-weight:600;padding:2px 9px;cursor:pointer}
+.dvplat{border:0;background:transparent;color:var(--text-2);font:inherit;font-size:var(--fs-xs);font-weight:600;padding:2px 9px;cursor:pointer}
 .dvplat.on{background:var(--accent);color:var(--on-accent)}
-.dvfps{font-family:var(--mono);font-size:10.5px;color:var(--text-3);padding:1px 6px;border:1px solid var(--border);border-radius:var(--r-pill);white-space:nowrap}
+.dvfps{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-3);padding:1px 6px;border:1px solid var(--border);border-radius:var(--r-pill);white-space:nowrap}
 .dvhb{border:0;background:transparent;color:var(--text-2);width:24px;height:24px;border-radius:6px;display:inline-grid;place-items:center;cursor:pointer}
 .dvhb:hover{background:var(--surface-3);color:var(--text)}
 .dvhb svg{width:14px;height:14px}
 .dvbar{display:flex;align-items:center;gap:6px;padding:6px 10px 6px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-.dvsel{font:inherit;font-size:11.5px;max-width:190px;background:var(--surface);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:2px 4px}
+.dvsel{font:inherit;font-size:var(--fs-xs);max-width:190px;background:var(--surface);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:2px 4px}
 .dvmenus{display:inline-flex;gap:2px;margin-left:auto}
-.dvmenu{border:0;background:transparent;color:var(--text-2);font:inherit;font-size:11.5px;padding:3px 6px;border-radius:6px;cursor:pointer}
+.dvmenu{border:0;background:transparent;color:var(--text-2);font:inherit;font-size:var(--fs-xs);padding:3px 6px;border-radius:6px;cursor:pointer}
 .dvmenu:hover{background:var(--surface-3);color:var(--text)}
 .dvpop{position:absolute;z-index:5;min-width:200px;background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;box-shadow:var(--shadow);padding:4px;display:flex;flex-direction:column}
 .dvpop[hidden]{display:none}
 .dvpop hr{border:0;border-top:1px solid var(--border);margin:4px 2px}
-.dvpi{border:0;background:transparent;color:var(--text);font:inherit;font-size:12px;text-align:left;padding:6px 9px;border-radius:6px;cursor:pointer}
+.dvpi{border:0;background:transparent;color:var(--text);font:inherit;font-size:var(--fs-sm);text-align:left;padding:6px 9px;border-radius:6px;cursor:pointer}
 .dvpi:hover:not(:disabled){background:var(--accent-soft)}
 .dvpi:disabled{color:var(--text-3);cursor:default}
 .dvbody{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px 16px;overflow:auto}
@@ -48,26 +48,26 @@
 .dvscreen{position:relative;width:100%;height:100%;border-radius:34px;overflow:hidden;background:#000;outline:none;touch-action:none;cursor:pointer}
 .dvframe.android .dvscreen{border-radius:22px}
 .dvscreen canvas{width:100%;height:100%;display:block;object-fit:contain}
-.dvwait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;color:#bbb;font-size:12px}
+.dvwait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;color:#bbb;font-size:var(--fs-sm)}
 .dvwait[hidden]{display:none}
 .dvmarkbox{position:absolute;border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:4px;pointer-events:none}
 .dvmarkbox[hidden]{display:none}
 .fwdev:has(#dvMark.on) .dvscreen{cursor:crosshair}
-.dvoff{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--text-2);font-size:12.5px;text-align:center;max-width:260px}
+.dvoff{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--text-2);font-size:var(--fs-sm);text-align:center;max-width:260px}
 .dvoffic{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--surface-3);color:var(--text-3)}
 .dvoffic svg{width:22px;height:22px}
-.dverr{color:var(--warn);font-size:11.5px;white-space:pre-wrap}
-.dvro{display:flex;align-items:center;gap:6px;margin:0 12px 6px;padding:6px 9px;border-radius:8px;background:var(--surface-3);color:var(--text-2);font-size:11.5px}
+.dverr{color:var(--warn);font-size:var(--fs-xs);white-space:pre-wrap}
+.dvro{display:flex;align-items:center;gap:6px;margin:0 12px 6px;padding:6px 9px;border-radius:8px;background:var(--surface-3);color:var(--text-2);font-size:var(--fs-xs)}
 .dvro svg{width:14px;height:14px;flex:0 0 auto}
 .dvmarkf{margin:0 12px 8px;padding:9px;border:1px solid var(--accent-line);border-radius:10px;background:var(--surface);display:flex;flex-direction:column;gap:7px}
-.dvmarkh{display:flex;align-items:center;gap:6px;font-weight:600;font-size:12px}
+.dvmarkh{display:flex;align-items:center;gap:6px;font-weight:600;font-size:var(--fs-sm)}
 .dvmarkh svg{width:14px;height:14px}
-.dvmarkf textarea{width:100%;resize:vertical;font-size:12.5px}
-.dvmarkr{display:flex;align-items:center;gap:6px;font-size:11px;flex-wrap:wrap}
+.dvmarkf textarea{width:100%;resize:vertical;font-size:var(--fs-sm)}
+.dvmarkr{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);flex-wrap:wrap}
 .dvmarkr .btn{white-space:nowrap}
 .dvlogs{margin:0 12px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);max-height:34%;display:flex;flex-direction:column;min-height:0}
-.dvlogsh{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:11.5px}
-.dvlogs pre{margin:0;padding:6px 8px;overflow:auto;font-size:10.5px;white-space:pre-wrap;word-break:break-word}
+.dvlogsh{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:var(--fs-xs)}
+.dvlogs pre{margin:0;padding:6px 8px;overflow:auto;font-size:var(--fs-xs);white-space:pre-wrap;word-break:break-word}
 /* barra de baixo: botões redondos */
 .dvtools{display:flex;justify-content:center;gap:8px;padding:9px 10px 12px;border-top:1px solid var(--border);flex-wrap:wrap}
 .dvb{width:34px;height:34px;border-radius:50%;border:1px solid var(--border-strong);background:var(--surface);color:var(--text-2);display:grid;place-items:center;cursor:pointer;transition:background .12s,color .12s}
