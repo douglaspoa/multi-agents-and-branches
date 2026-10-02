@@ -509,7 +509,7 @@ export function renderReport(s: ApState, epic: ApEpic | null, extra: { costs: Ma
     if (list.length) {
       L.push("Provas:");
       for (const r of list) {
-        const ev = (r.evidence ?? []).map((e) => `[${String(e).split("/").pop()}](.cardume/artifacts/${t.id}/${String(e).replace(/^\.?\/?(\.cardume\/artifacts\/)?/, "")})`).join(", ");
+        const ev = (r.evidence ?? []).map((e) => `[${String(e).split("/").pop()}](.cardume/artifacts/${t.id}/${evidenceRel(e)})`).join(", ");
         L.push(`- ${r.status === "done" ? "✓" : "✕"} ${r.req ?? "requisito"}${ev ? " — " + ev : ""}`);
       }
       L.push("");
@@ -553,6 +553,11 @@ class Mutex {
 }
 
 const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+
+/** Caminho da evidência relativo à pasta coletada da tarefa ("./x", ".cardume/artifacts/x" → "x"). */
+export function evidenceRel(e: unknown): string {
+  return String(e).replace(/^(\.\/)?(\.cardume\/artifacts\/)?/, "");
+}
 
 export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = {}): Promise<ApState> {
   const dir = resolve(o.dir);

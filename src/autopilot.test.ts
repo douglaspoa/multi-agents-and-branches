@@ -370,3 +370,10 @@ test("CLI: `cardume autopilot` com --plan, --budget-usd/--parallel/--attempts gr
     assert.ok(!existsSync(join(e.root, "nao-existe")));
   } finally { e.done(); }
 });
+
+test("relatório: link da evidência não duplica .cardume/artifacts", async () => {
+  const { evidenceRel } = await import("./autopilot.ts");
+  assert.equal(evidenceRel(".cardume/artifacts/mobile-ios-1.png"), "mobile-ios-1.png");
+  assert.equal(evidenceRel("./shot.png"), "shot.png");
+  assert.equal(evidenceRel("sub/x.mp4"), "sub/x.mp4");
+});
