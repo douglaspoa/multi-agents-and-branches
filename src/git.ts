@@ -56,6 +56,16 @@ export class GitService {
     }
   }
 
+  /** O repo tem esse remoto configurado? (projeto local do piloto automático não tem nenhum) */
+  async hasRemote(name = "origin"): Promise<boolean> {
+    try {
+      const { stdout } = await run("git", ["-C", this.repo, "remote"]);
+      return stdout.split("\n").map((l) => l.trim()).includes(name);
+    } catch {
+      return false;
+    }
+  }
+
   async isRepo(): Promise<boolean> {
     try {
       await run("git", ["-C", this.repo, "rev-parse", "--is-inside-work-tree"]);

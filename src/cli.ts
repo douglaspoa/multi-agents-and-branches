@@ -14,6 +14,8 @@ import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
+import { mobileCli } from "./mobile.ts";
+import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
 // ---------- parse de flags simples (src/util/args.ts) ----------
@@ -838,6 +840,56 @@ function cmdClaudeStatusline(sub: string | undefined, a: Args) {
   if (!r.ok) process.exitCode = 1;
 }
 
+// ---------- piloto automático (src/autopilot.ts) ----------
+async function cmdAutopilot(a: Args) {
+  const dir = a.flags.dir || a._[1];
+  if (!dir || dir === "true") {
+    console.error(c.red(`✕ use: cardume autopilot --idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine …] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`));
+    process.exitCode = 1;
+    return;
+  }
+  if (a.flags.stop) {
+    // sem piloto nesta pasta: erro e NADA criado (antes criava .cardume/autopilot/STOP em qualquer pasta)
+    if (!readState(dir)) {
+      console.error(c.red("✕ nenhum piloto nesta pasta"));
+      process.exitCode = 1;
+      return;
+    }
+    requestStop(dir);
+    console.log(c.green("✓") + " pedido de parada registrado — o piloto termina o passo atual e para");
+    return;
+  }
+  if (a.flags.status) {
+    const st = readState(dir);
+    if (a.flags.json) console.log(JSON.stringify(st));
+    else if (!st) console.log(c.dim("nenhum piloto automático nesta pasta"));
+    else {
+      console.log(`${c.bold(st.epicTitle || st.name)} — ${PHASE_PT[st.phase]} · US$ ${st.costUsd.toFixed(2)}`);
+      for (const t of st.tasks) console.log(`  ${t.stage.padEnd(8)} ${t.title} ${c.dim(`(${t.attempts} tentativa(s))`)}`);
+    }
+    return;
+  }
+  const num = (k: string) => (a.flags[k] !== undefined && a.flags[k] !== "" && Number.isFinite(Number(a.flags[k])) ? Number(a.flags[k]) : undefined);
+  const platform = a.flags.platform;
+  if (platform && !AP_PLATFORMS.includes(platform as ApPlatform)) {
+    console.error(c.red(`✕ --platform deve ser ${AP_PLATFORMS.join("|")}`));
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const st = await runAutopilot({
+      idea: a.flags.idea, dir, name: a.flags.name, platform: platform as ApPlatform | undefined,
+      engine: a.flags.engine, model: a.flags.model, parallel: num("parallel"), attempts: num("attempts"), budgetUsd: num("budget-usd"),
+      planFile: a.flags.plan,
+    });
+    console.log((st.phase === "done" ? c.green("✓ ") : c.yellow("! ")) + `piloto automático: ${PHASE_PT[st.phase]} — relatório em ${join(st.dir, "AUTOPILOT.md")}`);
+    if (st.phase === "failed") process.exitCode = 1;
+  } catch (e) {
+    console.error(c.red("✕ " + ((e as Error)?.message ?? String(e))));
+    process.exitCode = 1;
+  }
+}
+
 // ---------- dispatch ----------
 async function main() {
   const argv = process.argv.slice(2);
@@ -906,6 +958,12 @@ async function main() {
     case "claude-statusline":
       cmdClaudeStatusline(a._[1], a);
       break;
+    case "mobile":
+      process.exitCode = await mobileCli(a);
+      break;
+    case "autopilot":
+      await cmdAutopilot(a);
+      break;
     case "demo":
       await cmdDemo();
       break;
@@ -930,6 +988,9 @@ ${c.dim("criar & rodar")}
   ${c.green("cardume start")} ${c.dim("<taskId>")}               inicia uma tarefa em rascunho (--no-start)
   ${c.green("cardume rework")} ${c.dim("<taskId>")}              re-roda a equipe aplicando os ajustes do humano
 
+  ${c.green("cardume autopilot")} ${c.dim(`--idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine claude] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`)}
+      piloto automático: cria o projeto local, planeja o épico e constrói o app sozinho (rode de novo pra continuar; --stop para; --status mostra)
+
 ${c.dim("acompanhar")}
   ${c.green("cardume list")} ${c.dim("[--repo <p>]")}            estado das tarefas
   ${c.green("cardume watch")} ${c.dim("[--repo <p>]")}           acompanha ao vivo (lê o SQLite)
@@ -951,6 +1012,10 @@ ${c.dim("entregar & integrar")}
   ${c.green("cardume review-pr")} ${c.dim("--pr <url|nº>")}      revisa um PR do GitHub (sem branch/worktree)
   ${c.green("cardume merge")} ${c.dim("<taskId>")}               faz merge da branch na base e remove a worktree
   ${c.green("cardume rm")}   ${c.dim("<taskId>")}                remove worktree + branch + registros
+
+${c.dim("provas mobile (iOS/Android · nativo, React Native, Expo)")}
+  ${c.green("cardume mobile")} ${c.dim("doctor | up --platform ios|android | install <app> | launch <id|url> | shot [nome] | rec start|stop | flow <yaml> | down")}
+      simulador iOS por tarefa / emulador Android com trava; prints e vídeos em .cardume/artifacts/
 
 ${c.dim("Claude Code")}
   ${c.green("cardume claude-statusline")} ${c.dim("install [--node <caminho>] | uninstall | status [--json]")}

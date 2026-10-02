@@ -172,7 +172,8 @@ test('detalhes recolhidos por IA: expandir mostra reinício, tokens do Starfork 
   assert.match(h1, /data-pm="det" data-pm-id="claude" aria-expanded="true"/);
   assert.match(h1, /<div class="pm-det" id="pmDet-claude">/);
   const det = h1.slice(h1.indexOf('id="pmDet-claude"'), h1.indexOf('</div></div>', h1.indexOf('id="pmDet-claude"')));
-  assert.match(det, new RegExp('5h reinicia ' + hm(R5)));
+  // o golden tem data fixa: no dia dele é só a hora; noutro dia o produto acrescenta a data (dd/mm) — vale nos dois
+  assert.match(det, new RegExp('5h reinicia (\\d\\d/\\d\\d )?' + hm(R5)));
   assert.match(det, /semana reinicia \d\d\/\d\d \d\d:\d\d/, 'outro dia: com a data');
   assert.match(det, /Starfork neste projeto, últimas 5 h: 118k tok de entrada, 2k de saída, 3 turno\(s\), 10 min/);
   assert.match(h1, /<div class="pm-det" id="pmDet-codex" hidden>/, 'só a IA clicada abre');

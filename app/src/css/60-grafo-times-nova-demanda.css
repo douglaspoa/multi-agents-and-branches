@@ -802,3 +802,16 @@ details.suaia-secret summary{cursor:pointer;color:var(--muted);list-style:none}
 details.suaia-secret summary::-webkit-details-marker{display:none}
 details.suaia-secret summary::before{content:'ⓘ '}
 details.suaia-secret[open] summary{margin-bottom:4px}
+/* provas em VÍDEO (mobile): player no visualizador, na prévia, na galeria e dentro de cada requisito */
+.pvvideo{display:flex;justify-content:center;background:#07090b;border-radius:8px;padding:10px}
+.pvvideo video{max-width:100%;max-height:70vh;border-radius:6px;background:#000}
+.artvid{max-width:100%;max-height:72vh}
+.en-vproof{cursor:default}
+.en-proof video.en-pvid{width:100%;height:104px;object-fit:contain;display:block;background:#000}
+.en-evm{display:flex;flex-wrap:wrap;gap:8px;margin-top:7px}
+.en-evi{padding:0;border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden;background:#0b0d0f;cursor:zoom-in;width:64px;height:110px;display:flex;align-items:center;justify-content:center}
+.en-evi:hover{border-color:var(--accent)}
+.en-evi img{width:100%;height:100%;object-fit:cover;display:block}
+.en-evv{display:flex;flex-direction:column;gap:3px;max-width:100%}
+.en-evv video.en-evvid{width:220px;max-width:100%;max-height:300px;border-radius:8px;background:#000;border:1px solid rgba(255,255,255,.12)}
+.en-evn{font:400 11px var(--code);color:var(--text-3);display:flex;gap:4px;align-items:center}

@@ -1,6 +1,6 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { globsOverlap } from "./glob.ts";
 import { GitService } from "./git.ts";
@@ -11,6 +11,7 @@ import { ghBin, netEnv, netTimeoutMs, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
+import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLearnSettings, readPending, rejectReason, retroPrompt, type PendingItem } from "./learn.ts";
@@ -746,7 +747,7 @@ export class Orchestrator {
    *     de verdade e precisam passar.
    * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
    */
-  private async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
+  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
     const reasons: string[] = [];
     const artDir = join(task.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
@@ -768,12 +769,16 @@ export class Orchestrator {
       if (r.status === "deferred") continue; // o humano decidiu adiar/dispensar
       if (r.status !== "done") { reasons.push(`requisito não provado (${r.status ?? "?"}): ${label}`); continue; }
       const ev = Array.isArray(r.evidence) ? r.evidence : [];
-      const hasReal = ev.some((e) => {
-        const name = String(e).replace(/^\.?\/?(\.cardume\/artifacts\/)?/, "");
-        return existsSync(join(artDir, name)) || existsSync(String(e));
-      });
+      const hasReal = ev.some((e) => evidenceExists(artDir, task.worktree, String(e)));
       if (!hasReal) reasons.push(`requisito "done" sem evidência real no disco: ${label}`);
     }
+    // PROVA MOBILE: em app iOS/Android, requisito visual (ou a tarefa que mexeu em tela) precisa de print/vídeo real
+    try {
+      if (isMobileProject(detectMobileProject(task.worktree))) {
+        const uiChanged = (await this.changedFiles(task.worktree, task.base)).some((f) => UI_FILE_RE.test(f));
+        reasons.push(...mobileProofGaps(list as never, uiChanged, (e) => evidenceExists(artDir, task.worktree, e)));
+      }
+    } catch { /* sem detecção/diff: fica só a regra geral */ }
     const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
     if (wantsTests) {
       const t = await this.runRepoTests(task.worktree);
@@ -782,10 +787,26 @@ export class Orchestrator {
     return { ok: reasons.length === 0, reasons };
   }
 
+  /** Arquivos mudados na branch (commits desde a base + o que está solto). Falhou → [] (regra leniente). */
+  private async changedFiles(worktree: string, base: string): Promise<string[]> {
+    const out = new Set<string>();
+    try { for (const l of (await run("git", ["-C", worktree, "diff", "--name-only", `${base}...HEAD`])).stdout.split("\n")) if (l.trim()) out.add(l.trim()); } catch { /* base sumiu */ }
+    try { for (const l of (await run("git", ["-C", worktree, "status", "--porcelain"])).stdout.split("\n")) if (l.trim()) out.add(l.slice(3).trim()); } catch { /* sem git */ }
+    return [...out];
+  }
+
   /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
   private async runRepoTests(worktree: string): Promise<{ ran: boolean; passed: boolean; detail: string }> {
+    // SÓ a falta do package.json (projeto não-node, ou ainda vazio) = sem comando de teste. package.json
+    // ilegível/quebrado continua REPROVANDO, como antes (o projeto não roda).
+    let pkg: { scripts?: Record<string, string> };
     try {
-      const pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+      pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8"));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { ran: false, passed: true, detail: "sem package.json" };
+      return { ran: true, passed: false, detail: `package.json inválido: ${String((err as Error)?.message ?? err).slice(0, 140)}` };
+    }
+    try {
       const testCmd = pkg.scripts?.test ?? "";
       if (!testCmd || /no test specified/i.test(testCmd)) return { ran: false, passed: true, detail: "sem comando de teste" };
       await run("npm", ["test", "--silent"], { cwd: worktree, timeout: 180000 });
@@ -901,6 +922,7 @@ export class Orchestrator {
         } finally {
           this.releaseTurn(taskId);
           await this.drainQueue(taskId);
+          await this.mobileTurnEnd(taskId);
         }
         return;
       }
@@ -919,6 +941,7 @@ export class Orchestrator {
     } finally {
       this.releaseTurn(taskId);
       await this.drainQueue(taskId);
+      await this.mobileTurnEnd(taskId);
     }
   }
 
@@ -982,7 +1005,23 @@ export class Orchestrator {
     } finally {
       this.releaseTurn(taskId);
       await this.drainQueue(taskId);
+      await this.mobileTurnEnd(taskId);
     }
+  }
+
+  /** Provas mobile (src/mobile.ts): deps injetáveis — os testes trocam home/simctl/adb por falsos. */
+  mobileDeps: MobileDeps = realDeps();
+
+  /** Fim do turno (e da fila): só SOLTA a trava do emulador Android desta tarefa (outra tarefa pode usar). O
+   * simulador iOS dedicado continua de pé pra próxima rodada — ele só é apagado no fim da TAREFA (merge/remoção)
+   * ou pela varredura do doctor. Não pega nem mexe na trava de turno da tarefa (não atrapalha a fila). */
+  private async mobileTurnEnd(taskId: string): Promise<void> {
+    mobileTurnRelease(taskId, this.mobileDeps);
+  }
+
+  /** Fim da TAREFA: apaga o simulador e libera/desliga o emulador que ela subiu. Nunca lança. */
+  private async mobileTaskEnd(taskId: string, worktree: string): Promise<void> {
+    await mobileCleanup(taskId, worktree, this.mobileDeps).catch(() => []);
   }
 
   /** Qualquer exceção que ESCAPE do pipeline (banco ocupado além do retry, spec corrompido, git) deixava
@@ -1564,10 +1603,13 @@ export class Orchestrator {
     if (task.status === "merged") throw new Error("tarefa já mergeada — nada a resolver");
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     const base = (spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase()).replace(/^origin\//, "");
+    // projeto LOCAL sem remoto (ex.: piloto automático): a base é a branch local, nada de fetch
+    const remote = await this.git.hasRemote("origin");
     const msg =
       `RESOLVER CONFLITO DE MERGE com a base "${base}", aqui na sua worktree:\n` +
-      `1) git fetch origin ${base}\n` +
-      `2) git merge origin/${base}  (vai conflitar)\n` +
+      (remote
+        ? `1) git fetch origin ${base}\n` + `2) git merge origin/${base}  (vai conflitar)\n`
+        : `1) (projeto local, sem remoto — não faça fetch)\n` + `2) git merge ${base}  (vai conflitar)\n`) +
       `3) resolva CADA conflito preservando a INTENÇÃO desta tarefa E as mudanças da base — não descarte um lado sem motivo;\n` +
       `4) git add -A && git commit  (sem --no-verify);\n` +
       `5) NÃO faça push nem abra PR — o humano revisa e mergeia.\n` +
@@ -1883,6 +1925,7 @@ export class Orchestrator {
     await this.git.branchDelete(task.branch);
     this.store.releaseClaims(taskId);
     this.store.setStatus(taskId, "merged");
+    await this.mobileTaskEnd(taskId, task.worktree);
     this.store.addEvent(taskId, task.agent, "note", `merge na ${task.base} concluído`, true);
   }
 
@@ -1896,10 +1939,30 @@ export class Orchestrator {
     }
     await this.git.branchDelete(task.branch);
     await rm(join(this.ws.dir, "artifacts", taskId), { recursive: true, force: true }).catch(() => {});
+    await this.mobileTaskEnd(taskId, task.worktree);
     this.store.deleteTask(taskId);
   }
 
   close(): void {
     this.store.close();
   }
+}
+
+/** Evidência citada no requirements.json existe no disco como ARQUIVO comum, DENTRO da pasta de artefatos ou da
+ * worktree? Aceita "x.png", "./x.png", ".cardume/artifacts/x.png" (antes o "." de ".cardume" era comido e a prova
+ * citada assim reprovava) e caminho do repo relativo à worktree ("tests/login.test.ts"). Recusa ".", "..",
+ * pastas, absolutos fora dessas pastas e symlink que aponta pra fora. */
+export function evidenceExists(artDir: string, worktree: string, e: string): boolean {
+  const raw = String(e ?? "").trim();
+  if (!raw || raw === "." || raw === "..") return false;
+  const real = (p: string) => { try { return realpathSync(p); } catch { return ""; } };
+  const roots = [real(artDir), real(worktree)].filter(Boolean);
+  const inside = (p: string) => roots.some((r) => { const rel = relative(r, p); return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel); });
+  const name = raw.replace(/^(\.\/)?(\.cardume\/artifacts\/)?/, "");
+  const cands = isAbsolute(raw) ? [raw] : [join(artDir, name), join(worktree, raw)];
+  return cands.some((p) => {
+    const r = real(p);
+    if (!r || !inside(r)) return false;
+    try { return statSync(r).isFile(); } catch { return false; }
+  });
 }

@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { exitGraceMs, killProcess } from "./claude.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
+import { mobileRule } from "../mobile.ts";
 
 /**
  * Motor Codex CLI (OpenAI) — e, via provider custom, QUALQUER endpoint
@@ -13,6 +14,8 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
  * Diferenças honestas vs. o motor Claude (v1):
  *  - sem MCP do Starfork: ask_human/claim não existem — dúvidas viram
  *    .cardume/artifacts/QUESTIONS.md e o turno finaliza com status honesto;
+ *    por isso o piloto automático (CARDUME_AUTOPILOT=1) não tem env pra repassar aqui: não há ask_human que
+ *    possa travar esperando humano — a regra "não pergunte, decida" chega pelo contexto do barramento (bus.ts);
  *  - sem retomar sessão no meio (chat da tarefa reabre um turno fresco).
  */
 export interface CodexProvider {
@@ -87,7 +90,8 @@ function buildPrompt(input: RunInput): string {
     " EXECUTE ANTES DE AFIRMAR: rode o projeto/testes de verdade nesta worktree (envs semeadas — veja .cardume/AMBIENTE.md) antes de qualquer conclusão; leitura de código não é verificação. Scripts descartáveis em .cardume/tmp/ (fora do diff).";
   const base = `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${artifactRule}${reqRule}${askRule}${groundRule}`;
   const sys = input.systemContext ? `\n\nCONTEXTO DO BARRAMENTO:\n${input.systemContext}` : "";
-  return (input.resume ? input.resume.instruction + groundRule : (input.promptOverride ? input.promptOverride + groundRule : base + sys));
+  const mob = mobileRule({ cwd: input.cwd, role: input.role, spec: input.spec }); // PROVAS MOBILE (mesmo roteiro dos 3 motores)
+  return (input.resume ? input.resume.instruction + groundRule + mob : (input.promptOverride ? input.promptOverride + groundRule + mob : base + mob + sys));
 }
 
 /**

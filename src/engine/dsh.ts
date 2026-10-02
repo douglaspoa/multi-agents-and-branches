@@ -8,6 +8,7 @@ import { exitGraceMs, killProcess, mapTool } from "./claude.ts";
 import { loadLlmEnv } from "./codex.ts";
 import { protectEnabled, PROTECT_RULE } from "./protect.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
+import { mobileRule } from "../mobile.ts";
 
 /**
  * Motor DeepSeek Harness (`dsh`, MIT — github.com/deepseek-ai/deepseek-harness) — BETA (o dsh está em
@@ -301,6 +302,9 @@ export function starforkMcp(input: RunInput): DshMcp {
       CARDUME_ROLE: String(input.role ?? ""),
       CARDUME_AGENT: input.agentName,
       CARDUME_ASK_TIMEOUT_MIN: String(input.askTimeoutMin ?? 0),
+      // piloto automático: o ask_human responde sozinho (sem humano) — igual ao Claude (engine/claude.ts). Sem
+      // isto o DeepSeek ficava esperando um humano que não existe (CARDUME_ASK_TIMEOUT_MIN=0 = pra sempre).
+      ...(process.env.CARDUME_AUTOPILOT === "1" ? { CARDUME_AUTOPILOT: "1" } : {}),
     },
     cwd: input.cwd,
   };
@@ -322,8 +326,9 @@ const GROUND_RULE =
 
 export function buildDshPrompt(input: RunInput): string {
   const protect = protectEnabled() ? PROTECT_RULE : "";
-  if (input.resume) return input.resume.instruction + (input.skillsRule ?? "") + GROUND_RULE + protect;
-  if (input.promptOverride) return input.promptOverride + ASK_RULE + GROUND_RULE + protect;
+  const mob = mobileRule({ cwd: input.cwd, role: input.role, spec: input.spec }); // PROVAS MOBILE (mesmo roteiro dos 3 motores)
+  if (input.resume) return input.resume.instruction + (input.skillsRule ?? "") + GROUND_RULE + mob + protect;
+  if (input.promptOverride) return input.promptOverride + ASK_RULE + GROUND_RULE + mob + protect;
   const roleInstr = ROLE_INSTR[input.role] ?? ROLE_INSTR.builder;
   const arts = input.spec.artifacts ?? [];
   const artifactRule = arts.length && input.role !== "planner"
@@ -337,7 +342,7 @@ export function buildDshPrompt(input: RunInput): string {
     : "";
   const refs = input.spec.refs ?? [];
   const refRule = refs.length ? ` Leia primeiro as referências em .cardume/refs/ (${refs.join(", ")}).` : "";
-  const base = `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${artifactRule}${reqRule}${ASK_RULE}${GROUND_RULE}${protect}`;
+  const base = `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${artifactRule}${reqRule}${ASK_RULE}${GROUND_RULE}${mob}${protect}`;
   // o headless não tem "append system prompt": o contexto do barramento vai no próprio pedido (como no Codex)
   return base + (input.systemContext ? `\n\nCONTEXTO DO BARRAMENTO:\n${input.systemContext}` : "");
 }

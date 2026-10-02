@@ -9,8 +9,10 @@ use std::sync::{Arc, Mutex};
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
 mod ai_once;
+mod autopilot;
 mod epic_context;
 mod learn;
+mod media_proto;
 mod memoria;
 mod mesa;
 mod plan_usage;
@@ -997,11 +999,11 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 }
 
 /// O pedaço do spec que o front lê em `t.spec` no snapshot (None quando não há nada):
-/// teto de custo (budgetUsd, budgetHit), o RESUMO das edições de agente (agentEdits: quem/quando/campos —
+/// teto de custo (budgetUsd, budgetHit; `autopilot` = tarefa do piloto automático, que o app não pausa), o RESUMO das edições de agente (agentEdits: quem/quando/campos —
 /// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    for k in ["budgetUsd", "budgetHit"] {
+    for k in ["budgetUsd", "budgetHit", "autopilot"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     if let Some(e) = agent_edits::compact_edits(spec) { m.insert("agentEdits".into(), e); }
@@ -2252,7 +2254,7 @@ fn reveal_project(path: String) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 struct Artifact {
     name: String,
-    kind: String, // "doc" | "image" | "file"
+    kind: String, // "doc" | "image" | "pdf" | "video" | "file"
     size: u64,
     /// mtime em ms — pra ordenar por data de criação na UI.
     created: i64,
@@ -2266,6 +2268,8 @@ fn artifact_kind(name: &str) -> &'static str {
         "image"
     } else if l.ends_with(".pdf") {
         "pdf"
+    } else if media_proto::is_video(&l) {
+        "video" // servido pelo protocolo sfart:// (sem base64) — ver media_proto.rs
     } else {
         "file"
     }
@@ -2363,6 +2367,10 @@ fn read_artifact(state: State<AppState>, task_id: String, name: String) -> Resul
         }
     };
     let kind = artifact_kind(&name);
+    if kind == "video" {
+        // vídeo NUNCA vira base64: o front toca via sfart://<tarefa>/<nome> (Range, pedaço por pedaço)
+        return Ok(ArtifactContent { kind: "video".into(), text: None, data_url: None });
+    }
     if kind == "image" {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
         let l = name.to_lowercase();
@@ -6325,6 +6333,48 @@ fn env_dsh_status_item(name: String, found: &str, version: &str, st: Result<(), 
     }
 }
 
+/// Itens opcionais "Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)" — a MESMA
+/// checagem que o agente vê (`cardume mobile doctor --json`, src/mobile.ts). Motor fora do ar → sem os itens.
+fn env_mobile_items(cli: &str) -> Vec<EnvCheck> {
+    let mut c = node_cmd();
+    c.args(["--disable-warning=ExperimentalWarning", cli, "mobile", "doctor", "--json"]);
+    // o doctor roda simctl e emulador EM PARALELO (15 s cada) + a varredura: 45 s cobre com folga
+    let r = output_timeout(c, 45).map(|o| env_mobile_parse(&String::from_utf8_lossy(&o.stdout), cfg!(target_os = "macos")));
+    env_mobile_or_silent(r)
+}
+/// Sem resposta (tempo esgotado/erro/JSON vazio) → UM item "não respondeu" em vez de sumir calado.
+fn env_mobile_or_silent(r: Result<Vec<EnvCheck>, String>) -> Vec<EnvCheck> {
+    match r {
+        Ok(v) if !v.is_empty() => v,
+        Ok(_) => vec![env_mobile_silent("a checagem não devolveu resultado")],
+        Err(e) => vec![env_mobile_silent(&e)],
+    }
+}
+fn env_mobile_silent(why: &str) -> EnvCheck {
+    EnvCheck {
+        kind: "opt".into(),
+        name: "Provas mobile (simulador/emulador)".into(),
+        ok: false,
+        detail: format!("a checagem do simulador/emulador não respondeu ({})", why.chars().take(160).collect::<String>()),
+        fix: "clique em \"verificar de novo\"; se persistir, rode no Terminal: cardume mobile doctor".into(),
+    }
+}
+/// JSON do doctor → itens do Ambiente (puro — testável). Fora do macOS o item do iOS não aparece (não tem correção).
+fn env_mobile_parse(stdout: &str, macos: bool) -> Vec<EnvCheck> {
+    let Some(line) = stdout.lines().rev().find(|l| l.trim_start().starts_with('{')) else { return Vec::new() };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else { return Vec::new() };
+    let items = v.get("items").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    items
+        .iter()
+        .filter(|it| macos || it.get("id").and_then(|x| x.as_str()) != Some("ios"))
+        .filter_map(|it| {
+            let name = it.get("name")?.as_str()?.to_string();
+            let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            Some(EnvCheck { kind: "opt".into(), name, ok: it.get("ok").and_then(|x| x.as_bool()).unwrap_or(false), detail: s("detail"), fix: s("fix") })
+        })
+        .collect()
+}
+
 /// Preflight do ambiente: tudo que o app precisa pra rodar tarefas, com o
 /// comando de correção pronto — mata a classe "cliquei e nada" pra novatos.
 #[tauri::command(async)]
@@ -6383,6 +6433,8 @@ fn env_check() -> Vec<EnvCheck> {
         None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Configurações → Gateway próprio (URL, chave e modelo)".into() },
     });
     out.push(env_dsh_item());
+    // provas mobile (opcionais): Simulador iOS, Emulador Android, Maestro — fonte única no motor (src/mobile.ts)
+    if cli_ok { out.extend(env_mobile_items(&cli)); }
     // gh autenticado
     let gb = gh_bin();
     let mut ghc = Command::new(&gb);
@@ -6422,6 +6474,9 @@ struct ArtifactRaw {
 /// Bytes de um artefato (base64) — pro upload de provas pro time (Storage).
 #[tauri::command(async)]
 fn read_artifact_raw(state: State<AppState>, task_id: String, name: String) -> Result<ArtifactRaw, String> {
+    if media_proto::is_video(&name) {
+        return Err("vídeo não é enviado em base64 — ele fica no computador (toque pela Entrega)".into());
+    }
     let path = artifact_path(&state, &task_id, &name)?;
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let l = name.to_lowercase();
@@ -9138,6 +9193,27 @@ pub fn run() {
             Ok(())
         })
         .manage(AppState::from_env())
+        // VÍDEOS das provas (mobile) sem base64: sfart://<tarefa>/<artefato>, com Range e escopo nas pastas de artefatos
+        .register_asynchronous_uri_scheme_protocol("sfart", |ctx, request, responder| {
+            use tauri::Manager;
+            let app = ctx.app_handle().clone();
+            let path = request.uri().path().to_string();
+            let range = request.headers().get("range").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+            std::thread::spawn(move || {
+                let st = app.state::<AppState>();
+                let (status, headers, body) = media_proto::serve(&path, range.as_deref(), |task, name| {
+                    let file = artifact_path(&st, task, name).ok()?;
+                    // pastas permitidas: artefatos da worktree da tarefa e a cópia coletada no repo (o `within` canoniza)
+                    let mut roots = Vec::new();
+                    if let Ok(wt) = task_worktree(&st, task) { roots.push(wt.join(".cardume").join("artifacts")); }
+                    if let Ok(repo) = repo_of(&st) { roots.push(repo.join(".cardume").join("artifacts").join(task)); }
+                    Some((file, roots))
+                });
+                let mut b = tauri::http::Response::builder().status(status);
+                for (k, v) in headers { b = b.header(k, v); }
+                responder.respond(b.body(body).unwrap_or_else(|_| tauri::http::Response::new(Vec::new())));
+            });
+        })
         .invoke_handler(tauri::generate_handler![
             set_repo,
             plan_usage::plan_usage,
@@ -9237,6 +9313,11 @@ pub fn run() {
             create_project,
             quick_project_target,
             quick_create_project,
+            autopilot::autopilot_start,
+            autopilot::autopilot_status,
+            autopilot::autopilot_stop,
+            autopilot::autopilot_resume,
+            autopilot::autopilot_open_report,
             reveal_project,
             ai_orchestrate,
             ai_orchestrate_chat,
@@ -9570,6 +9651,35 @@ mod motor_r7_tests {
     }
 }
 
+#[cfg(test)]
+mod env_mobile_tests {
+    use super::*;
+    #[test]
+    fn itens_mobile_do_doctor() {
+        // MESMO arquivo que o teste TS gera do `cardume mobile doctor --json` (src/mobile.test.ts)
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/mobile-doctor.json");
+        let out = format!("aviso qualquer\n{}\n", std::fs::read_to_string(&p).unwrap().replace('\n', ""));
+        let v = env_mobile_parse(&out, true);
+        assert_eq!(v.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)"]);
+        assert!(v.iter().all(|c| c.kind == "opt"), "opcionais: não acendem pendência");
+        assert!(v[0].ok && !v[1].ok && v[1].fix.contains("Android Studio") && v[1].fix.contains("cmdline-tools/latest/bin/avdmanager"));
+        assert_eq!(env_mobile_parse(&out, false).len(), 2, "fora do macOS o iOS some");
+        assert!(env_mobile_parse("lixo", true).is_empty());
+        // sem resposta: um item "não respondeu" em vez de sumir
+        let s = env_mobile_or_silent(Err("tempo esgotado (45s)".into()));
+        assert_eq!(s.len(), 1);
+        assert!(!s[0].ok && s[0].detail.contains("não respondeu") && s[0].kind == "opt");
+        assert_eq!(env_mobile_or_silent(Ok(vec![])).len(), 1);
+    }
+    #[test]
+    fn artifact_kind_video() {
+        assert_eq!(artifact_kind("mobile-ios-1.mp4"), "video");
+        assert_eq!(artifact_kind("demo.MOV"), "video");
+        assert_eq!(artifact_kind("x.webm"), "video");
+        assert_eq!(artifact_kind("mobile-ios-1.png"), "image");
+        assert_eq!(artifact_kind("x.zip"), "file");
+    }
+}
 #[cfg(test)]
 mod env_ai_tests {
     use super::*;

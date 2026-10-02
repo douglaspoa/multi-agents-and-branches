@@ -26,6 +26,14 @@ if (!DB) {
 const store = new Store(DB);
 const bus = new CoordinationBus(store);
 
+/** Resposta do ask_human no piloto automático (sem humano, CARDUME_AUTOPILOT=1). Não é exportada: o teste
+ * (src/autopilot.test.ts) chama o servidor de verdade e confere o texto devolvido. */
+const AUTOPILOT_ANSWER =
+  "PILOTO AUTOMÁTICO — não há humano para responder. Decida você mesmo seguindo o objetivo da tarefa e o .cardume/refs/EPIC.md " +
+  "(na dúvida, a opção mais simples que entrega o \"pronto quando\"). Registre a suposição em .cardume/artifacts/ASSUMPTIONS.md " +
+  "(uma linha: a pergunta → o que você decidiu e por quê) e siga sem perguntar de novo. Se a pergunta era se pode finalizar: sim, finalize. " +
+  "Se algo é IMPOSSÍVEL nesta máquina (ex.: falta o simulador), marque o requisito como \"blocked\" no requirements.json com o motivo exato e finalize.";
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const TOOLS = [
@@ -159,6 +167,15 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     const question = String(args?.question ?? "").trim();
     const options: string[] | undefined = Array.isArray(args?.options) ? args.options : undefined;
     if (!question) return { text: "pergunta vazia", isError: true };
+    // PILOTO AUTOMÁTICO: não há humano — responde NA HORA mandando a IA decidir e registrar a suposição
+    // (src/autopilot.ts liga CARDUME_AUTOPILOT=1; nada de notificação nem espera)
+    if (process.env.CARDUME_AUTOPILOT === "1") {
+      const id = store.addPending(TASK, AGENT, "question", question, options);
+      store.answerPending(id, AUTOPILOT_ANSWER);
+      store.addEvent(TASK, AGENT, "note", `perguntou (piloto automático, sem humano): ${question}`, undefined);
+      store.addEvent(TASK, "Piloto automático", "note", `resposta automática: decida e registre a suposição em .cardume/artifacts/ASSUMPTIONS.md`, true);
+      return { text: AUTOPILOT_ANSWER };
+    }
     const id = store.addPending(TASK, AGENT, "question", question, options);
     store.addEvent(TASK, AGENT, "note", `perguntou ao humano: ${question}`, undefined);
     notify("Starfork", question, `${AGENT} precisa de você`);

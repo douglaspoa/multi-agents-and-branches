@@ -322,7 +322,7 @@ function openCloudTask(ct){
     if(el && rp && Array.isArray(rp.list||rp) ){
       const list=Array.isArray(rp.list)?rp.list:rp;
       if(list.length) el.innerHTML=`<div class="seclbl2" style="margin-top:14px">Requisitos provados <span class="n">${list.filter(x=>x.status==='done').length}/${list.length}</span></div>`+
-        list.map(x=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:5px 2px;border-bottom:1px dashed var(--border)"><span style="color:${x.status==='done'?'var(--good)':'var(--warn)'}">${x.status==='done'?'✓':'○'}</span><span style="flex:1">${esc(x.req||'')}</span></div>`).join('');
+        list.map(x=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:5px 2px;border-bottom:1px dashed var(--border)"><span style="color:${x.status==='done'?'var(--good)':'var(--warn)'}">${x.status==='done'?'✓':'○'}</span><span style="flex:1">${esc(x.req||'')}${ctVideoNote(x)}</span></div>`).join('');
     }
   }
   // galeria de provas publicadas (o que o dev ESCOLHEU subir)
@@ -424,10 +424,15 @@ async function cloudPubList(cid, force){
   catch(_){ cloudPubCache[cid]=[]; }
   return cloudPubCache[cid];
 }
+// requisito provado com VÍDEO: o vídeo não sobe pra nuvem (só prints/documentos) — o time sabe onde ele está
+function ctVideoNote(x){ const ev=Array.isArray(x&&x.evidence)?x.evidence:[]; return ev.some(e=>/\.(mp4|m4v|mov|webm)$/i.test(String(e)))?' <span class="dim" style="font-size:11px">· vídeo fica na máquina de quem fez</span>':''; }
 async function cloudPublishProofs(t, btn){
   const cid=tmap()[t.id]; if(!cid){ toast('Esta tarefa não está sincronizada com o time.','warn'); return; }
-  const arts=await loadArtifacts(t.id, t.status)||[];
-  if(!arts.length){ toast('Sem artefatos ainda — peça as provas/entregáveis primeiro.','warn'); return; }
+  const all=await loadArtifacts(t.id, t.status)||[];
+  // vídeo NÃO sobe (nada de base64 de vídeo inteiro no front): fica no computador e toca pela Entrega
+  const arts=all.filter(a=>a.kind!=='video' && !/\.(mp4|m4v|mov|webm)$/i.test(a.name||''));
+  if(!arts.length){ toast(all.length?'Só há vídeos — eles ficam no seu computador (veja na Entrega).':'Sem artefatos ainda — peça as provas/entregáveis primeiro.','warn'); return; }
+  if(all.length>arts.length) toast(`${all.length-arts.length} vídeo(s) ficam só no seu computador — o time vê os prints e documentos`);
   if(btn){ btn.disabled=true; }
   let sent=0;
   try{

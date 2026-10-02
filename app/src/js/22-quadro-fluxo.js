@@ -407,6 +407,33 @@ function flowSecCollapsed(k, def){ const v=lsGet('sec:col:'+k); return v==null?!
 function flowSecHead(k, label, n, tone, collapsed, icon){
   return `<div class="sech ${tone||''}" data-sectog="${escA(k)}" role="button" tabindex="0" aria-expanded="${collapsed?'false':'true'}" title="${escA((FLOW_SEC_TIP[k]||label)+' · clique pra '+(collapsed?'expandir':'recolher'))}"><span class="secchev">${collapsed?IC.chevR:IC.chevD}</span>${icon?`<span class="secic">${icon}</span>`:''}${esc(label)} <span class="n">${n}</span></div>`;
 }
+// ---- Concluídas: grupo POR PROJETO que recolhe + paginação (12 por vez) ----
+// Com centenas de entregas a aba montava todos os cartões e cada um pedia artefatos/provas. Agora só os cartões
+// VISÍVEIS existem (e só eles carregam): grupo recolhido = zero cartões; aberto = as 12 mais recentes + "mostrar mais".
+// Cada projeto começa ABERTO; recolher fica salvo por projeto (concl:col:<caminho>) só neste computador.
+const FLOW_DONE_PAGE=12;
+const flowDoneShow={};   // quantos cartões cada grupo mostra nesta sessão (chave = projeto/seção)
+function flowDoneCollapsed(k){ try{ return lsGet('concl:col:'+k)==='1'; }catch(_){ return false; } }
+function flowDoneSetCollapsed(k, col){ try{ lsSet('concl:col:'+k, col?'1':'0'); }catch(_){ } }
+function flowDoneDomId(k){ let h=0; const s=String(k); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))|0; return 'cg'+(h>>>0).toString(36); }
+// os N primeiros (a lista já vem na ordem da Central) + botões "mostrar mais (N restantes)" / "recolher"
+function flowDoneN(k, total){ return Math.min(total, Math.max(FLOW_DONE_PAGE, flowDoneShow[k]||FLOW_DONE_PAGE)); }
+function flowDoneMoreHtml(k, total, n){
+  const rest=total-n;
+  const more=rest>0?`<button class="btn sm ghost" data-donemore="${escA(k)}">mostrar mais (${rest} restante${rest===1?'':'s'})</button>`:'';
+  const less=n>FLOW_DONE_PAGE?`<button class="btn sm ghost" data-doneless="${escA(k)}">mostrar menos</button>`:'';
+  return (more||less)?`<div class="cgmore">${more}${less}</div>`:'';
+}
+function flowDonePageHtml(k, list, item){
+  const n=flowDoneN(k, list.length);
+  return list.slice(0, n).map(t=>item(t)).join('')+flowDoneMoreHtml(k, list.length, n);
+}
+// grupo de um projeto: cabeçalho é um <button> (Tab/Enter/Espaço) com aria-expanded/aria-controls; recolhido = sem cartões
+function flowDoneGroupHtml(k, label, color, list, item){
+  const col=flowDoneCollapsed(k), id=flowDoneDomId(k);
+  const head=`<button type="button" class="sech cgtog" data-donetog="${escA(k)}" aria-expanded="${col?'false':'true'}" aria-controls="${id}" title="${escA(label+' · '+(col?'mostrar as entregas':'recolher'))}"><span class="secchev">${col?IC.chevR:IC.chevD}</span><span class="prjd" style="background:${color}"></span>${esc(label)} <span class="n">${list.length}</span></button>`;
+  return `<div class="secgrp cgrp${col?' collapsed':''}" data-sec="${escA('concl:'+k)}">${head}<div class="cgbody" id="${id}"${col?' hidden':''}>${col?'':flowDonePageHtml(k, list, item)}</div></div>`;
+}
 let flowView=lsGet('flowView')||'list';   // list | grid (redesign p1/p2)
 function renderFlowHead(){
   const el=$id('flowHead'); if(!el) return;
@@ -434,7 +461,7 @@ function taskPct(t){
   if(t.prUrl) return 92;
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   const c=reqProofCache[t.id];
-  if(reqs.length && c===undefined){ loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } }); }
+  if(reqs.length && c===undefined){ loadReqProofs(t.id).then(flowRerenderSoon); }
   let reqFrac=null;
   if(reqs.length && c && c.list){ const m=matchReqProofs(reqs, c.list); const done=m.filter(x=>x&&x.status==='done').length; reqFrac=done/reqs.length; }
   if(['review','delivered'].includes(t.status)) return Math.round(80+(reqFrac==null?5:reqFrac*15));
@@ -693,7 +720,7 @@ function renderFlow(){
   // monta o HTML numa string (não escreve direto no DOM) pra poder pular o rebuild
   // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
   // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
-  let tasks=[], html='', grouped=false;
+  let tasks=[], html='', grouped=false; const rendered=[];
   // fila dos épicos (46): respeita busca/status/tipo/agente/épico lá dentro; entra DEPOIS de
   // "Aguardando você" e "Em andamento" (recolhida por padrão se há algo esperando você)
   const nWaitYou=flowScope==='done'?0:src.filter(t=>flowScopeOk(t)&&flowBucket(t)==='aguardando').length;
@@ -713,17 +740,24 @@ function renderFlow(){
     if(!tasks.length){ html = (flowStatus==='epicos' && epHtml) ? epHtml : flowEmptyHtml()+epHtml; }
     else {
       grouped = flowGroupBy==='day';
-      const item = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowDemandCard(t));
-      const byProject = flowScope==='done' && projFilter==='all' && projList().length>1;
+      const item0 = flowView==='grid' ? ((t,acc)=>flowTaskCard(t,acc)) : ((t)=>flowDemandCard(t));
+      const item = (t,acc)=>{ rendered.push(t); return item0(t,acc); }; // anota o que foi de fato desenhado (só esses carregam)
+      const isDone = flowScope==='done';
+      // Concluídas: sempre por projeto (mesmo com um só) — cada projeto recolhe sozinho e pagina de 12 em 12
+      const byProject = isDone;
       if(grouped){
         const g=new Map();
-        for(const t of tasks){ const d=new Date(taskTs(t)); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
+        // Concluídas por dia: pagina a lista inteira (12 por vez) antes de agrupar
+        const dayN = isDone ? flowDoneN('dia', tasks.length) : tasks.length;
+        for(const t of tasks.slice(0, dayN)){ const d=new Date(taskTs(t)); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         const keys=[...g.keys()].sort((a,b)=>b-a);
-        html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${nPl(g.get(k).length,'tarefa')}</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("") + epHtml;
+        html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${nPl(g.get(k).length,'tarefa')}</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("")
+          + (isDone ? flowDoneMoreHtml('dia', tasks.length, dayN) : '') + epHtml;
       } else if(byProject){
         const g=new Map();
         for(const t of tasks){ const k=t.repo||state.repo||''; if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
-        html = [...g.entries()].map(([k,list])=>`<div class="secgrp"><div class="sech"><span class="prjd" style="background:${projColor(k)};width:8px;height:8px;border-radius:99px;display:inline-block"></span>${esc(projShort(k))} <span class="n">${list.length}</span></div>${list.map(t=>item(t)).join("")}</div>`).join("");
+        // um grupo por projeto: abre por padrão, recolhe por projeto, 12 cartões por vez
+        html = [...g.entries()].map(([k,list])=>flowDoneGroupHtml(k, projShort(k), projColor(k), list, item)).join("");
       } else {
         const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
         html = FLOW_SECS.map(([k,label,tone,acc])=>{
@@ -749,6 +783,11 @@ function renderFlow(){
     h.onclick=(e)=>{ e.stopPropagation(); const k=h.dataset.sectog; const was=h.getAttribute('aria-expanded')==='false'; lsSet('sec:col:'+k, was?'0':'1'); lastSig=''; renderFlow(); };
     h.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); h.onclick(e); } };
   });
+  // Concluídas: recolher/abrir grupo do projeto, mostrar mais 12, voltar às 12 — devolve o foco ao mesmo controle
+  const refocus=(sel)=>{ const b=el.querySelector(sel); if(b) b.focus(); };
+  el.querySelectorAll('[data-donetog]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const k=b.dataset.donetog; flowDoneSetCollapsed(k, b.getAttribute('aria-expanded')==='true'); lastSig=''; renderFlow(); refocus(`[data-donetog="${CSS.escape(k)}"]`); });
+  el.querySelectorAll('[data-donemore]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const k=b.dataset.donemore; flowDoneShow[k]=Math.max(FLOW_DONE_PAGE, flowDoneShow[k]||FLOW_DONE_PAGE)+FLOW_DONE_PAGE; lastSig=''; renderFlow(); refocus(`[data-donemore="${CSS.escape(k)}"]`); });
+  el.querySelectorAll('[data-doneless]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const k=b.dataset.doneless; delete flowDoneShow[k]; lastSig=''; renderFlow(); const h=el.querySelector(`[data-donetog="${CSS.escape(k)}"]`)||el.querySelector(`[data-donemore="${CSS.escape(k)}"]`); if(h){ h.focus(); h.scrollIntoView({block:'nearest'}); } });
   bindClick('ghostNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearFilters', flowClearFilters);
   bindClick('flowClearAll', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; flowClearFilters(); });
@@ -811,5 +850,6 @@ function renderFlow(){
   el.querySelectorAll('.fcommit').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openCommit(b.dataset.hash); });
   el.querySelectorAll('[data-ctog]').forEach(h=>h.onclick=(e)=>{ e.stopPropagation(); const id=h.dataset.ctog; if(flowCommitsOpen.has(id)) flowCommitsOpen.delete(id); else flowCommitsOpen.add(id); lastSig=''; renderFlow(); });
   // resultado chega depois: só marca sujo — o refresh redesenha respeitando a trava de clique (uiHoldUntil)
-  for(const t of tasks){ if(commitsNeedLoad(t.id) && !commitsLoading[t.id]){ const before=JSON.stringify(commitsCache[t.id]||null); loadCommits(t.id).then(c=>{ if(JSON.stringify(c||null)!==before) lastSig=''; }); } }
+  // Concluídas: só os cartões desenhados buscam commits (grupo recolhido / páginas seguintes não custam nada)
+  for(const t of (flowScope==='done'?rendered:tasks)){ if(commitsNeedLoad(t.id) && !commitsLoading[t.id]){ const before=JSON.stringify(commitsCache[t.id]||null); loadCommits(t.id).then(c=>{ if(JSON.stringify(c||null)!==before) lastSig=''; }); } }
 }
