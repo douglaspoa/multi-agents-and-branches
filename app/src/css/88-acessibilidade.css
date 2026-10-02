@@ -25,3 +25,12 @@ html .busln:focus-visible,html .epqdot:focus-visible,html #tmenuPop button:focus
 .kbdrow .kbdor{color:var(--muted);font-size:var(--fs-xs);margin:0 2px}
 /* área rolável de uma janela: o Chrome/WebKit a torna focável pelo Tab (pra rolar pelo teclado) — mostra o anel por dentro */
 html .overlay .mbody:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)!important}
+/* Concluídas: grupo por projeto que recolhe (cabeçalho é um <button>) + "mostrar mais" — 22-quadro-fluxo */
+#flow .cgtog{width:100%;background:none;border:0;margin:0;text-align:left;cursor:pointer;user-select:none;border-radius:6px}
+#flow .cgtog:hover{color:var(--text)}
+#flow .cgtog .prjd{width:8px;height:8px;border-radius:99px;display:inline-block;flex:none}
+#flow .cgbody[hidden]{display:none}
+#flow .cgmore{display:flex;gap:8px;justify-content:center;padding:6px 0 4px}
+#flow.gridview .secgrp.cgrp{display:block}
+#flow.gridview .cgbody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+#flow.gridview .cgbody .cgmore{grid-column:1/-1}
