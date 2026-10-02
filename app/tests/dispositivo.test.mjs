@@ -119,10 +119,17 @@ test('fonte: painel DOCADO ao lado das colunas (não modal), botão no cabeçalh
 
 test('fonte: espelho SÓ com o painel visível (aba da tarefa na frente, janela visível), um por vez, quadros fora do Tauri', () => {
   const run = slice('function dvShouldRun', 'function dvWatch');
-  for (const cond of ['!el.hidden', 'v.d.up', 'fwVisible()', "document.visibilityState==='visible'"]) assert.ok(run.includes(cond), 'condição: ' + cond);
-  assert.match(src, /document\.addEventListener\('visibilitychange', \(\)=>\{ if\(document\.visibilityState!=='visible'\) dvStopStream\(\); \}\)/);
-  assert.match(slice('function dvStopStream', 'async function dvPollState'), /s\.ctl\.abort\(\)/, 'parar = abortar o fetch (o servidor para a captura)');
   const start = slice('async function dvStartStream', 'function errShortDv');
+  for (const cond of ['!el.hidden', 'v.d.up', 'fwVisible()', "document.visibilityState==='visible'", 'DV.host.offsetParent!==null']) assert.ok(run.includes(cond), 'condição: ' + cond);
+  assert.match(src, /document\.addEventListener\('visibilitychange', \(\)=>\{ if\(document\.visibilityState!=='visible'\) dvStopStream\(\); else dvCheckRun\(\); \}\)/);
+  // F0 do canvas: o vigia não é mais um setInterval de 1 s — reage a eventos e arma UM setTimeout pra próxima tentativa
+  const chk = slice('function dvCheckRun', 'function dvWatch');
+  assert.ok(!/setInterval/.test(chk) && !/setInterval/.test(slice('function dvWatch', 'document.addEventListener')), 'vigia sem laço');
+  assert.match(chk, /DV\.retryT=setTimeout\(dvCheckRun, wait\+20\)/);
+  // teto de 1 stream no app (gerente de recursos) e sessão presa à demanda
+  assert.match(start, /cvRmTake\('stream', dvKey\(id\)/);
+  assert.match(slice('function dvStopStream', 'async function dvPollState'), /cvRmDrop\('stream', dvKey\(s\.id\)\)/);
+  assert.match(slice('function dvStopStream', 'async function dvPollState'), /s\.ctl\.abort\(\)/, 'parar = abortar o fetch (o servidor para a captura)');
   assert.match(start, /invoke\('device_mirror_start'/); assert.match(start, /fetch\(`\$\{sess\.base\}\/stream\?t=/);
   assert.ok(!/invoke\('[^']*frame/.test(src), 'nenhum comando Tauri por quadro');
   // imagem chegando com outra decodificando → guarda só a mais nova (sem fila crescendo)

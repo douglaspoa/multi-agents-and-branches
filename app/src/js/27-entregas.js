@@ -91,9 +91,9 @@ function artThumb(taskId, name){
   invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; if(fwTask===taskId&&fwMode==='entrega') renderWorkspace(); }).catch(()=>{});
   return null;
 }
+function fwModesList(t){ const M=[['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão'],['previa','Prévia']]; if(t&&t.prUrl) M.push(['pr','PR']); return M; } // Prévia: 57-navegador
 function fwModesHtml(t){
-  const M=[['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão'],['previa','Prévia']]; if(t.prUrl) M.push(['pr','PR']); // Prévia: 57-navegador
-  return M.map(([k,l])=>`<button class="fwmode${fwMode===k?' on':''}" data-fwmode="${k}">${l}</button>`).join('');
+  return fwModesList(t).map(([k,l])=>`<button class="fwmode${fwMode===k?' on':''}" data-fwmode="${k}">${l}</button>`).join('');
 }
 // ---- entrega SEM código (FT-6): investigação/design, ou tarefa que só produziu documentos ----
 // Júlia vetou um "modo" separado: é o TIPO da entrega que esconde branch/PR. O fim é salvar os

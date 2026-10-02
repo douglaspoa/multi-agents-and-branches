@@ -77,22 +77,24 @@ function nvSummaryHtml(sels){
 function nvTabHtml(st){
   const vp=NV_VP[st.vp]?st.vp:'desktop';
   const vpBtns=Object.keys(NV_VP).map(k=>`<button type="button" class="${k===vp?'on':''}" data-nvvp="${k}" title="${escA(NV_VP[k].label+(NV_VP[k].w?' — '+NV_VP[k].w+' px de largura':' — largura toda'))}">${esc(NV_VP[k].label)}</button>`).join('');
+  // F0 (canvas): tudo por data-nv dentro da RAIZ do painel — dois painéis de prévia (duas demandas) convivem sem
+  // trocar endereço, mira ou iframe (antes eram ids fixos: o 2º painel pintava no 1º)
   return `<div class="nvwrap">
     <div class="nvbar" role="toolbar" aria-label="navegação da prévia">
-      <button type="button" class="btn sm nvic" id="nvBack" title="voltar" aria-label="voltar">‹</button>
-      <button type="button" class="btn sm nvic" id="nvFwd" title="avançar" aria-label="avançar">›</button>
-      <button type="button" class="btn sm nvic" id="nvReload" title="recarregar" aria-label="recarregar">${IC.refresh}</button>
-      <form class="nvaddr" id="nvForm" autocomplete="off"><input class="in mono" id="nvAddr" spellcheck="false" aria-label="endereço" placeholder="endereço — ex.: localhost:5173 ou https://site.com" value="${escA(st.addr||'')}"></form>
+      <button type="button" class="btn sm nvic" data-nv="back" title="voltar" aria-label="voltar">‹</button>
+      <button type="button" class="btn sm nvic" data-nv="fwd" title="avançar" aria-label="avançar">›</button>
+      <button type="button" class="btn sm nvic" data-nv="reload" title="recarregar" aria-label="recarregar">${IC.refresh}</button>
+      <form class="nvaddr" data-nv="form" autocomplete="off"><input class="in mono" data-nv="addr" spellcheck="false" aria-label="endereço" placeholder="endereço — ex.: localhost:5173 ou https://site.com" value="${escA(st.addr||'')}"></form>
       <span class="nvvp" role="group" aria-label="tamanho da tela">${vpBtns}</span>
-      <button type="button" class="btn sm nvpick${st.picking?' on':''}" id="nvPick" aria-pressed="${st.picking?'true':'false'}" title="modo design: passe o mouse e clique nos elementos da página pra mandar pro agente (Esc sai)">⌖ mira</button>
-      <button type="button" class="btn sm nvic" id="nvShot" title="tirar print da prévia — salva nos artefatos da tarefa (vale como prova)" aria-label="tirar print">${IC.camera}</button>
-      <button type="button" class="btn sm nvic" id="nvExt" title="abrir no navegador" aria-label="abrir no navegador">${IC.extlink}</button>
+      <button type="button" class="btn sm nvpick${st.picking?' on':''}" data-nv="pick" aria-pressed="${st.picking?'true':'false'}" title="modo design: passe o mouse e clique nos elementos da página pra mandar pro agente (Esc sai)">⌖ mira</button>
+      <button type="button" class="btn sm nvic" data-nv="shot" title="tirar print da prévia — salva nos artefatos da tarefa (vale como prova)" aria-label="tirar print">${IC.camera}</button>
+      <button type="button" class="btn sm nvic" data-nv="ext" title="abrir no navegador" aria-label="abrir no navegador">${IC.extlink}</button>
     </div>
-    <div class="nvstage" id="nvStage"><div class="nvframewrap" id="nvFrameWrap" style="${NV_VP[vp].w?'width:'+NV_VP[vp].w+'px':'width:100%'}"><div class="nvmsg" id="nvMsg"></div></div></div>
-    <div class="nvpanel" id="nvPanel" style="display:none">
-      <div class="nvpicks" id="nvPicks"></div>
-      <div class="nvsend"><textarea class="in" id="nvNote" rows="2" placeholder="o que mudar? ex.: deixa esse botão verde e maior"></textarea>
-        <button type="button" class="btn primary sm" id="nvSendBtn">mandar pra tarefa</button></div>
+    <div class="nvstage" data-nv="stage"><div class="nvframewrap" data-nv="wrap" style="${NV_VP[vp].w?'width:'+NV_VP[vp].w+'px':'width:100%'}"><div class="nvmsg" data-nv="msg"></div></div></div>
+    <div class="nvpanel" data-nv="panel" style="display:none">
+      <div class="nvpicks" data-nv="picks"></div>
+      <div class="nvsend"><textarea class="in" data-nv="note" rows="2" placeholder="o que mudar? ex.: deixa esse botão verde e maior"></textarea>
+        <button type="button" class="btn primary sm" data-nv="send">mandar pra tarefa</button></div>
     </div>
   </div>`;
 }
@@ -104,66 +106,86 @@ function nvPicksHtml(picks){
     return `<div class="nvpk" title="${escA((it.selector||'')+(p.shotErr?'\n'+p.shotErr:''))}"><span class="nvpk-n">${i+1}</span><span class="nvth">${th}</span><span class="nvpk-t"><code>${esc(String(it.selector||it.tag||'').slice(0,90))}</code>${it.text?`<span class="nvpk-tx">${esc(String(it.text).slice(0,70))}</span>`:''}</span><button type="button" class="nvpk-x" data-nvrm="${p.id}" title="tirar esta seleção" aria-label="tirar a seleção ${i+1}">${IC.x}</button></div>`;
   }).join('');
 }
+// mensagem do script de seleção → de QUAL demanda (só o iframe dela, na origem do proxy dela). F0: duas prévias
+// abertas não trocam mira — o clique na página A nunca vira seleção da demanda B.
+function nvRouteMsg(states, source, origin){
+  for(const k of Object.keys(states||{})){ const s=states[k]; if(s && s.frame && source && source===s.frame.contentWindow && s.proxy && origin===s.proxy.origin) return k; }
+  return null;
+}
 // @nav-puro-fim
 
-const nvState={};          // taskId → estado da Prévia
+const nvState={};          // taskId → estado da Prévia (cada demanda o SEU — F0: nada de prévia "global")
 const nvLive=new Set();    // tarefas com proxy aberto (varredura do fim da tarefa)
-function nvSt(id){ return nvState[id]||(nvState[id]={ addr:'', proxy:null, vp:(lsGet('nvVp')||'desktop'), picking:false, picks:[], note:'', err:'', opening:false, sending:false, frame:null, io:null, hideT:0, nonce:0, waits:{}, shotQ:Promise.resolve(), title:'' }); }
+function nvSt(id){ return nvState[id]||(nvState[id]={ addr:'', proxy:null, vp:(lsGet('nvVp')||'desktop'), picking:false, picks:[], note:'', err:'', opening:false, sending:false, frame:null, frozen:false, io:null, hideT:0, nonce:0, waits:{}, shotQ:Promise.resolve(), title:'', root:null }); }
+// elemento do painel DESTA demanda (null = painel não está na tela)
+function nvQ(st, name){ const r=st&&st.root; return (r && r.isConnected) ? r.querySelector('[data-nv="'+name+'"]') : null; }
 function nvPost(st, msg){ try{ if(st.frame && st.frame.contentWindow && st.proxy) st.frame.contentWindow.postMessage(Object.assign({ sf:'nav' }, msg), st.proxy.origin); }catch(_){ } }
-function nvSetMsg(html){ const m=$id('nvMsg'); if(m && m.__html!==html){ m.__html=html; m.innerHTML=html; m.style.display=html?'':'none'; } }
+function nvSetMsg(st, html){ const m=nvQ(st, 'msg'); if(m && m.__html!==html){ m.__html=html; m.innerHTML=html; m.style.display=html?'':'none'; } }
+function nvResKey(taskId){ return 'app:'+taskId+'@'+(typeof CV_REALM!=='undefined'?CV_REALM:'main'); } // um gerente no app; cada painel com a sua chave
 
-// modo Prévia da aba da tarefa (chamado pelo renderWorkspace a cada render — barato quando nada mudou)
-function fwRenderPrevia(t, main){
-  const st=nvSt(t.id);
-  if(!st.addr && !st.proxy){ const pv=(typeof taskPreviewTarget==='function')?taskPreviewTarget(t):null; if(pv) st.addr=nvNormUrl(pv)||''; }
-  const fresh=!(main.dataset.nv===t.id && $id('nvFrameWrap') && main.contains($id('nvFrameWrap')));
+// painel da prévia de UMA demanda dentro de `el` (barato quando nada mudou: o iframe não é recriado)
+function nvRender(taskId, el, opts){
+  const st=nvSt(taskId);
+  const t=(state.tasks||[]).find(x=>x.id===taskId);
+  if(!st.addr && !st.proxy){ const pv=(t && typeof taskPreviewTarget==='function')?taskPreviewTarget(t):null; if(pv) st.addr=nvNormUrl(pv)||''; }
+  const fresh=!(el.dataset.nv===taskId && el.querySelector('[data-nv="wrap"]'));
+  st.root=el; st.empty=(opts&&opts.empty)||null;
   if(fresh){
-    main.innerHTML=nvTabHtml(st); main.dataset.nv=t.id;
-    st.frame=null; nvWire(t.id);
-    if(st.proxy) nvMount(t.id); else if(st.addr) nvGo(t.id, st.addr); else nvSetMsg(nvEmptyHtml());
+    // o iframe antigo saiu do DOM junto com o painel anterior: solta a vaga no gerente (não conta webview morta)
+    if(st.frame && !st.frame.isConnected) nvUnmount(taskId);
+    el.innerHTML=nvTabHtml(st); el.dataset.nv=taskId;
+    st.frame=null; nvWire(taskId);
+    if(st.proxy && !st.frozen) nvMount(taskId); else if(st.addr && !st.proxy) nvGo(taskId, st.addr);
   }
-  nvPaint(t.id);
+  nvPaint(taskId);
 }
+// modo Prévia da aba da tarefa (compat: o workspace antigo chamava com o #fwMain)
+function fwRenderPrevia(t, main){ if(typeof appRender==='function') appRender(t.id, main); else nvRender(t.id, main); if(typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(t.id); }
 function nvEmptyHtml(){ return '<div class="nvempty"><b>Nenhum site aberto</b><span>Digite um endereço acima (ex.: <code>localhost:5173</code>) — ou peça pro agente subir o site da tarefa e ele aparece aqui sozinho.</span></div>'; }
 function nvWire(taskId){
-  const st=nvSt(taskId);
-  const f=$id('nvForm'); if(f) f.onsubmit=(e)=>{ e.preventDefault(); const v=$id('nvAddr').value; const u=nvNormUrl(v); if(!u){ toast('só endereços http(s) abrem na prévia — ex.: localhost:5173','warn'); return; } nvGo(taskId, u); };
-  bindClick('nvBack', ()=>nvPost(st, { cmd:'back' }));
-  bindClick('nvFwd', ()=>nvPost(st, { cmd:'forward' }));
-  bindClick('nvReload', ()=>{ if(st.frame) nvPost(st, { cmd:'reload' }); else if(st.addr) nvGo(taskId, st.addr, true); });
-  bindClick('nvExt', ()=>{ const u=nvNormUrl(st.addr); if(u) openExternal(u); else toast('abra um endereço primeiro','info'); });
-  bindClick('nvShot', ()=>nvShotPage(taskId));
-  bindClick('nvPick', ()=>nvTogglePick(taskId));
-  bindClick('nvSendBtn', ()=>nvSend(taskId));
-  document.querySelectorAll('.nvbar [data-nvvp]').forEach(b=>{ b.onclick=()=>{ st.vp=b.dataset.nvvp; lsSet('nvVp', st.vp); const w=$id('nvFrameWrap'); if(w) w.style.width=NV_VP[st.vp].w?NV_VP[st.vp].w+'px':'100%'; nvPaint(taskId); }; });
-  const note=$id('nvNote'); if(note){ note.value=st.note||''; note.oninput=()=>{ st.note=note.value; };
+  const st=nvSt(taskId), root=st.root; if(!root) return;
+  const on=(name, fn)=>{ const b=nvQ(st, name); if(b) b.onclick=fn; };
+  const f=nvQ(st, 'form'); if(f) f.onsubmit=(e)=>{ e.preventDefault(); const v=nvQ(st, 'addr').value; const u=nvNormUrl(v); if(!u){ toast('só endereços http(s) abrem na prévia — ex.: localhost:5173','warn'); return; } nvGo(taskId, u); };
+  on('back', ()=>nvPost(st, { cmd:'back' }));
+  on('fwd', ()=>nvPost(st, { cmd:'forward' }));
+  on('reload', ()=>{ if(st.frame) nvPost(st, { cmd:'reload' }); else if(st.addr) nvGo(taskId, st.addr, true); });
+  on('ext', ()=>{ const u=nvNormUrl(st.addr); if(u) openExternal(u); else toast('abra um endereço primeiro','info'); });
+  on('shot', ()=>nvShotPage(taskId));
+  on('pick', ()=>nvTogglePick(taskId));
+  on('send', ()=>nvSend(taskId));
+  root.querySelectorAll('.nvbar [data-nvvp]').forEach(b=>{ b.onclick=()=>{ st.vp=b.dataset.nvvp; lsSet('nvVp', st.vp); const w=nvQ(st, 'wrap'); if(w) w.style.width=NV_VP[st.vp].w?NV_VP[st.vp].w+'px':'100%'; nvPaint(taskId); }; });
+  const note=nvQ(st, 'note'); if(note){ note.value=st.note||''; note.oninput=()=>{ st.note=note.value; };
     note.onkeydown=(e)=>{ if(e.key==='Enter' && (e.metaKey||e.ctrlKey)){ e.preventDefault(); nvSend(taskId); } }; }
-  const pk=$id('nvPicks'); if(pk) pk.onclick=(e)=>{ const x=e.target.closest('[data-nvrm]'); if(!x) return; const id=+x.dataset.nvrm; st.picks=st.picks.filter(p=>p.id!==id); nvPost(st, { cmd:'unmark', id }); nvPaint(taskId); };
+  const pk=nvQ(st, 'picks'); if(pk) pk.onclick=(e)=>{ const x=e.target.closest('[data-nvrm]'); if(!x) return; const id=+x.dataset.nvrm; st.picks=st.picks.filter(p=>p.id!==id); nvPost(st, { cmd:'unmark', id }); nvPaint(taskId); };
+  // "pausado" (o gerente de recursos congelou esta prévia pra outra) → clique retoma (e congela a menos recente)
+  const msg=nvQ(st, 'msg'); if(msg) msg.onclick=(e)=>{ if(e.target.closest('[data-nvresume]')){ st.frozen=false; nvMount(taskId); nvPaint(taskId); } };
   // visível? (IntersectionObserver — sem laço): escondida 20 s → desmonta o iframe; voltou → remonta
-  const wrap=$id('nvFrameWrap');
+  const wrap=nvQ(st, 'wrap');
   if(st.io) try{ st.io.disconnect(); }catch(_){ }
   if(wrap && typeof IntersectionObserver==='function'){
     st.io=new IntersectionObserver((ents)=>{ const vis=ents.some(en=>en.isIntersecting);
       if(!wrap.isConnected){ try{ st.io.disconnect(); }catch(_){ } return; }
-      if(vis){ clearTimeout(st.hideT); st.hideT=0; if(!st.frame && st.proxy) nvMount(taskId); }
+      if(vis){ clearTimeout(st.hideT); st.hideT=0; if(!st.frame && st.proxy && !st.frozen) nvMount(taskId); }
       else if(st.frame && !st.hideT){ st.hideT=setTimeout(()=>{ st.hideT=0; nvUnmount(taskId); }, 20000); } });
     st.io.observe(wrap);
   }
 }
 // pinta só o que muda (guardas): botões, endereço (se não está digitando), painel de seleções
 function nvPaint(taskId){
-  const st=nvSt(taskId);
-  const pick=$id('nvPick'); if(pick){ pick.classList.toggle('on', !!st.picking); pick.setAttribute('aria-pressed', st.picking?'true':'false'); }
-  document.querySelectorAll('.nvbar [data-nvvp]').forEach(b=>b.classList.toggle('on', b.dataset.nvvp===st.vp));
-  const a=$id('nvAddr'); if(a && document.activeElement!==a && a.value!==(st.addr||'')) a.value=st.addr||'';
-  const panel=$id('nvPanel'); if(panel){ const show=st.picking||st.picks.length>0; if(panel.style.display!==(show?'':'none')) panel.style.display=show?'':'none'; }
-  const pk=$id('nvPicks'); if(pk){ const h=nvPicksHtml(st.picks); if(pk.__html!==h){ pk.__html=h; pk.innerHTML=h; } }
-  const sb=$id('nvSendBtn'); if(sb){ sb.disabled=!st.picks.length||st.sending; sb.textContent=st.sending?'mandando…':'mandar pra tarefa'; }
-  const sh=$id('nvShot'); if(sh) sh.disabled=!st.frame;
-  if(st.opening) nvSetMsg('<div class="nvempty"><span class="spin"></span> abrindo '+esc(st.addr||'')+'…</div>');
-  else if(st.err) nvSetMsg(`<div class="nvempty"><b>Não abri a prévia</b><span>${esc(st.err)}</span></div>`);
-  else if(!st.proxy && !st.addr) nvSetMsg(nvEmptyHtml());
-  else if(st.frame) nvSetMsg('');
+  const st=nvSt(taskId); if(!nvQ(st, 'wrap')) return; // painel desta demanda não está na tela
+  const pick=nvQ(st, 'pick'); if(pick){ pick.classList.toggle('on', !!st.picking); pick.setAttribute('aria-pressed', st.picking?'true':'false'); }
+  st.root.querySelectorAll('.nvbar [data-nvvp]').forEach(b=>b.classList.toggle('on', b.dataset.nvvp===st.vp));
+  const a=nvQ(st, 'addr'); if(a && document.activeElement!==a && a.value!==(st.addr||'')) a.value=st.addr||'';
+  const panel=nvQ(st, 'panel'); if(panel){ const show=st.picking||st.picks.length>0; if(panel.style.display!==(show?'':'none')) panel.style.display=show?'':'none'; }
+  const pk=nvQ(st, 'picks'); if(pk){ const h=nvPicksHtml(st.picks); if(pk.__html!==h){ pk.__html=h; pk.innerHTML=h; } }
+  const sb=nvQ(st, 'send'); if(sb){ sb.disabled=!st.picks.length||st.sending; sb.textContent=st.sending?'mandando…':'mandar pra tarefa'; }
+  const sh=nvQ(st, 'shot'); if(sh) sh.disabled=!st.frame;
+  if(st.opening) nvSetMsg(st, '<div class="nvempty"><span class="spin"></span> abrindo '+esc(st.addr||'')+'…</div>');
+  // erro ao abrir: diz o que houve E oferece subir o ambiente (nunca só "deu erro")
+  else if(st.err) nvSetMsg(st, `<div class="nvempty"><b>Não abri a prévia</b><span>${esc(st.err)}</span></div>`+(st.empty?st.empty():''));
+  else if(st.frozen && st.proxy) nvSetMsg(st, '<div class="nvempty"><b>Prévia pausada</b><span>Pra o Mac não esquentar, ficam no máximo 2 páginas vivas ao mesmo tempo.</span><button type="button" class="btn sm primary" data-nvresume="1">continuar daqui</button></div>');
+  else if(!st.proxy && !st.addr) nvSetMsg(st, st.empty?st.empty():nvEmptyHtml());
+  else if(st.frame) nvSetMsg(st, '');
 }
 // abre (ou troca) o alvo: o Rust reaproveita o proxy se a origem é a mesma
 async function nvGo(taskId, url, force){
@@ -178,32 +200,37 @@ async function nvGo(taskId, url, force){
     st.proxy=info; nvLive.add(taskId);
   }catch(e){ st.err=String(e&&e.message||e); st.proxy=null; }
   st.opening=false;
-  if(st.proxy){ nvUnmount(taskId); nvMount(taskId); }
+  if(st.proxy){ nvUnmount(taskId); st.frozen=false; nvMount(taskId); }
   nvPaint(taskId);
 }
 function nvMount(taskId){
-  const st=nvSt(taskId), wrap=$id('nvFrameWrap');
-  if(!wrap || !st.proxy || fwTask!==taskId) return;
+  const st=nvSt(taskId), wrap=nvQ(st, 'wrap');
+  if(!wrap || !st.proxy) return;
   if(st.frame && st.frame.isConnected) return;
+  // teto de webviews (gerente de recursos): a mais antiga congela se esta for a 3ª
+  if(typeof cvRmTake==='function') cvRmTake('web', nvResKey(taskId), ()=>nvFreeze(taskId));
   const f=document.createElement('iframe');
-  f.className='nvframe'; f.id='nvFrame'; f.title='prévia da página';
+  f.className='nvframe'; f.title='prévia da página';
   f.setAttribute('allow','clipboard-read; clipboard-write; fullscreen');
   // sem allow-top-navigation: a página não consegue tirar o Starfork da tela (top.location); a origem é a do proxy,
   // diferente da do app, então allow-same-origin só vale pra própria página (cookies/localStorage dela)
   f.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-modals allow-downloads');
   f.src=nvToProxy(st.addr||st.proxy.target, st.proxy.origin);
-  wrap.appendChild(f); st.frame=f; nvSetMsg('');
+  wrap.appendChild(f); st.frame=f; st.frozen=false; nvSetMsg(st, '');
   nvPaint(taskId);
 }
 function nvUnmount(taskId){
   const st=nvSt(taskId);
   if(st.frame){ try{ st.frame.src='about:blank'; st.frame.remove(); }catch(_){ } st.frame=null; }
+  if(typeof cvRmDrop==='function') cvRmDrop('web', nvResKey(taskId));
   // as marcações estavam DENTRO da página: a lista fica, a mira desliga
   st.picking=false;
 }
+// o gerente despejou esta prévia (3ª webview pedida em outro painel): sai o iframe, fica o "pausado"
+function nvFreeze(taskId){ const st=nvSt(taskId); const wasLive=!!(st.frame && st.frame.isConnected); nvUnmount(taskId); st.frozen=wasLive; nvPaint(taskId); }
 // proxy morre: aba fechada, tarefa terminou
 function nvStop(taskId){
-  const st=nvState[taskId]; if(st){ clearTimeout(st.hideT); if(st.io) try{ st.io.disconnect(); }catch(_){ } nvUnmount(taskId); st.proxy=null; }
+  const st=nvState[taskId]; if(st){ clearTimeout(st.hideT); if(st.io) try{ st.io.disconnect(); }catch(_){ } nvUnmount(taskId); st.proxy=null; st.frozen=false; }
   nvLive.delete(taskId);
   invoke('browser_close', { taskId }).catch(()=>{});
 }
@@ -249,33 +276,33 @@ async function nvShotPage(taskId){
   const fr=st.frame.getBoundingClientRect();
   const rect=nvShotRect({ left:Math.max(0,fr.left), top:Math.max(0,fr.top), right:Math.min(window.innerWidth,fr.right), bottom:Math.min(window.innerHeight,fr.bottom) }, { x:0, y:0, w:fr.width, h:fr.height });
   if(!rect){ toast('a prévia não está visível','warn'); return; }
-  const b=$id('nvShot'); if(b) b.disabled=true;
+  const b=nvQ(st, 'shot'); if(b) b.disabled=true;
   try{ const r=await nvSnap(taskId, rect, 'artifact'); toast('print salvo nos artefatos da tarefa: '+r.name,'ok'); if(typeof fwInvalidate==='function') fwInvalidate(taskId); }
   catch(e){ showErr(e, 'Não consegui tirar o print'); }
-  finally{ if(b) b.disabled=false; }
+  finally{ const b2=nvQ(st, 'shot'); if(b2) b2.disabled=!st.frame; }
 }
 async function nvSend(taskId){
   const st=nvSt(taskId); if(!st.picks.length || st.sending) return;
   if(st.picks.some(p=>p.shotSt==='tirando')){ toast('espere os prints terminarem','info'); return; }
-  const note=$id('nvNote'); if(note) st.note=note.value;
+  const note=nvQ(st, 'note'); if(note) st.note=note.value;
   const atts=nvAttsOf(st.picks);
   const text=nvPayload(st.note, st.picks, { url:st.addr, vpLabel:(NV_VP[st.vp]||NV_VP.desktop).label })+attPromptBlock(atts);
   st.sending=true; nvPaint(taskId);
   let ok=false; try{ ok=await fwSendText(taskId, text); }finally{ st.sending=false; }
-  if(ok){ st.picks=[]; st.note=''; if(note) note.value=''; st.picking=false; nvPost(st, { cmd:'clear' }); nvPost(st, { cmd:'pick', on:false }); toast('mandei pra tarefa — veja na conversa','ok'); }
+  if(ok){ st.picks=[]; st.note=''; const n2=nvQ(st, 'note'); if(n2) n2.value=''; st.picking=false; nvPost(st, { cmd:'clear' }); nvPost(st, { cmd:'pick', on:false }); toast('mandei pra tarefa — veja na conversa','ok'); }
   nvPaint(taskId);
 }
 // mensagens do script de seleção (só do iframe da tarefa, na origem do proxy dela)
 window.addEventListener('message', (e)=>{
   const d=e.data; if(!d || d.sf!=='nav' || !d.type) return;
-  const taskId=Object.keys(nvState).find(k=>{ const s=nvState[k]; return s.frame && e.source===s.frame.contentWindow && s.proxy && e.origin===s.proxy.origin; });
+  const taskId=nvRouteMsg(nvState, e.source, e.origin);
   if(!taskId) return;
   const st=nvState[taskId];
   if(d.type==='ready'){ nvPost(st, { cmd:'hello' }); if(st.picking) nvPost(st, { cmd:'pick', on:true }); return; }
   if(d.type==='loc'){ const real=nvNormUrl(nvFromProxy(String(d.url||''), st.proxy.origin, st.proxy.target)); if(real) st.addr=real; // a página não escolhe o que o "abrir fora" abre (só http/https)
- st.title=String(d.title||''); st.err=''; if(fwTask===taskId) nvPaint(taskId); return; }
+    st.title=String(d.title||''); st.err=''; nvPaint(taskId); return; }
   if(d.type==='hidden'){ const w=st.waits[d.nonce]; if(w) w(); return; }
-  if(d.type==='esc'){ st.picking=false; if(fwTask===taskId) nvPaint(taskId); return; }
+  if(d.type==='esc'){ st.picking=false; nvPaint(taskId); return; }
   if(d.type==='pick' && d.item && typeof d.item==='object'){
     if(st.picks.length>=NV_MAX_PICKS){ nvPost(st, { cmd:'unmark', id:d.id }); toast('até '+NV_MAX_PICKS+' elementos por mensagem — mande estes primeiro','warn'); return; }
     const it=d.item; const num=(v)=>Number.isFinite(+v)?Math.round(+v):0;
@@ -284,7 +311,7 @@ window.addEventListener('message', (e)=>{
       box:{ x:num(it.box&&it.box.x), y:num(it.box&&it.box.y), w:num(it.box&&it.box.w), h:num(it.box&&it.box.h), pageX:num(it.box&&it.box.pageX), pageY:num(it.box&&it.box.pageY) },
       url:nvFromProxy(String(it.url||''), st.proxy.origin, st.proxy.target).slice(0,600), title:String(it.title||'').slice(0,120), vw:num(it.vw), vh:num(it.vh) };
     const pick={ id:+d.id||Date.now(), item, shot:null, shotSt:'tirando' };
-    st.picks.push(pick); if(fwTask===taskId) nvPaint(taskId);
+    st.picks.push(pick); nvPaint(taskId);
     nvShotFor(taskId, pick);
   }
 });

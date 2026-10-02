@@ -26,6 +26,7 @@
 <link rel="stylesheet" href="css/90-piloto.css">
 <link rel="stylesheet" href="css/91-navegador.css">
 <link rel="stylesheet" href="css/91-dispositivo.css">
+<link rel="stylesheet" href="css/92-canvas.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -504,6 +505,11 @@
 
 
 
+<!-- CANVAS NO TOPO (58-canvas.js): Navegador / Simulador / Documento abertos pelo "+" das abas, e a TELA DIVIDIDA
+     (até 3 abas lado a lado — cada demanda num painel com o próprio estado) -->
+<div class="overlay cvsplit" id="cvSplit" style="display:none" role="region" aria-label="painéis"></div>
+<div class="cvdropzone" id="cvDropZone" hidden aria-hidden="true"><div class="cvdz l" data-side="left"><span>solte aqui pra abrir à esquerda</span></div><div class="cvdz r" data-side="right"><span>solte aqui pra abrir à direita</span></div></div>
+
 <!-- lightbox das provas (prints) — setas navegam entre as evidências da demanda -->
 <div class="lbov" id="lbOverlay" style="display:none"><button class="lbx" id="lbClose" aria-label="fechar"><svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button><button class="lbnav lbprev" id="lbPrev" aria-label="anterior">‹</button><figure class="lbfig"><img id="lbImg" alt=""><figcaption class="lbcap" id="lbCap"></figcaption></figure><button class="lbnav lbnext" id="lbNext" aria-label="próxima">›</button></div>
 <!-- relatório gerado (entrega ou período): leitura + copiar/salvar/PDF -->
@@ -695,6 +701,7 @@
 <script src="js/14-issues-projeto.js"></script>
 <script src="js/14-nova-demanda-inicio.js"></script>
 <script src="js/15-config-abas-onboarding.js"></script>
+<script src="js/19-canvas-puro.js"></script>
 <script src="js/20-workspace-tarefa.js"></script>
 <script src="js/21-pull-request.js"></script>
 <script src="js/22-quadro-fluxo.js"></script>
@@ -733,5 +740,7 @@
 <script src="js/56-piloto.js"></script>
 <script src="js/57-navegador.js"></script>
 <script src="js/57-dispositivo.js"></script>
+<script src="js/58-ambiente.js"></script>
+<script src="js/58-canvas.js"></script>
 </body>
 </html>

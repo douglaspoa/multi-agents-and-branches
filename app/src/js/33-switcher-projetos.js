@@ -373,8 +373,12 @@ $id("agOverlay").addEventListener("click", e=>{ if(e.target.id==="agOverlay") ca
 window.addEventListener("unhandledrejection", e=>{ e.preventDefault(); });
 
 // boot: se CARDUME_REPO foi setado, snapshot já traz dados; senão espera "conectar".
+// painel da tela dividida (58-canvas): só a demanda dele — sem notificações, projetos nem a tela inicial
+if(typeof SF_PANE!=='undefined' && SF_PANE) document.addEventListener('DOMContentLoaded', ()=>{ if(window.sfPaneBoot) window.sfPaneBoot(); });
+else {
 initNotifs();
-refresh().then(loadProjects).then(restoreMainView).catch(e=>console.error("boot:", e));
+refresh().then(loadProjects).then(restoreMainView).then(()=>{ if(window.cvRestoreSplit) window.cvRestoreSplit(); }).catch(e=>console.error("boot:", e));
+}
 // poll blindado: uma volta que falhe não derruba o ciclo
 // um refresh por vez (o tick de 1s empilhava vários em paralelo), mas a trava NUNCA fica presa: se um refresh
 // não voltar em 6s (IPC perdido, SQLite ocupado), o próximo tick segue — antes a tela parava de atualizar pra sempre

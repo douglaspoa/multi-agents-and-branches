@@ -1,4 +1,28 @@
 // ===== utilitários compartilhados (carrega ANTES de tudo) =====
+// ===== PAINEL DA TELA DIVIDIDA (spec-canvas-workspace, pivot "canvas no topo") =====
+// Uma demanda lado a lado com outra é o app INTEIRO carregado num iframe (index.html?sfpane=task:<id>): estado JS
+// próprio (nenhum global de uma demanda vaza pra outra) e a tela da demanda exatamente como ela é. Esse "painel":
+//  - fala com o Rust pela ponte da janela principal (mesma origem) — e só escuta os eventos da demanda;
+//  - não roda nada "do app inteiro" (nuvem, cobrança, onboarding, polling): na carga, setInterval e timers ≥ 1 s
+//    viram nada; quem atualiza o painel é a janela principal (sfPaneTick depois de cada snapshot);
+//  - esconde barra lateral e abas (quem manda nelas é a janela principal).
+const SF_PANE=(()=>{ try{ const p=new URLSearchParams(location.search).get('sfpane'); return (p && window.parent && window.parent!==window) ? p : null; }catch(_){ return null; } })();
+const CV_REALM=SF_PANE||'main'; // chave dos recursos (gerente de recursos é um só no app, mas cada painel tem os seus)
+if(SF_PANE){
+  document.documentElement.classList.add('sfpane');
+  try{
+    const T=window.parent.__TAURI__, unl=[];
+    const listen=(name, fn)=>{ if(!['env-progress','checks-progress'].includes(name)) return Promise.resolve(()=>{}); return T.event.listen(name, fn).then(u=>{ unl.push(u); return u; }); };
+    const api=Object.assign({}, T, { event:Object.assign({}, T.event, { listen }) });
+    try{ window.__TAURI__=api; }catch(_){ }
+    if(window.__TAURI__!==api) try{ Object.defineProperty(window, '__TAURI__', { value:api, configurable:true, writable:true }); }catch(_){ }
+    window.sfPaneDispose=()=>{ unl.splice(0).forEach(u=>{ try{ u(); }catch(_){ } }); };
+  }catch(_){ }
+  const _si=window.setInterval.bind(window), _st=window.setTimeout.bind(window); let booting=true;
+  window.setInterval=function(fn, ms, ...a){ return booting ? 0 : _si(fn, ms, ...a); };
+  window.setTimeout=function(fn, ms, ...a){ return (booting && (+ms||0)>=1000) ? 0 : _st(fn, ms, ...a); };
+  document.addEventListener('DOMContentLoaded', ()=>{ booting=false; });
+}
 // atalhos de DOM: $id no lugar de document.getElementById; bindClick() liga um handler só se o elemento existir
 function $id(id){ return document.getElementById(id); }
 // erros ANTES do 52-erros carregar (boot dos arquivos 00–51) ficam guardados aqui e ele despacha

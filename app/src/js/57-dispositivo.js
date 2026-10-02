@@ -9,10 +9,14 @@
 // o vigia é um timer de 1 s que só compara booleanos; o painel só é remontado quando a assinatura muda; quadro vai
 // direto pro canvas (nada de innerHTML por quadro); imagem nova chegando com outra em decodificação → fica só a última.
 
-const DV={ task:null, open:{}, plat:{}, info:{}, infoAt:{}, sess:null, sig:'', mark:null, zoom:'fit', expanded:false, rec:{}, logs:null };
+const DV={ task:null, open:{}, plat:{}, info:{}, infoAt:{}, _sess:null, sig:'', mark:null, zoom:'fit', expanded:false, rec:{}, logs:null };
+// F0 (canvas): a sessão do stream é DA demanda (sess.id). DV.sess só devolve a sessão se ela for da demanda que o
+// painel mostra agora — um quadro do stream de A nunca é desenhado com o painel em B (dvSessFor, testada).
+Object.defineProperty(DV, 'sess', { get(){ return dvSessFor(DV._sess, DV.task); }, set(v){ DV._sess=v||null; } });
 const DV_KIND={ META:0, IMG:1, AU:2, KEY:3 };
 
 // ---------- puras (testadas em app/tests/dispositivo.test.mjs) ----------
+function dvSessFor(sess, taskId){ return (sess && taskId && sess.id===taskId) ? sess : null; }
 // pedaços do /stream: devolve os completos e o resto (que espera o próximo pedaço da rede)
 function dvParseFrames(buf){
   const out=[]; let o=0;
@@ -122,7 +126,9 @@ const DV_IC={
 };
 
 // ---------- integração com o workspace ----------
-function dvEl(){ return $id('fwDev'); }
+// o painel pode morar na tela da demanda (#fwDev, docado) ou numa ABA "Simulador" do topo (DV.host, 58-canvas)
+function dvEl(){ return DV.host || $id('fwDev'); }
+function dvKey(id){ return 'dev:'+id+'@'+(typeof CV_REALM!=='undefined'?CV_REALM:'main'); }
 function dvIsOpen(taskId){ return !!DV.open[taskId]; }
 // chamado no fim de cada renderWorkspace: barato (só mexe no botão e na classe; o painel tem guarda própria)
 function dvSync(t){
@@ -135,7 +141,7 @@ function dvSync(t){
   const mob=!!(info&&info.mobile&&(info.platforms||[]).length);
   if(btn){ btn.style.display=mob?'':'none'; btn.classList.toggle('on', mob&&dvIsOpen(t.id)); if(!btn.__dv){ btn.__dv=1; btn.onclick=()=>dvToggle(); } }
   const el=dvEl(); if(!el) return;
-  const show=mob&&dvIsOpen(t.id);
+  const show=mob&&(DV.forced===t.id||dvIsOpen(t.id)); // aba Simulador do topo: sempre aberto
   if(el.hidden===show) el.hidden=!show;
   $id('fwRow')&&$id('fwRow').classList.toggle('dvexp', show&&DV.expanded);
   if(show) dvRender(); else dvStopStream();
@@ -190,27 +196,37 @@ function dvRender(){
 // vigia barato: decide se o espelho deve rodar (painel aberto + aba da tarefa na frente + janela visível)
 function dvShouldRun(){
   const el=dvEl(); const v=DV.task&&dvCur();
-  return !!(el && !el.hidden && v && v.d && v.d.up && typeof fwVisible==='function' && fwVisible() && document.visibilityState==='visible' && !DV.starting);
+  if(DV.pausedBy) return false; // outro painel pegou o stream (teto de 1): só volta com um clique aqui
+  const onScreen=DV.host ? !!(DV.host.isConnected && DV.host.offsetParent!==null) : (typeof fwVisible==='function' && fwVisible());
+  return !!(el && !el.hidden && v && v.d && v.d.up && onScreen && document.visibilityState==='visible' && !DV.starting);
 }
 // falhou (espelho não subiu, stream caiu com erro): espera 1 s, 2 s, 4 s… até 30 s antes de tentar de novo — sem
 // isso o vigia de 1 s religava um processo por segundo (boot do emulador, simulador sumido)
 function dvFail(){ DV.fails=(DV.fails||0)+1; DV.retryAt=Date.now()+Math.min(30000, 1000*Math.pow(2, DV.fails-1)); }
 function dvOk(){ if(DV.fails){ DV.fails=0; DV.retryAt=0; } if(DV.err){ DV.err=''; } }
-function dvWatch(){
-  if(!DV.watch) DV.watch=setInterval(()=>{
-    const run=dvShouldRun();
-    if(run && !DV.sess && Date.now()>=(DV.retryAt||0)) dvStartStream();
-    else if(!run && DV.sess) dvStopStream();
-    if(!dvEl()||dvEl().hidden){ if(!DV.sess){ clearInterval(DV.watch); DV.watch=null; } }
-  }, 1000);
+// vigia SEM laço (F0 do canvas — antes um setInterval de 1 s): reavalia quando algo muda (render do painel, troca de
+// aba do app via cvOnViewChange, janela visível/escondida, fim do stream). Esperando a próxima tentativa (espera
+// crescente), arma UM setTimeout pro momento certo.
+function dvCheckRun(){
+  const run=dvShouldRun();
+  if(run && !DV.sess){
+    if(DV._sess) dvStopStream(); // sobra de outra demanda: nunca dois streams
+    const wait=(DV.retryAt||0)-Date.now();
+    clearTimeout(DV.retryT); DV.retryT=0;
+    if(wait<=0) dvStartStream(); else DV.retryT=setTimeout(dvCheckRun, wait+20);
+  } else if(!run && DV._sess) dvStopStream();
 }
-document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState!=='visible') dvStopStream(); });
+function dvWatch(){ dvCheckRun(); }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState!=='visible') dvStopStream(); else dvCheckRun(); });
 
 // ---------- espelho (stream) ----------
 async function dvStartStream(){
   const { id, plat }=dvCur(); if(!id||!plat) return;
   const sess={ id, plat, ctl:new AbortController(), fpsN:0, fpsAt:performance.now(), busy:null, caps:null, meta:null, decoding:false, pendingImg:null, dec:null, codec:null };
+  if(DV._sess) dvStopStream();
   DV.sess=sess;
+  // teto do app: 1 stream vivo (gerente de recursos) — se outro estiver vivo, ele congela
+  if(typeof cvRmTake==='function') cvRmTake('stream', dvKey(id), ()=>{ if(DV._sess===sess){ dvStopStream(); DV.pausedBy=Date.now(); DV.sig=''; dvRender(); dvToastOnce('o simulador foi aberto em outro painel — clique na tela dele aqui pra continuar'); } }); // teto 1: não briga de volta sozinho
   let m;
   try{ m=await invoke('device_mirror_start',{ taskId:id, platform:plat }); }
   catch(e){ if(DV.sess===sess){ DV.sess=null; DV.err=errShortDv(e); dvFail(); dvToastOnce(DV.err); DV.sig=''; dvRender(); } return; }
@@ -236,8 +252,9 @@ async function dvStartStream(){
 }
 function errShortDv(e){ return String(e&&e.message||e||'').replace(/^✕\s*/,'').split('\n')[0].slice(0,220); }
 function dvStopStream(){
-  const s=DV.sess; if(!s) return;
+  const s=DV._sess; if(!s) return; // a sessão crua (pode ser de outra demanda — é justamente a que precisa parar)
   DV.sess=null;
+  if(typeof cvRmDrop==='function') cvRmDrop('stream', dvKey(s.id));
   try{ s.ctl.abort(); }catch(_){ }
   clearInterval(s.stateTimer); clearInterval(s.fpsTimer);
   try{ if(s.dec && s.dec.state!=='closed') s.dec.close(); }catch(_){ }
@@ -423,6 +440,7 @@ function dvMenu(kind, anchor){
 }
 function dvWire(v){
   const { id, plat }=dvCur();
+  { const el=dvEl(); if(el && !el.__dvResume){ el.__dvResume=1; el.addEventListener('pointerdown', ()=>{ if(DV.pausedBy){ DV.pausedBy=0; dvCheckRun(); } }, true); } }
   bindClick('dvClose', ()=>dvToggle(false));
   const exp=()=>{ DV.expanded=!DV.expanded; DV.sig=''; const t=(state.tasks||[]).find(x=>x.id===id); if(t) dvSync(t); };
   bindClick('dvExpand', exp); bindClick('dvPop2', exp);

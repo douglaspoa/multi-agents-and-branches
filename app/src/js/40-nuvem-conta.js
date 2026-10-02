@@ -270,6 +270,7 @@ function cloudBtnSync(){
 // LOGIN OBRIGATÓRIO: sem conta não usa — dados (repos, agentes, memória) e
 // assinatura são da conta do usuário. A própria tela da nuvem vira o gate.
 function loginGateSync(){
+  if(typeof SF_PANE!=='undefined' && SF_PANE) return; // painel da tela dividida: o login é da janela principal
   const ov=$id('cloudOverlay'), x=$id('cloudClose');
   if(!ov) return;
   if(!SB.sess()){

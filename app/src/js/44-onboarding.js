@@ -16,6 +16,7 @@ let au={ step:'login', email:lsGet('sb:email')||'', name:'', confirmType:'signup
 let _auTimer=null;
 function auEl(){ return $id('authOverlay'); }
 function auShow(step, opts){
+  if(typeof SF_PANE!=='undefined' && SF_PANE) return; // painel: conta/cobrança/onboarding são da janela principal
   au.msg=''; au.msgKind=''; au.msgRef=''; au.acts=null; au.err={}; au.focus=''; au.busy=false;
   Object.assign(au, opts||{}); if(step) au.step=step;
   const o=auEl(); if(!o) return; const R=$id('auRight'); if(R) R.dataset.step=''; // tela nova: não herda o que foi digitado noutra
@@ -487,6 +488,7 @@ async function auCheckout(){
 }
 // ---- gates: substituem o cadeado do cloudOverlay e o payOverlay antigo ----
 loginGateSync=function(){
+  if(typeof SF_PANE!=='undefined' && SF_PANE) return; // painel da tela dividida: o login é da janela principal
   const ov=$id('cloudOverlay'); if(ov){ ov.dataset.lock=''; ov.style.zIndex=''; const x=$id('cloudClose'); if(x) x.style.display=''; if(ov.style.display==='flex'&&!SB.sess()) ov.style.display='none'; }
   if(!SB.sess()){
     if(!auOpen()||!['login','signup','confirm','newpass'].includes(au.step)){
