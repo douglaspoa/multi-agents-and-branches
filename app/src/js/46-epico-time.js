@@ -252,7 +252,7 @@ async function epicCompileContext(epicId, forTask){
   let ep=(teamEpics||[]).find(e=>e.id===epicId)||null;
   try{ const f=(await sbGet('epics?select=id,name,status,spec,created_by&id=eq.'+epicId))[0]; if(f) ep={ ...(ep||{}), ...f }; }catch(_){ }
   if(!ep||!ep.name) return '';
-  let sibs=null; try{ sibs=await sbGet('tasks?select=id,local_id,title,status,assignee,spec,created_at&epic_id=eq.'+epicId+'&order=created_at'); }catch(_){ sibs=null; }
+  let sibs=null; if(cloudEpicId(epicId)) try{ sibs=await sbGet('tasks?select=id,local_id,title,status,assignee,spec,created_at&epic_id=eq.'+epicId+'&order=created_at'); }catch(_){ sibs=null; }
   if(!Array.isArray(sibs)||!sibs.length) sibs=(teamTasks||[]).filter(t=>t.epic_id===epicId);
   const sp=ep.spec||{}; const dw=Array.isArray(sp.doneWhen)?sp.doneWhen:[], reqs=Array.isArray(sp.requirements)?sp.requirements:[], bounds=Array.isArray(sp.boundaries)?sp.boundaries:[];
   const stPt=s=>stLabel(s);
@@ -361,7 +361,7 @@ async function epicAutoStartTick(){
     const dep=[...new Set(rows.flatMap(t=>Array.isArray((t.spec||{}).after)?t.spec.after:[]))];
     const eids=[...new Set(rows.map(t=>t.epic_id))], pids=[...new Set(rows.map(t=>t.project_id).filter(Boolean))];
     // nomes: épicos da fila + épicos das tarefas LOCAIS já iniciadas (selo "◆ nome · onda N" no quadro)
-    const localEids=[...new Set(((typeof state!=='undefined'&&state.tasks)||[]).map(t=>t.epic&&t.epic.epicId).filter(Boolean))];
+    const localEids=[...new Set(((typeof state!=='undefined'&&state.tasks)||[]).map(t=>cloudEpicId(t.epic&&t.epic.epicId)).filter(Boolean))]; // só épicos da nuvem (uuid)
     epAutoIdle=!rows.length && !localEids.length; // nada de épico por aqui → o laço desacelera (60s)
     const nameIds=[...new Set(eids.concat(localEids))].slice(0,40);
     // progresso por épico da fila (cabeçalho "x/y entregues · onda N"): uma consulta leve por tick
