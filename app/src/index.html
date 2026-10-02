@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="css/88-acessibilidade.css">
 <link rel="stylesheet" href="css/89-uso.css">
 <link rel="stylesheet" href="css/90-piloto.css">
+<link rel="stylesheet" href="css/91-dispositivo.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -484,13 +485,18 @@
       <span class="fwmodes" id="fwModes"></span>
       <span style="flex:1"></span>
       <span id="fwReviewBar" style="display:flex;gap:8px;align-items:center"></span>
+      <button class="btn sm fwdevbtn" id="fwDevBtn" style="display:none" title="Dispositivo: o simulador/emulador desta tarefa ao vivo, ao lado do chat" aria-label="Dispositivo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="4.6" y="1.8" width="6.8" height="12.4" rx="1.6"/><path d="M7 12.3h2" stroke-linecap="round"/></svg> Dispositivo</button>
       <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, custo, preview no celular…"></button>
       <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
-    <div class="fwcols" id="fwCols">
-      <div class="fwtree" id="fwTree"></div>
-      <div class="fwmain" id="fwMain"></div>
-      <div class="fwchat" id="fwChatCol"></div>
+    <!-- linha: as colunas do workspace + o painel Dispositivo DOCADO à direita (57-dispositivo.js) -->
+    <div class="fwrow" id="fwRow">
+      <div class="fwcols" id="fwCols">
+        <div class="fwtree" id="fwTree"></div>
+        <div class="fwmain" id="fwMain"></div>
+        <div class="fwchat" id="fwChatCol"></div>
+      </div>
+      <aside class="fwdev" id="fwDev" hidden aria-label="Dispositivo — simulador/emulador da tarefa ao vivo"></aside>
     </div>
   </div>
 </div>
@@ -724,5 +730,6 @@
 <script src="js/54-acessibilidade.js"></script>
 <script src="js/55-uso.js"></script>
 <script src="js/56-piloto.js"></script>
+<script src="js/57-dispositivo.js"></script>
 </body>
 </html>

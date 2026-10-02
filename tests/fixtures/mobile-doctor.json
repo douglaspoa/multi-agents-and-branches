@@ -20,6 +20,13 @@
       "ok": false,
       "detail": "não instalado — os agentes provam só com prints e vídeos",
       "fix": "curl -fsSL \"https://get.maestro.mobile.dev\" | bash"
+    },
+    {
+      "id": "axe",
+      "name": "AXe (tocar no Simulador iOS pelo app)",
+      "ok": false,
+      "detail": "não instalado — o painel Dispositivo mostra o iPhone ao vivo, mas só pra ver (sem tocar)",
+      "fix": "brew install cameroncooke/axe/axe (se o brew recusar por \"Command Line Tools too outdated\", atualize-as em Ajustes do Sistema → Atualização de Software e rode de novo)"
     }
   ],
   "swept": [],

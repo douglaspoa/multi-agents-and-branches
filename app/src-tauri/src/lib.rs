@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
+mod device;
 mod ai_once;
 mod autopilot;
 mod epic_context;
@@ -6366,7 +6367,8 @@ fn env_mobile_parse(stdout: &str, macos: bool) -> Vec<EnvCheck> {
     let items = v.get("items").and_then(|x| x.as_array()).cloned().unwrap_or_default();
     items
         .iter()
-        .filter(|it| macos || it.get("id").and_then(|x| x.as_str()) != Some("ios"))
+        // iOS e o AXe (toque no Simulador iOS) só existem no macOS
+        .filter(|it| macos || !matches!(it.get("id").and_then(|x| x.as_str()), Some("ios") | Some("axe")))
         .filter_map(|it| {
             let name = it.get("name")?.as_str()?.to_string();
             let s = |k: &str| it.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -9216,6 +9218,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            device::device_cli,
+            device::device_mirror_start,
+            device::device_mirror_stop,
             plan_usage::plan_usage,
             usage_ledger::usage_report,
             usage_ledger::usage_task_detail,
@@ -9660,10 +9665,11 @@ mod env_mobile_tests {
         let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/mobile-doctor.json");
         let out = format!("aviso qualquer\n{}\n", std::fs::read_to_string(&p).unwrap().replace('\n', ""));
         let v = env_mobile_parse(&out, true);
-        assert_eq!(v.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)"]);
+        assert_eq!(v.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)", "AXe (tocar no Simulador iOS pelo app)"]);
+        assert!(!v[3].ok && v[3].fix.contains("brew install cameroncooke/axe/axe"), "sem AXe: o painel só mostra — correção humana");
         assert!(v.iter().all(|c| c.kind == "opt"), "opcionais: não acendem pendência");
         assert!(v[0].ok && !v[1].ok && v[1].fix.contains("Android Studio") && v[1].fix.contains("cmdline-tools/latest/bin/avdmanager"));
-        assert_eq!(env_mobile_parse(&out, false).len(), 2, "fora do macOS o iOS some");
+        assert_eq!(env_mobile_parse(&out, false).len(), 2, "fora do macOS o iOS e o AXe somem");
         assert!(env_mobile_parse("lixo", true).is_empty());
         // sem resposta: um item "não respondeu" em vez de sumir
         let s = env_mobile_or_silent(Err("tempo esgotado (45s)".into()));

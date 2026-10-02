@@ -578,6 +578,8 @@ function renderWorkspace(){
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
   { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=async()=>{ const nm=b.dataset.fwmode; if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }); } }
   { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
+  // painel Dispositivo (57-dispositivo.js): barato — só o botão/visibilidade; o painel tem guarda própria
+  if(typeof dvSync==='function') dvSync(t);
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
   { const te=$id('fwTaskEpic'); if(te){ const h=(typeof epTaskBadge==='function')?epTaskBadge(t):''; if(te.__html!==h){ te.__html=h; te.innerHTML=h; // R8: compara com a string guardada (o SVG serializado pelo innerHTML nunca bate)
       te.querySelectorAll('[data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); }); } } }
