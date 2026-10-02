@@ -107,13 +107,16 @@ test('marcação → mensagem do chat: plataforma, aparelho, instrução, área 
 });
 
 test('fonte: painel DOCADO ao lado das colunas (não modal), botão no cabeçalho, script/CSS carregados, comandos registrados', () => {
-  assert.match(html, /<div class="fwrow" id="fwRow">\s*<div class="fwcols" id="fwCols">[\s\S]*?<\/div>\s*<aside class="fwdev" id="fwDev" hidden/);
+  // canvas (spec-canvas-workspace): o painel virou a ABA "Celular" — o host fica estacionado e o canvas o põe na coluna
+  assert.match(html, /<div class="cvpark" id="cvPark" hidden>[\s\S]*?<aside class="fwdev" id="fwDev" data-cvhost="dispositivo" hidden/);
   assert.match(html, /id="fwDevBtn"[^>]*>[\s\S]*?Dispositivo<\/button>/);
   assert.match(html, /<script src="js\/56-piloto\.js"><\/script>[\s\S]*<script src="js\/57-dispositivo\.js"><\/script>/);
   assert.match(html, /href="css\/91-dispositivo\.css"/);
   assert.match(css, /\.fwdev\{--dvw:360px;width:var\(--dvw\)/); assert.match(css, /\.dvresize\{[^}]*cursor:col-resize/);
   assert.ok(!/position:fixed/.test(css), 'nada flutuante');
-  assert.match(ws, /if\(typeof dvSync==='function'\) dvSync\(t\);/, 'renderWorkspace chama o painel');
+  const canvas = readFileSync(new URL('../src/js/58-canvas.js', import.meta.url), 'utf8');
+  assert.match(canvas, /if\(typeof dvSync==='function'\) dvSync\(t\);/, 'o canvas chama o painel (renderWorkspace → cvRender)');
+  assert.match(src, /const show=mob&&\(typeof cvShows==='function'\?cvShows\('dispositivo'\):dvIsOpen\(t\.id\)\);/, 'aparece quando a aba Celular está à vista');
   for (const c of ['device_cli', 'device_mirror_start', 'device_mirror_stop']) assert.match(lib, new RegExp(`device::${c},`));
 });
 

@@ -139,7 +139,8 @@ function dvSync(t){
   const mob=!!(info&&info.mobile&&(info.platforms||[]).length);
   if(btn){ btn.style.display=mob?'':'none'; btn.classList.toggle('on', mob&&dvIsOpen(t.id)); if(!btn.__dv){ btn.__dv=1; btn.onclick=()=>dvToggle(); } }
   const el=dvEl(); if(!el) return;
-  const show=mob&&dvIsOpen(t.id);
+  // canvas: o painel aparece quando a ABA Celular está à vista (o stream respeita o teto de 1 do gerente)
+  const show=mob&&(typeof cvShows==='function'?cvShows('dispositivo'):dvIsOpen(t.id));
   if(el.hidden===show) el.hidden=!show;
   $id('fwRow')&&$id('fwRow').classList.toggle('dvexp', show&&DV.expanded);
   if(show) dvRender(); else dvStopStream();
@@ -163,6 +164,11 @@ async function dvLoadInfo(taskId, force){
 }
 function dvToggle(force){
   const id=DV.task; if(!id) return;
+  // canvas: o botão "Celular" do topo e o × do painel abrem/fecham a ABA (nada de painel docado à parte)
+  if(typeof cvShows==='function' && typeof cvLayout==='function' && cvLayout()){
+    const on=force!=null?!!force:!cvShows('dispositivo');
+    if(on) cvOpenType('dispositivo'); else { dvStopStream(); const tb=cvAllTabs(cvLayout()).find(x=>x.type==='dispositivo'); if(tb) cvCloseTabId(tb.id); }
+    return; }
   DV.open[id]=force!=null?!!force:!DV.open[id]; lsSet('dv:open:'+id, DV.open[id]?'1':'0');
   if(!DV.open[id]){ dvStopStream(); DV.expanded=false; }
   DV.sig='';

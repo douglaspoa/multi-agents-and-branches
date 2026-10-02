@@ -491,14 +491,15 @@
       <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, custo, preview no celular…"></button>
       <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
-    <!-- linha: as colunas do workspace + o painel Dispositivo DOCADO à direita (57-dispositivo.js) -->
+    <!-- CANVAS (58-canvas.js): até 3 colunas com abas tipadas. Os modos antigos são HOSTS que o canvas põe na coluna
+         da aba deles; fora da tela ficam estacionados (escondidos, com o estado intacto) -->
     <div class="fwrow" id="fwRow">
-      <div class="fwcols" id="fwCols">
-        <div class="fwtree" id="fwTree"></div>
-        <div class="fwmain" id="fwMain"></div>
-        <div class="fwchat" id="fwChatCol"></div>
+      <div class="cvcanvas" id="cvCanvas" aria-label="painéis da demanda"></div>
+      <div class="cvpark" id="cvPark" hidden>
+        <div class="fwcols cvcode" id="fwCols" data-cvhost="codigo"><div class="fwtree" id="fwTree"></div><div class="fwmain" id="fwMain"></div></div>
+        <div class="fwchat" id="fwChatCol" data-cvhost="conversa"></div>
+        <aside class="fwdev" id="fwDev" data-cvhost="dispositivo" hidden aria-label="Celular — simulador/emulador da demanda ao vivo"></aside>
       </div>
-      <aside class="fwdev" id="fwDev" hidden aria-label="Dispositivo — simulador/emulador da tarefa ao vivo"></aside>
     </div>
   </div>
 </div>
@@ -736,5 +737,6 @@
 <script src="js/57-navegador.js"></script>
 <script src="js/57-dispositivo.js"></script>
 <script src="js/58-ambiente.js"></script>
+<script src="js/58-canvas.js"></script>
 </body>
 </html>

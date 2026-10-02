@@ -104,7 +104,9 @@ function cvDefaultLayout(homeId, ctx){
 function cvPreset(name, homeId, ctx){
   ctx=ctx||{};
   const conv=cvMkTab('conversa', homeId);
-  const left = name==='revisar' ? cvMkTab('diff', homeId)
+  // entrega sem código (relatório, pesquisa): "construir" = o documento; "revisar" = a Entrega (provas)
+  const left = ctx.nonCode ? (name==='revisar' ? cvMkTab('entrega', homeId) : cvMkTab('documento', homeId, ctx.doc?{ ref:ctx.doc }:null))
+    : name==='revisar' ? cvMkTab('diff', homeId)
     : (ctx.web===false ? (ctx.mobile?cvMkTab('dispositivo', homeId):cvMkTab('entrega', homeId)) : cvMkTab('app', homeId));
   return { v:CV_VER, cols:[{ tabs:[left], active:left.id }, { tabs:[conv], active:conv.id }], focus:0, auto:false };
 }
@@ -143,9 +145,12 @@ function cvValidate(raw, ctx){
   }
   if(!cols.length) return null;
   const focus=Math.min(cols.length-1, Math.max(0, +l.focus|0));
-  return { v:CV_VER, cols, focus, auto:!!l.auto, opened:Array.isArray(l.opened)?l.opened.filter(x=>typeof x==='string').slice(0,20):undefined };
+  const out={ v:CV_VER, cols, focus, auto:!!l.auto };
+  if(Array.isArray(l.opened)) out.opened=l.opened.filter(x=>typeof x==='string').slice(0,20);
+  if(Array.isArray(l.w) && l.w.length===l.cols.length && cols.length===l.cols.length) out.w=cvWidths(l.w, cols.length);
+  return out;
 }
-function cvSerialize(l){ return JSON.stringify({ v:CV_VER, cols:l.cols.map(c=>({ tabs:c.tabs.map(t=>{ const o={ type:t.type }; if(t.taskId) o.taskId=t.taskId; if(t.ref) o.ref=t.ref; if(t.url) o.url=t.url; return o; }), active:c.active })), focus:l.focus|0, auto:!!l.auto, ...(l.opened?{ opened:l.opened }:{}) }); }
+function cvSerialize(l){ return JSON.stringify({ v:CV_VER, cols:l.cols.map(c=>({ tabs:c.tabs.map(t=>{ const o={ type:t.type }; if(t.taskId) o.taskId=t.taskId; if(t.ref) o.ref=t.ref; if(t.url) o.url=t.url; return o; }), active:c.active })), focus:l.focus|0, auto:!!l.auto, ...(l.opened?{ opened:l.opened }:{}), ...(Array.isArray(l.w)&&l.w.length===l.cols.length?{ w:cvWidths(l.w, l.cols.length) }:{}) }); }
 function cvSig(l){ return l?l.cols.map(c=>c.active+':'+c.tabs.map(t=>t.id).join(',')).join('/')+'@'+(l.focus|0):''; }
 
 // ---------- operações (devolvem um layout NOVO; mexer na mão = sai do automático) ----------
@@ -155,7 +160,7 @@ function cvAddTab(l, tab, col){
   const ex=cvFindTab(n, tab.id);
   if(ex){ n.cols[ex.col].active=tab.id; n.focus=ex.col; return n; }
   const tasks=new Set(cvTasksIn(n)); if(tab.taskId && !tasks.has(tab.taskId) && tasks.size>=CV_MAX_TASKS) return null; // teto de demandas
-  if(col==='new' && n.cols.length<CV_MAX_COLS){ n.cols.push({ tabs:[tab], active:tab.id }); n.focus=n.cols.length-1; return n; }
+  if(col==='new' && n.cols.length<CV_MAX_COLS){ n.cols.push({ tabs:[tab], active:tab.id }); n.focus=n.cols.length-1; delete n.w; return n; }
   const c=(typeof col==='number' && n.cols[col]) ? col : Math.min(n.focus|0, n.cols.length-1);
   n.cols[c].tabs.push(tab); n.cols[c].active=tab.id; n.focus=c; return n;
 }
@@ -164,7 +169,7 @@ function cvCloseTab(l, id){
   const f=cvFindTab(l, id); if(!f) return l;
   const n=cvClone(l); n.auto=false; const col=n.cols[f.col];
   col.tabs.splice(f.idx,1);
-  if(!col.tabs.length){ n.cols.splice(f.col,1); if(!n.cols.length) return null; n.focus=Math.min(n.focus, n.cols.length-1); return n; }
+  if(!col.tabs.length){ n.cols.splice(f.col,1); if(!n.cols.length) return null; n.focus=Math.min(n.focus, n.cols.length-1); delete n.w; return n; }
   if(col.active===id) col.active=(col.tabs[f.idx]||col.tabs[f.idx-1]||col.tabs[0]).id;
   return n;
 }
@@ -181,7 +186,7 @@ function cvMoveTab(l, id, to, zone){
   const side=(zone==='left'||zone==='right');
   // soltou na PRÓPRIA coluna (no meio, ou na borda sendo a única aba dela): nada muda além de ativar
   if(f.col===to && (!side || l.cols[f.col].tabs.length===1)) return cvActivate(l, id);
-  const n=cvClone(l); n.auto=false;
+  const n=cvClone(l); n.auto=false; delete n.w; // colunas mudam: larguras voltam ao automático
   const tab=n.cols[f.col].tabs.splice(f.idx,1)[0];
   const srcEmpty=!n.cols[f.col].tabs.length;
   if(!srcEmpty && n.cols[f.col].active===id) n.cols[f.col].active=(n.cols[f.col].tabs[f.idx]||n.cols[f.col].tabs[f.idx-1]).id;
@@ -217,9 +222,24 @@ function cvPlusItems(ctx){
   const full=(ctx.tasksN||1)>=CV_MAX_TASKS;
   add('demanda', { others:(ctx.others||[]), disabled:!(ctx.others||[]).length || full,
     why:!(ctx.others||[]).length?'não há outra demanda neste projeto':full?`no máximo ${CV_MAX_TASKS} demandas lado a lado por enquanto`:'' });
-  if(!ctx.nonCode && ctx.web!==false) add('log');
+  // Log NÃO entra no "+" (veto da Bia: texto de máquina só em "ver detalhes") — abre pela faixa do ambiente
   return it;
 }
+// troca a aba `id` por outra (mesmo lugar, ativa) — ex.: Documento sem arquivo → com o arquivo escolhido
+function cvReplaceTab(l, id, tab){
+  const f=cvFindTab(l, id); if(!f) return l;
+  const n=cvClone(l); const dup=cvFindTab(n, tab.id);
+  if(dup && dup.tab.id!==id){ n.cols[f.col].tabs.splice(f.idx,1); if(!n.cols[f.col].tabs.length) n.cols.splice(f.col,1); const d2=cvFindTab(n, tab.id); n.cols[d2.col].active=tab.id; n.focus=d2.col; return n; }
+  n.cols[f.col].tabs[f.idx]=tab; n.cols[f.col].active=tab.id; n.focus=f.col; return n;
+}
+// legado: os modos antigos (fwMode) viram tipos de aba — nada se perde
+const CV_MODE2TYPE={ conversa:'conversa', codigo:'codigo', revisao:'diff', entrega:'entrega', pr:'pr', previa:'app' };
+const CV_TYPE2MODE={ conversa:'conversa', codigo:'codigo', diff:'revisao', entrega:'entrega', pr:'pr', app:'previa' };
+// cor estável por demanda (nome+cor em cada painel: ninguém manda mensagem pra demanda errada)
+function cvTaskHue(id){ let h=0; const s=String(id||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h%360; }
+function cvTaskColor(id){ return 'hsl('+cvTaskHue(id)+' 72% 62%)'; }
+// larguras salvas: FRAÇÃO da largura por coluna (null = automática); valores sãos, uma por coluna
+function cvWidths(w, n){ return Array.from({ length:n }, (_,i)=>{ const v=Array.isArray(w)?+w[i]:NaN; return (v>=0.08 && v<=0.92) ? Math.round(v*1000)/1000 : null; }); }
 // @canvas-puro-fim
 
 // ---------- gerente de recursos: a instância do app (um só) ----------

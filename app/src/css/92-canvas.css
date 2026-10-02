@@ -36,3 +36,121 @@
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .apppane{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
 .apppane .nvhost{display:flex;flex-direction:column;flex:1;min-height:0}
+
+/* ---------- Canvas (F2): até 3 colunas fixas, abas tipadas ---------- */
+.cvcanvas{flex:1;display:flex;min-width:0;min-height:0;background:var(--bg);gap:0}
+.cvpark{display:none!important}
+.cvcol{display:flex;flex-direction:column;min-width:240px;min-height:0;background:var(--surface);position:relative;border-left:1px solid var(--border)}
+.cvcol:first-child{border-left:0}
+.cvcanvas[data-n="1"] .cvcol{border-left:0}
+.cvcol.focus .cvbar{box-shadow:inset 0 2px 0 var(--accent-line)}
+.cvsplit{flex:none;width:5px;margin:0 -3px;cursor:col-resize;z-index:3;position:relative}
+.cvsplit:hover,.cvsplit:active{background:var(--accent-line)}
+.cvbar{display:flex;align-items:stretch;min-height:34px;border-bottom:1px solid var(--border);background:var(--surface-2);flex:none}
+.cvtabs{display:flex;align-items:stretch;min-width:0;overflow-x:auto;scrollbar-width:none;flex:0 1 auto}
+.cvtabs::-webkit-scrollbar{display:none}
+.cvtab{display:flex;align-items:center;gap:6px;padding:0 6px 0 11px;font-size:12px;color:var(--muted);border-right:1px solid var(--border);cursor:pointer;white-space:nowrap;max-width:220px;user-select:none;position:relative}
+.cvtab:hover{color:var(--text);background:var(--surface-3)}
+.cvtab.on{color:var(--text);background:var(--surface);font-weight:600}
+.cvtab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:var(--surface)}
+.cvtl{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cvtic{flex:none;width:14px;text-align:center;font-size:11px;opacity:.8}
+.cvtdot,.cvdot{flex:none;width:8px;height:8px;border-radius:50%;display:inline-block}
+.cvtx{flex:none;border:0;background:transparent;color:var(--muted);width:18px;height:18px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;opacity:0;padding:0}
+.cvtab:hover .cvtx,.cvtab.on .cvtx{opacity:1}
+.cvtx:focus-visible{opacity:1;outline:2px solid transparent;box-shadow:var(--ring)}
+.cvtx:hover{background:var(--surface-3);color:var(--text)}
+.cvplus{flex:none;border:0;background:transparent;color:var(--muted);font-size:17px;width:34px;cursor:pointer}
+.cvplus:hover{color:var(--accent);background:var(--surface-3)}
+.cvhead{display:flex;align-items:center;gap:7px;padding:5px 11px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border);flex:none;min-width:0}
+.cvhn{color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}
+.cvht{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cvhsp{flex:1}
+.cvbody{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.cvbody>*{flex:1;min-height:0;min-width:0}
+.cvbody>.fwchat{border-left:0}
+.cvbody>#fwCols{display:grid;grid-template-columns:256px 1fr}
+.cvbody>#fwCols.notree{grid-template-columns:1fr}
+.cvbody>.cvhost,.cvbody>.cvpane{overflow:auto;display:flex;flex-direction:column}
+.cvbody>.fwdev{width:auto;border-left:0}
+.cvbody .fwdev .dvresize,.cvbody .fwdev #dvExpand,.cvbody .fwdev #dvPop2{display:none}
+.cvbody>#cvHostEntrega{display:block}
+/* soltar: onde a aba vai cair */
+.cvdrop{position:absolute;z-index:5;pointer-events:none;border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 22%,color-mix(in srgb,var(--surface) 70%,transparent));backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px}
+.cvdrop span{background:var(--surface);color:var(--text);font-size:12.5px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid var(--accent-line);box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.cvdrop[hidden]{display:none}
+.cvdrop.center,.cvdrop.center-full{inset:40px 8px 8px 8px}
+.cvdrop.left{top:40px;bottom:8px;left:8px;width:38%}
+.cvdrop.right{top:40px;bottom:8px;right:8px;width:38%}
+.cvdragging iframe{pointer-events:none}
+.cvdragging .cvtab.on{opacity:.75}
+/* vazio que sempre diz o que dá pra fazer */
+.cvempty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5;flex:1}
+.cvempty b{color:var(--text);font-size:14.5px}
+.cvempty>span{max-width:460px}
+.cvcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;width:min(640px,100%);margin:6px 0}
+.cvcard{display:flex;gap:10px;align-items:center;text-align:left;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--text);font:inherit;cursor:pointer}
+.cvcard:hover{border-color:var(--accent-line);background:var(--surface-3)}
+.cvcard b{display:block;font-size:12.5px;word-break:break-all}
+.cvcard .dim{font-size:11px}
+.cvcic{flex:none;font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:3px 5px;border-radius:4px;background:var(--surface-3);color:var(--muted)}
+/* Mudanças: arquivos + diff */
+.cvdiff{display:grid;grid-template-columns:minmax(150px,220px) 1fr;flex:1;min-height:0}
+.cvdifffiles{border-right:1px solid var(--border);overflow:auto;padding:6px;background:var(--surface-2)}
+.cvdf{display:flex;justify-content:space-between;gap:8px;width:100%;border:0;background:transparent;color:var(--text);font:inherit;font-size:12px;padding:5px 7px;border-radius:6px;cursor:pointer;text-align:left}
+.cvdf.on,.cvdf:hover{background:var(--surface-3)}
+.cvdfn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cvdfa{flex:none;font-size:11px;color:var(--good)}
+.cvdiffmain{min-height:0;overflow:auto}
+/* Documento */
+.cvdoc{display:flex;flex-direction:column;flex:1;min-height:0}
+.cvdocbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;flex:none;min-width:0}
+.cvdocn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cvdocbody{flex:1;min-height:0;overflow:auto}
+.cvdocbody .pvpdf,.cvdocbody .pvhtml{width:100%;height:100%;min-height:400px;border:0}
+/* Site qualquer */
+.cvsite{display:flex;flex-direction:column;flex:1;min-height:0}
+.cvsitebar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);flex:none;font-size:12px;min-width:0}
+.cvsitehost{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;color:var(--muted)}
+.cvsitestage{flex:1;min-height:0;display:flex;background:#fff}
+.cvsitestage:has(.cvempty){background:var(--surface-2)}
+.cvsiteframe{flex:1;border:0;width:100%;height:100%;background:#fff}
+.cvsitefoot{flex:none;padding:4px 10px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
+/* Detalhes do ambiente */
+.cvlog{display:flex;flex-direction:column;flex:1;min-height:0}
+.cvlogbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;flex:none}
+.cvlogpre{flex:1;max-height:none;margin:0}
+/* menu "+" / ⌘K (dropdown, não modal) */
+.cvmenu{position:fixed;z-index:60;width:340px;max-height:min(560px,80vh);overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;box-shadow:var(--shadow-lg,0 12px 40px rgba(0,0,0,.45));padding:6px;display:flex;flex-direction:column;gap:2px}
+.cvmq{margin:2px 2px 6px;font-size:13px}
+.cvml{display:flex;flex-direction:column;gap:1px}
+.cvmi{display:flex;align-items:center;gap:10px;text-align:left;border:0;background:transparent;color:var(--text);font:inherit;padding:7px 9px;border-radius:8px;cursor:pointer}
+.cvmi:hover{background:var(--surface-3)}
+.cvmi:focus-visible{background:var(--surface-3);outline:2px solid transparent;box-shadow:var(--ring-inset)}
+.cvmi.off{opacity:.5;cursor:default}
+.cvmi[hidden]{display:none}
+.cvmic{flex:none;width:22px;height:22px;border-radius:6px;background:var(--surface-3);display:grid;place-items:center;font-size:12px;color:var(--muted)}
+.cvmt{flex:1;min-width:0;display:flex;flex-direction:column}
+.cvmt b{font-size:13px;font-weight:600}
+.cvmt span{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cvmch{color:var(--muted)}
+.cvmsub{display:flex;align-items:center;gap:10px;padding:4px 6px 8px;font-size:12.5px}
+.cvmfoot{display:flex;gap:14px;padding:8px 9px 4px;border-top:1px solid var(--border);margin-top:4px;font-size:12px}
+.cvsiteask{display:flex;gap:6px;padding:2px 4px}
+.cvsiteask .in{flex:1;min-width:0;font-size:12.5px}
+.cvmhint{font-size:11.5px;padding:6px 6px 2px}
+.cvtool{display:inline-flex;gap:2px}
+@media (max-width:1100px){ .cvcol{min-width:220px} .cvbody>#fwCols{grid-template-columns:200px 1fr} .cvdiff{grid-template-columns:150px 1fr} }
+/* botão com cara de link (ver detalhes, reiniciar, parar, voltar…) */
+button.lnk{border:0;background:none;font:inherit;padding:0}
+.cvmfoot .lnk,.cvmsub .lnk,.envalt .lnk,.envacts .lnk{font-size:12px}
+/* painel estreito (3 colunas): cada painel se ajusta à PRÓPRIA largura (container query, não à janela) */
+.cvbody{container-type:inline-size}
+@container (max-width:560px){
+  .cvdiff{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .cvdifffiles{display:flex;flex-wrap:wrap;gap:4px;border-right:0;border-bottom:1px solid var(--border);max-height:96px}
+  .cvdf{width:auto;max-width:100%}
+  .nvvp,.nvbar [data-nv="fwd"]{display:none}
+  .nvbar{gap:4px;padding:6px}
+}
+@container (max-width:420px){ .nvpick{padding-left:6px;padding-right:6px} .envbig{padding:14px} .envbigic{width:36px;height:36px} }
