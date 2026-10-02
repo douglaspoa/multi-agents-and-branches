@@ -53,17 +53,24 @@ DEVID=$( (security find-identity -v -p codesigning 2>/dev/null | grep -o '"Devel
 if [ -n "$DEVID" ]; then
   echo "→ assinando com: $DEVID (hardened runtime)"
   codesign --force --deep --options runtime --timestamp --sign "$DEVID" "$PORT"
-  # Notariza se houver um profile 'constellation' salvo no keychain
-  # (crie uma vez com: xcrun notarytool store-credentials constellation \
-  #    --apple-id SEU_APPLE_ID --team-id SEU_TEAM_ID --password SENHA_DE_APP)
-  if xcrun notarytool history --keychain-profile constellation >/dev/null 2>&1; then
+  # Notariza se houver um profile 'constellation'. Procura PRIMEIRO no chaveiro de LOGIN (arquivo explícito):
+  # o chaveiro "Itens locais" desta máquina some com itens ("Chaves Não Encontradas") e o perfil já
+  # desapareceu 2x (28/09 e 02/10). Crie uma vez com:
+  #   xcrun notarytool store-credentials constellation --apple-id SEU_APPLE_ID --team-id SUB6889LA9 \
+  #     --keychain "$HOME/Library/Keychains/login.keychain-db"
+  LOGIN_KC="$HOME/Library/Keychains/login.keychain-db"
+  NKC=()
+  if xcrun notarytool history --keychain-profile constellation --keychain "$LOGIN_KC" >/dev/null 2>&1; then NKC=(--keychain "$LOGIN_KC");
+  elif ! xcrun notarytool history --keychain-profile constellation >/dev/null 2>&1; then NKC=(none); fi
+  if [ "${NKC[0]:-}" != "none" ]; then
     echo "→ notarizando (pode levar alguns minutos)…"
     ditto -c -k --keepParent "$PORT" /tmp/constellation-notarize.zip
-    xcrun notarytool submit /tmp/constellation-notarize.zip --keychain-profile constellation --wait
+    xcrun notarytool submit /tmp/constellation-notarize.zip --keychain-profile constellation ${NKC[@]+"${NKC[@]}"} --wait
     xcrun stapler staple "$PORT"
     echo "→ notarizado e grampeado ✓ (abre sem Gatekeeper em qualquer Mac)"
   else
-    echo "→ sem profile de notarização 'constellation' — pulando (app assinado, mas 1º open pede Abrir Mesmo Assim)"
+    echo "⚠⚠ SEM NOTARIZAÇÃO: o perfil 'constellation' sumiu do chaveiro — o zip abre com bloqueio do Gatekeeper."
+    echo "   Recrie: xcrun notarytool store-credentials constellation --apple-id SEU_APPLE_ID --team-id SUB6889LA9 --keychain \"$LOGIN_KC\""
   fi
 else
   echo "→ sem Developer ID no keychain — assinatura ad-hoc (temporária)"
