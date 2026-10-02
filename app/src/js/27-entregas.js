@@ -411,7 +411,7 @@ function fwRenderEntrega(t, main){
   const prN=prNumOf(t); const cost=taskCost(t.id); const d=diffOf(t.id); const rev=reviewOf(t.id);
   const c=commitsCache[t.id]||[];
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
-  const evNorm=new Set([...evidenceNames].map(e=>enEvName(t.id, e)));
+  const evNorm=new Set([...evidenceNames].map(e=>enEvResolve(t.id, e, arts)).filter(Boolean)); // MESMA regra das mídias por requisito
   const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${th}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
   const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
   const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
@@ -451,9 +451,13 @@ function fwRenderEntrega(t, main){
   // guarda: só troca o DOM quando o conteúdo mudou (o PDF da prévia não recarrega a cada tick; log aberto fica aberto)
   const cur=main.firstElementChild;
   if(main._enHtml===html && cur && cur.classList.contains('enpage') && cur.dataset.task===t.id) return;
+  // vídeo da prova TOCANDO: não reconstrói a página (o <video> recomeçaria do zero) — redesenha quando ele pausar/acabar
+  if(cur && cur.dataset.task===t.id && enVideoPlaying(main)){ main._enPending=true; return; }
+  main._enPending=false;
   const out=$id('enGenOut'); const genBusy=out&&out.innerHTML&&cur&&cur.dataset.task===t.id?out.innerHTML:''; // relatório sendo gerado: não some
   main.innerHTML=html; main._enHtml=html;
   if(genBusy){ const o2=$id('enGenOut'); if(o2) o2.innerHTML=genBusy; }
+  main.querySelectorAll('video').forEach(v=>{ v.onpause=v.onended=()=>{ if(main._enPending && !enVideoPlaying(main)){ main._enPending=false; if(typeof renderWorkspace==='function') renderWorkspace(); } }; });
   main.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   main.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>lbOpen(t.id, imgs.map(a=>a.name), +b.dataset.lb));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
@@ -473,13 +477,18 @@ function fwRenderEntrega(t, main){
 // ---- provas DENTRO de cada requisito: miniaturas dos prints e o player dos vídeos citados como evidência ----
 // nome citado no requirements.json ("./.cardume/artifacts/mobile-ios-1.png", "<tarefa>/x.mp4") → nome do artefato
 function enEvName(taskId, e){ let n=String(e||'').trim().replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,''); if(taskId && n.startsWith(taskId+'/')) n=n.slice(taskId.length+1); return n; }
+// evidência citada → nome do artefato: igual normalizado; senão pelo nome do arquivo SÓ se UM artefato bater (ambíguo = nada)
+function enEvResolve(taskId, e, arts){
+  const n=enEvName(taskId, e); const list=arts||[];
+  if(list.some(a=>a.name===n)) return n;
+  const b=n.split('/').pop(); const hits=list.filter(a=>a.name.split('/').pop()===b);
+  return hits.length===1?hits[0].name:null;
+}
+function enVideoPlaying(root){ try{ return [...root.querySelectorAll('video')].some(v=>!v.paused && !v.ended); }catch(_){ return false; } }
 function enEvMediaHtml(t, evidence, arts, imgs){
-  const names=new Set((arts||[]).map(a=>a.name));
   const seen=new Set(); const items=[];
   for(const e of (evidence||[])){
-    let n=enEvName(t.id, e);
-    if(!names.has(n)){ const b=n.split('/').pop(); const hit=(arts||[]).find(a=>a.name.split('/').pop()===b); if(!hit) continue; n=hit.name; }
-    if(seen.has(n)) continue; seen.add(n);
+    const n=enEvResolve(t.id, e, arts); if(!n || seen.has(n)) continue; seen.add(n);
     const k=pvKind(n);
     if(k==='video') items.push(`<div class="en-evv">${artVideoHtml(t.id, n, 'en-evvid')}<span class="en-evn">${IC.play} ${esc(n)}</span></div>`);
     else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); const th=artThumb(t.id, n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${th?`<img src="${th}" alt="${escA('print: '+n)}">`:`<span class="en-ph">${IC.image}</span>`}</button>`); }

@@ -1,6 +1,6 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { globsOverlap } from "./glob.ts";
 import { GitService } from "./git.ts";
@@ -11,7 +11,7 @@ import { ghBin, netEnv, netTimeoutMs, run, sleep } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
-import { hasMobileState, mobileCleanup } from "./mobile.ts";
+import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLearnSettings, readPending, rejectReason, retroPrompt, type PendingItem } from "./learn.ts";
@@ -744,12 +744,27 @@ export class Orchestrator {
       const hasReal = ev.some((e) => evidenceExists(artDir, task.worktree, String(e)));
       if (!hasReal) reasons.push(`requisito "done" sem evidência real no disco: ${label}`);
     }
+    // PROVA MOBILE: em app iOS/Android, requisito visual (ou a tarefa que mexeu em tela) precisa de print/vídeo real
+    try {
+      if (isMobileProject(detectMobileProject(task.worktree))) {
+        const uiChanged = (await this.changedFiles(task.worktree, task.base)).some((f) => UI_FILE_RE.test(f));
+        reasons.push(...mobileProofGaps(list as never, uiChanged, (e) => evidenceExists(artDir, task.worktree, e)));
+      }
+    } catch { /* sem detecção/diff: fica só a regra geral */ }
     const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
     if (wantsTests) {
       const t = await this.runRepoTests(task.worktree);
       if (t.ran && !t.passed) reasons.push(`os testes falharam: ${t.detail}`);
     }
     return { ok: reasons.length === 0, reasons };
+  }
+
+  /** Arquivos mudados na branch (commits desde a base + o que está solto). Falhou → [] (regra leniente). */
+  private async changedFiles(worktree: string, base: string): Promise<string[]> {
+    const out = new Set<string>();
+    try { for (const l of (await run("git", ["-C", worktree, "diff", "--name-only", `${base}...HEAD`])).stdout.split("\n")) if (l.trim()) out.add(l.trim()); } catch { /* base sumiu */ }
+    try { for (const l of (await run("git", ["-C", worktree, "status", "--porcelain"])).stdout.split("\n")) if (l.trim()) out.add(l.slice(3).trim()); } catch { /* sem git */ }
+    return [...out];
   }
 
   /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
@@ -944,19 +959,19 @@ export class Orchestrator {
     }
   }
 
-  /** Fim do turno (e da fila): desliga/apaga o simulador iOS dedicado e libera o emulador Android que a tarefa
-   * subiu com `cardume mobile` (src/mobile.ts). Só se ninguém pegou o turno de novo; sem estado mobile é instantâneo. */
+  /** Provas mobile (src/mobile.ts): deps injetáveis — os testes trocam home/simctl/adb por falsos. */
+  mobileDeps: MobileDeps = realDeps();
+
+  /** Fim do turno (e da fila): só SOLTA a trava do emulador Android desta tarefa (outra tarefa pode usar). O
+   * simulador iOS dedicado continua de pé pra próxima rodada — ele só é apagado no fim da TAREFA (merge/remoção)
+   * ou pela varredura do doctor. Não pega nem mexe na trava de turno da tarefa (não atrapalha a fila). */
   private async mobileTurnEnd(taskId: string): Promise<void> {
-    if (!hasMobileState(taskId)) return;
-    try {
-      const wt = this.store.getTask(taskId)?.worktree ?? "";
-      if (!this.tryLock(taskId)) return; // outro turno já começou — ele limpa no fim
-      try {
-        await mobileCleanup(taskId, wt);
-      } finally {
-        this.store.setBusyPid(taskId, null);
-      }
-    } catch { /* limpeza nunca derruba o fim do turno */ }
+    mobileTurnRelease(taskId, this.mobileDeps);
+  }
+
+  /** Fim da TAREFA: apaga o simulador e libera/desliga o emulador que ela subiu. Nunca lança. */
+  private async mobileTaskEnd(taskId: string, worktree: string): Promise<void> {
+    await mobileCleanup(taskId, worktree, this.mobileDeps).catch(() => []);
   }
 
   /** Qualquer exceção que ESCAPE do pipeline (banco ocupado além do retry, spec corrompido, git) deixava
@@ -1856,6 +1871,7 @@ export class Orchestrator {
     await this.git.branchDelete(task.branch);
     this.store.releaseClaims(taskId);
     this.store.setStatus(taskId, "merged");
+    await this.mobileTaskEnd(taskId, task.worktree);
     this.store.addEvent(taskId, task.agent, "note", `merge na ${task.base} concluído`, true);
   }
 
@@ -1869,6 +1885,7 @@ export class Orchestrator {
     }
     await this.git.branchDelete(task.branch);
     await rm(join(this.ws.dir, "artifacts", taskId), { recursive: true, force: true }).catch(() => {});
+    await this.mobileTaskEnd(taskId, task.worktree);
     this.store.deleteTask(taskId);
   }
 
@@ -1877,12 +1894,21 @@ export class Orchestrator {
   }
 }
 
-/** Evidência citada no requirements.json existe no disco? Aceita "x.png", "./x.png", ".cardume/artifacts/x.png"
- * (antes o "." de ".cardume" era comido e a prova citada assim — o jeito que o roteiro mobile ensina — reprovava)
- * e caminho do próprio repo relativo à worktree ("tests/login.test.ts"). */
+/** Evidência citada no requirements.json existe no disco como ARQUIVO comum, DENTRO da pasta de artefatos ou da
+ * worktree? Aceita "x.png", "./x.png", ".cardume/artifacts/x.png" (antes o "." de ".cardume" era comido e a prova
+ * citada assim reprovava) e caminho do repo relativo à worktree ("tests/login.test.ts"). Recusa ".", "..",
+ * pastas, absolutos fora dessas pastas e symlink que aponta pra fora. */
 export function evidenceExists(artDir: string, worktree: string, e: string): boolean {
-  const raw = e.trim();
-  if (!raw) return false;
+  const raw = String(e ?? "").trim();
+  if (!raw || raw === "." || raw === "..") return false;
+  const real = (p: string) => { try { return realpathSync(p); } catch { return ""; } };
+  const roots = [real(artDir), real(worktree)].filter(Boolean);
+  const inside = (p: string) => roots.some((r) => { const rel = relative(r, p); return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel); });
   const name = raw.replace(/^(\.\/)?(\.cardume\/artifacts\/)?/, "");
-  return existsSync(join(artDir, name)) || existsSync(join(worktree, raw)) || existsSync(raw);
+  const cands = isAbsolute(raw) ? [raw] : [join(artDir, name), join(worktree, raw)];
+  return cands.some((p) => {
+    const r = real(p);
+    if (!r || !inside(r)) return false;
+    try { return statSync(r).isFile(); } catch { return false; }
+  });
 }

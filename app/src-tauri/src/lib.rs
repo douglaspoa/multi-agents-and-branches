@@ -6337,9 +6337,25 @@ fn env_dsh_status_item(name: String, found: &str, version: &str, st: Result<(), 
 fn env_mobile_items(cli: &str) -> Vec<EnvCheck> {
     let mut c = node_cmd();
     c.args(["--disable-warning=ExperimentalWarning", cli, "mobile", "doctor", "--json"]);
-    match output_timeout(c, 40) {
-        Ok(o) => env_mobile_parse(&String::from_utf8_lossy(&o.stdout), cfg!(target_os = "macos")),
-        Err(_) => Vec::new(),
+    // o doctor roda simctl e emulador EM PARALELO (15 s cada) + a varredura: 45 s cobre com folga
+    let r = output_timeout(c, 45).map(|o| env_mobile_parse(&String::from_utf8_lossy(&o.stdout), cfg!(target_os = "macos")));
+    env_mobile_or_silent(r)
+}
+/// Sem resposta (tempo esgotado/erro/JSON vazio) → UM item "não respondeu" em vez de sumir calado.
+fn env_mobile_or_silent(r: Result<Vec<EnvCheck>, String>) -> Vec<EnvCheck> {
+    match r {
+        Ok(v) if !v.is_empty() => v,
+        Ok(_) => vec![env_mobile_silent("a checagem não devolveu resultado")],
+        Err(e) => vec![env_mobile_silent(&e)],
+    }
+}
+fn env_mobile_silent(why: &str) -> EnvCheck {
+    EnvCheck {
+        kind: "opt".into(),
+        name: "Provas mobile (simulador/emulador)".into(),
+        ok: false,
+        detail: format!("a checagem do simulador/emulador não respondeu ({})", why.chars().take(160).collect::<String>()),
+        fix: "clique em \"verificar de novo\"; se persistir, rode no Terminal: cardume mobile doctor".into(),
     }
 }
 /// JSON do doctor → itens do Ambiente (puro — testável). Fora do macOS o item do iOS não aparece (não tem correção).
@@ -9183,15 +9199,16 @@ pub fn run() {
             let path = request.uri().path().to_string();
             let range = request.headers().get("range").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
             std::thread::spawn(move || {
-                let (status, headers, body) = match media_proto::parse_target(&path) {
-                    None => (403u16, vec![("Content-Type", "text/plain".to_string())], b"fora do escopo".to_vec()),
-                    Some((task, name)) => {
-                        let st = app.state::<AppState>();
-                        let file = artifact_path(&st, &task, &name).ok();
-                        media_proto::respond(file.as_deref(), &name, range.as_deref())
-                    }
-                };
-                let mut b = tauri::http::Response::builder().status(status).header("Access-Control-Allow-Origin", "*");
+                let st = app.state::<AppState>();
+                let (status, headers, body) = media_proto::serve(&path, range.as_deref(), |task, name| {
+                    let file = artifact_path(&st, task, name).ok()?;
+                    // pastas permitidas: artefatos da worktree da tarefa e a cópia coletada no repo (o `within` canoniza)
+                    let mut roots = Vec::new();
+                    if let Ok(wt) = task_worktree(&st, task) { roots.push(wt.join(".cardume").join("artifacts")); }
+                    if let Ok(repo) = repo_of(&st) { roots.push(repo.join(".cardume").join("artifacts").join(task)); }
+                    Some((file, roots))
+                });
+                let mut b = tauri::http::Response::builder().status(status);
                 for (k, v) in headers { b = b.header(k, v); }
                 responder.respond(b.body(body).unwrap_or_else(|_| tauri::http::Response::new(Vec::new())));
             });
@@ -9633,13 +9650,20 @@ mod env_mobile_tests {
     use super::*;
     #[test]
     fn itens_mobile_do_doctor() {
-        let out = "aviso qualquer\n{\"items\":[{\"id\":\"ios\",\"name\":\"Simulador iOS (Xcode)\",\"ok\":true,\"detail\":\"iOS 26.5 · iPhone 17\",\"fix\":\"\"},{\"id\":\"android\",\"name\":\"Emulador Android (SDK + AVD)\",\"ok\":false,\"detail\":\"Android SDK não encontrado\",\"fix\":\"instale o Android Studio\"},{\"id\":\"maestro\",\"name\":\"Maestro (fluxos de toque)\",\"ok\":false,\"detail\":\"não instalado\",\"fix\":\"curl x | bash\"}],\"project\":{}}\n";
-        let v = env_mobile_parse(out, true);
+        // MESMO arquivo que o teste TS gera do `cardume mobile doctor --json` (src/mobile.test.ts)
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/mobile-doctor.json");
+        let out = format!("aviso qualquer\n{}\n", std::fs::read_to_string(&p).unwrap().replace('\n', ""));
+        let v = env_mobile_parse(&out, true);
         assert_eq!(v.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)"]);
         assert!(v.iter().all(|c| c.kind == "opt"), "opcionais: não acendem pendência");
-        assert!(v[0].ok && !v[1].ok && v[1].fix.contains("Android Studio"));
-        assert_eq!(env_mobile_parse(out, false).len(), 2, "fora do macOS o iOS some");
+        assert!(v[0].ok && !v[1].ok && v[1].fix.contains("Android Studio") && v[1].fix.contains("cmdline-tools/latest/bin/avdmanager"));
+        assert_eq!(env_mobile_parse(&out, false).len(), 2, "fora do macOS o iOS some");
         assert!(env_mobile_parse("lixo", true).is_empty());
+        // sem resposta: um item "não respondeu" em vez de sumir
+        let s = env_mobile_or_silent(Err("tempo esgotado (45s)".into()));
+        assert_eq!(s.len(), 1);
+        assert!(!s[0].ok && s[0].detail.contains("não respondeu") && s[0].kind == "opt");
+        assert_eq!(env_mobile_or_silent(Ok(vec![])).len(), 1);
     }
     #[test]
     fn artifact_kind_video() {

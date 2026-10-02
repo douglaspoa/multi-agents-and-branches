@@ -15,7 +15,7 @@ function loadFront(tauri = true) {
   const window = tauri ? { __TAURI__: { core: { convertFileSrc: (p, proto) => `${proto}://localhost/${encodeURIComponent(p)}` } } } : {};
   const code = slice(kan, 'function pvKind', '// BUG-23') + '\n' + slice(ent, 'function enEvName', '// ---- lightbox das provas');
   return new Function('window', 'esc', 'escA', 'IC', 'artThumb', 'skeletonHtml', 'mdToHtml', 'csvTableHtml',
-    code + '\nreturn { pvKind, artMediaUrl, artVideoHtml, artPreviewHtml, enEvName, enEvMediaHtml };')(
+    code + '\nreturn { pvKind, artMediaUrl, artVideoHtml, artPreviewHtml, enEvName, enEvResolve, enEvMediaHtml, enVideoPlaying };')(
     window, esc, escA, { play: '▶', image: '🖼' }, (t, n) => 'data:image/png;base64,TH-' + n, () => 'SKEL', (t) => t, (t) => t);
 }
 
@@ -45,6 +45,13 @@ test('entrega: cada requisito mostra a miniatura do print e o player do vídeo D
   assert.ok(!/notas\.md|sumiu/.test(h), 'doc e evidência inexistente não viram mídia');
   assert.equal(F.enEvMediaHtml({ id: 't1' }, [], arts, imgs), '');
   assert.equal(F.enEvName('t1', 't1/sub/x.mp4'), 'sub/x.mp4');
+  // nome do arquivo como último recurso SÓ quando um artefato bate (ambíguo → nada, não chuta)
+  const two = [{ name: 'ios/a.png', kind: 'image' }, { name: 'android/a.png', kind: 'image' }, { name: 'sub/v.mp4', kind: 'video' }];
+  assert.equal(F.enEvResolve('t1', 'a.png', two), null);
+  assert.equal(F.enEvResolve('t1', 'v.mp4', two), 'sub/v.mp4');
+  assert.equal(F.enEvMediaHtml({ id: 't1' }, ['a.png'], two, []), '');
+  assert.equal(F.enVideoPlaying({ querySelectorAll: () => [{ paused: false, ended: false }] }), true);
+  assert.equal(F.enVideoPlaying({ querySelectorAll: () => [{ paused: true, ended: false }] }), false);
 });
 
 test('fonte: visualizador toca vídeo; galeria de provas tem vídeos; docs não listam vídeo; time não recebe vídeo em base64', () => {
@@ -54,10 +61,17 @@ test('fonte: visualizador toca vídeo; galeria de provas tem vídeos; docs não 
   assert.match(r, /vids\.map\(a=>`<div class="en-proof en-vproof"/);
   assert.match(r, /mp4\|m4v\|mov\|webm\)\$\/i\.test\(a\.name\)\)/, 'documentos sem os vídeos');
   assert.match(r, /enEvMediaHtml\(t, r\.evidence, arts, imgs\)/);
+  assert.match(r, /const evNorm=new Set\(\[\.\.\.evidenceNames\]\.map\(e=>enEvResolve\(t\.id, e, arts\)\)/, 'selo "evidência" e mídia por requisito com a MESMA regra');
+  assert.match(r, /enVideoPlaying\(main\)\)\{ main\._enPending=true; return; \}/, 'vídeo tocando não é reconstruído');
   assert.match(r, /artPreviewHtml|enPvHtml/);
   assert.match(ent, /artPreviewHtml\(a\.name, c, t\.id\)/, 'prévia recebe a tarefa (URL do vídeo)');
   const pub = slice(read('43-espaco-times.js'), 'async function cloudPublishProofs', "if(btn){ btn.disabled=true; }");
   assert.match(pub, /a\.kind!=='video'/);
+  const times = read('43-espaco-times.js');
+  const note = new Function(slice(times, 'function ctVideoNote', '\nasync function cloudPublishProofs') + '\nreturn ctVideoNote;')();
+  assert.match(note({ evidence: ['mobile-ios-1.mp4'] }), /vídeo fica na máquina de quem fez/);
+  assert.equal(note({ evidence: ['mobile-ios-1.png'] }), '');
+  assert.match(times, /\$\{ctVideoNote\(x\)\}/, 'requisito da nuvem mostra o aviso');
 });
 
 test('Ambiente: itens mobile com texto de gente (o Rust manda os nomes do doctor do motor)', () => {
