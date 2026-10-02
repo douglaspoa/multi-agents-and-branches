@@ -36,6 +36,15 @@ function a11yPickInitial(items){
   i=at(x=>!isX(x) && !/\b(primary|danger)\b/.test(x.cls||'') && !A11Y_DANGER_RE.test(x.text||'')); if(i>=0) return i;
   i=at(isX); return i>=0?i:0;
 }
+// menu de opções pelo teclado (pílula da IA no composer, ⋯): ↓/↑ dão a volta, Home/End vão às pontas; outra tecla → -1
+function a11yMenuStep(n, cur, key){
+  if(!(n>0)) return -1;
+  if(key==='ArrowDown') return a11yWrapIndex(n, cur, false);
+  if(key==='ArrowUp') return a11yWrapIndex(n, cur, true);
+  if(key==='Home') return 0;
+  if(key==='End') return n-1;
+  return -1;
+}
 // @puro-a11y-fim
 const A11Y_FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
 function a11yShown(el){ if(!el || !el.isConnected) return false; const d=el.style.display; if(d==='none') return false; return getComputedStyle(el).display!=='none'; }
@@ -141,6 +150,24 @@ function a11yTrapTab(e){
 }
 document.addEventListener('keydown', a11yTrapTab, true);
 
+// menu flutuante (role=menu) operável pelo teclado: foco entra no item marcado (ou no 1º), ↓/↑/Home/End andam,
+// Esc fecha e devolve o foco a quem abriu (anchor), Tab fecha (o foco segue o fluxo normal a partir de quem abriu).
+// close(focusBack) é de quem criou o menu — remove o pop e solta os listeners dele.
+function a11yMenu(pop, anchor, close){
+  if(!pop) return;
+  pop.setAttribute('role','menu');
+  const items=()=>[...pop.querySelectorAll('[role=menuitem],[role=menuitemradio]')].filter(x=>!x.disabled);
+  items().forEach(x=>{ x.tabIndex=-1; });
+  if(anchor){ anchor.setAttribute('aria-expanded','true'); if(!anchor.id) anchor.id='a11yMenuBtn'+Date.now(); pop.setAttribute('aria-labelledby', anchor.id); }
+  pop.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; }
+    if(e.key==='Tab'){ close(false); return; }
+    const it=items(); const nx=a11yMenuStep(it.length, it.indexOf(document.activeElement), e.key);
+    if(nx>=0){ e.preventDefault(); it[nx].focus(); }
+  });
+  const it=items(); const on=it.find(x=>x.getAttribute('aria-checked')==='true')||it[0];
+  if(on) setTimeout(()=>on.focus({preventScroll:true}), 0);
+}
 // ----- painel de atalhos (tecla ? ou ⌘/) -----
 function kbdKeysHtml(keys){ return (keys||[]).map(x=>(typeof SHORTCUT_WORDS!=='undefined' && SHORTCUT_WORDS.has(x)) ? '<span class="kbdor">'+esc(x)+'</span>' : '<kbd>'+esc(x)+'</kbd>').join(' '); }
 function kbdPanelHtml(){

@@ -125,7 +125,17 @@
 .orq-briefcc.cc.cc { padding: 0; border-top: 0; background: transparent; }
 .orq-briefcc.cc.cc .cc-ta { min-height: 132px; font: 400 14px/1.6 var(--display); padding: 12px 14px; border-radius: 10px; }
 .orq-briefcc.cc.cc .cc-row { margin-top: 10px; }
-.orq-briefcc .orq-model { font-size: 11px; margin-right: 4px; }
+
+/* pílula da IA/modelo (chatModelPillHtml em js/30-anexos.js): embaixo da caixa, logo depois do clipe — discreta
+   como texto secundário, acende no hover; nome longo vira reticências pra caber em janela estreita */
+.cc .cc-model { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: min(240px, 46%); flex: 0 1 auto !important;
+  height: 26px; padding: 0 8px; border: 1px solid transparent; border-radius: 999px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 11.5px; line-height: 1; cursor: pointer; white-space: nowrap;
+  transition: color .12s, background .12s, border-color .12s; }
+.cc .cc-model .cc-model-t { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cc .cc-model svg { width: 12px; height: 12px; flex: none; opacity: .7; }
+.cc .cc-model:hover, .cc .cc-model[aria-expanded="true"] { color: var(--text); background: var(--surface-3); border-color: var(--border); }
+.cc .cc-model:disabled { opacity: .5; cursor: default; }
 
 /* ---------- resultado de tool: linha sutil (sem pill), estilo Claude ---------- */
 .ctool {

@@ -43,7 +43,7 @@ function plRenderRefs(){
 }
 // anexos do planner: composer único; o que entra também vira ref da tarefa criada
 function plWireComposer(){ chatComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); },
-  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop } });
+  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop }, modelPill:plModelPill() });
   if(plBusy) plActsPaint(); } // a dica ao vivo (tempo + ação atual) é do plActsPaint — nada de texto congelado no wire
 function plVal(k){ if(k==='engine'&&plFields.engineLabel) return plFields.engineLabel; if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
@@ -298,17 +298,25 @@ function plPreviewFields(){
 }
 // a mensagem "Com qual IA?" agora mora escondida: o card é aberto pela prévia (IA: …), não empurrado no começo da conversa
 function plModelMsg(){ let m=plMsgs.find(x=>x.kind==='model'); if(!m){ m={who:'bot', kind:'model', hidden:true}; plMsgs.push(m); } return m; }
+// "IA desta demanda": o MESMO popover pela prévia (IA: …) e pela pílula embaixo da caixa (plModelPill)
+function plOpenModelPop(b){
+  const f=plPreviewFields(), m=plModelMsg(), before=m.choice; // a confirmação anterior fica — só muda quando você escolhe outra
+  const draw=p=>{ p.innerHTML=`<div class="ndpop-h">IA desta demanda</div>${plModelCardHtml(m, true)}<div class="ndpop-tech mono" title="nome técnico">${esc(typeof aiRunLabel==='function'?aiRunLabel(f.engine, f.model):(f.engine+' · '+(f.model||'padrão')))}</div>`;
+    plWireModelCard(p, ()=>{ if(m.choice && m.choice!==before){ ndPopClose(); renderPlanner(); } else { draw(p); if(p.__place) p.__place(); } }); };
+  ndPopover(b, '', draw);
+}
+// pílula do composer da Nova demanda: a IA que vai executar a demanda (a mesma escolha da prévia)
+function plModelPill(){
+  const { eng, model }=plModelNow();
+  return { id:'plModel', popup:'dialog', label:aiRunLabel(eng, model), title:'trocar a IA/modelo que vai executar esta demanda', onPick:(b)=>plOpenModelPop(b) };
+}
 function plWirePreview(root){
   if(!root) return;
   root.querySelectorAll('[data-prev]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.prev, f=plPreviewFields();
     if(k==='tipo'||k==='entrega'){ plOpenTypePop(b); return; }
     if(k==='modo'){ ndPopover(b, `<div class="ndpop-h">Como montar <span>troque na hora — o texto vai junto</span></div><div class="ndpop-p">${f.tasks>1?'A IA propôs um épico com '+f.tasks+' tarefas em paralelo. Desmarque tarefas no card pra enxugar.':'Vira uma tarefa só. Se for grande, a IA propõe um épico com várias tarefas.'}</div>${ndMethodSeg('chat')}`); return; }
-    if(k==='ia'){
-      const m=plModelMsg(), before=m.choice; // a confirmação anterior fica — só muda quando você escolhe outra
-      const draw=p=>{ p.innerHTML=`<div class="ndpop-h">IA desta demanda</div>${plModelCardHtml(m, true)}<div class="ndpop-tech mono" title="nome técnico">${esc(typeof aiRunLabel==='function'?aiRunLabel(f.engine, f.model):(f.engine+' · '+(f.model||'padrão')))}</div>`;
-        plWireModelCard(p, ()=>{ if(m.choice && m.choice!==before){ ndPopClose(); renderPlanner(); } else { draw(p); if(p.__place) p.__place(); } }); };
-      ndPopover(b, '', draw); return; }
+    if(k==='ia'){ plOpenModelPop(b); return; }
     if(k==='escopo'){
       const off=(plFields.off||[]);
       ndPopover(b, `<div class="ndpop-h">Onde a tarefa pode mexer</div>${f.owns.length?`<div class="ndpop-globs mono">${f.owns.map(g=>esc(g)).join('<br>')}</div>`:'<div class="ndpop-p">A IA ainda não definiu — ela escolhe as pastas conforme a conversa.</div>'}${off.length?`<div class="ndpop-h" style="margin-top:10px">Não pode mexer <span>(outras tarefas estão ali)</span></div><div class="ndpop-globs mono">${off.map(g=>esc(g)).join('<br>')}</div>`:''}<button type="button" class="btn sm" data-prevtech style="margin-top:10px">editar em Detalhes técnicos</button>`,

@@ -839,7 +839,7 @@ function trkNIRender(){
   on('trkNISend',()=>trkNISend($id('trkNIInput').value));
   attRenderPend('trkNIPend', n.pend, trkNIRender);
   // composer único; aqui enviar DURANTE a pesquisa é permitido (vira "redirecionar")
-  chatComposer({ input:'trkNIInput', attach:'trkNIAttach', pend:()=>n.pend, taskId:()=>null, rerender:trkNIRender, onSend:()=>trkNISend($id('trkNIInput').value),
+  chatComposer({ input:'trkNIInput', attach:'trkNIAttach', pend:()=>n.pend, taskId:()=>null, rerender:trkNIRender, onSend:()=>trkNISend($id('trkNIInput').value), modelPill:aiChatModelPill('trkNIModel'),
     send:'trkNISend', sendWhileBusy:true, stop:{ btn:'trkNIStop', busy:()=>!!n.busy, fn:trkNIStop }, busyHint:'pesquisando… · envie uma info nova pra mudar o rumo — ■ parar interrompe' });
   if(n.running){ const sb=$id('trkNISend'); if(sb){ sb.disabled=true; sb.title='criando as issues — espere terminar'; } }
   trkNIPersist();
