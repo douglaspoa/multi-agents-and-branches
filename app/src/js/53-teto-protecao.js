@@ -166,7 +166,7 @@ function protectPrefsHtml(repo){
       <label class="howopt${on?' on':''}"><input type="radio" name="protmode" value="1"${on?' checked':''}><span><span class="ht">Protegido <span class="rec">PADRÃO</span></span><div class="hd">O agente trabalha sozinho, mas não lê nem edita segredos (.env, chaves, ~/.ssh, ~/.aws) e não roda comandos destrutivos (rm -rf em / ou ~, git push --force, curl | sh, sudo). Quando precisar de um desses, ele pergunta pra você.</div></span></label>
       <label class="howopt${on?'':' on'}"><input type="radio" name="protmode" value="0"${on?'':' checked'}><span><span class="ht">Livre</span><div class="hd">Sem bloqueios: o agente pode ler .env e rodar qualquer comando. Use só em projeto de teste ou quando você confia no que ele vai fazer.</div></span></label>
     </div>
-    <div class="dim" style="font-size:11.5px;margin-top:6px">Vale pras próximas execuções deste projeto (inclusive o planner). Tarefa já rodando mantém o modo com que começou.</div>`;
+    <div class="dim" style="font-size:var(--fs-xs);margin-top:6px">Vale pras próximas execuções deste projeto (inclusive o planner). Tarefa já rodando mantém o modo com que começou.</div>`;
 }
 function protectPrefsWire(repo){
   const box=$id('protOpts'); if(!box) return;

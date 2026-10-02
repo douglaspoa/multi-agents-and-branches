@@ -1,0 +1,60 @@
+/* Starfork — 93-critica: correções da crítica Impeccable de 02/10 (P1/P2 + achados do detector).
+   Carrega por último: ajusta cabeçalho da tarefa, composer, portão de prova, janela estreita e contraste. */
+
+/* ---- placeholder com contraste (≥ 4,5:1): antes o padrão do WebKit dava 3,9:1 no composer e 4,1:1 no Navegador ---- */
+::placeholder{color:var(--muted);opacity:1}
+#fwInput::placeholder,.cvnaddr input::placeholder{color:var(--muted);opacity:1}
+
+/* ---- portão de prova (21: proofGate) ---- */
+.vf-proofmiss{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--warn)}
+.vf-proofmiss svg{width:13px;height:13px}
+
+/* ---- cabeçalho da tarefa: UMA pílula de estado (fases no tooltip) ---- */
+.fwhead #fwPhases.phst{margin-left:4px!important;flex:none;min-width:0}
+.fwstpill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--border);background:var(--surface-3);font:500 var(--fs-xs) var(--ui);color:var(--text);white-space:nowrap;cursor:default}
+.fwstd{width:7px;height:7px;border-radius:50%;flex:none}
+/* a regra antiga escondia as fases abaixo de 1360 px; a pílula cabe — some só no cabeçalho estreito (92-canvas) */
+@media (max-width:1360px){ .fwhead .phst{display:flex} }
+
+/* painel da tela dividida: nome e × moram no cabeçalho do painel (58-canvas .cvph) — sem duplicar; a largura
+   vai pro estado, que fica à vista mesmo estreito */
+html.sfpane .fwhead #fwTaskName,html.sfpane .fwhead #fwClose{display:none}
+html.sfpane .fwhead.narrow #fwPhases{display:flex}
+
+/* cabeçalho apertado (≈420 px): a ação principal vira só o ícone (aria-label tem o nome), o secundário vai pro ⋯ */
+.fwhead.tight{gap:6px;padding-left:10px;padding-right:8px}
+.fwhead.tight .fwnoproof,.fwhead.tight #fwTaskProt,.fwhead.tight #fwTaskEpic{display:none}
+.fwhead.tight #fwReviewBar .btn .fwal{display:none}
+.fwhead.tight #fwReviewBar .btn{padding-left:8px;padding-right:8px}
+.fwhead.tight #fwReviewBar .btn svg{margin-right:0}
+.fwhead.tight .fwtname{min-width:32px}
+.fwhead.narrow .fwnoproof{display:none}
+
+/* conversa: texto longo (URL, caminho, hash) quebra em vez de empurrar a coluna */
+.cmsg .cbub{min-width:0;overflow-wrap:anywhere}
+.cmsg .cbub code{overflow-wrap:anywhere;word-break:break-word}
+
+/* composer: UM envio neutro + menu ▾ (interromper e enviar já) — vermelho só no "parar" do cabeçalho */
+.cc .cc-sendmore{padding-left:7px;padding-right:7px;min-width:0}
+.cc .cc-sendmore span{font-size:var(--fs-xs);line-height:1}
+
+/* ---- menu "+": ícones SVG do conjunto IC ---- */
+.cvmic svg{width:14px;height:14px}
+.cvmic .cvtdot+svg{display:none}
+
+/* ---- Central em janela estreita: o relógio da barra de baixo não empurra a página pro lado ---- */
+.bus{min-width:0;overflow:hidden}
+.bus #busSummary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bus #clock{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:600px){ .bus #clock{display:none} }
+
+/* Central estreita (painel/janela < 640 px): as ações do card descem pra linha de baixo e a barra de abas da
+   Central quebra — nada rola de lado */
+@media (max-width:640px){
+  .dc-top{flex-wrap:wrap;row-gap:6px}
+  .dc-top>span[style*="flex:1"]{flex:1 0 100%;height:0}
+  .ftabs{flex-wrap:wrap;row-gap:4px;gap:12px}
+}
+/* portão de prova numa coluna estreita (painel dividido): a linha de aprovar quebra em vez de espremer o texto */
+.vf-approve{flex-wrap:wrap;row-gap:8px}
+.vf-approve .btn,.vf-proofmiss{white-space:nowrap}

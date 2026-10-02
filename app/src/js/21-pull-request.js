@@ -93,7 +93,7 @@ function prRevOpen(info, x, ign){ return x.r.state==='CHANGES_REQUESTED' && !x.r
 function prIsReviewCmt(c){ return !!(c.threadId || c.path); } // inline (thread de review) × conversa do PR
 function prCommentsHtml(t, info, opts){
   const compact=!!(opts&&opts.compact);
-  const bs=compact?'padding:3px 9px;font-size:10.5px':'padding:4px 10px;font-size:11px';
+  const bs=compact?'padding:3px 9px;font-size:var(--fs-xs)':'padding:4px 10px;font-size:var(--fs-xs)';
   const ign=prIgnSet(t.id);
   const roots=prRoots(info);
   const revs=prRevList(info);
@@ -124,8 +124,8 @@ function prCommentsHtml(t, info, opts){
   // em aberto primeiro; os resolvidos (inclui aprovou/comentou) só com o "mostrar resolvidos"
   const html=openRevs.map(revCard).join('')+openRoots.map(cmtCard).join('')
     +(showDone?revs.filter(x=>!prRevOpen(info,x,ign)).map(revCard).join('')+roots.filter(c=>prCmtDone(c,ign)).map(cmtCard).join(''):'');
-  const empty=!total ? `<div class="dim" style="font-size:12px;padding:4px 2px">sem comentários ainda${compact?'':' — o link já está com o time.'}</div>`
-    : (!openN&&!showDone) ? '<div class="dim" style="font-size:12px;padding:4px 2px">'+IC.ok+' nenhum comentário em aberto</div>' : '';
+  const empty=!total ? `<div class="dim" style="font-size:var(--fs-sm);padding:4px 2px">sem comentários ainda${compact?'':' — o link já está com o time.'}</div>`
+    : (!openN&&!showDone) ? '<div class="dim" style="font-size:var(--fs-sm);padding:4px 2px">'+IC.ok+' nenhum comentário em aberto</div>' : '';
   // o alternador fica AO LADO da contagem (quem chama posiciona) — um termo só: "resolvidos"
   const toggle=doneN?`<button class="lnk prshowdone" data-prshowdone data-prtask="${escA(t.id)}">${showDone?'ocultar resolvidos':`mostrar resolvidos (${doneN})`}</button>`:'';
   const countTx=`${openN} em aberto`;
@@ -282,6 +282,11 @@ async function chkOverride(t, g){
 }
 // bloco "## Verificação" anexado à descrição do PR (o revisor vê o que rodou de verdade)
 function chkPrBodyExtra(t){
+  const pg=proofGate(t);
+  const proof=pg.st==='override' ? `\n\n## Provas\nAtenção: aprovado sem prova de ${nPl(pg.missing.length,'requisito')}: ${pg.ov.reason}\n`+pg.missing.map(r=>'- '+r.text).join('\n')+'\n' : '';
+  return chkPrBodyChecks(t)+proof;
+}
+function chkPrBodyChecks(t){
   const g=chkGate(t); if(g.st==='none'||g.st==='loading') return '';
   const r=g.r||chkResGet(t.id);
   let s='\n\n## Verificação\n';
@@ -300,12 +305,82 @@ function chkDecorateApprove(btn, t){
   if(!ok) btn.title=chkBlockWhy(g)+' · clique pra ver a verificação';
 }
 function chkApproveClick(t){
-  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); return; }
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ approveShowEntrega(t); return; }
   const g=chkGate(t);
-  if(!chkCanApprove(g)){ toast(chkBlockWhy(g),'warn'); fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
-    setTimeout(()=>{ const v=$id('enVerif'); if(v) v.scrollIntoView(scrollOpts('center')); }, 60); return; }
+  if(!chkCanApprove(g)){ toast(chkBlockWhy(g),'warn'); approveShowEntrega(t, 'enVerif'); return; }
   prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
 }
+// leva pra Entrega DESTA tarefa (abre a aba se veio da Central — antes renderizava a tarefa que estivesse aberta)
+function approveShowEntrega(t, scrollTo){
+  const go=()=>{ try{ fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace();
+    if(scrollTo) setTimeout(()=>{ const v=$id(scrollTo); if(v) v.scrollIntoView(scrollOpts('center')); }, 60); }catch(_){ } };
+  if(typeof fwTask!=='undefined' && fwTask===t.id && typeof fwVisible==='function' && fwVisible()) go();
+  else if(typeof openWorkspace==='function'){ openWorkspace(t.id); setTimeout(go, 50); }
+}
+// ---- PORTÃO DE PROVA (crítica Impeccable P1, 02/10) ----
+// "Prova antes de promessa": com requisito SEM prova, "aprovar e abrir PR" deixa de ser o verde. A ação principal
+// vira "pedir a prova ao agente" (manda no chat a lista do que falta) e aprovar vira o secundário "aprovar sem
+// prova…", que exige um motivo — mesmo registro do "aprovar mesmo assim" das checagens (local + checks_override_log,
+// e vai na descrição do PR). Vale em TODA porta de aprovação: cabeçalho, card da Central, Entrega e resumo.
+// @prova-gate-inicio (testado em app/tests/critica-impeccable.test.mjs)
+// sem prova = não está "feito" OU está "feito" sem nenhum arquivo de evidência
+function proofMissingOf(rows){ return (rows||[]).filter(r=>r.st!=='ok' || !(Array.isArray(r.evidence)&&r.evidence.length)); }
+function proofSigOf(missing){ return (missing||[]).map(r=>r.text).join('\n'); }
+// st: none (sem requisitos) · loading (provas ainda não lidas) · proven · unproven · override (liberada com motivo)
+// o motivo vale pra ESTE conjunto de requisitos sem prova — apareceu outro, pergunta de novo
+function proofGateOf(rows, loaded, ov){
+  if(!rows||!rows.length) return { st:'none', missing:[] };
+  if(!loaded) return { st:'loading', missing:[] };
+  const missing=proofMissingOf(rows);
+  if(!missing.length) return { st:'proven', missing };
+  if(ov && ov.sig===proofSigOf(missing)) return { st:'override', missing, ov };
+  return { st:'unproven', missing };
+}
+function proofAskMsg(missing){
+  return 'Antes de eu aprovar, falta a PROVA destes requisitos. Para cada um: mostre funcionando de verdade (print, vídeo ou saída de teste), '+
+    'anexe o arquivo em .cardume/artifacts/ e atualize .cardume/artifacts/requirements.json com status "done" e a evidência. '+
+    'Se algum não tiver como ser cumprido, me pergunte via ask_human.\n\n'+
+    (missing||[]).map((r,i)=>`${i+1}. ${r.text}${r.st==='blk'?(r.note?` — você marcou como bloqueado: ${r.note}`:' — marcado como bloqueado'):r.st==='ok'?' — marcado como feito, mas sem arquivo de prova':''}`).join('\n');
+}
+// @prova-gate-fim
+function proofOvGet(id){ return chkJson('proofOv:'+id); }
+function proofGate(t){
+  if(!t || !(Array.isArray(t.requirements)&&t.requirements.length) || typeof reqRows!=='function') return { st:'none', missing:[] };
+  const loaded=(typeof reqProofCache!=='undefined') && reqProofCache[t.id]!==undefined;
+  return proofGateOf(reqRows(t), loaded, proofOvGet(t.id));
+}
+function proofMissingTip(g){ return nPl(g.missing.length,'requisito')+' sem prova: '+g.missing.map(r=>r.text).join(' · ').slice(0,220); }
+// "pedir a prova ao agente": mesma via do composer (na fila se ele estiver trabalhando)
+async function proofAsk(t, btn){
+  if((typeof reqProofCache!=='undefined') && reqProofCache[t.id]===undefined && typeof loadReqProofs==='function') await loadReqProofs(t.id).catch(()=>{});
+  const g=proofGate(t); if(!g.missing.length){ toast('todos os requisitos já têm prova','ok'); return false; }
+  if(btn) btn.disabled=true;
+  const ok=(typeof fwSendText==='function') ? await fwSendText(t.id, proofAskMsg(g.missing)) : false;
+  if(btn && btn.isConnected) btn.disabled=false;
+  if(ok) toast('pedido enviado ao agente — '+nPl(g.missing.length,'requisito')+' sem prova','ok');
+  return ok;
+}
+// "aprovar sem prova…": exige motivo (vai na descrição do PR e fica registrado — mesmo log do override das checagens)
+async function proofOverride(t){
+  const g=proofGate(t); if(g.st!=='unproven') return g.st!=='loading';
+  const reason=await askText('Aprovar sem prova', `por que aprovar com ${nPl(g.missing.length,'requisito')} sem prova? (vai na descrição do PR e fica registrado)`, '');
+  if(!reason) return false;
+  const f=chkFpC[t.id]; const fp=(f&&f.fp&&f.fp.fingerprint)||'';
+  lsSet('proofOv:'+t.id, JSON.stringify({ sig:proofSigOf(g.missing), reason, at:Date.now(), missing:g.missing.map(r=>r.text) }));
+  invoke('checks_override_log',{ taskId:t.id, reason:'[sem prova] '+reason, fingerprint:fp, failing:g.missing.map(r=>'sem prova: '+r.text) }).catch(()=>{});
+  return true;
+}
+// ÚNICA porta de "aprovar e abrir PR" (cabeçalho, card da Central, Entrega, resumo, aba PR): prova → verificação → PR
+async function approveGate(t){
+  if(!t) return;
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ approveShowEntrega(t); return; }
+  if((typeof reqProofCache!=='undefined') && reqProofCache[t.id]===undefined && typeof loadReqProofs==='function') await loadReqProofs(t.id).catch(()=>{});
+  const pg=proofGate(t);
+  if(pg.st==='unproven'){ toast(nPl(pg.missing.length,'requisito')+' sem prova — peça a prova ao agente, ou use "aprovar sem prova…" com um motivo','warn'); approveShowEntrega(t, 'enVerif'); return; }
+  try{ await chkEnsure(t); }catch(_){ }
+  chkApproveClick(t);
+}
+async function approveNoProof(t){ if(await proofOverride(t)){ if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===t.id) renderWorkspace(); await approveGate(t); } }
 // ---- "Preparando o PR" (redesign p13): verificação real → push → criar ----
 let prepTaskId='';
 function prPrepOpen(taskId, base){
@@ -323,11 +398,11 @@ function prPrepOpen(taskId, base){
   // "sem internet", com "tentar de novo" em loop. Agora diz o que é e oferece publicar no GitHub.
   if(typeof repoHasRemote==='function' && !repoHasRemote()){ prNoRemoteBody(t, base); return; }
   $id('prepBody').innerHTML=`
-    <div class="dim" style="font-size:12.5px;margin-bottom:6px">Conferindo a verificação antes de abrir</div>
-    <div class="prepstep" id="prep1"><span class="ps run">◌</span><div style="flex:1"><b>Verificação</b> <span class="dim" style="font-size:11px">testes e checagens automáticas</span><div class="dim psd" id="prep1d" style="font-size:11.5px">conferindo…</div></div></div>
-    <div class="prepstep" id="prep2"><span class="ps">·</span><div style="flex:1"><b>Commit &amp; push</b><div class="dim psd" id="prep2d" style="font-size:11.5px">aguardando</div></div></div>
-    <div class="prepstep" id="prep3"><span class="ps">·</span><div style="flex:1"><b>Abrir o PR</b><div class="dim psd" id="prep3d" style="font-size:11.5px">base <b>${esc(base||'main')}</b></div></div></div>
-    <div class="dim" style="font-size:11px;text-align:center;margin-top:12px">isso leva alguns segundos — pode continuar em outra aba</div>
+    <div class="dim" style="font-size:var(--fs-sm);margin-bottom:6px">Conferindo a verificação antes de abrir</div>
+    <div class="prepstep" id="prep1"><span class="ps run">◌</span><div style="flex:1"><b>Verificação</b> <span class="dim" style="font-size:var(--fs-xs)">testes e checagens automáticas</span><div class="dim psd" id="prep1d" style="font-size:var(--fs-xs)">conferindo…</div></div></div>
+    <div class="prepstep" id="prep2"><span class="ps">·</span><div style="flex:1"><b>Commit &amp; push</b><div class="dim psd" id="prep2d" style="font-size:var(--fs-xs)">aguardando</div></div></div>
+    <div class="prepstep" id="prep3"><span class="ps">·</span><div style="flex:1"><b>Abrir o PR</b><div class="dim psd" id="prep3d" style="font-size:var(--fs-xs)">base <b>${esc(base||'main')}</b></div></div></div>
+    <div class="dim" style="font-size:var(--fs-xs);text-align:center;margin-top:12px">isso leva alguns segundos — pode continuar em outra aba</div>
     <div style="display:flex;gap:8px;margin-top:12px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn" id="prepForce" style="display:none" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button></div>`;
   const close=()=>{ ov.style.display='none'; };
   $id('prepClose').onclick=close;
@@ -352,7 +427,7 @@ async function prPrepRun(t, base){
   else if(g.st==='pass') prepMark(1,'ok', resHtml(g.r));
   else if(g.st==='override') prepMark(1,'ok', `<span style="color:var(--warn)">${IC.warn} aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${esc(g.ov.reason)}</span>`);
   else {
-    const det = g.st==='fail' ? g.bad.map(c=>`<b>${esc(c.label)} falhou</b> <span class="dim">· ${c.timedOut?'passou do tempo-limite':'exit '+(c.exitCode==null?'?':c.exitCode)}</span><div class="mono" style="white-space:pre-wrap;font-size:10.5px;margin-top:4px;color:var(--crit);max-height:120px;overflow:auto">${esc(String(c.log||'').split('\n').slice(-12).join('\n'))}</div>`).join('')
+    const det = g.st==='fail' ? g.bad.map(c=>`<b>${esc(c.label)} falhou</b> <span class="dim">· ${c.timedOut?'passou do tempo-limite':'exit '+(c.exitCode==null?'?':c.exitCode)}</span><div class="mono" style="white-space:pre-wrap;font-size:var(--fs-xs);margin-top:4px;color:var(--crit);max-height:120px;overflow:auto">${esc(String(c.log||'').split('\n').slice(-12).join('\n'))}</div>`).join('')
       : esc(chkBlockWhy(g)||'não deu pra conferir a verificação');
     prepMark(1,'fail', det);
     const f=$id('prepForce');
@@ -366,7 +441,7 @@ async function prPrepRun(t, base){
 function prNoRemoteBody(t, base){
   $id('prepBody').innerHTML=`
     <div class="prepstep" id="prepNoRemote"><span class="ps fail">!</span><div style="flex:1"><b>Este projeto ainda não está no GitHub</b>
-      <div class="dim psd" style="font-size:11.5px;margin-top:3px">O PR é aberto no GitHub, então o projeto precisa estar lá primeiro. Publicar cria um repositório <b>privado</b> na sua conta do GitHub e envia o código — o trabalho desta tarefa continua salvo aqui.</div></div></div>
+      <div class="dim psd" style="font-size:var(--fs-xs);margin-top:3px">O PR é aberto no GitHub, então o projeto precisa estar lá primeiro. Publicar cria um repositório <b>privado</b> na sua conta do GitHub e envia o código — o trabalho desta tarefa continua salvo aqui.</div></div></div>
     <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span><button class="btn" id="prepCancelB">fechar</button><button class="btn primary" id="prepPublish">publicar no GitHub</button></div>`;
   const close=()=>{ $id('prepOverlay').style.display='none'; };
   $id('prepClose').onclick=close; $id('prepCancelB').onclick=close;
@@ -389,7 +464,7 @@ async function publishGithub(){
 function prFail(n, e, retry, noRetry){
   const h=humanErr(e), raw=errText(e);
   const head=h.id==='generic' ? esc(errFirstLine(raw)) : `<b>${esc(h.msg)}</b>`+(h.id==='network'&&n===2?' <span class="dim">O commit local já foi feito; o botão só re-envia.</span>':'');
-  prepMark(n,'fail', head+((h.id==='generic' && raw.trim()===errFirstLine(raw))?'':`<div class="mono" style="font-size:10px;margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(raw.slice(0,240))}</div>`)
+  prepMark(n,'fail', head+((h.id==='generic' && raw.trim()===errFirstLine(raw))?'':`<div class="mono" style="font-size:var(--fs-xs);margin-top:4px;color:var(--muted);white-space:pre-wrap">${esc(raw.slice(0,240))}</div>`)
     +(h.action?`<div style="margin-top:8px"><button class="btn primary sm" id="prepFixAct${n}">${esc(h.action.label)}</button></div>`:''));
   const b=$id('prepFixAct'+n);
   if(b) b.onclick=async()=>{ b.disabled=true; let ok=false; try{ ok=await h.action.fn(); }catch(err){ showErr(err); } b.disabled=false; if(h.id==='no-remote' && ok) retry(); };
@@ -528,7 +603,7 @@ async function loadCommits(taskId, force){
 }
 async function loadAllCommits(){ for(const t of (state.tasks||[])) await loadCommits(t.id); render(); }
 function commitChip(x, agent){
-  const av = agent ? `<span class="cav" style="background:${agentColor(agent)}" title="${escA(agent)}">${agentBadge(agent)}</span>` : '';
+  const av = agent ? `<span class="cav" aria-hidden="true" style="background:${agentColor(agent)}" title="${escA(agent)}">${agentBadge(agent)}</span>` : '';
   return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA((agent?agent+' · ':'')+x.subject)}">${av}<span class="chash mono">${esc((x.hash||'').slice(0,7))}</span><span class="csub">${esc(x.subject||'')}</span></button>`;
 }
 const FLOW_PAL=["#3fd68a","#5b9df9","#b47ce0","#f0b449","#f2685c","#4fc4c9","#e07ab4","#7c8792"];
@@ -553,11 +628,11 @@ function flowTaskCard(t, acc){
   const col=stColor(st);
   const accCls=acc?(' '+acc):'';
   const roles=t.roles||[];
-  const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${agentBadge(r.name)}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">'+IC.chevR+'</span>');
+  const pipe = roles.map(r=>`<span class="fstep${r.role===t.stage?' cur':''}"><span class="fav" aria-hidden="true" style="background:${r.role===t.stage?'var(--accent)':agentColor(r.name)}">${agentBadge(r.name)}</span><span class="fnm">${esc(r.name)}</span><span class="frole">${esc(r.role)}</span></span>`).join('<span class="farrow">'+IC.chevR+'</span>');
   const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
   const cchips = c===undefined ? skeletonHtml('lista',{ n:1, compact:true, inline:true, label:'carregando os commits' })
-    : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:11px;padding:3px 6px">+${c.length-8}</span>`:"")
-    : (t.status==='merged'?'<span class="dim" style="font-size:11px">integrada na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:11px">nenhum commit ainda</span>');
+    : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:var(--fs-xs);padding:3px 6px">+${c.length-8}</span>`:"")
+    : (t.status==='merged'?'<span class="dim" style="font-size:var(--fs-xs)">integrada na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:var(--fs-xs)">nenhum commit ainda</span>');
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?ev.text:'iniciando…')}</span></div>`; })() : '';
   const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:''; // cancelada/concluída já saem no selo de status
   const asking = pendingOf(t.id).length>0;
@@ -566,7 +641,7 @@ function flowTaskCard(t, acc){
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${typeof epTaskBadge==='function'?epTaskBadge(t):''}${typeof taskOriginHtml==='function'?taskOriginHtml(t):''}${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}<span class="fstatus stdrop" data-stmenu="${t.id}" style="color:${col}" title="mudar status da demanda"><i style="font-style:normal">${stIcon(st)}</i> ${esc(stLabel(st))}<span class="stcaret">${IC.chevD}</span></span></div>
     ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="cpv">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta"><span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(t.proj||projShort(t.repo||state.repo))}</span>${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${t.status==='conflict'?`<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base e resolve os conflitos na worktree; você revisa e integra" style="padding:3px 9px;font-size:10.5px">${IC.bolt} resolver conflito</button>`:''}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:10.5px">${IC.merge} abrir PR</button>`:''}<span>${nPl((t.deliverables||[]).length,'entregável','entregáveis')}</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">'+IC.ok+' revisada</span>':''}<span>${c!==undefined?nPl(c.length,'commit'):'… commits'}</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta"><span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(t.proj||projShort(t.repo||state.repo))}</span>${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${t.status==='conflict'?`<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base e resolve os conflitos na worktree; você revisa e integra" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.bolt} resolver conflito</button>`:''}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.merge} abrir PR</button>`:''}<span>${nPl((t.deliverables||[]).length,'entregável','entregáveis')}</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">'+IC.ok+' revisada</span>':''}<span>${c!==undefined?nPl(c.length,'commit'):'… commits'}</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?IC.chevD:IC.chevR}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;

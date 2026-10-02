@@ -5,18 +5,18 @@
    Os glifos de texto que eram ícone viraram SVG de IC.* (10-core) — aqui só o encaixe deles. */
 
 /* ícone na frente do rótulo: seção (épico/plano), item de menu ⋯ e de status */
-.sech .secic{display:inline-flex;font-size:13px;color:var(--text-3);margin-right:-2px}
-.mnic{display:inline-flex;width:14px;justify-content:center;flex:none;font-size:13px}
-.orqic{display:inline-flex;vertical-align:-2px;margin-right:5px;font-size:12px}
-.tsepc.epbadge .epic{display:inline-flex;align-self:center;flex:none;font-size:11px}
+.sech .secic{display:inline-flex;font-size:var(--fs-base);color:var(--text-3);margin-right:-2px}
+.mnic{display:inline-flex;width:14px;justify-content:center;flex:none;font-size:var(--fs-base)}
+.orqic{display:inline-flex;vertical-align:-2px;margin-right:5px;font-size:var(--fs-sm)}
+.tsepc.epbadge .epic{display:inline-flex;align-self:center;flex:none;font-size:var(--fs-xs)}
 .tsepc.epqname svg{vertical-align:-2px}
 
 /* chips de link do card (PR / issue): um tamanho, ícone no fim */
 .lkchip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px!important;font:500 var(--fs-xs) var(--ui)}
 .lkchip .mono,.lkchip.mono{font-family:var(--code)}
 .dc-pr{display:inline-flex;align-items:center;gap:4px}
-.dc-menu{display:inline-flex!important;align-items:center;font-size:14px!important}
-.fwhead #fwMore{font-size:14px}
+.dc-menu{display:inline-flex!important;align-items:center;font-size:var(--fs-md)!important}
+.fwhead #fwMore{font-size:var(--fs-md)}
 
 /* requisito no card: o círculo vazio é a própria borda (antes um "○" dentro do círculo) */
 .dc-req i svg{width:9px;height:9px}

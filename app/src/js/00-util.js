@@ -350,8 +350,8 @@ function errDetails(h){
   ov.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px';
   const box=document.createElement('div');
   box.style.cssText='background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;max-width:620px;width:100%;padding:16px 18px;box-shadow:var(--shadow);color:var(--text)';
-  const t=document.createElement('div'); t.style.cssText='font-size:13.5px;font-weight:600;margin-bottom:8px'; t.textContent=h.msg;
-  const pre=document.createElement('pre'); pre.className='mono'; pre.style.cssText='white-space:pre-wrap;word-break:break-word;font-size:11px;max-height:280px;overflow:auto;background:var(--surface-2);border-radius:8px;padding:10px;margin:0;color:var(--text-2)'; pre.textContent=h.raw||'(sem detalhe)';
+  const t=document.createElement('div'); t.style.cssText='font-size:var(--fs-base);font-weight:600;margin-bottom:8px'; t.textContent=h.msg;
+  const pre=document.createElement('pre'); pre.className='mono'; pre.style.cssText='white-space:pre-wrap;word-break:break-word;font-size:var(--fs-xs);max-height:280px;overflow:auto;background:var(--surface-2);border-radius:8px;padding:10px;margin:0;color:var(--text-2)'; pre.textContent=h.raw||'(sem detalhe)';
   const row=document.createElement('div'); row.style.cssText='display:flex;gap:8px;justify-content:flex-end;margin-top:12px';
   const cp=document.createElement('button'); cp.className='btn sm'; cp.textContent='copiar'; cp.onclick=()=>{ try{ navigator.clipboard.writeText(h.raw||''); cp.textContent='copiado ✓'; }catch(_){ } };
   const ok=document.createElement('button'); ok.className='btn primary sm'; ok.textContent='fechar'; ok.onclick=()=>ov.remove();

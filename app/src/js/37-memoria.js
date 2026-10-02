@@ -639,7 +639,7 @@ async function memPrefsRender(){
   const repo=state.repo; if(!repo){ h.innerHTML=''; return; }
   try{ const r=await invoke('memory_list',{ repo }); if(MEM.repo!==repo){ MEM.mode=r.mode||'local'; MEM.explicit=!!r.explicitMode; } else { MEM.mode=r.mode||MEM.mode; }
     MEM.hasTeam=await memTeamAvailable();
-    h.innerHTML='<div class="memprefs"><div class="seclbl2">Memória do projeto</div><div class="dim" style="font-size:12px;margin:4px 0 8px">Onde as memórias novas (dos agentes e as suas) são salvas. Os agentes leem o cérebro local e o do time juntos — menos no modo "só local". '+(r.notes||[]).length+' nota(s) hoje · <a href="#" id="prefsMemOpen">abrir a Memória</a></div>'+memModeSeg('prefsMemMode')+'</div>';
+    h.innerHTML='<div class="memprefs"><div class="seclbl2">Memória do projeto</div><div class="dim" style="font-size:var(--fs-sm);margin:4px 0 8px">Onde as memórias novas (dos agentes e as suas) são salvas. Os agentes leem o cérebro local e o do time juntos — menos no modo "só local". '+(r.notes||[]).length+' nota(s) hoje · <a href="#" id="prefsMemOpen">abrir a Memória</a></div>'+memModeSeg('prefsMemMode')+'</div>';
     memWireMode(h.querySelector('#prefsMemMode'), ()=>repo);
     const a=h.querySelector('#prefsMemOpen'); if(a) a.onclick=ev=>{ ev.preventDefault(); if(window.openTab) window.openTab('memoria'); else openMemoria(); };
   }catch(_){ h.innerHTML=''; }

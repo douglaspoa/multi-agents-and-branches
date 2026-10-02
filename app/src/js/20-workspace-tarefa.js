@@ -131,7 +131,7 @@ function fwGroupByDeliverable(files, dels){
 }
 function fwDelivHtml(files, dels){
   const groups=fwGroupByDeliverable(files, dels);
-  if(!groups.length) return '<div class="dim" style="padding:8px;font-size:11.5px">nenhum arquivo alterado</div>';
+  if(!groups.length) return '<div class="dim" style="padding:8px;font-size:var(--fs-xs)">nenhum arquivo alterado</div>';
   return `<div class="fwtreebody">`+groups.map(g=>{
     const rows=g.files.slice().sort((a,b)=>a.path.localeCompare(b.path)).map(f=>{ const tag=f.doc?'·':((f.del===0&&f.add>0)?'A':'M');
       return `<button class="fwfile${f.path===fwPath?' on':''}" data-fwf="${escA(f.path)}" title="${escA(f.path)}" style="padding-left:20px"><span class="fwtag ${f.doc?'doc':(tag==='A'?'a':'m')}" title="${fwTagTitle(f,tag)}">${tag}</span><span class="fwfp mono">${esc(f.path.split('/').pop())}</span><span class="fwadd">+${f.add}</span></button>`;
@@ -342,7 +342,7 @@ function fwNowHtml(t){
   if(ACTIVE_ST.has(t.status)){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
-    const narr=lastThink?`<div class="nowsay"><span class="nsav" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
+    const narr=lastThink?`<div class="nowsay"><span class="nsav" aria-hidden="true" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
     return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc(ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>aiCanTalk(r.engine))?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
   // estado final: só as etapas (o status já está na barra de contexto)
@@ -408,21 +408,54 @@ function taskPhase(t){
   if(ACTIVE_ST.has(t.status)||['thinking','paused','error','aborted'].includes(t.status)) return 3;
   return 1;
 }
+// cabeçalho: UMA pílula de estado (crítica Impeccable P2) — antes eram 5 pontos + rótulo da fase, somados à barra
+// de estado do chat e ao % do card (3 indicadores de progresso). As 5 fases ficam no tooltip.
 function phasesHtml(t){
-  const ph=taskPhase(t), fin=taskIsDone(t); // concluída: todas as etapas feitas (antes o último ponto ficava "em andamento")
-  return PHASES.map((p,i)=>`<span class="pd${fin||i+1<ph?' done':i+1===ph?' cur':''}" title="${escA(p)}"></span>`).join('')+`<span class="plabel">${fin?'Concluída':esc(PHASES[ph-1])}</span>`;
+  const ph=taskPhase(t), fin=taskIsDone(t); // concluída: todas as etapas feitas
+  const lbl=fin?'Concluída':PHASES[ph-1];
+  const col=(typeof stColor==='function'&&typeof taskSt==='function')?stColor(taskSt(t)):'var(--good)';
+  const tip='fase '+(fin?PHASES.length:ph)+' de '+PHASES.length+': '+PHASES.map((p,i)=>(fin||i+1<ph)?p+' ✓':i+1===ph?'['+p+']':p).join(' → ');
+  return `<span class="fwstpill" title="${escA(tip)}"><i class="fwstd" style="background:${col}" aria-hidden="true"></i>${esc(lbl)}</span>`;
 }
 // barra de envio do chat: os botões e a dica mudam com o estado. Trabalhando, Enter põe NA FILA
-// (não interrompe); "parar e enviar" é ⌘Enter / botão secundário — antes o Enter era destrutivo.
-function fwSendRowHtml(t){
-  const asking=pendingOf(t.id).length>0, working=fwIsWorking(t);
-  const btns = asking ? `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">responder</button>`
-    : working ? `<button class="btn sm trk-stop" id="fwSend" style="white-space:nowrap" title="interrompe o turno atual e manda já (⌘Enter)">${IC.stop} parar e enviar</button><button class="btn primary sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button>`
-    : `<button class="btn primary sm cc-send" id="fwSend" style="white-space:nowrap">enviar</button>`;
-  const hint = asking ? '<span class="kbd">Enter</span> responde · <span class="kbd">⇧Enter</span> quebra linha'
-    : working ? '<span class="kbd">Enter</span> põe na fila (não interrompe) · <span class="kbd">⌘Enter</span> para e envia já'
+// (não interrompe); interromper e mandar já é ⌘Enter ou o menu ▾ ao lado do envio.
+// Vermelho só pra PARADA de verdade (crítica Impeccable P2, 02/10): o "■ parar" do cabeçalho. O composer tem UM
+// envio neutro — antes "parar e enviar" vermelho + "na fila" verde (6 vermelhos com 3 painéis lado a lado).
+// O envio só é verde quando o cabeçalho não tem ação principal (um verde por tela).
+// @composer-envio-inicio (testado em app/tests/critica-impeccable.test.mjs)
+function fwSendRowOf(o){
+  const cls=o.headPrimary?'btn sm cc-send':'btn primary sm cc-send';
+  const btns = o.asking ? `<button class="${cls}" id="fwSend" style="white-space:nowrap">responder</button>`
+    : o.working ? `<button class="btn sm cc-send" id="fwQueue" style="white-space:nowrap" title="não interrompe: o agente lê quando terminar o turno atual (Enter)">na fila</button><button class="btn sm cc-sendmore" id="fwSendMore" aria-haspopup="menu" aria-expanded="false" aria-label="mais opções de envio" title="mais opções de envio (interromper e enviar já: ⌘Enter)"><span aria-hidden="true">▾</span></button>`
+    : `<button class="${cls}" id="fwSend" style="white-space:nowrap">enviar</button>`;
+  const hint = o.asking ? '<span class="kbd">Enter</span> responde · <span class="kbd">⇧Enter</span> quebra linha'
+    : o.working ? '<span class="kbd">Enter</span> põe na fila (não interrompe) · <span class="kbd">⌘Enter</span> interrompe e envia já'
     : '<span class="kbd">Enter</span> envia · <span class="kbd">⇧Enter</span> quebra linha';
-  return { btns, hint, key:asking?'a':working?'w':'i' };
+  return { btns, hint, key:(o.asking?'a':o.working?'w':'i')+(o.headPrimary?'h':'') };
+}
+// @composer-envio-fim
+function fwSendRowHtml(t){
+  const a=fwPrimaryAction(t);
+  return fwSendRowOf({ asking:pendingOf(t.id).length>0, working:fwIsWorking(t), headPrimary:!!(a && !a.cls) }); // a.cls = botão não-verde (parar, PR #n)
+}
+// menu ▾ do envio (trabalhando): "interromper e enviar já" — mesma semântica do ⌘Enter
+function fwSendMoreOpen(anchor){
+  const old=$id('fwSendPop'); if(old){ old.remove(); anchor.setAttribute('aria-expanded','false'); return; }
+  const pop=document.createElement('div'); pop.id='fwSendPop'; pop.className='fwmenu'; pop.setAttribute('role','menu');
+  pop.innerHTML=`<button class="fwmi" role="menuitem" data-fwsend="now"><span>interromper e enviar já</span><span class="fwmh">⌘Enter · para o turno atual</span></button>`;
+  document.body.appendChild(pop); anchor.setAttribute('aria-expanded','true');
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=Math.max(8, r.top-pop.offsetHeight-6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.right-pop.offsetWidth))+'px';
+  const close=(back)=>{ pop.remove(); anchor.setAttribute('aria-expanded','false'); document.removeEventListener('mousedown', out, true); if(back) try{ anchor.focus(); }catch(_){ } };
+  const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor && !anchor.contains(e.target)) close(false); };
+  setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
+  pop.querySelector('[data-fwsend]').onclick=()=>{ close(false); fwSendMsg(false); };
+  if(typeof a11yMenu==='function') a11yMenu(pop, anchor, close); else { const b=pop.querySelector('button'); if(b) b.focus(); }
+}
+function fwWireSendBtns(){
+  bindClick('fwSend', ()=>fwSendMsg(false));
+  bindClick('fwQueue', ()=>fwSendMsg(true));
+  bindClick('fwSendMore', (e)=>{ e.stopPropagation(); fwSendMoreOpen(e.currentTarget); });
 }
 function fwPaintSendRow(t){
   const box=$id('fwSendBtns'); if(!box) return;
@@ -430,8 +463,7 @@ function fwPaintSendRow(t){
   if(box.dataset.k===r.key) return; // nada mudou → não mexe no DOM
   box.dataset.k=r.key; box.innerHTML=r.btns;
   const h=$id('fwHint'); if(h) h.innerHTML=r.hint;
-  bindClick('fwSend', ()=>fwSendMsg(false));
-  bindClick('fwQueue', ()=>fwSendMsg(true));
+  fwWireSendBtns();
 }
 // ---- cabeçalho FIXO da tarefa: título (…) · modos · UMA ação principal por fase · menu ⋯ ----
 // antes eram até 7 controles que quebravam linha/cortavam o título conforme o modo; no PR o
@@ -457,6 +489,9 @@ function fwPrimaryAction(t){
     return fwArtOnly(t) ? ((fwArchiveNeedsSave(t))
         ? { id:'fwArchive', html:`${IC.check} salvar e concluir`, title:'salva os arquivos entregues numa pasta sua e conclui (investigação/design não abrem PR)' }
         : { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' })
+      // portão de prova (21: proofGate): requisito sem prova → o verde é PEDIR a prova; aprovar fica no secundário
+      : (typeof proofGate==='function' && proofGate(t).st==='unproven')
+        ? { id:'fwAskProof', html:`${IC.ai} pedir a prova ao agente`, title:proofMissingTip(proofGate(t))+' — manda a lista no chat' }
       : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo, depois commit & push e cria o PR' };
   }
   return null;
@@ -464,7 +499,12 @@ function fwPrimaryAction(t){
 // R8: o "push" VISÍVEL no topo (R7) saiu a pedido do dono — "commit & push" fica só no ⋯ (fwMoreItems).
 function fwActionHtml(t){
   const a=fwPrimaryAction(t);
-  return (a ? `<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}">${a.html}</button>` : '');
+  // sem prova: o "aprovar sem prova…" fica à vista ao lado (some no cabeçalho estreito — continua no ⋯)
+  const sec=(a&&a.id==='fwAskProof')?`<button class="btn sm ghost fwnoproof" id="fwNoProof" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button>`:'';
+  if(!a) return sec;
+  const lbl=String(a.html).replace(/<[^>]*>/g,'').trim();
+  const html=String(a.html).replace(/([^>]*)$/, (m)=>m.trim()?`<span class="fwal">${m}</span>`:m);
+  return sec+`<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}" aria-label="${escA(lbl)}">${html}</button>`;
 }
 // itens do ⋯ (secundários) — só o que faz sentido na fase atual
 function fwMoreItems(t){
@@ -473,6 +513,7 @@ function fwMoreItems(t){
   const pv=taskPreviewTarget(t), tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
   it.push({ k:'sum', label:`resumo e progresso · ${taskPct(t)}%`, hint:'tudo que já foi feito + o que falta' });
   if(t.status==='draft' && typeof editDraft==='function') it.push({ k:'editdraft', label:'editar o rascunho', hint:'reabre a Nova demanda preenchida' });
+  if(prim==='fwAskProof') it.push({ k:'noproof', label:'aprovar sem prova…', hint:'exige um motivo — vai no PR' });
   if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
   if(t.prUrl){ const n=fwPrNum(t);
     if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
@@ -502,6 +543,10 @@ function fwMoreItems(t){
   const cost=taskCost(t.id);
   { const cap=(typeof budgetOf==='function')?budgetOf(t):0;
     it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtCost(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}${cap>0?' · teto '+fmtCost(cap,{usdOnly:true}):''}`, info:true }); }
+  // Dispositivo (57) saiu do cabeçalho — o "+ → Simulador" do topo já abre o celular; aqui fica o painel docado
+  { const di=(typeof DV!=='undefined')?DV.info[t.id]:null;
+    if(di && di.mobile && (di.platforms||[]).length && typeof dvToggle==='function')
+      it.push({ k:'dev', label:(typeof dvIsOpen==='function'&&dvIsOpen(t.id))?'esconder o Dispositivo':'mostrar o Dispositivo ao lado', hint:'simulador/emulador desta tarefa ao vivo' }); }
   if(fwTreeHidden()) it.push({ k:'tree', label:'mostrar arquivos e artefatos', hint:'⌘B' });
   it.push({ k:'close', label:'fechar a aba', hint:'esc' });
   return it;
@@ -529,6 +574,7 @@ async function fwMoreDo(t, k, anchor){
   const pv=taskPreviewTarget(t);
   if(k==='sum') openTaskSummary(t.id);
   else if(k==='askfix') fwAskFix();
+  else if(k==='noproof') await approveNoProof(t);
   else if(k==='editdraft') await editDraft(t);
   else if(k==='prgo'){ fwMode='pr'; fwRememberTab(); renderWorkspace(); }
   else if(k==='prgh') openExternal(t.prUrl);
@@ -539,6 +585,7 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='pvoff') await fwTunnelOff(t);
   else if(k==='push') await fwPushTask();
   else if(k==='tree') fwToggleTree();
+  else if(k==='dev') dvToggle();
   else if(k==='pause') await pauseTask(t.id);
   else if(k==='fromdz') await openFromDesign(t);
   else if(k==='breakdown') await openBreakdown(t);
@@ -627,11 +674,18 @@ function fwHeadFit(){
   head.classList.toggle('narrow', headW<FW_HEAD_COMPACT);
   const m=$id('fwModes');
   if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=m.scrollWidth;
-  let fixed=140+32; // título (mínimo legível) + respiro das bordas
+  const pane=(typeof SF_PANE!=='undefined' && SF_PANE);
+  let fixed=(pane?0:140)+32; // título (mínimo legível; no painel o nome mora no cabeçalho do painel) + respiro das bordas
   for(const el of head.children){ if(el===m || el.id==='fwTaskName' || String(el.style.flex||'').startsWith('1') || el.offsetParent===null) continue; fixed+=el.offsetWidth+9; }
   const r=fwHeadLayout({ headW, modesW:FW_HEAD.modesW, fixedW:fixed, cur:FW_HEAD.mode });
   if(r.modes!==FW_HEAD.mode){ FW_HEAD.mode=r.modes; const t=fwTaskObj(); if(t) fwModesPaint(t); }
+  // ainda transborda (≈420 px): a ação principal vira só o ícone (aria-label com o nome) e o secundário vai pro ⋯
+  // — nada fica fora da tela. Sai do modo apertado só com folga (sem piscar no limite).
+  const tight=head.classList.contains('tight');
+  if(!tight && head.scrollWidth>head.clientWidth+1) head.classList.add('tight');
+  else if(tight && headW>=FW_HEAD_TIGHT) head.classList.remove('tight');
 }
+const FW_HEAD_TIGHT=560;
 function fwHeadWatch(){
   const head=document.querySelector('#fwOverlay .fwhead'); if(!head) return;
   if(FW_HEAD.head!==head){ FW_HEAD.head=head; if(FW_HEAD.ro) try{ FW_HEAD.ro.disconnect(); }catch(_){ }
@@ -640,6 +694,8 @@ function fwHeadWatch(){
 }
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
+  // modo que o TIPO esconde (ex.: Código numa investigação, guardado na aba) cai na Entrega
+  if(typeof fwModesList==='function' && !fwModesList(t).some(([k])=>k===fwMode)){ fwMode='entrega'; fwRememberTab(); }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
@@ -665,7 +721,9 @@ function renderWorkspace(){
       bindClick('fwStopTop', ()=>stopTask(t.id));
       // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
       if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
-      bindClick('fwApprove', ()=>{ if(typeof chkApproveClick==='function') chkApproveClick(t); else prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); });
+      bindClick('fwApprove', ()=>approveGate(t));
+      bindClick('fwAskProof', (e)=>proofAsk(t, e.currentTarget));
+      bindClick('fwNoProof', ()=>approveNoProof(t));
       bindClick('fwArchive', async(e)=>{ const b=e.currentTarget;
         // E11a: com entregáveis ainda não salvos, leva pra Entrega com a barra "Salvar entregáveis na pasta" (salva e conclui lá)
         if(fwArchiveNeedsSave(t)){ fwMode='entrega'; fwRememberTab(); renderWorkspace();
@@ -695,7 +753,7 @@ function renderWorkspace(){
     // texto humano fixo (o catálogo genérico lia "not a git repository" e oferecia "criar repositório" — errado aqui);
     // o erro cru fica no tooltip
     : fwFilesErr ? '<div class="fwfileserr">'+(fwFilesErrOwnAction(fwFilesErr) ? errorHtml(fwFilesErr, 'fwFilesRetry', FW_FILES_CTX) : errorHtml(humanErr(fwFilesErr, FW_FILES_CTX).msg, 'fwFilesRetry', null, { human:true }))+'</div>'
-    : '<div class="dim" style="padding:8px;font-size:11.5px">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
+    : '<div class="dim" style="padding:8px;font-size:var(--fs-xs)">nada ainda — os arquivos que o agente alterar, os anexos e os artefatos aparecem aqui ao vivo</div>';
   const cost=taskCost(t.id);
   const treeFoot = `<div class="fwtreefoot"><div class="r"><span>custo desta tarefa</span><b>${cost.usd>0?fmtCost(cost.usd):'—'}</b></div>${typeof estChipHtml==='function'?`<div class="r"><span>previsto × real</span>${estChipHtml(t)}</div>`:''}</div>`;
   // Entregas & provas (artefatos) — sempre à mão (1 carga em voo por tarefa: antes cada render disparava outra)
@@ -768,7 +826,7 @@ function renderWorkspace(){
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='previa'){ fwRenderPrevia(t, main); } // 57-navegador: só repinta o que mudou (o iframe não é recriado pelo tick)
   else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
-  else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:12px">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
+  else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:var(--fs-sm)">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
   else {
     const loadingFile = fwFileLoading===(t.id+'|'+fwPath);
     const headBtns = fwEditing
@@ -779,20 +837,20 @@ function renderWorkspace(){
     const dvRaw = codeView==='diff' ? fwDiffGet(t, fwPath) : undefined;
     const dvBody = codeView!=='diff' ? ''
       : dvRaw==null ? skeletonHtml('tabela',{ n:8, cols:2, inline:true, label:'carregando as mudanças' })
-      : typeof dvRaw==='object' ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="dim" style="font-size:12px;white-space:pre-wrap" title="${escA(String(dvRaw.err||'').slice(0,400))}">${esc(errShort(dvRaw.err))}</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
+      : typeof dvRaw==='object' ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="dim" style="font-size:var(--fs-sm);white-space:pre-wrap" title="${escA(String(dvRaw.err||'').slice(0,400))}">${esc(errShort(dvRaw.err))}</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
       : !dvRaw.trim() ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div>sem diferenças neste arquivo em relação à base</div><button class="btn sm" data-fwview="full">ver o arquivo inteiro</button></div>`
       : `<div class="fwcode fwdv" id="fwCode">${diffViewHtml(diffHunks(dvRaw), { full:fwContentFor===t.id+'|'+fwPath?lines:null, sel, keyPre:t.id+'|'+fwPath+'|' })}</div>`;
     const body = fwEditing
       ? `<div class="fveditwrap fwedit"><div class="fvgutter" id="fwGutter" aria-hidden="true"></div><textarea class="fvedit mono" id="fwText" data-tab-indent spellcheck="false" wrap="off" data-fk="${escA(t.id+'|'+fwPath)}"></textarea></div>`
       : codeView==='diff' ? dvBody
       : loadingFile ? skeletonHtml('lista',{ n:10, compact:true, inline:true, label:'abrindo o arquivo' })
-      : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="dim" style="font-size:12px;white-space:pre-wrap" title="${escA(fwReadErr.slice(0,400))}">${esc(errShort(fwReadErr))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`
+      : fwReadErr ? `<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui abrir este arquivo</div><div class="dim" style="font-size:var(--fs-sm);white-space:pre-wrap" title="${escA(fwReadErr.slice(0,400))}">${esc(errShort(fwReadErr))}</div><button class="btn sm" id="fwReload">tentar de novo</button></div>`
       : `<div class="fwcode" id="fwCode">${lines.map((ln,i)=>{const n=i+1;const inSel=sel&&n>=sel.a&&n<=sel.b;return `<div class="fwln${added.has(n)?' add':''}${inSel?' sel':''}" data-ln="${n}"><span class="fwnum">${n}</span><span class="fwtxt">${esc(ln)||' '}</span></div>`;}).join('')}</div>`;
     const bar = fwEditing
       ? `<div class="fwselbar">editando <b>${esc(fwPath.split('/').pop())}</b> — <b>salvar</b> grava direto na worktree · <span class="kbd">esc</span> cancela</div>`
       : `<div class="fwselbar">${sel?`<b>linhas ${sel.a}${sel.b>sel.a?'–'+sel.b:''} selecionadas</b> · pergunte ao ${esc(t.agent)} no chat →`:'clique e <b>arraste</b> pra selecionar várias linhas (ou shift+clique) e pergunte no chat'}</div>`;
     main.innerHTML = `
-      <div class="fwmhead">${fwTreeOpenBtn()}${fwPathHtml(fwPath)}<span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby" title="escrito por ${escA(t.agent)}"><span class="fwav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="fwmbytx">${esc(t.agent)}</span></span><span style="flex:1"></span>${viewTg}${headBtns}</div>
+      <div class="fwmhead">${fwTreeOpenBtn()}${fwPathHtml(fwPath)}<span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span class="fwmby" title="escrito por ${escA(t.agent)}"><span class="fwav" aria-hidden="true" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="fwmbytx">${esc(t.agent)}</span></span><span style="flex:1"></span>${viewTg}${headBtns}</div>
       ${whyBand}
       ${body}
       ${bar}`;
@@ -838,7 +896,7 @@ function renderWorkspace(){
   const sel2=fwSelRange();
   const sr=fwSendRowHtml(t);
   chat.innerHTML=`
-    <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
+    <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" aria-hidden="true" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar" aria-expanded="${fwCtxOpen?'true':'false'}" title="${fwCtxOpen?'recolher':'ver'} o que ele está fazendo e os requisitos">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">${IC.chevR} ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
@@ -850,8 +908,7 @@ function renderWorkspace(){
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
-  bindClick('fwSend', ()=>fwSendMsg(false));
-  bindClick('fwQueue', ()=>fwSendMsg(true));
+  fwWireSendBtns();
   { const ar=$id('fwAsReq'); if(ar) ar.onchange=()=>{ fwAsReqOn[t.id]=ar.checked; }; }
   attWireComposer({ input:'fwInput', attach:'fwAttach', pend:()=>(fwPend[t.id]=fwPend[t.id]||[]), taskId:()=>t.id, rerender:renderWorkspace });
   chatModelPillWire(fwModelPill(t));
@@ -915,7 +972,7 @@ function fwRenderDiff(t, main){
   const diff=fwPath?fwDiffGet(t, fwPath):'';
   if(!fwPath) rows='<div class="empty">nenhum arquivo alterado</div>';
   else if(diff==null) rows=skeletonHtml('tabela',{ n:8, cols:2, inline:true, label:'carregando o diff' });
-  else if(typeof diff==='object') rows=`<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="dim" style="font-size:12px;white-space:pre-wrap" title="${escA(String(diff.err||'').slice(0,400))}">${esc(errShort(diff.err))}</div><button class="btn sm" id="fwDiffRetry">tentar de novo</button></div>`;
+  else if(typeof diff==='object') rows=`<div class="empty" style="display:flex;flex-direction:column;gap:10px;align-items:center"><div style="color:var(--warn)">não consegui gerar o diff deste arquivo</div><div class="dim" style="font-size:var(--fs-sm);white-space:pre-wrap" title="${escA(String(diff.err||'').slice(0,400))}">${esc(errShort(diff.err))}</div><button class="btn sm" id="fwDiffRetry">tentar de novo</button></div>`;
   else if(!diff.trim()) rows='<div class="empty">sem diferenças neste arquivo em relação à base</div>';
   else rows=diffViewHtml(diffHunks(diff), { full:fwContentFor===t.id+'|'+fwPath?fwContent.split('\n'):null, keyPre:t.id+'|'+fwPath+'|' });
   main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}${fwPathHtml(fwPath)}<span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff fwdv" id="fwRevDiff">${rows}</div>${askHint}`;
@@ -946,24 +1003,24 @@ function fwRenderPrPage(t, main){
     const noAcc=info.errKind==='access';
     const head=noAcc?'o GitHub logado aqui (gh) não tem acesso a este repositório':'não consegui falar com o GitHub';
     const det=noAcc?String(info.error).replace(/^GH_NO_ACCESS:\s*/,''):String(info.error);
-    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">${head}</div><div class="mono dim" style="font-size:11px;max-width:560px;white-space:pre-wrap">${esc(det.slice(0,300))}</div><div style="display:flex;gap:8px"><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button>${noAcc?'<button class="btn sm" id="prPgEnv">abrir Ambiente (conta do GitHub)</button>':''}</div></div>`;
+    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">${head}</div><div class="mono dim" style="font-size:var(--fs-xs);max-width:560px;white-space:pre-wrap">${esc(det.slice(0,300))}</div><div style="display:flex;gap:8px"><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button>${noAcc?'<button class="btn sm" id="prPgEnv">abrir Ambiente (conta do GitHub)</button>':''}</div></div>`;
     bindClick('prPgEnv', ()=>{ if(window.openTab) window.openTab('env'); });
     bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='tentando…'; await loadPr(t.id,true); renderWorkspace(); });
     return;
   }
   if(!info.exists){
-    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:14px;align-items:center"><div>nenhum PR aberto ainda pra <b>${esc(t.branch)}</b></div><button class="btn primary" id="prPgCreate">${IC.merge} preparar e abrir o PR</button><div class="dim" style="font-size:11.5px">roda as checagens do repo, faz commit &amp; push e cria o PR</div></div>`;
-    bindClick('prPgCreate', ()=>prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'));
+    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:14px;align-items:center"><div>nenhum PR aberto ainda pra <b>${esc(t.branch)}</b></div><button class="btn primary" id="prPgCreate">${IC.merge} preparar e abrir o PR</button><div class="dim" style="font-size:var(--fs-xs)">roda as checagens do repo, faz commit &amp; push e cria o PR</div></div>`;
+    bindClick('prPgCreate', ()=>approveGate(t));
     return;
   }
   const cm=prCommentsHtml(t, info, {});
   const base=info.baseRefName||lsGet('prBase:'+t.id)||'main';
   main.innerHTML=`<div class="prpage">
     <div class="prleft">
-      <div style="display:flex;align-items:baseline;gap:10px"><span class="mono" style="color:var(--accent);font-size:15px">#${info.number}</span><b style="font-size:17px">${esc(t.title)}</b></div>
-      <div class="prbadges" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:7px"><span class="mono dim" style="font-size:11px">${esc(t.branch)} → ${esc(base)}</span>${prStateBadge(info)}${prDecisionBadge(info)}${prChecksBadges(info)}</div>
-      <div class="dim" style="font-size:11px;margin-top:6px"><span id="prAge">${prAgoTx(info._at)}</span>${info.staleErr?' · <span style="color:var(--warn)">não consegui atualizar agora (sem conexão com o GitHub)</span>':''}</div>
-      <div style="margin-top:14px;font-size:13px;line-height:1.6" class="prbody">${chatMd(info.body||'_sem descrição_')}</div>
+      <div style="display:flex;align-items:baseline;gap:10px"><span class="mono" style="color:var(--accent);font-size:15px">#${info.number}</span><b style="font-size:var(--fs-lg)">${esc(t.title)}</b></div>
+      <div class="prbadges" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:7px"><span class="mono dim" style="font-size:var(--fs-xs)">${esc(t.branch)} → ${esc(base)}</span>${prStateBadge(info)}${prDecisionBadge(info)}${prChecksBadges(info)}</div>
+      <div class="dim" style="font-size:var(--fs-xs);margin-top:6px"><span id="prAge">${prAgoTx(info._at)}</span>${info.staleErr?' · <span style="color:var(--warn)">não consegui atualizar agora (sem conexão com o GitHub)</span>':''}</div>
+      <div style="margin-top:14px;font-size:var(--fs-base);line-height:1.6" class="prbody">${chatMd(info.body||'_sem descrição_')}</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px"><button class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button class="btn sm" id="prPgCopy">copiar link</button><button class="btn sm" id="prPgRefresh">atualizar</button></div>
     </div>
     <div class="prright">
@@ -1086,7 +1143,7 @@ function fwLiveHtml(t, evs, now){
   const a=fwTurnActs(evs), n=a.acts.length;
   const cur=n?a.acts[n-1].label:'começando — lendo a conversa e o código…';
   const list=fwLiveOpen&&n>1?`<div class="placts fwlivel">${a.acts.slice(-12,-1).map(x=>`<div>${esc(x.label)}</div>`).join('')}</div>`:'';
-  return `<div class="cmsg bot fwlive" id="fwLive"><span class="cav" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><div class="fwliveh"><span class="pulse" style="--pc:var(--good)"></span><span id="fwLiveHead" data-since="${a.since||0}" data-n="${n}">${esc(fwLiveHead(a.since, n, now))}</span>${n>1?`<button class="fwlivetg" id="fwLiveTg" aria-expanded="${fwLiveOpen?'true':'false'}">${fwLiveOpen?'esconder passos':'ver passos'}</button>`:''}</div><div class="fwlivecur"><span class="cg">${ACT_IC}</span><span>${esc(cur)}</span></div>${list}</div></div>`;
+  return `<div class="cmsg bot fwlive" id="fwLive"><span class="cav" aria-hidden="true" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><div class="cbub think"><div class="fwliveh"><span class="pulse" style="--pc:var(--good)"></span><span id="fwLiveHead" data-since="${a.since||0}" data-n="${n}">${esc(fwLiveHead(a.since, n, now))}</span>${n>1?`<button class="fwlivetg" id="fwLiveTg" aria-expanded="${fwLiveOpen?'true':'false'}">${fwLiveOpen?'esconder passos':'ver passos'}</button>`:''}</div><div class="fwlivecur"><span class="cg">${ACT_IC}</span><span>${esc(cur)}</span></div>${list}</div></div>`;
 }
 // tique de 1s: só o tempo do cabeçalho (sem re-render da conversa)
 function fwLiveTick(){ const h=$id('fwLiveHead'); if(!h) return; const tx=fwLiveHead(+h.dataset.since||0, +h.dataset.n||0, Date.now()); if(h.__html!==tx){ h.textContent=tx; h.__html=tx; } }
@@ -1121,10 +1178,10 @@ function fwThreadHtml(t){
       flush();
       const who=e.agent!==lastWho?`<div class="cwho"><b>${esc(e.agent||'')}</b><span class="cwho-m"> · ${esc(agentModelLabel(t,e.agent,ranBy[e.agent]))}</span></div>`:'';
       lastWho=e.agent;
-      out.push(`<div class="cmsg bot"><span class="cav" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
+      out.push(`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
       continue;
     }
-    if(e.type==='error'){ flush(); out.push(`<div class="cmsg bot"><span class="cav" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`); continue; }
+    if(e.type==='error'){ flush(); out.push(`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`); continue; }
     // atividade (ler/rodar/editar/…) — acumula pra virar UMA linha de raciocínio
     act.push(e);
   }
@@ -1133,7 +1190,7 @@ function fwThreadHtml(t){
   // eco otimista: mensagens enviadas que o banco ainda não confirmou (ver fwOptim)
   for(const o of fwOptimFor(t.id, evs, { now:Date.now(), working:(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy), queued:t.queued })) out.push(fwOptimHtml(o));
   return out.join('')
-  + (asking.length?`<div class="cmsg bot"><span class="cav" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'<b>Teto de custo</b><span class="cwho-m"> · sua decisão</span>':'<b>'+esc((asking[0].agent||t.agent)||'')+'</b><span class="cwho-m"> · pergunta pra você</span>'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
+  + (asking.length?`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'<b>Teto de custo</b><span class="cwho-m"> · sua decisão</span>':'<b>'+esc((asking[0].agent||t.agent)||'')+'</b><span class="cwho-m"> · pergunta pra você</span>'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
       return (Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts${sent!=null?' sent':''}">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}"${sent!=null?` disabled${sent===o?' class="on" aria-pressed="true"':''}`:''}>${esc(o)}</button>`).join('')}</div>`:'')
         +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'escolha uma opção — o agente fica pausado até você decidir':'responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
   + (working?fwLiveHtml(t, evs, Date.now()):'');

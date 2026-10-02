@@ -169,7 +169,8 @@ function sfPaneBoot(){
 }
 // a demanda do painel pediu pra fechar (× da tela da demanda, Esc): sai da divisão — a aba continua aberta
 function cvPaneRequestClose(tabId){ if(tabId && cvInSplit(tabId)) cvUnsplit(tabId); }
-function cvPaneFocus(tabId){ if(!SPL.ids) return; const i=SPL.ids.indexOf(tabId); if(i<0 || i===(SPL.focus|0)) return; SPL.focus=i; cvSplitSave(); const ov=$id('cvSplit'); if(ov) ov.querySelectorAll('.cvpane').forEach(p=>p.classList.toggle('focus', p.dataset.tabid===tabId)); }
+function cvPaneFocus(tabId){ if(!SPL.ids) return; const i=SPL.ids.indexOf(tabId); if(i<0 || i===(SPL.focus|0)) return; SPL.focus=i; cvSplitSave(); const ov=$id('cvSplit'); if(ov) ov.querySelectorAll('.cvpane').forEach(p=>p.classList.toggle('focus', p.dataset.tabid===tabId));
+  if(typeof renderRail==='function') renderRail(); } // aria-current da barra lateral segue o painel em foco
 
 // ---------- Navegador: site qualquer (sem proxy/mira/ponte) ou o app de uma demanda ----------
 function cvAppTabRender(tab, body){ if(typeof appRender==='function') appRender(tab.taskId, body); if(typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(tab.taskId); }
@@ -363,19 +364,21 @@ function cvDocPick(tab, ref){
 function cvCloseMenu(){ const m=SPL.menu; SPL.menu=null; if(m){ m.remove(); document.removeEventListener('mousedown', cvMenuOut, true); } }
 function cvMenuOut(e){ const m=SPL.menu; if(m && !m.contains(e.target) && !e.target.closest('#tabAdd')) cvCloseMenu(); }
 function cvTasksForMenu(){ return ((state&&state.tasks)||[]).filter(x=>!(typeof taskIsDone==='function' && taskIsDone(x) && x.flag==='closed')).slice(-14).reverse(); }
+const CV_IC_PLUS='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>';
 // opts.split: 'right' = o que for escolhido abre DIVIDINDO a tela com a aba ativa (⌘\ / "dividir à direita…")
 function cvPlusMenu(anchor, opts){
   opts=opts||{};
   if(SPL.menu){ cvCloseMenu(); if(!opts.split) return; }
   const m=document.createElement('div'); m.className='cvmenu'; m.setAttribute('role','menu'); m.setAttribute('aria-label', opts.split?'abrir ao lado':'abrir');
   const items=[
-    !opts.split && { k:'nova', label:'Nova demanda', hint:'começar uma demanda (⌘N)', ic:'+' },
-    { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:'◐', sub:true },
-    { k:'web', label:'Navegador', hint:'YouTube, documentação, ou o app de uma demanda', ic:'◍', sub:true },
-    { k:'device', label:'Simulador iOS/Android', hint:'o celular de uma demanda ao vivo', ic:'▯', sub:true },
-    { k:'doc', label:'Documento', hint:'README, um arquivo ou o que foi entregue', ic:'▤', sub:true },
+    // ícones do conjunto IC (10-core), mesmo traço do resto do app — antes eram glifos Unicode
+    !opts.split && { k:'nova', label:'Nova demanda', hint:'começar uma demanda (⌘N)', ic:CV_IC_PLUS },
+    { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:IC.stack, sub:true },
+    { k:'web', label:'Navegador', hint:'YouTube, documentação, ou o app de uma demanda', ic:IC.globe, sub:true },
+    { k:'device', label:'Simulador iOS/Android', hint:'o celular de uma demanda ao vivo', ic:IC.phone, sub:true },
+    { k:'doc', label:'Documento', hint:'README, um arquivo ou o que foi entregue', ic:IC.doc, sub:true },
   ].filter(Boolean);
-  m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${esc(x.ic)}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
+  m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${x.ic}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
   document.body.appendChild(m); SPL.menu=m;
   const r=anchor?anchor.getBoundingClientRect():{ left:window.innerWidth/2-170, bottom:90 };
   m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, r.bottom+6)+'px';
@@ -397,7 +400,7 @@ function cvPlusMenu(anchor, opts){
 }
 function cvSubMenu(m, list, title){
   const l=m.querySelector('.cvml');
-  l.innerHTML=`<div class="cvmsub"><b>${esc(title)}</b></div>`+(list.length?list.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvsub="${i}"><span class="cvmic" aria-hidden="true">${x.dot?`<span class="cvtdot" style="background:${x.dot}"></span>`:'▤'}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint||'')}</span></span></button>`).join(''):'<div class="dim" style="padding:10px">nenhuma demanda neste projeto ainda</div>');
+  l.innerHTML=`<div class="cvmsub"><b>${esc(title)}</b></div>`+(list.length?list.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvsub="${i}"><span class="cvmic" aria-hidden="true">${x.dot?`<span class="cvtdot" style="background:${x.dot}"></span>`:IC.doc}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint||'')}</span></span></button>`).join(''):'<div class="dim" style="padding:10px">nenhuma demanda neste projeto ainda</div>');
   l.querySelectorAll('[data-cvsub]').forEach(b=>b.onclick=()=>{ const x=list[+b.dataset.cvsub]; cvCloseMenu(); x.go(); });
   const f=l.querySelector('[data-cvsub]'); if(f) f.focus();
 }

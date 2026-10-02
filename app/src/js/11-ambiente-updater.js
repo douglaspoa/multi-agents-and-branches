@@ -58,16 +58,16 @@ function renderEnv(){
   if(!envChecks){ ldPaint(el, '<div class="appscreen">'+skeletonHtml('lista',{ head:true, n:6, label:'verificando o ambiente' })+'</div>'); return; }
   const S=envSummary(envChecks), okN=S.okN, tot=S.tot;
   const banner = S.reqBad
-    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${S.reqBad} pendência${S.reqBad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${okN} de ${tot} ok</span></div>`
-    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:12px;color:var(--text-3)">${S.optBad?`${S.optBad} opciona${S.optBad>1?'is':'l'} faltando · `:''}${okN} de ${tot} ok</span></div>`;
+    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${S.reqBad} pendência${S.reqBad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:var(--fs-sm);color:var(--text-3)">${okN} de ${tot} ok</span></div>`
+    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:var(--fs-sm);color:var(--text-3)">${S.optBad?`${S.optBad} opciona${S.optBad>1?'is':'l'} faltando · `:''}${okN} de ${tot} ok</span></div>`;
   const cards=envChecks.map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', what=envWhat(c);
     return `<div class="as-card envcard" style="display:flex;gap:13px;align-items:flex-start">
     <span class="as-chk" style="background:${c.ok?'var(--accent)':soft?'var(--text-3)':'var(--warn)'}">${c.ok?'✓':soft?'–':'!'}</span>
     <div style="min-width:0;flex:1">
-      <div style="font:600 14.5px var(--display);display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}${ENV_KIND_TAG[k]?`<span class="envtag">${ENV_KIND_TAG[k]}</span>`:''}</div>
-      ${what?`<div style="margin-top:4px;font-size:12.5px;color:var(--text-2)">${esc(what)}</div>`:''}
-      <div style="margin-top:6px;font:400 11.5px/1.5 var(--code);color:var(--text-3);word-break:break-all">${esc(c.detail||'')}</div>
-      ${envFixLines(c.fix).map((f,i,all)=>`<div class="envfix"><span class="dim" style="font-size:11.5px">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span><code class="as-mono">${esc(f.text)}</code>${f.cmd?`<button class="as-btn" style="padding:5px 10px;font-size:11.5px" data-envfix="${escA(f.text)}">copiar</button>`:''}</div>`).join('')}
+      <div style="font:600 var(--fs-md) var(--display);display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}${ENV_KIND_TAG[k]?`<span class="envtag">${ENV_KIND_TAG[k]}</span>`:''}</div>
+      ${what?`<div style="margin-top:4px;font-size:var(--fs-sm);color:var(--text-2)">${esc(what)}</div>`:''}
+      <div style="margin-top:6px;font:400 var(--fs-xs)/1.5 var(--code);color:var(--text-3);word-break:break-all">${esc(c.detail||'')}</div>
+      ${envFixLines(c.fix).map((f,i,all)=>`<div class="envfix"><span class="dim" style="font-size:var(--fs-xs)">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span><code class="as-mono">${esc(f.text)}</code>${f.cmd?`<button class="as-btn" style="padding:5px 10px;font-size:var(--fs-xs)" data-envfix="${escA(f.text)}">copiar</button>`:''}</div>`).join('')}
     </div></div>`; }).join('');
   el.innerHTML=`<div class="appscreen">
     <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>
@@ -191,9 +191,9 @@ function updRenderCfg(){
   const ago=updLast.at?Math.round((Date.now()-updLast.at)/60e3):null;
   const color= !updLast.at?'var(--text-dim)': updLast.ok?(updInfo?'var(--accent)':'var(--text)'):'var(--warn)';
   h.innerHTML=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <span class="mono dim" style="font-size:11.5px">build ${updLast.mine?esc(fmt(updLast.mine)):'—'}</span>
-      <span style="font-size:12.5px;color:${color}">${updLast.at?esc(updLast.msg):'ainda não verificou'}</span>
-      <span class="dim" style="font-size:11px">${ago!=null?(ago<1?'agora':'há '+ago+' min'):''}</span>
+      <span class="mono dim" style="font-size:var(--fs-xs)">build ${updLast.mine?esc(fmt(updLast.mine)):'—'}</span>
+      <span style="font-size:var(--fs-sm);color:${color}">${updLast.at?esc(updLast.msg):'ainda não verificou'}</span>
+      <span class="dim" style="font-size:var(--fs-xs)">${ago!=null?(ago<1?'agora':'há '+ago+' min'):''}</span>
       <span style="flex:1"></span>
       ${updInfo?`<button class="btn sm primary" id="updApplyCfg">${ic('upload')}atualizar${updInfo.version?' · '+esc(updInfo.version):''}</button>`:''}
       <button class="btn sm" id="updCheckCfg"${updLast.dev?' disabled':''}>${ic('pulse')}verificar agora</button>
@@ -206,7 +206,7 @@ function updRenderCfg(){
 let ghAccs=null, ghLogin=null, ghLoginT=null, ghMsg='';
 async function ghMount(){
   const h=$id('ghHost'); if(!h) return;
-  h.innerHTML='<div class="dim" style="font-size:12px">lendo contas do gh…</div>';
+  h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">lendo contas do gh…</div>';
   try{ ghAccs=await invoke('gh_accounts'); }catch(e){ ghAccs=[]; ghMsg=humanErr(e,'Não consegui ler as contas do GitHub').msg; }
   ghRender();
 }
@@ -214,19 +214,19 @@ function ghRender(){
   const h=$id('ghHost'); if(!h) return;
   const rows=(ghAccs||[]).map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid ${a.active?'color-mix(in srgb,var(--accent) 45%,transparent)':'var(--border)'};border-radius:10px;background:${a.active?'color-mix(in srgb,var(--accent) 6%,transparent)':'var(--surface-2)'}">
       <span style="width:8px;height:8px;border-radius:50%;background:${a.active?'var(--accent)':'rgba(255,255,255,.2)'}"></span>
-      <b style="font-size:13px">${esc(a.user)}</b><span class="dim mono" style="font-size:11px">${a.active?'ativa · PRs e push usam esta':'git via '+esc(a.protocol)}</span>
+      <b style="font-size:var(--fs-base)">${esc(a.user)}</b><span class="dim mono" style="font-size:var(--fs-xs)">${a.active?'ativa · PRs e push usam esta':'git via '+esc(a.protocol)}</span>
       <span style="flex:1"></span>${a.active?'':`<button class="btn sm" data-ghuse="${escA(a.user)}">usar esta conta</button>`}
     </div>`).join('');
   const login = ghLogin ? (ghLogin.done
-      ? `<div style="font-size:12.5px;color:${ghLogin.ok?'var(--accent)':'var(--warn)'}">${ghLogin.ok?'✓ conta adicionada e ativa':'não concluiu: '+esc((ghLogin.log||'').trim().split('\n').slice(-2).join(' '))}</div>`
+      ? `<div style="font-size:var(--fs-sm);color:${ghLogin.ok?'var(--accent)':'var(--warn)'}">${ghLogin.ok?'✓ conta adicionada e ativa':'não concluiu: '+esc((ghLogin.log||'').trim().split('\n').slice(-2).join(' '))}</div>`
       : `<div class="as-card" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12.5px">1) copie o código · 2) autorize no github.com (abre sozinho) · 3) volte aqui — o app reconhece na hora</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><code class="mono" style="font-size:18px;letter-spacing:.12em;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:#141817">${esc(ghLogin.code)}</code><button class="btn sm" id="ghCopy">copiar</button><button class="btn sm" id="ghOpen">abrir github.com/login/device</button><span class="dim" style="font-size:12px">esperando autorização…</span></div>
+          <div style="font-size:var(--fs-sm)">1) copie o código · 2) autorize no github.com (abre sozinho) · 3) volte aqui — o app reconhece na hora</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><code class="mono" style="font-size:var(--fs-lg);letter-spacing:.12em;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:#141817">${esc(ghLogin.code)}</code><button class="btn sm" id="ghCopy">copiar</button><button class="btn sm" id="ghOpen">abrir github.com/login/device</button><span class="dim" style="font-size:var(--fs-sm)">esperando autorização…</span></div>
         </div>`) : '';
-  h.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="dim" style="font-size:12.5px">nenhuma conta logada no gh.</div>'}
-    ${ghMsg?`<div style="font-size:12px;color:var(--warn)">${esc(ghMsg)}</div>`:''}${login}
+  h.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="dim" style="font-size:var(--fs-sm)">nenhuma conta logada no gh.</div>'}
+    ${ghMsg?`<div style="font-size:var(--fs-sm);color:var(--warn)">${esc(ghMsg)}</div>`:''}${login}
     <div style="display:flex;gap:8px;margin-top:2px"><button class="btn sm" id="ghAdd"${ghLogin&&!ghLogin.done?' disabled':''}>+ entrar com outra conta</button><button class="btn sm" id="ghRefresh">atualizar</button></div>
-    <div class="dim" style="font-size:11.5px">Cada conta fica guardada no gh; trocar a ativa muda quem abre PRs e faz push (git usa a credencial do gh). Repositórios de organização com SSO podem pedir <code>gh auth refresh -s repo</code> uma vez.</div></div>`;
+    <div class="dim" style="font-size:var(--fs-xs)">Cada conta fica guardada no gh; trocar a ativa muda quem abre PRs e faz push (git usa a credencial do gh). Repositórios de organização com SSO podem pedir <code>gh auth refresh -s repo</code> uma vez.</div></div>`;
   h.querySelectorAll('[data-ghuse]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='trocando…'; ghMsg=''; try{ await invoke('gh_switch_account',{ user:b.dataset.ghuse }); envChecks=null; runEnvCheck(); }catch(e){ ghMsg=humanErr(e,'Não consegui trocar de conta').msg; } await ghMount(); });
   bindClick('ghRefresh', ghMount);
   bindClick('ghAdd', async()=>{ ghMsg=''; try{ const r=await invoke('gh_login_start'); ghLogin={ code:r.code, url:r.url, done:false, ok:false, log:'' }; try{ await navigator.clipboard.writeText(r.code); }catch(_){ } try{ await invoke('open_url',{ url:r.url }); }catch(_){ } ghRender(); ghPoll(); }catch(e){ ghMsg=humanErr(e,'Não consegui iniciar o login no GitHub').msg; ghRender(); } });

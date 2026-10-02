@@ -71,7 +71,7 @@ function openCfg(){
     <div id="notifHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app procura versão nova sozinho a cada 2 min (e quando você volta pra janela) — ou agora, aqui</span></div>
     <div id="updHost" style="margin-top:8px"></div>
-    <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta de trabalho do Starfork deste projeto <span class="mono" style="font-size:10.5px">(.cardume/)</span> — aprendizados ficam, o resto pode ir</span></div>
+    <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta de trabalho do Starfork deste projeto <span class="mono" style="font-size:var(--fs-xs)">(.cardume/)</span> — aprendizados ficam, o resto pode ir</span></div>
     <div id="wsHost" style="margin-top:8px"></div>
     <div class="seclbl2" style="margin-top:20px">Sistema</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
@@ -168,19 +168,19 @@ let wsUsage=null, wsMsg='';
 function fmtBytes(n){ n=Number(n)||0; if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(0)+' KB'; if(n<1073741824) return (n/1048576).toFixed(n<10485760?1:0)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
 async function wsMount(){
   const h=$id('wsHost'); if(!h) return;
-  if(!state.repo){ h.innerHTML='<div class="dim" style="font-size:12px">abra um projeto pra ver o espaço usado.</div>'; return; }
-  h.innerHTML='<div class="dim" style="font-size:12px">medindo a pasta de trabalho do Starfork… (cópias grandes do código levam alguns segundos)</div>';
+  if(!state.repo){ h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">abra um projeto pra ver o espaço usado.</div>'; return; }
+  h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">medindo a pasta de trabalho do Starfork… (cópias grandes do código levam alguns segundos)</div>';
   // medir de novo com sucesso apaga o erro de uma medição anterior (antes ficava "Não consegui medir" ao lado dos números)
   try{ wsUsage=await invoke('workspace_usage'); if(/^Não consegui medir/.test(wsMsg)) wsMsg=''; }catch(e){ wsUsage=null; wsMsg=humanErr(e,'Não consegui medir o espaço').msg; }
   wsRender();
 }
 function wsRender(){
   const h=$id('wsHost'); if(!h) return;
-  if(!wsUsage){ h.innerHTML=`<div style="font-size:12px;color:var(--warn)">${esc(wsMsg||'sem dados')}</div>`; return; }
+  if(!wsUsage){ h.innerHTML=`<div style="font-size:var(--fs-sm);color:var(--warn)">${esc(wsMsg||'sem dados')}</div>`; return; }
   const u=wsUsage, wt=u.worktrees, ar=u.artifacts;
   const trash = (wt.staleBytes||0) + (u.temp||0);
   const row=(label, val, hint, keep)=>`<div style="display:flex;align-items:baseline;gap:10px;padding:7px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)">
-      <span style="font-size:12.5px;${keep?'':''}">${label}</span><span class="dim" style="font-size:11px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hint}</span><b class="mono" style="font-size:12px;${keep?'color:var(--accent)':''}">${fmtBytes(val)}</b></div>`;
+      <span style="font-size:var(--fs-sm);${keep?'':''}">${label}</span><span class="dim" style="font-size:var(--fs-xs);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hint}</span><b class="mono" style="font-size:var(--fs-sm);${keep?'color:var(--accent)':''}">${fmtBytes(val)}</b></div>`;
   const stale=(wt.items||[]).filter(i=>i.stale).sort((a,b)=>b.bytes-a.bytes).slice(0,6);
   h.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px">
       ${row('Aprendizados e estado', u.keep, 'MEMORY · HISTORY · RUNBOOK · SPEC · PREFS · política · skills · issue · planos · banco — <b>sempre mantidos</b>', true)}
@@ -188,9 +188,9 @@ function wsRender(){
       ${row('Worktrees', wt.bytes, `${wt.count} pasta${wt.count===1?'':'s'} · ${fmtBytes(wt.staleBytes)} em ${wt.staleCount} de tarefa finalizada ou órfã — só lixo`)}
       ${row('Temporários', u.temp, 'logs · cache de explicações (why) · scripts descartáveis (tmp)')}
       ${u.attachments?row('Anexos do chat', u.attachments, 'prints e documentos que você anexou nas conversas — ficam'):''}
-      <div style="display:flex;align-items:center;gap:10px;padding:2px 12px 0"><span class="dim" style="font-size:11.5px">total ${fmtBytes(u.total)} · liberável agora: <b style="color:var(--text)">${fmtBytes(trash)}</b> sem perder nada${ar.staleBytes?' · +'+fmtBytes(ar.staleBytes)+' se limpar os entregáveis finalizados':''}</span></div>
-      ${stale.length?`<div class="dim mono" style="font-size:10.5px;padding:0 12px;line-height:1.6">${stale.map(i=>esc((i.title||i.id||'').slice(0,48))+' · '+esc(i.status)+' · '+fmtBytes(i.bytes)).join('<br>')}${wt.staleCount>stale.length?'<br>… e mais '+(wt.staleCount-stale.length):''}</div>`:''}
-      ${wsMsg?`<div style="font-size:12px;color:${/^✓/.test(wsMsg)?'var(--accent)':'var(--warn)'};padding:0 12px">${esc(wsMsg)}</div>`:''}
+      <div style="display:flex;align-items:center;gap:10px;padding:2px 12px 0"><span class="dim" style="font-size:var(--fs-xs)">total ${fmtBytes(u.total)} · liberável agora: <b style="color:var(--text)">${fmtBytes(trash)}</b> sem perder nada${ar.staleBytes?' · +'+fmtBytes(ar.staleBytes)+' se limpar os entregáveis finalizados':''}</span></div>
+      ${stale.length?`<div class="dim mono" style="font-size:var(--fs-xs);padding:0 12px;line-height:1.6">${stale.map(i=>esc((i.title||i.id||'').slice(0,48))+' · '+esc(i.status)+' · '+fmtBytes(i.bytes)).join('<br>')}${wt.staleCount>stale.length?'<br>… e mais '+(wt.staleCount-stale.length):''}</div>`:''}
+      ${wsMsg?`<div style="font-size:var(--fs-sm);color:${/^✓/.test(wsMsg)?'var(--accent)':'var(--warn)'};padding:0 12px">${esc(wsMsg)}</div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
         <button class="btn sm" id="wsCleanTrash"${trash?'':' disabled'}>${ic('folder')}liberar ${fmtBytes(trash)} — worktrees finalizadas + temporários</button>
         <button class="btn sm" id="wsCleanArts"${ar.staleBytes?'':' disabled'}>limpar entregáveis de tarefas finalizadas (${fmtBytes(ar.staleBytes)})</button>
@@ -204,7 +204,7 @@ function wsRender(){
 }
 async function wsClean(what, question){
   if(!await askYes(question)) return;
-  const h=$id('wsHost'); if(h) h.innerHTML='<div class="dim" style="font-size:12px">limpando…</div>';
+  const h=$id('wsHost'); if(h) h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">limpando…</div>';
   wsMsg='';
   try{ const r=await invoke('workspace_clean', what); wsMsg=`✓ ${fmtBytes(r.freed)} liberados (${r.removed} ${r.removed===1?'item':'itens'})`+((r.errors||[]).length?` · não deu em ${r.errors.length}: ${r.errors.slice(0,2).join('; ')}`:''); }
   catch(e){ wsMsg=humanErr(e,'Não consegui limpar').msg; }
@@ -303,7 +303,11 @@ function ovShow(o){
 }
 function tabsOfKind(kind){ return TABS.filter(t=>t.kind===kind); }
 function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11" height="10" rx="1.4"/><path d="M2.5 6h11"/>'; return (VIEW_META[kind]||{}).icon||''; }
-function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id; renderTabs(); showActiveView(); if(typeof cvOnViewChange==='function') cvOnViewChange(); } // canvas: stream/webview reavaliam (sem laço)
+function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id;
+  // a demanda da aba ativa vira a "selecionada" (Central/grafo) e a barra lateral repinta o destaque (railHi, 25)
+  { const at=tabById(id); if(at && at.taskId) selected=at.taskId; }
+  renderTabs(); showActiveView(); if(typeof renderRail==='function') renderRail();
+  if(typeof cvOnViewChange==='function') cvOnViewChange(); } // canvas: stream/webview reavaliam (sem laço)
 // openTab(kind, opts): views únicas reaproveitam a aba; views múltiplas abrem uma NOVA aba,
 // salvo opts.replace (a aba ativa de "Nova demanda" vira o método escolhido, mantendo o id)
 // ou opts.reuse (função que escolhe uma aba já aberta do mesmo kind).
@@ -486,9 +490,9 @@ $id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') c
 // @ob-envfix-inicio — correção do item no tour: UMA linha por opção (envFixLines, igual à aba Ambiente);
 // só linha de COMANDO ganha "copiar" ("configure…"/"reinstale…" são instrução). Testado em app/tests/ia-auxiliar.test.mjs.
 function obEnvFixHtml(fix, soft){
-  return envFixLines(fix).map((f,i,all)=>`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:11px">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span>${f.cmd
-    ?`<code class="mono" style="font-size:10.5px;color:${soft?'var(--text-2)':'var(--warn)'};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(f.text)}">${esc(f.text)}</code><button class="btn sm" data-envfix="${escA(f.text)}">copiar</button>`
-    :`<span style="font-size:11.5px;color:var(--warn)">${esc(f.text)}</span>`}</div>`).join('');
+  return envFixLines(fix).map((f,i,all)=>`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:var(--fs-xs)">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span>${f.cmd
+    ?`<code class="mono" style="font-size:var(--fs-xs);color:${soft?'var(--text-2)':'var(--warn)'};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(f.text)}">${esc(f.text)}</code><button class="btn sm" data-envfix="${escA(f.text)}">copiar</button>`
+    :`<span style="font-size:var(--fs-xs);color:var(--warn)">${esc(f.text)}</span>`}</div>`).join('');
 }
 // @ob-envfix-fim
 // ---------- onboarding de 60 segundos (primeiro boot) ----------
@@ -534,16 +538,16 @@ function renderOb(){
   const last=obStep===OB_STEPS.length-1;
   const hasRepo=!!(state&&state.repo);
   $id('obBody').innerHTML=`
-    <div style="display:flex;gap:6px;margin-bottom:18px;align-items:center" role="progressbar" aria-valuemin="1" aria-valuemax="${OB_STEPS.length}" aria-valuenow="${obStep+1}" aria-label="passo ${obStep+1} de ${OB_STEPS.length}">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}<span class="dim mono" style="font-size:10.5px;margin-left:6px">${obStep+1}/${OB_STEPS.length}</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:18px;align-items:center" role="progressbar" aria-valuemin="1" aria-valuemax="${OB_STEPS.length}" aria-valuenow="${obStep+1}" aria-label="passo ${obStep+1} de ${OB_STEPS.length}">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}<span class="dim mono" style="font-size:var(--fs-xs);margin-left:6px">${obStep+1}/${OB_STEPS.length}</span></div>
     <h2 style="font-size:20px;margin:0 0 10px" id="obTitle">${s.t}</h2>
-    <p style="color:var(--text-2);font-size:14px;line-height:1.65;margin:0">${s.b}</p>
+    <p style="color:var(--text-2);font-size:var(--fs-md);line-height:1.65;margin:0">${s.b}</p>
     ${s.ia?'<div id="obSuaIa"></div>':''}
-    ${s.env?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:12px">verificando o ambiente…</div></div>':''}
-    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center">${hasRepo?`<span class="dim" style="font-size:12.5px">✓ projeto aberto: <b style="color:var(--text)">${esc(pathBase(state.repo))}</b></span><span style="flex:1"></span>`:''}<button class="btn sm" id="obOpenDir">${ic('folder')}${hasRepo?'Abrir outra pasta':'Já tenho uma pasta'}</button></div>`:''}
+    ${s.env?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:var(--fs-sm)">verificando o ambiente…</div></div>':''}
+    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center">${hasRepo?`<span class="dim" style="font-size:var(--fs-sm)">✓ projeto aberto: <b style="color:var(--text)">${esc(pathBase(state.repo))}</b></span><span style="flex:1"></span>`:''}<button class="btn sm" id="obOpenDir">${ic('folder')}${hasRepo?'Abrir outra pasta':'Já tenho uma pasta'}</button></div>`:''}
     <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
       <button class="btn sm" id="obSkip" title="Esc">pular</button><span style="flex:1"></span>
       ${obStep>0?'<button class="btn sm" id="obBack">voltar</button>':''}
-      ${s.ia?'<span class="dim" id="obIaWill" style="font-size:12px" aria-live="polite"></span><button class="btn sm" id="obIaLater" title="a IA padrão continua como está — troque quando quiser em Configurações → Sua IA">decido depois</button>':''}
+      ${s.ia?'<span class="dim" id="obIaWill" style="font-size:var(--fs-sm)" aria-live="polite"></span><button class="btn sm" id="obIaLater" title="a IA padrão continua como está — troque quando quiser em Configurações → Sua IA">decido depois</button>':''}
       <button class="btn primary" id="obNext">${last?(hasRepo?'Começar':'Dizer o que eu quero fazer'):'continuar'}</button>
     </div>`;
   $id('obSkip').onclick=()=>{ finishOb(); };
@@ -569,11 +573,11 @@ function renderOb(){
     const S=envSummary(envChecks);
     el.innerHTML=(envChecks||[]).map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', tag=ENV_KIND_TAG[k];
       // mesmo ícone da aba Ambiente: ✓ ok · ! obrigatório faltando · – recomendado/opcional faltando (neutro)
-      const icon=c.ok?`<span style="color:var(--good)">${IC.ok}</span>`:soft?'<span style="color:var(--text-3);font:600 13px var(--code);width:14px;text-align:center">–</span>':`<span style="color:var(--warn)">${IC.warn}</span>`;
-      return `<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--border);font-size:12.5px">
+      const icon=c.ok?`<span style="color:var(--good)">${IC.ok}</span>`:soft?'<span style="color:var(--text-3);font:600 var(--fs-base) var(--code);width:14px;text-align:center">–</span>':`<span style="color:var(--warn)">${IC.warn}</span>`;
+      return `<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--border);font-size:var(--fs-sm)">
       ${icon}<div style="flex:1;min-width:0"><b>${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}</b>${tag?` <span class="envtag">${tag}</span>`:''} <span class="dim">${esc(c.ok?(c.detail||'').slice(0,60):envWhat(c)||(c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?obEnvFixHtml(c.fix, soft):''}</div></div>`; }).join('')
-      +(S.reqBad?'<div class="dim" style="font-size:11.5px;margin-top:8px">Dá pra seguir mesmo assim — o que faltar fica com um aviso em <b>Mais › Ambiente</b>, no rodapé da barra lateral.</div>'
-        :'<div style="font-size:12px;margin-top:8px;color:var(--good)">Tudo certo pra começar.'+(S.optBad?' <span class="dim">Os opcionais dá pra instalar depois.</span>':'')+'</div>');
+      +(S.reqBad?'<div class="dim" style="font-size:var(--fs-xs);margin-top:8px">Dá pra seguir mesmo assim — o que faltar fica com um aviso em <b>Mais › Ambiente</b>, no rodapé da barra lateral.</div>'
+        :'<div style="font-size:var(--fs-sm);margin-top:8px;color:var(--good)">Tudo certo pra começar.'+(S.optBad?' <span class="dim">Os opcionais dá pra instalar depois.</span>':'')+'</div>');
     el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>envCopy(b); });
   }).catch(()=>{});
 }
@@ -600,8 +604,8 @@ function coachStart(){
     const r=a?a.getBoundingClientRect():null;
     // alvo que não está na tela (ex.: busca da Central sem projeto aberto) → pula, em vez de pôr a dica no canto (0,0)
     if(!a || !r || (r.width===0 && r.height===0) || a.offsetParent===null){ i++; show(); return; }
-    tipEl.innerHTML=`<b style="font-size:13px">${esc(t)}</b><div class="dim" style="font-size:12px;line-height:1.5;margin-top:4px">${esc(b)}</div>
-      <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><button class="btn sm" id="coachSkip">pular tudo</button><span style="flex:1"></span><span class="dim" style="font-size:10.5px">${i+1}/${COACH.length}</span><button class="btn primary sm" id="coachNext">${i<COACH.length-1?'próximo':'entendi'}</button></div>`;
+    tipEl.innerHTML=`<b style="font-size:var(--fs-base)">${esc(t)}</b><div class="dim" style="font-size:var(--fs-sm);line-height:1.5;margin-top:4px">${esc(b)}</div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><button class="btn sm" id="coachSkip">pular tudo</button><span style="flex:1"></span><span class="dim" style="font-size:var(--fs-xs)">${i+1}/${COACH.length}</span><button class="btn primary sm" id="coachNext">${i<COACH.length-1?'próximo':'entendi'}</button></div>`;
     const top=Math.min(window.innerHeight-160, r.bottom+10);
     const left=Math.max(10, Math.min(window.innerWidth-280, r.left));
     tipEl.style.top=top+'px'; tipEl.style.left=left+'px';

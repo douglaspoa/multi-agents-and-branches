@@ -74,7 +74,7 @@
   border: none;
   outline: none;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   height: 100%;
   min-width: 190px;
 }
@@ -110,7 +110,7 @@
 #flow .sech[data-sectog] { cursor: pointer; user-select: none; }
 #flow .sech[data-sectog]:hover { color: var(--text); }
 #flow .sech[data-sectog]:focus-visible {outline:2px solid transparent;box-shadow:var(--ring);border-radius: 6px; }
-.sech .secchev { color: var(--text-3, var(--muted)); font-size: 12px; width: 12px; flex: none; display: inline-flex; }
+.sech .secchev { color: var(--text-3, var(--muted)); font-size: var(--fs-sm); width: 12px; flex: none; display: inline-flex; }
 #flow.gridview .secgrp.epqgrp { display: block; }
 .dcard.has-ep { border-left: 3px solid var(--epc); }
 .fchip .pfd { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
@@ -118,7 +118,7 @@
 /* ===== escala única de título de tela (aba): 26px/600 na fonte de display =====
    antes: .ndh1 32 · .sk-h1/.as-h1 28 · .en-h1/.tmain h1 26 · .flowhead h1 21 — mesmo papel, 5 tamanhos.
    .au-h1 (login/onboarding) fica maior de propósito: é a tela-herói. Margens seguem por componente. */
-.ndh1,#ntOverlay .ndh1,.sk-h1,.as-h1,.en-h1,.tmain h1,.flowhead h1{font:600 26px/1.15 var(--display);letter-spacing:-.02em}
+.ndh1,#ntOverlay .ndh1,.sk-h1,.as-h1,.en-h1,.tmain h1,.flowhead h1{font:600 var(--fs-xl)/1.15 var(--display);letter-spacing:-.02em}
 
 /* ===== CABEÇALHO DE PÁGINA ÚNICO (R3-D) =====
    Antes cada aba tinha sua coluna (Issues 284 · Nova demanda 325 · Épico 329 · Configurações 343 com título de 16px ·
@@ -134,25 +134,25 @@
 .orq-briefin{max-width:var(--page-max);padding-left:var(--page-pad);padding-right:var(--page-pad)}
 .orq-briefin>*{max-width:860px}
 .as-head,.sk-head,.pc-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
-.as-sub,.sk-sub{margin-top:7px;font:400 13.5px/1.5 var(--display);color:rgba(255,255,255,.48);max-width:600px}
+.as-sub,.sk-sub{margin-top:7px;font:400 var(--fs-base)/1.5 var(--display);color:rgba(255,255,255,.48);max-width:600px}
 .pc-head .as-actions,.as-head .as-actions{margin-left:auto}
 /* botões secundários no título de seção herdavam a fonte mono do rótulo ("+ novo agente", "+ novo time",
    "gerar relatório da entrega") — botão é botão: mesma fonte do .btn em todo lugar */
-.seclbl2 .btn,.seclbl2 .as-btn{font-family:var(--display);letter-spacing:0;text-transform:none;font-size:12px;font-weight:500}
+.seclbl2 .btn,.seclbl2 .as-btn{font-family:var(--display);letter-spacing:0;text-transform:none;font-size:var(--fs-sm);font-weight:500}
 
 /* ===== Montar conversando: cabeçalho com o seletor das 3 formas + resumo em PT ===== */
 #plannerOverlay .plhead{padding:12px 22px;background:var(--bg)}
 #plannerOverlay .plheadl{display:flex;align-items:center;gap:14px;min-width:0}
-#plannerOverlay .plmeter{font-size:12px;color:var(--text-3);white-space:nowrap}
+#plannerOverlay .plmeter{font-size:var(--fs-sm);color:var(--text-3);white-space:nowrap}
 .ndseg button{white-space:nowrap}
-.plmeshh{font:600 13px var(--display);letter-spacing:0;text-transform:none;color:var(--text)}
-.plmeshh .plmesht{font:400 11.5px var(--display);color:var(--muted)}
-.plfield .plfk{font-family:var(--display);font-weight:600;font-size:12px}
+.plmeshh{font:600 var(--fs-base) var(--display);letter-spacing:0;text-transform:none;color:var(--text)}
+.plmeshh .plmesht{font:400 var(--fs-xs) var(--display);color:var(--muted)}
+.plfield .plfk{font-family:var(--display);font-weight:600;font-size:var(--fs-sm)}
 .plfield .plfsrc{text-transform:none;letter-spacing:0}
-.plraw{border:1px dashed var(--border-strong);border-radius:8px;padding:7px 10px;font-size:11.5px;color:var(--muted)}
+.plraw{border:1px dashed var(--border-strong);border-radius:8px;padding:7px 10px;font-size:var(--fs-xs);color:var(--muted)}
 .plraw summary{cursor:pointer}
-.plraw summary .mono{font-size:10.5px;opacity:.8}
-.plraw pre{margin:8px 0 2px;white-space:pre-wrap;word-break:break-word;font-size:10.5px;line-height:1.5;color:var(--text-2);max-height:260px;overflow:auto;-webkit-user-select:text;user-select:text}
+.plraw summary .mono{font-size:var(--fs-xs);opacity:.8}
+.plraw pre{margin:8px 0 2px;white-space:pre-wrap;word-break:break-word;font-size:var(--fs-xs);line-height:1.5;color:var(--text-2);max-height:260px;overflow:auto;-webkit-user-select:text;user-select:text}
 /* a ação principal do épico ("✓ Aprovar e criar · N tarefas") fica SEMPRE à vista: rodapé grudado no fim da conversa
    (antes ficava escondido atrás das sugestões e do fim do card) */
 .plthread .plplan .ppfoot{position:sticky;bottom:-8px;z-index:3;margin:11px -12px -11px;padding:10px 12px;background:var(--surface-2);border-top:1px solid var(--border);border-radius:0 0 11px 11px;box-shadow:0 -10px 14px -10px rgba(0,0,0,.55)}
