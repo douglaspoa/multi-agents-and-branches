@@ -140,7 +140,7 @@ function nvRender(taskId, el, opts){
   nvPaint(taskId);
 }
 // modo Prévia da aba da tarefa (compat: o workspace antigo chamava com o #fwMain)
-function fwRenderPrevia(t, main){ nvRender(t.id, main); }
+function fwRenderPrevia(t, main){ if(typeof appRender==='function') appRender(t.id, main); else nvRender(t.id, main); }
 function nvEmptyHtml(){ return '<div class="nvempty"><b>Nenhum site aberto</b><span>Digite um endereço acima (ex.: <code>localhost:5173</code>) — ou peça pro agente subir o site da tarefa e ele aparece aqui sozinho.</span></div>'; }
 function nvWire(taskId){
   const st=nvSt(taskId), root=st.root; if(!root) return;
@@ -181,7 +181,8 @@ function nvPaint(taskId){
   const sb=nvQ(st, 'send'); if(sb){ sb.disabled=!st.picks.length||st.sending; sb.textContent=st.sending?'mandando…':'mandar pra tarefa'; }
   const sh=nvQ(st, 'shot'); if(sh) sh.disabled=!st.frame;
   if(st.opening) nvSetMsg(st, '<div class="nvempty"><span class="spin"></span> abrindo '+esc(st.addr||'')+'…</div>');
-  else if(st.err) nvSetMsg(st, `<div class="nvempty"><b>Não abri a prévia</b><span>${esc(st.err)}</span></div>`);
+  // erro ao abrir: diz o que houve E oferece subir o ambiente (nunca só "deu erro")
+  else if(st.err) nvSetMsg(st, `<div class="nvempty"><b>Não abri a prévia</b><span>${esc(st.err)}</span></div>`+(st.empty?st.empty():''));
   else if(st.frozen && st.proxy) nvSetMsg(st, '<div class="nvempty"><b>Prévia pausada</b><span>Pra o Mac não esquentar, ficam no máximo 2 páginas vivas ao mesmo tempo.</span><button type="button" class="btn sm primary" data-nvresume="1">continuar daqui</button></div>');
   else if(!st.proxy && !st.addr) nvSetMsg(st, st.empty?st.empty():nvEmptyHtml());
   else if(st.frame) nvSetMsg(st, '');

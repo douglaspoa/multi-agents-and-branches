@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
+mod ambiente;
 mod device;
 mod ai_once;
 mod autopilot;
@@ -9236,6 +9237,8 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             notif_mac::init(app.handle().clone());
             navegador::selftest_from_env(app.handle()); // só com STARFORK_NAV_SELFTEST (autoteste do print nativo)
+            // "Subir ambiente": derruba o que uma instância anterior (que caiu) deixou rodando
+            std::thread::spawn(ambiente::sweep_boot);
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
             std::thread::spawn(claude_statusline_boot_repair);
             Ok(())
@@ -9265,6 +9268,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_repo,
             device::device_cli,
+            ambiente::env_detect,
+            ambiente::env_up,
+            ambiente::env_down,
+            ambiente::env_status,
             device::device_mirror_start,
             device::device_mirror_stop,
             plan_usage::plan_usage,
@@ -9482,6 +9489,7 @@ pub fn run() {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
                 navegador::kill_all(); // proxies da Prévia (spec-navegador-design)
+                ambiente::kill_all(); // "Subir ambiente": supervisor + site de cada demanda (spec-canvas-workspace)
                 mesa::mesa_kill_all(); // personas da mesa rodam em grupo destacado: não sobrevivem ao app
                 let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
             }

@@ -1,0 +1,38 @@
+/* Workspace como CANVAS (spec-canvas-workspace) — 58-ambiente.js (Subir ambiente) e 58-canvas.js (colunas/abas) */
+
+/* ---------- Subir ambiente (F1): o lugar da tela branca ---------- */
+.nvmsg .envcard{margin:auto}
+.nvmsg:has(.envcard){display:flex;align-items:center;justify-content:center;overflow:auto;padding:20px}
+.envcard{width:min(520px,100%);display:flex;flex-direction:column;gap:12px;color:var(--text);font-size:13px;line-height:1.5}
+.envh{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+.envsub{margin:0;color:var(--muted)}
+.envbig{display:flex;align-items:center;gap:16px;width:100%;text-align:left;padding:20px 22px;border-radius:14px;border:1px solid var(--accent-line);background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--text);font:inherit;cursor:pointer;transition:background .15s,border-color .15s}
+.envbig:hover{background:color-mix(in srgb,var(--accent) 16%,var(--surface));border-color:var(--accent)}
+.envbig b{display:block;font-size:17px}
+.envbigic{flex:none;width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:16px;padding-left:3px}
+.envbigsub{display:block;color:var(--muted);font-size:12.5px;margin-top:3px}
+.envalt{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px}
+.envsteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.envst{display:flex;align-items:center;gap:10px;color:var(--muted)}
+.envst.done{color:var(--text)}
+.envst.cur{color:var(--text);font-weight:600}
+.envst.fail{color:var(--crit)}
+.envmk{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;border:1px solid var(--border)}
+.envst.done .envmk{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
+.envst.cur .envmk{border-color:var(--accent)}
+.envst.fail .envmk{border-color:var(--crit);color:var(--crit);font-weight:700}
+.envacts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.envfail .envh{color:var(--crit)}
+.envdet{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);overflow:hidden}
+.envdeth{padding:6px 10px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border)}
+.envdeth code{font-family:var(--mono);font-size:11px;color:var(--text)}
+.envlog{margin:0;padding:8px 10px;max-height:240px;overflow:auto;font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.envnone .envsub b{color:var(--text)}
+.envstriphost:empty{display:none}
+.envstrip{display:flex;align-items:center;gap:10px;padding:4px 10px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface)}
+.envstrip .lnk{font-size:11.5px}
+.envdot{width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.envstrip.on .envdot{background:var(--good)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.apppane{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+.apppane .nvhost{display:flex;flex-direction:column;flex:1;min-height:0}

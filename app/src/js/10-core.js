@@ -448,6 +448,7 @@ async function refresh(){
   const prevGraph = state.graph, prevCfg = state.config, prevRepo = state.repo;
   state = snap;
   if(typeof nvSweep==='function') try{ nvSweep(snap); }catch(e){ tickErr('nvSweep', e); } // Prévia: tarefa acabou → proxy dela morre (57-navegador)
+  if(typeof envSweep==='function') try{ envSweep(snap); }catch(e){ tickErr('envSweep', e); } // "Subir ambiente": tarefa acabou → o site dela para (58-ambiente)
   if(typeof memLearnTick==='function') memLearnTick(snap); // selo dos aprendizados pra revisar (só lê a fila quando muda)
   // R5-5: o snapshot não traz o catálogo (config) — antes cada refresh o apagava e as cores dos agentes caíam no hash
   if(prevCfg && !state.config && prevRepo===snap.repo) state.config = prevCfg;
