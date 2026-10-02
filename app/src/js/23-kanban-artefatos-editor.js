@@ -96,17 +96,30 @@ function pendingOf(taskId){ return (state.pending||[]).filter(p=>p.taskId===task
 
 // ---------- artefatos da tarefa ----------
 const artifactsCache = {}; // taskId -> { status, list }
+// Leitura EM VOO é reaproveitada: o quadro re-renderiza a cada ~1s e, com muitas provas (app mobile com
+// 80+ prints/vídeos), cada render disparava outro list/read antes do anterior voltar → centenas de chamadas
+// empilhadas travavam o app inteiro (até a aba Conta ficava "buscando a conta…"). Uma chamada por vez.
+const artInflight = {}; // taskId|status -> Promise
 async function loadArtifacts(taskId, status){
   const c = artifactsCache[taskId];
   if(c && c.status===status) return c.list;
-  reqProofCache[taskId]=undefined; // status mudou → reavalia as provas
-  try{ artifactsCache[taskId] = { status, list: await invoke("list_artifacts",{ taskId }) }; }
-  catch(e){ artifactsCache[taskId] = { status, list: [] }; }
-  return artifactsCache[taskId].list;
+  const k=taskId+'|'+status;
+  if(artInflight[k]) return artInflight[k];
+  return (artInflight[k] = (async()=>{
+    reqProofCache[taskId]=undefined; // status mudou → reavalia as provas
+    try{ artifactsCache[taskId] = { status, list: await invoke("list_artifacts",{ taskId }) }; }
+    catch(e){ artifactsCache[taskId] = { status, list: [] }; }
+    return artifactsCache[taskId].list;
+  })().finally(()=>{ delete artInflight[k]; }));
 }
 // ---------- provas por requisito (requirements.json gerado pelo agente) ----------
 const reqProofCache={}; // taskId -> {list:[...]|null}
-async function loadReqProofs(taskId){
+const reqInflight={}; // taskId -> Promise (mesma razão do artInflight)
+function loadReqProofs(taskId){
+  if(reqInflight[taskId]) return reqInflight[taskId];
+  return (reqInflight[taskId]=loadReqProofs1(taskId).finally(()=>{ delete reqInflight[taskId]; }));
+}
+async function loadReqProofs1(taskId){
   try{ const c=await invokeQuiet('read_artifact',{ taskId, name:'requirements.json' }); /* opcional: tarefa sem requisitos não tem o arquivo (não é erro) */ const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
   catch(_){ reqProofCache[taskId]={list:null}; }
 }
