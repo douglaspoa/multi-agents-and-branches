@@ -14,7 +14,7 @@ import { isDshLabel } from "./engine/dsh.ts";
  */
 export const USAGE_SOURCES = [
   "tarefa", "nova-tarefa", "personas", "chat-projeto", "chat-issues", "orquestrador", "retro", "previsao",
-  "titulo-branch", "commit-pr", "relatorios", "teste", "outros",
+  "titulo-branch", "commit-pr", "relatorios", "teste", "autopilot", "outros",
 ] as const;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 
@@ -217,12 +217,13 @@ export function recordUsageIn(file: string, e: UsageEntry): { usd: number; estim
 
 /** Grava no livro do usuário — MELHOR-ESFORÇO, nunca lança (banco ocupado além de 200 ms = linha descartada).
  * Nos testes (`node --test`) só grava com CARDUME_USAGE_DB. */
-export function recordUsage(e: UsageEntry): void {
-  if (process.env.NODE_TEST_CONTEXT && !String(process.env.CARDUME_USAGE_DB ?? "").trim()) return;
+export function recordUsage(e: UsageEntry): { usd: number; estimated: boolean } | null {
+  if (process.env.NODE_TEST_CONTEXT && !String(process.env.CARDUME_USAGE_DB ?? "").trim()) return null;
   try {
-    recordUsageIn(usageDbPath(), e);
+    return recordUsageIn(usageDbPath(), e);
   } catch (err) {
     try { process.stderr.write(`[starfork] livro de uso: linha descartada (${(err as Error).message})\n`); } catch { /* sem stderr */ }
+    return null;
   }
 }
 

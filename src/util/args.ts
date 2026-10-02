@@ -21,11 +21,13 @@ export const TEXT_FLAGS = new Set([
   "patch", "undo", "edit-id", "reject", "by-role",
   // claude-statusline install (src/claude-statusline.ts)
   "node",
+  // piloto automático (src/autopilot.ts)
+  "idea", "dir", "name", "platform", "parallel", "attempts", "budget-usd", "plan",
 ]);
 
 /** Flags SEM valor (booleanas). */
 export const BOOL_FLAGS = new Set([
-  "json", "no-wait", "no-git", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check",
+  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check",
 ]);
 
 const isKnownFlag = (tok: string) => tok.startsWith("--") && (TEXT_FLAGS.has(tok.slice(2)) || BOOL_FLAGS.has(tok.slice(2)) || tok === "--artifact-doc");

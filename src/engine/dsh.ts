@@ -302,6 +302,9 @@ export function starforkMcp(input: RunInput): DshMcp {
       CARDUME_ROLE: String(input.role ?? ""),
       CARDUME_AGENT: input.agentName,
       CARDUME_ASK_TIMEOUT_MIN: String(input.askTimeoutMin ?? 0),
+      // piloto automático: o ask_human responde sozinho (sem humano) — igual ao Claude (engine/claude.ts). Sem
+      // isto o DeepSeek ficava esperando um humano que não existe (CARDUME_ASK_TIMEOUT_MIN=0 = pra sempre).
+      ...(process.env.CARDUME_AUTOPILOT === "1" ? { CARDUME_AUTOPILOT: "1" } : {}),
     },
     cwd: input.cwd,
   };

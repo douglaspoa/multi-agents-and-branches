@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
 mod ai_once;
+mod autopilot;
 mod epic_context;
 mod learn;
 mod media_proto;
@@ -998,11 +999,11 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 }
 
 /// O pedaço do spec que o front lê em `t.spec` no snapshot (None quando não há nada):
-/// teto de custo (budgetUsd, budgetHit), o RESUMO das edições de agente (agentEdits: quem/quando/campos —
+/// teto de custo (budgetUsd, budgetHit; `autopilot` = tarefa do piloto automático, que o app não pausa), o RESUMO das edições de agente (agentEdits: quem/quando/campos —
 /// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    for k in ["budgetUsd", "budgetHit"] {
+    for k in ["budgetUsd", "budgetHit", "autopilot"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     if let Some(e) = agent_edits::compact_edits(spec) { m.insert("agentEdits".into(), e); }
@@ -9312,6 +9313,11 @@ pub fn run() {
             create_project,
             quick_project_target,
             quick_create_project,
+            autopilot::autopilot_start,
+            autopilot::autopilot_status,
+            autopilot::autopilot_stop,
+            autopilot::autopilot_resume,
+            autopilot::autopilot_open_report,
             reveal_project,
             ai_orchestrate,
             ai_orchestrate_chat,

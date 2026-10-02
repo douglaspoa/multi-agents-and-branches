@@ -30,8 +30,10 @@ const ND_METHODS=[
   { k:'chat', tab:'planner', name:'Conversar', tip:'a IA pergunta só o essencial e monta a demanda' },
   { k:'form', tab:'form', name:'Formulário', tip:'formulário com todos os campos, sem conversa' },
   { k:'orq', tab:'orq', name:'Dividir', tip:'um agente coordenador divide o problema em etapas e abre uma tarefa por etapa' },
+  // app do zero, sem ninguém conduzir: cria o projeto local e constrói sozinho (56-piloto, src/autopilot.ts)
+  { k:'auto', tab:'piloto', name:'Piloto automático', tip:'app do zero: dê a ideia e o Starfork cria o projeto e constrói sozinho, sem perguntar' },
 ];
-// cur: 'chat'|'form'|'orq' · ids: { chat:'idDoBotão' } quando a tela já tem um handler próprio pra aquele botão
+// cur: 'chat'|'form'|'orq'|'auto' · ids: { chat:'idDoBotão' } quando a tela já tem um handler próprio pra aquele botão
 function ndMethodSeg(cur, ids){
   ids=ids||{};
   return `<div class="orq-seg ndseg ndseg-sm" role="tablist" aria-label="como montar a demanda">${ND_METHODS.map(m=>`<button type="button" role="tab" class="${m.k===cur?'on':''}" aria-selected="${m.k===cur}"${ids[m.k]?` id="${ids[m.k]}"`:''} data-ndseg="${m.tab}" title="${escA(m.tip)}">${esc(m.name)}</button>`).join('')}</div>`;

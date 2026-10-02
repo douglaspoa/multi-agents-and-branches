@@ -150,6 +150,8 @@ export interface TaskSpec {
   budgetUsd?: number;
   /** A tarefa bateu no teto e espera a decisão do humano (continuar/parar). Limpo ao decidir. */
   budgetHit?: { usd: number; cap: number; at: number; mode: "paused" | "stopped" } | null;
+  /** Tarefa do PILOTO AUTOMÁTICO (src/autopilot.ts): ninguém responde — o app não pausa no teto (o piloto decide). */
+  autopilot?: boolean;
   // ---- Tarefa SOB ÉPICO. Todos opcionais: tarefa criada fora do planner não tem nenhum. ----
   /** id do épico na nuvem (epics.id). */
   epicId?: string;
