@@ -14,6 +14,15 @@ const NV_VP={ desktop:{ w:0, label:'computador' }, tablet:{ w:768, label:'tablet
 const NV_MAX_PICKS=8;
 const NV_BLOCK='ELEMENTOS DA PÁGINA';
 // texto da barra → URL completa (mesmas regras do proxy: só http/https; sem esquema, local = http e o resto https)
+// Site de FORA (youtube.com, docs…) não abre na Prévia: ela passa por proxy + iframe e esses sites bloqueiam
+// (tela branca). Vai pra uma aba de Navegador de verdade (webview nativa), dividindo a tela ao lado da tarefa.
+function nvIsLocalUrl(u){ try{ const h=new URL(u).hostname; return /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|::1)$/i.test(h) || /\.(localhost|local|test)$/i.test(h); }catch(_){ return false; } }
+function nvExternalToCanvas(u){
+  if(nvIsLocalUrl(u) || typeof cvOpenTop!=='function') return false;
+  cvOpenTop({ kind:'web', url:u }, { split:'right' });
+  toast('site de fora abre no Navegador, ao lado da tarefa (a Prévia é pro app da tarefa)','info');
+  return true;
+}
 function nvNormUrl(raw){
   let s=String(raw||'').trim(); if(!s) return null;
   const local=/^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[\w-]+\.(localhost|local|test))(:\d+)?(\/|$)/i;
@@ -84,7 +93,7 @@ function nvTabHtml(st){
       <button type="button" class="btn sm nvic" data-nv="back" title="voltar" aria-label="voltar">‹</button>
       <button type="button" class="btn sm nvic" data-nv="fwd" title="avançar" aria-label="avançar">›</button>
       <button type="button" class="btn sm nvic" data-nv="reload" title="recarregar" aria-label="recarregar">${IC.refresh}</button>
-      <form class="nvaddr" data-nv="form" autocomplete="off"><input class="in mono" data-nv="addr" spellcheck="false" aria-label="endereço" placeholder="endereço — ex.: localhost:5173 ou https://site.com" value="${escA(st.addr||'')}"></form>
+      <form class="nvaddr" data-nv="form" autocomplete="off"><input class="in mono" data-nv="addr" spellcheck="false" aria-label="endereço" placeholder="app da tarefa — ex.: localhost:5173 · site de fora abre ao lado" value="${escA(st.addr||'')}"></form>
       <span class="nvvp" role="group" aria-label="tamanho da tela">${vpBtns}</span>
       <button type="button" class="btn sm nvpick${st.picking?' on':''}" data-nv="pick" aria-pressed="${st.picking?'true':'false'}" title="modo design: passe o mouse e clique nos elementos da página pra mandar pro agente (Esc sai)">⌖ mira</button>
       <button type="button" class="btn sm nvic" data-nv="shot" title="tirar print da prévia — salva nos artefatos da tarefa (vale como prova)" aria-label="tirar print">${IC.camera}</button>
@@ -145,7 +154,7 @@ function nvEmptyHtml(){ return '<div class="nvempty"><b>Nenhum site aberto</b><s
 function nvWire(taskId){
   const st=nvSt(taskId), root=st.root; if(!root) return;
   const on=(name, fn)=>{ const b=nvQ(st, name); if(b) b.onclick=fn; };
-  const f=nvQ(st, 'form'); if(f) f.onsubmit=(e)=>{ e.preventDefault(); const v=nvQ(st, 'addr').value; const u=nvNormUrl(v); if(!u){ toast('só endereços http(s) abrem na prévia — ex.: localhost:5173','warn'); return; } nvGo(taskId, u); };
+  const f=nvQ(st, 'form'); if(f) f.onsubmit=(e)=>{ e.preventDefault(); const v=nvQ(st, 'addr').value; const u=nvNormUrl(v); if(!u){ toast('só endereços http(s) abrem na prévia — ex.: localhost:5173','warn'); return; } if(nvExternalToCanvas(u)) return; nvGo(taskId, u); };
   on('back', ()=>nvPost(st, { cmd:'back' }));
   on('fwd', ()=>nvPost(st, { cmd:'forward' }));
   on('reload', ()=>{ if(st.frame) nvPost(st, { cmd:'reload' }); else if(st.addr) nvGo(taskId, st.addr, true); });
