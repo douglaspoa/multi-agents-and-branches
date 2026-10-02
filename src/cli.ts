@@ -15,6 +15,7 @@ import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
 import { mobileCli } from "./mobile.ts";
+import { browserProxyCli } from "./browser-proxy.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
@@ -960,6 +961,9 @@ async function main() {
       break;
     case "mobile":
       process.exitCode = await mobileCli(a);
+      break;
+    case "browser-proxy":
+      process.exitCode = await browserProxyCli(a);
       break;
     case "autopilot":
       await cmdAutopilot(a);

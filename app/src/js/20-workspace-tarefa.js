@@ -575,7 +575,7 @@ function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
-  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
+  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
   { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=async()=>{ const nm=b.dataset.fwmode; if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }); } }
   { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
@@ -697,6 +697,7 @@ function renderWorkspace(){
   if(keepEditor){ /* editor aberto: fica como está (texto, cursor, rolagem) */ }
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
+  else if(fwMode==='previa'){ fwRenderPrevia(t, main); } // 57-navegador: só repinta o que mudou (o iframe não é recriado pelo tick)
   else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
   else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:12px">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
   else {
@@ -728,7 +729,7 @@ function renderWorkspace(){
       ${bar}`;
   }
   if(!keepEditor){ main.dataset.mk=mk; fwPutScroll(main, mainMem); }
-  if(keepEditor||fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'){ /* wiring próprio nas funções de página (ou editor intacto) */ }
+  if(keepEditor||fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'||fwMode==='previa'){ /* wiring próprio nas funções de página (ou editor intacto) */ }
   else if(fwEditing){
     const ta=$id('fwText'), gut=$id('fwGutter');
     if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); try{ ta.setSelectionRange(0,0); }catch(_){ } ta.focus({preventScroll:true}); requestAnimationFrame(()=>{ ta.scrollTop=0; ta.scrollLeft=0; gut.scrollTop=0; }); } // abre no TOPO: o caret ia pro fim e o focus rolava o texto todo
@@ -919,7 +920,8 @@ function fwRenderPrPage(t, main){
   main.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id,b.dataset.prign); renderWorkspace(); });
 }
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
-function chatMd(t){ try{ const sp=attSplit(t); return mdToHtml(sp.text)+attRowHtml(sp.atts); }catch(_){ return esc(String(t||'')); } }
+// bloco [ELEMENTOS DA PÁGINA] (modo design da Prévia, 57-navegador) vira um resumo curto — o agente recebe o bloco inteiro
+function chatMd(t){ try{ const sp=attSplit(t); const nv=(typeof nvSplit==='function')?nvSplit(sp.text):{ text:sp.text, sels:[] }; return mdToHtml(nv.text)+(nv.sels.length?nvSummaryHtml(nv.sels):'')+attRowHtml(sp.atts); }catch(_){ return esc(String(t||'')); } }
 const mdMemo=new Map(); // evId:len → html (evita re-parsear a thread toda a cada tick)
 function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(k); if(v===undefined){ v=chatMd(t); if(mdMemo.size>800) mdMemo.clear(); mdMemo.set(k,v); } return v; }
 // notas "de sistema" (não são fala do agente) viram linha discreta central
@@ -1303,6 +1305,8 @@ document.addEventListener('keydown', async e=>{ if(e.key==='Escape' && fwVisible
   if(fwEditing){ e.preventDefault(); if(await fwLeaveEditor()) renderWorkspace(); return; }
   if(escBusy(e)) return; // digitando no chat ou com modal por cima: o Esc não fecha a aba da tarefa
   if(fwHasDraft()) return;
+  // Prévia: Esc desliga a mira; com seleções pendentes não fecha a aba (perderia os prints escolhidos)
+  if(fwMode==='previa' && typeof nvEscape==='function' && nvEscape(fwTask)) return;
   closeWorkspace(); } });
 // ⌘B / Ctrl+B com a tarefa na tela: recolhe/mostra a árvore de arquivos (captura: não deixa o atalho
 // global de recolher a barra lateral agir junto)

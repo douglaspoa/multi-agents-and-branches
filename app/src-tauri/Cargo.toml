@@ -31,6 +31,9 @@ objc2 = { version = "0.6", features = ["exception"] }
 block2 = "0.6"
 objc2-foundation = "0.3"
 objc2-user-notifications = "0.3"
+# Prévia (navegador.rs): print nativo do WKWebView — as duas já vêm na árvore pelo wry (mesma versão no Cargo.lock)
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep"] }
 
 [profile.dev]
 incremental = true
