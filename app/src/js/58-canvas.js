@@ -104,14 +104,14 @@ function cvTabsHtml(l, ci){
   const c=l.cols[ci];
   return c.tabs.map(tab=>{ const on=tab.id===c.active, other=tab.taskId&&tab.taskId!==fwTask;
     const lab=cvTabLabel(tab);
-    return `<div class="cvtab${on?' on':''}${other?' other':''}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" draggable="true" data-cvtab="${tab.id}" title="${escA(lab+' — arraste pra outra coluna ou pra borda pra dividir')}">${other?`<span class="cvtdot" style="background:${cvTaskColor(tab.taskId)}"></span>`:`<span class="cvtic" aria-hidden="true">${esc(CV_ICON[tab.type]||'')}</span>`}<span class="cvtl">${esc(String(lab).slice(0,40))}</span><button type="button" class="cvtx" data-cvclose="${tab.id}" aria-label="${escA('fechar '+lab)}" title="fechar">×</button></div>`; }).join('');
+    return `<div class="cvtab${on?' on':''}${other?' other':''}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" draggable="true" data-cvtab="${tab.id}" title="${escA(lab+' — arraste pra outra coluna ou pra borda pra dividir')}">${other?`<span class="cvtdot" style="background:${cvTaskColor(tab.taskId, fwTask)}"></span>`:`<span class="cvtic" aria-hidden="true">${esc(CV_ICON[tab.type]||'')}</span>`}<span class="cvtl">${esc(String(lab).slice(0,40))}</span><button type="button" class="cvtx" data-cvclose="${tab.id}" aria-label="${escA('fechar '+lab)}" title="fechar">×</button></div>`; }).join('');
 }
 // cabeçalho do painel: nome + cor da demanda DONA dele (+ botões de prova, F4)
 function cvHeadHtml(tab){
   const tid=cvPaneTask(tab, fwTask), t=cvTask(tid);
   const isSite=tab.type==='site';
   const name=isSite?((cvSiteUrl(tab.url)||{}).host||'site'):(t?t.title:'demanda');
-  return `<span class="cvdot" style="background:${isSite?'var(--muted)':cvTaskColor(tid)}" aria-hidden="true"></span><span class="cvhn" title="${escA(isSite?'site externo (fora da demanda)':'demanda: '+name)}">${esc(name)}</span><span class="cvht">· ${esc(CV_TYPES[tab.type].label)}${isSite?' · fora da demanda':''}</span><span class="cvhsp"></span>${typeof cvProofBtnsHtml==='function'?cvProofBtnsHtml(tab):''}`;
+  return `<span class="cvdot" style="background:${isSite?'var(--muted)':cvTaskColor(tid, fwTask)}" aria-hidden="true"></span><span class="cvhn" title="${escA(isSite?'site externo (fora da demanda)':'demanda: '+name)}">${esc(name)}</span><span class="cvht">· ${esc(CV_TYPES[tab.type].label)}${isSite?' · fora da demanda':''}</span><span class="cvhsp"></span>${typeof cvProofBtnsHtml==='function'?cvProofBtnsHtml(tab):''}`;
 }
 function cvColStyle(l, ci, n){
   const w=Array.isArray(l.w)?l.w[ci]:null;
@@ -296,7 +296,7 @@ function cvOpenMenu(anchor, col, quick){
   const pick=(x)=>{
     if(x.disabled){ if(x.why) toast(x.why,'info'); return; }
     if(x.type==='documento') return cvSubMenu(m, cvDocChoices(cvTask(fwTask)).map(c=>({ label:c.label, hint:c.hint, go:()=>cvOpenType('documento', col, { ref:c.ref }) })).concat([{ label:'escolher depois', hint:'abre o painel com os documentos pra escolher', go:()=>cvOpenType('documento', col) }]), 'Documento');
-    if(x.type==='demanda') return cvSubMenu(m, x.others.map(o=>({ label:o.title, hint:'lado a lado, pra comparar ou acompanhar', dot:cvTaskColor(o.id), go:()=>cvOpenType('demanda', cvLayout().cols.length<CV_MAX_COLS?'new':col, { taskId:o.id }) })), 'Outra demanda');
+    if(x.type==='demanda') return cvSubMenu(m, x.others.map(o=>({ label:o.title, hint:'lado a lado, pra comparar ou acompanhar', dot:cvTaskColor(o.id, fwTask), go:()=>cvOpenType('demanda', cvLayout().cols.length<CV_MAX_COLS?'new':col, { taskId:o.id }) })), 'Outra demanda');
     if(x.type==='site') return cvSiteAsk(m, col);
     cvCloseMenu(); cvOpenType(x.type, col);
   };
@@ -431,3 +431,61 @@ function cvOnEnvPlan(taskId){ if(taskId===fwTask && typeof fwVisible==='function
 // barra do topo: presets e "voltar ao normal" (no lugar dos modos exclusivos)
 function cvToolbarHtml(){ return `<span class="cvtool" role="group" aria-label="arrumar os painéis"><button type="button" class="fwmode" data-cvtool="construir" title="Meu app + Conversa">Construir</button><button type="button" class="fwmode" data-cvtool="revisar" title="Mudanças + Conversa">Revisar</button><button type="button" class="fwmode" data-cvtool="normal" title="volta os painéis desta demanda pro padrão">voltar ao normal</button></span>`; }
 function cvWireToolbar(el){ el.querySelectorAll('[data-cvtool]').forEach(b=>b.onclick=()=>{ const k=b.dataset.cvtool; if(k==='normal') cvReset(); else cvApplyPreset(k); }); }
+
+// ===== F3 — OUTRA DEMANDA lado a lado (comparar / acompanhar) =====
+// Um painel de OUTRA demanda mostra o que importa pra comparar: requisitos ✓/✗ com as provas (prints), o que o agente
+// disse por último e um campo que manda mensagem PRA ELA (nome + cor no campo: ninguém fala com o agente errado).
+// Tudo por taskId explícito — nada aqui lê fwTask pra decidir de quem é o conteúdo. Teto: CV_MAX_TASKS (2 na v1).
+// miniatura de prova (mesma regra da Entrega): sfart:// no app; fora dele lê uma vez e repinta ESTE painel
+function cvThumb(taskId, name){
+  if(typeof artFileUrlOk==='function' && artFileUrlOk()) return artMediaUrl(taskId, name);
+  const k=taskId+'|'+name; if(artThumbCache[k]!==undefined) return artThumbCache[k];
+  artThumbCache[k]=null;
+  invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; cvRepaintTask(taskId); }).catch(()=>{});
+  return null;
+}
+function cvRepaintTask(taskId){ const l=cvLayout(); if(!l) return; cvVisible(l).filter(x=>x.taskId===taskId && (x.type==='demanda')).forEach(tab=>{ const el=CV.panes[tab.id]; if(el && el.isConnected) cvDemandaRender(tab, el, cvTask(taskId)); }); if(taskId===fwTask && typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(taskId); }
+// linhas de requisito com o status e as provas (puro sobre o que já está no cache)
+function cvReqRowsHtml(t, max){
+  const rows=(typeof reqRows==='function')?reqRows(t):[];
+  if(!rows.length) return '<div class="dim cvdemnone">sem requisitos nesta demanda</div>';
+  return rows.slice(0, max||20).map((r,i)=>{
+    const imgs=r.evidence.filter(e=>/\.(png|jpe?g|gif|webp)$/i.test(String(e))).slice(0,3).map(e=>{ const n=String(e).replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,''); const u=cvThumb(t.id, n); return u?`<img class="cvth" src="${escA(u)}" alt="${escA('prova: '+n)}" loading="lazy" data-cvlb="${escA(n)}">`:`<span class="cvth ph" title="${escA(n)}">print</span>`; }).join('');
+    const mk=r.st==='ok'?'<span class="reqst ok">✓</span>':r.st==='blk'?'<span class="reqst blk">✗</span>':'<span class="reqst na">·</span>';
+    return `<div class="cvreq ${r.st}">${mk}<div class="cvreqt"><div><span class="cvreqn">${i+1}</span> ${esc(r.text)}</div>${imgs?`<div class="cvths">${imgs}</div>`:''}${r.st==='blk'&&r.note?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`; }).join('');
+}
+function cvDemSig(t){ const rp=(typeof reqProofCache!=='undefined')?reqProofCache[t.id]:null; const evs=(typeof eventsOf==='function')?eventsOf(t.id):[]; return [t.id,t.status,t.busy?1:0,t.title,evs.length,evs.length?evs[evs.length-1].id:0,(rp&&Array.isArray(rp.list))?rp.list.map(x=>x.status).join(','):'-',(typeof pendingOf==='function')?pendingOf(t.id).length:0].join('|'); }
+function cvDemandaRender(tab, el, t){
+  if(!t) return cvPaint(el, '<div class="cvempty"><b>Esta demanda não existe mais</b><span>Feche esta aba (×) ou escolha outra pelo +.</span></div>');
+  if(typeof reqProofCache!=='undefined' && reqProofCache[t.id]===undefined && typeof loadReqProofs==='function') loadReqProofs(t.id).then(()=>cvRepaintTask(t.id));
+  if(!el.querySelector('.cvdembody') || el.dataset.dem!==t.id){
+    el.dataset.dem=t.id; el.__sig='';
+    const col=cvTaskColor(t.id, fwTask);
+    el.innerHTML=`<div class="cvdem" style="--tc:${col}"><div class="cvdembody"></div>
+      <form class="cvdemsend" aria-label="${escA('mensagem pra demanda '+t.title)}"><div class="cvdemto"><span class="cvdot" style="background:${col}"></span>mensagem pra <b>${esc(t.title)}</b></div><div class="cvdemrow"><textarea class="in" rows="2" placeholder="peça um ajuste pro agente DESTA demanda…"></textarea><button class="btn primary sm">enviar</button></div></form></div>`;
+    const f=el.querySelector('form'), ta=f.querySelector('textarea');
+    f.onsubmit=async(e)=>{ e.preventDefault(); const v=ta.value.trim(); if(!v) return; const b=f.querySelector('button'); b.disabled=true; const ok=await fwSendText(t.id, v); b.disabled=false; if(ok){ ta.value=''; toast('enviado pra "'+t.title+'"','ok'); } };
+    ta.onkeydown=(e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); f.requestSubmit(); } };
+    el.addEventListener('click', (e)=>{ const b=e.target.closest('[data-cvdem]'); if(b){ const k=b.dataset.cvdem; if(k==='app') cvOpenType('app', +((el.closest('.cvcol')||{}).dataset||{}).col||undefined, { taskId:t.id }); else if(k==='open') openWorkspace(t.id); return; }
+      const im=e.target.closest('[data-cvlb]'); if(im && typeof lbOpen==='function'){ const names=[...el.querySelectorAll('[data-cvlb]')].map(x=>x.dataset.cvlb); lbOpen(t.id, names, names.indexOf(im.dataset.cvlb)); } });
+  }
+  const sig=cvDemSig(t)+'|'+Object.values(artThumbCache).filter(Boolean).length; // miniatura que chegou repinta
+  if(el.__sig===sig) return; el.__sig=sig;
+  const rows=(typeof reqRows==='function')?reqRows(t):[]; const ok=rows.filter(r=>r.st==='ok').length;
+  const evs=((typeof eventsOf==='function')?eventsOf(t.id):[]).filter(e=>(typeof evIsUserMsg==='function'&&evIsUserMsg(e)) || ((e.type==='think'||e.type==='done') && String(e.text||'').trim())).slice(-4);
+  const msgs=evs.map(e=>{ const you=(typeof evIsUserMsg==='function')&&evIsUserMsg(e); const tx=you&&typeof evUserText==='function'?evUserText(e.text):String(e.text||''); return `<div class="cvdemmsg${you?' you':''}"><b>${esc(you?'você':(e.agent||'agente'))}</b> ${(typeof chatMdEv==='function')?chatMdEv(e.id, tx.slice(0,600)):esc(tx.slice(0,600))}</div>`; }).join('');
+  const ask=(typeof pendingOf==='function')?pendingOf(t.id):[];
+  const st=(typeof stBadge==='function'&&typeof taskSt==='function')?stBadge(taskSt(t)):esc(t.status);
+  const html=`<div class="cvdemh"><span class="cvdemst">${st}</span>${ask.length?'<span class="cvdemask">aguardando você</span>':''}<span style="flex:1"></span><button type="button" class="btn sm ghost" data-cvdem="app" title="abre o app desta demanda numa aba (conta no limite de 2 páginas vivas)">ver o app dela</button><button type="button" class="btn sm" data-cvdem="open">abrir a demanda</button></div>
+    ${t.objective?`<p class="cvdemobj">${esc(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].trim().slice(0,240))}</p>`:''}
+    <div class="seclbl2">Requisitos <span class="dim">${rows.length?ok+'/'+rows.length+' com prova':''}</span></div>${cvReqRowsHtml(t)}
+    <div class="seclbl2" style="margin-top:12px">O que o agente disse por último</div>${msgs||'<div class="dim cvdemnone">nada ainda</div>'}`;
+  const body=el.querySelector('.cvdembody'); if(body.__html!==html){ body.__html=html; body.innerHTML=html; }
+}
+// tique do refresh que JÁ existe (fwLiveUpdate, só com a demanda na tela): repinta painéis de outra demanda que
+// mudaram (assinatura) — nada de timer próprio
+function cvLiveTick(){
+  const l=cvLayout(); if(!l) return;
+  for(const tab of cvVisible(l)){ if(tab.type!=='demanda') continue; const el=CV.panes[tab.id]; const t=cvTask(tab.taskId); if(el && el.isConnected && t) cvDemandaRender(tab, el, t); }
+  if(typeof cvReqOverlayTick==='function') cvReqOverlayTick();
+}

@@ -344,6 +344,7 @@ let fwPrimShown=''; // id da ação principal que o topo está mostrando
 let fwPvShown=null; // preview (ícone de globo) que o cabeçalho da tarefa está mostrando
 async function fwLiveUpdate(){
   const t=fwTaskObj(); if(!t) return;
+  if(typeof cvLiveTick==='function') try{ cvLiveTick(); }catch(e){ console.error('cvLiveTick', e); } // painéis de outra demanda / provas (com assinatura)
   fwAskPrune(); // pergunta que saiu do pending solta a trava (o próximo teto da mesma tarefa nasce destravado)
   if(!fwFetching){ fwFetching=true; try{ await fwFetchEvents(); }catch(_){ } fwFetching=false; }
   const evs0=fwEvents.length?fwEvents:eventsOf(t.id);

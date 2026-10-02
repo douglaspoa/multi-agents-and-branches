@@ -196,3 +196,13 @@ test('"+" com nomes humanos, pelo TIPO da demanda (sem "modo simples"); Log fora
   assert.deepEqual(F.cvTasksIn(l), ['H', 'B']);
   assert.equal(F.cvAddTab(l, F.cvMkTab('demanda', 'C'), 0), null, '3ª demanda barrada enquanto o teto for 2');
 });
+
+test('cor por demanda: estável; na tela da casa, a outra demanda NUNCA fica com cor parecida', () => {
+  assert.equal(F.cvTaskColor('t1'), F.cvTaskColor('t1'));
+  const hue = (c) => +c.match(/hsl\((\d+)/)[1];
+  const d = (a, b) => { const x = Math.abs(a - b); return Math.min(x, 360 - x); };
+  for (const [home, other] of [['t1', 't2'], ['t2', 't3'], ['a1b2', 'tcim4vb'], ['H', 'B']]) {
+    assert.ok(d(hue(F.cvTaskColor(home)), hue(F.cvTaskColor(other, home))) >= 50, home + ' x ' + other);
+    assert.equal(F.cvTaskColor(home, home), F.cvTaskColor(home), 'a casa mantém a dela');
+  }
+});

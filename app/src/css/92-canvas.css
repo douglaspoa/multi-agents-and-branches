@@ -154,3 +154,26 @@ button.lnk{border:0;background:none;font:inherit;padding:0}
   .nvbar{gap:4px;padding:6px}
 }
 @container (max-width:420px){ .nvpick{padding-left:6px;padding-right:6px} .envbig{padding:14px} .envbigic{width:36px;height:36px} }
+/* ---------- F3: outra demanda lado a lado ---------- */
+.cvdem{display:flex;flex-direction:column;flex:1;min-height:0;border-top:3px solid var(--tc)}
+.cvdembody{flex:1;min-height:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.cvdemh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cvdemask{font-size:11px;color:var(--st-ask,var(--warn));font-weight:600}
+.cvdemobj{margin:2px 0 6px;color:var(--muted);font-size:12.5px;line-height:1.5}
+.cvdemnone{font-size:12px;padding:2px 0}
+.cvreq{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.cvreq .reqst{flex:none;margin-top:1px}
+.cvreqt{flex:1;min-width:0}
+.cvreqn{display:inline-grid;place-items:center;min-width:16px;height:16px;border-radius:4px;background:var(--surface-3);font-size:10px;color:var(--muted);margin-right:2px}
+.cvths{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.cvth{width:84px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:zoom-in;background:var(--surface-3)}
+.cvth.ph{display:grid;place-items:center;font-size:10px;color:var(--muted);cursor:default}
+.cvdemmsg{font-size:12.5px;line-height:1.5;padding:6px 8px;border-radius:8px;background:var(--surface-2);overflow:hidden}
+.cvdemmsg.you{background:color-mix(in srgb,var(--accent) 10%,var(--surface-2))}
+.cvdemmsg>b{font-size:11px;color:var(--muted);margin-right:4px}
+.cvdemmsg p{margin:0}
+.cvdemsend{flex:none;border-top:1px solid var(--border);padding:8px 10px;display:flex;flex-direction:column;gap:6px;background:var(--surface-2)}
+.cvdemto{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.cvdemto b{color:var(--text)}
+.cvdemrow{display:flex;gap:6px;align-items:flex-end}
+.cvdemrow .in{flex:1;min-width:0;resize:vertical;font-size:12.5px}

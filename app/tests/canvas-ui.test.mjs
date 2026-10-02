@@ -157,3 +157,21 @@ test('documento: visualizadores da Entrega reaproveitados; sem arquivo escolhido
   const ad = cut(canvas, 'function cvAdapt', 'function cvRenderPane');
   assert.match(ad, /!\(n\.opened\|\|\[\]\)\.includes\('fim'\)/); assert.match(ad, /m\.opened=\[\.\.\.\(n\.opened\|\|\[\]\), 'fim'\]/);
 });
+
+// ---------------- F3: outra demanda lado a lado ----------------
+test('outra demanda: painel com nome+cor DELA, requisitos ✓/✗ com provas, e o campo manda mensagem PRA ELA', () => {
+  const dem = cut(canvas, 'function cvDemandaRender', 'function cvLiveTick');
+  assert.match(dem, /mensagem pra <b>\$\{esc\(t\.title\)\}<\/b>/, 'o campo diz pra quem vai');
+  assert.match(dem, /await fwSendText\(t\.id, v\)/, 'envio pela demanda DO painel (taskId explícito)');
+  assert.ok(!/fwTask/.test(dem.replace(/cvTaskColor\(t\.id, fwTask\)/g, '')), 'o painel de outra demanda não lê a demanda global (só pra cor não ficar igual à da casa)');
+  assert.match(dem, /cvReqRowsHtml\(t\)/); assert.match(dem, /data-cvdem="app"/); assert.match(dem, /data-cvdem="open"/);
+  assert.match(dem, /if\(el\.__sig===sig\) return;/, 'repinta só quando muda (assinatura)');
+  const rows = cut(canvas, 'function cvReqRowsHtml', 'function cvDemSig');
+  assert.match(rows, /'<span class="reqst ok">✓<\/span>'/); assert.match(rows, /'<span class="reqst blk">✗<\/span>'/);
+  assert.match(rows, /cvThumb\(t\.id, n\)/, 'miniatura da prova da PRÓPRIA demanda');
+  // ao vivo pelo tique que já existe (sem timer novo)
+  assert.match(ws, /if\(typeof cvLiveTick==='function'\) try\{ cvLiveTick\(\); \}/);
+  // teto: 2 demandas na v1 (a 3ª só depois da medição)
+  assert.match(cvp, /const CV_MAX_TASKS=2;/);
+  assert.match(canvas, /no máximo \$\{CV_MAX_TASKS\} demandas lado a lado por enquanto/);
+});

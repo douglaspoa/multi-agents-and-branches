@@ -236,8 +236,10 @@ function cvReplaceTab(l, id, tab){
 const CV_MODE2TYPE={ conversa:'conversa', codigo:'codigo', revisao:'diff', entrega:'entrega', pr:'pr', previa:'app' };
 const CV_TYPE2MODE={ conversa:'conversa', codigo:'codigo', diff:'revisao', entrega:'entrega', pr:'pr', app:'previa' };
 // cor estável por demanda (nome+cor em cada painel: ninguém manda mensagem pra demanda errada)
-function cvTaskHue(id){ let h=0; const s=String(id||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h%360; }
-function cvTaskColor(id){ return 'hsl('+cvTaskHue(id)+' 72% 62%)'; }
+function cvTaskHue(id){ let h=2166136261; const s=String(id||''); for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } h^=h>>>15; h=Math.imul(h,0x2c1b3c6d); h^=h>>>12; h=Math.imul(h,0x297a2d39); h^=h>>>15; return Math.floor((((h>>>0)*0.6180339887)%1)*360); }
+// a cor de uma demanda NA TELA da casa: se ficar parecida com a da casa (< 50°), gira pro lado oposto do círculo —
+// duas demandas lado a lado nunca têm a mesma cor
+function cvTaskColor(id, homeId){ let h=cvTaskHue(id); if(homeId && id!==homeId){ const hh=cvTaskHue(homeId); const d=Math.abs(h-hh); if(Math.min(d, 360-d)<50) h=(hh+180)%360; } return 'hsl('+h+' 72% 62%)'; }
 // larguras salvas: FRAÇÃO da largura por coluna (null = automática); valores sãos, uma por coluna
 function cvWidths(w, n){ return Array.from({ length:n }, (_,i)=>{ const v=Array.isArray(w)?+w[i]:NaN; return (v>=0.08 && v<=0.92) ? Math.round(v*1000)/1000 : null; }); }
 // @canvas-puro-fim
