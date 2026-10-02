@@ -13,6 +13,9 @@ function appleStr(s: string): string {
 export function notify(title: string, body: string, subtitle?: string): void {
   if (process.platform !== "darwin") return;
   if (process.env.CARDUME_NOTIFY === "0") return;
+  // `node --test` (npm test) nunca notifica: os testes rodam orquestrações de mentira e
+  // cada uma virava notificação real no Mac de quem desenvolve.
+  if (process.env.NODE_TEST_CONTEXT) return;
   const sub = subtitle ? ` subtitle ${appleStr(subtitle)}` : "";
   const script = `display notification ${appleStr(body)} with title ${appleStr(title)}${sub} sound name "Ping"`;
   try {
