@@ -69,12 +69,31 @@ function attWireComposer(cfg){
 // normalizada por chatComposer() — então qualquer tela que chame chatComposer fica igual.
 const CHAT_HINT='Enter envia · ⇧Enter quebra linha · ⌘V ou arraste pra anexar';
 const CHAT_CLIP_SVG='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 3.5L5 8a2 2 0 0 0 2.8 2.8l4.7-4.7a3 3 0 0 0-4.2-4.2L3.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-// o: { input, attach, send, stop (ids) · placeholder · value · extras (HTML logo depois do clipe) · right (HTML antes do parar/enviar)
+// ---- pílula da IA/modelo no composer (igual ChatGPT/Claude): fica logo depois do clipe, embaixo da caixa ----
+// p: { id, label (ex.: aiRunLabel(eng, model) → "Codex · GPT-5"), title?, popup? ('menu' padrão | '' = não abre menu, leva a outra tela), onPick(anchor) }
+// Uma tela entra com cfg.modelPill no chatComposer (ou o.modelPill no chatComposerHtml); quem monta a própria
+// linha (chat da tarefa) usa chatModelPillHtml + chatModelPillWire. O clique NUNCA decide nada: só chama onPick.
+const CHAT_MODEL_TIP='trocar a IA/modelo — vale a partir da próxima mensagem';
+const CHAT_MODEL_CHEV='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.3 8 9.8l3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// aspas escapadas sem depender do escA (33-switcher): o planner monta o composer já na carga, antes dele existir
+const ccAttr=s=>esc(s).replace(/"/g,'&quot;');
+function chatModelPillHtml(p){
+  if(!p || !p.id) return '';
+  const tip=p.title||CHAT_MODEL_TIP, lbl=String(p.label||'');
+  return `<button type="button" class="cc-model" id="${ccAttr(p.id)}"${p.popup===''?'':` aria-haspopup="${ccAttr(p.popup||'menu')}" aria-expanded="false"`} aria-label="${ccAttr('IA: '+lbl+' — '+tip)}" title="${ccAttr(tip)}"${p.disabled?' disabled':''}><span class="cc-model-t">${esc(lbl)}</span>${CHAT_MODEL_CHEV}</button>`;
+}
+function chatModelPillWire(p){
+  const b=p&&$id(p.id); if(!b) return null;
+  b.onclick=(e)=>{ e.preventDefault(); if(b.disabled) return; p.onPick(b); };
+  return b;
+}
+// o: { input, attach, send, stop (ids) · placeholder · value · modelPill (pílula da IA, ver chatModelPillHtml)
+//      · extras (HTML logo depois do clipe/pílula) · right (HTML antes do parar/enviar)
 //      · sendHtml (rótulo do enviar) · rows · cls (classe extra no contêiner) · attachTitle · stopTitle · disabled }
 function chatComposerHtml(o){
   const dis=o.disabled?' disabled':'';
   return `<div class="cc${o.cls?' '+o.cls:''}"><textarea class="in cc-ta" id="${o.input}" rows="${o.rows||2}" placeholder="${escA(o.placeholder||'')}"${dis}>${esc(o.value||'')}</textarea>`+
-    `<div class="cc-row">${o.attach?`<button class="btn sm cc-clip" id="${o.attach}" title="${escA(o.attachTitle||'anexar print, PDF ou doc — ou cole (⌘V) / arraste')}"${dis}>${CHAT_CLIP_SVG}</button>`:''}${o.extras||''}<span class="cc-sp"></span>${o.right||''}`+
+    `<div class="cc-row">${o.attach?`<button class="btn sm cc-clip" id="${o.attach}" title="${escA(o.attachTitle||'anexar print, PDF ou doc — ou cole (⌘V) / arraste')}"${dis}>${CHAT_CLIP_SVG}</button>`:''}${chatModelPillHtml(o.modelPill)}${o.extras||''}<span class="cc-sp"></span>${o.right||''}`+
     `${o.stop?`<button class="btn sm trk-stop" id="${o.stop}" style="display:none" title="${escA(o.stopTitle||'interrompe a IA agora')}">${IC.stop} parar</button>`:''}`+
     `${o.send?`<button class="btn primary sm cc-send" id="${o.send}"${dis}>${o.sendHtml||'enviar'}</button>`:''}</div></div>`;
 }
@@ -106,13 +125,25 @@ function chatHintLine(box, text, busy){
   if(!h){ h=document.createElement('div'); h.className='chathint'; box.appendChild(h); }
   const html=chatKbd(text); if(h.innerHTML!==html) h.innerHTML=html; h.classList.toggle('busy', !!busy);
 }
-// cfg: { input, attach, pend, taskId, rerender, afterAdd?, onSend, onKey?, stop?:{btn, busy:()=>bool, fn}, send?, busyHint?, hint? }
+// garante a pílula na linha do composer (marcação antiga/estática não a tem): logo depois do clipe; rótulo sempre atual
+function chatModelPillEnsure(box, p){
+  if(!box || !p || !p.id) return null;
+  const row=[...box.children].find(x=>x.classList && x.classList.contains('cc-row')); if(!row) return null;
+  let b=$id(p.id);
+  if(!b){ const tmp=document.createElement('div'); tmp.innerHTML=chatModelPillHtml(p); b=tmp.firstElementChild;
+    const clip=row.querySelector('.cc-clip'); if(clip && clip.parentNode===row) clip.after(b); else row.insertBefore(b, row.firstChild); }
+  else { const t=b.querySelector('.cc-model-t'), lbl=String(p.label||''); if(t && t.textContent!==lbl) t.textContent=lbl; b.setAttribute('aria-label', 'IA: '+lbl+' — '+(p.title||CHAT_MODEL_TIP)); }
+  return chatModelPillWire(p);
+}
+// cfg: { input, attach, pend, taskId, rerender, afterAdd?, onSend, onKey?, stop?:{btn, busy:()=>bool, fn}, send?, busyHint?, hint?,
+//        modelPill?:{ id, label, title?, popup?, onPick(anchor) } — a IA/modelo deste chat, embaixo da caixa (opcional) }
 // Idempotente (on* handlers + flag no elemento): pode ser chamado a cada render.
 // onKey(e) roda ANTES do Enter; devolver true (ou dar preventDefault) cancela o envio.
 function chatComposer(cfg){
   attWireComposer(cfg);
   const input=$id(cfg.input); if(!input) return;
   const box=chatNormalize(input);
+  if(cfg.modelPill) chatModelPillEnsure(box, cfg.modelPill);
   input.onkeydown=(e)=>{
     if(cfg.onKey && cfg.onKey(e)===true) return;
     if(e.defaultPrevented) return;

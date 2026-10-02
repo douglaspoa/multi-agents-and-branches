@@ -199,7 +199,7 @@ function orqRenderBrief(body){
     ${chatComposerHtml({ cls:'orq-briefcc', input:'orqTa', attach:'orqAtt', rows:5, value:orq.briefing,
       placeholder:'ex.: o autocomplete de empresas está retornando resultados ruins e ninguém sabe se é ranking, índice ou dado sujo — quero entender, propor a correção e entregar',
       extras:'<button class="btn sm" id="orqLastInv">usar a última investigação</button>',
-      right:`<span class="dim mono orq-model" title="IA que monta o plano (troque em Configurações → Sua IA)">IA: ${esc(typeof aiModelName==='function'?aiModelName(orq.model||aiDefaults().model):'padrão')}</span>`,
+      modelPill:aiChatModelPill('orqModel'),
       send:'orqGo', sendHtml:'Montar o plano' })}
     ${orq.msg?`<div class="orq-msg${orq.msgErr?' err':''}" role="${orq.msgErr?'alert':'status'}"><span>${esc(orq.msg)}</span>${orq.msgErr&&orq.briefing.trim().length>=12?'<button class="btn sm" id="orqRetry">tentar de novo</button>':''}</div>`:''}
     <div class="ndeyebrow" style="margin-top:26px">o orquestrador pode</div>
@@ -215,7 +215,7 @@ function orqRenderBrief(body){
   const briefHint=()=>orq.briefing.trim().length<12?'escreva pelo menos uma frase completa · ⌘Enter monta o plano · ⌘V ou arraste pra anexar':'⌘Enter monta o plano · nada roda antes de você aprovar · ⌘V ou arraste pra anexar';
   if(typeof attRenderPend==='function') attRenderPend('orqPend', orq.atts, ()=>orqRender());
   // mesmo composer dos chats (anexo · extras · enviar + dica); aqui Enter quebra linha e ⌘Enter monta o plano
-  chatComposer({ input:'orqTa', attach:'orqAtt', pend:()=>orq.atts, taskId:()=>null, rerender:()=>orqRender(), onSend:orqPlanNow, hint:briefHint(),
+  chatComposer({ input:'orqTa', attach:'orqAtt', pend:()=>orq.atts, taskId:()=>null, rerender:()=>orqRender(), onSend:orqPlanNow, hint:briefHint(), modelPill:aiChatModelPill('orqModel'),
     onKey:e=>{ if(e.key!=='Enter'||e.isComposing) return; if(e.metaKey||e.ctrlKey){ e.preventDefault(); orqPlanNow(); } return true; } });
   const ta=$id('orqTa'); if(ta){ ta.oninput=()=>{ orq.briefing=ta.value; const g=$id('orqGo'); if(g) g.disabled=ta.value.trim().length<12; const h=ta.closest('.cc'); if(h) chatHintLine(h, briefHint(), false); }; ta.focus(); }
   { const g=$id('orqGo'); if(g) g.disabled=orq.briefing.trim().length<12; }

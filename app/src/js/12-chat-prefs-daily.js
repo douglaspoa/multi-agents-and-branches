@@ -60,7 +60,7 @@ function pcRender(){
   { const s=th.querySelector('#pcProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p&&p!==state.repo&&window.switchProject){ await switchProject(p); } pcRender(); }; }
   th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=$id('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
   attRenderPend('pcPend', pcPend, pcRender);
-  chatComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender, onSend:pcSend, send:'pcSend',
+  chatComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender, onSend:pcSend, send:'pcSend', modelPill:aiChatModelPill('pcModel'),
     stop:{ btn:'pcStop', busy:()=>pcBusy && pcBusyRepo===(state.repo||''), fn:pcStop }, busyHint:'lendo o projeto… · ■ parar interrompe — dá pra ir escrevendo a próxima' });
   keep(th);
 }

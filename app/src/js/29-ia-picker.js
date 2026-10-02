@@ -114,6 +114,15 @@ function aiRunLabel(engine, model){
   const n=(typeof modelFriendly==='function')?modelFriendly(model):aiModelName(model);
   return eng+' · '+n;
 }
+// IA que responde os chats de várias rodadas (chat do projeto, issues, orquestrador): a IA PADRÃO do usuário
+// (spec-chats-sem-claude); "mock" não é IA → esses chats seguem no Claude (mesma regra do ai_once no Rust)
+function aiChatRunLabel(){ const d=aiDefaults(); return aiEngineOf(d.eng)==='mock'?aiRunLabel('claude',''):aiRunLabel(d.eng, d.model); }
+// pílula do composer desses chats: a escolha deles JÁ mora no painel Sua IA (vale pra todos) — a pílula mostra qual
+// é e leva até lá; não cria uma segunda configuração
+function aiChatModelPill(id){
+  return { id, popup:'', label:aiChatRunLabel(), title:'IA dos chats = a sua IA padrão — clique pra trocar em Configurações → Sua IA (vale a partir da próxima mensagem)',
+    onPick:()=>{ if(typeof suaIaOpenCfg==='function') suaIaOpenCfg(); else if(typeof openCfg==='function') openCfg(); } };
+}
 // modelo pros chats que rodam no CLAUDE (planner, chat do projeto, issues, orquestrador): o padrão do usuário
 // só vale se o motor padrão for o Claude — um id do Codex/gateway no --model do claude derrubava a chamada.
 function aiClaudeModel(eng, model){ const d=aiDefaults(); if(eng===undefined){ eng=d.eng; model=d.model; } return aiEngineOf(eng)==='claude' && model ? model : null; }
@@ -172,27 +181,43 @@ function aiPickRender(target){
     h.querySelectorAll('[data-aicfg]').forEach(a=>a.onclick=()=>{ if(typeof suaIaOpenCfg==='function') suaIaOpenCfg(); else if(typeof openCfg==='function') openCfg(); });
   });
 }
-// ---- trocar o modelo de uma demanda JÁ criada (menu ⋯ e cabeçalho da tarefa) ----
+// ---- trocar o modelo de uma demanda JÁ criada (pílula do composer da tarefa e menu do card no quadro) ----
+// Só troca o MODELO dentro do motor da tarefa (set_task_model) — o motor é fixo (stickEngines no orchestrator).
+// Abre pra cima quando não cabe embaixo (a pílula mora no rodapé do chat); teclado: ↓/↑/Home/End, Esc fecha e
+// devolve o foco pra pílula (a11yMenu, 54-acessibilidade.js). Clicar de novo em quem abriu fecha.
 function openModelMenu(taskId, anchor){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
-  $id('tmenuPop')?.remove();
-  const pop=document.createElement('div'); pop.id='tmenuPop';
-  pop.style.cssText='position:fixed;z-index:9000;min-width:240px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  const old=$id('tmenuPop');
+  if(old){ const same=old.__anchor===anchor; if(old.__close) old.__close(false); else old.remove(); if(same) return; }
+  const pop=document.createElement('div'); pop.id='tmenuPop'; pop.__anchor=anchor;
+  pop.style.cssText='position:fixed;z-index:9000;min-width:240px;max-width:min(360px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow-y:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
   const cur=t.model||'';
   // lista do MOTOR desta tarefa (antes: sempre a do Claude — numa tarefa Codex dava pra pôr "opus" no codex)
   const ek=aiEngineOf(t.engine), eng=AI_ENGINES.find(x=>x.id===ek)||AI_ENGINES[0];
   const list=(ek==='gateway'&&_aiGw&&_aiGw.configured)?[{id:'',name:_aiGw.model||'padrão do gateway',tag:'padrão'},..._aiGw.models.filter(m=>m!==_aiGw.model).map(m=>({id:m,name:m,tag:''}))]:(eng.models||[]);
   const head=document.createElement('div'); head.className='mono'; head.style.cssText='font-size:10px;letter-spacing:.08em;color:var(--muted);padding:6px 10px 4px;text-transform:uppercase'; head.textContent='modelo desta demanda · '+(ek==='gateway'?((_aiGw&&_aiGw.label)||'Gateway'):eng.name); pop.appendChild(head);
-  const apply=async(id)=>{ pop.remove(); try{ await invoke('set_task_model',{ taskId, model:id }); lastSig=''; await refresh(); if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===taskId) renderWorkspace(); }catch(e){ showErr(e, 'Falhou'); } };
-  const item=(label, id, on)=>{ const b=document.createElement('button'); b.innerHTML=`${on?'<span style="color:var(--accent)">✓</span> ':'<span style="opacity:0">✓</span> '}${esc(label)}`; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=()=>apply(id); pop.appendChild(b); };
+  // quem abriu pode ter sido recriado (re-render do chat) — o foco volta pro elemento VIVO com o mesmo id
+  const back=()=>{ const a=(anchor&&anchor.id&&$id(anchor.id))||anchor; if(a&&a.isConnected&&a.focus) a.focus({preventScroll:true}); };
+  const onOut=(e)=>{ if(!pop.contains(e.target) && !(anchor&&anchor.contains&&anchor.contains(e.target))) close(false); };
+  function close(focusBack){ pop.remove(); document.removeEventListener('mousedown', onOut, true);
+    if(anchor&&anchor.setAttribute) anchor.setAttribute('aria-expanded','false');
+    if(focusBack) back(); }
+  pop.__close=close;
+  const apply=async(id)=>{ close(false); try{ await invoke('set_task_model',{ taskId, model:id }); lastSig=''; await refresh(); if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===taskId) renderWorkspace(); }catch(e){ showErr(e, 'Falhou'); } back(); };
+  const item=(label, id, on, fn)=>{ const b=document.createElement('button'); b.type='button'; b.setAttribute('role','menuitemradio'); b.setAttribute('aria-checked', on?'true':'false');
+    b.innerHTML=`${on?'<span style="color:var(--accent)" aria-hidden="true">✓</span> ':'<span style="opacity:0" aria-hidden="true">✓</span> '}${esc(label)}`; b.style.cssText='display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer'; b.onmouseenter=()=>b.style.background='var(--surface-2)'; b.onmouseleave=()=>b.style.background='none'; b.onclick=fn||(()=>apply(id)); pop.appendChild(b); return b; };
   list.forEach(m=>item(m.name+(m.tag?'  · '+m.tag:''), m.id, m.id===cur));
   if(cur && !list.some(m=>m.id===cur)) item(cur+'  · id atual', cur, true);
-  item('outro id…', '__custom', false);
-  pop.querySelector('button:last-child').onclick=async()=>{ pop.remove(); const v=await askText('Id do modelo','ex.: claude-opus-5-5', cur); if(v!=null && v.trim()) apply(v.trim()); };
+  item('outro id…', '__custom', false, async()=>{ close(false); const v=await askText('Id do modelo','ex.: claude-opus-5-5', cur); if(v!=null && v.trim()) apply(v.trim()); else back(); }).setAttribute('role','menuitem');
   const note=document.createElement('div'); note.className='dim'; note.style.cssText='font-size:10.5px;padding:6px 10px 4px;line-height:1.4'; note.textContent='vale a partir do próximo turno do agente'; pop.appendChild(note);
   document.body.appendChild(pop);
-  const r=anchor.getBoundingClientRect(); pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-8, r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
-  setTimeout(()=>document.addEventListener('click', function h(e){ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('click', h); } }), 0);
+  const r=anchor.getBoundingClientRect(), h=pop.offsetHeight, room=window.innerHeight-r.bottom-6-8;
+  // embaixo se cabe; senão pra cima (pílula no rodapé); sem espaço nenhum → encostado na borda de baixo
+  const top=(h<=room)?r.bottom+6:(r.top-6-h>=8?r.top-6-h:Math.max(8, window.innerHeight-h-8));
+  pop.style.top=top+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
+  setTimeout(()=>document.addEventListener('mousedown', onOut, true), 0);
+  if(typeof a11yMenu==='function') a11yMenu(pop, anchor, close);
+  else pop.addEventListener('keydown', e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); } });
 }
 // aplica o padrão do usuário nos selects do formulário na carga (o chat/planner lê dali)
 aiApplyDefaults();

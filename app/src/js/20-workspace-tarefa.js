@@ -493,13 +493,19 @@ function fwMoreItems(t){
   (t.status!=='draft'&&Array.isArray(t.refs)?t.refs:[]).slice(0,6).forEach((r,i)=>{ const n=String(r).split('/').pop();
     it.push({ k:'ref:'+i, label:`ver referência · ${n}`, hint:'anexo da tarefa' }); });
   if(!done && t.status!=='draft' && !nogit) it.push({ k:'push', label:'commit & push', hint:'commita o que estiver solto e envia a branch — o PR atualiza na hora' });
-  if(t.status!=='draft') it.push({ k:'model', label:`modelo · ${aiRunLabel(t.engine, t.model)}`, hint:'vale a partir do próximo turno', tip:t.model||'' });
+  // o modelo NÃO mora mais aqui: é a pílula embaixo da caixa do chat (fwModelPill), como nos apps de chat
   const cost=taskCost(t.id);
   { const cap=(typeof budgetOf==='function')?budgetOf(t):0;
     it.push({ k:'cost', label:`custo · ${cost.usd>0?fmtCost(cost.usd):'—'}${cost.tok?' · '+fmtTok(cost.tok)+' tok':''}${cap>0?' · teto '+fmtCost(cap,{usdOnly:true}):''}`, info:true }); }
   if(fwTreeHidden()) it.push({ k:'tree', label:'mostrar arquivos e artefatos', hint:'⌘B' });
   it.push({ k:'close', label:'fechar a aba', hint:'esc' });
   return it;
+}
+// pílula da IA no composer da tarefa: motor · modelo de AGORA; clicar abre o mesmo menu de sempre (openModelMenu,
+// que grava via set_task_model). Rascunho não tem (nunca teve o item "modelo" — a IA dele é escolhida no formulário).
+function fwModelPill(t){
+  if(!t || t.status==='draft') return null;
+  return { id:'fwModel', label:aiRunLabel(t.engine, t.model), title:CHAT_MODEL_TIP, onPick:(b)=>openModelMenu(t.id, b) };
 }
 function fwOpenMore(t, anchor){
   const old=$id('fwMorePop'); if(old){ old.remove(); return; }
@@ -527,7 +533,6 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='pvmob' && pv){ toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); }
   else if(k==='pvoff') await fwTunnelOff(t);
   else if(k==='push') await fwPushTask();
-  else if(k==='model') openModelMenu(t.id, anchor);
   else if(k==='tree') fwToggleTree();
   else if(k==='pause') await pauseTask(t.id);
   else if(k==='fromdz') await openFromDesign(t);
@@ -769,7 +774,7 @@ function renderWorkspace(){
     <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">${IC.chevR} ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
       <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'continuar ou parar? (ou toque numa opção acima)':'responda a pergunta — o turno continua'):'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
-      <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button><label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
+      <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button>${chatModelPillHtml(fwModelPill(t))}<label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
       <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
   chat.dataset.tk=t.id;
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
@@ -779,6 +784,7 @@ function renderWorkspace(){
   bindClick('fwQueue', ()=>fwSendMsg(true));
   { const ar=$id('fwAsReq'); if(ar) ar.onchange=()=>{ fwAsReqOn[t.id]=ar.checked; }; }
   attWireComposer({ input:'fwInput', attach:'fwAttach', pend:()=>(fwPend[t.id]=fwPend[t.id]||[]), taskId:()=>t.id, rerender:renderWorkspace });
+  chatModelPillWire(fwModelPill(t));
   { const pp=$id('fwPend'); if(pp) pp.querySelectorAll('[data-attrm]').forEach(x=>x.onclick=()=>{ (fwPend[t.id]||[]).splice(+x.dataset.attrm,1); renderWorkspace(); }); }
   chat.onclick=(e)=>{
     if(e.target.closest('#fwLiveTg')){ fwLiveOpen=!fwLiveOpen; fwPaintThread(fwTaskObj()||t); return; }
