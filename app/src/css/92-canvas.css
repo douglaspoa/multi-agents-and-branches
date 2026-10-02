@@ -184,3 +184,20 @@ html.sfpane #cloudOverlay,html.sfpane #authOverlay,html.sfpane #obOverlay,html.s
 .cvnatmsg{margin:auto;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;text-align:center;padding:20px}
 .cvnatmsg b{color:var(--text)}
 @container (max-width:460px){ .cvsitebar [data-cvn="forward"]{display:none} }
+
+/* ---- Navegador: aba nova (02/10 — "tem que parecer um navegador") ---- */
+.cvblank{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface-2)}
+.cvsitebar .nvic{width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.cvsitebar .nvic svg{width:15px;height:15px}
+.cvsitebar .nvic:disabled{opacity:.35;cursor:default}
+.cvnaddr .in{font-family:var(--ui);font-size:12.5px;background:var(--surface-2)}
+.cvnaddr .in:focus{background:var(--surface)}
+.cvnewtab{flex:1;min-height:0;overflow:auto;padding:clamp(28px,9vh,96px) 24px 32px;display:flex;flex-direction:column;align-items:center}
+.cvnewtab h2{width:min(560px,100%);margin:0 0 10px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.01em}
+.cvrecent{width:min(560px,100%);list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.cvrecent button{width:100%;display:flex;align-items:baseline;gap:12px;padding:9px 12px;border:0;border-radius:var(--r-md,8px);background:transparent;color:var(--text);text-align:left;cursor:pointer;min-width:0}
+.cvrecent button:hover{background:var(--surface)}
+.cvrhost{font-size:13px;font-weight:600;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cvrurl{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cvnthint{width:min(460px,100%);margin:0;color:var(--muted);font-size:13px;line-height:1.55;text-align:center}
+.cvnthint b{color:var(--text);font-weight:600}
