@@ -92,7 +92,7 @@ function artThumb(taskId, name){
   return null;
 }
 function fwModesHtml(t){
-  const M=[['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão']]; if(t.prUrl) M.push(['pr','PR']);
+  const M=[['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão'],['previa','Prévia']]; if(t.prUrl) M.push(['pr','PR']); // Prévia: 57-navegador
   return M.map(([k,l])=>`<button class="fwmode${fwMode===k?' on':''}" data-fwmode="${k}">${l}</button>`).join('');
 }
 // ---- entrega SEM código (FT-6): investigação/design, ou tarefa que só produziu documentos ----

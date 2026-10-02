@@ -14,6 +14,7 @@ mod autopilot;
 mod epic_context;
 mod learn;
 mod media_proto;
+mod navegador;
 mod memoria;
 mod mesa;
 mod plan_usage;
@@ -8914,6 +8915,50 @@ fn preview_start(state: State<AppState>, task_id: String, url: Option<String>) -
     Ok(info)
 }
 
+// ===== Prévia + modo design (spec-navegador-design; lógica em navegador.rs) =====
+/// Abre (ou reaproveita) o proxy da Prévia desta tarefa pra origem de `url`. Devolve a origem do proxy (src do iframe).
+#[tauri::command(async)]
+fn browser_open(state: State<AppState>, task_id: String, url: String) -> Result<navegador::BrowserInfo, String> {
+    let cli = match engine_cli_path() { Some(c) => c, None => cli_path(&repo_of(&state)?) };
+    if !Path::new(&cli).is_file() { return Err(format!("motor do Starfork não encontrado ({cli}) — reinstale o app")); }
+    navegador::open(&task_id, &url, |origin| {
+        let mut c = node_cmd();
+        c.args(["--disable-warning=ExperimentalWarning", &cli, "browser-proxy", "--target", origin]);
+        c.env_remove("CARDUME_ROLE");
+        c
+    })
+}
+
+/// Derruba o proxy da Prévia da tarefa (aba fechada / tarefa terminou). true = havia um.
+#[tauri::command(async)]
+fn browser_close(task_id: String) -> Result<bool, String> {
+    Ok(navegador::close(&task_id))
+}
+
+/// Print de um pedaço da janela (px CSS do app). `dest`: "attachment" → anexo da tarefa (.cardume/refs, volta o
+/// Attachment com miniatura) · "artifact" → `.cardume/artifacts/browser-<n>.png` da worktree (prova).
+#[tauri::command]
+async fn browser_snapshot(app: tauri::AppHandle, state: State<'_, AppState>, task_id: String, rect: navegador::SnapRect, dest: String, name: Option<String>) -> Result<serde_json::Value, String> {
+    let png = navegador::snapshot(&app, rect).await?;
+    if png.is_empty() { return Err("print vazio".into()); }
+    if dest == "artifact" {
+        let (wt, _) = task_wt_base(&state, &task_id)?;
+        let dir = wt.join(".cardume").join("artifacts");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("não criei a pasta de artefatos: {e}"))?;
+        let n = navegador::next_artifact_name(&dir);
+        std::fs::write(dir.join(&n), &png).map_err(|e| format!("não salvei o print: {e}"))?;
+        web_log(format!("[navegador] {task_id}: print salvo em .cardume/artifacts/{n}"));
+        return Ok(serde_json::json!({ "name": n, "rel": format!(".cardume/artifacts/{n}"), "size": png.len() }));
+    }
+    let (dir, rel_dir) = attachment_dir(&state, Some(&task_id))?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let base = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "elemento.png".into());
+    let fname = attachment_name(&dir, &base);
+    std::fs::write(dir.join(&fname), &png).map_err(|e| e.to_string())?;
+    let a = describe_attachment(&dir.join(&fname), fname.clone(), format!("{rel_dir}/{fname}"))?;
+    serde_json::to_value(a).map_err(|e| e.to_string())
+}
+
 /// Derruba o preview que o app subiu (se houver).
 #[tauri::command(async)]
 fn preview_stop(state: State<AppState>, task_id: String) -> Result<bool, String> {
@@ -9190,6 +9235,7 @@ pub fn run() {
             // notificações: delegate (clique → tarefa; banner com o app na frente) + pedido de permissão
             #[cfg(target_os = "macos")]
             notif_mac::init(app.handle().clone());
+            navegador::selftest_from_env(app.handle()); // só com STARFORK_NAV_SELFTEST (autoteste do print nativo)
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
             std::thread::spawn(claude_statusline_boot_repair);
             Ok(())
@@ -9425,13 +9471,17 @@ pub fn run() {
             commit_summary_cached,
             task_commits,
             list_artifacts,
-            read_artifact
+            read_artifact,
+            browser_open,
+            browser_close,
+            browser_snapshot
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o Starfork")
         .run(|_app, event| {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
+                navegador::kill_all(); // proxies da Prévia (spec-navegador-design)
                 mesa::mesa_kill_all(); // personas da mesa rodam em grupo destacado: não sobrevivem ao app
                 let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
             }
