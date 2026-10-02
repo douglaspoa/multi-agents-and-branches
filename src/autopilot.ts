@@ -8,6 +8,7 @@
 // CONTINUA do estado; o arquivo .cardume/autopilot/STOP para entre passos; o teto de custo para com relatório.
 // NUNCA: remoto, push, PR; perguntar ao humano; apagar trabalho de tarefa que falhou (fica na branch dela).
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Orchestrator, engineKind, pidAlive } from "./orchestrator.ts";
@@ -412,6 +413,18 @@ const NOT_EMPTY = (dir: string) => `a pasta ${dir} já existe e não está vazia
 
 /** Pasta nova (ou vazia) → git init na main, README + .gitignore + 1º commit. NUNCA cria remoto. Idempotente:
  * retoma uma criação interrompida (git sem commit, ou só o 1º commit do piloto). */
+/** Põe o projeto no topo da lista do app (~/.cardume/projects.json, a mesma do "Abrir projeto"),
+ *  pra quem roda o piloto pela CLI achar o projeto no Starfork. Best-effort. */
+export function registerProject(dir: string, home = homedir()): void {
+  try {
+    const f = join(home, ".cardume", "projects.json");
+    let list: string[] = [];
+    try { const v = JSON.parse(readFileSync(f, "utf8")); if (Array.isArray(v)) list = v.filter((x) => typeof x === "string"); } catch { /* sem lista ainda */ }
+    const abs = resolve(dir);
+    writeFileSync(f, JSON.stringify([abs, ...list.filter((p) => p !== abs)], null, 2));
+  } catch { /* lista é conveniência — nunca derruba o piloto */ }
+}
+
 export async function createProject(dir: string, name: string): Promise<void> {
   if (!(await canStartIn(dir))) throw new Error(NOT_EMPTY(dir));
   mkdirSync(dir, { recursive: true });
@@ -619,6 +632,8 @@ async function pilot(dir: string, prev: ApState | null, idea: string, o: Autopil
   let orch: Orchestrator;
   try {
     if (!prev || !(await hasHead(dir))) { setPhase("creating"); saveRaw(); await createProject(dir, name); }
+    // node --test (NODE_TEST_CONTEXT) não suja a lista real de projetos da pessoa
+    if (!process.env.NODE_TEST_CONTEXT) registerProject(dir);
     if (await new GitService(dir).hasRemote("origin")) throw new Error("este projeto tem um remoto (origin) — o piloto automático só roda em projeto LOCAL, sem remoto");
     try { rmSync(stopFile(dir), { force: true }); } catch { /* sem pedido de parada */ }
     process.env.CARDUME_AUTOPILOT = "1"; // ask_human automático + regra de autonomia (bus) + mock que prova

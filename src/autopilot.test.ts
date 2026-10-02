@@ -377,3 +377,16 @@ test("relatório: link da evidência não duplica .cardume/artifacts", async () 
   assert.equal(evidenceRel("./shot.png"), "shot.png");
   assert.equal(evidenceRel("sub/x.mp4"), "sub/x.mp4");
 });
+
+test("registerProject põe o projeto no topo da lista do app sem duplicar", async () => {
+  const { registerProject } = await import("./autopilot.ts");
+  const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = mkdtempSync(join(tmpdir(), "ap-home-"));
+  mkdirSync(join(home, ".cardume"));
+  writeFileSync(join(home, ".cardume", "projects.json"), JSON.stringify(["/a", "/pou"]));
+  registerProject("/pou", home);
+  assert.deepEqual(JSON.parse(readFileSync(join(home, ".cardume", "projects.json"), "utf8")), ["/pou", "/a"]);
+  rmSync(home, { recursive: true, force: true });
+});
