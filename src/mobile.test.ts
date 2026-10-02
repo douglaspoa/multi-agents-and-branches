@@ -396,7 +396,7 @@ test("doctor: mesmo JSON que o Rust lê (fixture dourado tests/fixtures/mobile-d
   const gold = new URL("../tests/fixtures/mobile-doctor.json", import.meta.url);
   if (process.env.CARDUME_UPDATE_GOLDEN === "1" || !existsSync(gold)) writeFileSync(gold, JSON.stringify(got, null, 2) + "\n");
   assert.deepEqual(got, JSON.parse(readFileSync(gold, "utf8")), "o Rust (env_mobile_tests) lê este mesmo arquivo");
-  assert.deepEqual(got.items.map((i: { name: string }) => i.name), ["Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)"]);
+  assert.deepEqual(got.items.map((i: { name: string }) => i.name), ["Simulador iOS (Xcode)", "Emulador Android (SDK + AVD)", "Maestro (fluxos de toque)", "AXe (tocar no Simulador iOS pelo app)"]);
 });
 
 // ------------------------------------------------------------------ gate da entrega

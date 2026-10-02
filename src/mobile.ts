@@ -200,6 +200,16 @@ export function maestroBin(d: ToolDeps): string | null {
   }
   return inPath(n, d);
 }
+/** AXe (cameroncooke/axe): toque/digitação no Simulador iOS pelo painel Dispositivo. Brew, ~/.local (instalação de
+ * usuário da mesma tarball da fórmula) ou PATH. */
+export function axeBin(d: ToolDeps): string | null {
+  if (d.platform !== "darwin") return null;
+  for (const p of [join(d.home, ".local", "lib", "axe", "axe"), join(d.home, ".local", "bin", "axe"), "/opt/homebrew/bin/axe", "/usr/local/bin/axe"]) {
+    if (existsSync(p)) return p;
+  }
+  return inPath("axe", d);
+}
+export const AXE_FIX = "brew install cameroncooke/axe/axe (se o brew recusar por \"Command Line Tools too outdated\", atualize-as em Ajustes do Sistema → Atualização de Software e rode de novo)";
 /** JAVA_HOME pro Maestro: o do ambiente → openjdk@17 do Homebrew → openjdk do Homebrew. */
 export function javaHome(d: Pick<MobileDeps, "env">): string | null {
   if (d.env.JAVA_HOME && existsSync(d.env.JAVA_HOME)) return d.env.JAVA_HOME;
@@ -278,8 +288,8 @@ export interface TaskMobileState {
   wt?: string;
   /** nome do simulador sendo criado (a varredura não apaga no meio do `up`) */
   iosPending?: string;
-  ios?: { udid: string; name: string; device: string; runtime: string };
-  android?: { serial: string };
+  ios?: { udid: string; name: string; device: string; runtime: string; deviceType?: string; runtimeId?: string };
+  android?: { serial: string; avd?: string };
   rec?: RecState;
 }
 /** id seguro e SEM colisão: o texto limpo + hash curto do id real ("a/b" e "a_b" viram ids diferentes). */
@@ -354,6 +364,26 @@ export function pickIphone(runtimesJson: string, deviceTypesJson = ""): { runtim
   const t = plain[0] ?? any[0];
   return { runtime: rt.identifier, runtimeName: rt.name ?? rt.identifier, deviceType: t.identifier, deviceName: t.name };
 }
+/** Modelo ESCOLHIDO (seletor do painel): o tipo pedido no runtime pedido (ou no iOS mais novo que o suporta). */
+export function pickDevice(runtimesJson: string, deviceType: string, runtime?: string): { runtime: string; runtimeName: string; deviceType: string; deviceName: string } | null {
+  for (const m of iosModels(runtimesJson)) if (m.deviceType === deviceType && (!runtime || m.runtime === runtime)) return m;
+  return null;
+}
+/** Aparelhos iOS (iPhone/iPad) por runtime iOS disponível, do mais novo pro mais antigo — opções do seletor. */
+export function iosModels(runtimesJson: string): Array<{ runtime: string; runtimeName: string; deviceType: string; deviceName: string }> {
+  let rts: SimRuntime[] = [];
+  try { rts = (JSON.parse(runtimesJson) as { runtimes?: SimRuntime[] }).runtimes ?? []; } catch { return []; }
+  const ios = rts.filter((r) => r.isAvailable !== false && (r.platform === "iOS" || /^iOS\b/.test(r.name ?? "") || /SimRuntime\.iOS/.test(r.identifier)))
+    .sort((a, b) => verNum(b.version ?? "") - verNum(a.version ?? ""));
+  const out: Array<{ runtime: string; runtimeName: string; deviceType: string; deviceName: string }> = [];
+  for (const rt of ios) {
+    for (const t of rt.supportedDeviceTypes ?? []) {
+      if (!(t.productFamily === "iPhone" || t.productFamily === "iPad" || /^iP(hone|ad)/.test(t.name))) continue;
+      out.push({ runtime: rt.identifier, runtimeName: rt.name ?? rt.identifier, deviceType: t.identifier, deviceName: t.name });
+    }
+  }
+  return out;
+}
 interface SimDevice { udid: string; name: string; state: string; isAvailable?: boolean }
 export function listSims(devicesJson: string): SimDevice[] {
   try {
@@ -385,6 +415,9 @@ export interface MobileCtx {
   waitMs?: number;
   /** processo dono do turno (o motor): a trava Android vale enquanto ele vive */
   ownerPid?: number;
+  /** comando da PESSOA (painel Dispositivo): no Android só CONFERE a trava (agente usando → recusa na hora), nunca a
+   * segura além do próprio comando — senão um print pelo painel prendia o emulador 30 min pras outras tarefas */
+  viewer?: boolean;
 }
 export function makeCtx(rawId: string, wt: string, deps: MobileDeps, log: (s: string) => void = () => {}, extra: Partial<MobileCtx> = {}): MobileCtx {
   return { taskId: safeId(rawId), rawId, artDir: join(wt, ".cardume", "artifacts"), cwd: wt, deps, log, ...extra };
@@ -451,21 +484,31 @@ function stateOf(c: MobileCtx): TaskMobileState {
   return st;
 }
 
-export async function mobileUp(c: MobileCtx, plat: Platform): Promise<TaskMobileState> {
-  return plat === "ios" ? upIos(c) : upAndroid(c);
+export interface UpPrefs { deviceType?: string; runtime?: string; avd?: string }
+export async function mobileUp(c: MobileCtx, plat: Platform, prefs: UpPrefs = {}): Promise<TaskMobileState> {
+  return plat === "ios" ? upIos(c, prefs) : upAndroid(c, prefs.avd);
 }
 
-async function upIos(c: MobileCtx): Promise<TaskMobileState> {
+async function upIos(c: MobileCtx, prefs: UpPrefs = {}): Promise<TaskMobileState> {
   if (c.deps.platform !== "darwin") throw new MobileError("Simulador iOS só existe no macOS.", "rode a parte iOS num Mac com Xcode; aqui use --platform android");
   const st = stateOf(c);
   const name = simName(c.taskId);
   const devs = await xcrun(c, ["list", "-j", "devices"]);
   if (devs.code !== 0) throw new MobileError(`O Simulador iOS não respondeu (xcrun simctl): ${(devs.stderr || devs.stdout).trim().slice(0, 200)}`, XCODE_FIX);
   let dev = findSim(devs.stdout, name);
+  // outro MODELO pedido (seletor do painel): o simulador da tarefa é recriado com o aparelho escolhido
+  if (dev && prefs.deviceType && st.ios?.deviceType !== prefs.deviceType) {
+    await xcrun(c, ["shutdown", dev.udid], 60_000).catch(() => null);
+    const del = await xcrun(c, ["delete", dev.udid], 60_000);
+    if (del.code !== 0 && !/Invalid device|could not be found/i.test(del.stderr)) throw new MobileError(`não consegui trocar o aparelho: ${del.stderr.trim().slice(0, 200)}`, "desligue o simulador e tente de novo");
+    st.ios = undefined;
+    dev = null;
+  }
   let label = st.ios ? `${st.ios.device} · ${st.ios.runtime}` : "";
   if (!dev) {
     const rts = await xcrun(c, ["list", "-j", "runtimes"]);
-    let pick = pickIphone(rts.stdout);
+    let pick = prefs.deviceType ? pickDevice(rts.stdout, prefs.deviceType, prefs.runtime) : pickIphone(rts.stdout);
+    if (!pick && prefs.deviceType) throw new MobileError(`o aparelho escolhido não existe neste Xcode: ${prefs.deviceType}`, "escolha outro modelo na lista");
     if (!pick) pick = pickIphone(rts.stdout, (await xcrun(c, ["list", "-j", "devicetypes"])).stdout);
     if (!pick) throw new MobileError("Nenhum runtime iOS instalado no Xcode.", "abra o Xcode → Settings → Components e instale a plataforma iOS (ou: xcodebuild -downloadPlatform iOS)");
     st.iosPending = name; // a varredura não apaga um simulador recém-criado antes de o estado ser salvo
@@ -479,7 +522,7 @@ async function upIos(c: MobileCtx): Promise<TaskMobileState> {
     }
     dev = { udid, name, state: "Shutdown" };
     label = `${pick.deviceName} · ${pick.runtimeName}`;
-    st.ios = { udid, name, device: pick.deviceName, runtime: pick.runtimeName };
+    st.ios = { udid, name, device: pick.deviceName, runtime: pick.runtimeName, deviceType: pick.deviceType, runtimeId: pick.runtime };
   } else if (!st.ios || st.ios.udid !== dev.udid) {
     // achou pelo nome mas o estado aponta outro udid (estado velho/apagado à mão): o que vale é o que existe
     st.ios = { udid: dev.udid, name, device: st.ios?.device ?? "iPhone", runtime: st.ios?.runtime ?? "iOS" };
@@ -587,13 +630,16 @@ export function emulatorFatal(log: string): string {
   return "";
 }
 
-async function upAndroid(c: MobileCtx): Promise<TaskMobileState> {
+async function upAndroid(c: MobileCtx, avdWanted?: string): Promise<TaskMobileState> {
+  const avd = avdWanted || ANDROID_AVD;
   needAdb(c);
   const emu = emulatorBin(c.deps);
   await acquireAndroidLock(c);
   const st = stateOf(c);
   try {
-    const own = readJson<{ pid: number; sig?: string; serial: string }>(ANDROID_OWN(c.deps));
+    const own = readJson<{ pid: number; sig?: string; serial: string; avd?: string }>(ANDROID_OWN(c.deps));
+    if (avdWanted && own && (own.avd ?? ANDROID_AVD) !== avd && (await sameProc(c.deps, { pid: own.pid, sig: own.sig ?? "" })))
+      throw new MobileError(`o emulador do Starfork está ligado com outro aparelho (${own.avd ?? ANDROID_AVD})`, "desligue-o antes de trocar de aparelho (botão de energia do painel Dispositivo ou cardume mobile down --platform android)");
     const all = parseAdbDevices((await adb(c, ["devices"])).stdout, true).filter((x) => /^emulator-/.test(x.serial));
     const ready = all.filter((x) => x.state === "device");
     let serial = "";
@@ -603,19 +649,20 @@ async function upAndroid(c: MobileCtx): Promise<TaskMobileState> {
       if (own) { try { unlinkSync(ANDROID_OWN(c.deps)); } catch { /* ok */ } }
       if (!emu) throw new MobileError("Não achei o emulador do Android SDK.", sdkFix(c.deps));
       const avds = (await c.deps.exec(emu, ["-list-avds"], { env: toolEnv(c.deps), timeoutMs: 30_000 })).stdout.split("\n").map((s) => s.trim());
-      if (!avds.includes(ANDROID_AVD)) throw new MobileError(`O AVD "${ANDROID_AVD}" não existe nesta máquina.`, avdFix(c.deps));
+      if (!avds.includes(avd)) throw new MobileError(`O AVD "${avd}" não existe nesta máquina.`, avd === ANDROID_AVD ? avdFix(c.deps) : `escolha um destes: ${avds.filter(Boolean).join(", ") || "(nenhum)"}`);
       let port = 5584;
       while (all.some((x) => x.serial === `emulator-${port}`) && port < 5680) port += 2;
       serial = `emulator-${port}`;
       const logFile = join(mobileDir(c.deps), "emulator.log");
       mkdirSync(dirname(logFile), { recursive: true });
       writeFileSync(logFile, ""); // log só desta subida (o motivo de uma queda é a última linha FATAL)
-      const pid = c.deps.spawnBg(emu, ["-avd", ANDROID_AVD, "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot-save", "-port", String(port)], { env: toolEnv(c.deps), logFile });
+      const pid = c.deps.spawnBg(emu, ["-avd", avd, "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot-save", "-port", String(port)], { env: toolEnv(c.deps), logFile });
       if (!(pid > 0)) throw new MobileError("O emulador Android não abriu.", "veja o log em ~/.constellation/mobile/emulator.log");
-      writeJson(ANDROID_OWN(c.deps), { pid, sig: await procSig(c.deps, pid), serial, avd: ANDROID_AVD, startedAt: c.deps.now() });
-      c.log(`… subindo o AVD ${ANDROID_AVD} (sem janela) em ${serial}`);
+      writeJson(ANDROID_OWN(c.deps), { pid, sig: await procSig(c.deps, pid), serial, avd, startedAt: c.deps.now() });
+      c.log(`… subindo o AVD ${avd} (sem janela) em ${serial}`);
     }
-    st.android = { serial };
+    const ownNow = readJson<{ serial: string; avd?: string }>(ANDROID_OWN(c.deps));
+    st.android = { serial, avd: ownNow?.serial === serial ? (ownNow.avd ?? ANDROID_AVD) : undefined }; // undefined = emulador da pessoa
     saveState(c.deps, st);
     const deadline = c.deps.now() + 300_000;
     for (;;) {
@@ -659,12 +706,29 @@ function iosOf(st: TaskMobileState) {
   if (!st.ios) throw new MobileError("o simulador iOS desta tarefa não está de pé", "rode antes: cardume mobile up --platform ios");
   return st.ios;
 }
-/** Comando Android: a tarefa precisa estar com a trava (o fim do turno solta — aqui pega de volta, se livre). */
+/** Comando Android: a tarefa precisa estar com a trava (o fim do turno solta — aqui pega de volta, se livre).
+ * Comando da PESSOA (`viewer`): só confere — agente usando → recusa com quem está usando. */
 async function androidOf(c: MobileCtx, st: TaskMobileState) {
   if (!st.android) throw new MobileError("o emulador Android desta tarefa não está de pé", "rode antes: cardume mobile up --platform android");
+  if (c.viewer) {
+    const h = await androidLockHolder(c.deps);
+    if (h && !h.mine) throw new MobileError(`o emulador Android está em uso pelo agente${h.taskId === c.taskId ? " desta tarefa" : ` da tarefa ${h.taskId}`} — só visualização por enquanto`, "espere o agente terminar o turno (ou pare a tarefa) e tente de novo");
+    return st.android;
+  }
   await acquireAndroidLock(c);
   return st.android;
 }
+/** Quem está com a trava do emulador AGORA (trava velha não conta). `mine` = segurada por ESTE processo (gravação do painel). */
+export async function androidLockHolder(d: MobileDeps): Promise<{ taskId: string; mine: boolean } | null> {
+  let raw = "", mtime = 0;
+  try { raw = readFileSync(ANDROID_LOCK(d), "utf8"); mtime = statSync(ANDROID_LOCK(d)).mtimeMs; } catch { return null; }
+  let cur: LockRec | null = null;
+  try { cur = JSON.parse(raw) as LockRec; } catch { cur = null; }
+  if (!(await lockFresh(d, cur, mtime))) return null;
+  return { taskId: cur?.taskId ?? "?", mine: !!cur?.ownerPid && cur.ownerPid === process.pid };
+}
+/** Solta a trava Android desta tarefa (o painel depois de ligar o emulador / parar a própria gravação). */
+export function releaseAndroidLockOf(d: MobileDeps, safe: string): boolean { return releaseAndroidLock(d, safe); }
 
 export async function mobileInstall(c: MobileCtx, plat: Platform, app: string): Promise<void> {
   const p = isAbsolute(app) ? app : resolve(c.cwd, app);
@@ -980,7 +1044,7 @@ export async function mobileSweep(deps: MobileDeps): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------- doctor (Ambiente do app + agente)
-export interface DoctorItem { id: "ios" | "android" | "maestro"; name: string; ok: boolean; detail: string; fix: string }
+export interface DoctorItem { id: "ios" | "android" | "maestro" | "axe"; name: string; ok: boolean; detail: string; fix: string }
 export async function mobileDoctor(deps: MobileDeps): Promise<DoctorItem[]> {
   const ios = async (): Promise<DoctorItem> => {
     if (deps.platform !== "darwin") return { id: "ios", name: "Simulador iOS (Xcode)", ok: false, detail: "só existe no macOS", fix: "" };
@@ -1007,9 +1071,15 @@ export async function mobileDoctor(deps: MobileDeps): Promise<DoctorItem[]> {
         ? { id: "maestro", name: "Maestro (fluxos de toque)", ok: false, detail: `${m} — falta o Java (JDK 17)`, fix: "brew install openjdk@17" }
         : { id: "maestro", name: "Maestro (fluxos de toque)", ok: true, detail: `${m} · Java ${jh}`, fix: "" };
   };
+  const axe = (): DoctorItem => {
+    const a = axeBin(deps);
+    return a
+      ? { id: "axe", name: "AXe (tocar no Simulador iOS pelo app)", ok: true, detail: `${a} — clique vira toque, teclado vira texto no painel Dispositivo`, fix: "" }
+      : { id: "axe", name: "AXe (tocar no Simulador iOS pelo app)", ok: false, detail: "não instalado — o painel Dispositivo mostra o iPhone ao vivo, mas só pra ver (sem tocar)", fix: AXE_FIX };
+  };
   // em paralelo: o Ambiente espera o mais lento, não a soma
   const [a, b] = await Promise.all([ios(), android()]);
-  return [a, b, maestro()];
+  return deps.platform === "darwin" ? [a, b, maestro(), axe()] : [a, b, maestro()];
 }
 
 // ---------------------------------------------------------------- prova mobile no gate da entrega
@@ -1132,9 +1202,12 @@ export async function mobileCli(argv: { _: string[]; flags: Record<string, strin
     if (!rawTask) throw new MobileError("não sei de qual tarefa é este comando", "rode de dentro da worktree da tarefa ou passe --task <id>");
     const waitS = Number(argv.flags.wait);
     const owner = Number(argv.flags.owner);
+    const viewer = argv.flags.viewer === "true";
     const c = makeCtx(rawTask, wt, deps, out, {
-      waitMs: argv.flags.wait !== undefined && Number.isFinite(waitS) && waitS >= 0 ? waitS * 1000 : undefined,
+      // painel (pessoa): não espera a trava do Android — ocupado responde na hora
+      waitMs: viewer ? 0 : argv.flags.wait !== undefined && Number.isFinite(waitS) && waitS >= 0 ? waitS * 1000 : undefined,
       ownerPid: Number.isFinite(owner) && owner > 0 ? owner : undefined,
+      viewer,
     });
     const st = loadState(deps, c.taskId);
     const plat = () => resolvePlatform(st, argv.flags.platform);
@@ -1142,7 +1215,25 @@ export async function mobileCli(argv: { _: string[]; flags: Record<string, strin
       case "up": {
         const p = argv.flags.platform;
         if (p !== "ios" && p !== "android") throw new MobileError("diga a plataforma", "cardume mobile up --platform ios (ou android)");
-        await mobileUp(c, p);
+        try {
+          await mobileUp(c, p, { deviceType: argv.flags.device, runtime: argv.flags.runtime, avd: argv.flags.avd });
+        } finally {
+          // ligado pelo PAINEL (pessoa): não fica com a trava do Android — nem quando a subida FALHA (sem dono, a
+          // trava velha valeria 30 min e travaria os agentes de todas as tarefas)
+          if (p === "android" && viewer) releaseAndroidLock(deps, c.taskId);
+        }
+        return 0;
+      }
+      case "info": {
+        const { deviceInfo } = await import("./device.ts");
+        out(JSON.stringify(await deviceInfo(c)));
+        return 0;
+      }
+      case "mirror": {
+        const p = argv.flags.platform;
+        if (p !== "ios" && p !== "android") throw new MobileError("diga a plataforma", "cardume mobile mirror --platform ios (ou android)");
+        const { runMirror } = await import("./device.ts");
+        await runMirror({ ...c, viewer: true }, p, out);
         return 0;
       }
       case "install": await mobileInstall(c, plat(), argv._[2] ?? ""); return 0;
@@ -1156,6 +1247,11 @@ export async function mobileCli(argv: { _: string[]; flags: Record<string, strin
       }
       case "flow": await mobileFlow(c, plat(), argv._[2] ?? ""); return 0;
       case "down": {
+        // a PESSOA não desliga o emulador no meio do turno de um agente (desta ou de outra tarefa)
+        if (viewer && argv.flags.platform !== "ios") {
+          const h = await androidLockHolder(deps);
+          if (h && !h.mine && loadState(deps, c.taskId).android) throw new MobileError(`o emulador Android está em uso pelo agente${h.taskId === c.taskId ? " desta tarefa" : ` da tarefa ${h.taskId}`}`, "espere o agente terminar o turno e desligue de novo");
+        }
         const done = await mobileDown(c, argv.flags.platform === "ios" || argv.flags.platform === "android" ? argv.flags.platform : undefined);
         if (!done.length) out("nada de pé pra esta tarefa");
         return 0;
@@ -1169,6 +1265,8 @@ export async function mobileCli(argv: { _: string[]; flags: Record<string, strin
        cardume mobile rec start|stop
        cardume mobile flow <fluxo.yaml>     (Maestro)
        cardume mobile down
+       cardume mobile info                  (JSON: projeto, aparelhos, o que está de pé — painel Dispositivo)
+       cardume mobile mirror --platform ios|android   (espelho ao vivo pro painel Dispositivo; 1ª linha = porta/token)
   (todos aceitam --platform ios|android, --task <id> e --wt <worktree>)`);
         return sub ? 1 : 0;
     }
