@@ -35,7 +35,7 @@ let plBusyAt=0, plBusyTick=null;
 // geração: cada conversa (plReset) e cada envio ganham um id. Resposta de uma conversa que já foi trocada
 // ("+ novo" com a IA respondendo) é descartada; plInflight = envios ainda sem resposta (restaura o busy da aba)
 let plGenSeq=0, plConv=0, plCurGen=0; const plInflight=new Set();
-function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:'claude',artifacts:null,kind:''}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; plAfterEdit=new Set(); plConv=++plGenSeq; plBusy=false; plStopping=false; plCurGen=0; plBusyAt=0; }
+function plReset(){ plFields={deliverables:[],requirements:[],owns:[],off:[],title:'',objective:'',autonomy:'',engine:defaultAiEngine(),artifacts:null,kind:''}; plSid=''; plMsgs=[]; plChips=[]; plAsking='objective'; plDone=false; plRefs=[]; plPlan=null; plNoEpic=false; plAfterEdit=new Set(); plConv=++plGenSeq; plBusy=false; plStopping=false; plCurGen=0; plBusyAt=0; }
 function plRenderRefs(){
   const el=$id('plRefsBar'); if(!el) return;
   el.innerHTML = plRefs.map((p,i)=>{ const n=pathBase(p); return `<span class="plref"><span class="plrefic">${refIcon(n)}</span><span class="mono">${esc(n)}</span><button class="plrefx" data-r="${i}">${IC.x}</button></span>`; }).join('');
@@ -285,7 +285,7 @@ function plPreviewHtml(f){
 function plModelNow(){ return { eng:String(plFields.engine||'claude'), model:plFields.model||aiDefaults().model||'' }; }
 // tipo que a criação usa: o escolhido no chip, senão o palpite pelo que a IA já montou (o mesmo que a prévia mostra)
 function plEffKind(){ return plFields.kind || ndGuessType(plGuessText()) || 'build'; }
-function plEngineNorm(e){ e=String(e||'claude').toLowerCase(); return ['claude','codex','gateway','logcomex','deepseek','mock'].includes(e)?e:(e.includes('codex')?'codex':(e.includes('deepseek')||/^dsh\b/.test(e))?'deepseek':e.includes('gateway')?'gateway':'claude'); }
+function plEngineNorm(e){ e=String(e||defaultAiEngine()).toLowerCase(); return ['claude','codex','gateway','logcomex','deepseek','mock'].includes(e)?e:(e.includes('codex')?'codex':(e.includes('deepseek')||/^dsh\b/.test(e))?'deepseek':e.includes('gateway')?'gateway':'claude'); }
 function plTier(model){ return String(model||'').toLowerCase().replace(/.*(opus|sonnet|haiku).*/,'$1'); }
 function plPreviewFields(){
   const P=(!plPlanCtx.origin && plPlan)?plPlan:null, on=P?P.tasks.filter(t=>t.on):null;
@@ -339,7 +339,7 @@ function plWireModelCard(th, rerender){
   const card=th.querySelector('.plmodel'); if(!card) return;
   const rr=rerender||renderPlanner;
   const saveOn=()=>{ const c=card.querySelector('[data-plm="save"]'); return !!(c&&c.checked); };
-  const choose=(eng,model)=>{ aiPickApply(eng, model); const saved=saveOn(); if(saved){ aiSaveDefaults(eng, model); } m.choice={eng,model,saved}; m.open=false; plFields.engine=eng||'claude'; plFields.model=model||''; plFields.engineLabel=`${(AI_ENGINES.find(x=>x.id===eng)||{}).name||eng} · ${aiModelName(model)}`; rr(); plAutoSave(); };
+  const choose=(eng,model)=>{ aiPickApply(eng, model); const saved=saveOn(); if(saved){ aiSaveDefaults(eng, model); } m.choice={eng,model,saved}; m.open=false; plFields.engine=eng||defaultAiEngine(); plFields.model=model||''; plFields.engineLabel=`${(AI_ENGINES.find(x=>x.id===eng)||{}).name||eng} · ${aiModelName(model)}`; rr(); plAutoSave(); };
   card.querySelectorAll('[data-plm="default"]').forEach(b=>b.onclick=()=>{ const d=aiDefaults(); choose(d.eng,d.model); });
   card.querySelectorAll('[data-plm="pick"]').forEach(b=>b.onclick=()=>choose(b.dataset.eng,b.dataset.model));
   card.querySelectorAll('[data-plm="more"]').forEach(b=>b.onclick=()=>{ m.open=true; rr(); });
@@ -763,7 +763,7 @@ async function submitNewTaskInner(start=true){
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
     const team=$id('ntFixTeam').value;
-    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar o fix'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -789,7 +789,7 @@ async function submitNewTaskInner(start=true){
       ...(docCk?['DESIGN.md com fluxo, hierarquia e estados (vazio/carregando/erro) e o porquê das decisões']:[]),
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
-    const payload={ start:true, title:dt, workflow:null, agents:$id('ntDzAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:dt, workflow:null, agents:$id('ntDzAgent').value||null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar o design'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
@@ -813,7 +813,7 @@ async function submitNewTaskInner(start=true){
       'INVESTIGATION.md com causa raiz (arquivo:linha), evidências, hipóteses descartadas e recomendação de correção',
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="investigando…";
-    const payload={ start:true, title:it, workflow:null, agents:$id('ntInvAgent').value||null, engine:$id("ntEngine").value||'claude', model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
+    const payload={ start:true, title:it, workflow:null, agents:$id('ntInvAgent').value||null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
     try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar a investigação'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }

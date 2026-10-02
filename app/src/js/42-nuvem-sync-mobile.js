@@ -521,7 +521,7 @@ async function cloudRemoteStartTick(){
     if(rr && !remoteSame(rr, here)) continue; // é de outro projeto — outro Mac atende
     try{
       const sp=ct.spec||{};
-      const payload={ workflow:null, agents:null, engine:sp.engine||'claude', model:sp.model||null, approval:'auto', owns:null, off:null,
+      const payload={ workflow:null, agents:null, engine:sp.engine||defaultAiEngine(), model:sp.engine?(sp.model||null):defaultAiModel(), approval:'auto', owns:null, off:null,
         objective:sp.objective||ct.title, deliverables:[], requirements:Array.isArray(sp.requirements)?sp.requirements:[],
         doc:sp.doc||null, proof:!!sp.proof, tests:!!sp.tests, autoPr:sp.autoPr||'ask', prBase:null, planApproval:'auto', refs:[],
         branchType:sp.branchType||'feat', base:null, linkedTo:null,
