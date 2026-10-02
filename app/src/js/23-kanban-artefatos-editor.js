@@ -100,6 +100,21 @@ const artifactsCache = {}; // taskId -> { status, list }
 // 80+ prints/vídeos), cada render disparava outro list/read antes do anterior voltar → centenas de chamadas
 // empilhadas travavam o app inteiro (até a aba Conta ficava "buscando a conta…"). Uma chamada por vez.
 const artInflight = {}; // taskId|status -> Promise
+// FILA: no boot a Central pede artefatos/provas de TODA tarefa concluída de todos os projetos (~250 chamadas
+// juntas) — o runtime do Tauri entupia e cada resposta redesenhava o quadro inteiro (CPU 100%). Máx. 3 por vez.
+const artQ={ running:0, wait:[] };
+function artQueued(fn){
+  return new Promise((res, rej)=>{
+    const go=()=>{ artQ.running++; Promise.resolve().then(fn).then(res, rej).finally(()=>{ artQ.running--; const n=artQ.wait.shift(); if(n) n(); }); };
+    if(artQ.running<3) go(); else artQ.wait.push(go);
+  });
+}
+// vários carregamentos terminando juntos → UM redesenho do quadro (antes: um por resposta)
+let flowRerenderT=0;
+function flowRerenderSoon(){
+  if(flowRerenderT) return;
+  flowRerenderT=setTimeout(()=>{ flowRerenderT=0; if(typeof activeIs==='function' && activeIs('flow')){ lastSig=''; safe(renderFlow); } }, 250);
+}
 async function loadArtifacts(taskId, status){
   const c = artifactsCache[taskId];
   if(c && c.status===status) return c.list;
@@ -107,7 +122,7 @@ async function loadArtifacts(taskId, status){
   if(artInflight[k]) return artInflight[k];
   return (artInflight[k] = (async()=>{
     reqProofCache[taskId]=undefined; // status mudou → reavalia as provas
-    try{ artifactsCache[taskId] = { status, list: await invoke("list_artifacts",{ taskId }) }; }
+    try{ artifactsCache[taskId] = { status, list: await artQueued(()=>invoke("list_artifacts",{ taskId })) }; }
     catch(e){ artifactsCache[taskId] = { status, list: [] }; }
     return artifactsCache[taskId].list;
   })().finally(()=>{ delete artInflight[k]; }));
@@ -120,7 +135,7 @@ function loadReqProofs(taskId){
   return (reqInflight[taskId]=loadReqProofs1(taskId).finally(()=>{ delete reqInflight[taskId]; }));
 }
 async function loadReqProofs1(taskId){
-  try{ const c=await invokeQuiet('read_artifact',{ taskId, name:'requirements.json' }); /* opcional: tarefa sem requisitos não tem o arquivo (não é erro) */ const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
+  try{ const c=await artQueued(()=>invokeQuiet('read_artifact',{ taskId, name:'requirements.json' })); /* opcional: tarefa sem requisitos não tem o arquivo (não é erro) */ const arr=JSON.parse(c.text||'[]'); reqProofCache[taskId]={list:Array.isArray(arr)?arr:null}; }
   catch(_){ reqProofCache[taskId]={list:null}; }
 }
 function reqNorm(x){ return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }

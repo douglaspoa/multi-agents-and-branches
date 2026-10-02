@@ -37,7 +37,7 @@ function flowDemandCard(t){
   const prN=prNumOf(t);
   const proj=t.proj||pathBase(state.repo);
   const ty=taskType(t);
-  if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
+  if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(flowRerenderSoon);
   const rows=reqRows(t);
   const okN=rows.filter(r=>r.st==='ok').length;
   const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?IC.stErr:''}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
@@ -51,7 +51,7 @@ function flowDemandCard(t){
     : (t.status==='error' && ev && humanErr(ev.text).id!=='generic') ? `<b style="color:var(--crit)">${esc(humanErr(ev.text).msg)}</b>`
     : ev ? `${esc(ev.agent||t.agent)} — ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
   const artC=artifactsCache[t.id];
-  if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
+  if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(flowRerenderSoon);
   const arts=(artC&&artC.list||[]).filter(a=>a.name!=='requirements.json');
   const nImg=arts.filter(a=>a.kind==='image'||a.kind==='video').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
