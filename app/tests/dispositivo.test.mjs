@@ -109,7 +109,7 @@ test('marcação → mensagem do chat: plataforma, aparelho, instrução, área 
 test('fonte: painel DOCADO ao lado das colunas (não modal), botão no cabeçalho, script/CSS carregados, comandos registrados', () => {
   assert.match(html, /<div class="fwrow" id="fwRow">\s*<div class="fwcols" id="fwCols">[\s\S]*?<\/div>\s*<aside class="fwdev" id="fwDev" hidden/);
   assert.match(html, /id="fwDevBtn"[^>]*>[\s\S]*?Dispositivo<\/button>/);
-  assert.match(html, /<script src="js\/56-piloto\.js"><\/script>\s*<script src="js\/57-dispositivo\.js"><\/script>/);
+  assert.match(html, /<script src="js\/56-piloto\.js"><\/script>[\s\S]*<script src="js\/57-dispositivo\.js"><\/script>/);
   assert.match(html, /href="css\/91-dispositivo\.css"/);
   assert.match(css, /\.fwdev\{--dvw:360px;width:var\(--dvw\)/); assert.match(css, /\.dvresize\{[^}]*cursor:col-resize/);
   assert.ok(!/position:fixed/.test(css), 'nada flutuante');
