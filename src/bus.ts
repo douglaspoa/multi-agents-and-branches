@@ -188,6 +188,16 @@ export class CoordinationBus {
     lines.push(
       "Antes de editar qualquer arquivo fora da sua área, use a tool claim(path)."
     );
+    if (process.env.CARDUME_AUTOPILOT === "1") {
+      // PILOTO AUTOMÁTICO (src/autopilot.ts): ninguém responde perguntas — a IA decide e deixa rastro
+      lines.push(
+        "PILOTO AUTOMÁTICO: não há humano acompanhando. NÃO pergunte — decida você mesmo seguindo o objetivo e o .cardume/refs/EPIC.md, " +
+          "e registre cada suposição em .cardume/artifacts/ASSUMPTIONS.md (pergunta → decisão → porquê). Se chamar ask_human, a resposta automática manda decidir. " +
+          "Prove CADA requisito no .cardume/artifacts/requirements.json com evidência real (print, teste, saída de comando); o piloto reprova e refaz o que não tiver prova. " +
+          "Projeto LOCAL: nunca crie remoto, push nem PR."
+      );
+      return lines.join("\n");
+    }
     if (spec.autonomy.clarifications === "ask") {
       lines.push("Se houver ambiguidade, use a tool ask_human(pergunta).");
     } else {

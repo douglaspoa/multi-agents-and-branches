@@ -718,7 +718,7 @@ export class Orchestrator {
    *     de verdade e precisam passar.
    * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
    */
-  private async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
+  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
     const reasons: string[] = [];
     const artDir = join(task.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
@@ -756,8 +756,16 @@ export class Orchestrator {
 
   /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
   private async runRepoTests(worktree: string): Promise<{ ran: boolean; passed: boolean; detail: string }> {
+    // SÓ a falta do package.json (projeto não-node, ou ainda vazio) = sem comando de teste. package.json
+    // ilegível/quebrado continua REPROVANDO, como antes (o projeto não roda).
+    let pkg: { scripts?: Record<string, string> };
     try {
-      const pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+      pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8"));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { ran: false, passed: true, detail: "sem package.json" };
+      return { ran: true, passed: false, detail: `package.json inválido: ${String((err as Error)?.message ?? err).slice(0, 140)}` };
+    }
+    try {
       const testCmd = pkg.scripts?.test ?? "";
       if (!testCmd || /no test specified/i.test(testCmd)) return { ran: false, passed: true, detail: "sem comando de teste" };
       await run("npm", ["test", "--silent"], { cwd: worktree, timeout: 180000 });
@@ -1519,10 +1527,13 @@ export class Orchestrator {
     if (task.status === "merged") throw new Error("tarefa já mergeada — nada a resolver");
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     const base = (spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase()).replace(/^origin\//, "");
+    // projeto LOCAL sem remoto (ex.: piloto automático): a base é a branch local, nada de fetch
+    const remote = await this.git.hasRemote("origin");
     const msg =
       `RESOLVER CONFLITO DE MERGE com a base "${base}", aqui na sua worktree:\n` +
-      `1) git fetch origin ${base}\n` +
-      `2) git merge origin/${base}  (vai conflitar)\n` +
+      (remote
+        ? `1) git fetch origin ${base}\n` + `2) git merge origin/${base}  (vai conflitar)\n`
+        : `1) (projeto local, sem remoto — não faça fetch)\n` + `2) git merge ${base}  (vai conflitar)\n`) +
       `3) resolva CADA conflito preservando a INTENÇÃO desta tarefa E as mudanças da base — não descarte um lado sem motivo;\n` +
       `4) git add -A && git commit  (sem --no-verify);\n` +
       `5) NÃO faça push nem abra PR — o humano revisa e mergeia.\n` +

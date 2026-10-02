@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import {
   basePatchYaml, buildDshPrompt, DSH_CAPABLE_MODEL, DSH_KEY_MSG, DSH_MISSING_MSG, dshArgs, dshEnv, dshErrText, dshNodeOk,
-  DshEngine, dshModelFor, dshVersionCmp, dshVersionOk, mapDshLine, newDshState, nodeToolBin, resolveDsh, runPatchYaml, writeBasePatch,
+  DshEngine, dshModelFor, dshVersionCmp, dshVersionOk, mapDshLine, newDshState, nodeToolBin, resolveDsh, runPatchYaml, starforkMcp, writeBasePatch,
 } from "./dsh.ts";
 import { statSync } from "node:fs";
 import { engineKind } from "../orchestrator.ts";
@@ -480,4 +480,18 @@ test("ACEITE: `cardume new --engine deepseek` com o dsh REAL — o agente edita 
     assert.ok(!existsSync(join(S.root, "never.log")), "nenhum claude nem codex iniciado: " + (existsSync(join(S.root, "never.log")) ? readFileSync(join(S.root, "never.log"), "utf8") : ""));
     st.close?.();
   } finally { srv.close(); S.cleanup(); }
+});
+
+test("piloto automático: o MCP do Starfork no DeepSeek recebe CARDUME_AUTOPILOT (ask_human responde sozinho) — só quando ligado", () => {
+  const input = { cwd: "/w", spec: { id: "t1" }, role: "builder", agentName: "Piloto 1", dbFile: "/db" } as unknown as RunInput;
+  const old = process.env.CARDUME_AUTOPILOT;
+  try {
+    process.env.CARDUME_AUTOPILOT = "1";
+    assert.equal(starforkMcp(input).env.CARDUME_AUTOPILOT, "1");
+    delete process.env.CARDUME_AUTOPILOT;
+    assert.ok(!("CARDUME_AUTOPILOT" in starforkMcp(input).env), "fora do piloto o ask_human espera o humano");
+    assert.equal(starforkMcp(input).env.CARDUME_TASK, "t1");
+  } finally {
+    if (old === undefined) delete process.env.CARDUME_AUTOPILOT; else process.env.CARDUME_AUTOPILOT = old;
+  }
 });

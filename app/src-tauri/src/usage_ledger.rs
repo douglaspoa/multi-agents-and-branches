@@ -18,9 +18,9 @@ use std::collections::{HashMap, HashSet};
 
 /// Origens fixas (o nome na tela vem do front). Qualquer outra vira "outros". `teste` = "testar" do painel Sua IA
 /// (testes de conexão — fora do total principal).
-pub(crate) const SOURCES: [&str; 13] = [
+pub(crate) const SOURCES: [&str; 14] = [
     "tarefa", "nova-tarefa", "personas", "chat-projeto", "chat-issues", "orquestrador", "retro", "previsao",
-    "titulo-branch", "commit-pr", "relatorios", "teste", "outros",
+    "titulo-branch", "commit-pr", "relatorios", "teste", "autopilot", "outros",
 ];
 
 /// Esquema — IGUAL ao tests/fixtures/usage-golden/schema.sql e ao USAGE_SCHEMA do TS (testes conferem).

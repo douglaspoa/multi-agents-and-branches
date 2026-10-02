@@ -37,6 +37,7 @@ async function switchProject(path){
     await invoke("switch_project",{ path });
     projErr=""; closeProjMenu(); selected=null; lastSig=""; clearProjectCaches();
     await refresh(); await loadProjects();
+    if(window.pilWatch) window.pilWatch().catch(()=>{}); // projeto com piloto que terminou → aviso (56-piloto)
   }catch(err){ projErr=String(err); openProjMenu(); }
 }
 async function pickFolder(){

@@ -55,3 +55,15 @@ test("toda flag COM VALOR que o app (lib.rs) manda pro motor é tratada como tex
   assert.deepEqual(missing, []);
   for (const f of BOOL_FLAGS) assert.ok(!TEXT_FLAGS.has(f), f);
 });
+
+test("toda flag que o app manda pro `cardume autopilot` (autopilot.rs) é conhecida do motor", () => {
+  const rs = readFileSync(new URL("../app/src-tauri/src/autopilot.rs", import.meta.url), "utf8");
+  const flags = new Set<string>();
+  for (const m of rs.matchAll(/opt\("--([a-z-]+)"/g)) flags.add(m[1]);
+  for (const m of rs.matchAll(/"--([a-z-]+)"\.into\(\)/g)) flags.add(m[1]); // "--dir".into() fixo
+  assert.ok(flags.has("idea") && flags.has("budget-usd") && flags.has("dir"), [...flags].join(","));
+  const unknown = [...flags].filter((f) => !TEXT_FLAGS.has(f) && !BOOL_FLAGS.has(f) && f !== "disable-warning");
+  assert.deepEqual(unknown, []);
+  // valor (paralelo, teto, ideia…) nunca pode ser lido como booleana
+  for (const f of flags) if (f !== "disable-warning") assert.ok(TEXT_FLAGS.has(f), `--${f} deveria ser flag de texto`);
+});

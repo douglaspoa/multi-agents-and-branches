@@ -553,6 +553,13 @@ export class Store {
       recordUsage({ at, source: "tarefa", project: this.repo, taskId, role: agent || role, engine: engine || this.taskEngine(taskId), model, inTok, cachedTok, outTok, usd, ms });
     }
   }
+  /** Custo acumulado (US$ e tokens) por tarefa do projeto — o piloto automático soma pra decidir o teto e pro relatório. */
+  costByTask(): { taskId: string; usd: number; inTok: number; outTok: number }[] {
+    const rows = this.db
+      .prepare(`SELECT task_id AS taskId, SUM(usd) AS usd, SUM(in_tok) AS inTok, SUM(out_tok) AS outTok FROM cost GROUP BY task_id`)
+      .all() as { taskId: string; usd: number; inTok: number; outTok: number }[];
+    return rows.map((r) => ({ taskId: String(r.taskId), usd: Number(r.usd) || 0, inTok: Number(r.inTok) || 0, outTok: Number(r.outTok) || 0 }));
+  }
   private taskEngine(taskId: string): string {
     try {
       return String((this.db.prepare(`SELECT engine FROM task WHERE id = ?`).get(taskId) as { engine?: string } | undefined)?.engine ?? "");

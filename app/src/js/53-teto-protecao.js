@@ -45,6 +45,9 @@ function budgetWatch(){
   for(const t of tasks){
     if(budgetBusy.has(t.id)) continue;
     const sp=t.spec||{}, cap=budgetOf(t), spent=taskCost(t.id).usd;
+    // tarefa do PILOTO AUTOMÁTICO: ninguém responde a pergunta do teto e pausar congelaria o piloto inteiro (o
+    // grupo do processo é dele) — o teto dela (o que sobra do teto do piloto) é decidido pelo próprio piloto
+    if(sp.autopilot) continue;
     const active=['running','thinking','queued'].includes(t.status);
     // reparo: tarefa ANTERIOR ao teto, pausada pelo teto padrão aplicado retroativamente (bug do PR #31,
     // o snapshot nem mostrava a pergunta) → desfaz a pausa indevida: teto a partir do gasto atual + retoma

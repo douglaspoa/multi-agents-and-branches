@@ -13,6 +13,8 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
  * Diferenças honestas vs. o motor Claude (v1):
  *  - sem MCP do Starfork: ask_human/claim não existem — dúvidas viram
  *    .cardume/artifacts/QUESTIONS.md e o turno finaliza com status honesto;
+ *    por isso o piloto automático (CARDUME_AUTOPILOT=1) não tem env pra repassar aqui: não há ask_human que
+ *    possa travar esperando humano — a regra "não pergunte, decida" chega pelo contexto do barramento (bus.ts);
  *  - sem retomar sessão no meio (chat da tarefa reabre um turno fresco).
  */
 export interface CodexProvider {
